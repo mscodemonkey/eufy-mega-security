@@ -28,7 +28,7 @@ interface Session {
   readonly clients: Set<ServerResponse>;
   readonly pendingClients: Set<ServerResponse>;
   readonly recordings: Set<Recording>;
-  parameterSets: H264ParameterSetCache;
+  parameterSets: VideoParameterSetCache;
   state: "idle" | "starting" | "streaming" | "stopping" | "error";
   source: Readable | null;
   ffmpeg: ChildProcessWithoutNullStreams | null;
@@ -48,30 +48,58 @@ interface Recording {
   reject: (error: Error) => void;
 }
 
-type ClipRemuxer = (h264: Buffer) => Promise<Buffer>;
+type VideoCodec = "h264" | "h265";
+type ClipRemuxer = (video: Buffer, codec: VideoCodec) => Promise<Buffer>;
 
 const MAX_RECORDING_BYTES = 256 * 1024 * 1024;
 const MAX_PARAMETER_SET_SCAN_BYTES = 1024 * 1024;
 
 /**
- * Retains the latest complete H.264 SPS and PPS from an Annex-B byte stream.
+ * Retains the latest complete H.264 or H.265 parameter sets from an Annex-B stream.
  *
- * Input chunks may divide NAL units arbitrarily. The cache keeps only the
- * unfinished final NAL plus the two codec parameter sets needed to bootstrap a
- * reader; it never retains video pictures or exposes camera content in logs.
+ * Input chunks may divide NAL units arbitrarily. H.264 waits for SPS and PPS.
+ * Some existing Eufy H.265 streams announce only VPS as a standard parameter
+ * set, so their bounded opening bytes are retained for FFmpeg to probe. Camera
+ * content is held only in memory and is never exposed in logs.
  */
-export class H264ParameterSetCache {
+export class VideoParameterSetCache {
   #pending = Buffer.alloc(0);
+  #codec: VideoCodec | null = null;
+  #opening = Buffer.alloc(0);
+  #vps: Buffer | null = null;
   #sps: Buffer | null = null;
   #pps: Buffer | null = null;
 
-  /** Return codec headers in decoder order once both parameter sets are known. */
+  /** Return the codec identified by complete parameter-set NAL units. */
+  get codec(): VideoCodec | null {
+    return this.#codec;
+  }
+
+  /** Return bounded opening bytes for the first viewer once the codec is known. */
+  get startup(): Buffer | null {
+    return this.#codec && this.#opening.length > 0 ? this.#opening : this.bootstrap;
+  }
+
+  /** Return codec headers in decoder order once every required set is known. */
   get bootstrap(): Buffer | null {
-    return this.#sps && this.#pps ? Buffer.concat([this.#sps, this.#pps]) : null;
+    if (this.#codec === "h265") {
+      return this.#vps && this.#sps && this.#pps
+        ? Buffer.concat([this.#vps, this.#sps, this.#pps])
+        : this.#vps && this.#opening.length > 0 ? this.#opening : null;
+    }
+    return this.#codec === "h264" && this.#sps && this.#pps
+      ? Buffer.concat([this.#sps, this.#pps])
+      : null;
   }
 
   /** Inspect the next ordered stream bytes and retain complete parameter-set NAL units. */
   push(chunk: Buffer): void {
+    if (this.#codec === null) {
+      const opening = Buffer.concat([this.#opening, chunk]);
+      this.#opening = opening.length <= MAX_PARAMETER_SET_SCAN_BYTES
+        ? opening
+        : Buffer.from(opening.subarray(opening.length - MAX_PARAMETER_SET_SCAN_BYTES));
+    }
     const data = this.#pending.length > 0 ? Buffer.concat([this.#pending, chunk]) : chunk;
     const starts = annexBStarts(data);
     if (starts.length < 2) {
@@ -83,10 +111,27 @@ export class H264ParameterSetCache {
     for (let index = 0; index < starts.length - 1; index++) {
       const current = starts[index]!;
       const next = starts[index + 1]!;
-      const nalType = data[current.payloadOffset]! & 0x1f;
+      const header = data[current.payloadOffset]!;
+      const h264Type = header & 0x1f;
+      const h265Type = (header >> 1) & 0x3f;
       const nal = Buffer.from(data.subarray(current.offset, next.offset));
-      if (nalType === 7) this.#sps = nal;
-      else if (nalType === 8) this.#pps = nal;
+      if (this.#codec === "h264" && (h264Type === 7 || h264Type === 8)) {
+        if (h264Type === 7) this.#sps = nal;
+        else this.#pps = nal;
+      } else if (this.#codec === "h265" && (h265Type === 32 || h265Type === 33 || h265Type === 34)) {
+        if (h265Type === 32) this.#vps = nal;
+        else if (h265Type === 33) this.#sps = nal;
+        else this.#pps = nal;
+      } else if (this.#codec === null && (header & 0x01) === 0 && (h265Type === 32 || h265Type === 33 || h265Type === 34)) {
+        this.#codec = "h265";
+        this.#vps = h265Type === 32 ? nal : null;
+        this.#sps = h265Type === 33 ? nal : null;
+        this.#pps = h265Type === 34 ? nal : null;
+      } else if (this.#codec === null && (h264Type === 7 || h264Type === 8)) {
+        if (h264Type === 7) this.#sps = nal;
+        else this.#pps = nal;
+        if (this.#sps && this.#pps) this.#codec = "h264";
+      }
     }
     this.#pending = Buffer.from(data.subarray(starts.at(-1)!.offset));
   }
@@ -128,7 +173,7 @@ export class LiveStreamManager extends EventEmitter {
     private readonly snapshots: SnapshotStore,
     private readonly controller: StreamController,
     private readonly stopGraceMilliseconds: number,
-    private readonly remuxClip: ClipRemuxer = remuxH264ToMp4,
+    private readonly remuxClip: ClipRemuxer = remuxVideoToMp4,
   ) {
     super();
   }
@@ -137,14 +182,10 @@ export class LiveStreamManager extends EventEmitter {
   async addClient(serial: string, response: ServerResponse): Promise<void> {
     const session = this.#session(serial);
     this.#cancelStop(session);
-    response.writeHead(200, {
-      "Content-Type": "video/h264",
-      "Cache-Control": "no-store",
-      Connection: "keep-alive",
-    });
     session.clients.add(response);
     const bootstrap = session.parameterSets.bootstrap;
-    if (bootstrap) response.write(bootstrap);
+    const codec = session.parameterSets.codec;
+    if (bootstrap && codec) this.#startClient(response, codec, bootstrap);
     else session.pendingClients.add(response);
     this.#updateState(serial, session);
 
@@ -215,7 +256,10 @@ export class LiveStreamManager extends EventEmitter {
     void recording.promise.catch(() => undefined);
     try {
       await this.#ensureStarted(serial, session);
-      return await this.remuxClip(await recording.promise);
+      return await this.remuxClip(
+        await recording.promise,
+        session.parameterSets.codec ?? "h264",
+      );
     } finally {
       recording.cancel();
       session.leases -= 1;
@@ -230,16 +274,22 @@ export class LiveStreamManager extends EventEmitter {
     session.ffmpeg?.kill("SIGTERM");
     session.source = source;
     session.state = "streaming";
-    session.parameterSets = new H264ParameterSetCache();
+    session.parameterSets = new VideoParameterSetCache();
     for (const client of session.clients) session.pendingClients.add(client);
-    session.ffmpeg = this.#startSnapshotExtractor(serial);
+    session.ffmpeg = null;
 
     source.on("data", (chunk: Buffer) => {
       session.parameterSets.push(chunk);
       const bootstrap = session.parameterSets.bootstrap;
-      if (bootstrap) {
+      const startup = session.parameterSets.startup;
+      const codec = session.parameterSets.codec;
+      if (bootstrap && codec) {
+        if (!session.ffmpeg) {
+          session.ffmpeg = this.#startSnapshotExtractor(serial, codec);
+          if (startup && session.ffmpeg.stdin.writable) session.ffmpeg.stdin.write(startup);
+        }
         for (const client of session.pendingClients) {
-          if (session.clients.has(client)) client.write(bootstrap);
+          if (session.clients.has(client)) this.#startClient(client, codec, startup ?? bootstrap);
         }
         session.pendingClients.clear();
       }
@@ -250,7 +300,7 @@ export class LiveStreamManager extends EventEmitter {
           client.destroy(new Error("Live stream client exceeded the four-megabyte backpressure limit"));
         }
       }
-      if (session.ffmpeg?.stdin.writable) session.ffmpeg.stdin.write(chunk);
+      if (bootstrap && session.ffmpeg?.stdin.writable) session.ffmpeg.stdin.write(chunk);
       for (const recording of session.recordings) this.#appendRecordingChunk(session, recording, chunk);
     });
     source.once("error", (error) => this.#sourceEnded(serial, error));
@@ -464,7 +514,16 @@ export class LiveStreamManager extends EventEmitter {
     this.#updateState(serial, session, error?.message ?? null);
   }
 
-  #startSnapshotExtractor(serial: string): ChildProcessWithoutNullStreams {
+  #startClient(response: ServerResponse, codec: VideoCodec, bootstrap: Buffer): void {
+    response.writeHead(200, {
+      "Content-Type": codec === "h265" ? "video/h265" : "video/h264",
+      "Cache-Control": "no-store",
+      Connection: "keep-alive",
+    });
+    response.write(bootstrap);
+  }
+
+  #startSnapshotExtractor(serial: string, codec: VideoCodec): ChildProcessWithoutNullStreams {
 
     // FFmpeg turns the shared Annex-B stream into JPEGs. The store keeps the
     // latest complete frame, so an idle camera still has a useful image.
@@ -473,7 +532,7 @@ export class LiveStreamManager extends EventEmitter {
       "-loglevel",
       "error",
       "-f",
-      "h264",
+      codec === "h265" ? "hevc" : "h264",
       "-i",
       "pipe:0",
       "-vf",
@@ -513,7 +572,7 @@ export class LiveStreamManager extends EventEmitter {
         clients: new Set(),
         pendingClients: new Set(),
         recordings: new Set(),
-        parameterSets: new H264ParameterSetCache(),
+        parameterSets: new VideoParameterSetCache(),
         state: "idle",
         source: null,
         ffmpeg: null,
@@ -531,8 +590,8 @@ export class LiveStreamManager extends EventEmitter {
   }
 }
 
-/** Remux Annex-B H.264 into fragmented MP4 without re-encoding. */
-export async function remuxH264ToMp4(h264: Buffer): Promise<Buffer> {
+/** Remux Annex-B H.264 or H.265 into fragmented MP4 without re-encoding. */
+export async function remuxVideoToMp4(video: Buffer, codec: VideoCodec): Promise<Buffer> {
   return await new Promise<Buffer>((resolve, reject) => {
     const process = spawn("ffmpeg", [
       "-hide_banner",
@@ -541,7 +600,7 @@ export async function remuxH264ToMp4(h264: Buffer): Promise<Buffer> {
       "-fflags",
       "+genpts",
       "-f",
-      "h264",
+      codec === "h265" ? "hevc" : "h264",
       "-i",
       "pipe:0",
       "-c:v",
@@ -579,8 +638,13 @@ export async function remuxH264ToMp4(h264: Buffer): Promise<Buffer> {
       if (code === 0 && data.length > 0) resolve(data);
       else reject(new Error(stderr.trim() || `FFmpeg exited with status ${code ?? "unknown"}`));
     });
-    process.stdin.end(h264);
+    process.stdin.end(video);
   });
+}
+
+/** Preserve the public H.264 remux helper used by existing callers and tests. */
+export async function remuxH264ToMp4(h264: Buffer): Promise<Buffer> {
+  return await remuxVideoToMp4(h264, "h264");
 }
 
 function errorMessage(error: unknown): string {

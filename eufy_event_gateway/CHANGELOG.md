@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.55
+
+- Recognize H.265 VPS, SPS, and PPS headers when starting Home Assistant live viewers and retained-image extraction.
+- Reissue a standalone camera's media start while it sends only delta frames, giving the camera another bounded chance to announce a decodable keyframe.
+- Record direct-media start attempts in privacy-safe stream summaries.
+- Record confirmed HomeBase 3 discovery and live video for SoloCam S230 / S40 T8124.
+
 ## 0.1.54
 
 - Admit SoloCam S230 / S40 T8124 as Mega camera type 62 through its reported HomeBase route. Discovery, events, snapshots, and live video still need reporter confirmation on real hardware.

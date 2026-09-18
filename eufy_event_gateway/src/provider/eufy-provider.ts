@@ -999,7 +999,7 @@ export function isPpcsRouteReady(
 export function ppcsStreamLogSummary(
   model: string,
   route: PpcsStreamRoute | null,
-  stats: Pick<FirstPartyPpcsSession["stats"], "camId" | "dataDatagrams" | "frameHeaders" | "videoFrames"> & Partial<Pick<FirstPartyPpcsSession["stats"], "batteryHistory" | "closeReason" | "commands" | "duplicateDatagrams" | "foreignVideoFrames" | "frameShapes" | "parserBlocked" | "parserResyncs" | "pendingBytes" | "sequenceGaps" | "sequenceRestarts" | "staleDatagrams" | "types" | "videoCodec" | "videoNalTypes" | "videoOutputFrames" | "videoResults">>,
+  stats: Pick<FirstPartyPpcsSession["stats"], "camId" | "dataDatagrams" | "frameHeaders" | "videoFrames"> & Partial<Pick<FirstPartyPpcsSession["stats"], "batteryHistory" | "closeReason" | "commands" | "duplicateDatagrams" | "foreignVideoFrames" | "frameShapes" | "mediaStartAttempts" | "parserBlocked" | "parserResyncs" | "pendingBytes" | "sequenceGaps" | "sequenceRestarts" | "staleDatagrams" | "types" | "videoCodec" | "videoNalTypes" | "videoOutputFrames" | "videoResults">>,
   error?: unknown,
 ): string {
   const stage = stats.camId === 0 ? "lookup" : stats.videoFrames === 0 ? "first_frame" : "media";
@@ -1038,6 +1038,7 @@ export function ppcsStreamLogSummary(
     `video_codec=${codec}`,
     `video_nal_types=${nalTypes.join(",") || "none"}`,
     `codec_bootstrap=${codecBootstrap}`,
+    `media_start_attempts=${stats.mediaStartAttempts ?? 0}`,
     `close_reason=${stats.closeReason ?? "unknown"}`,
     `battery_history=${stats.batteryHistory ?? "not-reported"}`,
     ...(error === undefined ? [] : [`error=${safeError(error)}`]),

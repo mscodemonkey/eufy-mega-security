@@ -60,6 +60,14 @@ export function needsAttachedMediaReassert(
   return lastDeliveredFrameAt === null || now - lastDeliveredFrameAt >= ATTACHED_MEDIA_STALL_MILLISECONDS;
 }
 
+/** Reissue a standalone start until the camera announces a decodable codec configuration. */
+export function needsStandaloneMediaReassert(
+  homeBaseAttached: boolean,
+  codec: "h264" | "h265" | "unknown",
+): boolean {
+  return !homeBaseAttached && codec === "unknown";
+}
+
 /**
  * Decide whether a decoded HomeBase media command belongs to the camera this session requested.
  *
@@ -388,6 +396,7 @@ export class FirstPartyPpcsSession {
     videoResults: [] as string[],
     videoCodec: "unknown" as "h264" | "h265" | "unknown",
     videoNalTypes: [] as number[],
+    mediaStartAttempts: 0,
     closeReason: "open" as PpcsStreamCloseReason | "open",
   };
   readonly #options: PpcsCameraOptions;
@@ -461,6 +470,9 @@ export class FirstPartyPpcsSession {
       this.#send(REQ.ping, Buffer.alloc(0), this.#remote);
       if (this.#options.homeBaseAttached && this.#level2Key && needsAttachedMediaReassert(this.#lastAttachedMediaFrameAt, Date.now())) {
         this.#startAttachedMedia();
+      }
+      else if (needsStandaloneMediaReassert(Boolean(this.#options.homeBaseAttached), this.#videoNormalizer.codec)) {
+        this.#startOwnMedia();
       }
       else if (!this.#options.homeBaseAttached) this.#sendCommand(1139, voidPayload(this.#options.channel));
     }, 5_000);
@@ -722,6 +734,7 @@ export class FirstPartyPpcsSession {
   }
 
   #startOwnMedia(): void {
+    this.stats.mediaStartAttempts++;
     const key = publicModulus(this.#rsa.publicKey);
     const now = Date.now();
     const value = JSON.stringify({ commandType: 1000, data: {

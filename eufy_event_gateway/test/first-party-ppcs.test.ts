@@ -15,6 +15,7 @@ import {
   decodePpcsVideoFrame,
   isPpcsCameraIdentity,
   needsAttachedMediaReassert,
+  needsStandaloneMediaReassert,
   PpcsVideoStreamNormalizer,
   ppcsCandidatePorts,
   ppcsFrameChannel,
@@ -37,6 +38,13 @@ test("builds the two PPCS cloud lookup variants", () => {
   assert.deepEqual(classic.payload.subarray(24, 28), Buffer.from([1, 2, 0, 192]));
   assert.deepEqual(classic.payload.subarray(36, 40), Buffer.from([2, 5, 1, 5]));
   assert.deepEqual(classic.payload.subarray(40), fallback.payload.subarray(20));
+});
+
+test("reissues a standalone start only while codec headers are missing", () => {
+  assert.equal(needsStandaloneMediaReassert(false, "unknown"), true);
+  assert.equal(needsStandaloneMediaReassert(false, "h264"), false);
+  assert.equal(needsStandaloneMediaReassert(false, "h265"), false);
+  assert.equal(needsStandaloneMediaReassert(true, "unknown"), false);
 });
 
 test("accepts direct and relay PPCS discovery responses", () => {

@@ -11,7 +11,7 @@ import { PassThrough } from "node:stream";
 import test from "node:test";
 
 import { GatewayState } from "../src/domain/gateway-state.js";
-import { H264ParameterSetCache, LiveStreamManager } from "../src/stream/live-stream-manager.js";
+import { LiveStreamManager, VideoParameterSetCache } from "../src/stream/live-stream-manager.js";
 
 const camera = {
   serial: "camera-1",
@@ -27,7 +27,7 @@ function annexBNal(type: number, ...body: number[]): Buffer {
 }
 
 test("retains SPS and PPS split across arbitrary source chunks", () => {
-  const cache = new H264ParameterSetCache();
+  const cache = new VideoParameterSetCache();
   const sps = annexBNal(0x67, 0x42, 0x00, 0x1f);
   const pps = annexBNal(0x68, 0xce, 0x06);
   const idr = annexBNal(0x65, 0x88);
@@ -38,6 +38,37 @@ test("retains SPS and PPS split across arbitrary source chunks", () => {
   cache.push(stream.subarray(sps.length + 2));
 
   assert.deepEqual(cache.bootstrap, Buffer.concat([sps, pps]));
+  cache.push(annexBNal(0x41, 0x9a, 0x22));
+  assert.equal(cache.codec, "h264");
+  assert.deepEqual(cache.bootstrap, Buffer.concat([sps, pps]));
+});
+
+test("retains H.265 VPS, SPS, and PPS in decoder order", () => {
+  const cache = new VideoParameterSetCache();
+  const vps = annexBNal(0x40, 0x01, 0x0c);
+  const sps = annexBNal(0x42, 0x01, 0x01);
+  const pps = annexBNal(0x44, 0x01, 0xc0);
+  const idr = annexBNal(0x26, 0x01, 0xaa);
+
+  cache.push(Buffer.concat([vps, sps, pps, idr]));
+
+  assert.equal(cache.codec, "h265");
+  assert.deepEqual(cache.bootstrap, Buffer.concat([vps, sps, pps]));
+});
+
+test("uses bounded opening bytes when an H.265 camera announces only VPS", () => {
+  const cache = new VideoParameterSetCache();
+  const vendorHeaders = Buffer.concat([
+    annexBNal(0x66, 0x01, 0x01),
+    annexBNal(0x68, 0x01, 0xc0),
+    annexBNal(0x40, 0x01, 0x0c),
+    annexBNal(0x02, 0x01, 0xaa),
+  ]);
+
+  cache.push(vendorHeaders);
+
+  assert.equal(cache.codec, "h265");
+  assert.deepEqual(cache.bootstrap, vendorHeaders);
 });
 
 test("bootstraps first and repeat HTTP viewers with SPS and PPS", async () => {
@@ -71,7 +102,10 @@ test("bootstraps first and repeat HTTP viewers with SPS and PPS", async () => {
   const sps = annexBNal(0x67, 0x42, 0x00, 0x1f);
   const pps = annexBNal(0x68, 0xce, 0x06);
   source!.write(Buffer.concat([sps, pps, annexBNal(0x65, 4, 5)]));
-  assert.deepEqual(Buffer.concat(firstBytes).subarray(0, sps.length + pps.length), Buffer.concat([sps, pps]));
+  assert.deepEqual(
+    Buffer.concat(firstBytes).subarray(0, annexBNal(0x41, 1, 2, 3).length),
+    annexBNal(0x41, 1, 2, 3),
+  );
 
   const repeatResponse = new PassThrough() as unknown as ServerResponse;
   let repeatHeadersWritten = false;
@@ -89,6 +123,50 @@ test("bootstraps first and repeat HTTP viewers with SPS and PPS", async () => {
   await manager.addClient(camera.serial, repeatResponse);
 
   assert.deepEqual(Buffer.concat(repeatBytes), Buffer.concat([sps, pps]));
+  await manager.close();
+});
+
+test("starts an H.265 viewer only after VPS, SPS, and PPS arrive", async () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  let manager: LiveStreamManager;
+  let source: PassThrough;
+  manager = new LiveStreamManager(
+    state,
+    {} as never,
+    {
+      async startStream() {
+        source = new PassThrough();
+        manager.attachSource(camera.serial, source);
+      },
+      async stopStream() {
+        source.end();
+      },
+    },
+    5,
+  );
+  const response = new PassThrough() as unknown as ServerResponse;
+  let contentType = "";
+  response.writeHead = ((_status: number, headers: Record<string, string>) => {
+    contentType = headers["Content-Type"] ?? "";
+    return response;
+  }) as ServerResponse["writeHead"];
+  const bytes: Buffer[] = [];
+  response.on("data", (chunk: Buffer) => bytes.push(Buffer.from(chunk)));
+  await manager.addClient(camera.serial, response);
+
+  source!.write(annexBNal(0x02, 0x01, 0xaa));
+  assert.equal(bytes.length, 0);
+  const vps = annexBNal(0x40, 0x01, 0x0c);
+  const sps = annexBNal(0x42, 0x01, 0x01);
+  const pps = annexBNal(0x44, 0x01, 0xc0);
+  source!.write(Buffer.concat([vps, sps, pps, annexBNal(0x26, 0x01, 0xbb)]));
+
+  assert.equal(contentType, "video/h265");
+  assert.deepEqual(
+    Buffer.concat(bytes).subarray(0, annexBNal(0x02, 0x01, 0xaa).length),
+    annexBNal(0x02, 0x01, 0xaa),
+  );
   await manager.close();
 });
 
