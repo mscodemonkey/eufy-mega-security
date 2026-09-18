@@ -29,8 +29,8 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
   guard-mode, storage, volume, and tone controls remain hidden until the T8010
   station protocol is verified on real hardware.
 - 🟠 HomeBase Professional S1 T9000: confirmed as the inventory parent for
-  discovered cameras. The updated PPCS lookup through this station is awaiting
-  a reporter retest, and it does not receive the T8030 station controls.
+  discovered cameras. The latest reporter retest still times out during PPCS lookup
+  for all seven attached camera models, and it does not receive the T8030 station controls.
 
 ### Cameras
 
@@ -40,25 +40,26 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 - ✅ eufyCam S330 (Mega model T8160): discovered with sensors, retained images, and live streaming through HomeBase 3.
 - 🟠 eufyCam S300 / 3C T8161: discovery, events, and retained snapshots are confirmed through a T9000. Live video is waiting on that station's PPCS lookup result.
 - 🟠 eufyCam S3 Pro T8162: discovery, person, pet, and vehicle events, and retained snapshots are confirmed through a T9000. Live video is waiting on that station's PPCS lookup result.
-- 🟠 SoloCam C20 (Mega model T8134): device type 63 now passes camera discovery. Its events, snapshots, and live stream still need confirmation on real hardware.
+- ✅ SoloCam C20 (Mega model T8134): discovery and live video are reporter-confirmed. Battery availability and retained event images are being investigated separately.
+- 🟠 SoloCam E30 T8171: Mega type 88 is admitted through its reported ready HomeBase route. Discovery, events, snapshots, and live video await reporter testing.
 - ✅ SoloCam S230 / S40 T8124: discovery and live video are confirmed through HomeBase 3. Events and fresh snapshots still need focused confirmation.
 - 🟠 SoloCam S340 T8170: discovery, person events, and retained snapshots are confirmed through a T9000. Live video is waiting on that station's PPCS lookup result.
 - 🟠 Solar Wall Light Cam S120 T81A0: discovery, sensors, and motion events are confirmed. Snapshot and clip requests currently fail before receiving video.
 - 🟠 Floodlight Cam E340 T8425: discovery, person and vehicle events, and retained snapshots are confirmed through a T9000. Live video is waiting on that station's PPCS lookup result.
-- 🟠 Floodlight Cam S330 / 2 Pro T8423: discovery and direct H.265 media delivery are confirmed through HomeBase 3. The decoder bootstrap repair still needs reporter confirmation for visible live video and snapshots.
-- 🟠 Wired Wall Light Cam S100 T84A1: discovery and its direct PPCS session are confirmed. Snapshot and live requests currently reach the camera but do not receive a video frame.
+- 🟠 Floodlight Cam S330 / 2 Pro T8423: discovery and an event snapshot are confirmed in a HomeBase 3 setup. Live video remains blank after the latest bootstrap repair, with no usable codec startup sequence.
+- ✅ Wired Wall Light Cam S100 T84A1: discovery and repeated direct live-video sessions are reporter-confirmed on two cameras. Fresh snapshots still need focused confirmation.
 - ✅ Indoor Cam Pan & Tilt T8410: discovered with sensors, a retained image, and a live stream through HomeBase 3.
 - ✅ Indoor Cam Pan & Tilt T8410C: discovered with sensors, a retained image, and a live stream through HomeBase 3.
 - 🟠 Indoor Cam S350 T8416: discovery and Home Assistant entities are confirmed through a T9000. Live video is waiting on that station's PPCS lookup result.
-- 🟠 Indoor Cam E30 4K T8417: camera admission and its HomeBase media route are implemented from the reported Mega type 105 inventory. Discovery while powered on, events, snapshots, and live video need reporter confirmation.
+- 🟠 Indoor Cam E30 4K T8417: discovery and properties are confirmed. Direct media arrives, but live video remains blank and codec startup is unresolved. Events and snapshots still need confirmation.
 
 ### Doorbells
 
 - 🟠 Video Doorbell T8200: discovery and its self-parented PPCS session are confirmed. Press notifications and video frames remain unresolved on the reported hardware.
 - ✅ Video Doorbell T8210: live streams and snapshots produced on real hardware.
 - ✅ Video Doorbell T8213: discovered with sensors, retained images, and a live stream through HomeBase 3.
-- 🟠 Video Doorbell E340 T8214: discovery and Home Assistant entities are confirmed through a T9000. Press notifications and live video still need targeted results.
-- 🟠 Familock S3 Max T85V0: its Mega type 203 video-doorbell path is admitted for camera entities, HomeBase media, and doorbell press events. Lock controls are not exposed. All of these behaviours still need reporter confirmation.
+- 🟠 Video Doorbell E340 T8214: discovery and Home Assistant entities are confirmed through a T9000. A separate T8030 report confirms live video but reports intermittent jumps back to an earlier frame. T9000 live video remains blocked at lookup, and press notifications need targeted results.
+- 🟠 Familock S3 Max T85V0: discovery and the main rechargeable battery are confirmed. HomeBase media arrives with H.265 startup headers, but visible playback remains unconfirmed. Backup AA battery reporting, snapshots, and doorbell events need separate evidence. Lock controls are not exposed.
 
 ### Standalone sensors
 

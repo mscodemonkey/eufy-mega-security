@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.56
+
+- Admit SoloCam E30 T8171, Mega camera type 88, through its reported HomeBase route. Hardware discovery, events, snapshots, and live video await reporter testing.
+- Update device coverage with confirmed C20 and S100 live video, T8423 event snapshots, and the remaining T9000, T8417, T85V0, and T8214 playback limitations.
+
 ## 0.1.55
 
 - Recognize H.265 VPS, SPS, and PPS headers when starting Home Assistant live viewers and retained-image extraction.
