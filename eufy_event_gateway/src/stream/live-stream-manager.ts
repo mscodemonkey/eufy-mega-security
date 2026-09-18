@@ -185,7 +185,10 @@ export class LiveStreamManager extends EventEmitter {
     session.clients.add(response);
     const bootstrap = session.parameterSets.bootstrap;
     const codec = session.parameterSets.codec;
-    if (bootstrap && codec) this.#startClient(response, codec, bootstrap);
+
+    // Headers retained from a stopped source belong to its old encoding session.
+    // Wait for the replacement source instead of sending two HTTP header blocks.
+    if (session.source && session.state === "streaming" && bootstrap && codec) this.#startClient(response, codec, bootstrap);
     else session.pendingClients.add(response);
     this.#updateState(serial, session);
 
@@ -515,11 +518,13 @@ export class LiveStreamManager extends EventEmitter {
   }
 
   #startClient(response: ServerResponse, codec: VideoCodec, bootstrap: Buffer): void {
-    response.writeHead(200, {
-      "Content-Type": codec === "h265" ? "video/h265" : "video/h264",
-      "Cache-Control": "no-store",
-      Connection: "keep-alive",
-    });
+    if (!response.headersSent) {
+      response.writeHead(200, {
+        "Content-Type": codec === "h265" ? "video/h265" : "video/h264",
+        "Cache-Control": "no-store",
+        Connection: "keep-alive",
+      });
+    }
     response.write(bootstrap);
   }
 
