@@ -40,7 +40,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 - ✅ eufyCam S330 (Mega model T8160): discovered with sensors, retained images, and live streaming through HomeBase 3.
 - 🟠 eufyCam S300 / 3C T8161: discovery, events, and retained snapshots are confirmed through a T9000. Live video is waiting on that station's PPCS lookup result.
 - 🟠 eufyCam S3 Pro T8162: discovery, person, pet, and vehicle events, and retained snapshots are confirmed through a T9000. Live video is waiting on that station's PPCS lookup result.
-- ✅ SoloCam C20 (Mega model T8134): discovery and live video are reporter-confirmed. Battery availability and retained event images are being investigated separately.
+- ✅ SoloCam C20 (Mega model T8134): discovery, motion and person events, and live video are reporter-confirmed. Battery availability and retained event images are being investigated separately.
 - 🟠 SoloCam E30 T8171: Mega type 88 is admitted through its reported ready HomeBase route. Discovery, events, snapshots, and live video await reporter testing.
 - ✅ SoloCam S230 / S40 T8124: discovery and live video are confirmed through HomeBase 3. Events and fresh snapshots still need focused confirmation.
 - 🟠 SoloCam S340 T8170: discovery, person events, and retained snapshots are confirmed through a T9000. Live video is waiting on that station's PPCS lookup result.
