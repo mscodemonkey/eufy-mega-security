@@ -17,6 +17,7 @@ PLATFORMS = [
     Platform.ALARM_CONTROL_PANEL,
     Platform.SELECT,
     Platform.NUMBER,
+    Platform.SWITCH,
 ]
 
 GUARD_MODE_AWAY = 0

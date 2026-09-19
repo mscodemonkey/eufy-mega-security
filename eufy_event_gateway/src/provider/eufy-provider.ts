@@ -13,12 +13,12 @@
  */
 import { join } from "node:path";
 
-import type { BatteryState, HomeBaseState, InventoryDiagnostic, SecuritySensorState } from "../domain/types.js";
+import type { BatteryState, CameraIdentity, HomeBaseState, InventoryDiagnostic, SecuritySensorState } from "../domain/types.js";
 import { createLogger } from "../logging.js";
 import { MegaClient } from "../mega/client.js";
 import { decodeEventImage, isJpeg } from "../mega/image.js";
 import { MegaPushReceiver, type MegaPushEvent } from "../mega/push.js";
-import { FirstPartyPpcsSession } from "../stream/first-party-ppcs.js";
+import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession } from "../stream/first-party-ppcs.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBasePpcsState } from "../stream/homebase-ppcs.js";
 import { cameraCapabilityLogSummaries, describeCameraCapabilities, isSupportedCameraType, describeDeviceCapabilities, deviceCapabilityLogSummaries } from "./device-capabilities-core.js";
 import { hasMainsBatterySentinel } from "./camera-capability-core.js";
@@ -58,6 +58,7 @@ export interface MegaInventoryDevice {
 
 /** Allowlisted, validated current values retained from one Mega inventory row. */
 export interface MegaInventoryReads {
+  readonly enabled?: boolean;
   readonly batteryLevel?: number;
   readonly batteryCharging?: boolean;
   readonly batteryHealth?: number;
@@ -110,6 +111,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #stationRefreshFailures = new Map<string, number>();
   readonly #stations = new Map<string, HomeBaseState>();
   readonly #stationOperations = new Map<string, Promise<HomeBaseState>>();
+  readonly #cameraOperations = new Map<string, Promise<CameraIdentity>>();
   #push: MegaPushReceiver | null = null;
   #events: ProviderEvents | null = null;
   #captchaChallenge: CaptchaChallenge | null = null;
@@ -205,6 +207,80 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#finalizeStream(serial, stream, device, route);
   }
 
+  /** Write camera enablement once and publish only cloud-confirmed state. */
+  setCameraEnabled(serial: string, enabled: boolean): Promise<CameraIdentity> {
+    const previous = this.#cameraOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
+    const current = previous.catch(() => this.#requireCameraIdentity(serial)).then(async () => {
+      const device = this.#devices.get(serial);
+      if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
+      const route = ppcsStreamRoute(device, this.#devices);
+      const peer = route?.peer;
+      const dsk = peer ? this.#dskKeys.get(peer.serial) : null;
+      if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
+        throw new Error("Camera enablement control is unavailable for this camera");
+      }
+      await this.stopStream(serial);
+      const session = new FirstPartyPpcsSession({
+        stationSerial: peer.serial,
+        p2pDid: peer.p2pDid,
+        appConnection: peer.p2pConnection,
+        dskKey: dsk.key,
+        channel: device.channel,
+        cameraModel: device.model,
+        accountId: device.adminUserId,
+        homeBaseAttached: route.homeBaseAttached,
+        purpose: "control",
+        maxSeconds: 40,
+        ...(route.homeBaseAttached ? {
+          resolveCipherKey: async (cipherId: number) => {
+            const cached = this.#cipherKeys.get(cipherId);
+            if (cached) return cached;
+            if (!peer.adminUserId) return undefined;
+            const ciphers = await this.#client.getCiphers([cipherId], peer.adminUserId, peer.serial);
+            for (const cipher of ciphers) {
+              const id = typeof cipher.cipher_id === "number" ? cipher.cipher_id : Number(cipher.cipher_id);
+              const key = typeof cipher.ecc_private_key === "string" ? cipher.ecc_private_key : "";
+              if (Number.isInteger(id) && key) this.#cipherKeys.set(id, key);
+            }
+            return this.#cipherKeys.get(cipherId);
+          },
+        } : {}),
+      });
+      let acknowledgementTimedOut = false;
+      try {
+        await session.start();
+        try {
+          await session.writeCameraEnabled(cameraEnableRawValue(device.deviceType, enabled));
+        } catch (error) {
+          if (!(error instanceof CameraControlAcknowledgementTimeoutError)) throw error;
+          acknowledgementTimedOut = true;
+        }
+      } finally {
+        session.close();
+      }
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        await this.#refreshInventoryReads();
+        const refreshed = this.#devices.get(serial);
+        if (refreshed?.reads.enabled === enabled) {
+          if (acknowledgementTimedOut) {
+            logger.warn("camera_enablement_acknowledgement_missing", "Camera enablement was confirmed by cloud readback after its acknowledgement timed out");
+          }
+          return this.#cameraIdentity(refreshed);
+        }
+        await delay(2_000);
+      }
+      throw new Error("Camera enablement write was not confirmed by readback");
+    }).catch((error: unknown) => {
+      logger.warn("camera_enablement_failed", `Camera enablement command failed: error=${safeError(error)}`);
+      throw error;
+    });
+    this.#cameraOperations.set(serial, current);
+    void current.finally(() => {
+      if (this.#cameraOperations.get(serial) === current) this.#cameraOperations.delete(serial);
+    }).catch(() => undefined);
+    return current;
+  }
+
   #finalizeStream(
     serial: string,
     stream: FirstPartyPpcsSession,
@@ -252,6 +328,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#ppcsStreams.clear();
     await Promise.allSettled(this.#stationOperations.values());
     this.#stationOperations.clear();
+    await Promise.allSettled(this.#cameraOperations.values());
+    this.#cameraOperations.clear();
     this.#events = null;
   }
 
@@ -326,15 +404,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const dskPeerSerials = new Set(this.#dskKeys.keys());
     for (const device of devices) {
       if (!isSupportedMegaCamera(device)) continue;
-      events.camera({
-        serial: device.serial,
-        name: device.name,
-        model: device.model,
-        stationSerial: device.parentSerial,
-        doorbellSupported: isDoorbellDevice(device),
-        streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials),
-        battery: batteryState(device),
-      });
+      events.camera(this.#cameraIdentity(device));
     }
     for (const device of devices) {
       const sensor = securitySensorState(device);
@@ -435,26 +505,41 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   async #refreshInventoryReads(): Promise<void> {
     const refreshed = parseMegaInventory(await this.#client.inventory());
-    const dskPeerSerials = new Set(this.#dskKeys.keys());
     for (const device of refreshed) {
       const known = this.#devices.get(device.serial);
       if (!known) continue;
       const merged = { ...known, paramTypes: device.paramTypes, reads: device.reads };
       this.#devices.set(device.serial, merged);
       if (isSupportedMegaCamera(merged)) {
-        this.#events?.camera({
-          serial: merged.serial,
-          name: merged.name,
-          model: merged.model,
-          stationSerial: merged.parentSerial,
-          doorbellSupported: isDoorbellDevice(merged),
-          streamSupported: isPpcsStreamSupported(merged, this.#devices, dskPeerSerials),
-          battery: batteryState(merged),
-        });
+        this.#events?.camera(this.#cameraIdentity(merged));
       }
       const sensor = securitySensorState(merged);
       if (sensor) this.#events?.sensor(sensor);
     }
+  }
+
+  #requireCameraIdentity(serial: string): CameraIdentity {
+    const device = this.#devices.get(serial);
+    if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
+    return this.#cameraIdentity(device);
+  }
+
+  #cameraIdentity(device: MegaInventoryDevice): CameraIdentity {
+    const dskPeerSerials = new Set(this.#dskKeys.keys());
+    return {
+      serial: device.serial,
+      name: device.name,
+      model: device.model,
+      stationSerial: device.parentSerial,
+      doorbellSupported: isDoorbellDevice(device),
+      streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials),
+      enabled: device.reads.enabled ?? null,
+      enableControlSupported: device.reads.enabled !== undefined
+        && device.channel !== null
+        && device.adminUserId !== null
+        && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+      battery: batteryState(device),
+    };
   }
 
   #recordStationRefreshFailure(serial: string, error: unknown): void {
@@ -669,14 +754,15 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
     if (!serial || seen.has(serial)) continue;
     seen.add(serial);
     const model = safeValue(value.device_model, 100) ?? "Unknown Eufy device";
-    const reads = safeInventoryReads(value.params);
+    const deviceType = integer(value.device_type);
+    const reads = safeInventoryReads(value.params, deviceType);
     const lastChargingDays = safeLastChargingDays(value.charging_days);
     devices.push({
       serial,
       name: safeValue(value.device_name, 100) ?? model,
       model,
       parentSerial: safeValue(value.parent_sn, 128) ?? safeValue(value.station_sn, 128) ?? "",
-      deviceType: integer(value.device_type),
+      deviceType,
       category: safeValue(value.category, 100),
       channel: integer(value.device_channel) ?? integer(value.channel),
       p2pDid: safeValue(value.p2p_did, 128),
@@ -705,7 +791,7 @@ function safeLastChargingDays(value: unknown): number | undefined {
 }
 
 /** Decode only capability-backed numeric inventory reads; arbitrary values are discarded. */
-export function safeInventoryReads(value: unknown): MegaInventoryReads {
+export function safeInventoryReads(value: unknown, deviceType: number | null = null): MegaInventoryReads {
   if (!Array.isArray(value)) return {};
   const params = new Map<number, unknown>();
   for (const row of value) {
@@ -723,7 +809,15 @@ export function safeInventoryReads(value: unknown): MegaInventoryReads {
   const lastSeen = finiteNumber(params.get(1551));
   const batteryLevel = percentage(1101);
   const batteryHealth = percentage(1198);
+  const openDevice = finiteNumber(params.get(2001));
+  const cameraSwitch = finiteNumber(params.get(1035));
+  const enabled = openDevice === 0 || openDevice === 1
+    ? openDevice === 1
+    : cameraSwitch === 0 || cameraSwitch === 1
+      ? cameraSwitch === cameraEnableRawValue(deviceType, true)
+      : undefined;
   return {
+    ...(enabled !== undefined ? { enabled } : {}),
     ...(batteryLevel !== undefined ? { batteryLevel } : {}),
     ...(batteryStatus !== null ? { batteryCharging: batteryStatus !== 0 && batteryStatus !== 2 } : {}),
     ...(batteryHealth !== undefined ? { batteryHealth } : {}),
@@ -733,6 +827,16 @@ export function safeInventoryReads(value: unknown): MegaInventoryReads {
       ? { lastSeen: new Date(lastSeen * 1_000).toISOString() }
       : {}),
   };
+}
+
+/** Resolve the family-specific raw 1035 value for a desired camera state. */
+export function cameraEnableRawValue(deviceType: number | null, enabled: boolean): number {
+  const directPolarity = deviceType === 31;
+  return directPolarity ? (enabled ? 1 : 0) : enabled ? 0 : 1;
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function finiteNumber(value: unknown): number | null {

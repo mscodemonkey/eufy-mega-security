@@ -146,6 +146,19 @@ class GatewayClient:
         """Ask the gateway to wake a supported camera and retain a new JPEG."""
         await self._json(f"/api/cameras/{serial}/capture-snapshot", method="POST")
 
+    async def set_camera_enabled(
+        self, serial: str, enabled: bool
+    ) -> dict[str, Any]:
+        """Set camera enablement and return the gateway's confirmed state."""
+        camera = await self._json(
+            f"/api/cameras/{serial}/enabled",
+            method="POST",
+            payload={"enabled": enabled},
+        )
+        if not isinstance(camera.get("serial"), str):
+            raise GatewayClientError("Gateway returned an invalid camera response")
+        return camera
+
     async def record_clip(self, serial: str, duration: int) -> bytes:
         """Request a bounded MP4 and reject a response that is not an MP4 file."""
         try:

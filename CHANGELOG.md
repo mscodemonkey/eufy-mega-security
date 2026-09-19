@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.59
+
+- Add a capability-gated Camera enabled switch for cameras that report a master enablement value and have a ready PPCS control route.
+- Send enablement writes through the camera's negotiated PPCS session and publish the new Home Assistant state only after fresh cloud inventory confirms it.
+- Add regression coverage for the reported state polarity and bounded control-command body. Real-device confirmation remains pending.
+
 ## 0.1.58
 
 - Added authenticated ECC-wrapped AES-GCM PPCS video decoding for cameras that mix protected frames with clear Annex-B media, while retaining the existing legacy RSA media path.

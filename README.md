@@ -84,6 +84,11 @@ For every discovered camera, the integration creates:
 - pet, vehicle, dog, crying, sound, stranger, and stranded-package binary sensors;
 - a last-recognized-person sensor, including the detection type and timestamp.
 
+Cameras that report their master enablement state and have a ready PPCS control
+route also get a Camera enabled switch. The switch waits for a fresh cloud
+readback before Home Assistant publishes the new state. Hardware confirmation
+is still required across the reported HomeBase 2 camera families.
+
 Supported doorbells also get a Doorbell binary sensor. A bell press turns it on
 for 10 seconds, so an automation can catch the press without opening a video stream.
 

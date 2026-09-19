@@ -1,10 +1,11 @@
 /**
- * Implements one first-party Eufy PPCS UDP media session.
+ * Implements one first-party Eufy PPCS UDP camera session.
  *
  * PPCS is Eufy's peer-to-peer camera transport, not RTSP and not a Home
  * Assistant protocol. This class performs LAN/cloud lookup, `CAM_CHECK`,
  * command-frame reassembly, HomeBase gateway-info decryption, level-two key
- * setup, heartbeat, video-key exchange, and Annex-B H.264 output. It consumes
+ * setup, heartbeat, video-key exchange, Annex-B media output, and bounded
+ * camera control writes. It consumes
  * DSK/cipher material prepared by `EufyProvider` and exposes a readable byte
  * stream plus safe counters, so the rest of the gateway never handles PPCS
  * packet layout or camera encryption directly.
@@ -38,6 +39,7 @@ const RESP = {
 const DATA = { data: Buffer.from([0xd1, 0]), video: Buffer.from([0xd1, 1]) } as const;
 const ATTACHED_MEDIA_STALL_MILLISECONDS = 10_000;
 const FIRST_VIDEO_FRAME_TIMEOUT_MILLISECONDS = 20_000;
+const CONTROL_TIMEOUT_MILLISECONDS = 10_000;
 const LOOKUP_RETRY_MILLISECONDS = 1_000;
 const PPCS_SEQUENCE_LOOKBACK = 0x8000;
 const PPCS_STALE_RETRANSMIT_DEPTH = 1024;
@@ -437,17 +439,37 @@ export interface PpcsCameraOptions {
   readonly homeBaseAttached?: boolean;
   readonly resolveCipherKey?: (cipherId: number) => Promise<string | undefined>;
   readonly maxSeconds?: number;
+
+  /** Limit the session to one control write instead of starting camera media. */
+  readonly purpose?: "media" | "control";
+}
+
+interface PendingControl {
+  readonly command: number;
+  readonly resolve: () => void;
+  readonly reject: (error: Error) => void;
+  readonly timer: ReturnType<typeof setTimeout>;
+}
+
+/** Identify a write that may have applied even though its result frame was lost. */
+export class CameraControlAcknowledgementTimeoutError extends Error {
+  /** Create the stable timeout type used by provider readback recovery. */
+  constructor() {
+    super("Camera enablement acknowledgement timed out");
+    this.name = "CameraControlAcknowledgementTimeoutError";
+  }
 }
 
 /**
- * One bounded, first-party PPCS camera session that emits Annex-B video on
- * `output`.
+ * One bounded, first-party PPCS camera session for media or a confirmed write.
  *
  * It handles HomeBase-attached and direct camera paths: DSK lookup,
  * CAM_CHECK, the attached-camera gateway-info and level-two media sequence
  * when required, and Annex-B H.264 extraction. It has no dependency on
  * eufy-security-client or the expiring Web Portal PIN.
  *
+ * Media sessions emit Annex-B bytes on `output`. Control sessions suppress
+ * media startup and accept one acknowledged camera command before closing.
  * `start` resolves after the peer answers the lookup, not after the first video
  * frame. A camera can therefore be reachable while still failing later during
  * key unwrap or media start. The public stats object makes that distinction
@@ -511,6 +533,7 @@ export class FirstPartyPpcsSession {
   #heartbeat: ReturnType<typeof setInterval> | null = null;
   #lookupTimer: ReturnType<typeof setInterval> | null = null;
   #selfAddress: { host: string; port: number } | null = null;
+  #pendingControl: PendingControl | null = null;
 
   /** Create a session; no socket is bound until {@link start} runs. */
   constructor(options: PpcsCameraOptions) { this.#options = options; }
@@ -551,13 +574,16 @@ export class FirstPartyPpcsSession {
       () => this.close("max_duration"),
       (this.#options.maxSeconds ?? 30) * 1_000,
     );
-    this.#firstFrameTimer = setTimeout(
-      () => this.close("first_frame_timeout"),
-      FIRST_VIDEO_FRAME_TIMEOUT_MILLISECONDS,
-    );
+    if (this.#options.purpose !== "control") {
+      this.#firstFrameTimer = setTimeout(
+        () => this.close("first_frame_timeout"),
+        FIRST_VIDEO_FRAME_TIMEOUT_MILLISECONDS,
+      );
+    }
     this.#heartbeat = setInterval(() => {
       if (!this.#remote) return;
       this.#send(REQ.ping, Buffer.alloc(0), this.#remote);
+      if (this.#options.purpose === "control") return;
       if (this.#options.homeBaseAttached && this.#level2Key && needsAttachedMediaReassert(this.#lastAttachedMediaFrameAt, Date.now())) {
         this.#startAttachedMedia();
       }
@@ -569,6 +595,32 @@ export class FirstPartyPpcsSession {
     this.#heartbeat.unref?.();
   }
 
+  /** Send one camera enablement write and wait for the peer's command result. */
+  async writeCameraEnabled(rawValue: number): Promise<void> {
+    if (this.#options.purpose !== "control") throw new Error("Camera control requires a control session");
+    if (!this.#remote) throw new Error("Camera control session is not connected");
+    const accountId = this.#options.accountId;
+    if (!accountId) throw new Error("Camera control account identity is unavailable");
+    if (rawValue !== 0 && rawValue !== 1) throw new Error("Camera enablement value must be 0 or 1");
+    if (this.#options.homeBaseAttached) await this.#waitForLevel2Key();
+    const body = buildCameraEnableBody(this.#options.channel, rawValue, accountId);
+    const acknowledgement = this.#waitForControlResult(1035);
+    if (this.#options.homeBaseAttached) {
+      const sequence = this.#level2Seq++;
+      const encrypted = encryptLevel2(body, this.#level2Key!, sequence);
+      const header = commandHeader(this.#seq++, 1035);
+      this.#send(
+        REQ.data,
+        Buffer.concat([header, rawPayload(encrypted, this.#options.channel, 8, [8, 0], 0)]),
+        this.#remote,
+      );
+    } else {
+      const encrypted = encryptLevel1(body, commandKey(this.#options.stationSerial, this.#options.p2pDid));
+      this.#sendCommand(1035, rawPayload(encrypted, this.#options.channel, 1, [1, 0], 0));
+    }
+    await acknowledgement;
+  }
+
   /** End the peer session and retain its terminal reason for privacy-safe diagnostics. */
   close(reason: PpcsStreamCloseReason = "client_stop"): void {
     if (this.#closed) return;
@@ -578,6 +630,11 @@ export class FirstPartyPpcsSession {
     if (this.#firstFrameTimer) clearTimeout(this.#firstFrameTimer);
     if (this.#heartbeat) clearInterval(this.#heartbeat);
     if (this.#lookupTimer) clearInterval(this.#lookupTimer);
+    if (this.#pendingControl) {
+      clearTimeout(this.#pendingControl.timer);
+      this.#pendingControl.reject(new Error("Camera control session closed before acknowledgement"));
+      this.#pendingControl = null;
+    }
     if (this.#remote) this.#send(REQ.end, Buffer.alloc(0), this.#remote);
     this.#socket.close();
     this.output.end();
@@ -619,7 +676,7 @@ export class FirstPartyPpcsSession {
       this.#remote = { host: info.address, port: info.port };
       this.#send(REQ.ping, Buffer.alloc(0), this.#remote);
       this.#sendCommand(1100, voidPayload(255));
-      if (!this.#options.homeBaseAttached) this.#startOwnMedia();
+      if (!this.#options.homeBaseAttached && this.#options.purpose !== "control") this.#startOwnMedia();
       return true;
     }
     if (has(message, RESP.pong)) return false;
@@ -702,6 +759,22 @@ export class FirstPartyPpcsSession {
     const shape = `${command}:${signCode}:${size}:${type}`;
     if (!this.stats.frameShapes.includes(shape) && this.stats.frameShapes.length < 20) {
       this.stats.frameShapes.push(shape);
+    }
+
+    if (header[14] === 1 && this.#pendingControl?.command === command) {
+      let clear = payload;
+      if (signCode === 8 && this.#level2Key) clear = decryptLevel2(payload, this.#level2Key, signCode) ?? payload;
+      else if (signCode > 0 && payload.length % 16 === 0) {
+        try { clear = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); } catch { clear = payload; }
+      }
+      if (clear.length >= 4) {
+        const pending = this.#pendingControl;
+        this.#pendingControl = null;
+        clearTimeout(pending.timer);
+        const result = clear.readInt32LE(0);
+        result === 0 ? pending.resolve() : pending.reject(new Error(`Camera rejected enablement command (${result})`));
+      }
+      return;
     }
 
     // 1100 carries the encrypted HomeBase gateway details. 1300 carries
@@ -799,7 +872,28 @@ export class FirstPartyPpcsSession {
     if (!plain || plain.length < 32) { this.stats.level2Error = "gateway info ECIES unwrap failed"; return; }
     this.#level2Key = plain.subarray(0, 32);
     this.stats.level2++;
-    this.#startAttachedMedia();
+    if (this.#options.purpose !== "control") this.#startAttachedMedia();
+  }
+
+  async #waitForLevel2Key(): Promise<void> {
+    const deadline = Date.now() + CONTROL_TIMEOUT_MILLISECONDS;
+    while (!this.#level2Key && !this.stats.level2Error && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    if (!this.#level2Key) {
+      throw new Error(this.stats.level2Error || "Camera level-two control key timed out");
+    }
+  }
+
+  #waitForControlResult(command: number): Promise<void> {
+    if (this.#pendingControl) return Promise.reject(new Error("Camera already has a control command in flight"));
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.#pendingControl = null;
+        reject(new CameraControlAcknowledgementTimeoutError());
+      }, CONTROL_TIMEOUT_MILLISECONDS);
+      this.#pendingControl = { command, resolve, reject, timer };
+    });
   }
 
   #startAttachedMedia(): void {
@@ -863,6 +957,23 @@ function rawPayload(data: Buffer, channel: number, signCode: number, magic: read
   result.writeUInt16LE(data.length, 0); result[4] = magic[0]; result[5] = magic[1];
   result[6] = channel & 0xff; result[7] = signCode & 0xff; result[8] = streamId & 0xff;
   data.copy(result, 10); return result;
+}
+/** Build the bounded direct-command body used by camera enablement writes. */
+export function buildCameraEnableBody(channel: number, value: number, accountId: string): Buffer {
+  if (!accountId) throw new Error("Camera control requires a non-empty account identity");
+  const body = Buffer.alloc(8 + 128);
+  body.writeUInt32LE(channel, 0);
+  body.writeUInt32LE(value, 4);
+  body.write(accountId.slice(0, 128), 8, "ascii");
+  return body;
+}
+
+function encryptLevel1(plaintext: Buffer, key: Buffer): Buffer {
+  const padded = Buffer.alloc(Math.ceil(Math.max(plaintext.length, 16) / 16) * 16);
+  plaintext.copy(padded);
+  const cipher = createCipheriv("aes-128-ecb", key, null);
+  cipher.setAutoPadding(false);
+  return Buffer.concat([cipher.update(padded), cipher.final()]);
 }
 function encryptLevel2(plaintext: Buffer, key: Buffer, sequence: number): Buffer {
   const nonce = randomBytes(12);

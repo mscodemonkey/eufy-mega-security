@@ -128,6 +128,12 @@ export class GatewayServer {
       if (request.method === "GET" && segments[0] === "api" && segments[1] === "cameras" && segments.length === 3) {
         return this.#cameraJson(segments[2]!, response);
       }
+      if (
+        request.method === "POST" &&
+        segments[0] === "api" && segments[1] === "cameras" && segments[3] === "enabled" && segments.length === 4
+      ) {
+        return await this.#cameraEnabled(request, segments[2]!, response);
+      }
       if (request.method === "GET" && segments[0] === "api" && segments[1] === "stations" && segments.length === 3) {
         return this.#stationJson(segments[2]!, response);
       }
@@ -231,6 +237,13 @@ export class GatewayServer {
   #cameraJson(serial: string, response: ServerResponse): void {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     return json(response, 200, this.state.getCamera(serial));
+  }
+
+  async #cameraEnabled(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    const body = await readJson(request);
+    const identity = await this.provider.setCameraEnabled(serial, requiredBoolean(body.enabled));
+    return json(response, 200, this.state.registerCamera(identity));
   }
 
   #stationJson(serial: string, response: ServerResponse): void {
@@ -416,6 +429,11 @@ function safeError(error: unknown): string {
 function requiredInteger(value: unknown): number {
   if (!Number.isSafeInteger(value)) throw new SyntaxError("Expected an integer value");
   return value as number;
+}
+
+function requiredBoolean(value: unknown): boolean {
+  if (typeof value !== "boolean") throw new SyntaxError("Expected a boolean value");
+  return value;
 }
 
 function safeCameraModel(value: string): string {

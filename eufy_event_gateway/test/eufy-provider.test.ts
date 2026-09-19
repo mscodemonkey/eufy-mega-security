@@ -10,6 +10,7 @@ import test from "node:test";
 
 import {
   cameraDetectionKind,
+  cameraEnableRawValue,
   confirmStationWrite,
   inventoryDiagnostics,
   inventoryLogSummaries,
@@ -138,6 +139,21 @@ test("decodes only validated capability-backed inventory values", () => {
     { param_type: 1101, param_value: "50" },
     { param_type: 1101, param_value: "49" },
   ]).batteryLevel, 49);
+});
+
+test("decodes reported camera enablement with family-specific polarity", () => {
+  assert.equal(safeInventoryReads([{ param_type: 1035, param_value: "0" }], 88).enabled, true);
+  assert.equal(safeInventoryReads([{ param_type: 1035, param_value: "1" }], 88).enabled, false);
+  assert.equal(safeInventoryReads([{ param_type: 1035, param_value: "1" }], 31).enabled, true);
+  assert.equal(safeInventoryReads([{ param_type: 2001, param_value: "0" }], 31).enabled, false);
+  assert.equal(safeInventoryReads([{ param_type: 1035, param_value: "2" }], 88).enabled, undefined);
+});
+
+test("writes battery and indoor camera enablement with the matching polarity", () => {
+  assert.equal(cameraEnableRawValue(88, true), 0);
+  assert.equal(cameraEnableRawValue(88, false), 1);
+  assert.equal(cameraEnableRawValue(31, true), 1);
+  assert.equal(cameraEnableRawValue(31, false), 0);
 });
 
 test("accepts only bounded whole days from the cloud inventory field", () => {

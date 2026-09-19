@@ -93,6 +93,19 @@ class EufyGatewayCoordinator(
         updated["stations"][serial] = station
         self.async_set_updated_data(updated)
 
+    def async_set_camera(self, camera: dict[str, Any]) -> None:
+        """Merge confirmed command state and notify all camera entities."""
+        serial = camera.get("serial")
+        if not isinstance(serial, str):
+            return
+        updated = {
+            "cameras": dict(self.cameras),
+            "stations": dict(self.stations),
+            "sensors": dict(self.sensors),
+        }
+        updated["cameras"][serial] = camera
+        self.async_set_updated_data(updated)
+
     def start_event_listener(self) -> None:
         """Start one reconnecting SSE task after the first poll succeeds."""
         if self._event_task is None:
@@ -157,13 +170,7 @@ class EufyGatewayCoordinator(
 
         camera = event.get("camera")
         if isinstance(camera, dict) and isinstance(camera.get("serial"), str):
-            updated = {
-                "cameras": dict(self.cameras),
-                "stations": dict(self.stations),
-                "sensors": dict(self.sensors),
-            }
-            updated["cameras"][camera["serial"]] = camera
-            self.async_set_updated_data(updated)
+            self.async_set_camera(camera)
 
         station = event.get("station")
         if isinstance(station, dict) and isinstance(station.get("serial"), str):

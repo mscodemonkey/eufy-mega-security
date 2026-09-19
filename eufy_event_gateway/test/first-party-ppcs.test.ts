@@ -9,6 +9,7 @@ import { createCipheriv, createDecipheriv, createECDH, createHmac } from "node:c
 import test from "node:test";
 
 import {
+  buildCameraEnableBody,
   acceptsAttachedCameraMedia,
   buildPpcsCloudLookup,
   buildStandaloneLiveStartPayload,
@@ -39,6 +40,16 @@ test("builds the two PPCS cloud lookup variants", () => {
   assert.deepEqual(classic.payload.subarray(24, 28), Buffer.from([1, 2, 0, 192]));
   assert.deepEqual(classic.payload.subarray(36, 40), Buffer.from([2, 5, 1, 5]));
   assert.deepEqual(classic.payload.subarray(40), fallback.payload.subarray(20));
+});
+
+test("builds a bounded camera enablement body without leaking adjacent data", () => {
+  const body = buildCameraEnableBody(3, 0, "account-owner");
+  assert.equal(body.length, 136);
+  assert.equal(body.readUInt32LE(0), 3);
+  assert.equal(body.readUInt32LE(4), 0);
+  assert.equal(body.subarray(8, 21).toString("ascii"), "account-owner");
+  assert.ok(body.subarray(21).every((value) => value === 0));
+  assert.throws(() => buildCameraEnableBody(3, 0, ""), /non-empty account identity/);
 });
 
 test("reissues a standalone start only while codec headers are missing", () => {

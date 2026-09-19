@@ -18,6 +18,9 @@
     },
     "sensor": {
       "eufy_effective_mode_sensor": {"name": "Effective mode"}
+    },
+    "switch": {
+      "camera_enabled": {"name": "Camera enabled"}
     }
   },
   "config": {

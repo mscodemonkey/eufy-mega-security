@@ -9,7 +9,7 @@
  */
 import { Readable } from "node:stream";
 
-import type { HomeBaseState } from "../domain/types.js";
+import type { CameraIdentity, HomeBaseState } from "../domain/types.js";
 import { describeCameraCapabilities, describeDeviceCapabilities } from "./device-capabilities-core.js";
 import type { CameraProvider, ProviderEvents } from "./provider.js";
 
@@ -59,6 +59,8 @@ export class SimulatedProvider implements CameraProvider {
       stationSerial: "SIMULATED-HOMEBASE-3",
       streamSupported: true,
       doorbellSupported: false,
+      enabled: true,
+      enableControlSupported: true,
       battery: {
         supported: ["level", "charging", "health", "temperature", "lastChargingDays"],
         level: 82,
@@ -116,6 +118,31 @@ export class SimulatedProvider implements CameraProvider {
   async stopStream(serial: string): Promise<void> {
     this.#assertSerial(serial);
     this.#events?.streamStopped(serial);
+  }
+
+  /** Apply deterministic enablement state for HTTP and Home Assistant tests. */
+  async setCameraEnabled(serial: string, enabled: boolean): Promise<CameraIdentity> {
+    this.#assertSerial(serial);
+    const identity = {
+      serial: SimulatedProvider.serial,
+      name: "Simulated driveway",
+      model: "T8142-compatible simulator",
+      stationSerial: stationSerial,
+      streamSupported: true,
+      doorbellSupported: false,
+      enabled,
+      enableControlSupported: true,
+      battery: {
+        supported: ["level", "charging", "health", "temperature", "lastChargingDays"] as const,
+        level: 82,
+        charging: false,
+        health: 96,
+        temperature: 24,
+        lastChargingDays: 12,
+      },
+    };
+    this.#events?.camera(identity);
+    return identity;
   }
 
   async refreshStation(serial: string): Promise<HomeBaseState> {

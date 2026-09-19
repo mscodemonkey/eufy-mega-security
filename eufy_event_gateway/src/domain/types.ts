@@ -57,6 +57,8 @@ export interface CameraState {
   readonly stationSerial: string;
   readonly streamSupported: boolean;
   readonly doorbellSupported: boolean;
+  readonly enabled: boolean | null;
+  readonly enableControlSupported: boolean;
   readonly motionDetected: boolean;
   readonly personDetected: boolean;
   readonly strangerDetected: boolean;
@@ -154,6 +156,8 @@ export interface CameraIdentity {
   readonly stationSerial: string;
   readonly streamSupported: boolean;
   readonly doorbellSupported: boolean;
+  readonly enabled?: boolean | null;
+  readonly enableControlSupported?: boolean;
   readonly battery?: BatteryState | null;
 }
 

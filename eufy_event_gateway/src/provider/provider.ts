@@ -39,6 +39,9 @@ export interface CameraProvider {
   start(events: ProviderEvents): Promise<void>;
   startStream(serial: string): Promise<void>;
   stopStream(serial: string): Promise<void>;
+
+  /** Write camera enablement and return only state confirmed by fresh readback. */
+  setCameraEnabled(serial: string, enabled: boolean): Promise<CameraIdentity>;
   refreshStation(serial: string): Promise<HomeBaseState>;
   setGuardMode(serial: string, mode: number): Promise<HomeBaseState>;
   setAlarmVolume(serial: string, value: number): Promise<HomeBaseState>;
