@@ -5,7 +5,7 @@
  * that prevents a healthy HomeBase stream being reset by its own heartbeat.
  */
 import assert from "node:assert/strict";
-import { createCipheriv, createDecipheriv } from "node:crypto";
+import { createCipheriv, createDecipheriv, createECDH, createHmac } from "node:crypto";
 import test from "node:test";
 
 import {
@@ -16,6 +16,7 @@ import {
   isPpcsCameraIdentity,
   needsAttachedMediaReassert,
   needsStandaloneMediaReassert,
+  PpcsVideoFrameDecoder,
   PpcsVideoStreamNormalizer,
   ppcsCandidatePorts,
   ppcsFrameChannel,
@@ -130,6 +131,78 @@ test("unwraps and uses the key carried by an encrypted video frame", () => {
   tail.copy(frame, 151 + encrypted.length);
 
   assert.deepEqual(decodePpcsVideoFrame(frame, 1, () => key), Buffer.concat([clear, tail]));
+});
+
+/** Build a deterministic authenticated-media frame for the public decoder contract. */
+function authenticatedFrame(
+  recipient: ReturnType<typeof createECDH>,
+  mediaKey: Buffer,
+  clear: Buffer,
+  keyframe: boolean,
+): Buffer {
+  const ephemeral = createECDH("prime256v1");
+  ephemeral.setPrivateKey(Buffer.alloc(32, 2));
+  const shared = ephemeral.computeSecret(recipient.getPublicKey());
+  const label = Buffer.from("ECIES");
+  const hmac = (key: Buffer, value: Buffer): Buffer => createHmac("sha256", key).update(value).digest();
+  let previous: Buffer<ArrayBufferLike> = label;
+  let derived: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+  while (derived.length < 48) {
+    previous = hmac(shared, previous);
+    derived = Buffer.concat([derived, hmac(shared, Buffer.concat([previous, label]))]);
+  }
+
+  const envelope = Buffer.alloc(129);
+  ephemeral.getPublicKey(undefined, "compressed").copy(envelope, 0);
+  const envelopeIv = Buffer.alloc(16, 3);
+  envelopeIv.copy(envelope, 33);
+  const envelopeCipher = createCipheriv("aes-128-cbc", derived.subarray(0, 16), envelopeIv);
+  const wrapped = Buffer.concat([envelopeCipher.update(mediaKey), envelopeCipher.final()]);
+  wrapped.copy(envelope, 49);
+  hmac(derived.subarray(16, 48), envelope.subarray(33, 97)).copy(envelope, 97);
+
+  const nonce = Buffer.alloc(12, keyframe ? 4 : 5);
+  const bodyCipher = createCipheriv("aes-256-gcm", mediaKey, nonce);
+  bodyCipher.setAAD(Buffer.from("eufy security"));
+  const body = Buffer.concat([bodyCipher.update(clear), bodyCipher.final()]);
+  const frame = Buffer.alloc(179 + body.length);
+  frame.writeUInt32LE(clear.length, 0);
+  frame[4] = keyframe ? 1 : 0;
+  if (keyframe) envelope.copy(frame, 22);
+  bodyCipher.getAuthTag().copy(frame, 151);
+  nonce.copy(frame, 167);
+  body.copy(frame, 179);
+  return frame;
+}
+
+test("authenticates ECC-wrapped keyframes and reuses their media key for delta frames", () => {
+  const recipient = createECDH("prime256v1");
+  recipient.setPrivateKey(Buffer.alloc(32, 1));
+  const mediaKey = Buffer.alloc(32, 9);
+  const keyframe = Buffer.from([0, 0, 0, 1, 0x40, 0x01, 0x42, 0x01]);
+  const delta = Buffer.from([0, 0, 0, 1, 0x02, 0x01, 0xaa]);
+  const decoder = new PpcsVideoFrameDecoder(() => undefined);
+  decoder.setEccPrivateKey(recipient.getPrivateKey().toString("hex"));
+
+  assert.deepEqual(decoder.decode(authenticatedFrame(recipient, mediaKey, keyframe, true), 1), {
+    data: keyframe,
+    protection: "ecc-gcm",
+  });
+  assert.deepEqual(decoder.decode(authenticatedFrame(recipient, mediaKey, delta, false), 1), {
+    data: delta,
+    protection: "ecc-gcm",
+  });
+});
+
+test("rejects authenticated media after its tag is changed", () => {
+  const recipient = createECDH("prime256v1");
+  recipient.setPrivateKey(Buffer.alloc(32, 1));
+  const frame = authenticatedFrame(recipient, Buffer.alloc(32, 9), Buffer.from([0, 0, 0, 1, 0x65]), true);
+  frame[151] = (frame[151] ?? 0) ^ 1;
+  const decoder = new PpcsVideoFrameDecoder(() => undefined);
+  decoder.setEccPrivateKey(recipient.getPrivateKey().toString("hex"));
+
+  assert.equal(decoder.decode(frame, 1), undefined);
 });
 
 test("converts complete length-prefixed H.264 NAL units to Annex-B", () => {

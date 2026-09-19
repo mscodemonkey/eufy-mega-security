@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.58
+
+- Added authenticated ECC-wrapped AES-GCM PPCS video decoding for cameras that mix protected frames with clear Annex-B media, while retaining the existing legacy RSA media path.
+- Added regression coverage for authenticated keyframes, cached media keys on delta frames, and rejection of tampered media.
+
 ## 0.1.57
 
 - Admit eufyCam C37 T814X, Mega camera type 10037, through its reported ready HomeBase 3 route. Discovery, events, snapshots, and live video await reporter testing.

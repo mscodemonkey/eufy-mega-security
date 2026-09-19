@@ -9,7 +9,7 @@
  * stream plus safe counters, so the rest of the gateway never handles PPCS
  * packet layout or camera encryption directly.
  */
-import { createCipheriv, createDecipheriv, createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes, timingSafeEqual } from "node:crypto";
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
 
@@ -123,6 +123,93 @@ export function decodePpcsVideoFrame(
     const encrypted = frame.subarray(151, 151 + 128);
     const clear = decryptEcb(encrypted, key);
     return Buffer.concat([clear, frame.subarray(151 + 128, 151 + length)]);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Result of decoding a video payload, including the wire protection that succeeded. */
+export interface DecodedPpcsVideoFrame {
+  readonly data: Buffer;
+  readonly protection: "clear" | "rsa-ecb" | "ecc-gcm";
+}
+
+/**
+ * Decode both legacy RSA-wrapped media and authenticated ECC-wrapped media.
+ *
+ * The session owns one instance for the life of a stream because authenticated
+ * delta frames reuse the media key established by the most recent keyframe.
+ * The ECC private key arrives during HomeBase level-two negotiation, before the
+ * attached-camera media request is sent.
+ */
+export class PpcsVideoFrameDecoder {
+  #eccPrivateKey: Buffer | null = null;
+  #mediaKey: Buffer | null = null;
+
+  /** Create a decoder around the session's legacy RSA unwrap operation. */
+  constructor(private readonly unwrapLegacyKey: (wrapped: Buffer) => Buffer | undefined) {}
+
+  /** Replace the camera key used for authenticated media and forget any prior stream key. */
+  setEccPrivateKey(value: string): void {
+    const key = Buffer.from(value, "hex");
+    this.#eccPrivateKey = key.length === 32 ? key : null;
+    this.#mediaKey = null;
+  }
+
+  /** Decode one command-1300 payload without allowing failed authentication to emit bytes. */
+  decode(frame: Buffer, signCode: number): DecodedPpcsVideoFrame | undefined {
+    if (signCode <= 0) {
+      const data = decodePpcsVideoFrame(frame, signCode, this.unwrapLegacyKey);
+      return data ? { data, protection: "clear" } : undefined;
+    }
+
+    const authenticated = this.#decodeAuthenticated(frame);
+    if (authenticated) return { data: authenticated, protection: "ecc-gcm" };
+    const legacy = decodePpcsVideoFrame(frame, signCode, this.unwrapLegacyKey);
+    return legacy && beginsWithAnnexB(legacy) ? { data: legacy, protection: "rsa-ecb" } : undefined;
+  }
+
+  #decodeAuthenticated(frame: Buffer): Buffer | undefined {
+    if (!this.#eccPrivateKey || frame.length < 179) return undefined;
+    const keyframe = ((frame[4] ?? 0) & 1) === 1;
+    const candidateKey = keyframe
+      ? unwrapAuthenticatedMediaKey(frame.subarray(22, 151), this.#eccPrivateKey)
+      : this.#mediaKey;
+    if (!candidateKey) return undefined;
+
+    try {
+      const decipher = createDecipheriv("aes-256-gcm", candidateKey, frame.subarray(167, 179));
+      decipher.setAAD(Buffer.from("eufy security", "utf8"));
+      decipher.setAuthTag(frame.subarray(151, 167));
+      const data = Buffer.concat([decipher.update(frame.subarray(179)), decipher.final()]);
+      if (keyframe) this.#mediaKey = candidateKey;
+      return data.length > 0 ? data : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+/** Unwrap and authenticate the 32-byte media key carried by an ECC keyframe envelope. */
+function unwrapAuthenticatedMediaKey(envelope: Buffer, privateKey: Buffer): Buffer | undefined {
+  if (envelope.length !== 129) return undefined;
+  try {
+    const ecdh = createECDH("prime256v1");
+    ecdh.setPrivateKey(privateKey);
+    const shared = ecdh.computeSecret(envelope.subarray(0, 33));
+    const label = Buffer.from("ECIES", "utf8");
+    const hmac = (key: Buffer, value: Buffer): Buffer => createHmac("sha256", key).update(value).digest();
+    let previous: Buffer<ArrayBufferLike> = label;
+    let derived: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+    while (derived.length < 48) {
+      previous = hmac(shared, previous);
+      derived = Buffer.concat([derived, hmac(shared, Buffer.concat([previous, label]))]);
+    }
+    const expectedTag = hmac(derived.subarray(16, 48), envelope.subarray(33, 97));
+    if (!timingSafeEqual(expectedTag, envelope.subarray(97, 129))) return undefined;
+    const decipher = createDecipheriv("aes-128-cbc", derived.subarray(0, 16), envelope.subarray(33, 49));
+    const plain = Buffer.concat([decipher.update(envelope.subarray(49, 97)), decipher.final()]);
+    return plain.length === 32 ? plain : undefined;
   } catch {
     return undefined;
   }
@@ -406,6 +493,9 @@ export class FirstPartyPpcsSession {
   // ephemeral per-stream key pair to RSA-1024 until compatible hardware proves
   // a larger modulus is accepted. This is a protocol constraint, not a stored key.
   readonly #rsa = generateKeyPairSync("rsa", { modulusLength: 1024 });
+  readonly #videoDecoder = new PpcsVideoFrameDecoder((wrapped) => (
+    privateDecrypt({ key: this.#rsa.privateKey, padding: 1 }, wrapped)
+  ));
   #remote: { host: string; port: number } | null = null;
   #seq = 0;
   #closed = false;
@@ -637,13 +727,12 @@ export class FirstPartyPpcsSession {
       this.#recordVideoResult("short");
       return false;
     }
-    const video = decodePpcsVideoFrame(frame, signCode, (wrapped) => (
-      privateDecrypt({ key: this.#rsa.privateKey, padding: 1 }, wrapped)
-    ));
-    if (!video?.length) {
+    const decoded = this.#videoDecoder.decode(frame, signCode);
+    if (!decoded?.data.length) {
       this.#recordVideoResult(signCode > 0 ? "encrypted-frame-rejected" : "plaintext-frame-rejected");
       return false;
     }
+    const video = decoded.data;
     const normalized = this.#videoNormalizer.push(video);
     this.stats.videoCodec = this.#videoNormalizer.codec;
     this.stats.videoNalTypes = [...this.#videoNormalizer.nalTypes];
@@ -654,7 +743,8 @@ export class FirstPartyPpcsSession {
     this.output.write(normalized);
     this.stats.videoOutputFrames++;
     const framing = this.#videoNormalizer.framing;
-    this.#recordVideoResult(`${signCode > 0 ? "written-decrypted" : "written-clear"}-${framing}`);
+    const result = decoded.protection === "clear" ? "written-clear" : `written-${decoded.protection}`;
+    this.#recordVideoResult(`${result}-${framing}`);
     return true;
   }
 
@@ -704,6 +794,7 @@ export class FirstPartyPpcsSession {
     let eccPrivateKey: string | undefined;
     try { eccPrivateKey = await this.#options.resolveCipherKey!(cipherId); } catch (error) { this.stats.level2Error = error instanceof Error ? error.message : String(error); return; }
     if (!eccPrivateKey) { this.stats.level2Error = "no ECC private key"; return; }
+    this.#videoDecoder.setEccPrivateKey(eccPrivateKey);
     const plain = unwrapGatewayInfo(plainPayload.subarray(4, 133), eccPrivateKey);
     if (!plain || plain.length < 32) { this.stats.level2Error = "gateway info ECIES unwrap failed"; return; }
     this.#level2Key = plain.subarray(0, 32);
