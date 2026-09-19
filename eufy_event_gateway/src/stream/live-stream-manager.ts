@@ -54,6 +54,9 @@ type ClipRemuxer = (video: Buffer, codec: VideoCodec) => Promise<Buffer>;
 const MAX_RECORDING_BYTES = 256 * 1024 * 1024;
 const MAX_PARAMETER_SET_SCAN_BYTES = 1024 * 1024;
 
+/** Time allowed for peer lookup and a decodable fresh frame on slower cameras. */
+export const SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS = 30_000;
+
 /**
  * Retains the latest complete H.264 or H.265 parameter sets from an Annex-B stream.
  *
@@ -204,7 +207,10 @@ export class LiveStreamManager extends EventEmitter {
   }
 
   /** Capture one fresh JPEG through the shared source and return its metadata. */
-  async captureSnapshot(serial: string, timeoutMilliseconds = 20_000): Promise<SnapshotInfo> {
+  async captureSnapshot(
+    serial: string,
+    timeoutMilliseconds = SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS,
+  ): Promise<SnapshotInfo> {
     if (this.#closed) throw new Error("Gateway closed before snapshot capture started");
     const session = this.#session(serial);
     const previousRevision = this.state.getCamera(serial).snapshot?.revision ?? 0;
@@ -227,7 +233,10 @@ export class LiveStreamManager extends EventEmitter {
   }
 
   /** Capture one startup image and release its unused source immediately. */
-  async captureStartupSnapshot(serial: string, timeoutMilliseconds = 20_000): Promise<SnapshotInfo> {
+  async captureStartupSnapshot(
+    serial: string,
+    timeoutMilliseconds = SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS,
+  ): Promise<SnapshotInfo> {
     try {
       return await this.captureSnapshot(serial, timeoutMilliseconds);
     } finally {

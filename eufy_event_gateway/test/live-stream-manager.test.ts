@@ -11,7 +11,11 @@ import { PassThrough } from "node:stream";
 import test from "node:test";
 
 import { GatewayState } from "../src/domain/gateway-state.js";
-import { LiveStreamManager, VideoParameterSetCache } from "../src/stream/live-stream-manager.js";
+import {
+  LiveStreamManager,
+  SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS,
+  VideoParameterSetCache,
+} from "../src/stream/live-stream-manager.js";
 
 const camera = {
   serial: "camera-1",
@@ -21,6 +25,10 @@ const camera = {
   streamSupported: true,
   doorbellSupported: true,
 };
+
+test("allows slower cameras 30 seconds to produce a fresh snapshot", () => {
+  assert.equal(SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS, 30_000);
+});
 
 function annexBNal(type: number, ...body: number[]): Buffer {
   return Buffer.from([0, 0, 0, 1, type, ...body]);

@@ -10,7 +10,7 @@ import type { CoreCapabilityEntry } from "./device-capability-core.js";
 
 /** Camera types with an existing gateway protocol route and admission decision. */
 export const CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([
-  5, 7, 8, 15, 19, 23, 26, 31, 38, 47, 48, 62, 63, 88, 91, 94, 104, 105, 151, 203, 10005, 10031,
+  5, 7, 8, 15, 19, 23, 26, 31, 38, 47, 48, 62, 63, 88, 91, 94, 104, 105, 151, 203, 10005, 10031, 10037,
 ]);
 
 /** Known externally powered models whose inventory battery fields are sentinels. */

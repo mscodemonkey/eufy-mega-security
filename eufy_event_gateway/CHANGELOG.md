@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.57
+
+- Admit eufyCam C37 T814X, Mega camera type 10037, through its reported ready HomeBase 3 route. Discovery, events, snapshots, and live video await reporter testing.
+- Allow up to 30 seconds for a fresh snapshot so slower cameras can complete peer lookup and produce a decodable frame without changing live-view or clip limits.
+- Update device coverage with confirmed T8142-Z snapshots and live video, the intermittent T81A0 fresh-capture boundary, the mixed T84A1 bootstrap results, and the non-camera T85D0 classification.
+
 ## 0.1.56
 
 - Fix stalled HTTP viewers when reopening a stopped camera stream by waiting for fresh codec headers and sending HTTP headers only once.

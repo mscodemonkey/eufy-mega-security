@@ -371,6 +371,31 @@ test("accepts SoloCam C20 inventory through a ready HomeBase 3", () => {
   assert.equal(summaries[1]?.acceptedAsCamera, false);
 });
 
+test("admits a T814X C37 without misclassifying T85D0 lock inventory", () => {
+  const devices = parseMegaInventory({ devices: [
+    {
+      device_sn: "camera", device_model: "T814X", parent_sn: "station", device_type: 10037,
+      device_channel: 4, category: "eufy_security",
+    },
+    {
+      device_sn: "lock", device_model: "T85D0", parent_sn: "station", device_type: 202,
+      device_channel: 5, category: "eufy_security",
+    },
+    {
+      device_sn: "station", device_model: "T8030", device_type: 18,
+      category: "eufy_security", p2p_did: "did", p2p_conn: "connection",
+    },
+  ] });
+  const summaries = inventoryLogSummaries(devices, new Set(["station"]));
+
+  assert.deepEqual(summaries.slice(0, 2).map(({ deviceType, acceptedAsCamera, streamSupported }) => ({
+    deviceType, acceptedAsCamera, streamSupported,
+  })), [
+    { deviceType: 10037, acceptedAsCamera: true, streamSupported: true },
+    { deviceType: 202, acceptedAsCamera: false, streamSupported: false },
+  ]);
+});
+
 test("logs safe motion routing for a T8210 without private push fields", () => {
   const event = {
     eventType: 3101, messageType: 1, notificationStyle: 2, alarmType: null,
