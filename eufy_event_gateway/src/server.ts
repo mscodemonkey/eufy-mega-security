@@ -134,6 +134,12 @@ export class GatewayServer {
       ) {
         return await this.#cameraEnabled(request, segments[2]!, response);
       }
+      if (
+        request.method === "POST" &&
+        segments[0] === "api" && segments[1] === "cameras" && segments[3] === "privacy" && segments.length === 4
+      ) {
+        return await this.#cameraPrivacy(request, segments[2]!, response);
+      }
       if (request.method === "GET" && segments[0] === "api" && segments[1] === "stations" && segments.length === 3) {
         return this.#stationJson(segments[2]!, response);
       }
@@ -244,6 +250,14 @@ export class GatewayServer {
     const body = await readJson(request);
     const identity = await this.provider.setCameraEnabled(serial, requiredBoolean(body.enabled));
     return json(response, 200, this.state.registerCamera(identity));
+  }
+
+  async #cameraPrivacy(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    const body = await readJson(request);
+    const enabled = requiredBoolean(body.enabled);
+    await this.provider.setCameraPrivacy(serial, enabled);
+    return json(response, 200, { serial, accepted: true, requested: enabled, readback: null });
   }
 
   #stationJson(serial: string, response: ServerResponse): void {

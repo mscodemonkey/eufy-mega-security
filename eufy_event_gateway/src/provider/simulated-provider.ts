@@ -145,6 +145,11 @@ export class SimulatedProvider implements CameraProvider {
     return identity;
   }
 
+  /** Accept deterministic privacy writes without inventing a readable state. */
+  async setCameraPrivacy(serial: string, _enabled: boolean): Promise<void> {
+    this.#assertSerial(serial);
+  }
+
   async refreshStation(serial: string): Promise<HomeBaseState> {
     this.#assertStation(serial);
     return structuredClone(this.#station);
