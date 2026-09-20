@@ -367,6 +367,8 @@ export class GatewayState extends EventEmitter {
       doorbellSupported: camera.identity.doorbellSupported,
       enabled: camera.identity.enabled ?? null,
       enableControlSupported: camera.identity.enableControlSupported ?? false,
+      motionDetectionEnabled: camera.identity.motionDetectionEnabled ?? null,
+      motionDetectionControlSupported: camera.identity.motionDetectionControlSupported ?? false,
       motionDetected: camera.motionDetected,
       personDetected: camera.personDetected,
       strangerDetected: camera.strangerDetected,

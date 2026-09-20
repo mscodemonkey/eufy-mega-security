@@ -59,6 +59,8 @@ export interface CameraState {
   readonly doorbellSupported: boolean;
   readonly enabled: boolean | null;
   readonly enableControlSupported: boolean;
+  readonly motionDetectionEnabled: boolean | null;
+  readonly motionDetectionControlSupported: boolean;
   readonly motionDetected: boolean;
   readonly personDetected: boolean;
   readonly strangerDetected: boolean;
@@ -158,6 +160,8 @@ export interface CameraIdentity {
   readonly doorbellSupported: boolean;
   readonly enabled?: boolean | null;
   readonly enableControlSupported?: boolean;
+  readonly motionDetectionEnabled?: boolean | null;
+  readonly motionDetectionControlSupported?: boolean;
   readonly battery?: BatteryState | null;
 }
 

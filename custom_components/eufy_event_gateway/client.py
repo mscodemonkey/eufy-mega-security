@@ -159,6 +159,19 @@ class GatewayClient:
             raise GatewayClientError("Gateway returned an invalid camera response")
         return camera
 
+    async def set_camera_motion_detection(
+        self, serial: str, enabled: bool
+    ) -> dict[str, Any]:
+        """Set camera motion detection and return confirmed gateway state."""
+        camera = await self._json(
+            f"/api/cameras/{serial}/motion-detection",
+            method="POST",
+            payload={"enabled": enabled},
+        )
+        if not isinstance(camera.get("serial"), str):
+            raise GatewayClientError("Gateway returned an invalid camera response")
+        return camera
+
     async def record_clip(self, serial: str, duration: int) -> bytes:
         """Request a bounded MP4 and reject a response that is not an MP4 file."""
         try:

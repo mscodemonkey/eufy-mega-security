@@ -42,6 +42,12 @@ export interface CameraProvider {
 
   /** Write camera enablement and return only state confirmed by fresh readback. */
   setCameraEnabled(serial: string, enabled: boolean): Promise<CameraIdentity>;
+
+  /** Write camera motion detection and return fresh inventory-backed state. */
+  setCameraMotionDetection(serial: string, enabled: boolean): Promise<CameraIdentity>;
+
+  /** Send a write-only privacy command. Privacy state has no trustworthy readback. */
+  setCameraPrivacy(serial: string, enabled: boolean): Promise<void>;
   refreshStation(serial: string): Promise<HomeBaseState>;
   setGuardMode(serial: string, mode: number): Promise<HomeBaseState>;
   setAlarmVolume(serial: string, value: number): Promise<HomeBaseState>;

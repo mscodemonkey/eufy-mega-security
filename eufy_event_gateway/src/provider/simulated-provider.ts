@@ -61,6 +61,8 @@ export class SimulatedProvider implements CameraProvider {
       doorbellSupported: false,
       enabled: true,
       enableControlSupported: true,
+      motionDetectionEnabled: true,
+      motionDetectionControlSupported: true,
       battery: {
         supported: ["level", "charging", "health", "temperature", "lastChargingDays"],
         level: 82,
@@ -132,6 +134,8 @@ export class SimulatedProvider implements CameraProvider {
       doorbellSupported: false,
       enabled,
       enableControlSupported: true,
+      motionDetectionEnabled: true,
+      motionDetectionControlSupported: true,
       battery: {
         supported: ["level", "charging", "health", "temperature", "lastChargingDays"] as const,
         level: 82,
@@ -143,6 +147,30 @@ export class SimulatedProvider implements CameraProvider {
     };
     this.#events?.camera(identity);
     return identity;
+  }
+
+  /** Apply deterministic motion-detection state for API and HA tests. */
+  async setCameraMotionDetection(serial: string, enabled: boolean): Promise<CameraIdentity> {
+    this.#assertSerial(serial);
+    const identity = {
+      serial: SimulatedProvider.serial,
+      name: "Simulated driveway",
+      model: "T8142-compatible simulator",
+      stationSerial: stationSerial,
+      streamSupported: true,
+      doorbellSupported: false,
+      enabled: true,
+      enableControlSupported: true,
+      motionDetectionEnabled: enabled,
+      motionDetectionControlSupported: true,
+    };
+    this.#events?.camera(identity);
+    return identity;
+  }
+
+  /** Accept deterministic privacy writes without inventing a readable state. */
+  async setCameraPrivacy(serial: string, _enabled: boolean): Promise<void> {
+    this.#assertSerial(serial);
   }
 
   async refreshStation(serial: string): Promise<HomeBaseState> {

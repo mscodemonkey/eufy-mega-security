@@ -149,6 +149,12 @@ test("decodes reported camera enablement with family-specific polarity", () => {
   assert.equal(safeInventoryReads([{ param_type: 1035, param_value: "2" }], 88).enabled, undefined);
 });
 
+test("decodes the reported motion-detection switch without inventing it", () => {
+  assert.equal(safeInventoryReads([{ param_type: 1011, param_value: "1" }]).motionDetectionEnabled, true);
+  assert.equal(safeInventoryReads([{ param_type: 1011, param_value: "0" }]).motionDetectionEnabled, false);
+  assert.equal(safeInventoryReads([{ param_type: 1011, param_value: "2" }]).motionDetectionEnabled, undefined);
+});
+
 test("writes battery and indoor camera enablement with the matching polarity", () => {
   assert.equal(cameraEnableRawValue(88, true), 0);
   assert.equal(cameraEnableRawValue(88, false), 1);

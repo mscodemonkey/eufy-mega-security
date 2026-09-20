@@ -25,7 +25,8 @@ async def async_setup_entry(
 ) -> None:
     """Create enablement switches as supported cameras enter inventory."""
     coordinator = entry.runtime_data.coordinator
-    known: set[str] = set()
+    known_enabled: set[str] = set()
+    known_motion: set[str] = set()
 
     def add_new() -> None:
         serials = {
@@ -33,12 +34,24 @@ async def async_setup_entry(
             for serial, camera in coordinator.cameras.items()
             if camera.get("enableControlSupported") is True
             and isinstance(camera.get("enabled"), bool)
-        } - known
+        } - known_enabled
         if serials:
-            known.update(serials)
+            known_enabled.update(serials)
             async_add_entities(
                 EufyCameraEnabledSwitch(coordinator, serial)
                 for serial in sorted(serials)
+            )
+        motion_serials = {
+            serial
+            for serial, camera in coordinator.cameras.items()
+            if camera.get("motionDetectionControlSupported") is True
+            and isinstance(camera.get("motionDetectionEnabled"), bool)
+        } - known_motion
+        if motion_serials:
+            known_motion.update(motion_serials)
+            async_add_entities(
+                EufyCameraMotionSwitch(coordinator, serial)
+                for serial in sorted(motion_serials)
             )
 
     add_new()
@@ -79,4 +92,41 @@ class EufyCameraEnabledSwitch(EufyGatewayEntity, SwitchEntity):
         except GatewayClientError as error:
             raise HomeAssistantError(
                 f"Could not change camera enablement: {error}"
+            ) from error
+
+
+class EufyCameraMotionSwitch(EufyGatewayEntity, SwitchEntity):
+    """Expose the persistent camera motion-detection setting."""
+
+    _attr_translation_key = "camera_motion_detection"
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Bind the switch to a camera with verified motion control."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        SwitchEntity.__init__(self)
+        self._attr_unique_id = f"{serial}_camera_motion_detection"
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return the latest camera-reported motion setting."""
+        value = self.camera.get("motionDetectionEnabled")
+        return value if isinstance(value, bool) else None
+
+    async def async_turn_on(self, **kwargs: object) -> None:
+        """Enable camera motion detection and publish confirmed state."""
+        await self._async_set_motion(True)
+
+    async def async_turn_off(self, **kwargs: object) -> None:
+        """Disable camera motion detection and publish confirmed state."""
+        await self._async_set_motion(False)
+
+    async def _async_set_motion(self, enabled: bool) -> None:
+        try:
+            camera = await self.coordinator.client.set_camera_motion_detection(
+                self.serial, enabled
+            )
+            self.coordinator.async_set_camera(camera)
+        except GatewayClientError as error:
+            raise HomeAssistantError(
+                f"Could not change camera motion detection: {error}"
             ) from error

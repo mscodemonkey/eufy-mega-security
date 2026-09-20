@@ -60,6 +60,7 @@ export interface MegaInventoryDevice {
 /** Allowlisted, validated current values retained from one Mega inventory row. */
 export interface MegaInventoryReads {
   readonly enabled?: boolean;
+  readonly motionDetectionEnabled?: boolean;
   readonly batteryLevel?: number;
   readonly batteryCharging?: boolean;
   readonly batteryHealth?: number;
@@ -113,6 +114,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #stations = new Map<string, HomeBaseState>();
   readonly #stationOperations = new Map<string, Promise<HomeBaseState>>();
   readonly #cameraOperations = new Map<string, Promise<CameraIdentity>>();
+  readonly #motionOperations = new Map<string, Promise<CameraIdentity>>();
+  readonly #privacyOperations = new Map<string, Promise<void>>();
   #push: MegaPushReceiver | null = null;
   #events: ProviderEvents | null = null;
   #captchaChallenge: CaptchaChallenge | null = null;
@@ -287,6 +290,100 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return current;
   }
 
+  /** Write the verified 1011 motion switch and publish fresh inventory state. */
+  setCameraMotionDetection(serial: string, enabled: boolean): Promise<CameraIdentity> {
+    const previous = this.#motionOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
+    const current = previous.catch(() => this.#requireCameraIdentity(serial)).then(async () => {
+      const device = this.#devices.get(serial);
+      if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
+      const route = ppcsStreamRoute(device, this.#devices);
+      const peer = route?.peer;
+      const dsk = peer ? this.#dskKeys.get(peer.serial) : null;
+      if (!route?.homeBaseAttached || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
+        throw new Error("Camera motion detection control requires a HomeBase-attached camera");
+      }
+      const session = new FirstPartyPpcsSession({
+        stationSerial: peer.serial,
+        p2pDid: peer.p2pDid,
+        appConnection: peer.p2pConnection,
+        dskKey: dsk.key,
+        channel: device.channel,
+        cameraModel: device.model,
+        accountId: device.adminUserId,
+        homeBaseAttached: true,
+        purpose: "control",
+        maxSeconds: 40,
+        resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
+      });
+      try {
+        await session.start();
+        await session.writeMotionDetection(enabled);
+      } finally {
+        session.close();
+      }
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        await this.#refreshInventoryReads();
+        const refreshed = this.#devices.get(serial);
+        if (refreshed?.reads.motionDetectionEnabled === enabled) return this.#cameraIdentity(refreshed);
+        await delay(2_000);
+      }
+      throw new Error("Camera motion detection write was not confirmed by readback");
+    }).catch((error: unknown) => {
+      logger.warn("camera_motion_detection_failed", `Camera motion command failed: error=${safeError(error)}`);
+      throw error;
+    });
+    this.#motionOperations.set(serial, current);
+    void current.finally(() => {
+      if (this.#motionOperations.get(serial) === current) this.#motionOperations.delete(serial);
+    }).catch(() => undefined);
+    return current;
+  }
+
+  /** Send privacy mode without claiming a readable state. */
+  setCameraPrivacy(serial: string, enabled: boolean): Promise<void> {
+    const previous = this.#privacyOperations.get(serial) ?? Promise.resolve();
+    const current = previous.then(async () => {
+      const device = this.#devices.get(serial);
+      if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
+      const route = ppcsStreamRoute(device, this.#devices);
+      const peer = route?.peer;
+      const dsk = peer ? this.#dskKeys.get(peer.serial) : null;
+      if (!route?.homeBaseAttached || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
+        throw new Error("Camera privacy control requires a HomeBase-attached camera");
+      }
+      const hadActiveStream = this.#ppcsStreams.has(serial);
+      await this.stopStream(serial);
+      const session = new FirstPartyPpcsSession({
+        stationSerial: peer.serial,
+        p2pDid: peer.p2pDid,
+        appConnection: peer.p2pConnection,
+        dskKey: dsk.key,
+        channel: device.channel,
+        cameraModel: device.model,
+        accountId: device.adminUserId,
+        homeBaseAttached: true,
+        purpose: "control",
+        maxSeconds: 40,
+        resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
+      });
+      try {
+        await session.start();
+        await session.writePrivacyMode(enabled);
+      } finally {
+        session.close();
+        if (hadActiveStream) await this.startStream(serial);
+      }
+    }).catch((error: unknown) => {
+      logger.warn("camera_privacy_failed", `Camera privacy command failed: error=${safeError(error)}`);
+      throw error;
+    });
+    this.#privacyOperations.set(serial, current);
+    void current.finally(() => {
+      if (this.#privacyOperations.get(serial) === current) this.#privacyOperations.delete(serial);
+    }).catch(() => undefined);
+    return current;
+  }
+
   #finalizeStream(
     serial: string,
     stream: FirstPartyPpcsSession,
@@ -336,6 +433,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#stationOperations.clear();
     await Promise.allSettled(this.#cameraOperations.values());
     this.#cameraOperations.clear();
+    await Promise.allSettled(this.#privacyOperations.values());
+    this.#privacyOperations.clear();
     this.#events = null;
   }
 
@@ -541,6 +640,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials),
       enabled: device.reads.enabled ?? null,
       enableControlSupported: device.reads.enabled !== undefined
+        && device.channel !== null
+        && device.adminUserId !== null
+        && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+      motionDetectionEnabled: device.reads.motionDetectionEnabled ?? null,
+      motionDetectionControlSupported: device.reads.motionDetectionEnabled !== undefined
         && device.channel !== null
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
@@ -817,6 +921,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const batteryHealth = percentage(1198);
   const openDevice = finiteNumber(params.get(2001));
   const cameraSwitch = finiteNumber(params.get(1035));
+  const motionSwitch = finiteNumber(params.get(1011));
   const enabled = openDevice === 0 || openDevice === 1
     ? openDevice === 1
     : cameraSwitch === 0 || cameraSwitch === 1
@@ -824,6 +929,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
       : undefined;
   return {
     ...(enabled !== undefined ? { enabled } : {}),
+    ...(motionSwitch === 0 || motionSwitch === 1 ? { motionDetectionEnabled: motionSwitch === 1 } : {}),
     ...(batteryLevel !== undefined ? { batteryLevel } : {}),
     ...(batteryStatus !== null ? { batteryCharging: batteryStatus !== 0 && batteryStatus !== 2 } : {}),
     ...(batteryHealth !== undefined ? { batteryHealth } : {}),
@@ -1228,7 +1334,7 @@ export function cameraDetectionKind(eventType: number | null): "motion" | "perso
 
 /** Identify supported Mega doorbells that should expose a press sensor. */
 export function isDoorbellDevice(device: Pick<MegaInventoryDevice, "deviceType" | "category">): boolean {
-  return device.category === "eufy_security" && [5, 7, 91, 94, 203, 10031].includes(device.deviceType ?? -1);
+  return device.category === "eufy_security" && [5, 7, 91, 94, 203].includes(device.deviceType ?? -1);
 }
 
 function isGenericPersonLabel(value: string): boolean {
