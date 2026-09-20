@@ -635,6 +635,60 @@ export class FirstPartyPpcsSession {
     await acknowledgement;
   }
 
+  /** Send the verified 1011 direct-binary motion/PIR switch and await its result. */
+  async writeMotionDetection(enabled: boolean): Promise<void> {
+    if (this.#options.purpose !== "control") throw new Error("Motion control requires a control session");
+    if (!this.#remote) throw new Error("Motion control session is not connected");
+    if (!this.#options.homeBaseAttached) throw new Error("Motion control requires a HomeBase-attached camera");
+    const accountId = this.#options.accountId;
+    if (!accountId) throw new Error("Motion control account identity is unavailable");
+    await this.#waitForLevel2Key();
+    const body = buildCameraEnableBody(this.#options.channel, enabled ? 1 : 0, accountId);
+    const acknowledgement = this.#waitForControlResult(1011);
+    for (let index = 0; index < 3; index += 1) {
+      const sequence = this.#level2Seq++;
+      const encrypted = encryptLevel2(body, this.#level2Key!, sequence);
+      const header = commandHeader(this.#seq++, 1011);
+      this.#send(
+        REQ.data,
+        Buffer.concat([header, rawPayload(encrypted, this.#options.channel, 8, [8, 0], 0)]),
+        this.#remote,
+      );
+      if (index < 2) await delay(200);
+    }
+    await acknowledgement;
+  }
+
+  /**
+   * Send Eufy's write-only privacy-mode burst.
+   *
+   * Privacy mode has no reliable readback field. The reference protocol sends
+   * one camera-info precursor, two station-scoped writes, three camera-scoped
+   * writes, and a final camera-info companion over the HomeBase level-two
+   * session. This method reports only transport completion.
+   */
+  async writePrivacyMode(enabled: boolean): Promise<void> {
+    if (this.#options.purpose !== "control") throw new Error("Privacy control requires a control session");
+    if (!this.#remote) throw new Error("Privacy control session is not connected");
+    if (!this.#options.homeBaseAttached) throw new Error("Privacy control requires a HomeBase-attached camera");
+    const accountId = this.#options.accountId;
+    if (!accountId) throw new Error("Privacy control account identity is unavailable");
+    await this.#waitForLevel2Key();
+    const body = buildPrivacyModeBody(this.#options.channel, enabled, accountId);
+    const cameraInfoPrecursor = Buffer.from("ff00000087030000", "hex");
+    this.#sendLevel2Raw(cameraInfoPrecursor, 255, 1103);
+    await delay(150);
+    for (let index = 0; index < 2; index += 1) {
+      this.#sendLevel2Raw(body, 0, 1350);
+      await delay(150);
+    }
+    for (let index = 0; index < 3; index += 1) {
+      this.#sendLevel2Raw(body, this.#options.channel, 1350);
+      await delay(150);
+    }
+    this.#sendLevel2Raw(cameraInfoPrecursor, 0, 1103);
+  }
+
   /** End the peer session and retain its terminal reason for privacy-safe diagnostics. */
   close(reason: PpcsStreamCloseReason = "client_stop"): void {
     if (this.#closed) return;
@@ -963,6 +1017,17 @@ export class FirstPartyPpcsSession {
     const header = Buffer.concat([DATA.data, u16(this.#seq++), MAGIC, u16le(command)]);
     this.#send(REQ.data, Buffer.concat([header, payload]), this.#remote);
   }
+
+  #sendLevel2Raw(payload: Buffer, channel: number, command: number): void {
+    if (!this.#remote || !this.#level2Key) throw new Error("Privacy control level-two session is unavailable");
+    const encrypted = encryptLevel2(payload, this.#level2Key, this.#level2Seq++);
+    const header = commandHeader(this.#seq++, command);
+    this.#send(
+      REQ.data,
+      Buffer.concat([header, rawPayload(encrypted, channel, 8, [8, 0], 0)]),
+      this.#remote,
+    );
+  }
   #send(type: Buffer, payload: Buffer, address: { host: string; port: number }): void {
     this.#socket.send(Buffer.concat([type, u16(payload.length), payload]), address.port, address.host);
   }
@@ -988,6 +1053,22 @@ export function buildCameraEnableBody(channel: number, value: number, accountId:
   body.writeUInt32LE(value, 4);
   body.write(accountId.slice(0, 128), 8, "ascii");
   return body;
+}
+
+/** Build the JSON body repeated by Eufy's privacy-mode burst. */
+export function buildPrivacyModeBody(channel: number, enabled: boolean, accountId: string): Buffer {
+  if (!accountId) throw new Error("Camera privacy control requires a non-empty account identity");
+  return Buffer.from(JSON.stringify({
+    account_id: accountId,
+    cmd: 6250,
+    mChannel: channel,
+    mValue3: 0,
+    payload: { switch: enabled ? 1 : 0 },
+  }), "utf8");
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function encryptLevel1(plaintext: Buffer, key: Buffer): Buffer {

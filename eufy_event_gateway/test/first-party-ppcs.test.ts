@@ -10,6 +10,7 @@ import test from "node:test";
 
 import {
   buildCameraEnableBody,
+  buildPrivacyModeBody,
   acceptsAttachedCameraMedia,
   buildPpcsCloudLookup,
   buildStandaloneLiveStartPayload,
@@ -24,6 +25,25 @@ import {
   ppcsLookupCandidate,
   ppcsSequenceDisposition,
 } from "../src/stream/first-party-ppcs.js";
+
+test("builds the verified motion switch body with one meaning enabled", () => {
+  const body = buildCameraEnableBody(5, 1, "account-123");
+  assert.equal(body.readUInt32LE(0), 5);
+  assert.equal(body.readUInt32LE(4), 1);
+  assert.equal(body.subarray(8, 20).toString("ascii").replace(/\0+$/, ""), "account-123");
+});
+
+test("builds the write-only privacy mode body without retaining device values", () => {
+  const body = JSON.parse(buildPrivacyModeBody(4, true, "account-123").toString("utf8")) as Record<string, unknown>;
+  assert.deepEqual(body, {
+    account_id: "account-123",
+    cmd: 6250,
+    mChannel: 4,
+    mValue3: 0,
+    payload: { switch: 1 },
+  });
+  assert.equal(JSON.parse(buildPrivacyModeBody(4, false, "account-123").toString("utf8")).payload.switch, 0);
+});
 
 test("builds the two PPCS cloud lookup variants", () => {
   const did = "EUPRCAM-000000-XXXXX";
