@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Admit T8400 and T8419 camera inventory types 30 and 10009 while keeping media and event support evidence-gated.
+- Enable T8224 doorbell-press events after reporter-confirmed type 96 push evidence.
 
 ## 0.1.62
 
