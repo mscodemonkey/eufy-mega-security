@@ -14,10 +14,12 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import EufyGatewayConfigEntry
+from .const import DOMAIN
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity, EufySecuritySensorEntity, EufyStationEntity
 
@@ -29,6 +31,7 @@ async def async_setup_entry(
 ) -> None:
     """Create capability-backed binary entities as devices enter inventory."""
     coordinator = entry.runtime_data.coordinator
+    registry = er.async_get(hass)
     known_cameras: set[str] = set()
     known_stations: set[str] = set()
     known_sensors: set[str] = set()
@@ -39,6 +42,12 @@ async def async_setup_entry(
             known_cameras.update(serials)
             entities = []
             for serial in sorted(serials):
+                if not coordinator.cameras[serial].get("doorbellSupported"):
+                    stale_entity_id = registry.async_get_entity_id(
+                        "binary_sensor", DOMAIN, f"{serial}_doorbell"
+                    )
+                    if stale_entity_id:
+                        registry.async_remove(stale_entity_id)
                 entities.extend(
                     [
                         EufyDetectionSensor(coordinator, serial, "motion"),

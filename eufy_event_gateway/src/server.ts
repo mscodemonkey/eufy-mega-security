@@ -136,6 +136,12 @@ export class GatewayServer {
       }
       if (
         request.method === "POST" &&
+        segments[0] === "api" && segments[1] === "cameras" && segments[3] === "motion-detection" && segments.length === 4
+      ) {
+        return await this.#cameraMotionDetection(request, segments[2]!, response);
+      }
+      if (
+        request.method === "POST" &&
         segments[0] === "api" && segments[1] === "cameras" && segments[3] === "privacy" && segments.length === 4
       ) {
         return await this.#cameraPrivacy(request, segments[2]!, response);
@@ -249,6 +255,13 @@ export class GatewayServer {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     const body = await readJson(request);
     const identity = await this.provider.setCameraEnabled(serial, requiredBoolean(body.enabled));
+    return json(response, 200, this.state.registerCamera(identity));
+  }
+
+  async #cameraMotionDetection(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    const body = await readJson(request);
+    const identity = await this.provider.setCameraMotionDetection(serial, requiredBoolean(body.enabled));
     return json(response, 200, this.state.registerCamera(identity));
   }
 
