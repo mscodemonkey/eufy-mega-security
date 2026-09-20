@@ -13,7 +13,7 @@
  */
 import { join } from "node:path";
 
-import type { BatteryState, CameraIdentity, HomeBaseState, InventoryDiagnostic, SecuritySensorState } from "../domain/types.js";
+import type { BatteryState, CameraIdentity, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
 import { createLogger } from "../logging.js";
 import { MegaClient } from "../mega/client.js";
 import { decodeEventImage, isJpeg } from "../mega/image.js";
@@ -69,6 +69,38 @@ export interface MegaInventoryReads {
   readonly lastChargingDays?: number;
   readonly contactOpen?: boolean;
   readonly lastSeen?: string;
+}
+
+const COLOUR_NIGHT_VISION_MODELS: ReadonlySet<string> = new Set([
+  "T8144",
+  "T8160",
+  "T8162",
+  "T817L",
+  "T8P00",
+  "T8P10",
+]);
+const AUTO_NIGHT_VISION_DOORBELL_MODELS: ReadonlySet<string> = new Set([
+  "T8210",
+  "T8210C",
+]);
+
+function isAutoNightVisionDoorbell(
+  device: Pick<MegaInventoryDevice, "model" | "deviceType" | "category">,
+): boolean {
+  return isDoorbellDevice(device) && AUTO_NIGHT_VISION_DOORBELL_MODELS.has(device.model);
+}
+
+/** Return the three labels used by this non-doorbell camera family. */
+export function nightVisionModes(
+  device: Pick<MegaInventoryDevice, "model" | "reads" | "deviceType" | "category">,
+): readonly NightVisionMode[] {
+  if (device.reads.nightVisionMode === undefined || isDoorbellDevice(device)) return [];
+  const modeZeroName = COLOUR_NIGHT_VISION_MODELS.has(device.model) ? "Colour" : "Off";
+  return [
+    { value: 0, name: modeZeroName },
+    { value: 1, name: "Infrared" },
+    { value: 2, name: "Spotlight" },
+  ];
 }
 
 /** Safe, grouped inventory evidence suitable for copied support logs. */
@@ -343,6 +375,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const device = this.#devices.get(serial);
       if (!device || !isSupportedMegaCamera(device) || device.reads.nightVisionMode === undefined) {
         throw new Error("Night vision control is not supported for this camera");
+      }
+      const supportedModes = isAutoNightVisionDoorbell(device)
+        ? [0, 1]
+        : nightVisionModes(device).map(({ value }) => value);
+      if (!supportedModes.includes(mode)) {
+        throw new Error("The selected night vision mode is not supported for this camera");
       }
       const route = ppcsStreamRoute(device, this.#devices);
       const peer = route?.peer;
@@ -643,7 +681,18 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       nightVisionMode: device.reads.nightVisionMode ?? null,
+      nightVisionModes: nightVisionModes(device),
       nightVisionControlSupported: device.reads.nightVisionMode !== undefined
+        && !isDoorbellDevice(device)
+        && device.channel !== null
+        && device.adminUserId !== null
+        && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === true
+        && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+      autoNightVisionEnabled: isAutoNightVisionDoorbell(device) && device.reads.nightVisionMode !== undefined
+        ? device.reads.nightVisionMode === 1
+        : null,
+      autoNightVisionControlSupported: device.reads.nightVisionMode !== undefined
+        && isAutoNightVisionDoorbell(device)
         && device.channel !== null
         && device.adminUserId !== null
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === true

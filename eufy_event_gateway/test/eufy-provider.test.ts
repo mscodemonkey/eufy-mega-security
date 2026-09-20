@@ -18,6 +18,7 @@ import {
   isDiscoveredHomeBase,
   isDoorbellDevice,
   isPpcsStreamSupported,
+  nightVisionModes,
   parseMegaInventory,
   personNameFromPush,
   ppcsStreamLogSummary,
@@ -155,6 +156,57 @@ test("decodes the reported motion-detection switch without inventing it", () => 
   assert.equal(safeInventoryReads([{ param_type: 1011, param_value: "2" }]).motionDetectionEnabled, undefined);
   assert.equal(safeInventoryReads([{ param_type: 1277, param_value: "2" }]).nightVisionMode, 2);
   assert.equal(safeInventoryReads([{ param_type: 1277, param_value: "3" }]).nightVisionMode, undefined);
+});
+
+test("uses camera-specific labels for the three night modes", () => {
+  assert.deepEqual(nightVisionModes({
+    model: "T8113-Z",
+    deviceType: 8,
+    category: "eufy_security",
+    reads: { nightVisionMode: 1 },
+  }), [
+    { value: 0, name: "Off" },
+    { value: 1, name: "Infrared" },
+    { value: 2, name: "Spotlight" },
+  ]);
+  assert.deepEqual(nightVisionModes({
+    model: "T817L",
+    deviceType: 10031,
+    category: "eufy_security",
+    reads: { nightVisionMode: 0 },
+  }), [
+    { value: 0, name: "Colour" },
+    { value: 1, name: "Infrared" },
+    { value: 2, name: "Spotlight" },
+  ]);
+  assert.deepEqual(nightVisionModes({
+    model: "T8162",
+    deviceType: 19,
+    category: "eufy_security",
+    reads: { nightVisionMode: 0 },
+  }), [
+    { value: 0, name: "Colour" },
+    { value: 1, name: "Infrared" },
+    { value: 2, name: "Spotlight" },
+  ]);
+  assert.deepEqual(nightVisionModes({
+    model: "T8160",
+    deviceType: 19,
+    category: "eufy_security",
+    reads: { nightVisionMode: 0 },
+  })[0], { value: 0, name: "Colour" });
+  assert.deepEqual(nightVisionModes({
+    model: "T8210",
+    deviceType: 7,
+    category: "eufy_security",
+    reads: { nightVisionMode: 1 },
+  }), []);
+  assert.deepEqual(nightVisionModes({
+    model: "T8214",
+    deviceType: 94,
+    category: "eufy_security",
+    reads: { nightVisionMode: 1 },
+  }), []);
 });
 
 test("writes battery and indoor camera enablement with the matching polarity", () => {

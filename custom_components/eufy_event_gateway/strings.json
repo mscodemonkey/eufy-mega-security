@@ -22,7 +22,8 @@
     },
     "switch": {
       "camera_enabled": {"name": "Camera enabled"},
-      "camera_motion_detection": {"name": "Motion detection"}
+      "camera_motion_detection": {"name": "Motion detection"},
+      "auto_night_vision": {"name": "Auto night vision"}
     },
     "siren": {
       "camera_siren": {"name": "Siren"},

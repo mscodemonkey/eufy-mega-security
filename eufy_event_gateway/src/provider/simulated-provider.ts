@@ -65,7 +65,10 @@ export class SimulatedProvider implements CameraProvider {
       motionDetectionEnabled: true,
       motionDetectionControlSupported: true,
       nightVisionMode: 1,
+      nightVisionModes: [{ value: 0, name: "Off" }, { value: 1, name: "Infrared" }, { value: 2, name: "Spotlight" }],
       nightVisionControlSupported: true,
+      autoNightVisionEnabled: null,
+      autoNightVisionControlSupported: false,
       cameraSirenControlSupported: true,
       battery: {
         supported: ["level", "charging", "health", "temperature", "lastChargingDays"],
@@ -139,7 +142,10 @@ export class SimulatedProvider implements CameraProvider {
       enabled,
       enableControlSupported: true,
       nightVisionMode: 1,
+      nightVisionModes: [{ value: 0, name: "Off" }, { value: 1, name: "Infrared" }, { value: 2, name: "Spotlight" }] as const,
       nightVisionControlSupported: true,
+      autoNightVisionEnabled: null,
+      autoNightVisionControlSupported: false,
       cameraSirenControlSupported: true,
       battery: {
         supported: ["level", "charging", "health", "temperature", "lastChargingDays"] as const,
@@ -169,7 +175,10 @@ export class SimulatedProvider implements CameraProvider {
       motionDetectionEnabled: enabled,
       motionDetectionControlSupported: true,
       nightVisionMode: 1,
+      nightVisionModes: [{ value: 0, name: "Off" }, { value: 1, name: "Infrared" }, { value: 2, name: "Spotlight" }] as const,
       nightVisionControlSupported: true,
+      autoNightVisionEnabled: null,
+      autoNightVisionControlSupported: false,
       cameraSirenControlSupported: true,
     };
     this.#events?.camera(identity);
@@ -194,7 +203,10 @@ export class SimulatedProvider implements CameraProvider {
       motionDetectionEnabled: true,
       motionDetectionControlSupported: true,
       nightVisionMode: mode,
+      nightVisionModes: [{ value: 0, name: "Off" }, { value: 1, name: "Infrared" }, { value: 2, name: "Spotlight" }] as const,
       nightVisionControlSupported: true,
+      autoNightVisionEnabled: null,
+      autoNightVisionControlSupported: false,
       cameraSirenControlSupported: true,
     };
     this.#events?.camera(identity);

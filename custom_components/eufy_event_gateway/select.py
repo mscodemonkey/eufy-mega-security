@@ -7,16 +7,17 @@ from confirmed gateway responses and never represent optimistic local state.
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
-from .const import ALARM_TONES, GUARD_MODES, NIGHT_VISION_MODES
+from .const import ALARM_TONES, DOMAIN, GUARD_MODES
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity, EufyStationEntity
 
@@ -28,10 +29,22 @@ async def async_setup_entry(
 ) -> None:
     """Create reported night-vision and managed HomeBase selects."""
     coordinator = entry.runtime_data.coordinator
+    registry = er.async_get(hass)
     known_stations: set[str] = set()
     known_night_vision: set[str] = set()
 
     def add_new() -> None:
+        for serial, camera in coordinator.cameras.items():
+            if camera.get("autoNightVisionControlSupported") is not True:
+                continue
+            obsolete_unique_id = f"{serial}_night_vision"
+            for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+                if (
+                    entity.domain == "select"
+                    and entity.platform == DOMAIN
+                    and entity.unique_id == obsolete_unique_id
+                ):
+                    registry.async_remove(entity.entity_id)
         serials = {
             serial
             for serial, station in coordinator.stations.items()
@@ -52,7 +65,7 @@ async def async_setup_entry(
             serial
             for serial, camera in coordinator.cameras.items()
             if camera.get("nightVisionControlSupported") is True
-            and camera.get("nightVisionMode") in NIGHT_VISION_MODES
+            and camera.get("nightVisionMode") in _night_vision_modes(camera)
         } - known_night_vision
         if camera_serials:
             known_night_vision.update(camera_serials)
@@ -69,7 +82,6 @@ class EufyNightVisionSelect(EufyGatewayEntity, SelectEntity):
     """Expose night-vision modes reported by a HomeBase-attached camera."""
 
     _attr_translation_key = "camera_night_vision"
-    _attr_options: ClassVar[list[str]] = list(NIGHT_VISION_MODES.values())
 
     def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
         """Bind the select to a camera with a confirmed control route."""
@@ -81,12 +93,17 @@ class EufyNightVisionSelect(EufyGatewayEntity, SelectEntity):
     def current_option(self) -> str | None:
         """Return the camera-reported night-vision mode."""
         mode = self.camera.get("nightVisionMode")
-        return NIGHT_VISION_MODES.get(mode) if isinstance(mode, int) else None
+        return _night_vision_modes(self.camera).get(mode) if isinstance(mode, int) else None
+
+    @property
+    def options(self) -> list[str]:
+        """Return only the night modes this camera reports it can use."""
+        return list(_night_vision_modes(self.camera).values())
 
     async def async_select_option(self, option: str) -> None:
         """Set the mode and publish it only after cloud readback confirms it."""
         mode = next(
-            (value for value, label in NIGHT_VISION_MODES.items() if label == option),
+            (value for value, label in _night_vision_modes(self.camera).items() if label == option),
             None,
         )
         if mode is None:
@@ -100,6 +117,22 @@ class EufyNightVisionSelect(EufyGatewayEntity, SelectEntity):
             raise HomeAssistantError(
                 f"Could not change night-vision mode: {error}"
             ) from error
+
+
+def _night_vision_modes(camera: dict[str, Any]) -> dict[int, str]:
+    """Return the camera-specific value and label pairs supplied by the gateway."""
+    raw_modes = camera.get("nightVisionModes")
+    if not isinstance(raw_modes, list):
+        return {}
+    modes: dict[int, str] = {}
+    for raw_mode in raw_modes:
+        if not isinstance(raw_mode, dict):
+            continue
+        value = raw_mode.get("value")
+        name = raw_mode.get("name")
+        if isinstance(value, int) and not isinstance(value, bool) and isinstance(name, str):
+            modes[value] = name
+    return modes
 
 
 class EufyGuardModeSelect(EufyStationEntity, SelectEntity):

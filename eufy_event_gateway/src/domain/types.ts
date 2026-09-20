@@ -62,7 +62,10 @@ export interface CameraState {
   readonly motionDetectionEnabled: boolean | null;
   readonly motionDetectionControlSupported: boolean;
   readonly nightVisionMode: number | null;
+  readonly nightVisionModes: readonly NightVisionMode[];
   readonly nightVisionControlSupported: boolean;
+  readonly autoNightVisionEnabled: boolean | null;
+  readonly autoNightVisionControlSupported: boolean;
   readonly cameraSirenControlSupported: boolean;
   readonly motionDetected: boolean;
   readonly personDetected: boolean;
@@ -83,6 +86,12 @@ export interface CameraState {
     readonly startedAt: string | null;
     readonly lastError: string | null;
   };
+}
+
+/** One camera-specific label for a raw night-vision mode value. */
+export interface NightVisionMode {
+  readonly value: number;
+  readonly name: "Off" | "Colour" | "Infrared" | "Spotlight";
 }
 
 /** Normalized battery reads exposed only when a device reports each field. */
@@ -167,7 +176,10 @@ export interface CameraIdentity {
   readonly motionDetectionEnabled?: boolean | null;
   readonly motionDetectionControlSupported?: boolean;
   readonly nightVisionMode?: number | null;
+  readonly nightVisionModes?: readonly NightVisionMode[];
   readonly nightVisionControlSupported?: boolean;
+  readonly autoNightVisionEnabled?: boolean | null;
+  readonly autoNightVisionControlSupported?: boolean;
   readonly cameraSirenControlSupported?: boolean;
   readonly battery?: BatteryState | null;
 }

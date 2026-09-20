@@ -1,7 +1,7 @@
-"""Confirmed camera enablement controls for Eufy Mega Security.
+"""Confirmed camera switch controls for Eufy Mega Security.
 
 The gateway owns protocol writes and cloud readback. This platform creates a
-switch only when a camera reports an enablement value and has a complete
+switch only when a camera reports the corresponding setting and has a complete
 control route, then publishes state only from the confirmed gateway response.
 """
 
@@ -23,10 +23,11 @@ async def async_setup_entry(
     entry: EufyGatewayConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Create enablement switches as supported cameras enter inventory."""
+    """Create reported camera switches as supported devices enter inventory."""
     coordinator = entry.runtime_data.coordinator
     known_enabled: set[str] = set()
     known_motion: set[str] = set()
+    known_auto_night_vision: set[str] = set()
 
     def add_new() -> None:
         serials = {
@@ -52,6 +53,18 @@ async def async_setup_entry(
             async_add_entities(
                 EufyCameraMotionSwitch(coordinator, serial)
                 for serial in sorted(motion_serials)
+            )
+        auto_night_vision_serials = {
+            serial
+            for serial, camera in coordinator.cameras.items()
+            if camera.get("autoNightVisionControlSupported") is True
+            and isinstance(camera.get("autoNightVisionEnabled"), bool)
+        } - known_auto_night_vision
+        if auto_night_vision_serials:
+            known_auto_night_vision.update(auto_night_vision_serials)
+            async_add_entities(
+                EufyAutoNightVisionSwitch(coordinator, serial)
+                for serial in sorted(auto_night_vision_serials)
             )
 
     add_new()
@@ -129,4 +142,41 @@ class EufyCameraMotionSwitch(EufyGatewayEntity, SwitchEntity):
         except GatewayClientError as error:
             raise HomeAssistantError(
                 f"Could not change camera motion detection: {error}"
+            ) from error
+
+
+class EufyAutoNightVisionSwitch(EufyGatewayEntity, SwitchEntity):
+    """Expose a doorbell's reported Auto night vision setting."""
+
+    _attr_translation_key = "auto_night_vision"
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Bind the switch to a doorbell with a confirmed control route."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        SwitchEntity.__init__(self)
+        self._attr_unique_id = f"{serial}_auto_night_vision"
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return the latest doorbell-reported Auto night vision state."""
+        value = self.camera.get("autoNightVisionEnabled")
+        return value if isinstance(value, bool) else None
+
+    async def async_turn_on(self, **kwargs: object) -> None:
+        """Enable Auto night vision and publish only confirmed state."""
+        await self._async_set_auto_night_vision(True)
+
+    async def async_turn_off(self, **kwargs: object) -> None:
+        """Disable Auto night vision and publish only confirmed state."""
+        await self._async_set_auto_night_vision(False)
+
+    async def _async_set_auto_night_vision(self, enabled: bool) -> None:
+        try:
+            camera = await self.coordinator.client.set_camera_night_vision(
+                self.serial, 1 if enabled else 0
+            )
+            self.coordinator.async_set_camera(camera)
+        except GatewayClientError as error:
+            raise HomeAssistantError(
+                f"Could not change Auto night vision: {error}"
             ) from error

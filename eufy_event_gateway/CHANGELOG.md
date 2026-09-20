@@ -1,10 +1,14 @@
 # Changelog
 
+## 0.1.69
+
+- Mirror device-specific night controls, using Colour on known low-light colour models, Off on spotlight-only cameras, and an Auto night vision switch for doorbells.
+
 ## 0.1.68
 
 - Use HomeBase 3's usable HDD capacity and decimal used-space value so total and free storage match the Eufy app.
 - Admit eufyCam 2 model T8114 with Mega device type 9 through an available HomeBase camera route.
-- Add a night-vision mode select for HomeBase-attached cameras that report the setting, with cloud-confirmed Off, Infrared, and Full colour changes.
+- Add a night-vision mode select for HomeBase-attached cameras that report the setting.
 - Refresh existing Home Assistant device names when Eufy inventory reports a rename, while preserving Home Assistant user overrides.
 
 ## 0.1.67
