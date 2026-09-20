@@ -300,6 +300,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (!route?.homeBaseAttached || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
         throw new Error("Camera privacy control requires a HomeBase-attached camera");
       }
+      const hadActiveStream = this.#ppcsStreams.has(serial);
       await this.stopStream(serial);
       const session = new FirstPartyPpcsSession({
         stationSerial: peer.serial,
@@ -319,6 +320,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         await session.writePrivacyMode(enabled);
       } finally {
         session.close();
+        if (hadActiveStream) await this.startStream(serial);
       }
     }).catch((error: unknown) => {
       logger.warn("camera_privacy_failed", `Camera privacy command failed: error=${safeError(error)}`);
