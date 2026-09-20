@@ -39,6 +39,7 @@ If you are new to the project, read [`DEVELOPERS_START_HERE.md`](DEVELOPERS_STAR
 | `eufy_event_gateway/src/provider/{sensor,homebase,doorbell}-capability-core.ts` | Small core family lookups. |
 | `eufy_event_gateway/src/provider/device-capability-core.ts` | Shared row shape used by each family definition file. |
 | `eufy_event_gateway/src/provider/device-capabilities-core.ts` | Shared evaluator for all camera, sensor, HomeBase, and doorbell core lookups; separates evidence from support without admitting unsupported devices. |
+| `eufy_event_gateway/src/provider/devices/` | Typed compatibility catalogue for device models, HomeBase topologies, capabilities, quirks, and versioned evidence. |
 | `eufy_event_gateway/src/provider/simulated-provider.ts` | Deterministic provider for local UI, API, SSE, and lifecycle testing without an Eufy account. |
 
 ### Mega protocol
