@@ -72,7 +72,7 @@ export class PpcsAccessUnitAssembler {
   push(payload: Buffer, decode: (payload: Buffer) => Buffer | undefined): PpcsAccessUnit[] {
     const header = parsePpcsVideoFrameHeader(payload);
     const body = header ? decode(payload) : undefined;
-    if (!header || !body || body.length !== header.payloadLength || body.length === 0) {
+    if (!header || !body || body.length === 0) {
       this.#discard();
       return [];
     }

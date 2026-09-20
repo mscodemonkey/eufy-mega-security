@@ -36,6 +36,17 @@ test("parses the repeated access-unit identity and per-chunk length", () => {
   });
 });
 
+test("keeps a decoded non-empty unit when the transport length does not match", () => {
+  const body = Buffer.concat([START_CODE, Buffer.from([0x65, 0x44])]);
+  const payload = frame(body);
+  payload.writeUInt32LE(body.length + 16, 0);
+  const assembler = new PpcsAccessUnitAssembler();
+
+  const units = assembler.push(payload, (value) => value.subarray(22));
+  assert.equal(units.length, 1);
+  assert.deepEqual(units[0]?.data, body);
+});
+
 test("joins a full chunk and a continuation into one access unit", () => {
   const head = Buffer.concat([START_CODE, Buffer.from([0x67, 0x42]), Buffer.alloc(PPCS_STATION_CHUNK_BYTES - 6, 0x11)]);
   const tail = Buffer.alloc(5, 0x22);
