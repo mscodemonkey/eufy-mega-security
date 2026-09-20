@@ -6,7 +6,7 @@
  * explicitly selected HomeBase camera and reports only transport completion.
  */
 import { MegaClient } from "../src/mega/client.js";
-import { parseMegaInventory, isSupportedMegaCamera } from "../src/provider/eufy-provider.js";
+import { cameraEnableRawValue, parseMegaInventory, isSupportedMegaCamera } from "../src/provider/eufy-provider.js";
 import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 
 const username = process.env.EUFY_USERNAME;
@@ -17,7 +17,9 @@ const dataDirectory = process.env.EUFY_GATEWAY_DATA_DIR ?? "./data";
 
 if (!username || !password) throw new Error("EUFY_USERNAME and EUFY_PASSWORD are required (values are never printed)");
 if (!serial) throw new Error("EUFY_PPCS_SERIAL is required");
-if (requestedMode !== "on" && requestedMode !== "off") throw new Error("EUFY_PPCS_PRIVACY_MODE must be on or off");
+if (requestedMode !== "on" && requestedMode !== "off" && requestedMode !== "restore") {
+  throw new Error("EUFY_PPCS_PRIVACY_MODE must be on, off, or restore");
+}
 
 const client = new MegaClient({
   email: username,
@@ -64,7 +66,8 @@ const session = new FirstPartyPpcsSession({
 
 try {
   await session.start();
-  await session.writePrivacyMode(requestedMode === "on");
+  if (requestedMode === "restore") await session.writeCameraEnabled(cameraEnableRawValue(camera.deviceType, true));
+  else await session.writePrivacyMode(requestedMode === "on");
   console.log(JSON.stringify({ status: "passed", evidence_scope: "direct_ppcs_transport", requested: requestedMode }));
 } finally {
   session.close();
