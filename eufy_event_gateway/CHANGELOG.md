@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Admit T8400 and T8419 camera inventory types 30 and 10009 while keeping media and event support evidence-gated.
+
 ## 0.1.62
 
 - Add confirmed camera motion-detection switches for supported HomeBase-attached cameras.

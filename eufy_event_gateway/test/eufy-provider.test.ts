@@ -338,6 +338,15 @@ test("admits T8224 type 96 as a camera without granting unverified press support
   assert.equal(isDoorbellDevice(doorbell), false);
 });
 
+test("admits the T8400 and T8419 camera types without inventing doorbell support", () => {
+  const devices = parseMegaInventory({ devices: [
+    { device_sn: "t8400", device_model: "T8400", device_type: 30, category: "eufy_security" },
+    { device_sn: "t8419", device_model: "T8419", device_type: 10009, category: "eufy_security" },
+  ] });
+  assert.deepEqual(devices.map((device) => inventoryDiagnostics([device])[0]?.acceptedAsCamera), [true, true]);
+  assert.deepEqual(devices.map((device) => isDoorbellDevice(device)), [false, false]);
+});
+
 test("admits newly reported camera families through a ready HomeBase 3", () => {
   const devices = parseMegaInventory({ devices: [
     {
