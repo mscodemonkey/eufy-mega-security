@@ -52,6 +52,7 @@ serials, credentials, snapshots, and videos stay outside the repository.
 | Indoor Cam 2K | T8400, type 30 | `unverified` | `implemented` | `unverified` | `unverified` | Admission added in v0.1.63. Awaiting hardware confirmation. |
 | Indoor Cam 2K Pan&Tilt | T8419, type 10009 | `unverified` | `implemented` | `unverified` | `unverified` | Admission added in v0.1.63. Awaiting hardware confirmation. |
 | eufyCam C37 | T814X, type 10037 | `unverified` | `implemented` | `unverified` | `unverified` | Admission added through a ready HomeBase 3 route. Hardware confirmation is outstanding. |
+| eufyCam E40 | T8144, type 49 | `implemented` | `unverified` | `unverified` | `unverified` | Admission added for HomeBase 2. Hardware discovery, snapshots, and live video still need reporter confirmation. |
 
 ## Doorbells and video locks
 

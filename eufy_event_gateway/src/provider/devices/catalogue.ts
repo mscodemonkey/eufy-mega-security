@@ -109,6 +109,10 @@ export const DEVICE_COMPATIBILITY: readonly DeviceCompatibility[] = [
     topologies: { homebase3: { status: "implemented", capabilities: { discovery: "implemented", snapshots: "unverified", liveVideo: "unverified" } } }, evidence: [],
   },
   {
+    family: "camera", marketingName: "eufyCam E40", eufyModel: "T8144", deviceTypes: [49],
+    topologies: { homebase2: { status: "implemented", capabilities: { discovery: "implemented", snapshots: "unverified", liveVideo: "unverified" }, quirks: ["Admission is implemented from the reference device identity. Hardware media confirmation is outstanding."] } }, evidence: [],
+  },
+  {
     family: "doorbell", marketingName: "Video Doorbell C30", eufyModel: "T8224", deviceTypes: [96],
     topologies: { direct: { status: "implemented", capabilities: { discovery: "implemented", doorbellPress: "implemented", liveVideo: "unverified" } } },
     evidence: [{ status: "community-tested", date: "2026-09-20", appVersion: "0.1.59", integrationVersion: "0.1.59", githubUser: "lsnewman", issue: 83, capabilities: ["discovery", "doorbellPress"], note: "Type 96 and event_type=3103 supplied by the reporter. Press handling released in 0.1.63." }],

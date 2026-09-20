@@ -120,6 +120,17 @@ test("describes only battery reads reported by this camera", () => {
   ]);
 });
 
+test("admits the EufyCam E40 camera type", () => {
+  const manifest = describeCameraCapabilities({
+    serial: "e40", model: "T8144", category: "eufy_security", deviceType: 49, paramTypes: [],
+  }, { doorbellSupported: false, streamSupported: true });
+
+  assert.equal(manifest.acceptedAsCamera, true);
+  assert.equal(manifest.reviewCandidate, false);
+  assert.equal(manifest.peerRouteReady, true);
+  assert.equal(manifest.capabilities.some(({ id }) => id === "liveVideo"), true);
+});
+
 test("keeps advanced research out of the published device matrix", () => {
   const manifest = describeCameraCapabilities({
     serial: "indoor", model: "T8410", category: "eufy_security", deviceType: 31,

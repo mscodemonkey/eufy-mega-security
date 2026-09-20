@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.64
+
+- Admit eufyCam E40 inventory type 49 through the existing HomeBase 2 camera route. Discovery and media still need reporter confirmation.
+
 ## 0.1.63
 
 - Admit T8400 and T8419 camera inventory types 30 and 10009 while keeping media and event support evidence-gated.
