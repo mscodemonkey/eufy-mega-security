@@ -16,6 +16,7 @@
     "start": "node dist/main.js",
     "poc:ppcs": "tsx scripts/ppcs-probe.ts",
     "poc:privacy": "tsx scripts/privacy-probe.ts",
+    "poc:motion": "tsx scripts/motion-probe.ts",
     "test": "node --import tsx --test 'test/**/*.test.ts'",
     "test:shell": "sh -n run.sh",
     "typecheck": "tsc --noEmit"
