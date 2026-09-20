@@ -6,12 +6,15 @@ provider path and a real-device result both exist.
 
 ## Ready to investigate
 
-- [ ] Add preset-position support for Front of House, after confirming the
-  device model and the SDK command/readback shape.
-- [ ] Add auto-cruise control for Front of House, with a confirmed command
-  acknowledgement and readback path.
-- [ ] Add AI-tracking control for Front of House, keeping it separate from
-  motion detection and privacy mode.
+- [ ] Identify the PTZ camera intended for preset-position, auto-cruise, and
+  AI-tracking work. The local Front of House camera is T817L, while the SDK
+  currently proves PTZ presets for T8170, T8171, and T8410 families.
+- [ ] Add preset-position support for the identified PTZ camera, after
+  confirming the model and SDK command/readback shape.
+- [ ] Add auto-cruise control for the identified PTZ camera, with a confirmed
+  command acknowledgement and readback path.
+- [ ] Add AI-tracking control for the identified PTZ camera, keeping it
+  separate from motion detection and privacy mode.
 - [ ] Investigate privacy-mode control for Indoor Cam S350 T8416. Track the
   physical camera state separately from the Home Assistant entity state.
 - [ ] Investigate the shared media parser failures now reported for T8400,
