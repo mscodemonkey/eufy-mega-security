@@ -232,7 +232,7 @@ export class MegaClient {
     return output;
   }
 
-  /** Fetch the ECC private keys used to unwrap a station's level-2 PPCS session key. */
+  /** Fetch the ECC private keys used by direct media or a station's level-two PPCS session. */
   async getCiphers(cipherIds: readonly number[], userId: string, stationSerial: string): Promise<readonly Record<string, unknown>[]> {
     this.#requireAuthentication();
     const result = await this.#call("security", "/v3/app/cipher/get_ciphers", {

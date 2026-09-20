@@ -97,20 +97,14 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Publish a new image URL after a stream leaves a fresher retained still.
+        """Publish a new image URL after a fresher retained still is committed.
 
-        The gateway extracts and stores JPEGs while streaming. Home Assistant's
-        camera proxy URL remains cacheable until its access token changes, so a
-        coordinator update alone can leave the pre-stream image on screen. Wait
-        until the media session settles to rotate the token once, avoiding a new
-        entity-picture URL for every frame extracted during the live session.
+        Snapshot revisions are atomic retained-media commits. Rotating the token
+        for every revision keeps event-driven stills visible even when a stream
+        is active, while the published revision prevents duplicate rotations.
         """
         revision = self._snapshot_revision
-        stream_state = (self.camera.get("stream") or {}).get("state")
-        if (
-            revision != self._published_snapshot_revision
-            and stream_state in ("idle", "error")
-        ):
+        if revision != self._published_snapshot_revision:
             self._published_snapshot_revision = revision
             self.async_update_token()
         super()._handle_coordinator_update()

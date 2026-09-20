@@ -13,6 +13,7 @@
 import { createCipheriv, createDecipheriv, createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes, timingSafeEqual } from "node:crypto";
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
+import { PpcsAccessUnitAssembler } from "./ppcs-access-unit-assembler.js";
 
 // PPCS wraps command payloads in an XZYH header. The outer D1 datagrams and
 // these inner command frames use different sequence numbers and byte order.
@@ -437,6 +438,8 @@ export interface PpcsCameraOptions {
   readonly cameraModel: string;
   readonly accountId: string | null;
   readonly homeBaseAttached?: boolean;
+  readonly cipherId?: number | null;
+  readonly initialEccPrivateKey?: string;
   readonly resolveCipherKey?: (cipherId: number) => Promise<string | undefined>;
   readonly maxSeconds?: number;
 
@@ -485,6 +488,8 @@ export class FirstPartyPpcsSession {
     level2: 0,
     videoFrames: 0,
     videoOutputFrames: 0,
+    incompleteAccessUnits: 0,
+    incompleteAccessUnitBytes: 0,
     foreignVideoFrames: 0,
     batteryHistory: "not-reported",
     firstDataHex: "",
@@ -529,6 +534,11 @@ export class FirstPartyPpcsSession {
   #gatewayPromise: Promise<void> | null = null;
   #lastSequenceByType = new Map<number, number>();
   readonly #videoNormalizer = new PpcsVideoStreamNormalizer();
+  readonly #videoAssembler = new PpcsAccessUnitAssembler((drop) => {
+    this.stats.incompleteAccessUnits++;
+    this.stats.incompleteAccessUnitBytes += drop.carriedBytes;
+    this.#recordVideoResult("incomplete-access-unit-dropped");
+  });
   #lastAttachedMediaFrameAt: number | null = null;
   #heartbeat: ReturnType<typeof setInterval> | null = null;
   #lookupTimer: ReturnType<typeof setInterval> | null = null;
@@ -536,7 +546,11 @@ export class FirstPartyPpcsSession {
   #pendingControl: PendingControl | null = null;
 
   /** Create a session; no socket is bound until {@link start} runs. */
-  constructor(options: PpcsCameraOptions) { this.#options = options; }
+  constructor(options: PpcsCameraOptions) {
+    this.#options = options;
+    if (options.cipherId !== undefined && options.cipherId !== null) this.stats.cipherId = options.cipherId;
+    if (options.initialEccPrivateKey) this.#videoDecoder.setEccPrivateKey(options.initialEccPrivateKey);
+  }
 
   /** Bind UDP, perform lookup and handshake, then start heartbeats. */
   async start(): Promise<void> {
@@ -635,6 +649,7 @@ export class FirstPartyPpcsSession {
       this.#pendingControl.reject(new Error("Camera control session closed before acknowledgement"));
       this.#pendingControl = null;
     }
+    this.#videoAssembler.reset();
     if (this.#remote) this.#send(REQ.end, Buffer.alloc(0), this.#remote);
     this.#socket.close();
     this.output.end();
@@ -800,25 +815,32 @@ export class FirstPartyPpcsSession {
       this.#recordVideoResult("short");
       return false;
     }
-    const decoded = this.#videoDecoder.decode(frame, signCode);
+    let decoded: DecodedPpcsVideoFrame | undefined;
+    const units = this.#videoAssembler.push(frame, (payload) => {
+      decoded = this.#videoDecoder.decode(payload, signCode);
+      return decoded?.data;
+    });
     if (!decoded?.data.length) {
       this.#recordVideoResult(signCode > 0 ? "encrypted-frame-rejected" : "plaintext-frame-rejected");
       return false;
     }
-    const video = decoded.data;
-    const normalized = this.#videoNormalizer.push(video);
-    this.stats.videoCodec = this.#videoNormalizer.codec;
-    this.stats.videoNalTypes = [...this.#videoNormalizer.nalTypes];
-    if (normalized.length === 0) {
-      this.#recordVideoResult("framing-prefix-buffered");
-      return false;
+    let wrote = false;
+    for (const unit of units) {
+      const normalized = this.#videoNormalizer.push(unit.data);
+      this.stats.videoCodec = this.#videoNormalizer.codec;
+      this.stats.videoNalTypes = [...this.#videoNormalizer.nalTypes];
+      if (normalized.length === 0) {
+        this.#recordVideoResult("framing-prefix-buffered");
+        continue;
+      }
+      this.output.write(normalized);
+      this.stats.videoOutputFrames++;
+      const framing = this.#videoNormalizer.framing;
+      const result = decoded.protection === "clear" ? "written-clear" : `written-${decoded.protection}`;
+      this.#recordVideoResult(`${result}-${framing}`);
+      wrote = true;
     }
-    this.output.write(normalized);
-    this.stats.videoOutputFrames++;
-    const framing = this.#videoNormalizer.framing;
-    const result = decoded.protection === "clear" ? "written-clear" : `written-${decoded.protection}`;
-    this.#recordVideoResult(`${result}-${framing}`);
-    return true;
+    return wrote;
   }
 
   #recordVideoResult(result: string): void {

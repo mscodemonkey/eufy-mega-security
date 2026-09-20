@@ -162,7 +162,7 @@ The session needs:
 - station DSK from `get_dsk_keys`;
 - camera channel and model;
 - account/admin ID for the media request;
-- ECC cipher lookup for HomeBase-attached level-two setup;
+- cipher lookup for the camera's direct authenticated media or HomeBase-attached level-two setup;
 - a maximum session duration.
 
 ### Handshake and media
@@ -172,11 +172,11 @@ The session needs:
 3. Send `CAM_CHECK` to each responding address.
 4. Accept the first matching `CAM_ID`; this proves reachability, not video.
 5. Send the start command for the camera's media route.
-6. For HomeBase cameras, decrypt the `1100` gateway-info command, fetch the referenced ECC key from Mega, unwrap the level-two AES key, and send the encrypted `1350` media-start JSON.
-7. Acknowledge data datagrams, reassemble `XZYH` frames by type/sequence, unwrap the per-stream RSA-negotiated video key, and emit H.264 payloads from `1300` media frames.
+6. For direct authenticated cameras, resolve the camera-record cipher ID before media decoding. For HomeBase cameras, decrypt the `1100` gateway-info command, fetch its referenced ECC key from Mega, unwrap the level-two AES key, and send the encrypted `1350` media-start JSON.
+7. Acknowledge data datagrams, reassemble `XZYH` frames by type/sequence, decode every `1300` video chunk, and reassemble station-split chunks into complete access units before normalising their H.264 or H.265 framing.
 8. Send heartbeats and close the UDP socket/output stream when the consumer releases it or the maximum lifetime expires.
 
-The session exposes counters for `camId`, data datagrams, command headers, gateway-info frames, level-two completion, video frames, and errors. Those counters are essential when a battery camera completes lookup but has no charge or does not send media.
+The session exposes counters for `camId`, data datagrams, command headers, gateway-info frames, level-two completion, transport video chunks, complete output units, incomplete units dropped, and errors. A station-split access unit is identified by its repeated sequence and timestamp fields. Full 64,000-byte chunks are retained until a shorter continuation arrives. A continuation without an Annex-B start code is appended only when its identity matches the open unit. If the tail is lost, the incomplete bytes are dropped and only structural counts are reported. Those counters are essential when a battery camera completes lookup but has no charge or does not send media.
 
 ## Home Assistant conversion
 

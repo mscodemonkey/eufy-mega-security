@@ -24,6 +24,7 @@ import { cameraCapabilityLogSummaries, describeCameraCapabilities, isSupportedCa
 import { hasMainsBatterySentinel } from "./camera-capability-core.js";
 import type { CameraProvider, CaptchaChallenge, CaptchaProvider, ProviderEvents } from "./provider.js";
 import { PushEventDeduplicator } from "./push-event-deduplicator.js";
+import { resolveDeviceRoute } from "./device-routing.js";
 
 const logger = createLogger("provider");
 
@@ -128,6 +129,23 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     });
   }
 
+  async #resolveCipherKey(cipherId: number, peer: MegaInventoryDevice): Promise<string | undefined> {
+    const cached = this.#cipherKeys.get(cipherId);
+    if (cached) return cached;
+    if (!peer.adminUserId) return undefined;
+    try {
+      const ciphers = await this.#client.getCiphers([cipherId], peer.adminUserId, peer.serial);
+      for (const cipher of ciphers) {
+        const id = typeof cipher.cipher_id === "number" ? cipher.cipher_id : Number(cipher.cipher_id);
+        const key = typeof cipher.ecc_private_key === "string" ? cipher.ecc_private_key : "";
+        if (Number.isInteger(id) && key) this.#cipherKeys.set(id, key);
+      }
+    } catch (error) {
+      logger.warn("cipher_lookup_unavailable", `Mega cipher lookup unavailable: ${safeError(error)}`);
+    }
+    return this.#cipherKeys.get(cipherId);
+  }
+
   async start(events: ProviderEvents): Promise<void> {
     this.#events = events;
     const auth = await this.#client.connect(this.config.verifyCode);
@@ -153,28 +171,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     // The production path is deliberately first-party Mega/PPCS.
     if (route && peer?.p2pDid && peer.p2pConnection && dsk && device.channel !== null) {
       this.#ppcsStreams.get(serial)?.close("replaced");
+      const initialEccPrivateKey = !route.homeBaseAttached && device.cipherId !== null
+        ? await this.#resolveCipherKey(device.cipherId, peer)
+        : undefined;
       const stream = new FirstPartyPpcsSession({
         stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
         dskKey: dsk.key, channel: device.channel, cameraModel: device.model, accountId: device.adminUserId,
         homeBaseAttached: route.homeBaseAttached,
-        ...(route.homeBaseAttached ? {
-          resolveCipherKey: async (cipherId: number) => {
-            const cached = this.#cipherKeys.get(cipherId);
-            if (cached) return cached;
-            if (!peer.adminUserId) return undefined;
-            try {
-              const ciphers = await this.#client.getCiphers([cipherId], peer.adminUserId, peer.serial);
-              for (const cipher of ciphers) {
-                const id = typeof cipher.cipher_id === "number" ? cipher.cipher_id : Number(cipher.cipher_id);
-                const key = typeof cipher.ecc_private_key === "string" ? cipher.ecc_private_key : "";
-                if (Number.isInteger(id) && key) this.#cipherKeys.set(id, key);
-              }
-            } catch (error) {
-              logger.warn("cipher_lookup_unavailable", `Mega cipher lookup unavailable: ${safeError(error)}`);
-            }
-            return this.#cipherKeys.get(cipherId);
-          },
-        } : {}),
+        cipherId: device.cipherId,
+        ...(initialEccPrivateKey ? { initialEccPrivateKey } : {}),
+        resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
         maxSeconds: this.config.maxStreamSeconds,
       });
       this.#ppcsStreams.set(serial, stream);
@@ -1068,11 +1074,8 @@ export function ppcsStreamRoute(
   device: MegaInventoryDevice,
   devicesBySerial: ReadonlyMap<string, MegaInventoryDevice>,
 ): PpcsStreamRoute | null {
-  if (!device.parentSerial || device.parentSerial === device.serial) {
-    return { peer: device, homeBaseAttached: false };
-  }
-  const station = devicesBySerial.get(device.parentSerial);
-  return station ? { peer: station, homeBaseAttached: true } : null;
+  const route = resolveDeviceRoute(device, devicesBySerial);
+  return route ? { peer: route.peer, homeBaseAttached: route.homeBaseAttached } : null;
 }
 
 /** Return whether the selected PPCS peer has every prerequisite to stream. */
@@ -1103,7 +1106,7 @@ export function isPpcsRouteReady(
 export function ppcsStreamLogSummary(
   model: string,
   route: PpcsStreamRoute | null,
-  stats: Pick<FirstPartyPpcsSession["stats"], "camId" | "dataDatagrams" | "frameHeaders" | "videoFrames"> & Partial<Pick<FirstPartyPpcsSession["stats"], "batteryHistory" | "closeReason" | "commands" | "duplicateDatagrams" | "foreignVideoFrames" | "frameShapes" | "mediaStartAttempts" | "parserBlocked" | "parserResyncs" | "pendingBytes" | "sequenceGaps" | "sequenceRestarts" | "staleDatagrams" | "types" | "videoCodec" | "videoNalTypes" | "videoOutputFrames" | "videoResults">>,
+  stats: Pick<FirstPartyPpcsSession["stats"], "camId" | "dataDatagrams" | "frameHeaders" | "videoFrames"> & Partial<Pick<FirstPartyPpcsSession["stats"], "batteryHistory" | "closeReason" | "commands" | "duplicateDatagrams" | "foreignVideoFrames" | "frameShapes" | "incompleteAccessUnitBytes" | "incompleteAccessUnits" | "mediaStartAttempts" | "parserBlocked" | "parserResyncs" | "pendingBytes" | "sequenceGaps" | "sequenceRestarts" | "staleDatagrams" | "types" | "videoCodec" | "videoNalTypes" | "videoOutputFrames" | "videoResults">>,
   error?: unknown,
 ): string {
   const stage = stats.camId === 0 ? "lookup" : stats.videoFrames === 0 ? "first_frame" : "media";
@@ -1127,6 +1130,8 @@ export function ppcsStreamLogSummary(
     `frame_headers=${stats.frameHeaders}`,
     `video_frames=${stats.videoFrames}`,
     `video_output_frames=${stats.videoOutputFrames ?? 0}`,
+    `incomplete_access_units=${stats.incompleteAccessUnits ?? 0}`,
+    `incomplete_access_unit_bytes=${stats.incompleteAccessUnitBytes ?? 0}`,
     `foreign_video_frames=${stats.foreignVideoFrames ?? 0}`,
     `data_types=${stats.types?.join(",") || "none"}`,
     `commands=${stats.commands?.join(",") || "none"}`,

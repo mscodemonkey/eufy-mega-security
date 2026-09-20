@@ -35,6 +35,7 @@ interface Session {
   stopTimer: NodeJS.Timeout | null;
   owned: boolean;
   leases: number;
+  generation: number;
 }
 
 interface Recording {
@@ -282,8 +283,8 @@ export class LiveStreamManager extends EventEmitter {
   /** Attach provider bytes to all current viewers and FFmpeg consumers. */
   attachSource(serial: string, source: Readable): void {
     const session = this.#session(serial);
-    session.source?.destroy();
-    session.ffmpeg?.kill("SIGTERM");
+    this.#cleanupSource(session);
+    const generation = session.generation;
     session.source = source;
     session.state = "streaming";
     session.parameterSets = new VideoParameterSetCache();
@@ -291,6 +292,7 @@ export class LiveStreamManager extends EventEmitter {
     session.ffmpeg = null;
 
     source.on("data", (chunk: Buffer) => {
+      if (session.generation !== generation) return;
       session.parameterSets.push(chunk);
       const bootstrap = session.parameterSets.bootstrap;
       const startup = session.parameterSets.startup;
@@ -315,9 +317,9 @@ export class LiveStreamManager extends EventEmitter {
       if (bootstrap && session.ffmpeg?.stdin.writable) session.ffmpeg.stdin.write(chunk);
       for (const recording of session.recordings) this.#appendRecordingChunk(session, recording, chunk);
     });
-    source.once("error", (error) => this.#sourceEnded(serial, error));
-    source.once("end", () => this.#sourceEnded(serial));
-    source.once("close", () => this.#sourceEnded(serial));
+    source.once("error", (error) => this.#sourceEnded(serial, generation, error));
+    source.once("end", () => this.#sourceEnded(serial, generation));
+    source.once("close", () => this.#sourceEnded(serial, generation));
     this.#updateState(serial, session);
   }
 
@@ -512,8 +514,9 @@ export class LiveStreamManager extends EventEmitter {
     for (const recording of [...session.recordings]) this.#settleRecording(session, recording, error);
   }
 
-  #sourceEnded(serial: string, error?: Error): void {
+  #sourceEnded(serial: string, generation: number, error?: Error): void {
     const session = this.#session(serial);
+    if (session.generation !== generation) return;
     if (session.state === "idle") return;
     this.#cancelStop(session);
     this.#failRecordings(session, error ?? new Error("Camera video ended before the recording completed"));
@@ -570,6 +573,7 @@ export class LiveStreamManager extends EventEmitter {
   }
 
   #cleanupSource(session: Session): void {
+    session.generation += 1;
     session.source?.removeAllListeners();
     session.source = null;
     if (session.ffmpeg) {
@@ -593,6 +597,7 @@ export class LiveStreamManager extends EventEmitter {
         stopTimer: null,
         owned: false,
         leases: 0,
+        generation: 0,
       };
       this.#sessions.set(serial, session);
     }

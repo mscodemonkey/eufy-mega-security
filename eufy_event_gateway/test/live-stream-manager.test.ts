@@ -178,6 +178,26 @@ test("starts an H.265 viewer only after VPS, SPS, and PPS arrive", async () => {
   await manager.close();
 });
 
+test("ignores callbacks from a replaced source generation", async () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  const manager = new LiveStreamManager(
+    state,
+    {} as never,
+    { async startStream() {}, async stopStream() {} },
+    5,
+  );
+  const oldSource = new PassThrough();
+  const currentSource = new PassThrough();
+
+  manager.attachSource(camera.serial, oldSource);
+  manager.attachSource(camera.serial, currentSource);
+  oldSource.end();
+
+  assert.equal(state.getCamera(camera.serial).stream.state, "streaming");
+  await manager.close();
+});
+
 test("holds an on-demand stream until a fresh snapshot arrives", async () => {
   const state = new GatewayState();
   state.registerCamera(camera);

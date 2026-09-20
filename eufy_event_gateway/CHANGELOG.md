@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.60
+
+- Reassemble complete PPCS media access units before stream consumers receive bytes.
+- Resolve direct and HomeBase-attached media protection through one authenticated path.
+- Make camera stream replacement generation-safe and refresh retained Home Assistant images from committed revisions.
+- Add canonical device routing, observed-state precedence, and split gateway evidence tooling.
+
 ## 0.1.59
 
 - Add a capability-gated Camera enabled switch for cameras that report a master enablement value and have a ready PPCS control route.
