@@ -45,3 +45,9 @@ ALARM_TONES = {
     1: "Alarm sound 1",
     2: "Alarm sound 2",
 }
+
+NIGHT_VISION_MODES = {
+    0: "Off",
+    1: "Infrared",
+    2: "Full colour",
+}

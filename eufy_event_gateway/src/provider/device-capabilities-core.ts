@@ -68,7 +68,12 @@ export function describeCameraCapabilities(device: CapabilityInventoryRow, optio
   }
   const observed = new Set(device.paramTypes);
   const peerRouteReady = options.routeReady ?? options.streamSupported;
-  const matrix = CAMERA_CAPABILITY_CORE.map((entry) => evaluateCoreEntry(entry, observed, acceptedAsCamera, options.streamSupported, mainsSentinel));
+  const matrix = CAMERA_CAPABILITY_CORE.map((entry) => {
+    const row = evaluateCoreEntry(entry, observed, acceptedAsCamera, peerRouteReady, mainsSentinel);
+    return entry.id === "camera.night_vision" && options.homeBaseAttached !== true
+      ? { ...row, offerable: false }
+      : row;
+  });
   const mapped = new Set(CAMERA_CAPABILITY_CORE.flatMap(({ evidenceParamIds }) => evidenceParamIds));
   const unmapped = device.paramTypes.filter((id) => !mapped.has(id));
   const unmappedParamIds = unmapped.slice(0, 128);
@@ -203,6 +208,7 @@ function evaluateCoreEntry(
     deviceEvidence,
     gatewaySupport: entry.gatewaySupport,
     offerable: supported && entry.gatewaySupport === "implemented"
+      && (!entry.requiresRoute || routeReady)
       && ["reported-param", "gateway-baseline", "ready-route"].includes(deviceEvidence),
     note: entry.note ?? null,
   };

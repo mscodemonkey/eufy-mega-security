@@ -369,6 +369,8 @@ export class GatewayState extends EventEmitter {
       enableControlSupported: camera.identity.enableControlSupported ?? false,
       motionDetectionEnabled: camera.identity.motionDetectionEnabled ?? null,
       motionDetectionControlSupported: camera.identity.motionDetectionControlSupported ?? false,
+      nightVisionMode: camera.identity.nightVisionMode ?? null,
+      nightVisionControlSupported: camera.identity.nightVisionControlSupported ?? false,
       cameraSirenControlSupported: camera.identity.cameraSirenControlSupported ?? false,
       motionDetected: camera.motionDetected,
       personDetected: camera.personDetected,

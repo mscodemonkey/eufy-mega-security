@@ -441,17 +441,32 @@ function parseStorage(value: unknown): HomeBasePpcsState["storage"] {
   const body = isRecord(parsed) ? parsed : {};
   return {
     emmc: storageDevice(body.emmc_info, "disk_size", "disk_used"),
-    hdd: storageDevice(body.hdd_info, "disk_size", "disk_used"),
+    hdd: storageDevice(body.hdd_info, "disk_size", "disk_used", "disk_size_1024"),
   };
 }
 
-function storageDevice(value: unknown, totalKey: string, usedKey: string): HomeBaseStorageState | null {
+function storageDevice(
+  value: unknown,
+  totalKey: string,
+  usedKey: string,
+  usableSizeKey?: string,
+): HomeBaseStorageState | null {
   if (!isRecord(value)) return null;
   const totalMebibytes = nonNegativeInteger(value[totalKey]);
   const usedMebibytes = nonNegativeInteger(value[usedKey]);
   if (totalMebibytes === null || totalMebibytes === 0) return null;
-  const totalBytes = totalMebibytes * 1024 * 1024;
-  const usedBytes = usedMebibytes === null ? null : usedMebibytes * 1024 * 1024;
+  const usableSize = usableSizeKey ? nonNegativeInteger(value[usableSizeKey]) : null;
+
+  // HomeBase 3 HDD responses report a nominal binary capacity separately from
+  // the usable capacity shown by Eufy. Its used value is decimal megabytes.
+  const totalBytes = usableSize !== null && usableSize > 0
+    ? Math.round(usableSize * 1_000_000_000 / 1024)
+    : totalMebibytes * 1024 * 1024;
+  const usedBytes = usedMebibytes === null
+    ? null
+    : usableSize !== null && usableSize > 0
+      ? usedMebibytes * 1_000_000
+      : usedMebibytes * 1024 * 1024;
   if (!Number.isSafeInteger(totalBytes) || (usedBytes !== null && !Number.isSafeInteger(usedBytes))) return null;
   const workStatus = safeInteger(value.work_status);
   return {

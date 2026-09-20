@@ -20,8 +20,8 @@ test("publishes gateway basics and implemented battery reads", () => {
     "camera", "snapshot", "motion", "person_detection", "battery",
   ]));
   assert.equal(CAMERA_CAPABILITY_CORE.every(({ evidenceParamIds }) => evidenceParamIds.every((id) => Number.isSafeInteger(id) && id >= 0 && id <= 65_535)), true);
-  assert.equal(CAMERA_CAPABILITY_CORE.length, 11);
-  assert.equal(CAMERA_CAPABILITY_CORE.filter(({ gatewaySupport }) => gatewaySupport === "implemented").length, 11);
+  assert.equal(CAMERA_CAPABILITY_CORE.length, 12);
+  assert.equal(CAMERA_CAPABILITY_CORE.filter(({ gatewaySupport }) => gatewaySupport === "implemented").length, 12);
   assert.equal(CAMERA_CAPABILITY_CORE.filter(({ family, gatewaySupport }) => family === "battery" && gatewaySupport === "implemented").length, 4);
 });
 
@@ -64,6 +64,18 @@ test("shared core evaluation keeps live media behind a ready route", () => {
   const ready = describeCameraCapabilities(device, { doorbellSupported: false, streamSupported: true });
   assert.equal(ready.matrix.find(({ id }) => id === "camera.live_stream")?.deviceEvidence, "ready-route");
   assert.equal(ready.matrix.find(({ id }) => id === "snapshot.capture")?.deviceEvidence, "ready-route");
+});
+
+test("offers night-vision control only from reported state and a ready route", () => {
+  const reported = { serial: "camera", model: "T8425", category: "eufy_security", deviceType: 47, paramTypes: [1277] };
+  const blocked = describeCameraCapabilities(reported, { doorbellSupported: false, streamSupported: false, routeReady: false, homeBaseAttached: true });
+  assert.equal(blocked.matrix.find(({ id }) => id === "camera.night_vision")?.offerable, false);
+
+  const ready = describeCameraCapabilities(reported, { doorbellSupported: false, streamSupported: true, routeReady: true, homeBaseAttached: true });
+  assert.equal(ready.matrix.find(({ id }) => id === "camera.night_vision")?.offerable, true);
+
+  const standalone = describeCameraCapabilities(reported, { doorbellSupported: false, streamSupported: true, routeReady: true, homeBaseAttached: false });
+  assert.equal(standalone.matrix.find(({ id }) => id === "camera.night_vision")?.offerable, false);
 });
 
 test("does not infer battery or camera features for unreported params and accessories", () => {
@@ -136,7 +148,7 @@ test("keeps advanced research out of the published device matrix", () => {
     serial: "indoor", model: "T8410", category: "eufy_security", deviceType: 31,
     paramTypes: [6043, 6044, 1240, 1101, 9_999],
   }, { doorbellSupported: false, streamSupported: true });
-  assert.equal(manifest.matrix.length, 11);
+  assert.equal(manifest.matrix.length, 12);
   assert.equal(manifest.matrix.some(({ id }) => id === "camera.sound_detection"), false);
   assert.equal(manifest.matrix.find(({ id }) => id === "battery.level")?.offerable, true);
   assert.equal(manifest.matrix.find(({ id }) => id === "camera.live_stream")?.offerable, true);

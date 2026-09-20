@@ -10,6 +10,7 @@ import test from "node:test";
 
 import {
   buildCameraEnableBody,
+  buildNightVisionBody,
   acceptsAttachedCameraMedia,
   buildPpcsCloudLookup,
   buildStandaloneLiveStartPayload,
@@ -52,6 +53,17 @@ test("builds a bounded camera enablement body without leaking adjacent data", ()
   assert.equal(body.subarray(8, 21).toString("ascii"), "account-owner");
   assert.ok(body.subarray(21).every((value) => value === 0));
   assert.throws(() => buildCameraEnableBody(3, 0, ""), /non-empty account identity/);
+});
+
+test("builds the verified night-vision SET_PAYLOAD body", () => {
+  assert.deepEqual(JSON.parse(buildNightVisionBody(3, 2, "account-owner").toString("utf8")), {
+    account_id: "account-owner",
+    cmd: 1277,
+    mChannel: 0,
+    mValue3: 0,
+    payload: { channel: 3, night_sion: 2 },
+  });
+  assert.throws(() => buildNightVisionBody(3, 3, "account-owner"), /must be 0, 1, or 2/);
 });
 
 test("reissues a standalone start only while codec headers are missing", () => {

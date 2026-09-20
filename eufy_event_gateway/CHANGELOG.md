@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.68
+
+- Use HomeBase 3's usable HDD capacity and decimal used-space value so total and free storage match the Eufy app.
+- Admit eufyCam 2 model T8114 with Mega device type 9 through an available HomeBase camera route.
+- Add a night-vision mode select for HomeBase-attached cameras that report the setting, with cloud-confirmed Off, Infrared, and Full colour changes.
+- Refresh existing Home Assistant device names when Eufy inventory reports a rename, while preserving Home Assistant user overrides.
+
 ## 0.1.67
 
 - Offer camera siren control from reported capability evidence instead of one camera type, and add the HomeBase siren trigger and stop path.

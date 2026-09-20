@@ -178,6 +178,19 @@ class GatewayClient:
             raise GatewayClientError("Gateway returned an invalid camera response")
         return camera
 
+    async def set_camera_night_vision(
+        self, serial: str, mode: int
+    ) -> dict[str, Any]:
+        """Set a camera's night-vision mode and return confirmed gateway state."""
+        camera = await self._json(
+            f"/api/cameras/{serial}/night-vision",
+            method="POST",
+            payload={"mode": mode},
+        )
+        if not isinstance(camera.get("serial"), str):
+            raise GatewayClientError("Gateway returned an invalid camera response")
+        return camera
+
     async def set_camera_siren(self, serial: str, duration: int) -> None:
         """Trigger or stop a camera siren using a device-side duration."""
         await self._json(

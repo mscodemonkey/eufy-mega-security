@@ -14,7 +14,8 @@
     },
     "select": {
       "eufy_guard_mode_select": {"name": "Guard mode"},
-      "eufy_alarm_tone_select": {"name": "Alarm tone"}
+      "eufy_alarm_tone_select": {"name": "Alarm tone"},
+      "camera_night_vision": {"name": "Night vision"}
     },
     "sensor": {
       "eufy_effective_mode_sensor": {"name": "Effective mode"}

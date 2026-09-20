@@ -153,6 +153,8 @@ test("decodes the reported motion-detection switch without inventing it", () => 
   assert.equal(safeInventoryReads([{ param_type: 1011, param_value: "1" }]).motionDetectionEnabled, true);
   assert.equal(safeInventoryReads([{ param_type: 1011, param_value: "0" }]).motionDetectionEnabled, false);
   assert.equal(safeInventoryReads([{ param_type: 1011, param_value: "2" }]).motionDetectionEnabled, undefined);
+  assert.equal(safeInventoryReads([{ param_type: 1277, param_value: "2" }]).nightVisionMode, 2);
+  assert.equal(safeInventoryReads([{ param_type: 1277, param_value: "3" }]).nightVisionMode, undefined);
 });
 
 test("writes battery and indoor camera enablement with the matching polarity", () => {

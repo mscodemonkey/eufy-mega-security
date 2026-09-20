@@ -76,3 +76,20 @@ test("accepts a JSON-encoded storage body and rejects unsupported values", () =>
   assert.deepEqual(result.storage?.emmc, { status: "reported", totalBytes: 104_857_600, freeBytes: 0 });
   assert.equal(result.storage?.hdd, null);
 });
+
+test("uses the HomeBase 3 usable HDD capacity and decimal used-space value", () => {
+  const result = parseHomeBaseState({}, {
+    hdd_info: {
+      disk_size: 327_680,
+      disk_size_1024: 305_245,
+      disk_used: 264_370,
+      work_status: 0,
+    },
+  });
+
+  assert.deepEqual(result.storage?.hdd, {
+    status: "normal",
+    totalBytes: 298_090_820_313,
+    freeBytes: 33_720_820_313,
+  });
+});

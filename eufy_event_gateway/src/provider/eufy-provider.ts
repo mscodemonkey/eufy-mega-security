@@ -61,6 +61,7 @@ export interface MegaInventoryDevice {
 export interface MegaInventoryReads {
   readonly enabled?: boolean;
   readonly motionDetectionEnabled?: boolean;
+  readonly nightVisionMode?: number;
   readonly batteryLevel?: number;
   readonly batteryCharging?: boolean;
   readonly batteryHealth?: number;
@@ -115,6 +116,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #stationOperations = new Map<string, Promise<HomeBaseState>>();
   readonly #cameraOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #motionOperations = new Map<string, Promise<CameraIdentity>>();
+  readonly #nightVisionOperations = new Map<string, Promise<CameraIdentity>>();
   #push: MegaPushReceiver | null = null;
   #events: ProviderEvents | null = null;
   #captchaChallenge: CaptchaChallenge | null = null;
@@ -327,6 +329,53 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#motionOperations.set(serial, current);
     void current.finally(() => {
       if (this.#motionOperations.get(serial) === current) this.#motionOperations.delete(serial);
+    }).catch(() => undefined);
+    return current;
+  }
+
+  /** Write the verified 1277 night-vision mode and publish fresh inventory state. */
+  setCameraNightVision(serial: string, mode: number): Promise<CameraIdentity> {
+    if (!Number.isSafeInteger(mode) || mode < 0 || mode > 2) {
+      return Promise.reject(new Error("Night vision mode must be 0, 1, or 2"));
+    }
+    const previous = this.#nightVisionOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
+    const current = previous.catch(() => this.#requireCameraIdentity(serial)).then(async () => {
+      const device = this.#devices.get(serial);
+      if (!device || !isSupportedMegaCamera(device) || device.reads.nightVisionMode === undefined) {
+        throw new Error("Night vision control is not supported for this camera");
+      }
+      const route = ppcsStreamRoute(device, this.#devices);
+      const peer = route?.peer;
+      const dsk = peer ? this.#dskKeys.get(peer.serial) : null;
+      if (!route?.homeBaseAttached || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
+        throw new Error("Night vision control requires a ready HomeBase-attached camera route");
+      }
+      const session = new FirstPartyPpcsSession({
+        stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
+        dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
+        accountId: device.adminUserId, homeBaseAttached: true, purpose: "control", maxSeconds: 40,
+        resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
+      });
+      try {
+        await session.start();
+        await session.writeNightVision(mode);
+      } finally {
+        session.close();
+      }
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        await this.#refreshInventoryReads();
+        const refreshed = this.#devices.get(serial);
+        if (refreshed?.reads.nightVisionMode === mode) return this.#cameraIdentity(refreshed);
+        await delay(2_000);
+      }
+      throw new Error("Night vision write was not confirmed by readback");
+    }).catch((error: unknown) => {
+      logger.warn("camera_night_vision_failed", `Night vision command failed: error=${safeError(error)}`);
+      throw error;
+    });
+    this.#nightVisionOperations.set(serial, current);
+    void current.finally(() => {
+      if (this.#nightVisionOperations.get(serial) === current) this.#nightVisionOperations.delete(serial);
     }).catch(() => undefined);
     return current;
   }
@@ -592,6 +641,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       motionDetectionControlSupported: device.reads.motionDetectionEnabled !== undefined
         && device.channel !== null
         && device.adminUserId !== null
+        && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+      nightVisionMode: device.reads.nightVisionMode ?? null,
+      nightVisionControlSupported: device.reads.nightVisionMode !== undefined
+        && device.channel !== null
+        && device.adminUserId !== null
+        && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === true
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       cameraSirenControlSupported: device.paramTypes.includes(1015)
         && device.channel !== null
@@ -912,6 +967,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const openDevice = finiteNumber(params.get(2001));
   const cameraSwitch = finiteNumber(params.get(1035));
   const motionSwitch = finiteNumber(params.get(1011));
+  const nightVisionMode = finiteNumber(params.get(1277));
   const enabled = openDevice === 0 || openDevice === 1
     ? openDevice === 1
     : cameraSwitch === 0 || cameraSwitch === 1
@@ -920,6 +976,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   return {
     ...(enabled !== undefined ? { enabled } : {}),
     ...(motionSwitch === 0 || motionSwitch === 1 ? { motionDetectionEnabled: motionSwitch === 1 } : {}),
+    ...(nightVisionMode === 0 || nightVisionMode === 1 || nightVisionMode === 2 ? { nightVisionMode } : {}),
     ...(batteryLevel !== undefined ? { batteryLevel } : {}),
     ...(batteryStatus !== null ? { batteryCharging: batteryStatus !== 0 && batteryStatus !== 2 } : {}),
     ...(batteryHealth !== undefined ? { batteryHealth } : {}),

@@ -679,6 +679,21 @@ export class FirstPartyPpcsSession {
     await acknowledgement;
   }
 
+  /** Send the verified HomeBase-attached night-vision mode command. */
+  async writeNightVision(mode: number): Promise<void> {
+    if (this.#options.purpose !== "control") throw new Error("Night vision control requires a control session");
+    if (!this.#remote) throw new Error("Night vision control session is not connected");
+    if (!this.#options.homeBaseAttached) throw new Error("Night vision control requires a HomeBase-attached camera");
+    const accountId = this.#options.accountId;
+    if (!accountId) throw new Error("Night vision control account identity is unavailable");
+    if (!Number.isSafeInteger(mode) || mode < 0 || mode > 2) throw new Error("Night vision mode must be 0, 1, or 2");
+    await this.#waitForLevel2Key();
+    const level2Sequence = this.#level2Seq++;
+    const body = encryptLevel2(buildNightVisionBody(this.#options.channel, mode, accountId), this.#level2Key!, level2Sequence);
+    const header = commandHeader(this.#seq++, 1350);
+    this.#send(REQ.data, Buffer.concat([header, rawPayload(body, 0, 8, [8, 0], 0)]), this.#remote);
+  }
+
   /** Send the reference camera siren duration command for a bounded local probe. */
   async writeCameraSiren(durationSeconds: number): Promise<void> {
     if (this.#options.purpose !== "control") throw new Error("Camera siren control requires a control session");
@@ -1075,6 +1090,20 @@ export function buildCameraEnableBody(channel: number, value: number, accountId:
   body.writeUInt32LE(value, 4);
   body.write(accountId.slice(0, 128), 8, "ascii");
   return body;
+}
+
+/** Build the verified SET_PAYLOAD body for a HomeBase-attached night-vision write. */
+export function buildNightVisionBody(channel: number, mode: number, accountId: string): Buffer {
+  if (!accountId) throw new Error("Night vision control requires a non-empty account identity");
+  if (!Number.isSafeInteger(channel) || channel < 0 || channel > 255) throw new Error("Night vision control requires a valid camera channel");
+  if (!Number.isSafeInteger(mode) || mode < 0 || mode > 2) throw new Error("Night vision mode must be 0, 1, or 2");
+  return Buffer.from(JSON.stringify({
+    account_id: accountId,
+    cmd: 1277,
+    mChannel: 0,
+    mValue3: 0,
+    payload: { channel, night_sion: mode },
+  }));
 }
 
 function encryptLevel1(plaintext: Buffer, key: Buffer): Buffer {

@@ -95,7 +95,7 @@ test("layers press onto the existing camera and battery baseline for a doorbell"
   assert.equal(doorbell?.matrix.find(({ id }) => id === "doorbell.press")?.offerable, true);
   assert.equal(doorbell?.matrix.find(({ id }) => id === "camera.live_stream")?.offerable, true);
   assert.equal(doorbell?.matrix.find(({ id }) => id === "battery.level")?.offerable, true);
-  assert.equal(doorbell?.matrix.length, 12);
+  assert.equal(doorbell?.matrix.length, 13);
 });
 
 test("groups non-camera diagnostics without private identifiers", () => {

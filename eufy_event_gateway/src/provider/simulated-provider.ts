@@ -64,6 +64,8 @@ export class SimulatedProvider implements CameraProvider {
       enableControlSupported: true,
       motionDetectionEnabled: true,
       motionDetectionControlSupported: true,
+      nightVisionMode: 1,
+      nightVisionControlSupported: true,
       cameraSirenControlSupported: true,
       battery: {
         supported: ["level", "charging", "health", "temperature", "lastChargingDays"],
@@ -136,6 +138,8 @@ export class SimulatedProvider implements CameraProvider {
       doorbellSupported: false,
       enabled,
       enableControlSupported: true,
+      nightVisionMode: 1,
+      nightVisionControlSupported: true,
       cameraSirenControlSupported: true,
       battery: {
         supported: ["level", "charging", "health", "temperature", "lastChargingDays"] as const,
@@ -164,6 +168,33 @@ export class SimulatedProvider implements CameraProvider {
       enableControlSupported: true,
       motionDetectionEnabled: enabled,
       motionDetectionControlSupported: true,
+      nightVisionMode: 1,
+      nightVisionControlSupported: true,
+      cameraSirenControlSupported: true,
+    };
+    this.#events?.camera(identity);
+    return identity;
+  }
+
+  /** Apply deterministic night-vision state for API and Home Assistant tests. */
+  async setCameraNightVision(serial: string, mode: number): Promise<CameraIdentity> {
+    if (!Number.isSafeInteger(mode) || mode < 0 || mode > 2) {
+      throw new Error("Night vision mode is invalid");
+    }
+    this.#assertSerial(serial);
+    const identity = {
+      serial: SimulatedProvider.serial,
+      name: "Simulated driveway",
+      model: "T8142-compatible simulator",
+      stationSerial,
+      streamSupported: true,
+      doorbellSupported: false,
+      enabled: true,
+      enableControlSupported: true,
+      motionDetectionEnabled: true,
+      motionDetectionControlSupported: true,
+      nightVisionMode: mode,
+      nightVisionControlSupported: true,
       cameraSirenControlSupported: true,
     };
     this.#events?.camera(identity);

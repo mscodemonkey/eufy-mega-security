@@ -17,6 +17,7 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .client import GatewayClient, GatewayClientError
@@ -59,11 +60,13 @@ class EufyGatewayCoordinator(
             )
         except GatewayClientError as error:
             raise UpdateFailed(str(error)) from error
-        return {
+        updated = {
             "cameras": {camera["serial"]: camera for camera in cameras},
             "stations": {station["serial"]: station for station in stations},
             "sensors": {sensor["serial"]: sensor for sensor in sensors},
         }
+        self._sync_device_names(updated)
+        return updated
 
     @property
     def cameras(self) -> dict[str, dict[str, Any]]:
@@ -91,6 +94,7 @@ class EufyGatewayCoordinator(
             "sensors": dict(self.sensors),
         }
         updated["stations"][serial] = station
+        self._sync_device_name(serial, station.get("name"))
         self.async_set_updated_data(updated)
 
     def async_set_camera(self, camera: dict[str, Any]) -> None:
@@ -104,6 +108,7 @@ class EufyGatewayCoordinator(
             "sensors": dict(self.sensors),
         }
         updated["cameras"][serial] = camera
+        self._sync_device_name(serial, camera.get("name"))
         self.async_set_updated_data(updated)
 
     def start_event_listener(self) -> None:
@@ -152,6 +157,7 @@ class EufyGatewayCoordinator(
                 "stations": dict(self.stations),
                 "sensors": dict(self.sensors),
             }
+            self._sync_device_names(updated)
             self.async_set_updated_data(updated)
 
         stations = event.get("stations")
@@ -166,6 +172,7 @@ class EufyGatewayCoordinator(
                 "stations": normalized,
                 "sensors": dict(self.sensors),
             }
+            self._sync_device_names(updated)
             self.async_set_updated_data(updated)
 
         camera = event.get("camera")
@@ -198,4 +205,22 @@ class EufyGatewayCoordinator(
                 "sensors": dict(self.sensors),
             }
             updated["sensors"][sensor["serial"]] = sensor
+            self._sync_device_name(sensor["serial"], sensor.get("name"))
             self.async_set_updated_data(updated)
+
+    def _sync_device_names(
+        self, data: dict[str, dict[str, dict[str, Any]]]
+    ) -> None:
+        """Refresh vendor names without changing Home Assistant user overrides."""
+        for family in ("cameras", "stations", "sensors"):
+            for serial, device in data.get(family, {}).items():
+                self._sync_device_name(serial, device.get("name"))
+
+    def _sync_device_name(self, serial: str, name: object) -> None:
+        """Update an existing registry device when Eufy reports a new name."""
+        if not isinstance(name, str) or not name.strip():
+            return
+        registry = dr.async_get(self.hass)
+        device = registry.async_get_device(identifiers={(DOMAIN, serial)})
+        if device is not None and device.name != name:
+            registry.async_update_device(device.id, name=name)
