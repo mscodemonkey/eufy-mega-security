@@ -172,6 +172,14 @@ class GatewayClient:
             raise GatewayClientError("Gateway returned an invalid camera response")
         return camera
 
+    async def set_camera_siren(self, serial: str, duration: int) -> None:
+        """Trigger or stop a camera siren using a device-side duration."""
+        await self._json(
+            f"/api/cameras/{serial}/siren",
+            method="POST",
+            payload={"duration": duration},
+        )
+
     async def record_clip(self, serial: str, duration: int) -> bytes:
         """Request a bounded MP4 and reject a response that is not an MP4 file."""
         try:

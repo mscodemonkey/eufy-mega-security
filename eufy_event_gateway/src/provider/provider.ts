@@ -45,6 +45,8 @@ export interface CameraProvider {
 
   /** Write camera motion detection and return fresh inventory-backed state. */
   setCameraMotionDetection(serial: string, enabled: boolean): Promise<CameraIdentity>;
+  /** Trigger or stop the camera siren using its device-side duration. */
+  setCameraSiren(serial: string, durationSeconds: number): Promise<void>;
   refreshStation(serial: string): Promise<HomeBaseState>;
   setGuardMode(serial: string, mode: number): Promise<HomeBaseState>;
   setAlarmVolume(serial: string, value: number): Promise<HomeBaseState>;

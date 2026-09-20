@@ -679,6 +679,20 @@ export class FirstPartyPpcsSession {
     await acknowledgement;
   }
 
+  /** Send the reference camera siren duration command for a bounded local probe. */
+  async writeCameraSiren(durationSeconds: number): Promise<void> {
+    if (this.#options.purpose !== "control") throw new Error("Camera siren control requires a control session");
+    if (!this.#remote) throw new Error("Camera siren control session is not connected");
+    const accountId = this.#options.accountId;
+    if (!accountId) throw new Error("Camera siren control account identity is unavailable");
+    if (!Number.isSafeInteger(durationSeconds) || durationSeconds < 0) throw new Error("Camera siren duration must be a non-negative whole number");
+    const body = buildIntStringCommandBody(durationSeconds, this.#options.channel, accountId, commandKey(this.#options.stationSerial, this.#options.p2pDid));
+    for (let index = 0; index < 3; index += 1) {
+      this.#sendCommand(1202, body);
+      if (index < 2) await delay(200);
+    }
+  }
+
   /** End the peer session and retain its terminal reason for privacy-safe diagnostics. */
   close(reason: PpcsStreamCloseReason = "client_stop"): void {
     if (this.#closed) return;
@@ -1041,6 +1055,17 @@ function rawPayload(data: Buffer, channel: number, signCode: number, magic: read
   result.writeUInt16LE(data.length, 0); result[4] = magic[0]; result[5] = magic[1];
   result[6] = channel & 0xff; result[7] = signCode & 0xff; result[8] = streamId & 0xff;
   data.copy(result, 10); return result;
+}
+
+function buildIntStringCommandBody(value: number, valueSub: number, accountId: string, key: Buffer): Buffer {
+  const valueSubBuffer = Buffer.alloc(4);
+  valueSubBuffer.writeUInt32LE(valueSub >>> 0, 0);
+  const valueBuffer = Buffer.alloc(4);
+  valueBuffer.writeUInt32LE(value >>> 0, 0);
+  const accountBuffer = Buffer.alloc(128);
+  Buffer.from(accountId).copy(accountBuffer);
+  const plain = Buffer.concat([valueSubBuffer, valueBuffer, accountBuffer]);
+  return rawPayload(encryptLevel1(plain, key), valueSub, 1, [1, 0], 0);
 }
 /** Build the bounded direct-command body used by camera enablement writes. */
 export function buildCameraEnableBody(channel: number, value: number, accountId: string): Buffer {

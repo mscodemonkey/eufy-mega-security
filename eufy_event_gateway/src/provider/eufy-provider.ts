@@ -593,8 +593,41 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.channel !== null
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+      cameraSirenControlSupported: device.deviceType === 8
+        && device.channel !== null
+        && device.adminUserId !== null
+        && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       battery: batteryState(device),
     };
+  }
+
+  /** Trigger or stop the reference camera siren command for a proven camera family. */
+  async setCameraSiren(serial: string, durationSeconds: number): Promise<void> {
+    if (!Number.isSafeInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 900) {
+      throw new Error("Camera siren duration must be a whole number from 0 to 900 seconds");
+    }
+    const device = this.#devices.get(serial);
+    if (!device || !isSupportedMegaCamera(device) || device.deviceType !== 8) {
+      throw new Error("Camera siren control is not supported for this camera");
+    }
+    const route = ppcsStreamRoute(device, this.#devices);
+    const peer = route?.peer;
+    const dsk = peer ? this.#dskKeys.get(peer.serial) : null;
+    if (!route?.homeBaseAttached || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
+      throw new Error("Camera siren control requires a ready HomeBase-attached camera route");
+    }
+    const session = new FirstPartyPpcsSession({
+      stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
+      dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
+      accountId: device.adminUserId, homeBaseAttached: true, purpose: "control", maxSeconds: 30,
+      resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
+    });
+    try {
+      await session.start();
+      await session.writeCameraSiren(durationSeconds);
+    } finally {
+      session.close();
+    }
   }
 
   #recordStationRefreshFailure(serial: string, error: unknown): void {

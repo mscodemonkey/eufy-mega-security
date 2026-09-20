@@ -22,6 +22,9 @@
     "switch": {
       "camera_enabled": {"name": "Camera enabled"},
       "camera_motion_detection": {"name": "Motion detection"}
+    },
+    "siren": {
+      "camera_siren": {"name": "Siren"}
     }
   },
   "config": {

@@ -6,15 +6,15 @@
 
 import type { DeviceCompatibility, HomeBaseCompatibility } from "./types.js";
 
-const developerRelease = "0.1.63";
+const developerRelease = "0.1.66";
 
 /** Current camera, doorbell, lock, and sensor compatibility evidence. */
 export const DEVICE_COMPATIBILITY: readonly DeviceCompatibility[] = [
   {
     family: "camera", marketingName: "EufyCam 2C", eufyModel: "T8113-Z", deviceTypes: [8],
     topologies: {
-      homebase3: { status: "confirmed", capabilities: { discovery: "confirmed", motionEvents: "confirmed", personEvents: "confirmed", snapshots: "confirmed", liveVideo: "confirmed" } },
-    }, evidence: [{ status: "developer-tested", date: "2026-09-20", appVersion: developerRelease, integrationVersion: developerRelease, capabilities: ["discovery", "motionEvents", "personEvents", "snapshots", "liveVideo"] }],
+      homebase3: { status: "confirmed", capabilities: { discovery: "confirmed", motionEvents: "confirmed", personEvents: "confirmed", snapshots: "confirmed", liveVideo: "confirmed", sirenControl: "confirmed" } },
+    }, evidence: [{ status: "developer-tested", date: "2026-09-21", appVersion: developerRelease, integrationVersion: developerRelease, capabilities: ["discovery", "motionEvents", "personEvents", "snapshots", "liveVideo", "sirenControl"], note: "Five-second trigger and explicit stop heard on Garden and Pool." }],
   },
   {
     family: "camera", marketingName: "EufyCam 2C Pro", eufyModel: "T8142-Z", deviceTypes: [15],

@@ -63,6 +63,7 @@ export class SimulatedProvider implements CameraProvider {
       enableControlSupported: true,
       motionDetectionEnabled: true,
       motionDetectionControlSupported: true,
+      cameraSirenControlSupported: true,
       battery: {
         supported: ["level", "charging", "health", "temperature", "lastChargingDays"],
         level: 82,
@@ -134,6 +135,7 @@ export class SimulatedProvider implements CameraProvider {
       doorbellSupported: false,
       enabled,
       enableControlSupported: true,
+      cameraSirenControlSupported: true,
       battery: {
         supported: ["level", "charging", "health", "temperature", "lastChargingDays"] as const,
         level: 82,
@@ -161,9 +163,18 @@ export class SimulatedProvider implements CameraProvider {
       enableControlSupported: true,
       motionDetectionEnabled: enabled,
       motionDetectionControlSupported: true,
+      cameraSirenControlSupported: true,
     };
     this.#events?.camera(identity);
     return identity;
+  }
+
+  /** Accept a bounded siren command in the deterministic provider. */
+  async setCameraSiren(serial: string, durationSeconds: number): Promise<void> {
+    if (!Number.isSafeInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 900) {
+      throw new Error("Camera siren command is invalid");
+    }
+    this.#assertSerial(serial);
   }
 
   async refreshStation(serial: string): Promise<HomeBaseState> {
