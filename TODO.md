@@ -17,6 +17,7 @@ Add new items at the top under **Inbox**. Keep hardware observations and generat
 
 - [ ] Re-test reporter hardware for issue #79 before calling the issue resolved.
 - [ ] Decide how write-only privacy mode should be represented in Home Assistant without inventing readback state.
+- [ ] Re-test T817L privacy only when raw inventory reports the model's 6250 capability, then verify both directions.
 - [ ] Keep the camera protocol test harness and HA integration checks separate.
 
 ## Done recently
