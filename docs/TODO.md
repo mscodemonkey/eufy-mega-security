@@ -6,15 +6,16 @@ provider path and a real-device result both exist.
 
 ## Ready to investigate
 
-- [ ] Identify the PTZ camera intended for preset-position, auto-cruise, and
-  AI-tracking work. The local Front of House camera is T817L, while the SDK
-  currently proves PTZ presets for T8170, T8171, and T8410 families.
-- [ ] Add preset-position support for the identified PTZ camera, after
-  confirming the model and SDK command/readback shape.
-- [ ] Add auto-cruise control for the identified PTZ camera, with a confirmed
-  command acknowledgement and readback path.
-- [ ] Add AI-tracking control for the identified PTZ camera, keeping it
-  separate from motion detection and privacy mode.
+- [x] Identify the PTZ camera intended for preset-position, auto-cruise, and
+  AI-tracking work. Front of House is T817L. The Eufy Android app exposes
+  these controls on that device even though the reference SDK registry does
+  not yet list the model.
+- [ ] Add preset-position support for T817L, after cross-referencing the
+  app's action names with the SDK command builders.
+- [ ] Add auto-cruise control for T817L, with a confirmed command
+  acknowledgement and readback path.
+- [ ] Add AI-tracking control for T817L, keeping it separate from motion
+  detection and privacy mode.
 - [ ] Investigate privacy-mode control for Indoor Cam S350 T8416. Track the
   physical camera state separately from the Home Assistant entity state.
 - [ ] Investigate the shared media parser failures now reported for T8400,
