@@ -10,8 +10,29 @@ import type { CoreCapabilityEntry } from "./device-capability-core.js";
 
 /** Camera types with an existing gateway protocol route and admission decision. */
 export const CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([
-  5, 7, 8, 15, 19, 23, 26, 31, 38, 47, 48, 62, 63, 88, 91, 94, 104, 105, 151, 203, 10005, 10031, 10037,
+  5, 7, 8, 15, 19, 23, 26, 31, 38, 47, 48, 62, 63, 88, 91, 94, 96, 104, 105, 151, 203, 10005, 10031, 10037,
 ]);
+
+/**
+ * Names the vendor device types that affect admission without making marketing names authoritative.
+ * The reported numeric type remains the source of truth when a model string disagrees with it.
+ */
+export const DEVICE_TYPE_NAMES: Readonly<Record<number, string>> = {
+  96: "BATTERY_DOORBELL_C31",
+  202: "LOCK_85D0",
+  203: "LOCK_85V0_VIDEO_DOORBELL",
+};
+
+/** The coarse role used before route and capability evidence are evaluated. */
+export type MegaDeviceRole = "camera" | "non-camera" | "unknown";
+
+/** Resolve the conservative inventory role for a vendor device type. */
+export function megaDeviceRole(deviceType: number | null): MegaDeviceRole {
+  if (deviceType === null) return "unknown";
+  if (CAMERA_DEVICE_TYPES.has(deviceType)) return "camera";
+  if (NON_CAMERA_DEVICE_TYPES.has(deviceType)) return "non-camera";
+  return "unknown";
+}
 
 /** Known externally powered models whose inventory battery fields are sentinels. */
 export const MAINS_BATTERY_SENTINEL_MODELS: readonly string[] = ["T8425", "T8419", "T817L"];

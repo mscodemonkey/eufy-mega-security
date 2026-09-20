@@ -8,7 +8,7 @@
  */
 
 import type { CameraCapability, CameraCapabilityManifest, CapabilityMatrixRow, DeviceCapabilityManifest } from "../domain/types.js";
-import { CAMERA_CAPABILITY_CORE, CAMERA_DEVICE_TYPES, hasMainsBatterySentinel, NON_CAMERA_DEVICE_TYPES } from "./camera-capability-core.js";
+import { CAMERA_CAPABILITY_CORE, hasMainsBatterySentinel, megaDeviceRole, NON_CAMERA_DEVICE_TYPES } from "./camera-capability-core.js";
 import type { CoreCapabilityEntry } from "./device-capability-core.js";
 import { DOORBELL_CAPABILITY_CORE } from "./doorbell-capability-core.js";
 import { HOMEBASE_CAPABILITY_CORE, HOMEBASE_DEVICE_TYPES } from "./homebase-capability-core.js";
@@ -33,7 +33,7 @@ export interface DeviceCapabilityOptions {
 
 /** Check the existing camera admission boundary before offering camera paths. */
 export function isSupportedCameraType(device: { readonly category: string | null; readonly deviceType: number | null }): boolean {
-  return device.category === "eufy_security" && device.deviceType !== null && CAMERA_DEVICE_TYPES.has(device.deviceType);
+  return device.category === "eufy_security" && megaDeviceRole(device.deviceType) === "camera";
 }
 
 /** Build one camera's shape-only manifest from reported inventory and route facts. */

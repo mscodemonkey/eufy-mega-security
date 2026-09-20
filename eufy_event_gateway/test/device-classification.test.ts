@@ -21,6 +21,7 @@ test("recognizes the security camera types present in Mega inventory", () => {
   assert.equal(isSupportedMegaCamera({ category: "eufy_security", deviceType: 31 }), true);
   assert.equal(isSupportedMegaCamera({ category: "eufy_security", deviceType: 91 }), true);
   assert.equal(isSupportedMegaCamera({ category: "eufy_security", deviceType: 94 }), true);
+  assert.equal(isSupportedMegaCamera({ category: "eufy_security", deviceType: 96 }), true);
   assert.equal(isSupportedMegaCamera({ category: "eufy_security", deviceType: 104 }), true);
   assert.equal(isSupportedMegaCamera({ category: "eufy_security", deviceType: 10031 }), true);
   assert.equal(isSupportedMegaCamera({ category: "eufy_security", deviceType: 18 }), false);

@@ -322,6 +322,16 @@ test("identifies the T8214 doorbell without classifying the T8416 indoor camera 
   assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType: 104 }), false);
 });
 
+test("admits T8224 type 96 as a camera without granting unverified press support", () => {
+  const [doorbell] = parseMegaInventory({ devices: [{
+    device_sn: "t8224", device_model: "T8224", device_type: 96,
+    device_channel: 0, category: "eufy_security",
+  }] });
+  assert.ok(doorbell);
+  assert.equal(inventoryDiagnostics([doorbell])[0]?.acceptedAsCamera, true);
+  assert.equal(isDoorbellDevice(doorbell), false);
+});
+
 test("admits newly reported camera families through a ready HomeBase 3", () => {
   const devices = parseMegaInventory({ devices: [
     {

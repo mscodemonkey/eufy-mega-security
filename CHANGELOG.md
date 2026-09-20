@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.61
+
+- Admit Eufy device type 96 as a camera for T8224 inventory while keeping doorbell press support evidence-gated.
+- Name the admission roles for the T8224, T85D0, and T85V0 device types so model strings cannot silently override reported numeric identity.
+
 ## 0.1.60
 
 - Reassemble complete PPCS media access units before stream consumers receive bytes.
