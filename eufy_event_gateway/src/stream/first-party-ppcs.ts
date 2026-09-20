@@ -87,6 +87,21 @@ export function ppcsFrameChannel(frame: Buffer): number | null {
   return frame.length >= 16 && frame.subarray(0, 4).equals(MAGIC) ? (frame[12] ?? null) : null;
 }
 
+/** Return the bytes to retain when a command stream ends part-way through its next XZYH header. */
+export function ppcsPartialCommandPrefix(data: Buffer): Buffer | undefined {
+  if (data.length === 0 || data.length >= 16) return undefined;
+  if (data.length >= MAGIC.length && data.subarray(0, MAGIC.length).equals(MAGIC)) {
+    return Buffer.from(data);
+  }
+  const limit = Math.min(data.length, MAGIC.length);
+  for (let length = limit; length > 0; length -= 1) {
+    if (data.subarray(data.length - length).equals(MAGIC.subarray(0, length))) {
+      return Buffer.from(data.subarray(data.length - length));
+    }
+  }
+  return undefined;
+}
+
 /** Classify a 16-bit PPCS datagram sequence relative to the last accepted value. */
 export function ppcsSequenceDisposition(
   previous: number | null,
@@ -424,7 +439,7 @@ function beginsWithAnnexB(payload: Buffer): boolean {
 }
 
 interface PendingPpcsFrame {
-  readonly header: Buffer;
+  readonly header?: Buffer;
   readonly payload: Buffer;
 }
 
@@ -752,15 +767,19 @@ export class FirstPartyPpcsSession {
     this.#pendingByType.delete(type);
     let body = data;
     if (carried) {
-      const size = carried.header.readUInt32LE(6);
-      const payload = Buffer.concat([carried.payload, body]);
-      if (payload.length < size) {
-        this.#pendingByType.set(type, { header: carried.header, payload });
-        this.#updatePendingBytes();
-        return;
+      if (carried.header) {
+        const size = carried.header.readUInt32LE(6);
+        const payload = Buffer.concat([carried.payload, body]);
+        if (payload.length < size) {
+          this.#pendingByType.set(type, { header: carried.header, payload });
+          this.#updatePendingBytes();
+          return;
+        }
+        this.#handleFrame(carried.header, payload.subarray(0, size), type);
+        body = payload.subarray(size);
+      } else {
+        body = Buffer.concat([carried.payload, body]);
       }
-      this.#handleFrame(carried.header, payload.subarray(0, size), type);
-      body = payload.subarray(size);
     }
     while (body.length >= 16 && body.subarray(0, 4).equals(MAGIC)) {
       const header = body.subarray(0, 16);
@@ -783,8 +802,12 @@ export class FirstPartyPpcsSession {
       body = body.subarray(16 + size);
     }
     if (body.length > 0) {
-      this.stats.parserBlocked = true;
-      this.stats.parserResyncs++;
+      const prefix = ppcsPartialCommandPrefix(body);
+      if (prefix) this.#pendingByType.set(type, { payload: prefix });
+      else {
+        this.stats.parserBlocked = true;
+        this.stats.parserResyncs++;
+      }
     }
     this.#updatePendingBytes();
   }
@@ -875,7 +898,7 @@ export class FirstPartyPpcsSession {
 
   #updatePendingBytes(): void {
     this.stats.pendingBytes = [...this.#pendingByType.values()]
-      .reduce((total, value) => total + value.header.length + value.payload.length, 0);
+      .reduce((total, value) => total + (value.header?.length ?? 0) + value.payload.length, 0);
   }
 
   #inspectCameraInfo(payload: Buffer, signCode: number): void {
