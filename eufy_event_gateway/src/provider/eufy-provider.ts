@@ -593,7 +593,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.channel !== null
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
-      cameraSirenControlSupported: device.deviceType === 8
+      cameraSirenControlSupported: device.paramTypes.includes(1015)
         && device.channel !== null
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
@@ -601,13 +601,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     };
   }
 
-  /** Trigger or stop the reference camera siren command for a proven camera family. */
+  /** Trigger or stop the camera siren when inventory reports its EAS capability. */
   async setCameraSiren(serial: string, durationSeconds: number): Promise<void> {
     if (!Number.isSafeInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 900) {
       throw new Error("Camera siren duration must be a whole number from 0 to 900 seconds");
     }
     const device = this.#devices.get(serial);
-    if (!device || !isSupportedMegaCamera(device) || device.deviceType !== 8) {
+    if (!device || !isSupportedMegaCamera(device) || !device.paramTypes.includes(1015)) {
       throw new Error("Camera siren control is not supported for this camera");
     }
     const route = ppcsStreamRoute(device, this.#devices);
@@ -628,6 +628,17 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     } finally {
       session.close();
     }
+  }
+
+  /** Trigger or stop a HomeBase siren through the station-side duration command. */
+  async setHomeBaseSiren(serial: string, durationSeconds: number): Promise<HomeBaseState> {
+    if (!Number.isSafeInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 900) {
+      throw new Error("HomeBase siren duration must be a whole number from 0 to 900 seconds");
+    }
+    return this.#queueStationOperation(serial, true, async (session) => {
+      await session.setSiren(durationSeconds);
+      return session.readState(false);
+    }, false);
   }
 
   #recordStationRefreshFailure(serial: string, error: unknown): void {
@@ -744,11 +755,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     serial: string,
     interruptMedia: boolean,
     operation: (session: HomeBasePpcsSession) => Promise<HomeBasePpcsState>,
+    requireWritableControls = true,
   ): Promise<HomeBaseState> {
     const previous = this.#stationOperations.get(serial) ?? Promise.resolve(this.#requireStation(serial));
     const current = previous.catch(() => this.#requireStation(serial)).then(async () => {
       const identity = this.#devices.get(serial);
-      if (!identity || !isHomeBase3(identity) || !identity.p2pDid || !identity.adminUserId) {
+      if (!identity || (requireWritableControls && !isHomeBase3(identity)) || (!requireWritableControls && !isDiscoveredHomeBase(identity)) || !identity.p2pDid || !identity.adminUserId) {
         throw new Error("HomeBase local command identity is unavailable");
       }
       if (interruptMedia) await this.#stopStationMedia(serial);
@@ -1042,6 +1054,7 @@ export function initialHomeBaseState(device: MegaInventoryDevice, dskReady: bool
     available: true,
     cameraRouteReady: Boolean(device.p2pDid && device.p2pConnection && dskReady),
     controlsSupported,
+    homeBaseSirenControlSupported: isDiscoveredHomeBase(device),
     connected: false,
     guardMode: null,
     effectiveMode: null,

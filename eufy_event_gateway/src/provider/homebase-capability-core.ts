@@ -2,8 +2,8 @@
  * HomeBase baseline features already normalized by the gateway.
  *
  * Inventory presence and child-camera route readiness apply to discovered
- * HomeBases. Station reads, commands, and readback remain T8030-only and this
- * file does not infer those protocols from a shared product name.
+ * HomeBases. Station reads and general commands remain T8030-only, while the
+ * separately evidenced siren command may be offered to discovered stations.
  */
 
 import type { CoreCapabilityEntry } from "./device-capability-core.js";

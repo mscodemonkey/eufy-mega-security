@@ -127,6 +127,7 @@ export interface HomeBaseState {
 
   /** Whether station reads and confirmed writes are verified for this model. */
   readonly controlsSupported: boolean;
+  readonly homeBaseSirenControlSupported: boolean;
   readonly connected: boolean;
   readonly guardMode: number | null;
   readonly effectiveMode: number | null;

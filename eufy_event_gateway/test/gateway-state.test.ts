@@ -147,6 +147,7 @@ test("retains immutable HomeBase snapshots and emits station updates", () => {
     available: true,
     cameraRouteReady: true,
     controlsSupported: true,
+    homeBaseSirenControlSupported: true,
     connected: true,
     guardMode: 0,
     effectiveMode: 0,

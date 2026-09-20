@@ -20,7 +20,7 @@ After the first successful discovery, the app captures one snapshot from each ca
 
 After the app starts, open **Settings > Devices & services**. Home Assistant should show a discovered **Eufy Mega Security** integration. Select **Configure** to create its camera, detection, and HomeBase entities. The HomeBase device includes a code-free alarm panel, configured and effective guard modes, current siren state, PPCS connection diagnostics, separate eMMC and HDD or SSD storage sensors, volume controls, and alarm tone.
 
-HomeBase commands are not optimistic. The app sends each command once, waits for its acknowledgement, and reads the device again before Home Assistant shows the new value. A HomeBase security command stops camera media using the same station before it runs. Manual siren activation is not available in this release.
+HomeBase commands are not optimistic. The app sends each command once, waits for its acknowledgement, and reads the device again before Home Assistant shows the new value. A HomeBase security command stops camera media using the same station before it runs. HomeBase and camera sirens expose bounded trigger and explicit stop controls when their command capability is reported.
 
 Mega events and native camera transport use the gateway's Mega session. If Eufy requests a CAPTCHA or sends an email code, open the app's **Web UI** and complete the prompt. The authenticated session persists in the app's private data volume, so routine upgrades and restarts do not repeat the challenge.
 

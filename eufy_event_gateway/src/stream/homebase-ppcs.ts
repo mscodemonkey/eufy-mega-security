@@ -36,6 +36,7 @@ const CMD_GET_ALARM_MODE = 1151;
 const CMD_SET_ARMING = 1224;
 const CMD_SET_HUB_SPEAKER_VOLUME = 1235;
 const CMD_HUB_ALARM_TONE = 1281;
+const CMD_HOMEBASE_TONE = 1201;
 const CMD_SET_PROMPT_VOLUME = 1292;
 const CMD_STORAGE_INFO_HB3 = 1307;
 const CMD_SET_PAYLOAD = 1350;
@@ -209,6 +210,14 @@ export class HomeBasePpcsSession {
     await this.#setPayload(CMD_HUB_ALARM_TONE, { type: value });
   }
 
+  /** Trigger or stop the HomeBase siren through its station broadcast command. */
+  async setSiren(durationSeconds: number): Promise<void> {
+    await this.#setPayload(CMD_HOMEBASE_TONE, {
+      time_out: durationSeconds,
+      user_name: this.options.userName,
+    });
+  }
+
   /** Close the socket and reject every incomplete operation. */
   close(): void {
     if (this.#closed) return;
@@ -220,7 +229,7 @@ export class HomeBasePpcsSession {
     this.#socket.close();
   }
 
-  async #setPayload(command: number, payload: Record<string, number>): Promise<void> {
+  async #setPayload(command: number, payload: Record<string, number | string>): Promise<void> {
     const value = JSON.stringify({
       account_id: this.options.accountId,
       cmd: command,

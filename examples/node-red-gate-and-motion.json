@@ -88,16 +88,16 @@
     "wires": [[]]
   },
   {
-    "id": "path-motion-trigger",
+    "id": "example-camera-motion-trigger",
     "type": "server-state-changed",
     "z": "eufy-gateway-examples",
-    "name": "Path motion detected",
+    "name": "Example camera motion detected",
     "server": "eufy-ha-server",
     "version": 6,
     "outputs": 1,
     "exposeAsEntityConfig": "",
     "entities": {
-      "entity": ["binary_sensor.path_motion"],
+      "entity": ["binary_sensor.example_camera_motion"],
       "substring": [],
       "regex": []
     },
@@ -118,13 +118,13 @@
     "outputProperties": [],
     "x": 180,
     "y": 180,
-    "wires": [["snapshot-path"]]
+    "wires": [["snapshot-example-camera"]]
   },
   {
-    "id": "snapshot-path",
+    "id": "snapshot-example-camera",
     "type": "api-call-service",
     "z": "eufy-gateway-examples",
-    "name": "Capture a fresh Path snapshot",
+    "name": "Capture a fresh example camera snapshot",
     "server": "eufy-ha-server",
     "version": 7,
     "debugenabled": false,
@@ -132,9 +132,9 @@
     "floorId": [],
     "areaId": [],
     "deviceId": [],
-    "entityId": ["camera.path"],
+    "entityId": ["camera.example_camera"],
     "labelId": [],
-    "data": "{\"filename\": \"/media/eufy/path_\" & $fromMillis($millis(), \"[Y0001][M01][D01]-[H01][m01][s01]\") & \".jpg\"}",
+    "data": "{\"filename\": \"/media/eufy/example_camera_\" & $fromMillis($millis(), \"[Y0001][M01][D01]-[H01][m01][s01]\") & \".jpg\"}",
     "dataType": "jsonata",
     "mergeContext": "",
     "mustacheAltTags": false,

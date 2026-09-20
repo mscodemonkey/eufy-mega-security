@@ -24,7 +24,8 @@
       "camera_motion_detection": {"name": "Motion detection"}
     },
     "siren": {
-      "camera_siren": {"name": "Siren"}
+      "camera_siren": {"name": "Siren"},
+      "homebase_siren": {"name": "Siren"}
     }
   },
   "config": {

@@ -31,7 +31,7 @@ serials, credentials, snapshots, and videos stay outside the repository.
 
 | Marketing model | Eufy model and type | HomeBase 2 | HomeBase 3 | T9000 | Direct | Current capability notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| EufyCam 2C | T8113-Z, type 8 | `unverified` | `confirmed` | `unverified` | `unverified` | Discovery, motion, person, snapshots, live video, and camera siren control confirmed by developer testing. Garden and Pool accepted a five-second siren duration and explicit stop. |
+| EufyCam 2C | T8113-Z, type 8 | `unverified` | `confirmed` | `unverified` | `unverified` | Discovery, motion, person, snapshots, live video, and camera siren control confirmed by developer testing. A local camera accepted a five-second siren duration and explicit stop. |
 | EufyCam 2C Pro | T8142-Z, type 15 | `confirmed` | `unverified` | `unverified` | `unverified` | Discovery, snapshots, and live video confirmed. Events need focused testing. |
 | USB-C-powered camera | T817L, type 10031 | `unverified` | `confirmed` | `unverified` | `unverified` | Live video and snapshots confirmed. Battery-shaped fields are suppressed. |
 | eufyCam S330 | T8160, type 19 | `unverified` | `confirmed` | `unverified` | `unverified` | Discovery, sensors, retained images, and live video confirmed. |

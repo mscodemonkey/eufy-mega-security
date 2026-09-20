@@ -25,6 +25,7 @@ function simulatedStation(overrides: Partial<HomeBaseState> = {}): HomeBaseState
     available: true,
     cameraRouteReady: true,
     controlsSupported: true,
+    homeBaseSirenControlSupported: true,
     connected: true,
     guardMode: 63,
     effectiveMode: 63,
@@ -199,6 +200,14 @@ export class SimulatedProvider implements CameraProvider {
 
   async setAlarmTone(serial: string, value: number): Promise<HomeBaseState> {
     return this.#updateStation(serial, { alarmTone: value });
+  }
+
+  /** Record a bounded HomeBase siren command for deterministic API tests. */
+  async setHomeBaseSiren(serial: string, durationSeconds: number): Promise<HomeBaseState> {
+    if (!Number.isSafeInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 900) {
+      throw new Error("HomeBase siren duration is invalid");
+    }
+    return this.#updateStation(serial, { alarmActive: durationSeconds > 0 });
   }
 
   async close(): Promise<void> {

@@ -291,6 +291,7 @@ export class GatewayServer {
     else if (command === "alarm-volume") station = await this.provider.setAlarmVolume(serial, requiredInteger(body.value));
     else if (command === "prompt-volume") station = await this.provider.setPromptVolume(serial, requiredInteger(body.value));
     else if (command === "alarm-tone") station = await this.provider.setAlarmTone(serial, requiredInteger(body.value));
+    else if (command === "siren") station = await this.provider.setHomeBaseSiren(serial, requiredInteger(body.duration));
     else return json(response, 404, { error: "Not found" });
     this.state.registerStation(station);
     return json(response, 200, station);

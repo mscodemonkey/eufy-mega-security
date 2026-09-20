@@ -88,7 +88,7 @@ test("uses a structured person name when Eufy supplies one", () => {
 
 test("extracts a name from explicit HB3 identity notification text", () => {
   assert.equal(personNameFromPush(event({ eventType: 3111, content: "Alex has been detected." })), "Alex");
-  assert.equal(personNameFromPush(event({ eventType: 3111, content: "Front of House: Alex was spotted in the garden" })), "Alex");
+  assert.equal(personNameFromPush(event({ eventType: 3111, content: "Test camera: Alex was spotted in the garden" })), "Alex");
 });
 
 test("never infers an identity from generic or non-identity notifications", () => {
@@ -99,14 +99,14 @@ test("never infers an identity from generic or non-identity notifications", () =
 
 test("parses only whitelisted Mega inventory fields and de-duplicates serials", () => {
   const result = parseMegaInventory({ devices: [{
-    device_sn: "T8113ABC", device_name: "Path", device_model: "T8113-Z", parent_sn: "T8030ABC",
+    device_sn: "T8113ABC", device_name: "Test camera", device_model: "T8113-Z", parent_sn: "T8030ABC",
     device_type: 8, device_channel: 3, category: "eufy_security", p2p_did: "ABC-123456-XYZ",
     device_key: "must-not-escape",
     charging_days: "44",
   }, { device_sn: "T8113ABC", device_name: "duplicate" }, { device_name: "missing serial" }] });
 
   assert.deepEqual(result, [{
-    serial: "T8113ABC", name: "Path", model: "T8113-Z", parentSerial: "T8030ABC",
+    serial: "T8113ABC", name: "Test camera", model: "T8113-Z", parentSerial: "T8030ABC",
     deviceType: 8, category: "eufy_security", channel: 3, p2pDid: "ABC-123456-XYZ",
     adminUserId: null, userName: null, firmware: null, p2pConnection: null, cipherId: null,
     paramTypes: [], reads: { lastChargingDays: 44 },
@@ -192,6 +192,7 @@ test("discovers T8010 without enabling unverified station controls", () => {
     available: true,
     cameraRouteReady: true,
     controlsSupported: false,
+    homeBaseSirenControlSupported: true,
     connected: false,
     guardMode: null,
     effectiveMode: null,
@@ -206,7 +207,7 @@ test("discovers T8010 without enabling unverified station controls", () => {
 test("classifies recognized Mega camera types without admitting stations or unknown devices", () => {
   const devices = parseMegaInventory({ devices: [
     { device_sn: "doorbell", device_name: "Door", device_model: "T8210", parent_sn: "homebase", device_type: 7, category: "eufy_security" },
-    { device_sn: "battery", device_name: "Path", device_model: "T8113-Z", parent_sn: "homebase", device_type: 8, category: "eufy_security" },
+    { device_sn: "battery", device_name: "Test camera", device_model: "T8113-Z", parent_sn: "homebase", device_type: 8, category: "eufy_security" },
     { device_sn: "c2-pro", device_name: "Driveway", device_model: "T8142-Z", parent_sn: "homebase", device_type: 15, category: "eufy_security" },
     { device_sn: "s330", device_name: "Garden", device_model: "T8160", parent_sn: "homebase", device_type: 19, category: "eufy_security" },
     { device_sn: "s300", device_name: "Side", device_model: "T8161", parent_sn: "homebase", device_type: 23, category: "eufy_security" },

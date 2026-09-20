@@ -12,10 +12,10 @@ import { parsePushEvent, safeUnparsedShape } from "../src/mega/push.js";
 test("normalizes a nested HomeBase 3 Mega notification", () => {
   const result = parsePushEvent({ payload: JSON.stringify({
     station_sn: "station", device_sn: "camera", content: "Alex has been detected.",
-    payload: { name: "Path", a: "3111", nick_name: "Alex", pic_url: "https://example.invalid/image", msg_type: 1 },
+    payload: { name: "Test camera", a: "3111", nick_name: "Alex", pic_url: "https://example.invalid/image", msg_type: 1 },
   }) });
   assert.deepEqual(result, {
-    cameraSerial: "camera", stationSerial: "station", cameraName: "Path", eventType: 3111,
+    cameraSerial: "camera", stationSerial: "station", cameraName: "Test camera", eventType: 3111,
     messageType: 1, notificationStyle: null, personName: "Alex", content: "Alex has been detected.",
     pictureUrl: "https://example.invalid/image", filePath: null, fetchId: null, senseId: null,
     guardMode: null, effectiveMode: null, alarmType: null, sensorOpen: null, eventId: null,
@@ -33,7 +33,7 @@ test("normalizes a direct Android MCS camera payload", () => {
     device_sn: "camera",
     station_sn: "station",
     a: 3101,
-    name: "Path",
+    name: "Test camera",
     pic_url: "https://example.invalid/image",
     account_email: "private@example.invalid",
   });

@@ -186,7 +186,7 @@ The session exposes counters for `camId`, data datagrams, command headers, gatew
 
 The gateway serializes operations for each HomeBase. Recovery polls wait while that station has active camera media. A security or settings command takes priority and stops the active media session first. The gateway sends each write once, waits for the matching PPCS result, then reads the relevant state again. It rejects the request when acknowledgement fails or the readback does not match, so Home Assistant never presents an optimistic setting as confirmed.
 
-Home Assistant maps the result to a code-free alarm panel for Away, Home, and Disarmed; a configured guard-mode select; a separate effective-mode sensor; current siren state; connection diagnostics; storage sensors; and volume and tone controls. Manual siren activation is outside this release.
+Home Assistant maps the result to a code-free alarm panel for Away, Home, and Disarmed; a configured guard-mode select; a separate effective-mode sensor; current siren state; connection diagnostics; storage sensors; volume and tone controls; and bounded HomeBase and camera siren controls where the command capability is reported.
 
 The gateway converts media and events into a small HTTP/SSE contract:
 

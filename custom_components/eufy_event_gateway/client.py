@@ -121,6 +121,12 @@ class GatewayClient:
             f"/api/stations/{serial}/alarm-tone", {"value": value}
         )
 
+    async def set_station_siren(self, serial: str, duration: int) -> dict[str, Any]:
+        """Trigger or stop a HomeBase siren for the requested duration."""
+        return await self._station_command(
+            f"/api/stations/{serial}/siren", {"duration": duration}
+        )
+
     async def snapshot(self, serial: str) -> bytes | None:
         """Read the last retained still, returning None when no image exists."""
         try:

@@ -7,7 +7,7 @@ provider path and a real-device result both exist.
 ## Ready to investigate
 
 - [x] Identify the PTZ camera intended for preset-position, auto-cruise, and
-  AI-tracking work. Front of House is T817L. The Eufy Android app exposes
+  AI-tracking work. The tested wired camera is T817L. The Eufy Android app exposes
   these controls on that device even though the reference SDK registry does
   not yet list the model.
 - [ ] Add preset-position support for T817L, after cross-referencing the
@@ -31,8 +31,8 @@ provider path and a real-device result both exist.
   switched off and on through the end-to-end path during local testing. The
   capability remains exposed only when the camera reports the required value
   and route.
-- [ ] Add a repeatable harness assertion for motion detection on Doorbell,
-  Front of House, and the T8113-Z cameras.
+- [ ] Add a repeatable harness assertion for motion detection on the tested
+  doorbell, the tested wired camera, and the T8113-Z cameras.
 - [ ] Add the current device compatibility catalogue to generated support
   documentation and validate that every admitted device has a catalogue row.
 

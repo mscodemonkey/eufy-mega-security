@@ -2,6 +2,7 @@
 
 ## GitHub issue comments
 
+- Never include Martin's local camera names, room names, Home Assistant entity names, serials, account details, or other local device labels in public comments. Use the model, device type, or a neutral phrase such as "one of my cameras".
 - Write replies for the reporter, not for an internal engineering review. Lead with what changed, what still does not work, and the next useful action.
 - Prefer ordinary words. Explain the user-visible effect before mentioning protocol names, parser stages, frame types, or transport details. Include technical terms only when the reporter needs them to test or understand the result.
 - Keep related issues connected in plain language. Say that a shared picture-delivery problem may affect several reports, rather than listing internal implementation vocabulary.

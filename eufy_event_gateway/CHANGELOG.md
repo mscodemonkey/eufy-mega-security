@@ -1,9 +1,13 @@
 # Changelog
 
+## 0.1.67
+
+- Offer camera siren control from reported capability evidence instead of one camera type, and add the HomeBase siren trigger and stop path.
+
 ## 0.1.66
 
-- Add a guarded camera siren entity for the proven T8113-Z family, using the camera's own duration timer and explicit stop command.
-- Record the real-device Garden and Pool siren test in the compatibility evidence.
+- Add a camera siren entity using the camera's own duration timer and explicit stop command.
+- Record a real-device T8113-Z siren test in the compatibility evidence.
 
 ## 0.1.65
 
