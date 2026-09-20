@@ -134,8 +134,6 @@ export class SimulatedProvider implements CameraProvider {
       doorbellSupported: false,
       enabled,
       enableControlSupported: true,
-      motionDetectionEnabled: true,
-      motionDetectionControlSupported: true,
       battery: {
         supported: ["level", "charging", "health", "temperature", "lastChargingDays"] as const,
         level: 82,
@@ -166,11 +164,6 @@ export class SimulatedProvider implements CameraProvider {
     };
     this.#events?.camera(identity);
     return identity;
-  }
-
-  /** Accept deterministic privacy writes without inventing a readable state. */
-  async setCameraPrivacy(serial: string, _enabled: boolean): Promise<void> {
-    this.#assertSerial(serial);
   }
 
   async refreshStation(serial: string): Promise<HomeBaseState> {

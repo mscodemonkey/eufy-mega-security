@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.62
+
+- Add confirmed camera motion-detection switches for supported HomeBase-attached cameras.
+- Align PPCS media assembly with the reference handling for decoded frame lengths.
+- Correct T817L classification so it does not expose a Doorbell sensor.
+
 ## 0.1.61
 
 - Admit Eufy device type 96 as a camera for T8224 inventory while keeping doorbell press support evidence-gated.
