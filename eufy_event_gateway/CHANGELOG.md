@@ -1,9 +1,5 @@
 # Changelog
 
-## 0.1.65
-
-- Preserve PPCS command headers split across UDP datagrams instead of discarding their partial prefix. This reduces parser resynchronisation and protects camera media frame boundaries.
-
 ## 0.1.64
 
 - Admit eufyCam E40 inventory type 49 through the existing HomeBase 2 camera route. Discovery and media still need reporter confirmation.
