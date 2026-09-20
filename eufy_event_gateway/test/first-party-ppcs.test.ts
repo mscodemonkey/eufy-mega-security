@@ -20,6 +20,7 @@ import {
   PpcsVideoFrameDecoder,
   PpcsVideoStreamNormalizer,
   ppcsCandidatePorts,
+  ppcsCommandMagicOffset,
   ppcsFrameChannel,
   ppcsLookupCandidate,
   ppcsPartialCommandPrefix,
@@ -116,6 +117,11 @@ test("retains a split PPCS command magic prefix", () => {
   assert.deepEqual(ppcsPartialCommandPrefix(Buffer.from("XZYH\0")), Buffer.from("XZYH\0"));
   assert.equal(ppcsPartialCommandPrefix(Buffer.from("garbage")), undefined);
   assert.equal(ppcsPartialCommandPrefix(Buffer.alloc(16, 0)), undefined);
+});
+
+test("finds a command header after a short parser resync tail", () => {
+  assert.equal(ppcsCommandMagicOffset(Buffer.from("discardXZYH")), 7);
+  assert.equal(ppcsCommandMagicOffset(Buffer.from("no command")), -1);
 });
 
 test("distinguishes forward loss from duplicate and stale PPCS datagrams", () => {

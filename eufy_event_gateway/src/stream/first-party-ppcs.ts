@@ -102,6 +102,11 @@ export function ppcsPartialCommandPrefix(data: Buffer): Buffer | undefined {
   return undefined;
 }
 
+/** Find a complete command header after discarded bytes in one PPCS data body. */
+export function ppcsCommandMagicOffset(data: Buffer): number {
+  return data.indexOf(MAGIC);
+}
+
 /** Classify a 16-bit PPCS datagram sequence relative to the last accepted value. */
 export function ppcsSequenceDisposition(
   previous: number | null,
@@ -781,33 +786,43 @@ export class FirstPartyPpcsSession {
         body = Buffer.concat([carried.payload, body]);
       }
     }
-    while (body.length >= 16 && body.subarray(0, 4).equals(MAGIC)) {
-      const header = body.subarray(0, 16);
-      const command = header.readUInt16LE(4);
-      if (this.stats.commands.length < 20) this.stats.commands.push(command);
-      const size = header.readUInt32LE(6);
-      if (command === 1350 && this.stats.responseLengths.length < 5) this.stats.responseLengths.push(size);
-      if (size > 16 * 1024 * 1024) {
-        this.#pendingByType.delete(type);
-        this.#updatePendingBytes();
-        return;
+    let resynced = false;
+    while (true) {
+      while (body.length >= 16 && body.subarray(0, 4).equals(MAGIC)) {
+        const header = body.subarray(0, 16);
+        const command = header.readUInt16LE(4);
+        if (this.stats.commands.length < 20) this.stats.commands.push(command);
+        const size = header.readUInt32LE(6);
+        if (command === 1350 && this.stats.responseLengths.length < 5) this.stats.responseLengths.push(size);
+        if (size > 16 * 1024 * 1024) {
+          this.#pendingByType.delete(type);
+          this.#updatePendingBytes();
+          return;
+        }
+        const payload = body.subarray(16);
+        if (payload.length < size) {
+          this.#pendingByType.set(type, { header: Buffer.from(header), payload: Buffer.from(payload) });
+          this.#updatePendingBytes();
+          return;
+        }
+        this.#handleFrame(header, payload.subarray(0, size), type);
+        body = body.subarray(16 + size);
       }
-      const payload = body.subarray(16);
-      if (payload.length < size) {
-        this.#pendingByType.set(type, { header: Buffer.from(header), payload: Buffer.from(payload) });
-        this.#updatePendingBytes();
-        return;
+      if (body.length === 0) break;
+      const offset = ppcsCommandMagicOffset(body);
+      if (offset > 0 && !resynced) {
+        this.stats.parserResyncs++;
+        resynced = true;
+        body = body.subarray(offset);
+        continue;
       }
-      this.#handleFrame(header, payload.subarray(0, size), type);
-      body = body.subarray(16 + size);
-    }
-    if (body.length > 0) {
       const prefix = ppcsPartialCommandPrefix(body);
       if (prefix) this.#pendingByType.set(type, { payload: prefix });
       else {
         this.stats.parserBlocked = true;
         this.stats.parserResyncs++;
       }
+      break;
     }
     this.#updatePendingBytes();
   }
