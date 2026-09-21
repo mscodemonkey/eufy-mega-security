@@ -127,6 +127,13 @@ export function buildAttachedMediaControlValue(
   }));
 }
 
+/** Build the encrypted direct stop command required by a T8010 HomeBase 2. */
+export function buildLegacyAttachedMediaStopPayload(channel: number, key: Buffer): Buffer {
+  const value = Buffer.alloc(4);
+  value.writeUInt32LE(channel, 0);
+  return rawPayload(encryptLevel1(value, key), channel, 1, [1, 0], 0);
+}
+
 /** Read the camera channel from the current 16-byte PPCS command header. */
 export function ppcsFrameChannel(frame: Buffer): number | null {
   return frame.length >= 16 && frame.subarray(0, 4).equals(MAGIC) ? (frame[12] ?? null) : null;
@@ -512,6 +519,9 @@ export interface PpcsCameraOptions {
   readonly dskKey: string;
   readonly channel: number;
   readonly cameraModel: string;
+
+  /** Parent peer model used only where HomeBase generations have different media lifecycle commands. */
+  readonly stationModel?: string;
   readonly accountId: string | null;
   readonly homeBaseAttached?: boolean;
   readonly cipherId?: number | null;
@@ -591,6 +601,7 @@ export class FirstPartyPpcsSession {
     videoNalTypes: [] as number[],
     mediaStartAttempts: 0,
     mediaStopAttempts: 0,
+    mediaStopProtocol: "none" as "none" | "level1-direct" | "level2-payload",
     closeReason: "open" as PpcsStreamCloseReason | "open",
   };
   readonly #options: PpcsCameraOptions;
@@ -1124,6 +1135,15 @@ export class FirstPartyPpcsSession {
   /** Release this camera channel without ending the HomeBase peer session first. */
   #stopAttachedMedia(): void {
     if (!this.#remote || !this.#level2Key || this.stats.mediaStartAttempts === 0) return;
+    if (this.#options.stationModel === "T8010") {
+      this.stats.mediaStopAttempts++;
+      this.stats.mediaStopProtocol = "level1-direct";
+      this.#sendCommand(1004, buildLegacyAttachedMediaStopPayload(
+        this.#options.channel,
+        commandKey(this.#options.stationSerial, this.#options.p2pDid),
+      ));
+      return;
+    }
     this.#sendAttachedMediaControl(1004);
   }
 
@@ -1131,7 +1151,10 @@ export class FirstPartyPpcsSession {
   #sendAttachedMediaControl(command: 1003 | 1004): void {
     if (!this.#remote || !this.#level2Key) return;
     if (command === 1003) this.stats.mediaStartAttempts++;
-    else this.stats.mediaStopAttempts++;
+    else {
+      this.stats.mediaStopAttempts++;
+      this.stats.mediaStopProtocol = "level2-payload";
+    }
     const value = buildAttachedMediaControlValue(
       command,
       this.#options.channel,

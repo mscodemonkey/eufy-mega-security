@@ -11,6 +11,7 @@ import test from "node:test";
 import {
   buildCameraEnableBody,
   buildAttachedMediaControlValue,
+  buildLegacyAttachedMediaStopPayload,
   buildNightVisionBody,
   acceptsAttachedCameraMedia,
   buildPpcsCloudLookup,
@@ -146,6 +147,19 @@ test("builds distinct HomeBase start and stop media envelopes", () => {
     () => buildAttachedMediaControlValue(1003, 4, "account-owner"),
     /requires an RSA public key/,
   );
+});
+
+test("builds the T8010 direct encrypted media stop command", () => {
+  const key = Buffer.from("0123456789abcdef", "utf8");
+  const payload = buildLegacyAttachedMediaStopPayload(4, key);
+
+  assert.equal(payload.readUInt16LE(0), 16);
+  assert.deepEqual(payload.subarray(4, 10), Buffer.from([1, 0, 4, 1, 0, 0]));
+  const decipher = createDecipheriv("aes-128-ecb", key, null);
+  decipher.setAutoPadding(false);
+  const clear = Buffer.concat([decipher.update(payload.subarray(10)), decipher.final()]);
+  assert.equal(clear.readUInt32LE(0), 4);
+  assert.ok(clear.subarray(4).every((value) => value === 0));
 });
 
 test("requires complete codec setup and an IDR before attached media settles", () => {
