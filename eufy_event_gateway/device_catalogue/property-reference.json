@@ -1,0 +1,2018 @@
+[
+  {
+    "property": "name",
+    "label(s)": "Name",
+    "protocol key name (num) / commandId (may differ per model)": "device_name",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "66",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "model",
+    "label(s)": "Model",
+    "protocol key name (num) / commandId (may differ per model)": "device_model",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "66",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "serialNumber",
+    "label(s)": "Serial number",
+    "protocol key name (num) / commandId (may differ per model)": "device_sn",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "66",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "type",
+    "label(s)": "Type",
+    "protocol key name (num) / commandId (may differ per model)": "device_type",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "66",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "hardwareVersion",
+    "label(s)": "Hardware version",
+    "protocol key name (num) / commandId (may differ per model)": "main_hw_version",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "66",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "softwareVersion",
+    "label(s)": "Software version",
+    "protocol key name (num) / commandId (may differ per model)": "main_sw_version",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "66",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "stationSerialNumber",
+    "label(s)": "Station serial number",
+    "protocol key name (num) / commandId (may differ per model)": "station_sn",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "64",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "powerSource",
+    "label(s)": "Power Source",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_POWER_CHARGE (1293)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "17",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "powerWorkingMode",
+    "label(s)": "Power Working Mode",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_PIR_POWERMODE (1246)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "34",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "chargingStatus",
+    "label(s)": "Charging Status",
+    "protocol key name (num) / commandId (may differ per model)": "SUB1G_REP_UNPLUG_POWER_LINE (2111)",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "32",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "battery",
+    "label(s)": "Battery percentage",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_GET_BATTERY (1101) | CMD_SMARTLOCK_QUERY_BATTERY_LEVEL (6001)",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "34",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "batteryTemperature",
+    "label(s)": "Battery Temperature",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_GET_BATTERY_TEMP (1138)",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "32",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lastChargingDays",
+    "label(s)": "Days since last charging",
+    "protocol key name (num) / commandId (may differ per model)": "charging_days",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "23",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lastChargingFalseEvents",
+    "label(s)": "False Events since last charging",
+    "protocol key name (num) / commandId (may differ per model)": "charging_missing",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "16",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lastChargingRecordedEvents",
+    "label(s)": "Total Recorded Events since last charging",
+    "protocol key name (num) / commandId (may differ per model)": "charging_reserve",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "23",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lastChargingTotalEvents",
+    "label(s)": "Total Events since last charging",
+    "protocol key name (num) / commandId (may differ per model)": "charing_total",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "23",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "batteryUsageLastWeek",
+    "label(s)": "Battery usage last week",
+    "protocol key name (num) / commandId (may differ per model)": "battery_usage_last_week",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "23",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "rtspStream",
+    "label(s)": "RTSP Stream",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_NAS_SWITCH (1145)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "32",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "rtspStreamUrl",
+    "label(s)": "RTSP Stream URL",
+    "protocol key name (num) / commandId (may differ per model)": "custom_rtspStreamUrl",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "31",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "wifiRssi",
+    "label(s)": "Wifi RSSI",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_GET_WIFI_RSSI (1142) | CMD_GET_SUB1G_RSSI (1141)",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "51",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "wifiSignalLevel",
+    "label(s)": "Wifi Signal Level",
+    "protocol key name (num) / commandId (may differ per model)": "custom_wifiSignalLevel",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "51",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "cellularRSSI",
+    "label(s)": "Cellular RSSI",
+    "protocol key name (num) / commandId (may differ per model)": "CELLULAR_SIGNAL_STRENGTH (7006)",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "2",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "cellularSignalLevel",
+    "label(s)": "Cellular Signal Level",
+    "protocol key name (num) / commandId (may differ per model)": "custom_cellularSignalLevel",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "2",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "cellularSignal",
+    "label(s)": "Cellular Signal",
+    "protocol key name (num) / commandId (may differ per model)": "CELLULAR_INFO (7002)",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "2",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "cellularBand",
+    "label(s)": "Cellular Band",
+    "protocol key name (num) / commandId (may differ per model)": "CELLULAR_INFO (7002)",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "2",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "cellularIMEI",
+    "label(s)": "Cellular IMEI",
+    "protocol key name (num) / commandId (may differ per model)": "CELLULAR_INFO (7002)",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "2",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "cellularICCID",
+    "label(s)": "Cellular ICCID",
+    "protocol key name (num) / commandId (may differ per model)": "CELLULAR_INFO (7002)",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "2",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "enabled",
+    "label(s)": "Camera enabled",
+    "protocol key name (num) / commandId (may differ per model)": "cmd:CMD_DEVS_SWITCH 1035 | CMD_DEVS_SWITCH (1035) | CMD_INDOOR_ENABLE_PRIVACY_MODE_S350 (6250) | cmd:CMD_INDOOR_ENABLE_PRIVACY_MODE_S350 6250 | cmd:CMD_INDOOR_ENABLE_PRIVACY_MODE 6090",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "65",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "watermark",
+    "label(s)": "Watermark",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_DEVS_OSD (1214)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "64",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "statusLed",
+    "label(s)": "Status LED",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DEV_LED_SWITCH (1045) | cmd:CMD_INDOOR_LED_SWITCH 6014 | CMD_INDOOR_LED_SWITCH (6014) | CMD_BAT_DOORBELL_SET_LED_ENABLE (1716) | cmd:CMD_DEV_LED_SWITCH 1045 | cmd:CMD_RECORD_PLAY_CTRL 1026 | CMD_RECORD_PLAY_CTRL (1026)",
+    "value types": "boolean | number",
+    "writeable on any model": "yes",
+    "in N device columns": "63",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "antitheftDetection",
+    "label(s)": "Antitheft Detection",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_EAS_SWITCH (1015)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "13",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "snooze",
+    "label(s)": "Snooze",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_SNOOZE_MODE (1271)",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "65",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "snoozeTime",
+    "label(s)": "Snooze Time",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_SNOOZE_MODE (1271)",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "65",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "snoozeStartTime",
+    "label(s)": "Snooze Start Time",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_SNOOZE_MODE (1271) | CMD_CAMERA_PUSH_NOTIFY (2037)",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "65",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "state",
+    "label(s)": "State",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_GET_DEV_STATUS (1131)",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "37",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "imageMirrored",
+    "label(s)": "Image vertically mirrored",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_MIRRORMODE (1207)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "15",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "snoozeStartChime",
+    "label(s)": "Snooze Chime",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_SNOOZE_MODE (1271)",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "10",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "snoozeMotion",
+    "label(s)": "Snooze Motion",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_SNOOZE_MODE (1271)",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "10",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "snoozeHomebase",
+    "label(s)": "Snooze Homebase",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_SNOOZE_MODE (1271)",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "9",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "autoNightvision",
+    "label(s)": "Auto Nightvision",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_IRCUT_SWITCH (1013) | CMD_SET_NIGHT_VISION_TYPE (1277) | cmd:CMD_SET_NIGHT_VISION_TYPE 1277",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "43",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "nightvision",
+    "label(s)": "Nightvision",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_NIGHT_VISION_TYPE (1277)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "23",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "videoStreamingQuality",
+    "label(s)": "Video Streaming Quality",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_BAT_DOORBELL_VIDEO_QUALITY (1705) | cmd:CMD_DEVS_UNLOCK 1020 | CMD_SET_RESOLUTION (1205) | CMD_BAT_DOORBELL_VIDEO_QUALITY2 (2730) | cmd:CMD_BAT_DOORBELL_VIDEO_QUALITY2 2730 | cmd:CMD_SET_RESOLUTION 1205",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "59",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "videoRecordingQuality",
+    "label(s)": "Video Recording Quality",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_RECORD_QUALITY (1286) | cmd:CMD_STOP_SHARE 1023 | CMD_STOP_SHARE (1023) | cmd:CMD_SET_RECORD_QUALITY 1286 | CMD_BAT_DOORBELL_RECORD_QUALITY2 (2731) | cmd:CMD_BAT_DOORBELL_RECORD_QUALITY2 2731",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "51",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "videoWdr",
+    "label(s)": "WDR",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_BAT_DOORBELL_WDR_SWITCH (1704)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "9",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "dualCamWatchViewMode",
+    "label(s)": "Dual Cam Watch View Mode",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_VIEW_MODE (2700) | CMD_DOORBELL_DUAL_VIEW_MODE2 (6243)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "16",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "videoTypeStoreToNAS",
+    "label(s)": "Video Type Store To NAS",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_INDOOR_NAS_STORAGE_TYPE (6050)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "22",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "videoNightvisionImageAdjustment",
+    "label(s)": "Video Nightvision Image Adjustment",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_FLOODLIGHT_SET_VIDEO_NIGHTVISION_IMAGE_ADJUSTMENT (6105)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "videoColorNightvision",
+    "label(s)": "Video Color Nightvision",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_FLOODLIGHT_SET_VIDEO_COLOR_NIGHTVISION (6106)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "videoHdr",
+    "label(s)": "HDR",
+    "protocol key name (num) / commandId (may differ per model)": "",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "videoDistortionCorrection",
+    "label(s)": "Distortion Correction",
+    "protocol key name (num) / commandId (may differ per model)": "",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "2",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "videoRingRecord",
+    "label(s)": "Record while live viewing after opening notification",
+    "protocol key name (num) / commandId (may differ per model)": "",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "2",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "nightvisionOptimization",
+    "label(s)": "Nighvision Optimization",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SMARTLOCK_NIGHT_VISION_ENHANCE (6614)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "2",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "nightvisionOptimizationSide",
+    "label(s)": "Nighvision Optimization Side",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SMARTLOCK_NIGHT_VISION_SIDE (6615)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "2",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetection",
+    "label(s)": "Motion Detection",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_PIR_SWITCH (1011) | CMD_INDOOR_DET_SET_MOTION_DETECT_ENABLE (6040) | cmd:CMD_CLOSE_EAS 1016",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "65",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetected",
+    "label(s)": "Motion detected",
+    "protocol key name (num) / commandId (may differ per model)": "custom_motionDetected",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "65",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "recordingEndClipMotionStops",
+    "label(s)": "Recording end clip early if motion stops",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DEV_RECORD_AUTOSTOP (1251)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "41",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionSensitivity",
+    "label(s)": "Motion Detection Sensitivity",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_PIRSENSITIVITY (1210) | CMD_INDOOR_DET_SET_MOTION_SENSITIVITY_IDX (6041) | CMD_SET_PIR_SENSITIVITY (6070) | CMD_SET_MDSENSITIVITY (1272) | CMD_SET_MOTION_SENSITIVITY (1276) | custom_motionDetectionSensitivity",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "60",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "motionDetectionType",
+    "label(s)": "Motion Detection Type",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DEV_PUSHMSG_MODE (1252) | CMD_INDOOR_DET_SET_MOTION_DETECT_TYPE (6045) | CMD_SET_DETECT_TYPE (6071)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "46",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "personName",
+    "label(s)": "Person Name",
+    "protocol key name (num) / commandId (may differ per model)": "custom_personName",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "66",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "personDetected",
+    "label(s)": "Person detected",
+    "protocol key name (num) / commandId (may differ per model)": "custom_personDetected",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "62",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "vehicleDetected",
+    "label(s)": "Vehicle detected",
+    "protocol key name (num) / commandId (may differ per model)": "custom_vehicleDetected",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "8",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "lightSettingsMotionTriggered",
+    "label(s)": "Light Motion Triggered Enable",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_LIGHT_CTRL_PIR_SWITCH (1408) | CMD_SET_LIGHT_CTRL_BRIGHT_PIR_T8425 (1422)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "14",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionTypeHuman",
+    "label(s)": "Motion Detection Type Human",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_MOTION_DETECTION_TYPE_HB3 (1298) | CMD_WALL_LIGHT_MOTION_DETECTION_TYPE_HUMAN (6330)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "17",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionTypeVehicle",
+    "label(s)": "Motion Detection Type Vehicle",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_MOTION_DETECTION_TYPE_HB3 (1298)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "6",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionTypeAllOtherMotions",
+    "label(s)": "Motion Detection Type All Other Motions",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_MOTION_DETECTION_TYPE_HB3 (1298) | CMD_WALL_LIGHT_MOTION_DETECTION_TYPE_ALL (6332)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "17",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "detectionStatisticsWorkingDays",
+    "label(s)": "Detection Statistics - Working Days",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_GET_WORKING_DAYS_HB3 (1191)",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "7",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "detectionStatisticsDetectedEvents",
+    "label(s)": "Detection Statistics - Detected Events",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_GET_DETECTED_EVENTS_HB3 (1192)",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "7",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "detectionStatisticsRecordedEvents",
+    "label(s)": "Detection Statistics - Recorded Events",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_GET_RECORDED_EVENTS_HB3 (1193)",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "7",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionTypePet",
+    "label(s)": "Motion Detection Type Pet",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_MOTION_DETECTION_TYPE_HB3 (1298)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "8",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "notificationPerson",
+    "label(s)": "Notification Person detected",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_INDOOR_SET_MOTION_DETECTION_TYPE (6027) | CMD_INDOOR_AI_PERSON_ENABLE (6022) | CMD_WALL_LIGHT_NOTIFICATION_TYPE_HUMAN (6335)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "24",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "notificationPet",
+    "label(s)": "Notification Pet detected",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_INDOOR_SET_MOTION_DETECTION_TYPE (6027) | CMD_INDOOR_AI_PET_ENABLE (6026)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "18",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "notificationVehicle",
+    "label(s)": "Notification Vehicle detected",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_INDOOR_SET_MOTION_DETECTION_TYPE (6027)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "4",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "notificationAllOtherMotion",
+    "label(s)": "Notification All Other Motion",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_INDOOR_SET_MOTION_DETECTION_TYPE (6027) | CMD_INDOOR_AI_MOTION_ENABLE (6023) | CMD_WALL_LIGHT_NOTIFICATION_TYPE_ALL (6337)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "24",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "petDetected",
+    "label(s)": "Pet detected",
+    "protocol key name (num) / commandId (may differ per model)": "custom_petDetected",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "15",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "motionTracking",
+    "label(s)": "Motion Tracking",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_INDOOR_PAN_MOTION_TRACK (6016)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "16",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionZone",
+    "label(s)": "Motion Detection Zone",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_INDOOR_DET_SET_ACTIVE_ZONE (6042)",
+    "value types": "object",
+    "writeable on any model": "yes",
+    "in N device columns": "5",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "soundDetection",
+    "label(s)": "Sound Detection",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_INDOOR_DET_SET_SOUND_DETECT_ENABLE (6043)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "15",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "petDetection",
+    "label(s)": "Pet Detection",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_INDOOR_DET_SET_PET_ENABLE (6047)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "8",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "soundDetected",
+    "label(s)": "Sound detected",
+    "protocol key name (num) / commandId (may differ per model)": "custom_soundDetected",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "15",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "soundDetectionType",
+    "label(s)": "Sound Detection Type",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_INDOOR_DET_SET_SOUND_DETECT_TYPE (6046)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "14",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "soundDetectionSensitivity",
+    "label(s)": "Sound Detection Sensitivity",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_INDOOR_DET_SET_SOUND_SENSITIVITY_IDX (6044)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "15",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "cryingDetected",
+    "label(s)": "Crying detected",
+    "protocol key name (num) / commandId (may differ per model)": "custom_cryingDetected",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "14",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "notificationAllSound",
+    "label(s)": "Notification Sound detected",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_INDOOR_AI_SOUND_ENABLE (6025) | CMD_INDOOR_SET_MOTION_DETECTION_TYPE (6027)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "16",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "notificationCrying",
+    "label(s)": "Notification Crying detected",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_INDOOR_AI_CRYING_ENABLE (6024) | CMD_INDOOR_SET_MOTION_DETECTION_TYPE (6027)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "15",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "soundDetectionRoundLook",
+    "label(s)": "Sound Detection Round-Look",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_INDOOR_SET_SOUND_DETECT_ROUND_LOOK (6095) | CMD_INDOOR_SET_SOUND_DETECT_ROUND_LOOK_S350 (6208)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "7",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionAutoCruise",
+    "label(s)": "Motion Auto-Cruise",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_FLOODLIGHT_SET_MOTION_AUTO_CRUISE (6031)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "9",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsBrightnessMotion",
+    "label(s)": "Light Brightness Motion",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_LIGHT_CTRL_BRIGHT_PIR (1412) | CMD_SET_LIGHT_CTRL_BRIGHT_PIR_T8425 (1422)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "8",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsMotionTriggeredDistance",
+    "label(s)": "Light Motion Triggered Distance",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_PIRSENSITIVITY (1210)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "2",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsMotionTriggeredTimer",
+    "label(s)": "Light Motion Triggered Timer",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_LIGHT_CTRL_PIR_TIME (1409) | CMD_SET_LIGHT_CTRL_BRIGHT_PIR_T8425 (1422)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "8",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionTestMode",
+    "label(s)": "Motion Detection Test Mode",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_PIR_TEST_MODE (1243) | CMD_FLOODLIGHT_SET_DETECTION_RANGE_T8425 (6073)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "4",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionRange",
+    "label(s)": "Motion Detection Range",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_FLOODLIGHT_SET_DETECTION_RANGE (6086) | CMD_FLOODLIGHT_SET_DETECTION_RANGE_T8425 (6073)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionRangeStandardSensitivity",
+    "label(s)": "Motion Detection Range Standard Sensitivity",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_FLOODLIGHT_SET_DETECTION_RANGE_STD_SENSITIVITY (6087) | CMD_FLOODLIGHT_SET_DETECTION_RANGE_T8425 (6073)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionRangeAdvancedLeftSensitivity",
+    "label(s)": "Motion Detection Range Advanced Left Sensitivity",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_FLOODLIGHT_SET_DETECTION_RANGE_ADV_LEFT_SENSITIVITY (6081) | CMD_FLOODLIGHT_SET_DETECTION_RANGE_T8425 (6073)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionRangeAdvancedMiddleSensitivity",
+    "label(s)": "Motion Detection Range Advanced Middle Sensitivity",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_FLOODLIGHT_SET_DETECTION_RANGE_ADV_MIDDLE_SENSITIVITY (6083)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionRangeAdvancedRightSensitivity",
+    "label(s)": "Motion Detection Range Advanced Right Sensitivity",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_FLOODLIGHT_SET_DETECTION_RANGE_ADV_RIGHT_SENSITIVITY (6085) | CMD_FLOODLIGHT_SET_DETECTION_RANGE_T8425 (6073)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionTrackingSensitivity",
+    "label(s)": "Motion Tracking Sensitivity",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_FLOODLIGHT_SET_MOTION_TRACKING_SENSITIVITY (6107)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionOutOfViewDetection",
+    "label(s)": "Motion Out-of-View Detection",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_FLOODLIGHT_SET_MOTION_OUT_OF_VIEW_DETECTION (6098)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsColorTemperatureMotion",
+    "label(s)": "Light Setting Color Temperature Motion",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_FLOODLIGHT_SET_LIGHT_COLOR_TEMP_MOTION (6101)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsMotionActivationMode",
+    "label(s)": "Light Settings Motion Activation Mode",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_FLOODLIGHT_STREET_LAMP (1402) | CMD_SET_LIGHT_CTRL_BRIGHT_PIR_T8425 (1422)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "4",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsMotionLightingActiveMode",
+    "label(s)": "Light Setting Motion Lighting Active Mode",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_WALL_LIGHT_SETTINGS_MOTION_LIGHTING_ACTIVE_MODE (6383)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsMotionDailyLighting",
+    "label(s)": "Light Setting Motion Daily Lighting Selection",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_WALL_LIGHT_SETTINGS_MOTION_DAILY_LIGHTING (6373)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsMotionColoredLighting",
+    "label(s)": "Light Setting Motion Colored Lighting Selection",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_WALL_LIGHT_SETTINGS_MOTION_COLORED_LIGHTING (6386)",
+    "value types": "object",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsMotionDynamicLighting",
+    "label(s)": "Light Setting Motion Dynamic Lighting Selection",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_WALL_LIGHT_SETTINGS_MOTION_DYNAMIC_LIGHTING (6378)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "strangerPersonDetected",
+    "label(s)": "Stranger Person detected",
+    "protocol key name (num) / commandId (may differ per model)": "custom_strangerPersonDetected",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "1",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "motionDetectionTypeHumanRecognition",
+    "label(s)": "Motion Detection Type Human Recognition",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_MOTION_DETECTION_TYPE_HB3 (1298)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "ringing",
+    "label(s)": "Ringing",
+    "protocol key name (num) / commandId (may differ per model)": "custom_ringing",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "12",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "ringtoneVolume",
+    "label(s)": "Ringtone Volume",
+    "protocol key name (num) / commandId (may differ per model)": "cmd:CMD_CLOSE_PIR 1012 | CMD_T8200X_SET_RINGTONE_VOLUME (6096) | CMD_BAT_DOORBELL_SET_RINGTONE_VOLUME (1708)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "12",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "notificationRing",
+    "label(s)": "Notification Ring detected",
+    "protocol key name (num) / commandId (may differ per model)": "cmd:CMD_CHANGE_WIFI_PWD 1031 | CMD_BAT_DOORBELL_SET_NOTIFICATION_MODE (1710)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "12",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "notificationMotion",
+    "label(s)": "Notification Motion detected",
+    "protocol key name (num) / commandId (may differ per model)": "cmd:CMD_CHANGE_WIFI_PWD 1031 | CMD_BAT_DOORBELL_SET_NOTIFICATION_MODE (1710)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "12",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "deliveryGuard",
+    "label(s)": "Delivery Guard",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_DELIVERY_GUARD_SWITCH (2723)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "deliveryGuardPackageGuarding",
+    "label(s)": "Delivery Guard Package Guarding",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_PACKAGE_GUARD_SWITCH (2709)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "deliveryGuardPackageGuardingActivatedTimeFrom",
+    "label(s)": "Delivery Guard Package Guarding Activated Time From (24-hour clock)",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_PACKAGE_GUARD_TIME (2711)",
+    "value types": "string",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "deliveryGuardPackageGuardingActivatedTimeTo",
+    "label(s)": "Delivery Guard Package Guarding Activated Time To (24-hour clock)",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_PACKAGE_GUARD_TIME (2711)",
+    "value types": "string",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "deliveryGuardPackageGuardingVoiceResponseVoice",
+    "label(s)": "Delivery Guard Package Guarding Voice Response Voice",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_PACKAGE_GUARD_VOICE (2710)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "deliveryGuardPackageLiveCheckAssistance",
+    "label(s)": "Delivery Guard Package Live Check Assistance",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_PACKAGE_ASSISTANT_SWITCH (2714)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "deliveryGuardUncollectedPackageAlert",
+    "label(s)": "Delivery Guard Uncollected Package Alert",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_PACKAGE_STRAND_SWITCH (2712)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "deliveryGuardUncollectedPackageAlertTimeToCheck",
+    "label(s)": "Delivery Guard Uncollected Package Alert Time To Check (24-hour clock)",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_PACKAGE_STRAND_TIME (2713)",
+    "value types": "string",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "ringAutoResponse",
+    "label(s)": "Ring Auto-Response",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RING_AUTO_RESPONSE (2716)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "ringAutoResponseVoiceResponse",
+    "label(s)": "Ring Auto-Response Voice Response",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RING_AUTO_RESPONSE (2716)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "ringAutoResponseVoiceResponseVoice",
+    "label(s)": "Ring Auto-Response Voice Response Voice",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RING_AUTO_RESPONSE (2716)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "ringAutoResponseTimeFrom",
+    "label(s)": "Ring Auto-Response Time From (24-hour clock)",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RING_AUTO_RESPONSE (2716)",
+    "value types": "string",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "ringAutoResponseTimeTo",
+    "label(s)": "Ring Auto-Response Time To (24-hour clock)",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RING_AUTO_RESPONSE (2716)",
+    "value types": "string",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "packageDelivered",
+    "label(s)": "Package Delivered",
+    "protocol key name (num) / commandId (may differ per model)": "custom_packageDelivered",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "3",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "packageStranded",
+    "label(s)": "Package Stranded",
+    "protocol key name (num) / commandId (may differ per model)": "custom_packageStranded",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "3",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "packageTaken",
+    "label(s)": "Package Taken",
+    "protocol key name (num) / commandId (may differ per model)": "custom_packageTaken",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "3",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "someoneLoitering",
+    "label(s)": "Someone Loitering",
+    "protocol key name (num) / commandId (may differ per model)": "custom_someoneLoitering",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "4",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "chimeHomebaseRingtoneVolume",
+    "label(s)": "Homebase Chime Ringtone Volume",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_BAT_DOORBELL_DINGDONG_V (1717)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "8",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "chimeHomebaseRingtoneType",
+    "label(s)": "Homebase Chime Ringtone Type",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_BAT_DOORBELL_DINGDONG_R (1718)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "8",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "notificationRadarDetector",
+    "label(s)": "Notification Radar Detector Motion detected",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_NOTIFICATION_HUMAN_DETECT (2725)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionSensitivityMode",
+    "label(s)": "Motion Detection Sensitivity Mode",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RADAR_WD_DETECTION_SENSITIVITY (2705)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionSensitivityStandard",
+    "label(s)": "Motion Detection Standard Sensitivity",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RADAR_WD_DETECTION_SENSITIVITY (2705)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionSensitivityAdvancedA",
+    "label(s)": "Motion Detection Advanced Sensitivity A",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RADAR_WD_DETECTION_SENSITIVITY (2705)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionSensitivityAdvancedB",
+    "label(s)": "Motion Detection Advanced Sensitivity B",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RADAR_WD_DETECTION_SENSITIVITY (2705)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionSensitivityAdvancedC",
+    "label(s)": "Motion Detection Advanced Sensitivity C",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RADAR_WD_DETECTION_SENSITIVITY (2705)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionSensitivityAdvancedD",
+    "label(s)": "Motion Detection Advanced Sensitivity D",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RADAR_WD_DETECTION_SENSITIVITY (2705)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionSensitivityAdvancedE",
+    "label(s)": "Motion Detection Advanced Sensitivity E",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RADAR_WD_DETECTION_SENSITIVITY (2705)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionSensitivityAdvancedF",
+    "label(s)": "Motion Detection Advanced Sensitivity F",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RADAR_WD_DETECTION_SENSITIVITY (2705)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionSensitivityAdvancedG",
+    "label(s)": "Motion Detection Advanced Sensitivity G",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RADAR_WD_DETECTION_SENSITIVITY (2705)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "motionDetectionSensitivityAdvancedH",
+    "label(s)": "Motion Detection Advanced Sensitivity H",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RADAR_WD_DETECTION_SENSITIVITY (2705)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "loiteringDetection",
+    "label(s)": "Loitering Detection",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RADAR_WD_SWITCH (2706)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "loiteringDetectionLength",
+    "label(s)": "Loitering Detection Length",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RADAR_WD_TIME (2708)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "loiteringDetectionRange",
+    "label(s)": "Loitering Detection Range",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RADAR_WD_DISTANCE (2707)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "loiteringCustomResponsePhoneNotification",
+    "label(s)": "Loitering Custom Response Phone Notification",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RADAR_WD_AUTO_RESPONSE (2715)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "loiteringCustomResponseAutoVoiceResponse",
+    "label(s)": "Loitering Custom Response Auto Voice Response",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RADAR_WD_AUTO_RESPONSE (2715)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "loiteringCustomResponseAutoVoiceResponseVoice",
+    "label(s)": "Loitering Custom Response Auto Voice Response Voice",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RADAR_WD_AUTO_RESPONSE (2715)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "loiteringCustomResponseHomeBaseNotification",
+    "label(s)": "Loitering Custom Response HomeBase Notification",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RADAR_WD_AUTO_RESPONSE (2715)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "loiteringCustomResponseTimeFrom",
+    "label(s)": "Loitering Custom Response Time From (24-hour clock)",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RADAR_WD_AUTO_RESPONSE (2715)",
+    "value types": "string",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "loiteringCustomResponseTimeTo",
+    "label(s)": "Loitering Custom Response Time To (24-hour clock)",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORBELL_DUAL_RADAR_WD_AUTO_RESPONSE (2715)",
+    "value types": "string",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "radarMotionDetected",
+    "label(s)": "Radar Motion Detected",
+    "protocol key name (num) / commandId (may differ per model)": "custom_radarMotionDetected",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "1",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "leavingDetection",
+    "label(s)": "Leaving Detection",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_MOTION_SET_LEAVING_DETECTION (2726)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "2",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "leavingReactionNotification",
+    "label(s)": "Leaving Reaction Notification",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_MOTION_SET_LEAVING_REACTIONS (2727)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "2",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "leavingReactionStartTime",
+    "label(s)": "Leaving Reaction Starttime (24-hour clock)",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_MOTION_SET_LEAVING_REACTIONS (2727)",
+    "value types": "string",
+    "writeable on any model": "yes",
+    "in N device columns": "2",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "leavingReactionEndTime",
+    "label(s)": "Leaving Reaction Endtime (24-hour clock)",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_MOTION_SET_LEAVING_REACTIONS (2727)",
+    "value types": "string",
+    "writeable on any model": "yes",
+    "in N device columns": "2",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "someoneGoing",
+    "label(s)": "Someone Going",
+    "protocol key name (num) / commandId (may differ per model)": "custom_someoneGoing",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "2",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "sound",
+    "label(s)": "Sound",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SMARTLOCK_LOCK_SOUND (6505)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsBrightnessManual",
+    "label(s)": "Light Brightness Manual",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_FLOODLIGHT_BRIGHT_VALUE (1401)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "26",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "light",
+    "label(s)": "Light",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_FLOODLIGHT_MANUAL_SWITCH (1400)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "26",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsEnable",
+    "label(s)": "Light Enable",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_FLOODLIGHT_TOTAL_SWITCH (1403)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "16",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsBrightnessSchedule",
+    "label(s)": "Light Brightness Schedule",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_LIGHT_CTRL_BRIGHT_SCH (1413) | CMD_SET_LIGHT_CTRL_BRIGHT_SCH_T8425 (1421)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "8",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsColorTemperatureManual",
+    "label(s)": "Light Setting Color Temperature Manual",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_FLOODLIGHT_SET_LIGHT_COLOR_TEMP_MANUAL (6100)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsColorTemperatureSchedule",
+    "label(s)": "Light Setting Color Temperature Schedule",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_FLOODLIGHT_SET_LIGHT_COLOR_TEMP_SCHEDULE (6102)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsManualLightingActiveMode",
+    "label(s)": "Light Setting Manual Lighting Active Mode",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_WALL_LIGHT_SETTINGS_MANUAL_LIGHTING_ACTIVE_MODE (6381)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsManualDailyLighting",
+    "label(s)": "Light Setting Manual Daily Lighting Selection",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_WALL_LIGHT_SETTINGS_MANUAL_DAILY_LIGHTING (6361)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsManualColoredLighting",
+    "label(s)": "Light Setting Manual Colored Lighting Selection",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_WALL_LIGHT_SETTINGS_MANUAL_COLORED_LIGHTING (6384)",
+    "value types": "object",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsManualDynamicLighting",
+    "label(s)": "Light Setting Manual Dynamic Lighting Selection",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_WALL_LIGHT_SETTINGS_MANUAL_DYNAMIC_LIGHTING (6366)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsScheduleLightingActiveMode",
+    "label(s)": "Light Setting Schedule Lighting Active Mode",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_WALL_LIGHT_SETTINGS_SCHEDULE_LIGHTING_ACTIVE_MODE (6382)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsScheduleDailyLighting",
+    "label(s)": "Light Setting Schedule Daily Lighting Selection",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_WALL_LIGHT_SETTINGS_SCHEDULE_DAILY_LIGHTING (6367)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsScheduleColoredLighting",
+    "label(s)": "Light Setting Schedule Colored Lighting Selection",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_WALL_LIGHT_SETTINGS_SCHEDULE_COLORED_LIGHTING (6385)",
+    "value types": "object",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsScheduleDynamicLighting",
+    "label(s)": "Light Setting Schedule Dynamic Lighting Selection",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_WALL_LIGHT_SETTINGS_SCHEDULE_DYNAMIC_LIGHTING (6372)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsColoredLightingColors",
+    "label(s)": "Light Setting Colored Lighting Colors",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_WALL_LIGHT_SETTINGS_COLORED_LIGHTING_COLORS (6379)",
+    "value types": "object",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lightSettingsDynamicLightingThemes",
+    "label(s)": "Light Setting Dynamic Lighting Themes",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_WALL_LIGHT_SETTINGS_DYNAMIC_LIGHTING_THEMES (6380)",
+    "value types": "object",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "microphone",
+    "label(s)": "Microphone",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_DEV_MIC_MUTE (1240)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "54",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "speaker",
+    "label(s)": "Speaker",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_DEV_SPEAKER_MUTE (1241)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "51",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "audioRecording",
+    "label(s)": "Audio Recording",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_AUDIO_MUTE_RECORD (1288) | CMD_INDOOR_SET_RECORD_AUDIO_ENABLE (6012) | CMD_RECORD_AUDIO_SWITCH (1366) | cmd:CMD_INDOOR_SET_RECORD_AUDIO_ENABLE 6012 | cmd:CMD_FORMAT_SD 1029",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "65",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "speakerVolume",
+    "label(s)": "Speaker Volume",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_DEV_SPEAKER_VOLUME (1230) | CMD_WALL_LIGHT_SPEAKER_VOLUME (6342)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "63",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "chimeIndoor",
+    "label(s)": "Indoor Chime Enabled",
+    "protocol key name (num) / commandId (may differ per model)": "cmd:CMD_STOP_TALKBACK 1006 | CMD_STOP_TALKBACK (1006) | CMD_BAT_DOORBELL_MECHANICAL_CHIME_SWITCH (1703)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "11",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "chimeHomebase",
+    "label(s)": "Homebase Chime Enabled",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_BAT_DOORBELL_CHIME_SWITCH (1702)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "8",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "beepVolume",
+    "label(s)": "Beep Volume",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SMARTLOCK_VOLUME (6618)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "2",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "notificationType",
+    "label(s)": "Notification Type",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_PUSH_EFFECT (1289) | cmd:CMD_INDOOR_PUSH_NOTIFY_TYPE 6020 | CMD_INDOOR_PUSH_NOTIFY_TYPE (6020) | CMD_WALL_LIGHT_NOTIFICATION_TYPE (6338) | cmd:CMD_WALL_LIGHT_NOTIFICATION_TYPE 6338 | cmd:CMD_CHANGE_PWD 1030 | CMD_BAT_DOORBELL_SET_NOTIFICATION_MODE (1710)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "64",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "notificationIntervalTime",
+    "label(s)": "Notification Interval Time",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DEV_RECORD_INTERVAL (1250)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "14",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "notification",
+    "label(s)": "Notification",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_WALL_LIGHT_NOTIFICATION (6334) | CMD_DOORLOCK_SET_PUSH_MODE (1919)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "notificationUnlocked",
+    "label(s)": "Notification Unlocked",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SMARTLOCK_NOTIFICATION_UNLOCKED (6605) | CMD_DOORLOCK_SET_PUSH_MODE (1919)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "notificationLocked",
+    "label(s)": "Notification Locked",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SMARTLOCK_NOTIFICATION_LOCKED (6606) | CMD_DOORLOCK_SET_PUSH_MODE (1919)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "picture",
+    "label(s)": "Last Camera Picture",
+    "protocol key name (num) / commandId (may differ per model)": "custom_picture",
+    "value types": "object",
+    "writeable on any model": "no",
+    "in N device columns": "65",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "recordingClipLength",
+    "label(s)": "Recording Clip Length",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DEV_RECORD_TIMEOUT (1249)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "41",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "recordingRetriggerInterval",
+    "label(s)": "Recording Retrigger Interval",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DEV_RECORD_INTERVAL (1250)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "38",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "continuousRecording",
+    "label(s)": "Continuos Recording",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_INDOOR_SET_CONTINUE_ENABLE (6010)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "19",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "continuousRecordingType",
+    "label(s)": "Continuos Recording Mode",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_INDOOR_SET_CONTINUE_TYPE (6011)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "19",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "rotationSpeed",
+    "label(s)": "Rotation Speed",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_INDOOR_PAN_SPEED (6015)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "15",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "defaultAngle",
+    "label(s)": "Default Angle",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_INDOOR_DEFAULT_ANGLE_ENABLE (6093)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "defaultAngleIdleTime",
+    "label(s)": "Default Angle Idle Time",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_INDOOR_DEFAULT_ANGLE_IDLE_TIME (6094)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "autoCalibration",
+    "label(s)": "Auto Calibration",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_FLOODLIGHT_SET_AUTO_CALIBRATION (6099)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "9",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "flickerAdjustment",
+    "label(s)": "Flicker Adjustment",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SET_FLICKER_ADJUSTMENT (8000)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "1",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "doorControlWarning",
+    "label(s)": "Door Control Warning",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_CAMERA_GARAGE_DOOR_SENSORS (7503) | cmd:CMD_CAMERA_GARAGE_DOOR_CONTROL_WARNING 7511",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "door1Open",
+    "label(s)": "Door 1 Open",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_CAMERA_GARAGE_DOOR_STATUS (7500)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "door2Open",
+    "label(s)": "Door 2 Open",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_CAMERA_GARAGE_DOOR_STATUS (7500)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "doorSensor1Name",
+    "label(s)": "Door Sensor 1 Name",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_CAMERA_GARAGE_DOOR_SENSORS (7503)",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "doorSensor1SerialNumber",
+    "label(s)": "Door Sensor 1 Serial Number",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_CAMERA_GARAGE_DOOR_SENSORS (7503)",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "doorSensor1MacAddress",
+    "label(s)": "Door Sensor 1 Mac Address",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_CAMERA_GARAGE_DOOR_SENSORS (7503)",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "doorSensor1Version",
+    "label(s)": "Door Sensor 1 Version",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_CAMERA_GARAGE_DOOR_SENSORS (7503)",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "doorSensor1Status",
+    "label(s)": "Door Sensor 1 Status",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_CAMERA_GARAGE_DOOR_SENSORS (7503)",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "doorSensor1BatteryLevel",
+    "label(s)": "Door Sensor 1 Battery Level",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_CAMERA_GARAGE_DOOR_SENSORS (7503)",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "doorSensor1LowBattery",
+    "label(s)": "Door Sensor 1 Low Battery",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_CAMERA_GARAGE_DOOR_STATUS (7500)",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "doorSensor2Name",
+    "label(s)": "Door Sensor 2 Name",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_CAMERA_GARAGE_DOOR_SENSORS (7503)",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "doorSensor2SerialNumber",
+    "label(s)": "Door Sensor 2 Serial Number",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_CAMERA_GARAGE_DOOR_SENSORS (7503)",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "doorSensor2MacAddress",
+    "label(s)": "Door Sensor 2 Mac Address",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_CAMERA_GARAGE_DOOR_SENSORS (7503)",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "doorSensor2Version",
+    "label(s)": "Door Sensor 2 Version",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_CAMERA_GARAGE_DOOR_SENSORS (7503)",
+    "value types": "string",
+    "writeable on any model": "no",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "doorSensor2Status",
+    "label(s)": "Door Sensor 2 Status",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_CAMERA_GARAGE_DOOR_SENSORS (7503)",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "doorSensor2BatteryLevel",
+    "label(s)": "Door Sensor 2 Battery Level",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_CAMERA_GARAGE_DOOR_SENSORS (7503)",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "doorSensor2LowBattery",
+    "label(s)": "Door Sensor 2 Low Battery",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_CAMERA_GARAGE_DOOR_STATUS (7500)",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "locked",
+    "label(s)": "locked",
+    "protocol key name (num) / commandId (may differ per model)": "custom_locked",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "lockStatus",
+    "label(s)": "Lock status",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_DOORLOCK_GET_STATE (1912) | CMD_SMARTLOCK_QUERY_STATUS (6000)",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "autoLock",
+    "label(s)": "Auto Lock",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SMARTLOCK_AUTO_LOCK (6500)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "autoLockTimer",
+    "label(s)": "Auto Lock Timer",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SMARTLOCK_AUTO_LOCK_TIMER (6600)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "autoLockSchedule",
+    "label(s)": "Auto Lock Schedule",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SMARTLOCK_AUTO_LOCK_SCHEDULE (6501)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "autoLockScheduleStartTime",
+    "label(s)": "Auto Lock Schedule Starttime (24-hour clock)",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SMARTLOCK_AUTO_LOCK_SCHEDULE_STARTTIME (6601)",
+    "value types": "string",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "autoLockScheduleEndTime",
+    "label(s)": "Auto Lock Schedule Endtime (24-hour clock)",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SMARTLOCK_AUTO_LOCK_SCHEDULE_ENDTIME (6602)",
+    "value types": "string",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "oneTouchLocking",
+    "label(s)": "One-Touch Locking",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SMARTLOCK_ONE_TOUCH_LOCK (6502)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "wrongTryProtection",
+    "label(s)": "Wrong Try Protection",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SMARTLOCK_WRONG_TRY_PROTECT (6503)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "wrongTryAttempts",
+    "label(s)": "Wrong Try Attempts",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SMARTLOCK_WRONG_TRY_ATTEMPTS (6603)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "wrongTryLockdownTime",
+    "label(s)": "Wrong Try Lockdown Time",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SMARTLOCK_WRONG_TRY_LOCKDOWN (6604)",
+    "value types": "number",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "scramblePasscode",
+    "label(s)": "Scramble Passcode",
+    "protocol key name (num) / commandId (may differ per model)": "CMD_SMARTLOCK_SCRAMBLE_PASSCODE (6504)",
+    "value types": "boolean",
+    "writeable on any model": "yes",
+    "in N device columns": "3",
+    "hidden-in-HA-note": ""
+  },
+  {
+    "property": "lockEventOrigin",
+    "label(s)": "Lock Event Origin",
+    "protocol key name (num) / commandId (may differ per model)": "custom_lockEventOrigin",
+    "value types": "number",
+    "writeable on any model": "no",
+    "in N device columns": "3",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  },
+  {
+    "property": "lowBatteryAlert",
+    "label(s)": "Low Battery Alert",
+    "protocol key name (num) / commandId (may differ per model)": "custom_lowBatteryAlert",
+    "value types": "boolean",
+    "writeable on any model": "no",
+    "in N device columns": "1",
+    "hidden-in-HA-note": "custom_* = derived from push events, not a device setting"
+  }
+]

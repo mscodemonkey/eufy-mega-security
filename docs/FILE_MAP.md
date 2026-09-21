@@ -16,6 +16,7 @@ If you are new to the project, read [`DEVELOPERS_START_HERE.md`](DEVELOPERS_STAR
 | `docs/CAMERA_CAPABILITY_MATRIX.md` | Camera core discovery boundary and implemented battery reads. |
 | `docs/DEVICE_CAPABILITY_BASELINES.md` | Separate sensor, HomeBase, and doorbell core discovery boundaries. |
 | `docs/DEVICE_COMPATIBILITY_MATRIX.md` | Device, HomeBase topology, capability, and versioned hardware evidence ledger. |
+| `eufy_event_gateway/device_catalogue/` | Contributor-editable property and command reference, split into one validated JSON file per device. |
 | `docs/TODO.md` | Implementation backlog and hardware-evidence follow-up list. |
 | `hacs.json` | HACS metadata for the custom integration. |
 | `examples/node-red-gate-and-motion.json` | Importable Node-RED flow showing motion events and gateway actions. |

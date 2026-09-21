@@ -1,0 +1,111 @@
+{
+  "$schema": "../schema.json",
+  "id": "nolib_T8220",
+  "identity": {
+    "display_name": "Video Doorbell Slim (Battery, 1080p, T8220)",
+    "model_codes": [
+      "T8220"
+    ],
+    "models_raw": "T8220",
+    "aliases": [
+      "Video Doorbell Slim (Battery, 1080p, T8220)",
+      "T8220"
+    ],
+    "product_category": "Battery doorbell (HomeBase)"
+  },
+  "sdk": {
+    "mapping_confidence": "not_in_sdk",
+    "docs_status": "Not in docs",
+    "property_count": 0,
+    "command_count": 0,
+    "coverage": "none"
+  },
+  "observations": {
+    "night_vision_control_sdk": "unknown (no SDK type)",
+    "currently_sold": "Not seen in US collection pages checked (likely legacy)",
+    "notes": "ADDED after review. Connected T8220 (manuals.plus: \"T8220 Video Doorbell 1080p Battery-Powered\"; Eufy compatibility guide: HB3 + HB2, not HB mini; Google Assistant page: requires HomeBase T8010/T8030/T8020). No SDK type identified; may map onto BATTERY_DOORBELL (7) or BATTERY_DOORBELL_2 (16) - unverified. Hardware fields from the offline E8220 entry, unconfirmed for T8220.",
+    "mega_sdk_hw_evidence_lines": 0
+  },
+  "capabilities": {
+    "hardware_feature": [
+      {
+        "key": "power",
+        "context": "default",
+        "available": "yes",
+        "label": "Battery-powered",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "res",
+        "context": "default",
+        "available": "yes",
+        "label": "1080p (1600x1200 per E8220 entry)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "hub",
+        "context": "default",
+        "available": "yes",
+        "label": "HomeBase required (T8010/T8030/T8020); HB mini not supported (Eufy guide)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      }
+    ],
+    "sdk_coverage": [
+      {
+        "key": "none",
+        "context": "default",
+        "available": "no",
+        "label": "No DeviceType / property definitions in eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master)",
+        "access": "-",
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) (absence of type id)",
+          "verified_date": "2026-09-21",
+          "confidence": "medium",
+          "notes": "Hardware description exists (vendor_documented rows) but nothing is declared for property/command control. Do not treat as supported/controllable."
+        }
+      }
+    ]
+  },
+  "model_aliases": [
+    {
+      "alias": "E8220",
+      "canonical_model": "T8220",
+      "kind": "offline/connected split",
+      "evidence_tier": "vendor_documented",
+      "evidence": "E8220 appears only in eufy comparison table as offline",
+      "verified_date": "2026-09-21"
+    }
+  ]
+}

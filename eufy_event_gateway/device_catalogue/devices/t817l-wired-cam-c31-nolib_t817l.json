@@ -1,0 +1,453 @@
+{
+  "$schema": "../schema.json",
+  "id": "nolib_T817L",
+  "identity": {
+    "display_name": "Wired Cam C31",
+    "model_codes": [
+      "T817L",
+      "T817L121"
+    ],
+    "models_raw": "T817L (product code T817L121)",
+    "aliases": [
+      "Wired Cam C31",
+      "T817L",
+      "T817L121"
+    ],
+    "product_category": "Wired plug-in 360 pan/tilt camera (indoor/outdoor)"
+  },
+  "sdk": {
+    "mapping_confidence": "not_in_sdk",
+    "docs_status": "Not in docs",
+    "property_count": 0,
+    "command_count": 0,
+    "coverage": "none"
+  },
+  "observations": {
+    "night_vision_control_sdk": "mode select (app-observed): PureColor/Infrared/Spotlight",
+    "night_vision_user_observed": "Hardware-confirmed: app menu and gateway readback use raw 0 PureColor, raw 1 Infrared, and raw 2 Spotlight.",
+    "observed_device_type_not_in_sdk": "10031",
+    "observed_device_type_source": "Developer-tested Mega inventory (user-reported; not in eufy-security-client 4.1.1 or the checked mega-sdk 0.1.1 enum)",
+    "currently_sold": "Yes - listed on eufy.com US (Sep 2026)",
+    "notes": "Device type 10031 is developer-observed but absent from the referenced SDK catalogues. Night vision readback and writes are confirmed for PureColor, Infrared, and Spotlight.",
+    "mega_sdk_hw_evidence_lines": 0
+  },
+  "capabilities": {
+    "device_property": [
+      {
+        "key": "nightvision",
+        "context": "app-observed",
+        "available": "yes",
+        "label": "Night vision mode (app-facing menu: PureColor / Infrared / Spotlight)",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "(assumed CMD_SET_NIGHT_VISION_TYPE, same as C35)"
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "sdk_label": "(no SDK type)",
+              "app_label": "PureColor",
+              "app_label_source": "developer_tested",
+              "evidence_tier": "developer_tested",
+              "hardware_verified": "yes",
+              "evidence_source": "Developer testing with a T817L through the gateway and Eufy app",
+              "verified_date": "2026-09-21",
+              "notes": "Confirmed raw 0 as PureColor."
+            },
+            {
+              "value": 1,
+              "sdk_label": "(no SDK type)",
+              "app_label": "Infrared",
+              "app_label_source": "developer_tested",
+              "evidence_tier": "developer_tested",
+              "hardware_verified": "yes",
+              "evidence_source": "Developer testing with a T817L through the gateway and Eufy app",
+              "verified_date": "2026-09-21",
+              "notes": "Confirmed raw 1 as Infrared."
+            },
+            {
+              "value": 2,
+              "sdk_label": "(no SDK type)",
+              "app_label": "Spotlight",
+              "app_label_source": "developer_tested",
+              "evidence_tier": "developer_tested",
+              "hardware_verified": "yes",
+              "evidence_source": "Developer testing with a T817L through the gateway and Eufy app",
+              "verified_date": "2026-09-21",
+              "notes": "Confirmed raw 2 as Spotlight."
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "developer_tested",
+          "hardware_verified": "yes",
+          "evidence_source": "Developer testing with a T817L through the gateway and Eufy app",
+          "verified_date": "2026-09-21",
+          "confidence": "high",
+          "notes": "All three raw values were written and confirmed against their Eufy app labels."
+        }
+      }
+    ],
+    "hardware_feature": [
+      {
+        "key": "power",
+        "context": "default",
+        "available": "yes",
+        "label": "Wired, continuous (USB Type-C; plug-in)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "battery",
+        "context": "default",
+        "available": "yes",
+        "label": "None",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "solar",
+        "context": "default",
+        "available": "yes",
+        "label": "No",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "res",
+        "context": "default",
+        "available": "yes",
+        "label": "1080p (1920x1080), F1.2, 1/2.9\" CMOS",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "fov",
+        "context": "default",
+        "available": "yes",
+        "label": "Not stated",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "ptz",
+        "context": "default",
+        "available": "yes",
+        "label": "360° pan/tilt; automatic AI tracking",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "nv",
+        "context": "default",
+        "available": "yes",
+        "label": "PureColor Vision (colour without spotlight), infrared, and spotlight options",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "light",
+        "context": "default",
+        "available": "yes",
+        "label": "Spotlight option",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "storage",
+        "context": "default",
+        "available": "yes",
+        "label": "None stated",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "sd",
+        "context": "default",
+        "available": "yes",
+        "label": "microSD up to 256 GB (not included)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "hub",
+        "context": "default",
+        "available": "yes",
+        "label": "Standalone; HomeBase Mini / HomeBase 3 compatible (not HomeBase 2)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "wifi",
+        "context": "default",
+        "available": "yes",
+        "label": "Dual external antennas (bands not specified)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "audio",
+        "context": "default",
+        "available": "yes",
+        "label": "Built-in mic + speaker",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "siren",
+        "context": "default",
+        "available": "yes",
+        "label": "Yes (manual or automatic)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "ai",
+        "context": "default",
+        "available": "yes",
+        "label": "Human, vehicle, pet, sound, crying; 2 hexagonal active zones",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "track",
+        "context": "default",
+        "available": "yes",
+        "label": "Yes (AI tracking + active deterrence)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "ip",
+        "context": "default",
+        "available": "yes",
+        "label": "IP66",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "temp",
+        "context": "default",
+        "available": "yes",
+        "label": "Not stated",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "voice",
+        "context": "default",
+        "available": "yes",
+        "label": "Alexa, Google Assistant (no HomeKit)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "extra",
+        "context": "default",
+        "available": "yes",
+        "label": "93x68x108 mm; upright/inverted mounting; 24/7 recording claimed on retailer listing",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      }
+    ],
+    "sdk_coverage": [
+      {
+        "key": "none",
+        "context": "default",
+        "available": "no",
+        "label": "No DeviceType / property definitions in eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master)",
+        "access": "-",
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) (absence of type id)",
+          "verified_date": "2026-09-21",
+          "confidence": "medium",
+          "notes": "Hardware description exists (vendor_documented rows) but nothing is declared for property/command control. Do not treat as supported/controllable."
+        }
+      }
+    ]
+  }
+}

@@ -2,8 +2,9 @@
  * HomeBase baseline features already normalized by the gateway.
  *
  * Inventory presence and child-camera route readiness apply to discovered
- * HomeBases. Station reads and general commands remain T8030-only, while the
- * separately evidenced siren command may be offered to discovered stations.
+ * HomeBases. A discovered station may attempt the conservative state read,
+ * while general commands remain T8030-only. The separately evidenced siren
+ * command may be offered to discovered stations.
  */
 
 import type { CoreCapabilityEntry } from "./device-capability-core.js";

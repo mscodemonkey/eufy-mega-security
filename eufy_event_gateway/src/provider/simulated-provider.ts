@@ -25,6 +25,7 @@ function simulatedStation(overrides: Partial<HomeBaseState> = {}): HomeBaseState
     available: true,
     cameraRouteReady: true,
     controlsSupported: true,
+    stateReadSupported: true,
     homeBaseSirenControlSupported: true,
     connected: true,
     guardMode: 63,

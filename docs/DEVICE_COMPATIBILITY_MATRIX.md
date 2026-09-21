@@ -5,6 +5,12 @@ separates gateway implementation from hardware verification. A supported path
 still needs a matching developer or community test before we call that physical
 combination confirmed.
 
+The much larger, property-level reference lives in
+`eufy_event_gateway/device_catalogue/`. It is organised as one JSON file per
+device and includes SDK declarations, commands, hardware features, selectable
+values, aliases, conflicts, and evidence. This document stays focused on what
+the gateway has actually implemented or confirmed on hardware.
+
 Version fields use the Eufy Mega Security app and Home Assistant integration
 version. Home Assistant Core is included when it was recorded. Raw logs,
 serials, credentials, snapshots, and videos stay outside the repository.
@@ -23,7 +29,7 @@ serials, credentials, snapshots, and videos stay outside the repository.
 
 | Device | Eufy model and type | Discovery | Controls | Camera route | Evidence |
 | --- | --- | --- | --- | --- | --- |
-| HomeBase 2 | T8010, type 0 | `confirmed` | `unsupported` | `implemented` | Developer, v0.1.63. Read-only station path. |
+| HomeBase 2 | T8010, type 0 | `confirmed` | `unsupported` | `implemented` | Read-only configured and effective mode checks are implemented for reporter testing. Writes remain disabled. |
 | HomeBase 3 S380 | T8030, type 18 | `confirmed` | `partial` | `confirmed` | Developer, v0.1.63. Community confirmation for guard mode, alarm panel, and alarm tone. |
 | HomeBase Professional S1 | T9000, type 27 | `confirmed` | `unsupported` | `partial` | Community reports. Inventory works, but PPCS lookup remains unresolved for affected camera families. |
 
@@ -46,7 +52,7 @@ serials, credentials, snapshots, and videos stay outside the repository.
 | Floodlight Cam S330 / 2 Pro | T8423, type 38 | `unverified` | `partial` | `unverified` | `unverified` | Discovery and event snapshot confirmed. Live view still lacks a usable H.265 decoder bootstrap. |
 | Wired Wall Light Cam S100 | T84A1, type 151 | `unverified` | `unverified` | `unverified` | `partial` | Direct PPCS is confirmed. H.264 live video works on one setup, while another receives only delta slices. |
 | Indoor Cam Pan & Tilt | T8410, type 31 | `unverified` | `confirmed` | `unverified` | `unverified` | Sensors, retained image, and live stream confirmed. |
-| Indoor Cam Pan & Tilt | T8410C, type 104 | `unverified` | `confirmed` | `unverified` | `unverified` | Sensors, retained image, and live stream confirmed. |
+| Indoor Cam Pan & Tilt | T8410C, numeric type not retained | `unverified` | `confirmed` | `unverified` | `unverified` | Sensors, retained image, and live stream confirmed. |
 | Indoor Cam S350 | T8416, type 105 | `unverified` | `implemented` | `partial` | `implemented` | Discovery and entities confirmed on direct Wi-Fi and T9000. T9000 live video unresolved. Privacy mode is not exposed. |
 | Indoor Cam E30 4K | T8417, type 105 | `unverified` | `implemented` | `unverified` | `partial` | Admission and direct media are implemented. Live video is blank while codec startup remains unresolved. |
 | Indoor Cam 2K | T8400, type 30 | `unverified` | `implemented` | `unverified` | `unverified` | Admission added in v0.1.63. Awaiting hardware confirmation. |

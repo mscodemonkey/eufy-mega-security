@@ -15,6 +15,17 @@ Keep Eufy protocol work in the gateway. The Home Assistant integration should no
 
 The gateway deliberately does not use `eufy-security-client`, the SmartLife/Thing login, or the expiring Web Portal Access PIN. Please do not add any of those back as a shortcut. If a camera or account path is missing, document the missing protocol step and add a focused test or probe result.
 
+## Device capability data
+
+The detailed device reference is in
+`eufy_event_gateway/device_catalogue/devices/`, with one JSON file per device or
+hardware variant. Update the matching file when you confirm a property, command,
+selectable value, or app label. Keep declarations, inferences, and hardware
+results separate in the evidence fields.
+
+Run `npm run catalogue:check` from `eufy_event_gateway` before submitting the
+change. You can locate a device with `npm run catalogue:query -- T817L`.
+
 ## Local setup
 
 The gateway requires Node.js 24 or newer. Install its dependencies from the gateway directory:

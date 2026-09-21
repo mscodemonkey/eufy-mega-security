@@ -149,7 +149,7 @@ export const HOMEBASE_COMPATIBILITY: readonly HomeBaseCompatibility[] = [
   {
     family: "homebase", marketingName: "HomeBase 2", eufyModel: "T8010", deviceTypes: [0],
     capabilities: { discovery: "confirmed", liveVideo: "implemented", enableControl: "unsupported" },
-    quirks: ["Read-only station path. T8030 controls are not inherited."], evidence: [{ status: "developer-tested", date: "2026-09-20", appVersion: developerRelease, integrationVersion: developerRelease, capabilities: ["discovery", "liveVideo"] }],
+    quirks: ["Configured and effective mode reads await reporter confirmation. T8030 writes and alarm controls are not inherited."], evidence: [{ status: "developer-tested", date: "2026-09-20", appVersion: developerRelease, integrationVersion: developerRelease, capabilities: ["discovery", "liveVideo"] }],
   },
   {
     family: "homebase", marketingName: "HomeBase 3 S380", eufyModel: "T8030", deviceTypes: [18],

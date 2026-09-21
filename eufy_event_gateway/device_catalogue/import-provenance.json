@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "compiled_date": "2026-09-21",
+  "source_files": {
+    "eufy_devices.csv": 81,
+    "eufy_device_capabilities.csv": 7154,
+    "eufy_selectable_values.csv": 3756,
+    "eufy_unmapped_device_types.csv": 9,
+    "eufy_property_reference.csv": 224,
+    "eufy_model_aliases.csv": 15,
+    "eufy_hw_evidence_mega_sdk.csv": 107,
+    "eufy_cameras_doorbells_capability_matrix.csv": 317
+  },
+  "note": "The normalized per-device files are authoritative after this migration. The wide matrix was used as a reconciliation source and is not duplicated."
+}

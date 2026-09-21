@@ -17,6 +17,7 @@
       "camera_night_vision": {"name": "Night vision"}
     },
     "sensor": {
+      "eufy_guard_mode_sensor": {"name": "Guard mode"},
       "eufy_effective_mode_sensor": {"name": "Effective mode"}
     },
     "switch": {

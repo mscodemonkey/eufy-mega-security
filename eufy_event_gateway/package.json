@@ -1,6 +1,6 @@
 {
   "name": "eufy-ha-gateway",
-  "version": "0.1.70",
+  "version": "0.1.71",
   "private": true,
   "description": "Event-first Eufy camera gateway for Home Assistant",
   "type": "module",
@@ -9,7 +9,9 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "check": "npm run typecheck && npm run test:shell && npm test",
+    "check": "npm run typecheck && npm run test:shell && npm run catalogue:check && npm test",
+    "catalogue:check": "node scripts/device-catalogue.mjs check",
+    "catalogue:query": "node scripts/device-catalogue.mjs query",
     "release:check": "node scripts/check-release-consistency.mjs",
     "dev": "tsx watch src/main.ts",
     "debug:push": "tsx scripts/push-debug.ts",

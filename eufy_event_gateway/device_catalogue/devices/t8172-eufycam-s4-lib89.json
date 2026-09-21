@@ -1,0 +1,3729 @@
+{
+  "$schema": "../schema.json",
+  "id": "lib89",
+  "identity": {
+    "display_name": "eufyCam S4",
+    "model_codes": [
+      "T8172",
+      "T81721W1"
+    ],
+    "models_raw": "T8172 (product code T81721W1)",
+    "aliases": [
+      "eufyCam S4",
+      "T8172",
+      "T81721W1"
+    ],
+    "product_category": "Outdoor 3-lens solar battery camera (Wi-Fi standalone / HomeBase S380)"
+  },
+  "sdk": {
+    "mapping_confidence": "verified",
+    "docs_status": "Supported (firmware 1.0.6.5)",
+    "property_count": 63,
+    "command_count": 13,
+    "coverage": "declared",
+    "device_type_id": 89,
+    "sdk_enum_name": "CAMERA_S4",
+    "sdk_type_label": "eufyCam S4 (T8172)",
+    "sdk_topology": "integrated (own P2P station)"
+  },
+  "observations": {
+    "night_vision_control_sdk": "mode select nightvision 0=Off/1=B&W Night Vision/2=Color Night Vision",
+    "currently_sold": "Yes - listed on eufy.com US (Sep 2026)",
+    "notes": "Library docs/enum label \"eufyCam S4\"; library README changelog calls it \"Camera S40 (T8172)\".",
+    "mega_sdk_hw_evidence_lines": 0
+  },
+  "capabilities": {
+    "device_command": [
+      {
+        "key": "deviceStartLivestream",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "deviceStartLivestream",
+          "command_name": "deviceStartLivestream"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "deviceStopLivestream",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "deviceStopLivestream",
+          "command_name": "deviceStopLivestream"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "deviceTriggerAlarmSound",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "deviceTriggerAlarmSound",
+          "command_name": "deviceTriggerAlarmSound"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "devicePanAndTilt",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "devicePanAndTilt",
+          "command_name": "devicePanAndTilt"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "deviceStartDownload",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "deviceStartDownload",
+          "command_name": "deviceStartDownload"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "deviceCancelDownload",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "deviceCancelDownload",
+          "command_name": "deviceCancelDownload"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "deviceCalibrate",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "deviceCalibrate",
+          "command_name": "deviceCalibrate"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "deviceStartTalkback",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "deviceStartTalkback",
+          "command_name": "deviceStartTalkback"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "deviceStopTalkback",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "deviceStopTalkback",
+          "command_name": "deviceStopTalkback"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "deviceSnooze",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "deviceSnooze",
+          "command_name": "deviceSnooze"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "devicePresetPosition",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "devicePresetPosition",
+          "command_name": "devicePresetPosition"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "deviceSavePresetPosition",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "deviceSavePresetPosition",
+          "command_name": "deviceSavePresetPosition"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "deviceDeletePresetPosition",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "deviceDeletePresetPosition",
+          "command_name": "deviceDeletePresetPosition"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      }
+    ],
+    "device_property": [
+      {
+        "key": "name",
+        "context": "default",
+        "available": "yes",
+        "label": "Name",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "device_name"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "model",
+        "context": "default",
+        "available": "yes",
+        "label": "Model",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "device_model"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "serialNumber",
+        "context": "default",
+        "available": "yes",
+        "label": "Serial number",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "device_sn"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "type",
+        "context": "default",
+        "available": "yes",
+        "label": "Type",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "device_type"
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "hardwareVersion",
+        "context": "default",
+        "available": "yes",
+        "label": "Hardware version",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "main_hw_version"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "softwareVersion",
+        "context": "default",
+        "available": "yes",
+        "label": "Software version",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "main_sw_version"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "stationSerialNumber",
+        "context": "default",
+        "available": "yes",
+        "label": "Station serial number",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "station_sn"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "enabled",
+        "context": "default",
+        "available": "yes",
+        "label": "Camera enabled",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_INDOOR_ENABLE_PRIVACY_MODE_S350",
+          "command_name": "CMD_INDOOR_ENABLE_PRIVACY_MODE_S350",
+          "protocol_key_num": 6250,
+          "command_id": 6250
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "privacy",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "wifiRssi",
+        "context": "default",
+        "available": "yes",
+        "label": "Wifi RSSI",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "CMD_GET_WIFI_RSSI",
+          "protocol_key_num": 1142
+        },
+        "value": {
+          "value_type": "number",
+          "unit": "dBm"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "wifiRssi",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "wifiSignalLevel",
+        "context": "default",
+        "available": "yes",
+        "label": "Wifi Signal Level",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_wifiSignalLevel"
+        },
+        "value": {
+          "value_type": "number",
+          "min": 0,
+          "max": 4,
+          "options": [
+            {
+              "value": 0,
+              "sdk_label": "No signal",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 1,
+              "sdk_label": "Weak",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 2,
+              "sdk_label": "Normal",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 3,
+              "sdk_label": "Strong",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 4,
+              "sdk_label": "Full",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "battery",
+        "context": "default",
+        "available": "yes",
+        "label": "Battery percentage",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "CMD_GET_BATTERY",
+          "protocol_key_num": 1101
+        },
+        "value": {
+          "value_type": "number",
+          "unit": "%",
+          "min": 0,
+          "max": 100
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "battery",
+          "xref_mega_param_provenance": "verified"
+        }
+      },
+      {
+        "key": "batteryTemperature",
+        "context": "default",
+        "available": "yes",
+        "label": "Battery Temperature",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "CMD_GET_BATTERY_TEMP",
+          "protocol_key_num": 1138
+        },
+        "value": {
+          "value_type": "number",
+          "unit": "°C"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "batteryTemp",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "nightvision",
+        "context": "default",
+        "available": "yes",
+        "label": "Nightvision",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_NIGHT_VISION_TYPE",
+          "protocol_key_num": 1277
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "sdk_label": "Off",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21",
+              "conflict_flag": "sdk_label_unverified",
+              "notes": "Generic label; hardware-confirmed (third-party) only on T8425."
+            },
+            {
+              "value": 1,
+              "sdk_label": "B&W Night Vision",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21",
+              "conflict_flag": "sdk_label_unverified",
+              "notes": "Generic label; hardware-confirmed (third-party) only on T8425."
+            },
+            {
+              "value": 2,
+              "sdk_label": "Color Night Vision",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21",
+              "conflict_flag": "sdk_label_unverified",
+              "notes": "Generic label; hardware-confirmed (third-party) only on T8425."
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "low",
+          "conflict_flag": "sdk_label_unverified",
+          "notes": "Generic Off/B&W/Color labels shared by many models; hardware-confirmed (third-party mega-sdk) only on T8425. A differing 3-value mapping exists for T8160/T8162 in the gateway project (inferred). Do not hardcode labels."
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "nightVisionType",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "antitheftDetection",
+        "context": "default",
+        "available": "yes",
+        "label": "Antitheft Detection",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_EAS_SWITCH",
+          "protocol_key_num": 1015
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "easSwitch",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "motionDetection",
+        "context": "default",
+        "available": "yes",
+        "label": "Motion Detection",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_INDOOR_DET_SET_MOTION_DETECT_ENABLE",
+          "protocol_key_num": 6040
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "indoorMotionEnable",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "watermark",
+        "context": "default",
+        "available": "yes",
+        "label": "Watermark",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_DEVS_OSD",
+          "protocol_key_num": 1214
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "sdk_label": "Off",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 1,
+              "sdk_label": "Timestamp",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 2,
+              "sdk_label": "Timestamp and Logo",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "devsOsd",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "state",
+        "context": "default",
+        "available": "yes",
+        "label": "State",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "CMD_GET_DEV_STATUS",
+          "protocol_key_num": 1131
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "sdk_label": "Offline",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 1,
+              "sdk_label": "Online",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 2,
+              "sdk_label": "Manually disabled",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 3,
+              "sdk_label": "Offline low battery",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 4,
+              "sdk_label": "Remove and readd",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 5,
+              "sdk_label": "Reset and readd",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "deviceStatus",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "lastChargingDays",
+        "context": "default",
+        "available": "yes",
+        "label": "Days since last charging",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "charging_days"
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "lastChargingFalseEvents",
+        "context": "default",
+        "available": "yes",
+        "label": "False Events since last charging",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "charging_missing"
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "lastChargingRecordedEvents",
+        "context": "default",
+        "available": "yes",
+        "label": "Total Recorded Events since last charging",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "charging_reserve"
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "lastChargingTotalEvents",
+        "context": "default",
+        "available": "yes",
+        "label": "Total Events since last charging",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "charing_total"
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "batteryUsageLastWeek",
+        "context": "default",
+        "available": "yes",
+        "label": "Battery usage last week",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "battery_usage_last_week"
+        },
+        "value": {
+          "value_type": "number",
+          "unit": "%",
+          "min": 0,
+          "max": 100
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "motionDetected",
+        "context": "default",
+        "available": "yes",
+        "label": "Motion detected",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_motionDetected"
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "personDetected",
+        "context": "default",
+        "available": "yes",
+        "label": "Person detected",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_personDetected"
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "vehicleDetected",
+        "context": "default",
+        "available": "yes",
+        "label": "Vehicle detected",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_vehicleDetected"
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "statusLed",
+        "context": "default",
+        "available": "yes",
+        "label": "Status LED",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_DEV_LED_SWITCH",
+          "command_name": "CMD_INDOOR_LED_SWITCH",
+          "protocol_key_num": 1045,
+          "command_id": 6014
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "ledStatus",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "light",
+        "context": "default",
+        "available": "yes",
+        "label": "Light",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_FLOODLIGHT_MANUAL_SWITCH",
+          "protocol_key_num": 1400
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "floodlightManualSwitch",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "lightSettingsBrightnessManual",
+        "context": "default",
+        "available": "yes",
+        "label": "Light Brightness Manual",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_FLOODLIGHT_BRIGHT_VALUE",
+          "protocol_key_num": 1401
+        },
+        "value": {
+          "value_type": "number",
+          "min": 0,
+          "max": 100
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "floodlightBrightnessValue",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "lightSettingsEnable",
+        "context": "default",
+        "available": "yes",
+        "label": "Light Enable",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_FLOODLIGHT_TOTAL_SWITCH",
+          "protocol_key_num": 1403
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "floodlightTotalSwitch",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "lightSettingsMotionTriggered",
+        "context": "default",
+        "available": "yes",
+        "label": "Light Motion Triggered Enable",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_LIGHT_CTRL_PIR_SWITCH",
+          "protocol_key_num": 1408
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "lightCtrlPirSwitch",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "rtspStream",
+        "context": "default",
+        "available": "yes",
+        "label": "RTSP Stream",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_NAS_SWITCH",
+          "protocol_key_num": 1145
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "nasStreamSwithc",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "rtspStreamUrl",
+        "context": "default",
+        "available": "yes",
+        "label": "RTSP Stream URL",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_rtspStreamUrl"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "picture",
+        "context": "default",
+        "available": "yes",
+        "label": "Last Camera Picture",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_picture"
+        },
+        "value": {
+          "value_type": "object"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "motionDetectionSensitivity",
+        "context": "default",
+        "available": "yes",
+        "label": "Motion Detection Sensitivity",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_INDOOR_DET_SET_MOTION_SENSITIVITY_IDX",
+          "protocol_key_num": 6041
+        },
+        "value": {
+          "value_type": "number",
+          "min": 1,
+          "max": 5
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "indoorMotionDetectionSensitivity",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "microphone",
+        "context": "default",
+        "available": "yes",
+        "label": "Microphone",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_DEV_MIC_MUTE",
+          "protocol_key_num": 1240
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "audioMicrophoneSwitch",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "speaker",
+        "context": "default",
+        "available": "yes",
+        "label": "Speaker",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_DEV_SPEAKER_MUTE",
+          "protocol_key_num": 1241
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "audioSpeakerSwitch",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "speakerVolume",
+        "context": "default",
+        "available": "yes",
+        "label": "Speaker Volume",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_DEV_SPEAKER_VOLUME",
+          "protocol_key_num": 1230
+        },
+        "value": {
+          "value_type": "number",
+          "min": 0,
+          "max": 100
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "doorbellAudioVolume",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "audioRecording",
+        "context": "default",
+        "available": "yes",
+        "label": "Audio Recording",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_AUDIO_MUTE_RECORD",
+          "protocol_key_num": 1288
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "doorbellAudioRecordingSwitch",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "motionDetectionTypeHuman",
+        "context": "default",
+        "available": "yes",
+        "label": "Motion Detection Type Human",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_MOTION_DETECTION_TYPE_HB3",
+          "protocol_key_num": 1298
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "aiDetectType",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "motionDetectionTypeVehicle",
+        "context": "default",
+        "available": "yes",
+        "label": "Motion Detection Type Vehicle",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_MOTION_DETECTION_TYPE_HB3",
+          "protocol_key_num": 1298
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "aiDetectType",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "motionDetectionTypeAllOtherMotions",
+        "context": "default",
+        "available": "yes",
+        "label": "Motion Detection Type All Other Motions",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_MOTION_DETECTION_TYPE_HB3",
+          "protocol_key_num": 1298
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "aiDetectType",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "videoStreamingQuality",
+        "context": "default",
+        "available": "yes",
+        "label": "Video Streaming Quality",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_RESOLUTION",
+          "command_name": "CMD_DEVS_UNLOCK",
+          "protocol_key_num": 1205,
+          "command_id": 1020
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "sdk_label": "Auto",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 1,
+              "sdk_label": "Low",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 2,
+              "sdk_label": "Medium",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 3,
+              "sdk_label": "High",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "resolution",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "videoRecordingQuality",
+        "context": "default",
+        "available": "yes",
+        "label": "Video Recording Quality",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_RECORD_QUALITY",
+          "command_name": "CMD_STOP_SHARE",
+          "protocol_key_num": 1286,
+          "command_id": 1023
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 2,
+              "sdk_label": "Full HD (1080P)",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 3,
+              "sdk_label": "2K HD",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "recordQuality",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "notificationType",
+        "context": "default",
+        "available": "yes",
+        "label": "Notification Type",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_INDOOR_PUSH_NOTIFY_TYPE",
+          "command_name": "CMD_INDOOR_PUSH_NOTIFY_TYPE",
+          "protocol_key_num": 6020,
+          "command_id": 6020
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 1,
+              "sdk_label": "Most Efficient",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 2,
+              "sdk_label": "Include Thumbnail",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 3,
+              "sdk_label": "Full Effect",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "notificationStyle",
+          "xref_mega_param_provenance": "verified"
+        }
+      },
+      {
+        "key": "imageMirrored",
+        "context": "default",
+        "available": "yes",
+        "label": "Image vertically mirrored",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_MIRRORMODE",
+          "protocol_key_num": 1207
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "rotateImage",
+          "xref_mega_param_provenance": "verified"
+        }
+      },
+      {
+        "key": "snooze",
+        "context": "default",
+        "available": "yes",
+        "label": "Snooze",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_SNOOZE_MODE",
+          "protocol_key_num": 1271
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "snoozeTime",
+          "xref_mega_param_provenance": "verified"
+        }
+      },
+      {
+        "key": "snoozeTime",
+        "context": "default",
+        "available": "yes",
+        "label": "Snooze Time",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_SNOOZE_MODE",
+          "protocol_key_num": 1271
+        },
+        "value": {
+          "value_type": "number",
+          "unit": "sec"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "snoozeTime",
+          "xref_mega_param_provenance": "verified"
+        }
+      },
+      {
+        "key": "snoozeStartTime",
+        "context": "default",
+        "available": "yes",
+        "label": "Snooze Start Time",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_SNOOZE_MODE",
+          "protocol_key_num": 1271
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "snoozeTime",
+          "xref_mega_param_provenance": "verified"
+        }
+      },
+      {
+        "key": "personName",
+        "context": "default",
+        "available": "yes",
+        "label": "Person Name",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_personName"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "powerSource",
+        "context": "default",
+        "available": "yes",
+        "label": "Power Source",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_POWER_CHARGE",
+          "protocol_key_num": 1293
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "sdk_label": "Battery",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 1,
+              "sdk_label": "Solar Panel",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "powerCharge",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "powerWorkingMode",
+        "context": "default",
+        "available": "yes",
+        "label": "Power Working Mode",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_PIR_POWERMODE",
+          "protocol_key_num": 1246
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "sdk_label": "Optimal Battery Life",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 1,
+              "sdk_label": "Optimal Surveillance",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 2,
+              "sdk_label": "Custom Recording",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "indoorPowerMode",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "chargingStatus",
+        "context": "default",
+        "available": "yes",
+        "label": "Charging Status",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "SUB1G_REP_UNPLUG_POWER_LINE",
+          "protocol_key_num": 2111
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "sdk_label": "Not Charging",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 1,
+              "sdk_label": "Charging",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "batteryStatus",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "recordingClipLength",
+        "context": "default",
+        "available": "yes",
+        "label": "Recording Clip Length",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_DEV_RECORD_TIMEOUT",
+          "protocol_key_num": 1249
+        },
+        "value": {
+          "value_type": "number",
+          "unit": "sec",
+          "min": 10,
+          "max": 120
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "recordDuration",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "recordingRetriggerInterval",
+        "context": "default",
+        "available": "yes",
+        "label": "Recording Retrigger Interval",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_DEV_RECORD_INTERVAL",
+          "protocol_key_num": 1250
+        },
+        "value": {
+          "value_type": "number",
+          "unit": "sec",
+          "min": 5,
+          "max": 60
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "recordInterval",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "recordingEndClipMotionStops",
+        "context": "default",
+        "available": "yes",
+        "label": "Recording end clip early if motion stops",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_DEV_RECORD_AUTOSTOP",
+          "protocol_key_num": 1251
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "recordAutoStop",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "videoWdr",
+        "context": "default",
+        "available": "yes",
+        "label": "WDR",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_BAT_DOORBELL_WDR_SWITCH",
+          "protocol_key_num": 1704
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "batDoorbellWdrSwitch",
+          "xref_mega_param_provenance": "verified"
+        }
+      },
+      {
+        "key": "dualCamWatchViewMode",
+        "context": "default",
+        "available": "yes",
+        "label": "Dual Cam Watch View Mode",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_DOORBELL_DUAL_VIEW_MODE",
+          "protocol_key_num": 2700
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 2,
+              "sdk_label": "Top-Left Picture-in-Picture",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 3,
+              "sdk_label": "Top-Right Picture-in-Picture",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 4,
+              "sdk_label": "Bottom-Left Picture-in-Picture",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 5,
+              "sdk_label": "Bottom-Right Picture-in-Picture",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 12,
+              "sdk_label": "Split-view",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "mergeDownloadStatus",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "continuousRecording",
+        "context": "default",
+        "available": "yes",
+        "label": "Continuos Recording",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_INDOOR_SET_CONTINUE_ENABLE",
+          "protocol_key_num": 6010
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "pwList",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "continuousRecordingType",
+        "context": "default",
+        "available": "yes",
+        "label": "Continuos Recording Mode",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_INDOOR_SET_CONTINUE_TYPE",
+          "protocol_key_num": 6011
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "sdk_label": "Always",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 1,
+              "sdk_label": "Schedule",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "statusInServer",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "videoTypeStoreToNAS",
+        "context": "default",
+        "available": "yes",
+        "label": "Video Type Store To NAS",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_INDOOR_NAS_STORAGE_TYPE",
+          "protocol_key_num": 6050
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "sdk_label": "Events",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 1,
+              "sdk_label": "Continuous Recording",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "nasVideoTypeEvent",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "detectionStatisticsWorkingDays",
+        "context": "default",
+        "available": "yes",
+        "label": "Detection Statistics - Working Days",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "CMD_GET_WORKING_DAYS_HB3",
+          "protocol_key_num": 1191
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "workingDays",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "detectionStatisticsDetectedEvents",
+        "context": "default",
+        "available": "yes",
+        "label": "Detection Statistics - Detected Events",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "CMD_GET_DETECTED_EVENTS_HB3",
+          "protocol_key_num": 1192
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "detectedEvents",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "detectionStatisticsRecordedEvents",
+        "context": "default",
+        "available": "yes",
+        "label": "Detection Statistics - Recorded Events",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "CMD_GET_RECORDED_EVENTS_HB3",
+          "protocol_key_num": 1193
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "recordingDays",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "motionDetection",
+        "context": "station=HomeBase3/Mini (SN prefix T8030/T8025)",
+        "available": "yes",
+        "label": "Motion Detection",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_PIR_SWITCH",
+          "protocol_key_num": 1011
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "motionDetection",
+          "xref_mega_param_provenance": "verified"
+        }
+      },
+      {
+        "key": "motionDetectionSensitivity",
+        "context": "station=HomeBase3/Mini (SN prefix T8030/T8025)",
+        "available": "yes",
+        "label": "Motion Detection Sensitivity",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_PIRSENSITIVITY",
+          "protocol_key_num": 1210
+        },
+        "value": {
+          "value_type": "number",
+          "min": 1,
+          "max": 7
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "pirsensitivity",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "videoRecordingQuality",
+        "context": "station=HomeBase3/Mini (SN prefix T8030/T8025)",
+        "available": "yes",
+        "label": "Video Recording Quality",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_RECORD_QUALITY",
+          "command_name": "CMD_SET_RECORD_QUALITY",
+          "protocol_key_num": 1286,
+          "command_id": 1286
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 1,
+              "sdk_label": "2K HD",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 2,
+              "sdk_label": "Full HD (1080P)",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "recordQuality",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "notificationType",
+        "context": "station=HomeBase3/Mini (SN prefix T8030/T8025)",
+        "available": "yes",
+        "label": "Notification Type",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_PUSH_EFFECT",
+          "command_name": "CMD_INDOOR_PUSH_NOTIFY_TYPE",
+          "protocol_key_num": 1289,
+          "command_id": 6020
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 1,
+              "sdk_label": "Most Efficient",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 2,
+              "sdk_label": "Include Thumbnail",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 3,
+              "sdk_label": "Full Effect",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "pushEffect",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "motionDetectionTypeHumanRecognition",
+        "context": "station=HomeBase3/Mini (SN prefix T8030/T8025)",
+        "available": "yes",
+        "label": "Motion Detection Type Human Recognition",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_MOTION_DETECTION_TYPE_HB3",
+          "protocol_key_num": 1298
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "aiDetectType",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "motionDetectionTypePet",
+        "context": "station=HomeBase3/Mini (SN prefix T8030/T8025)",
+        "available": "yes",
+        "label": "Motion Detection Type Pet",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_MOTION_DETECTION_TYPE_HB3",
+          "protocol_key_num": 1298
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "aiDetectType",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "petDetected",
+        "context": "station=HomeBase3/Mini (SN prefix T8030/T8025)",
+        "available": "yes",
+        "label": "Pet detected",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_petDetected"
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "soundDetected",
+        "context": "station=HomeBase3/Mini (SN prefix T8030/T8025)",
+        "available": "yes",
+        "label": "Sound detected",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_soundDetected"
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "cryingDetected",
+        "context": "station=HomeBase3/Mini (SN prefix T8030/T8025)",
+        "available": "yes",
+        "label": "Crying detected",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_cryingDetected"
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "identityPersonDetected",
+        "context": "station=HomeBase3/Mini (SN prefix T8030/T8025)",
+        "available": "yes",
+        "label": "Identity Person detected",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_identityPersonDetected"
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "strangerPersonDetected",
+        "context": "station=HomeBase3/Mini (SN prefix T8030/T8025)",
+        "available": "yes",
+        "label": "Stranger Person detected",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_strangerPersonDetected"
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "dogDetected",
+        "context": "station=HomeBase3/Mini (SN prefix T8030/T8025)",
+        "available": "yes",
+        "label": "Dog detected",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_dogDetected"
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "dogLickDetected",
+        "context": "station=HomeBase3/Mini (SN prefix T8030/T8025)",
+        "available": "yes",
+        "label": "Dog Lick detected",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_dogLickDetected"
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "dogPoopDetected",
+        "context": "station=HomeBase3/Mini (SN prefix T8030/T8025)",
+        "available": "yes",
+        "label": "Dog Poop detected",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_dogPoopDetected"
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "lastChargingDays",
+        "context": "station=HomeBase3/Mini (SN prefix T8030/T8025)",
+        "available": "no (hidden in this context)",
+        "label": "Days since last charging",
+        "access": "-",
+        "protocol": {
+          "protocol_key_name": "charging_days"
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "lastChargingFalseEvents",
+        "context": "station=HomeBase3/Mini (SN prefix T8030/T8025)",
+        "available": "no (hidden in this context)",
+        "label": "False Events since last charging",
+        "access": "-",
+        "protocol": {
+          "protocol_key_name": "charging_missing"
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "lastChargingRecordedEvents",
+        "context": "station=HomeBase3/Mini (SN prefix T8030/T8025)",
+        "available": "no (hidden in this context)",
+        "label": "Total Recorded Events since last charging",
+        "access": "-",
+        "protocol": {
+          "protocol_key_name": "charging_reserve"
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "lastChargingTotalEvents",
+        "context": "station=HomeBase3/Mini (SN prefix T8030/T8025)",
+        "available": "no (hidden in this context)",
+        "label": "Total Events since last charging",
+        "access": "-",
+        "protocol": {
+          "protocol_key_name": "charing_total"
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "batteryUsageLastWeek",
+        "context": "station=HomeBase3/Mini (SN prefix T8030/T8025)",
+        "available": "no (hidden in this context)",
+        "label": "Battery usage last week",
+        "access": "-",
+        "protocol": {
+          "protocol_key_name": "battery_usage_last_week"
+        },
+        "value": {
+          "value_type": "number",
+          "unit": "%",
+          "min": 0,
+          "max": 100
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      }
+    ],
+    "hardware_feature": [
+      {
+        "key": "power",
+        "context": "default",
+        "available": "yes",
+        "label": "10,000 mAh battery pack; 5.5 W solar panel; USB-C plug-in (5V/2A)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "battery",
+        "context": "default",
+        "available": "yes",
+        "label": "10,000 mAh; needs ~1 h sun/day with SolarPlus 2.0",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "solar",
+        "context": "default",
+        "available": "yes",
+        "label": "5.5 W panel (SolarPlus 2.0)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "res",
+        "context": "default",
+        "available": "yes",
+        "label": "Bullet lens 4K (1/2.8\" CMOS) + 2 PTZ lenses 2K (2688x1520, 1/3\" CMOS)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "lens",
+        "context": "default",
+        "available": "yes",
+        "label": "3 lenses (1 fixed bullet + wide + telephoto PTZ)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "fov",
+        "context": "default",
+        "available": "yes",
+        "label": "Bullet D130° (H107 V57); PTZ wide D121°; PTZ tele D46°",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "ptz",
+        "context": "default",
+        "available": "yes",
+        "label": "Pan/tilt PTZ; 8x hybrid zoom; tracks up to 50 m (164 ft)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "nv",
+        "context": "default",
+        "available": "yes",
+        "label": "Colour NV via spotlights; 4x 850 nm IR LEDs up to 10 m (32.8 ft)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "light",
+        "context": "default",
+        "available": "yes",
+        "label": "Spotlights",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "storage",
+        "context": "default",
+        "available": "yes",
+        "label": "Built-in 32 GB",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "sd",
+        "context": "default",
+        "available": "yes",
+        "label": "microSD up to 256 GB",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "hub",
+        "context": "default",
+        "available": "yes",
+        "label": "Standalone Wi-Fi; HomeBase S380 optional (up to 16 TB); not HomeBase 2/mini/Professional",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "wifi",
+        "context": "default",
+        "available": "yes",
+        "label": "2.4 GHz 802.11b/g/n/ax",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "audio",
+        "context": "default",
+        "available": "yes",
+        "label": "Full-duplex two-way; dual-mic array",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "siren",
+        "context": "default",
+        "available": "yes",
+        "label": "105 dB @ 0.1 m",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "ai",
+        "context": "default",
+        "available": "yes",
+        "label": "Human, vehicle, pet; stranger alerts (HomeBase); bullet-to-PTZ tracking",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "track",
+        "context": "default",
+        "available": "yes",
+        "label": "Yes (bullet-to-PTZ auto tracking)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "ip",
+        "context": "default",
+        "available": "yes",
+        "label": "IP65",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "temp",
+        "context": "default",
+        "available": "yes",
+        "label": "-4°F to 131°F (-20 to 55°C)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "voice",
+        "context": "default",
+        "available": "yes",
+        "label": "Alexa, Google Assistant",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "extra",
+        "context": "default",
+        "available": "yes",
+        "label": "Camera ~745 g; 92x164.5x165 mm",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      }
+    ],
+    "station_command": [
+      {
+        "key": "stationReboot",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "stationReboot",
+          "command_name": "stationReboot"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "stationTriggerAlarmSound",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "stationTriggerAlarmSound",
+          "command_name": "stationTriggerAlarmSound"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "stationDownloadImage",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "stationDownloadImage",
+          "command_name": "stationDownloadImage"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "stationDatabaseQueryLatestInfo",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "stationDatabaseQueryLatestInfo",
+          "command_name": "stationDatabaseQueryLatestInfo"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "stationDatabaseQueryByDate",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "stationDatabaseQueryByDate",
+          "command_name": "stationDatabaseQueryByDate"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "stationDatabaseQueryLocal",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "stationDatabaseQueryLocal",
+          "command_name": "stationDatabaseQueryLocal"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "stationDatabaseCoundByDate",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "stationDatabaseCoundByDate",
+          "command_name": "stationDatabaseCoundByDate"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "stationDatabaseDelete",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "stationDatabaseDelete",
+          "command_name": "stationDatabaseDelete"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      }
+    ],
+    "station_property": [
+      {
+        "key": "name",
+        "context": "default",
+        "available": "yes",
+        "label": "Name",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "station_name"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "model",
+        "context": "default",
+        "available": "yes",
+        "label": "Model",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "station_model"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "serialNumber",
+        "context": "default",
+        "available": "yes",
+        "label": "Serial number",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "station_sn"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "type",
+        "context": "default",
+        "available": "yes",
+        "label": "Type",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "device_type"
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "hardwareVersion",
+        "context": "default",
+        "available": "yes",
+        "label": "Hardware version",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "main_hw_version"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "softwareVersion",
+        "context": "default",
+        "available": "yes",
+        "label": "Software version",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "main_sw_version"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "lanIpAddress",
+        "context": "default",
+        "available": "yes",
+        "label": "LAN IP Address",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "ip_addr"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "macAddress",
+        "context": "default",
+        "available": "yes",
+        "label": "MAC Address",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "wifi_mac"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "guardMode",
+        "context": "default",
+        "available": "yes",
+        "label": "Guard Mode",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_ARMING",
+          "protocol_key_num": 1224
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "sdk_label": "Away",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 1,
+              "sdk_label": "Home",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 2,
+              "sdk_label": "Schedule",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 3,
+              "sdk_label": "Custom 1",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 4,
+              "sdk_label": "Custom 2",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 5,
+              "sdk_label": "Custom 3",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 47,
+              "sdk_label": "Geofencing",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 63,
+              "sdk_label": "Disarmed",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "armingMode",
+          "xref_mega_param_provenance": "verified"
+        }
+      },
+      {
+        "key": "currentMode",
+        "context": "default",
+        "available": "yes",
+        "label": "Current Mode",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "CMD_GET_ALARM_MODE",
+          "protocol_key_num": 1151
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "sdk_label": "Away",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 1,
+              "sdk_label": "Home",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 3,
+              "sdk_label": "Custom 1",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 4,
+              "sdk_label": "Custom 2",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 5,
+              "sdk_label": "Custom 3",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 63,
+              "sdk_label": "Disarmed",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "alarmMode",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "timeFormat",
+        "context": "default",
+        "available": "yes",
+        "label": "Time Format",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_HUB_OSD",
+          "protocol_key_num": 1253
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "sdk_label": "12h",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 1,
+              "sdk_label": "24h",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "timeSystem",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "alarm",
+        "context": "default",
+        "available": "yes",
+        "label": "Alarm",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_alarm"
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "alarmType",
+        "context": "default",
+        "available": "yes",
+        "label": "Alarm Type",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "custom_alarmType"
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "sdk_label": "None",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 2,
+              "sdk_label": "Theft",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 3,
+              "sdk_label": "Motion",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 4,
+              "sdk_label": "Manual",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 5,
+              "sdk_label": "Overheating",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 6,
+              "sdk_label": "Door",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 7,
+              "sdk_label": "Camera Motion",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 8,
+              "sdk_label": "Motion Sensor",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 9,
+              "sdk_label": "Camera Theft",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 10,
+              "sdk_label": "Camera Manual",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 11,
+              "sdk_label": "Camera Linkage",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 13,
+              "sdk_label": "Keypad",
+              "evidence_tier": "sdk_declared",
+              "hardware_verified": "no",
+              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "sdStatus",
+        "context": "default",
+        "available": "yes",
+        "label": "SD Status",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "CMD_GET_TFCARD_STATUS",
+          "protocol_key_num": 1135
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "tfcardStatus",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "sdCapacity",
+        "context": "default",
+        "available": "yes",
+        "label": "SD Capacity",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "sd_capacity"
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "sdCapacityAvailable",
+        "context": "default",
+        "available": "yes",
+        "label": "SD Capacity Available",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "sd_capacity_available"
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "notificationSwitchModeSchedule",
+        "context": "default",
+        "available": "yes",
+        "label": "Notification Switch Mode Schedule",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_HUB_NOTIFY_MODE",
+          "protocol_key_num": 1283
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "hubNotifyMode",
+          "xref_mega_param_provenance": "apk"
+        }
+      },
+      {
+        "key": "notificationSwitchModeApp",
+        "context": "default",
+        "available": "yes",
+        "label": "Notification Switch Mode App",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_HUB_NOTIFY_MODE",
+          "protocol_key_num": 1283
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[CAMERA_S4]",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        },
+        "cross_reference": {
+          "xref_mega_param_name": "hubNotifyMode",
+          "xref_mega_param_provenance": "apk"
+        }
+      }
+    ]
+  }
+}

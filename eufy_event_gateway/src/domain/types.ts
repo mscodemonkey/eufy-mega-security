@@ -136,8 +136,11 @@ export interface HomeBaseState {
   /** Whether a child-camera PPCS route has all inventoried prerequisites. */
   readonly cameraRouteReady: boolean;
 
-  /** Whether station reads and confirmed writes are verified for this model. */
+  /** Whether the model may receive the managed station control set. */
   readonly controlsSupported: boolean;
+
+  /** Whether the local state path is enabled for this station model. */
+  readonly stateReadSupported: boolean;
   readonly homeBaseSirenControlSupported: boolean;
   readonly connected: boolean;
   readonly guardMode: number | null;

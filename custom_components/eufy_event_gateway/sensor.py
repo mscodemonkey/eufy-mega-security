@@ -43,7 +43,8 @@ async def async_setup_entry(
     """Create supported measurement and diagnostic entities from inventory."""
     coordinator = entry.runtime_data.coordinator
     known_cameras: set[str] = set()
-    known_stations: set[str] = set()
+    known_mode_stations: set[str] = set()
+    known_storage_stations: set[str] = set()
     known_sensors: set[str] = set()
     _migrate_storage_display_units(hass, coordinator)
 
@@ -62,18 +63,31 @@ async def async_setup_entry(
                         )
             async_add_entities(entities)
 
-        station_serials = {
+        mode_station_serials = {
+            serial
+            for serial, station in coordinator.stations.items()
+            if station.get("stateReadSupported") is True
+        } - known_mode_stations
+        if mode_station_serials:
+            known_mode_stations.update(mode_station_serials)
+            entities = []
+            for serial in sorted(mode_station_serials):
+                if coordinator.stations[serial].get("controlsSupported") is not True:
+                    entities.append(EufyGuardModeSensor(coordinator, serial))
+                entities.append(EufyEffectiveModeSensor(coordinator, serial))
+            async_add_entities(entities)
+
+        storage_station_serials = {
             serial
             for serial, station in coordinator.stations.items()
             if station.get("controlsSupported") is True
-        } - known_stations
-        if station_serials:
-            known_stations.update(station_serials)
+        } - known_storage_stations
+        if storage_station_serials:
+            known_storage_stations.update(storage_station_serials)
             entities = []
-            for serial in sorted(station_serials):
+            for serial in sorted(storage_station_serials):
                 entities.extend(
                     (
-                        EufyEffectiveModeSensor(coordinator, serial),
                         EufyStorageSensor(coordinator, serial, "emmc", "totalBytes"),
                         EufyStorageSensor(coordinator, serial, "emmc", "freeBytes"),
                         EufyStorageStatusSensor(coordinator, serial, "emmc"),
@@ -260,6 +274,27 @@ class EufySensorLastSeen(EufySecuritySensorEntity, SensorEntity):
         """Return an aware datetime, or unknown when the gateway has no valid value."""
         value = self.sensor.get("lastSeen")
         return dt_util.parse_datetime(value) if isinstance(value, str) else None
+
+
+class EufyGuardModeSensor(EufyStationEntity, SensorEntity):
+    """Expose a read-only configured mode for a station without proven writes."""
+
+    _attr_translation_key = "eufy_guard_mode_sensor"
+    _attr_icon = "mdi:shield-home"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options: ClassVar[list[str]] = list(GUARD_MODES.values())
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Create the configured-mode sensor for one read-only HomeBase."""
+        EufyStationEntity.__init__(self, coordinator, serial)
+        SensorEntity.__init__(self)
+        self._attr_unique_id = f"{serial}_guard_mode_read_only"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the configured Eufy mode reported by the station."""
+        value = self.station.get("guardMode")
+        return GUARD_MODES.get(value) if isinstance(value, int) else None
 
 
 class EufyEffectiveModeSensor(EufyStationEntity, SensorEntity):

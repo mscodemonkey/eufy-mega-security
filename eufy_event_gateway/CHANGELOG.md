@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.71
+
+- Add a read-only HomeBase 2 mode check that exposes configured and effective security modes only after a successful local read. HomeBase 2 writes remain disabled until hardware confirmation.
+- Add a contributor-editable catalogue covering 81 devices, 7,154 capability entries, and 3,756 selectable values, with evidence and conflicts kept alongside each device.
+- Record the fully confirmed T817L night vision mapping for PureColor, Infrared, and Spotlight in the detailed device catalogue.
+
 ## 0.1.70
 
 - Retry night vision mode writes over the HomeBase camera route so brief UDP loss does not leave a successful selection reported as failed.

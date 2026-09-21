@@ -246,6 +246,7 @@ test("discovers T8010 without enabling unverified station controls", () => {
     available: true,
     cameraRouteReady: true,
     controlsSupported: false,
+    stateReadSupported: false,
     homeBaseSirenControlSupported: true,
     connected: false,
     guardMode: null,

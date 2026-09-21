@@ -1,0 +1,111 @@
+{
+  "$schema": "../schema.json",
+  "id": "nolib_T8202",
+  "identity": {
+    "display_name": "Video Doorbell 2K Pro (Wired, connected T8202)",
+    "model_codes": [
+      "T8202"
+    ],
+    "models_raw": "T8202",
+    "aliases": [
+      "Video Doorbell 2K Pro (Wired, connected T8202)",
+      "T8202"
+    ],
+    "product_category": "Wired doorbell (standalone)"
+  },
+  "sdk": {
+    "mapping_confidence": "not_in_sdk",
+    "docs_status": "Not in docs",
+    "property_count": 0,
+    "command_count": 0,
+    "coverage": "none"
+  },
+  "observations": {
+    "night_vision_control_sdk": "unknown (no SDK type)",
+    "currently_sold": "Not seen in US collection pages checked (likely legacy)",
+    "notes": "ADDED after review. Eufy Google Assistant compatibility page lists T8202 as wired, standalone-compatible. No SDK type identified. Hardware fields copied from the offline E8202 comparison-table entry and NOT confirmed for T8202.",
+    "mega_sdk_hw_evidence_lines": 0
+  },
+  "capabilities": {
+    "hardware_feature": [
+      {
+        "key": "power",
+        "context": "default",
+        "available": "yes",
+        "label": "Wired 16-24 VAC, 30 VA+ (from E8202 entry; unconfirmed)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "res",
+        "context": "default",
+        "available": "yes",
+        "label": "2K (2560x1920), HDR (from E8202 entry; unconfirmed)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "hub",
+        "context": "default",
+        "available": "yes",
+        "label": "Standalone (Eufy compatibility page)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      }
+    ],
+    "sdk_coverage": [
+      {
+        "key": "none",
+        "context": "default",
+        "available": "no",
+        "label": "No DeviceType / property definitions in eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master)",
+        "access": "-",
+        "evidence": {
+          "evidence_tier": "sdk_declared",
+          "hardware_verified": "no",
+          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) (absence of type id)",
+          "verified_date": "2026-09-21",
+          "confidence": "medium",
+          "notes": "Hardware description exists (vendor_documented rows) but nothing is declared for property/command control. Do not treat as supported/controllable."
+        }
+      }
+    ]
+  },
+  "model_aliases": [
+    {
+      "alias": "E8202",
+      "canonical_model": "T8202",
+      "kind": "offline/connected split",
+      "evidence_tier": "vendor_documented",
+      "evidence": "E8202 appears only in eufy comparison table as offline; Best Buy sells E82021F2 as 2K Pro Wired",
+      "verified_date": "2026-09-21"
+    }
+  ]
+}

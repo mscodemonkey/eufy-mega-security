@@ -144,6 +144,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #pushSnapshotQueues = new Map<string, Promise<void>>();
   readonly #pushDeduplicator = new PushEventDeduplicator();
   readonly #stationRefreshFailures = new Map<string, number>();
+  readonly #stationReadConfirmed = new Set<string>();
   readonly #stations = new Map<string, HomeBaseState>();
   readonly #stationOperations = new Map<string, Promise<HomeBaseState>>();
   readonly #cameraOperations = new Map<string, Promise<CameraIdentity>>();
@@ -431,7 +432,24 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   async refreshStation(serial: string): Promise<HomeBaseState> {
-    return this.#queueStationOperation(serial, false, async (session) => session.readState());
+    const identity = this.#devices.get(serial);
+    if (!identity || !isDiscoveredHomeBase(identity)) {
+      return Promise.reject(new Error("HomeBase state read is unavailable for this station"));
+    }
+    const station = await this.#queueStationOperation(
+      serial,
+      false,
+      async (session) => session.readState(isHomeBase3(identity)),
+      false,
+    );
+    if (station.stateReadSupported && !this.#stationReadConfirmed.has(serial)) {
+      this.#stationReadConfirmed.add(serial);
+      logger.info(
+        "station_state_read_ready",
+        `HomeBase state read ready: model=${identity.model} guard_mode=${station.guardMode === null ? "missing" : "present"} effective_mode=${station.effectiveMode === null ? "missing" : "present"}`,
+      );
+    }
+    return station;
   }
 
   async setGuardMode(serial: string, mode: number): Promise<HomeBaseState> {
@@ -614,15 +632,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     await this.#push.start();
     events.connection("connected", "Gateway events and snapshots are ready; live viewing requires a validated PPCS camera path");
     await Promise.allSettled(
-      [...this.#stations.values()]
-        .filter(({ controlsSupported }) => controlsSupported)
-        .map(({ serial }) => this.refreshStation(serial)),
+      [...this.#stations.values()].map(({ serial }) => this.refreshStation(serial).then(
+        () => this.#recordStationRefreshSuccess(serial),
+        (error: unknown) => this.#recordStationRefreshFailure(serial, error),
+      )),
     );
     if (this.#stationRefreshTimer) clearInterval(this.#stationRefreshTimer);
     this.#stationRefreshTimer = setInterval(() => {
       for (const station of this.#stations.values()) {
-        if (!station.controlsSupported
-          || this.#stationOperations.has(station.serial)
+        if (this.#stationOperations.has(station.serial)
           || this.#stationHasActiveMedia(station.serial)) continue;
         void this.refreshStation(station.serial).then(
           () => this.#recordStationRefreshSuccess(station.serial),
@@ -1160,6 +1178,7 @@ export function initialHomeBaseState(device: MegaInventoryDevice, dskReady: bool
     available: true,
     cameraRouteReady: Boolean(device.p2pDid && device.p2pConnection && dskReady),
     controlsSupported,
+    stateReadSupported: controlsSupported,
     homeBaseSirenControlSupported: isDiscoveredHomeBase(device),
     connected: false,
     guardMode: null,
@@ -1176,6 +1195,7 @@ function mergeHomeBaseState(existing: HomeBaseState, observed: HomeBasePpcsState
   return {
     ...existing,
     firmware: observed.firmware ?? existing.firmware,
+    stateReadSupported: true,
     connected: true,
     guardMode: observed.guardMode,
     effectiveMode: observed.effectiveMode,

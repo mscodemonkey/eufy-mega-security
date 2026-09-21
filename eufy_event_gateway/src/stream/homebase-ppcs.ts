@@ -1,5 +1,5 @@
 /**
- * Implements bounded, local-only HomeBase 3 state and control sessions.
+ * Implements bounded, local-only HomeBase state and control sessions.
  *
  * The session owns one UDP socket and accepts a single command at a time. It
  * uses the LAN-derived command key only after the HomeBase answers broadcast
@@ -101,7 +101,7 @@ interface CameraInfo {
 }
 
 /**
- * Opens one short-lived local command channel to a HomeBase 3.
+ * Opens one short-lived local state or command channel to a discovered HomeBase.
  *
  * A session never retries a control write. Every write waits for the matching
  * command result, and callers must perform a fresh read on the same session to
