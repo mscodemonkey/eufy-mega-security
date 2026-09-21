@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.82
+
+- Use the T8010 HomeBase 2 direct encrypted media-stop command before retrying or closing camera streams, replacing the newer stop envelope that this generation ignores.
+- Report the selected HomeBase stop protocol in privacy-safe stream diagnostics.
+
 ## 0.1.81
 
 - Reset stale HomeBase-attached media with an explicit stop before retrying or closing, so a new capture can begin with codec configuration and an IDR frame.
