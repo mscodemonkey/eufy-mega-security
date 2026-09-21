@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.83
+
+- Admit T8140-R and T8140R eufyCam 2 Pro cameras through the existing HomeBase camera handler.
+- Add an opt-in Help test this device action for exact ready-to-test camera models, with a reviewable GitHub report link and no background upload.
+- Include privacy-safe device catalogue evidence in Home Assistant diagnostics without local names, serials, payloads, or exact event times.
+- Accept legacy HomeBase 2 keyframes that use four-byte NAL length prefixes, preserving the H.264 decoder setup needed before later video frames can play.
+
 ## 0.1.82
 
 - Use the T8010 HomeBase 2 direct encrypted media-stop command before retrying or closing camera streams, replacing the newer stop envelope that this generation ignores.
