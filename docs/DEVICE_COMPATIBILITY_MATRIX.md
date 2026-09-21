@@ -33,7 +33,7 @@ serials, credentials, snapshots, and videos stay outside the repository.
 | --- | --- | --- | --- | --- | --- | --- |
 | EufyCam 2C | T8113-Z, type 8 | `unverified` | `confirmed` | `unverified` | `unverified` | Discovery, motion, person, snapshots, live video, and camera siren control confirmed by developer testing. A local camera accepted a five-second siren duration and explicit stop. |
 | EufyCam 2C Pro | T8142-Z, type 15 | `confirmed` | `unverified` | `unverified` | `unverified` | Discovery, snapshots, and live video confirmed. Events need focused testing. |
-| USB-C-powered camera | T817L, type 10031 | `unverified` | `confirmed` | `unverified` | `unverified` | Live video and snapshots confirmed. Battery-shaped fields are suppressed. |
+| USB-C-powered camera | T817L, type 10031 | `unverified` | `confirmed` | `unverified` | `unverified` | Live video, snapshots, and night vision control confirmed. Raw 0 is PureColor, 1 is Infrared, and 2 is Spotlight. Battery-shaped fields are suppressed. |
 | eufyCam S330 | T8160, type 19 | `unverified` | `confirmed` | `unverified` | `unverified` | Discovery, sensors, retained images, and live video confirmed. |
 | eufyCam S300 / 3C | T8161, type 23 | `unverified` | `confirmed` | `partial` | `unverified` | HomeBase 3 discovery, person events, and live video confirmed. T9000 discovery and retained snapshots confirmed, live video blocked at PPCS lookup. |
 | eufyCam S3 Pro | T8162, type 26 | `unverified` | `unverified` | `partial` | `unverified` | T9000 discovery, person, pet, vehicle, and retained snapshots confirmed. Live video unresolved. |

@@ -26,6 +26,7 @@ export type DeviceCapability =
   | "battery"
   | "enableControl"
   | "motionDetectionControl"
+  | "nightVisionControl"
   | "sirenControl"
   | "privacyMode"
   | "lockControl";

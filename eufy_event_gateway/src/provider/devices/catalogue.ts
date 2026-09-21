@@ -6,7 +6,7 @@
 
 import type { DeviceCompatibility, HomeBaseCompatibility } from "./types.js";
 
-const developerRelease = "0.1.69";
+const developerRelease = "0.1.70";
 
 /** Current camera, doorbell, lock, and sensor compatibility evidence. */
 export const DEVICE_COMPATIBILITY: readonly DeviceCompatibility[] = [
@@ -28,8 +28,8 @@ export const DEVICE_COMPATIBILITY: readonly DeviceCompatibility[] = [
   },
   {
     family: "camera", marketingName: "USB-C-powered camera", eufyModel: "T817L", deviceTypes: [10031],
-    topologies: { homebase3: { status: "confirmed", capabilities: { discovery: "confirmed", snapshots: "confirmed", liveVideo: "confirmed" }, quirks: ["Battery-shaped fields are suppressed."] } },
-    evidence: [{ status: "developer-tested", date: "2026-09-20", appVersion: developerRelease, integrationVersion: developerRelease, capabilities: ["discovery", "snapshots", "liveVideo"] }],
+    topologies: { homebase3: { status: "confirmed", capabilities: { discovery: "confirmed", snapshots: "confirmed", liveVideo: "confirmed", nightVisionControl: "confirmed" }, quirks: ["Battery-shaped fields are suppressed."] } },
+    evidence: [{ status: "developer-tested", date: "2026-09-21", appVersion: developerRelease, integrationVersion: developerRelease, capabilities: ["discovery", "snapshots", "liveVideo", "nightVisionControl"], note: "Night vision readback and app labels confirmed for raw 0 PureColor, 1 Infrared, and 2 Spotlight." }],
   },
   {
     family: "camera", marketingName: "eufyCam S330", eufyModel: "T8160", deviceTypes: [19],

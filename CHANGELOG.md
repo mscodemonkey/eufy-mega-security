@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.70
+
+- Retry night vision mode writes over the HomeBase camera route so brief UDP loss does not leave a successful selection reported as failed.
+- Record the hardware-confirmed T817L night vision mapping: PureColor, Infrared, and Spotlight.
+
 ## 0.1.69
 
 - Mirror device-specific night controls, using Colour on known low-light colour models, Off on spotlight-only cameras, and an Auto night vision switch for doorbells.

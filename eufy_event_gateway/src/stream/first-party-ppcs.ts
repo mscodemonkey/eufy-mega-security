@@ -688,10 +688,15 @@ export class FirstPartyPpcsSession {
     if (!accountId) throw new Error("Night vision control account identity is unavailable");
     if (!Number.isSafeInteger(mode) || mode < 0 || mode > 2) throw new Error("Night vision mode must be 0, 1, or 2");
     await this.#waitForLevel2Key();
-    const level2Sequence = this.#level2Seq++;
-    const body = encryptLevel2(buildNightVisionBody(this.#options.channel, mode, accountId), this.#level2Key!, level2Sequence);
-    const header = commandHeader(this.#seq++, 1350);
-    this.#send(REQ.data, Buffer.concat([header, rawPayload(body, 0, 8, [8, 0], 0)]), this.#remote);
+
+    // Replay this idempotent write so the HomeBase radio hop can tolerate a lost UDP frame.
+    for (let index = 0; index < 3; index += 1) {
+      const level2Sequence = this.#level2Seq++;
+      const body = encryptLevel2(buildNightVisionBody(this.#options.channel, mode, accountId), this.#level2Key!, level2Sequence);
+      const header = commandHeader(this.#seq++, 1350);
+      this.#send(REQ.data, Buffer.concat([header, rawPayload(body, 0, 8, [8, 0], 0)]), this.#remote);
+      if (index < 2) await delay(200);
+    }
   }
 
   /** Send the reference camera siren duration command for a bounded local probe. */
