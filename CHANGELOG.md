@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.81
+
+- Reset stale HomeBase-attached media with an explicit stop before retrying or closing, so a new capture can begin with codec configuration and an IDR frame.
+- Report HomeBase media stop attempts alongside startup counts in privacy-safe stream diagnostics.
+
 ## 0.1.80
 
 - Scope Home Assistant device-registry lookups to the owning config entry, removing the deprecated ambiguous lookup scheduled for removal in Home Assistant 2027.8.
