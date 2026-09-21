@@ -259,7 +259,7 @@ test("accepts a legacy encrypted keyframe with length-prefixed H.264 media", () 
   assert.deepEqual(normalizer.nalTypes, [7]);
 });
 
-test("rejects a legacy encrypted frame without supported video framing", () => {
+test("accepts a decrypted legacy continuation without a video start code", () => {
   const key = Buffer.alloc(16, 7);
   const clear = Buffer.alloc(128, 0xff);
   const cipher = createCipheriv("aes-128-ecb", key, null);
@@ -270,7 +270,10 @@ test("rejects a legacy encrypted frame without supported video framing", () => {
   Buffer.alloc(128, 8).copy(frame, 22);
   encrypted.copy(frame, 151);
 
-  assert.equal(new PpcsVideoFrameDecoder(() => key).decode(frame, 1), undefined);
+  assert.deepEqual(new PpcsVideoFrameDecoder(() => key).decode(frame, 1), {
+    data: clear,
+    protection: "rsa-ecb",
+  });
 });
 
 /** Build a deterministic authenticated-media frame for the public decoder contract. */
