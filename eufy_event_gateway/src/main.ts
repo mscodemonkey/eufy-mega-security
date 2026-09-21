@@ -72,6 +72,17 @@ streams.on("warning", (error: unknown) => {
   const detail = error instanceof Error ? error.message : "Unknown media pipeline warning";
   logger.warn("media_pipeline_warning", `Camera media pipeline reported a recoverable warning: ${detail}`);
 });
+streams.on("viewer-transcoder-stopped", (detail: {
+  readonly inputBytes: number;
+  readonly outputBytes: number;
+  readonly outputChunks: number;
+  readonly bootstrapReady: boolean;
+}) => {
+  logger.info(
+    "viewer_transcoder_stopped",
+    `H.265 viewer conversion stopped: input_bytes=${detail.inputBytes} output_bytes=${detail.outputBytes} output_chunks=${detail.outputChunks} bootstrap_ready=${detail.bootstrapReady}`,
+  );
+});
 const startupSnapshots = new StartupSnapshotWarmup(
   (serial) => state.hasCamera(serial) && state.getCamera(serial).snapshot !== null,
   (serial) => streams.captureStartupSnapshot(serial),

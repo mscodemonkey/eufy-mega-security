@@ -27,6 +27,15 @@ import { PushEventDeduplicator } from "./push-event-deduplicator.js";
 import { resolveDeviceRoute } from "./device-routing.js";
 
 const logger = createLogger("provider");
+const DSK_REFRESH_SKEW_MILLISECONDS = 60_000;
+
+/** Return whether a cached PPCS lookup key should be replaced before another session starts. */
+export function dskKeyNeedsRefresh(
+  value: { readonly expiresAt: number | null } | null | undefined,
+  now = Date.now(),
+): boolean {
+  return !value || (value.expiresAt !== null && value.expiresAt <= now + DSK_REFRESH_SKEW_MILLISECONDS);
+}
 
 /** Credentials, storage, and transport limits for one Mega account. */
 export interface EufyProviderConfig {
@@ -141,6 +150,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #devices = new Map<string, MegaInventoryDevice>();
   readonly #ppcsStreams = new Map<string, FirstPartyPpcsSession>();
   readonly #dskKeys = new Map<string, { readonly key: string; readonly expiresAt: number | null }>();
+  readonly #dskRefreshes = new Map<string, Promise<{ readonly key: string; readonly expiresAt: number | null } | null>>();
   readonly #cipherKeys = new Map<number, string>();
   readonly #pushSnapshotQueues = new Map<string, Promise<void>>();
   readonly #pushDeduplicator = new PushEventDeduplicator();
@@ -184,6 +194,35 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return this.#cipherKeys.get(cipherId);
   }
 
+  async #dskKey(peerSerial: string): Promise<{ readonly key: string; readonly expiresAt: number | null } | null> {
+    const cached = this.#dskKeys.get(peerSerial);
+    if (!dskKeyNeedsRefresh(cached)) return cached ?? null;
+    const pending = this.#dskRefreshes.get(peerSerial);
+    if (pending) return await pending;
+    const refresh = this.#client.dskKeys([peerSerial]).then((keys) => {
+      const replacement = keys[peerSerial] ?? null;
+      if (replacement) {
+        this.#dskKeys.set(peerSerial, replacement);
+        return replacement;
+      }
+      if (cached && cached.expiresAt !== null && cached.expiresAt > Date.now()) {
+        logger.warn("dsk_refresh_deferred", "PPCS lookup-key refresh returned no replacement before expiry; using the still-valid cached key");
+        return cached;
+      }
+      return null;
+    }).catch((error: unknown) => {
+      if (cached && cached.expiresAt !== null && cached.expiresAt > Date.now()) {
+        logger.warn("dsk_refresh_deferred", "PPCS lookup-key refresh failed before expiry; using the still-valid cached key");
+        return cached;
+      }
+      throw error;
+    }).finally(() => {
+      if (this.#dskRefreshes.get(peerSerial) === refresh) this.#dskRefreshes.delete(peerSerial);
+    });
+    this.#dskRefreshes.set(peerSerial, refresh);
+    return await refresh;
+  }
+
   async start(events: ProviderEvents): Promise<void> {
     this.#events = events;
     const auth = await this.#client.connect(this.config.verifyCode);
@@ -204,7 +243,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
     const route = ppcsStreamRoute(device, this.#devices);
     const peer = route?.peer;
-    const dsk = peer ? this.#dskKeys.get(peer.serial) : null;
+    const dsk = peer ? await this.#dskKey(peer.serial) : null;
 
     // The production path is deliberately first-party Mega/PPCS.
     if (route && peer?.p2pDid && peer.p2pConnection && dsk && device.channel !== null) {
@@ -261,7 +300,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
       const route = ppcsStreamRoute(device, this.#devices);
       const peer = route?.peer;
-      const dsk = peer ? this.#dskKeys.get(peer.serial) : null;
+      const dsk = peer ? await this.#dskKey(peer.serial) : null;
       if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
         throw new Error("Camera enablement control is unavailable for this camera");
       }
@@ -336,7 +375,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
       const route = ppcsStreamRoute(device, this.#devices);
       const peer = route?.peer;
-      const dsk = peer ? this.#dskKeys.get(peer.serial) : null;
+      const dsk = peer ? await this.#dskKey(peer.serial) : null;
       if (!route?.homeBaseAttached || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
         throw new Error("Camera motion detection control requires a HomeBase-attached camera");
       }
@@ -390,7 +429,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       }
       const route = ppcsStreamRoute(device, this.#devices);
       const peer = route?.peer;
-      const dsk = peer ? this.#dskKeys.get(peer.serial) : null;
+      const dsk = peer ? await this.#dskKey(peer.serial) : null;
       if (!route?.homeBaseAttached || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
         throw new Error("Night vision control requires a ready HomeBase-attached camera route");
       }
@@ -742,7 +781,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
     const route = ppcsStreamRoute(device, this.#devices);
     const peer = route?.peer;
-    const dsk = peer ? this.#dskKeys.get(peer.serial) : null;
+    const dsk = peer ? await this.#dskKey(peer.serial) : null;
     if (!route?.homeBaseAttached || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
       throw new Error("Camera siren control requires a ready HomeBase-attached camera route");
     }

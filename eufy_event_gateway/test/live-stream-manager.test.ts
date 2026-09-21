@@ -48,9 +48,28 @@ test("retains SPS and PPS split across arbitrary source chunks", () => {
   cache.push(stream.subarray(sps.length + 2));
 
   assert.deepEqual(cache.bootstrap, Buffer.concat([sps, pps]));
+  assert.deepEqual(cache.startup, Buffer.concat([sps, pps, idr]));
   cache.push(annexBNal(0x41, 0x9a, 0x22));
   assert.equal(cache.codec, "h264");
   assert.deepEqual(cache.bootstrap, Buffer.concat([sps, pps]));
+});
+
+test("starts H.264 decoding at a clean IDR instead of preceding delta frames", () => {
+  const cache = new VideoParameterSetCache();
+  const delta = annexBNal(0x41, 0x9a, 0x22);
+  const sps = annexBNal(0x67, 0x42, 0x00, 0x1f);
+  const pps = annexBNal(0x68, 0xce, 0x06);
+  const idr = annexBNal(0x65, 0x88);
+
+  cache.push(Buffer.concat([delta, sps, pps]));
+  assert.equal(cache.startup, null);
+  cache.push(delta);
+  assert.equal(cache.startup, null);
+  cache.push(idr);
+
+  const startup = cache.startup as Buffer | null;
+  assert.deepEqual(startup, Buffer.concat([sps, pps, idr]));
+  assert.equal(startup?.includes(delta), false);
 });
 
 test("retains H.265 VPS, SPS, and PPS in decoder order", () => {
@@ -122,10 +141,11 @@ test("bootstraps first and repeat HTTP viewers with SPS and PPS", async () => {
   assert.equal(firstBytes.length, 0);
   const sps = annexBNal(0x67, 0x42, 0x00, 0x1f);
   const pps = annexBNal(0x68, 0xce, 0x06);
-  source!.write(Buffer.concat([sps, pps, annexBNal(0x65, 4, 5)]));
+  const idr = annexBNal(0x65, 4, 5);
+  source!.write(Buffer.concat([sps, pps, idr]));
   assert.deepEqual(
-    Buffer.concat(firstBytes).subarray(0, annexBNal(0x41, 1, 2, 3).length),
-    annexBNal(0x41, 1, 2, 3),
+    Buffer.concat(firstBytes).subarray(0, sps.length + pps.length + idr.length),
+    Buffer.concat([sps, pps, idr]),
   );
 
   const repeatResponse = new PassThrough() as unknown as ServerResponse;
@@ -183,6 +203,8 @@ test("shares an H.264 fallback with viewers when a camera returns H.265", async 
     return response;
   }) as ServerResponse["writeHead"];
   const bytes: Buffer[] = [];
+  const summaries: Array<{ inputBytes: number; outputBytes: number; outputChunks: number; bootstrapReady: boolean }> = [];
+  manager.on("viewer-transcoder-stopped", (summary) => summaries.push(summary));
   response.on("data", (chunk: Buffer) => bytes.push(Buffer.from(chunk)));
   await manager.addClient(camera.serial, response);
 
@@ -201,6 +223,13 @@ test("shares an H.264 fallback with viewers when a camera returns H.265", async 
 
   assert.equal(contentType, "video/h264");
   assert.ok(Buffer.concat(bytes).includes(h264Sps));
+  response.emit("close");
+  assert.deepEqual(summaries, [{
+    inputBytes: Buffer.concat(transcoderInput).length,
+    outputBytes: h264Sps.length + h264Pps.length + annexBNal(0x65, 0x88).length,
+    outputChunks: 1,
+    bootstrapReady: true,
+  }]);
   await manager.close();
 });
 

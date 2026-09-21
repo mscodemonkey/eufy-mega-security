@@ -12,6 +12,7 @@ import {
   cameraDetectionKind,
   cameraEnableRawValue,
   confirmStationWrite,
+  dskKeyNeedsRefresh,
   inventoryDiagnostics,
   inventoryLogSummaries,
   initialHomeBaseState,
@@ -45,6 +46,14 @@ const stationState = (alarmVolume: number | null): HomeBasePpcsState => ({
   promptVolume: null,
   alarmTone: null,
   storage: null,
+});
+
+test("refreshes expiring DSK material without replacing non-expiring keys", () => {
+  const now = 1_700_000_000_000;
+  assert.equal(dskKeyNeedsRefresh(undefined, now), true);
+  assert.equal(dskKeyNeedsRefresh({ expiresAt: null }, now), false);
+  assert.equal(dskKeyNeedsRefresh({ expiresAt: now + 60_000 }, now), true);
+  assert.equal(dskKeyNeedsRefresh({ expiresAt: now + 60_001 }, now), false);
 });
 
 test("accepts matching T8030 readback after an acknowledgement timeout", async () => {

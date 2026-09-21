@@ -34,6 +34,9 @@ interface Session {
   ffmpeg: ChildProcessWithoutNullStreams | null;
   viewerFfmpeg: ChildProcessWithoutNullStreams | null;
   viewerParameterSets: VideoParameterSetCache;
+  viewerInputBytes: number;
+  viewerOutputBytes: number;
+  viewerOutputChunks: number;
   stopTimer: NodeJS.Timeout | null;
   owned: boolean;
   leases: number;
@@ -83,6 +86,13 @@ export class VideoParameterSetCache {
 
   /** Return bounded opening bytes for the first viewer once the codec is known. */
   get startup(): Buffer | null {
+    if (this.#codec === "h264") {
+      const bootstrap = this.bootstrap;
+      const randomAccessOffset = annexBNalOffset(this.#opening, (header) => (header & 0x1f) === 5);
+      return bootstrap && randomAccessOffset !== null
+        ? Buffer.concat([bootstrap, this.#opening.subarray(randomAccessOffset)])
+        : null;
+    }
     return this.#codec && this.#opening.length > 0 ? this.#opening : this.bootstrap;
   }
 
@@ -101,7 +111,7 @@ export class VideoParameterSetCache {
   /** Inspect ordered bytes using provider metadata when it identifies the codec. */
   push(chunk: Buffer, declaredCodec?: VideoCodec | null): void {
     if (declaredCodec && this.#codec === null) this.#codec = declaredCodec;
-    if (this.bootstrap === null) {
+    if (this.startup === null) {
       const opening = Buffer.concat([this.#opening, chunk]);
       this.#opening = opening.length <= MAX_PARAMETER_SET_SCAN_BYTES
         ? opening
@@ -142,6 +152,13 @@ export class VideoParameterSetCache {
     }
     this.#pending = Buffer.from(data.subarray(starts.at(-1)!.offset));
   }
+}
+
+function annexBNalOffset(data: Buffer, matches: (header: number) => boolean): number | null {
+  for (const start of annexBStarts(data)) {
+    if (matches(data[start.payloadOffset]!)) return start.offset;
+  }
+  return null;
 }
 
 function annexBStarts(data: Buffer): Array<{ offset: number; payloadOffset: number }> {
@@ -307,6 +324,9 @@ export class LiveStreamManager extends EventEmitter {
     for (const client of session.clients) session.pendingClients.add(client);
     session.ffmpeg = null;
     session.viewerFfmpeg = null;
+    session.viewerInputBytes = 0;
+    session.viewerOutputBytes = 0;
+    session.viewerOutputChunks = 0;
 
     source.on("data", (chunk: Buffer) => {
       if (session.generation !== generation) return;
@@ -314,27 +334,33 @@ export class LiveStreamManager extends EventEmitter {
       const bootstrap = session.parameterSets.bootstrap;
       const startup = session.parameterSets.startup;
       const codec = session.parameterSets.codec;
-      if (bootstrap && codec) {
+      if (bootstrap && startup && codec) {
+        let snapshotStarted = false;
         if (!session.ffmpeg) {
           session.ffmpeg = this.#startSnapshotExtractor(serial, codec);
-          if (startup && session.ffmpeg.stdin.writable) session.ffmpeg.stdin.write(startup);
+          snapshotStarted = true;
+          if (session.ffmpeg.stdin.writable) session.ffmpeg.stdin.write(startup);
         }
         if (codec === "h265") {
           let started = false;
           if (session.clients.size > 0 && !session.viewerFfmpeg) {
-            this.#startViewerTranscoder(serial, session, startup ?? bootstrap);
+            this.#startViewerTranscoder(serial, session, startup);
             started = true;
           }
-          if (!started && session.viewerFfmpeg?.stdin.writable) session.viewerFfmpeg.stdin.write(chunk);
+          if (!started) this.#writeViewerTranscoderInput(session, chunk);
         } else {
+          let started = false;
           for (const client of session.pendingClients) {
-            if (session.clients.has(client)) this.#startClient(client, codec, startup ?? bootstrap);
+            if (session.clients.has(client)) {
+              this.#startClient(client, codec, startup);
+              started = true;
+            }
           }
           session.pendingClients.clear();
-          this.#writeViewerChunk(session, chunk);
+          if (!started) this.#writeViewerChunk(session, chunk);
         }
+        if (!snapshotStarted && session.ffmpeg?.stdin.writable) session.ffmpeg.stdin.write(chunk);
       }
-      if (bootstrap && session.ffmpeg?.stdin.writable) session.ffmpeg.stdin.write(chunk);
       for (const recording of session.recordings) this.#appendRecordingChunk(session, recording, chunk);
     });
     source.once("error", (error) => this.#sourceEnded(serial, generation, error));
@@ -578,6 +604,8 @@ export class LiveStreamManager extends EventEmitter {
     session.viewerParameterSets = new VideoParameterSetCache();
     process.stdout.on("data", (chunk: Buffer) => {
       if (session.generation !== generation || session.viewerFfmpeg !== process) return;
+      session.viewerOutputBytes += chunk.length;
+      session.viewerOutputChunks += 1;
       session.viewerParameterSets.push(chunk, "h264");
       const bootstrap = session.viewerParameterSets.bootstrap;
       if (bootstrap) {
@@ -604,6 +632,7 @@ export class LiveStreamManager extends EventEmitter {
     });
     process.once("close", (code) => {
       if (session.generation !== generation || session.viewerFfmpeg !== process) return;
+      this.#emitViewerTranscoderSummary(session);
       session.viewerFfmpeg = null;
       const error = new Error(`H.265 viewer fallback exited with status ${code ?? "unknown"}`);
       for (const client of session.clients) client.destroy(error);
@@ -611,7 +640,22 @@ export class LiveStreamManager extends EventEmitter {
       session.pendingClients.clear();
       this.#updateState(serial, session, error.message);
     });
-    if (process.stdin.writable) process.stdin.write(startup);
+    this.#writeViewerTranscoderInput(session, startup);
+  }
+
+  #writeViewerTranscoderInput(session: Session, chunk: Buffer): void {
+    if (!session.viewerFfmpeg?.stdin.writable) return;
+    session.viewerInputBytes += chunk.length;
+    session.viewerFfmpeg.stdin.write(chunk);
+  }
+
+  #emitViewerTranscoderSummary(session: Session): void {
+    this.emit("viewer-transcoder-stopped", {
+      inputBytes: session.viewerInputBytes,
+      outputBytes: session.viewerOutputBytes,
+      outputChunks: session.viewerOutputChunks,
+      bootstrapReady: session.viewerParameterSets.bootstrap !== null,
+    });
   }
 
   #startSnapshotExtractor(serial: string, codec: VideoCodec): ChildProcessWithoutNullStreams {
@@ -662,6 +706,7 @@ export class LiveStreamManager extends EventEmitter {
 
   #stopViewerTranscoder(session: Session): void {
     if (session.viewerFfmpeg) {
+      this.#emitViewerTranscoderSummary(session);
       session.viewerFfmpeg.stdin.end();
       session.viewerFfmpeg.kill("SIGTERM");
       session.viewerFfmpeg = null;
@@ -682,6 +727,9 @@ export class LiveStreamManager extends EventEmitter {
         ffmpeg: null,
         viewerFfmpeg: null,
         viewerParameterSets: new VideoParameterSetCache(),
+        viewerInputBytes: 0,
+        viewerOutputBytes: 0,
+        viewerOutputChunks: 0,
         stopTimer: null,
         owned: false,
         leases: 0,
