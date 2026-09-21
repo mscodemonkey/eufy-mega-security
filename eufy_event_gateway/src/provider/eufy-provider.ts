@@ -1394,7 +1394,7 @@ export function isPpcsRouteReady(
 export function ppcsStreamLogSummary(
   model: string,
   route: PpcsStreamRoute | null,
-  stats: Pick<FirstPartyPpcsSession["stats"], "camId" | "dataDatagrams" | "frameHeaders" | "videoFrames"> & Partial<Pick<FirstPartyPpcsSession["stats"], "alternateLookupCandidates" | "batteryHistory" | "closeReason" | "commands" | "directLookupCandidates" | "duplicateDatagrams" | "foreignVideoFrames" | "frameShapes" | "incompleteAccessUnitBytes" | "incompleteAccessUnits" | "localLookupCandidates" | "mediaStartAttempts" | "parserBlocked" | "parserResyncs" | "pendingBytes" | "sequenceGaps" | "sequenceRestarts" | "staleDatagrams" | "types" | "videoCodec" | "videoNalTypes" | "videoOutputFrames" | "videoResults">>,
+  stats: Pick<FirstPartyPpcsSession["stats"], "camId" | "dataDatagrams" | "frameHeaders" | "videoFrames"> & Partial<Pick<FirstPartyPpcsSession["stats"], "alternateLookupCandidates" | "batteryHistory" | "closeReason" | "commands" | "directLookupCandidates" | "duplicateDatagrams" | "foreignVideoFrames" | "frameShapes" | "incompleteAccessUnitBytes" | "incompleteAccessUnits" | "localLookupCandidates" | "mediaStartAttempts" | "mediaStopAttempts" | "parserBlocked" | "parserResyncs" | "pendingBytes" | "sequenceGaps" | "sequenceRestarts" | "staleDatagrams" | "types" | "videoCodec" | "videoNalTypes" | "videoOutputFrames" | "videoResults">>,
   error?: unknown,
 ): string {
   const stage = stats.camId === 0 ? "lookup" : stats.videoFrames === 0 ? "first_frame" : "media";
@@ -1440,6 +1440,7 @@ export function ppcsStreamLogSummary(
     `codec_bootstrap=${codecBootstrap}`,
     `decoder_ready=${hasDecoderReadyKeyframe(codec, nalTypes)}`,
     `media_start_attempts=${stats.mediaStartAttempts ?? 0}`,
+    `media_stop_attempts=${stats.mediaStopAttempts ?? 0}`,
     `close_reason=${stats.closeReason ?? "unknown"}`,
     `battery_history=${stats.batteryHistory ?? "not-reported"}`,
     ...(error === undefined ? [] : [`error=${safeError(error)}`]),

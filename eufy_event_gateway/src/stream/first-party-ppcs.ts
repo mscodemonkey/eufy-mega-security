@@ -40,6 +40,7 @@ const RESP = {
 } as const;
 const DATA = { data: Buffer.from([0xd1, 0]), video: Buffer.from([0xd1, 1]) } as const;
 const ATTACHED_MEDIA_STALL_MILLISECONDS = 10_000;
+const ATTACHED_MEDIA_RESTART_DELAY_MILLISECONDS = 250;
 const FIRST_VIDEO_FRAME_TIMEOUT_MILLISECONDS = 20_000;
 const CONTROL_TIMEOUT_MILLISECONDS = 10_000;
 const LOOKUP_RETRY_MILLISECONDS = 1_000;
@@ -98,6 +99,32 @@ export function needsStandaloneMediaReassert(
  */
 export function acceptsAttachedCameraMedia(command: number, frameChannel: number, requestedChannel: number): boolean {
   return command !== 1300 || frameChannel === requestedChannel;
+}
+
+/** Build the level-two media-control envelope used for a HomeBase camera start or stop. */
+export function buildAttachedMediaControlValue(
+  command: 1003 | 1004,
+  channel: number,
+  accountId: string,
+  publicKey?: string,
+): Buffer {
+  if (command === 1003 && !publicKey) throw new Error("Attached media start requires an RSA public key");
+  return Buffer.from(JSON.stringify({
+    account_id: accountId,
+    cmd: command,
+    mChannel: channel,
+    mValue3: command,
+    payload: command === 1003
+      ? {
+          ClientOS: "Android",
+          accountId,
+          camera_type: 0,
+          entrytype: 0,
+          key: publicKey,
+          streamtype: 1,
+        }
+      : {},
+  }));
 }
 
 /** Read the camera channel from the current 16-byte PPCS command header. */
@@ -563,6 +590,7 @@ export class FirstPartyPpcsSession {
     videoCodec: "unknown" as "h264" | "h265" | "unknown",
     videoNalTypes: [] as number[],
     mediaStartAttempts: 0,
+    mediaStopAttempts: 0,
     closeReason: "open" as PpcsStreamCloseReason | "open",
   };
   readonly #options: PpcsCameraOptions;
@@ -593,6 +621,7 @@ export class FirstPartyPpcsSession {
   });
   #lastAttachedMediaFrameAt: number | null = null;
   #heartbeat: ReturnType<typeof setInterval> | null = null;
+  #attachedMediaRestartTimer: ReturnType<typeof setTimeout> | null = null;
   #lookupTimer: ReturnType<typeof setInterval> | null = null;
   #selfAddress: { host: string; port: number } | null = null;
   #pendingControl: PendingControl | null = null;
@@ -769,6 +798,7 @@ export class FirstPartyPpcsSession {
     if (this.#maximumDurationTimer) clearTimeout(this.#maximumDurationTimer);
     if (this.#firstFrameTimer) clearTimeout(this.#firstFrameTimer);
     if (this.#heartbeat) clearInterval(this.#heartbeat);
+    if (this.#attachedMediaRestartTimer) clearTimeout(this.#attachedMediaRestartTimer);
     if (this.#lookupTimer) clearInterval(this.#lookupTimer);
     if (this.#pendingControl) {
       clearTimeout(this.#pendingControl.timer);
@@ -776,6 +806,9 @@ export class FirstPartyPpcsSession {
       this.#pendingControl = null;
     }
     this.#videoAssembler.reset();
+    if (this.#options.purpose !== "control" && this.#options.homeBaseAttached) {
+      this.#stopAttachedMedia();
+    }
     if (this.#remote) this.#send(REQ.end, Buffer.alloc(0), this.#remote);
     this.#socket.close();
     this.output.end();
@@ -1070,20 +1103,46 @@ export class FirstPartyPpcsSession {
 
   #startAttachedMedia(): void {
     if (!this.#remote || !this.#level2Key) return;
-    this.stats.mediaStartAttempts++;
-    const key = publicModulus(this.#rsa.publicKey);
-    const value = JSON.stringify({
-      account_id: this.#options.accountId ?? "",
-      cmd: 1003,
-      mChannel: this.#options.channel,
-      mValue3: 1003,
-      payload: { ClientOS: "Android", accountId: this.#options.accountId ?? "", camera_type: 0, entrytype: 0, key, streamtype: 1 },
-    });
+    if (this.stats.mediaStartAttempts > 0) {
+      this.#restartAttachedMedia();
+      return;
+    }
+    this.#sendAttachedMediaControl(1003);
+  }
+
+  /** Break a stale HomeBase encoder run before requesting a new decoder bootstrap. */
+  #restartAttachedMedia(): void {
+    if (this.#attachedMediaRestartTimer) return;
+    this.#stopAttachedMedia();
+    this.#attachedMediaRestartTimer = setTimeout(() => {
+      this.#attachedMediaRestartTimer = null;
+      if (!this.#closed) this.#sendAttachedMediaControl(1003);
+    }, ATTACHED_MEDIA_RESTART_DELAY_MILLISECONDS);
+    this.#attachedMediaRestartTimer.unref?.();
+  }
+
+  /** Release this camera channel without ending the HomeBase peer session first. */
+  #stopAttachedMedia(): void {
+    if (!this.#remote || !this.#level2Key || this.stats.mediaStartAttempts === 0) return;
+    this.#sendAttachedMediaControl(1004);
+  }
+
+  /** Encrypt and send one HomeBase media lifecycle command on the negotiated level-two channel. */
+  #sendAttachedMediaControl(command: 1003 | 1004): void {
+    if (!this.#remote || !this.#level2Key) return;
+    if (command === 1003) this.stats.mediaStartAttempts++;
+    else this.stats.mediaStopAttempts++;
+    const value = buildAttachedMediaControlValue(
+      command,
+      this.#options.channel,
+      this.#options.accountId ?? "",
+      command === 1003 ? publicModulus(this.#rsa.publicKey) : undefined,
+    );
 
     // The level-2 body is AES-GCM encrypted. The RSA modulus inside the JSON
     // lets the camera establish the per-stream video key for frame payloads.
     const level2Sequence = this.#level2Seq++;
-    const body = encryptLevel2(Buffer.from(value), this.#level2Key, level2Sequence);
+    const body = encryptLevel2(value, this.#level2Key, level2Sequence);
     const streamId = this.#options.channel === 0 || this.#options.channel === 255 ? 0 : 10 + (this.#level2Seq & 127);
     const header = commandHeader(this.#seq++, 1350);
     const packet = Buffer.concat([header, rawPayload(body, this.#options.channel, 8, [8, 0], streamId)]);

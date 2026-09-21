@@ -10,6 +10,7 @@ import test from "node:test";
 
 import {
   buildCameraEnableBody,
+  buildAttachedMediaControlValue,
   buildNightVisionBody,
   acceptsAttachedCameraMedia,
   buildPpcsCloudLookup,
@@ -117,6 +118,34 @@ test("reasserts attached media during startup or after a stall", () => {
   assert.equal(needsAttachedMediaReassert(null, 1_000), true);
   assert.equal(needsAttachedMediaReassert(1_000, 6_000), false);
   assert.equal(needsAttachedMediaReassert(1_000, 11_000), true);
+});
+
+test("builds distinct HomeBase start and stop media envelopes", () => {
+  assert.deepEqual(JSON.parse(buildAttachedMediaControlValue(1003, 4, "account-owner", "public-key").toString()), {
+    account_id: "account-owner",
+    cmd: 1003,
+    mChannel: 4,
+    mValue3: 1003,
+    payload: {
+      ClientOS: "Android",
+      accountId: "account-owner",
+      camera_type: 0,
+      entrytype: 0,
+      key: "public-key",
+      streamtype: 1,
+    },
+  });
+  assert.deepEqual(JSON.parse(buildAttachedMediaControlValue(1004, 4, "account-owner").toString()), {
+    account_id: "account-owner",
+    cmd: 1004,
+    mChannel: 4,
+    mValue3: 1004,
+    payload: {},
+  });
+  assert.throws(
+    () => buildAttachedMediaControlValue(1003, 4, "account-owner"),
+    /requires an RSA public key/,
+  );
 });
 
 test("requires complete codec setup and an IDR before attached media settles", () => {
