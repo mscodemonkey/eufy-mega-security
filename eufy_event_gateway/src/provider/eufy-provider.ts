@@ -21,7 +21,7 @@ import { MegaPushReceiver, type MegaPushEvent } from "../mega/push.js";
 import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBasePpcsState } from "../stream/homebase-ppcs.js";
 import { cameraCapabilityLogSummaries, describeCameraCapabilities, isSupportedCameraType, describeDeviceCapabilities, deviceCapabilityLogSummaries } from "./device-capabilities-core.js";
-import { hasMainsBatterySentinel } from "./camera-capability-core.js";
+import { catalogueIntegrationStatus, hasMainsBatterySentinel } from "./camera-capability-core.js";
 import type { CameraProvider, CaptchaChallenge, CaptchaProvider, ProviderEvents } from "./provider.js";
 import { PushEventDeduplicator } from "./push-event-deduplicator.js";
 import { resolveDeviceRoute } from "./device-routing.js";
@@ -692,6 +692,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       serial: device.serial,
       name: device.name,
       model: device.model,
+      catalogueStatus: catalogueIntegrationStatus(device.model, device.deviceType),
       stationSerial: device.parentSerial,
       doorbellSupported: isDoorbellDevice(device),
       streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials),

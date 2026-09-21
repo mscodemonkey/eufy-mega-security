@@ -8,10 +8,28 @@
 
 import type { CoreCapabilityEntry } from "./device-capability-core.js";
 import {
+  GENERATED_CATALOGUE_DEVICES,
   GENERATED_CAMERA_DEVICE_TYPES,
   GENERATED_KNOWN_CAMERA_DEVICE_TYPES,
   GENERATED_NON_CAMERA_DEVICE_TYPES,
 } from "./devices/generated-catalogue.js";
+
+/** Integration confidence recorded for one catalogue identity. */
+export type CatalogueIntegrationStatus = "supported" | "ready_to_test" | "recognised";
+
+/** Resolve catalogue confidence using the reported model before its shared numeric type. */
+export function catalogueIntegrationStatus(model: string, deviceType: number | null): CatalogueIntegrationStatus | null {
+  if (deviceType === null) return null;
+  const typeMatches = GENERATED_CATALOGUE_DEVICES.filter((candidate) => candidate.deviceType === deviceType);
+  const normalizedModel = model.toUpperCase();
+  const modelMatches = typeMatches.filter((candidate) => (
+    candidate.models.some((candidateModel) => candidateModel.toUpperCase() === normalizedModel)
+  ));
+  const matches = modelMatches.length > 0 ? modelMatches : typeMatches.length === 1 ? typeMatches : [];
+  if (matches.some(({ status }) => status === "ready_to_test")) return "ready_to_test";
+  if (matches.some(({ status }) => status === "supported")) return "supported";
+  return matches.length > 0 ? "recognised" : null;
+}
 
 /** Camera types with an existing gateway protocol route and admission decision. */
 export const CAMERA_DEVICE_TYPES: ReadonlySet<number> = GENERATED_CAMERA_DEVICE_TYPES;

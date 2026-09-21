@@ -23,6 +23,7 @@ import type {
   PushDiagnostic,
   InventoryDiagnostic,
   CameraCapabilityManifest,
+  CatalogueEvidence,
   DeviceCapabilityManifest,
   DetectionKind,
   SecuritySensorState,
@@ -355,6 +356,26 @@ export class GatewayState extends EventEmitter {
     return this.#deviceCapabilities.map((manifest) => structuredClone(manifest));
   }
 
+  /** Build a support attachment without serials, names, payloads, or account data. */
+  catalogueEvidence(): CatalogueEvidence {
+    const inventoryBySerial = new Map(this.#inventoryDiagnostics.map((device) => [device.serial, device]));
+    return {
+      schema: 1,
+      inventory: this.#inventoryDiagnostics.map(({ serial: _serial, name: _name, ...device }) => structuredClone(device)),
+      cameras: this.#cameraCapabilities.map(({ serial: _serial, ...camera }) => structuredClone(camera)),
+      devices: this.#deviceCapabilities.map(({ serial: _serial, ...device }) => structuredClone(device)),
+      events: this.#pushDiagnostics.map(({ receivedAt, cameraSerial, cameraName: _cameraName, personName: _personName, ...event }) => {
+        const inventory = inventoryBySerial.get(cameraSerial);
+        return {
+          ...structuredClone(event),
+          observedOn: receivedAt.slice(0, 10),
+          model: inventory?.model ?? "unknown",
+          deviceType: inventory?.megaDeviceType ?? null,
+        };
+      }),
+    };
+  }
+
   /** Return immutable snapshots for every known camera. */
   listCameras(): CameraState[] {
     return [...this.#cameras.keys()].map((serial) => this.getCamera(serial));
@@ -367,6 +388,7 @@ export class GatewayState extends EventEmitter {
       serial: camera.identity.serial,
       name: camera.identity.name,
       model: camera.identity.model,
+      catalogueStatus: camera.identity.catalogueStatus ?? null,
       stationSerial: camera.identity.stationSerial,
       streamSupported: camera.identity.streamSupported,
       doorbellSupported: camera.identity.doorbellSupported,

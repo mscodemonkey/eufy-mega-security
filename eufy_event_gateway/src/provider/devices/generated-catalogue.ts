@@ -220,11 +220,13 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
     "name": "eufyCam 2 Pro (S221)",
     "category": "camera",
     "models": [
-      "T8140"
+      "T8140",
+      "T8140R",
+      "T8140-R"
     ],
     "deviceType": 14,
-    "status": "recognised",
-    "handler": null
+    "status": "ready_to_test",
+    "handler": "camera"
   },
   {
     "id": "t8141",
@@ -1244,7 +1246,7 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
 ] as const;
 
 /** Device types admitted to the implemented camera handler. */
-export const GENERATED_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([5,7,8,9,15,19,23,26,30,31,38,47,48,49,62,63,88,91,94,96,104,105,151,203,10005,10009,10031,10037]);
+export const GENERATED_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([5,7,8,9,14,15,19,23,26,30,31,38,47,48,49,62,63,88,91,94,96,104,105,151,203,10005,10009,10031,10037]);
 
 /** Device types admitted to the implemented standalone-sensor handler. */
 export const GENERATED_SENSOR_DEVICE_TYPES: ReadonlySet<number> = new Set([2,10,20,126,127]);

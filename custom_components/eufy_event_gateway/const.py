@@ -11,6 +11,7 @@ from homeassistant.const import Platform
 DOMAIN = "eufy_event_gateway"
 CONF_API_TOKEN = "api_token"
 PLATFORMS = [
+    Platform.BUTTON,
     Platform.CAMERA,
     Platform.BINARY_SENSOR,
     Platform.SENSOR,

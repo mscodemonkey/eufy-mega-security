@@ -119,6 +119,9 @@ export class GatewayServer {
       if (request.method === "GET" && url.pathname === "/api/diagnostics/inventory") {
         return json(response, 200, { devices: this.state.listInventoryDiagnostics() });
       }
+      if (request.method === "GET" && url.pathname === "/api/diagnostics/catalogue-evidence") {
+        return json(response, 200, this.state.catalogueEvidence());
+      }
       if (request.method === "GET" && url.pathname === "/api/camera-capabilities") {
         return json(response, 200, { devices: this.state.listCameraCapabilities() });
       }

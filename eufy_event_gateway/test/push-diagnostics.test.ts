@@ -9,6 +9,7 @@ import test from "node:test";
 
 import { GatewayState } from "../src/domain/gateway-state.js";
 import type { PushDiagnostic } from "../src/domain/types.js";
+import { describeCameraCapabilities } from "../src/provider/device-capabilities-core.js";
 
 test("push diagnostics are bounded to the latest 50 whitelisted records", () => {
   const state = new GatewayState();
@@ -35,4 +36,63 @@ test("push diagnostics are bounded to the latest 50 whitelisted records", () => 
   assert.equal(diagnostics.length, 50);
   assert.equal(diagnostics[0]?.cameraSerial, "camera-5");
   assert.equal(diagnostics[49]?.cameraSerial, "camera-54");
+});
+
+test("catalogue evidence removes local identities while retaining test facts", () => {
+  const state = new GatewayState();
+  state.updateInventoryDiagnostics([{
+    serial: "PRIVATE-SERIAL",
+    name: "Private camera name",
+    model: "T8140-R",
+    sources: ["mega"],
+    upstreamIsCamera: false,
+    acceptedAsCamera: true,
+    megaDeviceType: 14,
+    category: "eufy_security",
+  }]);
+  state.updateCameraCapabilities([describeCameraCapabilities({
+    serial: "PRIVATE-SERIAL",
+    model: "T8140-R",
+    category: "eufy_security",
+    deviceType: 14,
+    paramTypes: [1101],
+  }, { doorbellSupported: false, streamSupported: true })]);
+  state.recordPushDiagnostic({
+    receivedAt: "2026-09-21T12:00:00.000Z",
+    cameraSerial: "PRIVATE-SERIAL",
+    cameraName: "Private camera name",
+    type: 1,
+    eventType: 3102,
+    messageType: 0,
+    notificationStyle: 1,
+    personName: "Private person name",
+    hasPersonName: true,
+    hasPictureUrl: true,
+    hasFilePath: false,
+    hasFetchId: false,
+    hasSenseId: true,
+  });
+
+  const evidence = state.catalogueEvidence();
+  assert.equal(evidence.schema, 1);
+  assert.equal(evidence.inventory[0]?.model, "T8140-R");
+  assert.equal(evidence.cameras[0]?.peerRouteReady, true);
+  assert.deepEqual(evidence.events[0], {
+    observedOn: "2026-09-21",
+    model: "T8140-R",
+    deviceType: 14,
+    type: 1,
+    eventType: 3102,
+    messageType: 0,
+    notificationStyle: 1,
+    hasPersonName: true,
+    hasPictureUrl: true,
+    hasFilePath: false,
+    hasFetchId: false,
+    hasSenseId: true,
+  });
+  const serialized = JSON.stringify(evidence);
+  assert.equal(serialized.includes("PRIVATE-SERIAL"), false);
+  assert.equal(serialized.includes("Private camera name"), false);
+  assert.equal(serialized.includes("Private person name"), false);
 });

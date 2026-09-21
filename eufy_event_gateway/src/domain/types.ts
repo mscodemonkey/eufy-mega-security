@@ -57,6 +57,7 @@ export interface CameraState {
   readonly serial: string;
   readonly name: string;
   readonly model: string;
+  readonly catalogueStatus: "supported" | "ready_to_test" | "recognised" | null;
   readonly stationSerial: string;
   readonly streamSupported: boolean;
   readonly doorbellSupported: boolean;
@@ -177,6 +178,7 @@ export interface CameraIdentity {
   readonly serial: string;
   readonly name: string;
   readonly model: string;
+  readonly catalogueStatus?: "supported" | "ready_to_test" | "recognised" | null;
   readonly stationSerial: string;
   readonly streamSupported: boolean;
   readonly doorbellSupported: boolean;
@@ -278,4 +280,29 @@ export interface InventoryDiagnostic {
   readonly acceptedAsCamera: boolean;
   readonly megaDeviceType: number | null;
   readonly category: string | null;
+}
+
+/** Privacy-safe evidence that can be attached to a device support report. */
+export interface CatalogueEvidence {
+  readonly schema: 1;
+  readonly inventory: readonly Omit<InventoryDiagnostic, "serial" | "name">[];
+  readonly cameras: readonly Omit<CameraCapabilityManifest, "serial">[];
+  readonly devices: readonly Omit<DeviceCapabilityManifest, "serial">[];
+  readonly events: readonly CatalogueEventEvidence[];
+}
+
+/** One push result linked to catalogue identity without local device labels. */
+export interface CatalogueEventEvidence {
+  readonly observedOn: string;
+  readonly model: string;
+  readonly deviceType: number | null;
+  readonly type: number | null;
+  readonly eventType: number | null;
+  readonly messageType: number | null;
+  readonly notificationStyle: number | null;
+  readonly hasPersonName: boolean;
+  readonly hasPictureUrl: boolean;
+  readonly hasFilePath: boolean;
+  readonly hasFetchId: boolean;
+  readonly hasSenseId: boolean;
 }

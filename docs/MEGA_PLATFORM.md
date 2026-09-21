@@ -107,7 +107,13 @@ member.admin_user_id -> adminUserId
 
 `parseMegaInventory()` rejects rows without a serial, removes duplicate serials, bounds text fields, and fills absent values with `null` or safe defaults. If a child camera has no `admin_user_id`, it inherits the parent station's value because the HomeBase media request is account-scoped.
 
-The current camera filter accepts Mega device types 7, 8, 19, 23, 31, 63, 91, 151, and 10031 when `category` is `eufy_security`. Type 23 is the HomeBase-attached eufyCam S300 / 3C (`T8161`); type 151 is the wired Wall Light Cam S100 (`T84A1`). Type 18 is a HomeBase parent and remains excluded from the camera registry. It has a separate station record so Home Assistant can attach HomeBase controls and diagnostics to the physical hub instead of showing a blank camera tile.
+The current camera filter accepts `eufy_security` device types generated from
+catalogue entries marked `ready_to_test` or `supported` with the camera
+handler. A `recognised` camera stays visible in privacy-safe inventory
+diagnostics without creating Home Assistant entities until a reporter is
+available to test it. Stations and accessories have separate generated roles,
+so a shared inventory response cannot accidentally turn a HomeBase or lock
+into a camera tile.
 
 For a HomeBase child, the parent provides the P2P DID, app connection, and DSK key. A parentless or self-parented supported camera uses its own values through the direct PPCS route. The diagnostic log identifies the selected route and only reports whether those peer values and the DSK key are available. It never includes the values themselves. A row that names a missing, different parent stays unavailable rather than being guessed as a standalone camera.
 

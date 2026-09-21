@@ -13,6 +13,7 @@ import {
   CAMERA_CAPABILITY_CORE,
   CAMERA_DEVICE_TYPES,
   KNOWN_CAMERA_DEVICE_TYPES,
+  catalogueIntegrationStatus,
 } from "../src/provider/camera-capability-core.js";
 import { parseMegaInventory, safeParamTypes } from "../src/provider/eufy-provider.js";
 import { GatewayState } from "../src/domain/gateway-state.js";
@@ -145,6 +146,14 @@ test("admits the EufyCam E40 camera type", () => {
   assert.equal(manifest.reviewCandidate, false);
   assert.equal(manifest.peerRouteReady, true);
   assert.equal(manifest.capabilities.some(({ id }) => id === "liveVideo"), true);
+});
+
+test("offers compatibility feedback only for the exact ready-to-test model", () => {
+  assert.equal(catalogueIntegrationStatus("T8140-R", 14), "ready_to_test");
+  assert.equal(catalogueIntegrationStatus("T8224", 96), "supported");
+  assert.equal(catalogueIntegrationStatus("T8223", 96), "ready_to_test");
+  assert.equal(catalogueIntegrationStatus("unknown", 96), null);
+  assert.equal(catalogueIntegrationStatus("T9999", 65_000), null);
 });
 
 test("keeps advanced research out of the published device matrix", () => {

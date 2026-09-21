@@ -224,6 +224,7 @@ The gateway exposes:
 - `GET /api/cameras/{serial}/record.mp4`: bounded MP4 capture;
 - `GET /api/events`: SSE events such as camera discovery, motion, person, snapshot, stream state, and connection changes;
 - `GET /api/diagnostics/inventory` and `/api/diagnostics/push`: safe troubleshooting views.
+- `GET /api/diagnostics/catalogue-evidence`: support evidence with local device identities removed for Home Assistant's diagnostics download.
 
 All `/api` calls use a bearer token except a short-lived signed stream path. `/health` is intentionally separate so Supervisor can tell “the process is alive” from “Eufy authentication is currently waiting for the user.”
 

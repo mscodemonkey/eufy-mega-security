@@ -1,5 +1,8 @@
 {
   "entity": {
+    "button": {
+      "compatibility_report": {"name": "Help test this device"}
+    },
     "alarm_control_panel": {
       "eufy_home_base_alarm": {"name": "Alarm"}
     },

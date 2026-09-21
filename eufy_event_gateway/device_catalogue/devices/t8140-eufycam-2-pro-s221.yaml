@@ -5,9 +5,12 @@ id: t8140
 name: eufyCam 2 Pro (S221)
 category: camera
 integration:
-  status: recognised
+  status: ready_to_test
+  handler: camera
 models:
   - T8140
+  - T8140R
+  - T8140-R
 device_type: 14
 capabilities:
   readable:

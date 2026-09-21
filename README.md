@@ -194,6 +194,20 @@ The `run` value changes whenever the app process starts. It separates restarts t
 
 New `push_received` lines show the camera model, event codes, whether the gateway recognizes the device, and how it handled the notification. `push_unparsed` means Firebase delivered a notification that the gateway could not associate with an Eufy device. Neither line includes names, serial numbers, notification text, or image URLs.
 
+An admitted device that still needs real-hardware confirmation gets a
+diagnostic **Help test this device** button. Pressing it creates a local
+notification with a prefilled GitHub report. Nothing is uploaded until the
+user reviews and submits that report.
+
+For the report, open the Eufy Mega Security integration in Home Assistant and
+choose **Download diagnostics**. The resulting catalogue evidence
+includes model and numeric type, admission and route decisions, reported
+parameter IDs, and privacy-safe push results. It excludes device names, serial
+numbers, recognized person names, payloads, credentials, and account data.
+Attach it with a short result for discovery, events, snapshots, and live view.
+Those real-device results are what move individual catalogue capabilities from
+`declared` to `tested` or `failing`.
+
 When requesting support, copy the complete log from the most recent `gateway_start` event through the failure instead of selecting only the final error. The gateway redacts common credential fields and account email addresses, but review logs before posting them publicly.
 
 ## Automations and Node-RED

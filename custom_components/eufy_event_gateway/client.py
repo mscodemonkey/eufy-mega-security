@@ -87,6 +87,10 @@ class GatewayClient:
             if isinstance(sensor, dict) and isinstance(sensor.get("serial"), str)
         ]
 
+    async def catalogue_evidence(self) -> dict[str, Any]:
+        """Fetch the gateway's privacy-safe device catalogue evidence."""
+        return await self._json("/api/diagnostics/catalogue-evidence")
+
     async def station(self, serial: str) -> dict[str, Any]:
         """Fetch one HomeBase state by serial for an explicit readback."""
         payload = await self._json(f"/api/stations/{serial}")

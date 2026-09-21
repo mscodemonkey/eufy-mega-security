@@ -14,6 +14,7 @@ const camera = {
   serial: "camera-1",
   name: "Driveway",
   model: "T8142",
+  catalogueStatus: "ready_to_test" as const,
   stationSerial: "homebase-1",
   streamSupported: true,
   doorbellSupported: false,
@@ -26,6 +27,7 @@ test("retains a recognized person after the transient sensor clears", () => {
   state.recordPerson(camera.serial, false, null);
 
   const result = state.getCamera(camera.serial);
+  assert.equal(result.catalogueStatus, "ready_to_test");
   assert.equal(result.personDetected, false);
   assert.equal(result.lastDetection?.personName, "Alex");
   assert.equal(result.lastDetection?.recognized, true);

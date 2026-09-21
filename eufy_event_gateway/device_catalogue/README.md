@@ -94,6 +94,14 @@ username without the leading `@`.
 Runtime code may consume only capabilities marked `tested`. Other levels remain
 research until they are confirmed.
 
+Admission is intentionally reviewed rather than inferred from catalogue
+identity alone. A `ready_to_test` promotion should have a known reporter who can
+check discovery, events, snapshots, and live view on the stated connection.
+Home Assistant's **Download diagnostics** action exports the gateway's
+privacy-safe catalogue evidence for that report. Apply the reporter's results
+to each exact capability and connection instead of promoting every declaration
+for the device at once.
+
 Do not record reference implementation names, repository locations, source
 excerpts, or cross-references here. Convert useful findings into neutral device
 facts and retain only the support level needed to judge them safely.
