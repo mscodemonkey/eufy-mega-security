@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.85
+
+- Refresh expiring PPCS lookup keys before new camera sessions, avoiding stale credentials during long-running gateway sessions.
+- Start H.264 snapshots and live viewers from a complete decoder boundary, and avoid feeding the opening media chunk to FFmpeg twice.
+- Add privacy-safe H.265 viewer conversion counters so blank playback can be separated from camera transport and decoder failures.
+
 ## 0.1.84
 
 - Keep successfully decrypted HomeBase 2 keyframe continuations for access-unit reassembly instead of rejecting chunks that begin part-way through a NAL.
