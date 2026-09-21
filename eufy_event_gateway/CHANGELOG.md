@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.84
+
+- Keep successfully decrypted HomeBase 2 keyframe continuations for access-unit reassembly instead of rejecting chunks that begin part-way through a NAL.
+
 ## 0.1.83
 
 - Admit T8140-R and T8140R eufyCam 2 Pro cameras through the existing HomeBase camera handler.
