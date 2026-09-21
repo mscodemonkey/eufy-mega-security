@@ -7,7 +7,7 @@ combination confirmed.
 
 The much larger, property-level reference lives in
 `eufy_event_gateway/device_catalogue/`. It is organised as one JSON file per
-device and includes SDK declarations, commands, hardware features, selectable
+device and includes external declarations, commands, hardware features, selectable
 values, aliases, conflicts, and evidence. This document stays focused on what
 the gateway has actually implemented or confirmed on hardware.
 

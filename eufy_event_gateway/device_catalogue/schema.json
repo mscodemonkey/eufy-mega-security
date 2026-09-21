@@ -3,47 +3,121 @@
   "$id": "https://github.com/mscodemonkey/eufy-mega-security/device-catalogue.schema.json",
   "title": "Eufy device capability record",
   "type": "object",
-  "required": ["$schema", "id", "identity", "sdk", "observations", "capabilities"],
+  "required": [
+    "$schema",
+    "id",
+    "identity",
+    "device_registry",
+    "observations",
+    "capabilities"
+  ],
   "additionalProperties": false,
   "properties": {
-    "$schema": { "const": "../schema.json" },
-    "id": { "type": "string", "minLength": 1 },
+    "$schema": {
+      "const": "../schema.json"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
     "identity": {
       "type": "object",
-      "required": ["display_name", "model_codes", "models_raw", "aliases", "product_category"],
-      "additionalProperties": { "type": ["string", "array"] },
+      "required": [
+        "display_name",
+        "model_codes",
+        "models_raw",
+        "aliases",
+        "product_category"
+      ],
+      "additionalProperties": {
+        "type": [
+          "string",
+          "array"
+        ]
+      },
       "properties": {
-        "display_name": { "type": "string", "minLength": 1 },
-        "model_codes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
-        "models_raw": { "type": "string" },
-        "aliases": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
-        "product_category": { "type": "string", "minLength": 1 },
-        "variant_rule": { "type": "string" }
+        "display_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model_codes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "models_raw": {
+          "type": "string"
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "product_category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "variant_rule": {
+          "type": "string"
+        }
       }
     },
-    "sdk": { "type": "object" },
-    "observations": { "type": "object" },
+    "device_registry": {
+      "type": "object"
+    },
+    "observations": {
+      "type": "object"
+    },
     "capabilities": {
       "type": "object",
       "additionalProperties": {
         "type": "array",
-        "items": { "$ref": "#/$defs/capability" }
+        "items": {
+          "$ref": "#/$defs/capability"
+        }
       }
     },
-    "model_aliases": { "type": "array", "items": { "type": "object" } },
-    "hardware_evidence": { "type": "array", "items": { "type": "object" } }
+    "model_aliases": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
   },
   "$defs": {
     "capability": {
       "type": "object",
-      "required": ["key", "context", "available"],
+      "required": [
+        "key",
+        "context",
+        "available"
+      ],
       "properties": {
-        "key": { "type": "string", "minLength": 1 },
-        "context": { "type": "string", "minLength": 1 },
-        "available": { "type": "string", "minLength": 1 },
-        "label": { "type": "string" },
-        "access": { "type": "string" },
-        "protocol": { "type": "object" },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "context": {
+          "type": "string",
+          "minLength": 1
+        },
+        "available": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string"
+        },
+        "access": {
+          "type": "string"
+        },
+        "protocol": {
+          "type": "object"
+        },
         "value": {
           "type": "object",
           "properties": {
@@ -51,13 +125,16 @@
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["value"]
+                "required": [
+                  "value"
+                ]
               }
             }
           }
         },
-        "evidence": { "type": "object" },
-        "cross_reference": { "type": "object" }
+        "evidence": {
+          "type": "object"
+        }
       }
     }
   }

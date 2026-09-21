@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.72
+
+- Remove reference-source names, locations, excerpts, and cross-reference fields from the public device catalogue.
+- Add a catalogue validation gate that rejects those markers if they are introduced again.
+- Keep the neutral device facts, properties, selectable values, evidence levels, and confirmed hardware results.
+
 ## 0.1.71
 
 - Add a read-only HomeBase 2 mode check that exposes configured and effective security modes only after a successful local read. HomeBase 2 writes remain disabled until hardware confirmation.

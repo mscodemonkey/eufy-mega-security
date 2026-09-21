@@ -15,21 +15,20 @@
     ],
     "product_category": "Indoor dual-lens pan/tilt camera"
   },
-  "sdk": {
+  "device_registry": {
     "mapping_confidence": "verified",
     "docs_status": "Supported (firmware 1.5.1.0)",
     "property_count": 56,
     "command_count": 13,
     "coverage": "declared",
     "device_type_id": 104,
-    "sdk_enum_name": "INDOOR_PT_CAMERA_S350",
-    "sdk_type_label": "Indoor Camera S350",
-    "sdk_topology": "integrated (own P2P station)"
+    "type_name": "INDOOR_PT_CAMERA_S350",
+    "type_label": "Indoor Camera S350",
+    "topology": "integrated (own P2P station)"
   },
   "observations": {
-    "night_vision_control_sdk": "mode select nightvision 0=Off/1=Auto/3=On",
-    "currently_sold": "Yes - listed on eufy.com US (Sep 2026)",
-    "mega_sdk_hw_evidence_lines": 0
+    "night_vision_control": "mode select nightvision 0=Off/1=Auto/3=On",
+    "currently_sold": "Yes - listed on eufy.com US (Sep 2026)"
   },
   "capabilities": {
     "device_command": [
@@ -43,9 +42,9 @@
           "command_name": "deviceStartLivestream"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -60,9 +59,9 @@
           "command_name": "deviceStopLivestream"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -77,9 +76,9 @@
           "command_name": "deviceTriggerAlarmSound"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -94,9 +93,9 @@
           "command_name": "devicePanAndTilt"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -111,9 +110,9 @@
           "command_name": "deviceStartDownload"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -128,9 +127,9 @@
           "command_name": "deviceCancelDownload"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -145,9 +144,9 @@
           "command_name": "deviceCalibrate"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -162,9 +161,9 @@
           "command_name": "deviceStartTalkback"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -179,9 +178,9 @@
           "command_name": "deviceStopTalkback"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -196,9 +195,9 @@
           "command_name": "deviceSnooze"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -213,9 +212,9 @@
           "command_name": "devicePresetPosition"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -230,9 +229,9 @@
           "command_name": "deviceSavePresetPosition"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -247,9 +246,9 @@
           "command_name": "deviceDeletePresetPosition"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -269,9 +268,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -289,9 +288,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -309,9 +308,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -329,9 +328,9 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -349,9 +348,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -369,9 +368,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -389,9 +388,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -411,15 +410,11 @@
           "unit": "dBm"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "wifiRssi",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -438,50 +433,50 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "No signal",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "No signal",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Weak",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Weak",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Normal",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Normal",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Strong",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Strong",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Full",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Full",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -502,15 +497,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "privacy",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -528,40 +519,36 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Off",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Off",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Auto",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Auto",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "On",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "On",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "nightVisionType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -578,15 +565,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "indoorMotionEnable",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -603,15 +586,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "soundDetection",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -629,40 +608,36 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Off",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Off",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Timestamp",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Timestamp",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Timestamp and Logo",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Timestamp and Logo",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "devsOsd",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -678,9 +653,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -698,9 +673,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -718,9 +693,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -738,9 +713,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -760,32 +735,28 @@
           "options": [
             {
               "value": 128,
-              "sdk_label": "All Sounds",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "All Sounds",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 256,
-              "sdk_label": "Crying",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Crying",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "indoorDetSetSoundDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -803,56 +774,52 @@
           "options": [
             {
               "value": 1,
-              "sdk_label": "Min",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Min",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Low",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Low",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Medium",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Medium",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "High",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "High",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Max",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Max",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "soundDetectionSensitivity",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -868,9 +835,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -891,15 +858,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "updatePw",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -915,9 +878,9 @@
           "value_type": "object"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -938,15 +901,11 @@
           "max": 5
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "indoorMotionDetectionSensitivity",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -963,15 +922,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "audioMicrophoneSwitch",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -988,15 +943,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "audioSpeakerSwitch",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1015,15 +966,11 @@
           "max": 100
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "doorbellAudioVolume",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1040,15 +987,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "statusInLock",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1065,15 +1008,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1090,15 +1029,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1115,15 +1050,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1143,56 +1074,52 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Auto",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Auto",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "HD (720P)",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "HD (720P)",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Full HD (1080P)",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Full HD (1080P)",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "2K HD",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "2K HD",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Ultra 4K",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Ultra 4K",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "multicamSetVideoQuailty",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1212,48 +1139,44 @@
           "options": [
             {
               "value": 1,
-              "sdk_label": "HD (720P)",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "HD (720P)",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Full HD (1080P)",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Full HD (1080P)",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "2K HD",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "2K HD",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Ultra 4K",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Ultra 4K",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "multicamSetRecordQuailty",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1273,40 +1196,36 @@
           "options": [
             {
               "value": 1,
-              "sdk_label": "Most Efficient",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Most Efficient",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Include Thumbnail",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Include Thumbnail",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Full Effect",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Full Effect",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "notificationStyle",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -1323,15 +1242,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "userIdAndPwId",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1348,15 +1263,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "userIdAndPwId",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1373,15 +1284,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "userIdAndPwId",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1398,15 +1305,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "userIdAndPwId",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1423,15 +1326,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "userIdAndPwId",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1448,15 +1347,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "snoozeTime",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -1474,15 +1369,11 @@
           "unit": "sec"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "snoozeTime",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -1499,15 +1390,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "snoozeTime",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -1523,9 +1410,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -1544,15 +1431,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "lockParam",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1569,15 +1452,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "indoorRoundLookV2",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1595,56 +1474,52 @@
           "options": [
             {
               "value": 1,
-              "sdk_label": "Min",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Min",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Low",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Low",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Medium",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Medium",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "High",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "High",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Max",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Max",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "lockParam",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1661,15 +1536,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "updateNfcName",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1686,15 +1557,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "spanAutoCalibrate",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1712,32 +1579,28 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Single view",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Single view",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 12,
-              "sdk_label": "Double view",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Double view",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "videoAndRecordType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1754,15 +1617,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "rotateImage",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -1781,64 +1640,60 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "0",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "0",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 60,
-              "sdk_label": "1",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "1",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 120,
-              "sdk_label": "2",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "2",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 180,
-              "sdk_label": "3",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "3",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 240,
-              "sdk_label": "4",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "4",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 300,
-              "sdk_label": "5",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "5",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "recordInterval",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1855,15 +1710,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "pwList",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1881,32 +1732,28 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Always",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Always",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Schedule",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Schedule",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "statusInServer",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1923,15 +1770,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "nasStreamSwithc",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1947,9 +1790,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -1969,32 +1812,28 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Events",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Events",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Continuous Recording",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Continuous Recording",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "nasVideoTypeEvent",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2013,15 +1852,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "cameraSwitch",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2038,15 +1873,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "motionDetection",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -2065,15 +1896,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "doorbellSetLedEnable",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2092,15 +1919,11 @@
           "max": 5
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "motionSensitivity",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -2117,15 +1940,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "doorbellAudioRecordingSwitch",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2142,15 +1961,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2167,15 +1982,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2191,9 +2002,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2211,9 +2022,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2231,9 +2042,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2251,9 +2062,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2271,9 +2082,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2291,9 +2102,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2312,15 +2123,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "workingDays",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2337,15 +2144,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "detectedEvents",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2362,15 +2165,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "recordingDays",
-          "xref_mega_param_provenance": "apk"
         }
       }
     ],
@@ -2676,9 +2475,9 @@
           "command_name": "stationReboot"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2693,9 +2492,9 @@
           "command_name": "stationTriggerAlarmSound"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2710,9 +2509,9 @@
           "command_name": "stationDownloadImage"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2727,9 +2526,9 @@
           "command_name": "stationDatabaseQueryLatestInfo"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2744,9 +2543,9 @@
           "command_name": "stationDatabaseQueryByDate"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2761,9 +2560,9 @@
           "command_name": "stationDatabaseQueryLocal"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2778,9 +2577,9 @@
           "command_name": "stationDatabaseCoundByDate"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2795,9 +2594,9 @@
           "command_name": "stationDatabaseDelete"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2817,9 +2616,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2837,9 +2636,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2857,9 +2656,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2877,9 +2676,9 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2897,9 +2696,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2917,9 +2716,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2938,15 +2737,11 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "ipAddress",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2962,9 +2757,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2984,80 +2779,76 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Away",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Away",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Home",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Home",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Schedule",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Schedule",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Custom 1",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom 1",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Custom 2",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom 2",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Custom 3",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom 3",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 47,
-              "sdk_label": "Geofencing",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Geofencing",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 63,
-              "sdk_label": "Disarmed",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Disarmed",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "armingMode",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -3075,64 +2866,60 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Away",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Away",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Home",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Home",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Custom 1",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom 1",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Custom 2",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom 2",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Custom 3",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom 3",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 63,
-              "sdk_label": "Disarmed",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Disarmed",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "alarmMode",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -3150,32 +2937,28 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "12h",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "12h",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "24h",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "24h",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "timeSystem",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -3191,9 +2974,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3211,9 +2994,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3232,106 +3015,106 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "None",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "None",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Theft",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Theft",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Motion",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Motion",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Manual",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Manual",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Overheating",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Overheating",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 6,
-              "sdk_label": "Door",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Door",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 7,
-              "sdk_label": "Camera Motion",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Camera Motion",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 8,
-              "sdk_label": "Motion Sensor",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Motion Sensor",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 9,
-              "sdk_label": "Camera Theft",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Camera Theft",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 10,
-              "sdk_label": "Camera Manual",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Camera Manual",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 11,
-              "sdk_label": "Camera Linkage",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Camera Linkage",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 13,
-              "sdk_label": "Keypad",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Keypad",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3350,15 +3133,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "tfcardStatus",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -3374,9 +3153,9 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3394,9 +3173,9 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[INDOOR_PT_CAMERA_S350]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }

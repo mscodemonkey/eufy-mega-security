@@ -15,22 +15,21 @@
     ],
     "product_category": "Camera-bearing smart lock (palm-vein, 2K camera, internal screen)"
   },
-  "sdk": {
+  "device_registry": {
     "mapping_confidence": "inferred",
-    "docs_status": "Not in docs (SDK enum LOCK_85V0 label \"FamiLock S3 (T85V0)\")",
+    "docs_status": "Not in docs (external declaration enum LOCK_85V0 label \"FamiLock S3 (T85V0)\")",
     "property_count": 93,
     "command_count": 14,
     "coverage": "declared",
     "device_type_id": 203,
-    "sdk_enum_name": "LOCK_85V0",
-    "sdk_type_label": "FamiLock S3 (T85V0)",
-    "sdk_topology": "station_attached"
+    "type_name": "LOCK_85V0",
+    "type_label": "FamiLock S3 (T85V0)",
+    "topology": "station_attached"
   },
   "observations": {
-    "night_vision_control_sdk": "boolean autoNightvision",
+    "night_vision_control": "boolean autoNightvision",
     "currently_sold": "Yes - listed on eufy.com US (Sep 2026)",
-    "notes": "ADDED (scope decision). CONFLICT: retail pages show T85V01Y1 = FamiLock S3 and E85V0JY1 = FamiLock S3 Max, but Eufy service page titles the \"Familock S3 Max User Guide (T85V0)\". Treat T85V0 as the family code covering both; E85V0 is an alias whose separate device_type (if any) is not evidenced. SDK type 203 assumed for both.",
-    "mega_sdk_hw_evidence_lines": 0
+    "notes": "ADDED (scope decision). CONFLICT: retail pages show T85V01Y1 = FamiLock S3 and E85V0JY1 = FamiLock S3 Max, but Eufy service page titles the \"Familock S3 Max User Guide (T85V0)\". Treat T85V0 as the family code covering both; E85V0 is an alias whose separate device_type (if any) is not evidenced. external declaration type 203 assumed for both."
   },
   "capabilities": {
     "device_command": [
@@ -44,9 +43,9 @@
           "command_name": "deviceStartLivestream"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -61,9 +60,9 @@
           "command_name": "deviceStopLivestream"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -78,9 +77,9 @@
           "command_name": "deviceQuickResponse"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -95,9 +94,9 @@
           "command_name": "deviceStartDownload"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -112,9 +111,9 @@
           "command_name": "deviceCancelDownload"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -129,9 +128,9 @@
           "command_name": "deviceStartTalkback"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -146,9 +145,9 @@
           "command_name": "deviceStopTalkback"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -163,9 +162,9 @@
           "command_name": "deviceSnooze"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -180,9 +179,9 @@
           "command_name": "deviceLockCalibration"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -197,9 +196,9 @@
           "command_name": "deviceAddUser"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -214,9 +213,9 @@
           "command_name": "deviceDeleteUser"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -231,9 +230,9 @@
           "command_name": "deviceUpdateUserPasscode"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -248,9 +247,9 @@
           "command_name": "deviceUpdateUserSchedule"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -265,9 +264,9 @@
           "command_name": "deviceUpdateUsername"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -287,9 +286,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -307,9 +306,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -327,9 +326,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -347,9 +346,9 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -367,9 +366,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -387,9 +386,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -407,9 +406,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -431,15 +430,11 @@
           "max": 100
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "battery",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -457,15 +452,11 @@
           "unit": "°C"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "batteryTemp",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -483,15 +474,11 @@
           "unit": "dBm"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "rssi",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -510,50 +497,50 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "No signal",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "No signal",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Weak",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Weak",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Normal",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Normal",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Strong",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Strong",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Full",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Full",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -573,15 +560,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "typePrivateMode",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -598,15 +581,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "icNightVisionType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -623,15 +602,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "motionDetection",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -649,32 +624,28 @@
           "options": [
             {
               "value": 1,
-              "sdk_label": "Off",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Off",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "On",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "On",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "devsOsd",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -692,64 +663,60 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Offline",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Offline",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Online",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Online",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Manually disabled",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Manually disabled",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Offline low battery",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Offline low battery",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Remove and readd",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Remove and readd",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Reset and readd",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Reset and readd",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "deviceStatus",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -765,9 +732,9 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -785,9 +752,9 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -805,9 +772,9 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -825,9 +792,9 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -848,9 +815,9 @@
           "max": 100
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -868,9 +835,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -888,9 +855,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -908,9 +875,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -928,9 +895,9 @@
           "value_type": "object"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -951,15 +918,11 @@
           "max": 100
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "doorbellAudioVolume",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -978,15 +941,11 @@
           "max": 100
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "doorbellRingtoneVolume",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1003,15 +962,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "doorbellAudioRecordingSwitch",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1029,32 +984,28 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Humans only",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Humans only",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "All motions",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "All motions",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "motionDetectionType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1072,48 +1023,44 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Balance Surveillance",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Balance Surveillance",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Optimal Surveillance",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Optimal Surveillance",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Custom Recording",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom Recording",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Optimal Battery Life",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Optimal Battery Life",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "indoorPowerMode",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1131,32 +1078,28 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Not Charging",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Not Charging",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Charging",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Charging",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "batteryStatus",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1176,15 +1119,11 @@
           "max": 120
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "recordDuration",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1204,15 +1143,11 @@
           "max": 60
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "recordInterval",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1229,15 +1164,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "recordAutoStop",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1255,80 +1186,76 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Auto / Low Encoding",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Auto / Low Encoding",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Low / Low Encoding",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Low / Low Encoding",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Medium / Low Encoding",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Medium / Low Encoding",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "High / Low Encoding",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "High / Low Encoding",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Auto / High Encoding",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Auto / High Encoding",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 6,
-              "sdk_label": "Low / High Encoding",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Low / High Encoding",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 7,
-              "sdk_label": "Medium / High Encoding",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Medium / High Encoding",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 8,
-              "sdk_label": "High / High Encoding",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "High / High Encoding",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "streamingQualityOther",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1348,40 +1275,36 @@
           "options": [
             {
               "value": 1,
-              "sdk_label": "2K HD",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "2K HD",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Full HD",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Full HD",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Storage Saver",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Storage Saver",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "recordQuality",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1398,15 +1321,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "batDoorbellMechanicalChimeSwitch",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -1423,15 +1342,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "batDoorbellChimeSwitch",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1450,15 +1365,11 @@
           "max": 26
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "batDoorbellSetDingdongVolume",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -1476,96 +1387,92 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Default",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Default",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Silent",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Silent",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Beacon",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Beacon",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Chord",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Chord",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Christmas",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Christmas",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Circuit",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Circuit",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 6,
-              "sdk_label": "Clock",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Clock",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 7,
-              "sdk_label": "Ding",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Ding",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 8,
-              "sdk_label": "Hillside",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Hillside",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 9,
-              "sdk_label": "Presto",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Presto",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "batDoorbellSetDingdongRingtone",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -1585,40 +1492,36 @@
           "options": [
             {
               "value": 1,
-              "sdk_label": "Most Efficient",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Most Efficient",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Include Thumbnail",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Include Thumbnail",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Full Effect",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Full Effect",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "doorbellSetNotificationMode",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1635,15 +1538,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "doorbellSetNotificationMode",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1660,15 +1559,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "doorbellSetNotificationMode",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1686,26 +1581,26 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Standard",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Standard",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Advanced",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Advanced",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -1726,9 +1621,9 @@
           "max": 5
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -1749,9 +1644,9 @@
           "max": 5
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -1772,9 +1667,9 @@
           "max": 5
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -1795,9 +1690,9 @@
           "max": 5
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -1818,9 +1713,9 @@
           "max": 5
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -1841,9 +1736,9 @@
           "max": 5
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -1864,9 +1759,9 @@
           "max": 5
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -1887,9 +1782,9 @@
           "max": 5
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -1910,9 +1805,9 @@
           "max": 5
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -1931,15 +1826,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "dualcamSetRadarWdSwitch",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1957,64 +1848,60 @@
           "options": [
             {
               "value": 1,
-              "sdk_label": "15s",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "15s",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "20s",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "20s",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "25s",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "25s",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "30s",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "30s",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "45s",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "45s",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 6,
-              "sdk_label": "60s",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "60s",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "dualcamSetRadarWdTime",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2032,56 +1919,52 @@
           "options": [
             {
               "value": 1,
-              "sdk_label": "within 2ft",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "within 2ft",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "within 4ft",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "within 4ft",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "within 6ft",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "within 6ft",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "within 8ft",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "within 8ft",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "within 10ft",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "within 10ft",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "dualcamSetRadarWdDistance",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2098,15 +1981,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "dualcamSetLingerGroup",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2123,15 +2002,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "dualcamSetLingerGroup",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2148,15 +2023,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "dualcamSetLingerGroup",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2173,15 +2044,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "dualcamSetLingerGroup",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2198,15 +2065,11 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "dualcamSetLingerGroup",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2223,15 +2086,11 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "dualcamSetLingerGroup",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2247,9 +2106,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2268,15 +2127,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "snoozeTime",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -2294,15 +2149,11 @@
           "unit": "sec"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "snoozeTime",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -2319,15 +2170,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "snoozeTime",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -2344,15 +2191,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "snoozeTime",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -2369,15 +2212,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "snoozeTime",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -2394,15 +2233,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "snoozeTime",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -2418,9 +2253,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2438,9 +2273,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2460,66 +2295,66 @@
           "options": [
             {
               "value": 1,
-              "sdk_label": "1",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "1",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "2",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "2",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Unlocked",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Unlocked",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Locked",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Locked",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Mechanical anomaly",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Mechanical anomaly",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 6,
-              "sdk_label": "6",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "6",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 7,
-              "sdk_label": "7",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "7",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2538,9 +2373,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2559,9 +2394,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2580,9 +2415,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2601,9 +2436,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2621,9 +2456,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2642,9 +2477,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2665,66 +2500,66 @@
           "options": [
             {
               "value": 1,
-              "sdk_label": "1 sec.",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "1 sec.",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 30,
-              "sdk_label": "30 sec.",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "30 sec.",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 60,
-              "sdk_label": "1 min.",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "1 min.",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 90,
-              "sdk_label": "1,5 min.",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "1,5 min.",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 120,
-              "sdk_label": "2 min.",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "2 min.",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 150,
-              "sdk_label": "2,5 min.",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "2,5 min.",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 180,
-              "sdk_label": "3 min.",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "3 min.",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2743,9 +2578,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2764,9 +2599,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2785,9 +2620,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2806,9 +2641,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2827,9 +2662,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2850,9 +2685,9 @@
           "max": 10
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2873,50 +2708,50 @@
           "options": [
             {
               "value": 60,
-              "sdk_label": "1 min.",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "1 min.",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 120,
-              "sdk_label": "2 min.",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "2 min.",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 180,
-              "sdk_label": "3 min.",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "3 min.",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 240,
-              "sdk_label": "4 min.",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "4 min.",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 300,
-              "sdk_label": "5 min.",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "5 min.",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2935,9 +2770,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2956,9 +2791,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2977,9 +2812,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -2998,74 +2833,74 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "None",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "None",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Automatic",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Automatic",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Manual",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Manual",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "App",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "App",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Password",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Password",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Fingerprint",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Fingerprint",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 6,
-              "sdk_label": "Temporary Password",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Temporary Password",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 7,
-              "sdk_label": "Keypad",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Keypad",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -3085,42 +2920,42 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Mute",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Mute",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Soft",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Soft",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Medium",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Medium",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Loud",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Loud",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -3139,9 +2974,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -3161,26 +2996,26 @@
           "options": [
             {
               "value": 1,
-              "sdk_label": "Left",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Left",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Right",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Right",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -3201,15 +3036,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "cameraSwitch",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -3226,15 +3057,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -3251,15 +3078,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -3276,15 +3099,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -3301,15 +3120,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -3326,15 +3141,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -3350,9 +3161,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -3370,9 +3181,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -3390,9 +3201,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -3410,9 +3221,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -3430,9 +3241,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -3450,9 +3261,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -3470,9 +3281,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -3490,9 +3301,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -3510,9 +3321,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -3531,15 +3342,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "workingDays",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -3556,15 +3363,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "detectedEvents",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -3581,15 +3384,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "recordingDays",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -3605,9 +3404,9 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -3625,9 +3424,9 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -3645,9 +3444,9 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -3665,9 +3464,9 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -3688,9 +3487,9 @@
           "max": 100
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
         }
@@ -3709,15 +3508,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[LOCK_85V0]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "motionDetectionType",
-          "xref_mega_param_provenance": "apk"
         }
       }
     ],

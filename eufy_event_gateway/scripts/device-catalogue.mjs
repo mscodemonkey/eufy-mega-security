@@ -11,23 +11,37 @@ import { fileURLToPath } from "node:url";
 
 const catalogueDirectory = join(dirname(fileURLToPath(import.meta.url)), "..", "device_catalogue");
 const devicesDirectory = join(catalogueDirectory, "devices");
+const forbiddenReferencePattern = /sdk|eufy-security-client|mega-yfue|source_repo|file_line|verified_by|xref_mega|build\/http\/types\.js|src\/model\//i;
 
 async function loadDevices() {
   const files = (await readdir(devicesDirectory)).filter((file) => file.endsWith(".json")).sort();
-  return Promise.all(files.map(async (file) => ({
-    file,
-    record: JSON.parse(await readFile(join(devicesDirectory, file), "utf8")),
-  })));
+  return Promise.all(files.map(async (file) => {
+    const source = await readFile(join(devicesDirectory, file), "utf8");
+    return { file, source, record: JSON.parse(source) };
+  }));
 }
 
-function validateDevice(file, record, ids) {
+async function validateCatalogueSources() {
+  const files = (await readdir(catalogueDirectory, { recursive: true }))
+    .filter((file) => file.endsWith(".json") || file.endsWith(".md"));
   const errors = [];
+  for (const file of files) {
+    const source = await readFile(join(catalogueDirectory, file), "utf8");
+    if (forbiddenReferencePattern.test(source)) errors.push(`${file}: contains forbidden reference-source metadata`);
+  }
+  return errors;
+}
+
+function validateDevice(file, source, record, ids) {
+  const errors = [];
+  if (forbiddenReferencePattern.test(source)) errors.push(`${file}: contains forbidden reference-source metadata`);
   if (record.$schema !== "../schema.json") errors.push(`${file}: invalid schema reference`);
   if (typeof record.id !== "string" || record.id.length === 0) errors.push(`${file}: missing id`);
   else if (ids.has(record.id)) errors.push(`${file}: duplicate id ${record.id}`);
   else ids.add(record.id);
   if (!record.identity || typeof record.identity.display_name !== "string") errors.push(`${file}: missing display name`);
   if (!Array.isArray(record.identity?.model_codes)) errors.push(`${file}: model_codes must be an array`);
+  if (!record.device_registry || typeof record.device_registry !== "object") errors.push(`${file}: missing device registry`);
   if (!record.capabilities || typeof record.capabilities !== "object") errors.push(`${file}: missing capabilities`);
 
   for (const [kind, capabilities] of Object.entries(record.capabilities ?? {})) {
@@ -65,7 +79,10 @@ function findDevice(devices, query) {
 async function check() {
   const devices = await loadDevices();
   const ids = new Set();
-  const errors = devices.flatMap(({ file, record }) => validateDevice(file, record, ids));
+  const errors = [
+    ...await validateCatalogueSources(),
+    ...devices.flatMap(({ file, source, record }) => validateDevice(file, source, record, ids)),
+  ];
   const capabilityCount = devices.reduce(
     (count, { record }) => count + Object.values(record.capabilities).reduce((sum, rows) => sum + rows.length, 0),
     0,

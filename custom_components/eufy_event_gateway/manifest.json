@@ -12,5 +12,5 @@
   "integration_type": "hub",
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/mscodemonkey/eufy-mega-security/issues",
-  "version": "0.1.71"
+  "version": "0.1.72"
 }

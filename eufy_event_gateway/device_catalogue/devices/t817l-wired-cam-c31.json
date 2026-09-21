@@ -1,6 +1,6 @@
 {
   "$schema": "../schema.json",
-  "id": "nolib_T817L",
+  "id": "t817l-wired-cam-c31",
   "identity": {
     "display_name": "Wired Cam C31",
     "model_codes": [
@@ -15,21 +15,24 @@
     ],
     "product_category": "Wired plug-in 360 pan/tilt camera (indoor/outdoor)"
   },
-  "sdk": {
-    "mapping_confidence": "not_in_sdk",
-    "docs_status": "Not in docs",
-    "property_count": 0,
-    "command_count": 0,
-    "coverage": "none"
+  "device_registry": {
+    "mapping_confidence": "hardware_verified",
+    "docs_status": "Developer tested",
+    "property_count": 1,
+    "command_count": 1,
+    "coverage": "hardware_verified",
+    "device_type_id": 10031,
+    "type_name": "WIRED_CAM_C31",
+    "type_label": "Wired Cam C31",
+    "topology": "integrated (own P2P station)"
   },
   "observations": {
-    "night_vision_control_sdk": "mode select (app-observed): PureColor/Infrared/Spotlight",
+    "night_vision_control": "mode select (app-observed): PureColor/Infrared/Spotlight",
     "night_vision_user_observed": "Hardware-confirmed: app menu and gateway readback use raw 0 PureColor, raw 1 Infrared, and raw 2 Spotlight.",
-    "observed_device_type_not_in_sdk": "10031",
-    "observed_device_type_source": "Developer-tested Mega inventory (user-reported; not in eufy-security-client 4.1.1 or the checked mega-sdk 0.1.1 enum)",
+    "observed_device_type": "10031",
+    "observed_device_type_source": "Developer-observed inventory evidence",
     "currently_sold": "Yes - listed on eufy.com US (Sep 2026)",
-    "notes": "Device type 10031 is developer-observed but absent from the referenced SDK catalogues. Night vision readback and writes are confirmed for PureColor, Infrared, and Spotlight.",
-    "mega_sdk_hw_evidence_lines": 0
+    "notes": "Device type 10031 and night vision readback and writes are confirmed on owned hardware. Raw 0 is PureColor, raw 1 is Infrared, and raw 2 is Spotlight."
   },
   "capabilities": {
     "device_property": [
@@ -47,7 +50,7 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "(no SDK type)",
+              "declared_label": "(no declared type)",
               "app_label": "PureColor",
               "app_label_source": "developer_tested",
               "evidence_tier": "developer_tested",
@@ -58,7 +61,7 @@
             },
             {
               "value": 1,
-              "sdk_label": "(no SDK type)",
+              "declared_label": "(no declared type)",
               "app_label": "Infrared",
               "app_label_source": "developer_tested",
               "evidence_tier": "developer_tested",
@@ -69,7 +72,7 @@
             },
             {
               "value": 2,
-              "sdk_label": "(no SDK type)",
+              "declared_label": "(no declared type)",
               "app_label": "Spotlight",
               "app_label_source": "developer_tested",
               "evidence_tier": "developer_tested",
@@ -432,22 +435,6 @@
         }
       }
     ],
-    "sdk_coverage": [
-      {
-        "key": "none",
-        "context": "default",
-        "available": "no",
-        "label": "No DeviceType / property definitions in eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master)",
-        "access": "-",
-        "evidence": {
-          "evidence_tier": "sdk_declared",
-          "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) (absence of type id)",
-          "verified_date": "2026-09-21",
-          "confidence": "medium",
-          "notes": "Hardware description exists (vendor_documented rows) but nothing is declared for property/command control. Do not treat as supported/controllable."
-        }
-      }
-    ]
+    "external_coverage": []
   }
 }

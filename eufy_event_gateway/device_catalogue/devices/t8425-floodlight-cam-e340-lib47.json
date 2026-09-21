@@ -15,21 +15,20 @@
     ],
     "product_category": "Hardwired dual-lens pan/tilt floodlight camera"
   },
-  "sdk": {
+  "device_registry": {
     "mapping_confidence": "verified",
     "docs_status": "Supported (firmware 1.4.5.5)",
     "property_count": 56,
     "command_count": 13,
     "coverage": "declared",
     "device_type_id": 47,
-    "sdk_enum_name": "FLOODLIGHT_CAMERA_8425",
-    "sdk_type_label": "Floodlight Camera E340",
-    "sdk_topology": "integrated (own P2P station)"
+    "type_name": "FLOODLIGHT_CAMERA_8425",
+    "type_label": "Floodlight Camera E340",
+    "topology": "integrated (own P2P station)"
   },
   "observations": {
-    "night_vision_control_sdk": "mode select nightvision 0=Off/1=B&W Night Vision/2=Color Night Vision",
-    "currently_sold": "Yes - listed on eufy.com US (Sep 2026)",
-    "mega_sdk_hw_evidence_lines": 24
+    "night_vision_control": "mode select nightvision 0=Off/1=B&W Night Vision/2=Color Night Vision",
+    "currently_sold": "Yes - listed on eufy.com US (Sep 2026)"
   },
   "capabilities": {
     "device_command": [
@@ -43,9 +42,9 @@
           "command_name": "deviceStartLivestream"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -60,9 +59,9 @@
           "command_name": "deviceStopLivestream"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -77,9 +76,9 @@
           "command_name": "devicePanAndTilt"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -94,9 +93,9 @@
           "command_name": "deviceStartDownload"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -111,9 +110,9 @@
           "command_name": "deviceCancelDownload"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -128,9 +127,9 @@
           "command_name": "deviceCalibrate"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -145,9 +144,9 @@
           "command_name": "deviceStartTalkback"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -162,9 +161,9 @@
           "command_name": "deviceStopTalkback"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -179,9 +178,9 @@
           "command_name": "deviceSnooze"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -196,9 +195,9 @@
           "command_name": "devicePresetPosition"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -213,9 +212,9 @@
           "command_name": "deviceSavePresetPosition"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -230,9 +229,9 @@
           "command_name": "deviceDeletePresetPosition"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -247,9 +246,9 @@
           "command_name": "deviceTriggerAlarmSound"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -269,9 +268,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -289,9 +288,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -309,9 +308,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -329,9 +328,9 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -349,9 +348,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -369,9 +368,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -389,9 +388,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -412,15 +411,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "cameraSwitch",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -438,49 +433,44 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Off",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Off",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21",
-              "conflict_flag": "sdk_label_unverified",
+              "conflict_flag": "declared_label_unverified",
               "notes": "Generic label; hardware-confirmed (third-party) only on T8425."
             },
             {
               "value": 1,
-              "sdk_label": "B&W Night Vision",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "B&W Night Vision",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21",
-              "conflict_flag": "sdk_label_unverified",
+              "conflict_flag": "declared_label_unverified",
               "notes": "Generic label; hardware-confirmed (third-party) only on T8425."
             },
             {
               "value": 2,
-              "sdk_label": "Color Night Vision",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Color Night Vision",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21",
-              "conflict_flag": "sdk_label_unverified",
+              "conflict_flag": "declared_label_unverified",
               "notes": "Generic label; hardware-confirmed (third-party) only on T8425."
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "low",
-          "conflict_flag": "sdk_label_unverified",
-          "notes": "Generic Off/B&W/Color labels shared by many models; hardware-confirmed (third-party mega-sdk) only on T8425. A differing 3-value mapping exists for T8160/T8162 in the gateway project (inferred). Do not hardcode labels."
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "nightVisionType",
-          "xref_mega_param_provenance": "apk",
-          "xref_mega_hw_evidence": "verified: T8425 @ src/model/capabilities/camera.ts:48 | verified: T8425 @ src/model/capabilities/camera.ts:654"
+          "conflict_flag": "declared_label_unverified",
+          "notes": "Generic Off/B&W/Color labels shared by many models; hardware-confirmed (third-party hardware evidence) only on T8425. A differing 3-value mapping exists for T8160/T8162 in the gateway project (inferred). Do not hardcode labels."
         }
       },
       {
@@ -497,15 +487,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "indoorMotionEnable",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -523,41 +509,36 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Off",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Off",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Timestamp",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Timestamp",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Timestamp and Logo",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Timestamp and Logo",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "devsOsd",
-          "xref_mega_param_provenance": "apk",
-          "xref_mega_hw_evidence": "verified: T8425 @ src/model/capabilities/camera.ts:152 | verified: T8425 @ src/model/capabilities/camera.ts:548"
         }
       },
       {
@@ -573,9 +554,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -593,9 +574,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -613,9 +594,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -636,15 +617,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "doorbellSetLedEnable",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -660,9 +637,9 @@
           "value_type": "object"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -681,15 +658,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "floodlightManualSwitch",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -706,16 +679,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "floodlightTotalSwitch",
-          "xref_mega_param_provenance": "apk",
-          "xref_mega_hw_evidence": "verified: T8124; T8425 @ src/model/capabilities/light.ts:24"
         }
       },
       {
@@ -734,16 +702,11 @@
           "max": 100
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "floodlightBrightnessValue",
-          "xref_mega_param_provenance": "apk",
-          "xref_mega_hw_evidence": "observed: T8425; T8124 @ src/model/capabilities/light.ts:273"
         }
       },
       {
@@ -762,15 +725,11 @@
           "max": 100
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "motionActivateLight",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -789,9 +748,9 @@
           "max": 100
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -810,15 +769,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "motionActivateLight",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -837,56 +792,52 @@
           "options": [
             {
               "value": 30,
-              "sdk_label": "30 sec.",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "30 sec.",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 60,
-              "sdk_label": "1 min.",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "1 min.",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 180,
-              "sdk_label": "3 min.",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "3 min.",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 300,
-              "sdk_label": "5 min.",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "5 min.",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 900,
-              "sdk_label": "15 min.",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "15 min.",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "motionActivateLight",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -903,15 +854,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "audioMicrophoneSwitch",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -928,15 +875,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "audioSpeakerSwitch",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -955,15 +898,11 @@
           "max": 100
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "doorbellAudioVolume",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -980,16 +919,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "doorbellAudioRecordingSwitch",
-          "xref_mega_param_provenance": "apk",
-          "xref_mega_hw_evidence": "verified: T8425 @ src/model/capabilities/audio.ts:129"
         }
       },
       {
@@ -1007,32 +941,28 @@
           "options": [
             {
               "value": 2,
-              "sdk_label": "All motions",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "All motions",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 6,
-              "sdk_label": "Humans only",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Humans only",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "motionDetectionType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1051,15 +981,11 @@
           "max": 5
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "motionSensitivity",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -1079,48 +1005,44 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Auto",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Auto",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "HD (720P)",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "HD (720P)",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Full HD (1080P)",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Full HD (1080P)",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "3K HD",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "3K HD",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "multicamSetVideoQuailty",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1140,41 +1062,36 @@
           "options": [
             {
               "value": 1,
-              "sdk_label": "HD (720P)",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "HD (720P)",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Full HD (1080P)",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Full HD (1080P)",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "3K HD",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "3K HD",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "multicamSetRecordQuailty",
-          "xref_mega_param_provenance": "apk",
-          "xref_mega_hw_evidence": "verified: T8425 @ src/model/capabilities/camera.ts:112"
         }
       },
       {
@@ -1191,15 +1108,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "lockParam",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1217,40 +1130,36 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Standard",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Standard",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Advanced",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Advanced",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Automatic",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Automatic",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "pirSetting",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1268,64 +1177,60 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Off",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Off",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Min",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Min",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Low",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Low",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Medium",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Medium",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "High",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "High",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Max",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Max",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "pirSetting",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1343,64 +1248,60 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Off",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Off",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Min",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Min",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Low",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Low",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Medium",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Medium",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "High",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "High",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Max",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Max",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "pirSetting",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1418,64 +1319,60 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Off",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Off",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Min",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Min",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Low",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Low",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Medium",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Medium",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "High",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "High",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Max",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Max",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "pirSetting",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1492,15 +1389,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "pirSetting",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1517,15 +1410,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "updateNfcName",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1542,15 +1431,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "spanPirResponse",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1568,32 +1453,28 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Smart",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Smart",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Fast",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Fast",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "motionActivateLight",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1610,15 +1491,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "spanAutoCalibrate",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1636,15 +1513,11 @@
           "unit": "dBm"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "wifiRssi",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1663,50 +1536,50 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "No signal",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "No signal",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Weak",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Weak",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Normal",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Normal",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Strong",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Strong",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Full",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Full",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -1725,15 +1598,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "snoozeTime",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -1751,15 +1620,11 @@
           "unit": "sec"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "snoozeTime",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -1776,15 +1641,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "snoozeTime",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -1800,9 +1661,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -1822,56 +1683,52 @@
           "options": [
             {
               "value": 1,
-              "sdk_label": "Min",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Min",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Low",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Low",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Medium",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Medium",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "High",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "High",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Max",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Max",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "lockParam",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1889,32 +1746,28 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Single view",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Single view",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 12,
-              "sdk_label": "Double view",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Double view",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "videoAndRecordType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1931,15 +1784,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "rotateImage",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -1956,15 +1805,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "userIdAndPwId",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1981,15 +1826,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "userIdAndPwId",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2006,15 +1847,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "userIdAndPwId",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2031,15 +1868,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "userIdAndPwId",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2059,40 +1892,36 @@
           "options": [
             {
               "value": 1,
-              "sdk_label": "Most Efficient",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Most Efficient",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Include Thumbnail",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Include Thumbnail",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Full Effect",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Full Effect",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "notificationStyle",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -2111,64 +1940,60 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "0",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "0",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 60,
-              "sdk_label": "1",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "1",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 120,
-              "sdk_label": "2",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "2",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 180,
-              "sdk_label": "3",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "3",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 240,
-              "sdk_label": "4",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "4",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 300,
-              "sdk_label": "5",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "5",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "recordInterval",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2185,15 +2010,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2210,15 +2031,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2235,15 +2052,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2260,15 +2073,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2285,15 +2094,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2309,9 +2114,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2329,9 +2134,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2349,9 +2154,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2369,9 +2174,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2389,9 +2194,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2409,9 +2214,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2429,9 +2234,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2449,9 +2254,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2470,15 +2275,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "workingDays",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2495,15 +2296,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "detectedEvents",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2520,15 +2317,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "recordingDays",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2545,15 +2338,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "motionDetectionType",
-          "xref_mega_param_provenance": "apk"
         }
       }
     ],
@@ -2876,9 +2665,9 @@
           "command_name": "stationReboot"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2893,9 +2682,9 @@
           "command_name": "stationTriggerAlarmSound"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2910,9 +2699,9 @@
           "command_name": "stationDownloadImage"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2927,9 +2716,9 @@
           "command_name": "stationDatabaseQueryLatestInfo"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2944,9 +2733,9 @@
           "command_name": "stationDatabaseQueryByDate"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2961,9 +2750,9 @@
           "command_name": "stationDatabaseQueryLocal"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2978,9 +2767,9 @@
           "command_name": "stationDatabaseCoundByDate"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2995,9 +2784,9 @@
           "command_name": "stationDatabaseDelete"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3017,9 +2806,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3037,9 +2826,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3057,9 +2846,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3077,9 +2866,9 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3097,9 +2886,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3117,9 +2906,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3137,9 +2926,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3157,9 +2946,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3179,80 +2968,76 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Away",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Away",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Home",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Home",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Schedule",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Schedule",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Custom 1",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom 1",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Custom 2",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom 2",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Custom 3",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom 3",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 47,
-              "sdk_label": "Geofencing",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Geofencing",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 63,
-              "sdk_label": "Disarmed",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Disarmed",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "armingMode",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -3270,64 +3055,60 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Away",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Away",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Home",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Home",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Custom 1",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom 1",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Custom 2",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom 2",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Custom 3",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom 3",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 63,
-              "sdk_label": "Disarmed",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Disarmed",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "alarmMode",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -3345,32 +3126,28 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "12h",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "12h",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "24h",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "24h",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "timeSystem",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -3386,9 +3163,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3407,436 +3184,110 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "None",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "None",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Theft",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Theft",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Motion",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Motion",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Manual",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Manual",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Overheating",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Overheating",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 6,
-              "sdk_label": "Door",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Door",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 7,
-              "sdk_label": "Camera Motion",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Camera Motion",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 8,
-              "sdk_label": "Motion Sensor",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Motion Sensor",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 9,
-              "sdk_label": "Camera Theft",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Camera Theft",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 10,
-              "sdk_label": "Camera Manual",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Camera Manual",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 11,
-              "sdk_label": "Camera Linkage",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Camera Linkage",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 13,
-              "sdk_label": "Keypad",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Keypad",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[FLOODLIGHT_CAMERA_8425]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
       }
     ]
-  },
-  "hardware_evidence": [
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/audio.ts:129",
-      "models_mentioned": "T8425",
-      "matching_device_ids": "lib47",
-      "param_ids_same_or_prev_line": "1288",
-      "param_names_mega": "doorbellAudioRecordingSwitch",
-      "maps_to_4_1_1_properties": "audioRecording",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "\"Record audio with video (1288 record_mute, inverted). ✅ HW-verified on T8425: readback flips \" +",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/battery.ts:132",
-      "models_mentioned": "T8425; T8419",
-      "matching_device_ids": "lib10009; lib47",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "Evidence bars differ: T8425 (Floodlight Cam) is confirmed on owned hardware; T8419 (Indoor Cam) is",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/camera.ts:23",
-      "models_mentioned": "T8425",
-      "matching_device_ids": "lib47",
-      "param_ids_same_or_prev_line": "1045; 1056",
-      "param_names_mega": "ledStatus; liveviewLedSwitch",
-      "maps_to_4_1_1_properties": "statusLed;",
-      "evidence_kind": "observed",
-      "evidence_tier": "third_party_observed",
-      "excerpt": "live with no effect on a T8425 (which uses 1045, shipped here); which model actually uses 1056",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/camera.ts:34",
-      "models_mentioned": "T8425",
-      "matching_device_ids": "lib47",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "On-screen watermark / OSD overlay (app `CMD_SET_DEVS_OSD`). ✅ Wire verified live on T8425 (ch3):",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/camera.ts:48",
-      "models_mentioned": "T8425",
-      "matching_device_ids": "lib47",
-      "param_ids_same_or_prev_line": "1277",
-      "param_names_mega": "nightVisionType",
-      "maps_to_4_1_1_properties": "nightvision/autoNightvision",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "✅ All three verified live on T8425: `1350` SET_PAYLOAD, inner cmd 1277, `payload:{channel:<deviceCh>,",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/camera.ts:103",
-      "models_mentioned": "T8425",
-      "matching_device_ids": "lib47",
-      "param_ids_same_or_prev_line": "1015",
-      "param_names_mega": "easSwitch",
-      "maps_to_4_1_1_properties": "antitheftDetection",
-      "evidence_kind": "partial",
-      "evidence_tier": "third_party_hw_partial",
-      "excerpt": "⚠️ Replay + readback confirmed on a **HomeBase-attached** T8425 only (1015 read `0` → write → `1`",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/camera.ts:112",
-      "models_mentioned": "T8425",
-      "matching_device_ids": "lib47",
-      "param_ids_same_or_prev_line": "2731",
-      "param_names_mega": "multicamSetRecordQuailty",
-      "maps_to_4_1_1_properties": "videoRecordingQuality",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "Wire confirmed on a T8425 ch3: `1350` SET_PAYLOAD, inner cmd 2731,",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/camera.ts:152",
-      "models_mentioned": "T8425",
-      "matching_device_ids": "lib47",
-      "param_ids_same_or_prev_line": "1214",
-      "param_names_mega": "devsOsd",
-      "maps_to_4_1_1_properties": "watermark",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "Wire: CMD_SET_DEVS_OSD 1214 — verified live (T8425).",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/camera.ts:227",
-      "models_mentioned": "T8171; T8170; T8425",
-      "matching_device_ids": "lib88; lib48; lib47",
-      "evidence_kind": "observed",
-      "evidence_tier": "third_party_observed",
-      "excerpt": "(observed as 2K on a T8171 and 3K on a T8170 and a T8425, hence the rank rather than a resolution).",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/camera.ts:548",
-      "models_mentioned": "T8425",
-      "matching_device_ids": "lib47",
-      "param_ids_same_or_prev_line": "1214",
-      "param_names_mega": "devsOsd",
-      "maps_to_4_1_1_properties": "watermark",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "\"On-screen watermark/OSD overlay (CMD_SET_DEVS_OSD 1214). ✅ wire verified live (T8425 ch3): \" +",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/camera.ts:654",
-      "models_mentioned": "T8425",
-      "matching_device_ids": "lib47",
-      "param_ids_same_or_prev_line": "1277",
-      "param_names_mega": "nightVisionType",
-      "maps_to_4_1_1_properties": "nightvision/autoNightvision",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "\"✅ wire verified live (T8425 ch3): 1350 SET_PAYLOAD, mChannel 0, {channel:N, night_sion:mode}. \" +",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/camera.ts:711",
-      "models_mentioned": "T8425",
-      "matching_device_ids": "lib47",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "\"of it on read. ✅ write wire verified live (T8425): 1350 SET_PAYLOAD \" +",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/camera.ts:713",
-      "models_mentioned": "T8425",
-      "matching_device_ids": "lib47",
-      "evidence_kind": "observed",
-      "evidence_tier": "third_party_observed",
-      "excerpt": "\"(verified on T8425; add a per-model map if a model's tiers ever diverge).\",",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/camera.ts:735",
-      "models_mentioned": "T8425",
-      "matching_device_ids": "lib47",
-      "evidence_kind": "partial",
-      "evidence_tier": "third_party_hw_partial",
-      "excerpt": "\"HomeBase-attached T8425 only; standalone unverified and v3 devices use id 2735 — see \" +",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/light.ts:18",
-      "models_mentioned": "T8425; T8124",
-      "matching_device_ids": "lib62; lib47",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "Spotlight brightness 1..100. ✅ SOLVED & verified live (T8425 + T8124): direct-binary command,",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/light.ts:24",
-      "models_mentioned": "T8124; T8425",
-      "matching_device_ids": "lib62; lib47",
-      "param_ids_same_or_prev_line": "1403",
-      "param_names_mega": "floodlightTotalSwitch",
-      "maps_to_4_1_1_properties": "lightSettingsEnable",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "Spotlight color temperature 0=warm..100=cool. ✅ Verified live T8124 (only tunable-white spotlights respond; T8425 is white-only). */",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/light.ts:28",
-      "models_mentioned": "T8425",
-      "matching_device_ids": "lib47",
-      "evidence_kind": "observed",
-      "evidence_tier": "third_party_observed",
-      "excerpt": "OUTBOUND P2P capture + replay-verified on T8425 (ch3, 2026-07-13, ON+OFF): the real command",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/light.ts:273",
-      "models_mentioned": "T8425; T8124",
-      "matching_device_ids": "lib62; lib47",
-      "param_ids_same_or_prev_line": "1401",
-      "param_names_mega": "floodlightBrightnessValue",
-      "maps_to_4_1_1_properties": "lightSettingsBrightnessManual",
-      "evidence_kind": "observed",
-      "evidence_tier": "third_party_observed",
-      "excerpt": "description: \"Manual brightness, range 1-100 (1401). Verified live (T8425 + T8124).\",",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/motion.ts:25",
-      "models_mentioned": "T8425",
-      "matching_device_ids": "lib47",
-      "evidence_kind": "observed",
-      "evidence_tier": "third_party_observed",
-      "excerpt": "live outbound capture + replay-verified on T8425 (ch3): the direct-binary 136-byte struct",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/motion.ts:113",
-      "models_mentioned": "T8425",
-      "matching_device_ids": "lib47",
-      "param_ids_same_or_prev_line": "1719",
-      "param_names_mega": "batDoorbellSetOnlyUseAiAtNight",
-      "evidence_kind": "partial",
-      "evidence_tier": "third_party_hw_partial",
-      "excerpt": "⚠️ Replay + readback confirmed on a HomeBase-attached T8425 (1719 `0`→`1`→`0`), NOT byte-captured.",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/motion.ts:634",
-      "models_mentioned": "T8425",
-      "matching_device_ids": "lib47",
-      "param_ids_same_or_prev_line": "1719",
-      "param_names_mega": "batDoorbellSetOnlyUseAiAtNight",
-      "evidence_kind": "observed",
-      "evidence_tier": "third_party_observed",
-      "excerpt": "\"HomeBase-attached T8425, not byte-captured.\",",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/ptz.ts:158",
-      "models_mentioned": "T8425",
-      "matching_device_ids": "lib47",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "stays internal to the capability. Confirmed on hardware (T8425): 1=left, 2=right, 3=up, 4=down. */",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/ptz.ts:182",
-      "models_mentioned": "T8425",
-      "matching_device_ids": "lib47",
-      "param_ids_same_or_prev_line": "6030",
-      "param_names_mega": "CMD_INDOOR_ROTATE",
-      "evidence_kind": "observed",
-      "evidence_tier": "third_party_observed",
-      "excerpt": "T8425 ch3 during live-view): `{\"commandType\":6030,\"data\":{\"cmd_type\":1,\"rotate_type\":1..4,",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/rtsp.ts:37",
-      "models_mentioned": "T8425; T8030",
-      "matching_device_ids": "lib47",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "✅ Byte-exact against the app's own frame (confirmed 2026-08-03 on a T8425 behind a T8030): the app",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    }
-  ]
+  }
 }

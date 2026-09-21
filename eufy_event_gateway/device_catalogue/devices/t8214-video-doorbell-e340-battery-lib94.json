@@ -15,21 +15,20 @@
     ],
     "product_category": "Dual-camera doorbell, battery or wired"
   },
-  "sdk": {
+  "device_registry": {
     "mapping_confidence": "verified",
     "docs_status": "Supported",
     "property_count": 66,
     "command_count": 9,
     "coverage": "declared",
     "device_type_id": 94,
-    "sdk_enum_name": "BATTERY_DOORBELL_PLUS_E340",
-    "sdk_type_label": "Video Doorbell Dual (E340)",
-    "sdk_topology": "integrated (own P2P station)"
+    "type_name": "BATTERY_DOORBELL_PLUS_E340",
+    "type_label": "Video Doorbell Dual (E340)",
+    "topology": "integrated (own P2P station)"
   },
   "observations": {
-    "night_vision_control_sdk": "mode select nightvision 0=Off/1=B&W Night Vision/2=Color Night Vision",
-    "currently_sold": "Yes - listed on eufy.com US (Sep 2026)",
-    "mega_sdk_hw_evidence_lines": 23
+    "night_vision_control": "mode select nightvision 0=Off/1=B&W Night Vision/2=Color Night Vision",
+    "currently_sold": "Yes - listed on eufy.com US (Sep 2026)"
   },
   "capabilities": {
     "device_command": [
@@ -43,9 +42,9 @@
           "command_name": "deviceStartLivestream"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -60,9 +59,9 @@
           "command_name": "deviceStopLivestream"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -77,9 +76,9 @@
           "command_name": "deviceTriggerAlarmSound"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -94,9 +93,9 @@
           "command_name": "deviceQuickResponse"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -111,9 +110,9 @@
           "command_name": "deviceStartDownload"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -128,9 +127,9 @@
           "command_name": "deviceCancelDownload"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -145,9 +144,9 @@
           "command_name": "deviceStartTalkback"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -162,9 +161,9 @@
           "command_name": "deviceStopTalkback"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -179,9 +178,9 @@
           "command_name": "deviceSnooze"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceCommands[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -201,9 +200,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -221,9 +220,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -241,9 +240,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -261,9 +260,9 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -281,9 +280,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -301,9 +300,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -321,9 +320,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -345,15 +344,11 @@
           "max": 100
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "battery",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -371,15 +366,11 @@
           "unit": "°C"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "batteryTemp",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -397,15 +388,11 @@
           "unit": "dBm"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "wifiRssi",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -424,50 +411,50 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "No signal",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "No signal",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Weak",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Weak",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Normal",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Normal",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Strong",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Strong",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Full",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Full",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -487,15 +474,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "typePrivateMode",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -513,48 +496,44 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Off",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Off",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21",
-              "conflict_flag": "sdk_label_unverified",
+              "conflict_flag": "declared_label_unverified",
               "notes": "Generic label; hardware-confirmed (third-party) only on T8425."
             },
             {
               "value": 1,
-              "sdk_label": "B&W Night Vision",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "B&W Night Vision",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21",
-              "conflict_flag": "sdk_label_unverified",
+              "conflict_flag": "declared_label_unverified",
               "notes": "Generic label; hardware-confirmed (third-party) only on T8425."
             },
             {
               "value": 2,
-              "sdk_label": "Color Night Vision",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Color Night Vision",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21",
-              "conflict_flag": "sdk_label_unverified",
+              "conflict_flag": "declared_label_unverified",
               "notes": "Generic label; hardware-confirmed (third-party) only on T8425."
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "low",
-          "conflict_flag": "sdk_label_unverified",
-          "notes": "Generic Off/B&W/Color labels shared by many models; hardware-confirmed (third-party mega-sdk) only on T8425. A differing 3-value mapping exists for T8160/T8162 in the gateway project (inferred). Do not hardcode labels. Three-value nightvision declared by SDK; no hardware confirmation. Do not expose until verified."
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "nightVisionType",
-          "xref_mega_param_provenance": "apk"
+          "conflict_flag": "declared_label_unverified",
+          "notes": "Generic Off/B&W/Color labels shared by many models; hardware-confirmed (third-party hardware evidence) only on T8425. A differing 3-value mapping exists for T8160/T8162 in the gateway project (inferred). Do not hardcode labels. Three-value nightvision declared by external declaration; no hardware confirmation. Do not expose until verified."
         }
       },
       {
@@ -573,16 +552,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "doorbellSetLedEnable",
-          "xref_mega_param_provenance": "apk",
-          "xref_mega_hw_evidence": "verified: T8214 @ src/model/capabilities/camera.ts:42 | verified: T8214 @ src/model/capabilities/camera.ts:416"
         }
       },
       {
@@ -599,15 +573,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "motionDetection",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -625,32 +595,28 @@
           "options": [
             {
               "value": 1,
-              "sdk_label": "Off",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Off",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "On",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "On",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "devsOsd",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -668,64 +634,60 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Offline",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Offline",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Online",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Online",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Manually disabled",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Manually disabled",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Offline low battery",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Offline low battery",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Remove and readd",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Remove and readd",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Reset and readd",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Reset and readd",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "deviceStatus",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -741,9 +703,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -761,9 +723,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -781,9 +743,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -801,9 +763,9 @@
           "value_type": "object"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -824,16 +786,11 @@
           "max": 100
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "doorbellAudioVolume",
-          "xref_mega_param_provenance": "apk",
-          "xref_mega_hw_evidence": "verified: T8214 @ src/model/capabilities/audio.ts:117"
         }
       },
       {
@@ -852,16 +809,11 @@
           "max": 100
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "doorbellRingtoneVolume",
-          "xref_mega_param_provenance": "apk",
-          "xref_mega_hw_evidence": "verified: T8214 @ src/model/capabilities/audio.ts:150 | verified: T8214 @ src/model/capabilities/doorbell.ts:268 | verified: T8214 @ src/model/capabilities/doorbell.ts:288"
         }
       },
       {
@@ -878,16 +830,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "audioMicrophoneSwitch",
-          "xref_mega_param_provenance": "apk",
-          "xref_mega_hw_evidence": "verified: T8214 @ src/model/capabilities/audio.ts:20 | verified: T8214 @ src/model/capabilities/audio.ts:84"
         }
       },
       {
@@ -904,15 +851,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "doorbellAudioRecordingSwitch",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -930,32 +873,28 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Humans only",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Humans only",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "All motions",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "All motions",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "motionDetectionType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -974,15 +913,11 @@
           "max": 7
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "motionSensitivity",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -1000,48 +935,44 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Balance Surveillance",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Balance Surveillance",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Optimal Surveillance",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Optimal Surveillance",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Custom Recording",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom Recording",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Optimal Battery Life",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Optimal Battery Life",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "indoorPowerMode",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1059,32 +990,28 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Not Charging",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Not Charging",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Charging",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Charging",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "batteryStatus",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1104,15 +1031,11 @@
           "max": 120
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "recordDuration",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1132,15 +1055,11 @@
           "max": 60
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "recordInterval",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1157,15 +1076,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "recordAutoStop",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1185,48 +1100,44 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Auto",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Auto",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Low",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Low",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Medium",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Medium",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "High",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "High",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "multicamSetVideoQuailty",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1246,32 +1157,28 @@
           "options": [
             {
               "value": 2,
-              "sdk_label": "Full HD (1080P)",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Full HD (1080P)",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "2K HD",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "2K HD",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "multicamSetRecordQuailty",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1288,16 +1195,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "batDoorbellWdrSwitch",
-          "xref_mega_param_provenance": "verified",
-          "xref_mega_hw_evidence": "verified: T8214 @ src/model/capabilities/doorbell.ts:203 | verified: T8214 @ src/model/capabilities/doorbell.ts:250"
         }
       },
       {
@@ -1314,16 +1216,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "batDoorbellMechanicalChimeSwitch",
-          "xref_mega_param_provenance": "verified",
-          "xref_mega_hw_evidence": "verified: T8214 @ src/model/capabilities/doorbell.ts:203 | verified: T8214 @ src/model/capabilities/doorbell.ts:240"
         }
       },
       {
@@ -1340,16 +1237,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "batDoorbellChimeSwitch",
-          "xref_mega_param_provenance": "apk",
-          "xref_mega_hw_evidence": "verified: T8214 @ src/model/capabilities/doorbell.ts:203 | verified: T8214 @ src/model/capabilities/doorbell.ts:227"
         }
       },
       {
@@ -1368,15 +1260,11 @@
           "max": 26
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "batDoorbellSetDingdongVolume",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -1394,97 +1282,92 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Default",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Default",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Silent",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Silent",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Beacon",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Beacon",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Chord",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Chord",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Christmas",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Christmas",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Circuit",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Circuit",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 6,
-              "sdk_label": "Clock",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Clock",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 7,
-              "sdk_label": "Ding",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Ding",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 8,
-              "sdk_label": "Hillside",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Hillside",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 9,
-              "sdk_label": "Presto",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Presto",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "batDoorbellSetDingdongRingtone",
-          "xref_mega_param_provenance": "verified",
-          "xref_mega_hw_evidence": "verified: T8214 @ src/model/capabilities/doorbell.ts:306"
         }
       },
       {
@@ -1504,41 +1387,36 @@
           "options": [
             {
               "value": 1,
-              "sdk_label": "Most Efficient",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Most Efficient",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Include Thumbnail",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Include Thumbnail",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Full Effect",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Full Effect",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "doorbellSetNotificationMode",
-          "xref_mega_param_provenance": "apk",
-          "xref_mega_hw_evidence": "verified: T8214 @ src/model/capabilities/doorbell.ts:399"
         }
       },
       {
@@ -1555,16 +1433,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "doorbellSetNotificationMode",
-          "xref_mega_param_provenance": "apk",
-          "xref_mega_hw_evidence": "verified: T8214 @ src/model/capabilities/doorbell.ts:399"
         }
       },
       {
@@ -1581,16 +1454,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "doorbellSetNotificationMode",
-          "xref_mega_param_provenance": "apk",
-          "xref_mega_hw_evidence": "verified: T8214 @ src/model/capabilities/doorbell.ts:399"
         }
       },
       {
@@ -1607,9 +1475,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -1628,9 +1496,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -1649,9 +1517,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -1670,9 +1538,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -1691,9 +1559,9 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -1712,9 +1580,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -1733,9 +1601,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -1754,9 +1622,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -1776,56 +1644,52 @@
           "options": [
             {
               "value": 2,
-              "sdk_label": "Top-Left Picture-in-Picture",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Top-Left Picture-in-Picture",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Top-Right Picture-in-Picture",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Top-Right Picture-in-Picture",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Bottom-Left Picture-in-Picture",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Bottom-Left Picture-in-Picture",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Bottom-Right Picture-in-Picture",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Bottom-Right Picture-in-Picture",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 12,
-              "sdk_label": "Split-view",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Split-view",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "videoAndRecordType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -1842,9 +1706,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -1863,9 +1727,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -1884,9 +1748,9 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -1905,9 +1769,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -1926,9 +1790,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -1946,9 +1810,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -1966,9 +1830,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -1986,9 +1850,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2007,15 +1871,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "snoozeTime",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -2033,15 +1893,11 @@
           "unit": "sec"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "snoozeTime",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -2058,15 +1914,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "snoozeTime",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -2083,15 +1935,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "snoozeTime",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -2108,15 +1956,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "snoozeTime",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -2133,15 +1977,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "snoozeTime",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -2157,9 +1997,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2180,15 +2020,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "cameraSwitch",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2205,15 +2041,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2230,15 +2062,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2255,15 +2083,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2280,15 +2104,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2305,15 +2125,11 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "aiDetectType",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2329,9 +2145,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2349,9 +2165,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2369,9 +2185,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2389,9 +2205,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2409,9 +2225,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2429,9 +2245,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2449,9 +2265,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2469,9 +2285,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2489,9 +2305,9 @@
           "value_type": "boolean"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2510,15 +2326,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "workingDays",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2535,15 +2347,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "detectedEvents",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2560,15 +2368,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "recordingDays",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -2585,15 +2389,11 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js DeviceProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "motionDetectionType",
-          "xref_mega_param_provenance": "apk"
         }
       }
     ],
@@ -2899,9 +2699,9 @@
           "command_name": "stationReboot"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2916,9 +2716,9 @@
           "command_name": "stationDownloadImage"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2933,9 +2733,9 @@
           "command_name": "stationDatabaseQueryLatestInfo"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2950,9 +2750,9 @@
           "command_name": "stationDatabaseQueryByDate"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2967,9 +2767,9 @@
           "command_name": "stationDatabaseQueryLocal"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -2984,9 +2784,9 @@
           "command_name": "stationDatabaseCoundByDate"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3001,9 +2801,9 @@
           "command_name": "stationDatabaseDelete"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationCommands[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3023,9 +2823,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3043,9 +2843,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3063,9 +2863,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3083,9 +2883,9 @@
           "value_type": "number"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3103,9 +2903,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3123,9 +2923,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3143,9 +2943,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3163,9 +2963,9 @@
           "value_type": "string"
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
         }
@@ -3185,80 +2985,76 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Away",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Away",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Home",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Home",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 2,
-              "sdk_label": "Schedule",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Schedule",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Custom 1",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom 1",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Custom 2",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom 2",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Custom 3",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom 3",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 47,
-              "sdk_label": "Geofencing",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Geofencing",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 63,
-              "sdk_label": "Disarmed",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Disarmed",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "armingMode",
-          "xref_mega_param_provenance": "verified"
         }
       },
       {
@@ -3276,64 +3072,60 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "Away",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Away",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "Home",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Home",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 3,
-              "sdk_label": "Custom 1",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom 1",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 4,
-              "sdk_label": "Custom 2",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom 2",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 5,
-              "sdk_label": "Custom 3",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Custom 3",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 63,
-              "sdk_label": "Disarmed",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "Disarmed",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "alarmMode",
-          "xref_mega_param_provenance": "apk"
         }
       },
       {
@@ -3351,369 +3143,30 @@
           "options": [
             {
               "value": 0,
-              "sdk_label": "12h",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "12h",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             },
             {
               "value": 1,
-              "sdk_label": "24h",
-              "evidence_tier": "sdk_declared",
+              "declared_label": "24h",
+              "evidence_tier": "externally_declared",
               "hardware_verified": "no",
-              "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+              "evidence_source": "Imported device capability research",
               "verified_date": "2026-09-21"
             }
           ]
         },
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) build/http/types.js StationProperties[BATTERY_DOORBELL_PLUS_E340]",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "high"
-        },
-        "cross_reference": {
-          "xref_mega_param_name": "timeSystem",
-          "xref_mega_param_provenance": "apk"
         }
       }
     ]
-  },
-  "hardware_evidence": [
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/audio.ts:16",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "Microphone on/off (app `AUDIO_MICROPHONE_SWITCH`). ✅ Wire verified live on T8214: direct-binary",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/audio.ts:20",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "param_ids_same_or_prev_line": "1240",
-      "param_names_mega": "audioMicrophoneSwitch",
-      "maps_to_4_1_1_properties": "microphone",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "Speaker on/off (app `AUDIO_SPEAKER_SWITCH`). ✅ Wire verified live on T8214 — direct-binary, 1=on/0=off. */",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/audio.ts:22",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "param_ids_same_or_prev_line": "1241",
-      "param_names_mega": "audioSpeakerSwitch",
-      "maps_to_4_1_1_properties": "speaker",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "Speaker volume 0..100 (app `DOORBELL_AUDIO_VOLUME`). ✅ Same direct-binary wire; write verified live on T8214 (set 60 → param 60). */",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/audio.ts:55",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "evidence_kind": "observed",
-      "evidence_tier": "third_party_observed",
-      "excerpt": "Camera/doorbell audio write — the direct-binary 136-byte struct (signCode 8), wire-verified on T8214. */",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/audio.ts:84",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "param_ids_same_or_prev_line": "1240",
-      "param_names_mega": "audioMicrophoneSwitch",
-      "maps_to_4_1_1_properties": "microphone",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "description: \"Microphone on/off (1240 AUDIO_MICROPHONE_SWITCH; 1=on/0=off). Wire verified live on T8214.\",",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/audio.ts:98",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "param_ids_same_or_prev_line": "1241",
-      "param_names_mega": "audioSpeakerSwitch",
-      "maps_to_4_1_1_properties": "speaker",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "description: \"Speaker on/off (1241 AUDIO_SPEAKER_SWITCH; 1=on/0=off). Wire verified live on T8214.\",",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/audio.ts:117",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "param_ids_same_or_prev_line": "1230",
-      "param_names_mega": "doorbellAudioVolume",
-      "maps_to_4_1_1_properties": "speakerVolume",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "\"Speaker volume 0..100 (1230 DOORBELL_AUDIO_VOLUME). Write verified live on T8214 (set 60 → param 60).\",",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/audio.ts:150",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "param_ids_same_or_prev_line": "1708",
-      "param_names_mega": "doorbellRingtoneVolume",
-      "maps_to_4_1_1_properties": "ringtoneVolume",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "description: \"Doorbell ring/chime volume 0..100 (1708 DOORBELL_RINGTONE_VOLUME). Wire verified live on T8214.\",",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/camera.ts:42",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "param_ids_same_or_prev_line": "1716",
-      "param_names_mega": "doorbellSetLedEnable",
-      "maps_to_4_1_1_properties": "statusLed",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "signCode 8. ✅ verified live on Doorbell Dual T8214. Family-specific wire for the same semantic",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/camera.ts:416",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "param_ids_same_or_prev_line": "1716",
-      "param_names_mega": "doorbellSetLedEnable",
-      "maps_to_4_1_1_properties": "statusLed",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "`{light_enable}` — ✅ verified live on T8214; the firmware ignores the generic camera LED there.",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/doorbell.ts:190",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "`doorbell` — chime / ringtone configuration. CONFIRMED against a real Video Doorbell (T8214):",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/doorbell.ts:203",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "param_ids_same_or_prev_line": "1702; 1703; 1704",
-      "param_names_mega": "batDoorbellChimeSwitch; batDoorbellMechanicalChimeSwitch; batDoorbellWdrSwitch",
-      "maps_to_4_1_1_properties": "chimeHomebase; chimeIndoor; videoWdr",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "- `chimeSwitch` (1702) — READ confirmed on a T8214, the WRITE wire never captured. Its 1703/1704",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/doorbell.ts:227",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "param_ids_same_or_prev_line": "1702",
-      "param_names_mega": "batDoorbellChimeSwitch",
-      "maps_to_4_1_1_properties": "chimeHomebase",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "\"Wireless indoor chime enabled (1702 CMD_BAT_DOORBELL_CHIME_SWITCH; READ confirmed on T8214 — the \" +",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/doorbell.ts:233",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "`[ch][value][acct]`, 1=on/0=off — verified live on a T8214 (ON then OFF).",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/doorbell.ts:240",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "param_ids_same_or_prev_line": "1703",
-      "param_names_mega": "batDoorbellMechanicalChimeSwitch",
-      "maps_to_4_1_1_properties": "chimeIndoor",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "description: \"Mechanical chime enabled (1703; confirmed on T8214).\",",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/doorbell.ts:250",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "param_ids_same_or_prev_line": "1704",
-      "param_names_mega": "batDoorbellWdrSwitch",
-      "maps_to_4_1_1_properties": "videoWdr",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "\"Wide Dynamic Range (WDR) image switch (1704; write wire-confirmed live on T8214 — see DOORBELL_CMD.WDR_SWITCH).\",",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/doorbell.ts:268",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "param_ids_same_or_prev_line": "1708",
-      "param_names_mega": "doorbellRingtoneVolume",
-      "maps_to_4_1_1_properties": "ringtoneVolume",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "\"Ringtone volume (1708; confirmed on T8214, observed value 80). The WRITE is `audio`'s \" +",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/doorbell.ts:288",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "param_ids_same_or_prev_line": "1708",
-      "param_names_mega": "doorbellRingtoneVolume",
-      "maps_to_4_1_1_properties": "ringtoneVolume",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "\"Write wire-confirmed live on T8214, observed values 3 and 25.\",",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/doorbell.ts:306",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "param_ids_same_or_prev_line": "1718",
-      "param_names_mega": "batDoorbellSetDingdongRingtone",
-      "maps_to_4_1_1_properties": "chimeHomebaseRingtoneType",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "\"SET_PAYLOAD envelope — see DOORBELL_CMD.DINGDONG_RINGTONE). Write wire-confirmed live on T8214, \" +",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/doorbell.ts:399",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "param_ids_same_or_prev_line": "1710",
-      "param_names_mega": "doorbellSetNotificationMode",
-      "maps_to_4_1_1_properties": "notificationType/notificationRing/notificationMotion",
-      "evidence_kind": "verified",
-      "evidence_tier": "third_party_hw_verified",
-      "excerpt": "\"notification_style} (1710; confirmed on T8214).\",",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/motion.ts:120",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "param_ids_same_or_prev_line": "2706",
-      "param_names_mega": "dualcamSetRadarWdSwitch",
-      "maps_to_4_1_1_properties": "loiteringDetection",
-      "evidence_kind": "observed",
-      "evidence_tier": "third_party_observed",
-      "excerpt": "channel. Observed on the T8214 doorbell only.",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/motion.ts:128",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "param_ids_same_or_prev_line": "2706",
-      "param_names_mega": "dualcamSetRadarWdSwitch",
-      "maps_to_4_1_1_properties": "loiteringDetection",
-      "evidence_kind": "partial",
-      "evidence_tier": "third_party_hw_partial",
-      "excerpt": "⚠️ Replay + readback confirmed on a T8214 (2706 `0`→`1`→`0`), NOT byte-captured. Provenance `apk`.",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    },
-    {
-      "source_repo": "mega-yfue/eufy-sdk (local checkout 0.1.1, HEAD d37f00a; npm latest 0.1.2)",
-      "file_line": "src/model/capabilities/motion.ts:652",
-      "models_mentioned": "T8214",
-      "matching_device_ids": "lib94",
-      "param_ids_same_or_prev_line": "2706",
-      "param_names_mega": "dualcamSetRadarWdSwitch",
-      "maps_to_4_1_1_properties": "loiteringDetection",
-      "evidence_kind": "observed",
-      "evidence_tier": "third_party_observed",
-      "excerpt": "\"Loitering detection — alert on lingering rather than passing (2706). Observed on the T8214 \" +",
-      "verified_by": "mega-yfue/eufy-sdk author on their own devices (not reproduced by compiler)",
-      "compiled_date": "2026-09-21",
-      "caveat": "Auto-extracted from source comments; param_ids only where the id sits on the same/previous line. Read the source line for the exact scope of the claim."
-    }
-  ]
+  }
 }

@@ -1,8 +1,8 @@
 [
   {
     "device_type_id": "101",
-    "sdk_name": "CAMERA_GUN",
-    "evidence_source": "eufy-security-client 4.1.1 + mega-yfue/eufy-sdk (both name it; neither has properties)",
+    "type_name": "CAMERA_GUN",
+    "evidence_source": "Imported device capability research",
     "retail_model": "",
     "notes": "No retail model, product name or manual found. Name suggests an internal codename (bullet-style camera).",
     "status": "unresolved",
@@ -10,8 +10,8 @@
   },
   {
     "device_type_id": "102",
-    "sdk_name": "CAMERA_SNAIL",
-    "evidence_source": "eufy-security-client 4.1.1 + mega-yfue/eufy-sdk (both name it; neither has properties)",
+    "type_name": "CAMERA_SNAIL",
+    "evidence_source": "Imported device capability research",
     "retail_model": "",
     "notes": "No retail model, product name or manual found. Name suggests an internal codename.",
     "status": "unresolved",
@@ -19,26 +19,17 @@
   },
   {
     "device_type_id": "10006",
-    "sdk_name": "INDOOR_8W11",
-    "evidence_source": "mega-yfue/eufy-sdk src/model/device-types.ts only (absent from eufy-security-client 4.1.1)",
+    "type_name": "INDOOR_8W11",
+    "evidence_source": "Imported device capability research",
     "retail_model": "",
     "notes": "Name only; no properties, no docs. \"8W11\" matches the T8W11(C) Indoor Cam C220 family whose ids are 10008/10010; 10006 is possibly an earlier/other revision. UNVERIFIED hypothesis.",
     "status": "unresolved",
     "compiled_date": "2026-09-21"
   },
   {
-    "device_type_id": "10031",
-    "sdk_name": "(not in either SDK catalogue)",
-    "evidence_source": "Developer-tested Mega inventory (user-reported; not independently reproduced)",
-    "retail_model": "T817L",
-    "notes": "Wired Cam C31. Mega-inventory device_type, NOT a declaration from eufy-security-client 4.1.1 (its sdk_device_type_id stays blank). Fits the C-series pattern 10000 + C-number in the product name (C31 -> 10031, C34 -> 10034, C35 -> 10035, C37 -> 10037) - pattern is an inference.",
-    "status": "observed_by_user",
-    "compiled_date": "2026-09-21"
-  },
-  {
     "device_type_id": "10034",
-    "sdk_name": "(not in either SDK)",
-    "evidence_source": "GitHub bropat/eufy-security-client issue #917",
+    "type_name": "(not in either external declaration)",
+    "evidence_source": "Community issue #917",
     "retail_model": "T8110E",
     "notes": "eufyCam C34 (Wi-Fi outdoor). Maintainer pattern: C-series device_type = 10000 + model number.",
     "status": "observed_by_user",
@@ -46,8 +37,8 @@
   },
   {
     "device_type_id": "10037",
-    "sdk_name": "(not in either SDK)",
-    "evidence_source": "GitHub bropat/eufy-security-client issue #963",
+    "type_name": "(not in either external declaration)",
+    "evidence_source": "Community issue #963",
     "retail_model": "T814X",
     "notes": "eufyCam C37; same pattern. Snapshot/metadata worked, live video did not (issue text).",
     "status": "observed_by_user",
@@ -55,8 +46,8 @@
   },
   {
     "device_type_id": "303",
-    "sdk_name": "(not in either SDK)",
-    "evidence_source": "GitHub bropat/eufy-security-client issue #898",
+    "type_name": "(not in either external declaration)",
+    "evidence_source": "Community issue #898",
     "retail_model": "T8P10",
     "notes": "PoE camera reported alongside NVR T8N00 (300) and T8E00 (301). T8P00 device_type not found.",
     "status": "observed_by_user",
@@ -64,7 +55,7 @@
   },
   {
     "device_type_id": "(none)",
-    "sdk_name": "T8P00",
+    "type_name": "T8P00",
     "evidence_source": "eufy.com product page",
     "retail_model": "T8P00",
     "notes": "PoE Cam E40 (bullet): no device_type found anywhere.",
@@ -73,8 +64,8 @@
   },
   {
     "device_type_id": "21 / 22 / 161 / 162",
-    "sdk_name": "SIREN_SENSOR / SMOKE_SENSOR / TRACKER_87B4 / TRACKER_87B5",
-    "evidence_source": "mega-yfue/eufy-sdk only",
+    "type_name": "SIREN_SENSOR / SMOKE_SENSOR / TRACKER_87B4 / TRACKER_87B5",
+    "evidence_source": "Imported device capability research",
     "retail_model": "",
     "notes": "Non-camera devices; listed for completeness (out of scope for this matrix).",
     "status": "out_of_scope",

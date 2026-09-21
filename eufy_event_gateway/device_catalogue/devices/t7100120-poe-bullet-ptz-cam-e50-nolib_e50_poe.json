@@ -13,18 +13,17 @@
     ],
     "product_category": "Wired PoE hybrid bullet + 4K PTZ dual-lens camera (NVR)"
   },
-  "sdk": {
-    "mapping_confidence": "not_in_sdk",
+  "device_registry": {
+    "mapping_confidence": "not_in_registry",
     "docs_status": "Not in docs",
     "property_count": 0,
     "command_count": 0,
     "coverage": "none"
   },
   "observations": {
-    "night_vision_control_sdk": "unknown (no SDK type)",
+    "night_vision_control": "unknown (no declared type)",
     "currently_sold": "Yes - listed on eufy.com US (Sep 2026), $249.99",
-    "notes": "ADDED after research (IFA/2026 launch). Different product from PoE Bullet-PTZ Cam S4 (T8E00, type 301). No SDK type; device_type unknown (the S4 PoE T8E00 = 301 and E41 turret T8P10 = 303 were reported in GitHub issue #898).",
-    "mega_sdk_hw_evidence_lines": 0
+    "notes": "ADDED after research (IFA/2026 launch). Different product from PoE Bullet-PTZ Cam S4 (T8E00, type 301). No external declaration type; device_type unknown (the S4 PoE T8E00 = 301 and E41 turret T8P10 = 303 were reported in GitHub issue #898)."
   },
   "capabilities": {
     "hardware_feature": [
@@ -199,17 +198,17 @@
         }
       }
     ],
-    "sdk_coverage": [
+    "external_coverage": [
       {
         "key": "none",
         "context": "default",
         "available": "no",
-        "label": "No DeviceType / property definitions in eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master)",
+        "label": "No device-type or property declarations in the imported research",
         "access": "-",
         "evidence": {
-          "evidence_tier": "sdk_declared",
+          "evidence_tier": "externally_declared",
           "hardware_verified": "no",
-          "evidence_source": "eufy-security-client 4.1.1 (final static per-model table; package npm-deprecated 2026-09; published 2026-07-01; == GitHub master) (absence of type id)",
+          "evidence_source": "Imported device capability research",
           "verified_date": "2026-09-21",
           "confidence": "medium",
           "notes": "Hardware description exists (vendor_documented rows) but nothing is declared for property/command control. Do not treat as supported/controllable."

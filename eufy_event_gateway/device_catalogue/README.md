@@ -3,7 +3,7 @@
 This is the detailed, contributor-editable device reference for the gateway.
 Each file in `devices/` describes one device or hardware variant, including:
 
-- model codes, aliases, product category, and SDK mapping
+- model codes, aliases, product category, and device-type mapping
 - device and station properties
 - device and station commands
 - hardware features
@@ -17,10 +17,14 @@ catalogue. JSON was chosen because GitHub renders it clearly, editors can apply
 
 ## Evidence boundary
 
-An SDK declaration says that a property may exist. It does not prove that a
-device reports it or that a write works. Keep `evidence_tier`,
+An external declaration says that a property may exist. It does not prove that
+a device reports it or that a write works. Keep `evidence_tier`,
 `hardware_verified`, `confidence`, and `conflict_flag` intact so runtime code
 can make conservative decisions.
+
+Do not record reference implementation names, repository locations, source
+excerpts, or cross-references here. Convert useful findings into neutral device
+facts and retain only the evidence level needed to judge them safely.
 
 The existing `src/provider/devices/catalogue.ts` remains the smaller ledger of
 gateway behaviour confirmed by developer or community testing. This reference
@@ -49,12 +53,7 @@ and public evidence links are suitable for this catalogue.
 - `property-reference.json` is the cross-device property glossary.
 - `unmapped-device-types.json` records known numeric types without a confirmed
   retail model.
-- `unmatched-hardware-evidence.json` preserves evidence that applies to a model
-  such as a HomeBase but did not map to one of the supplied camera records.
-- `import-provenance.json` records all eight source files and their imported row
-  counts without retaining a second copy of the wide matrix.
 - `schema.json` documents the editable structure.
 
-`tools/import_device_catalogue.py` records the original CSV migration. It is a
-replacement import, not the normal contribution workflow. Direct device-file
-edits are authoritative after the migration.
+The device files are the maintained source. Contributors should update them
+directly instead of importing private research material into the repository.
