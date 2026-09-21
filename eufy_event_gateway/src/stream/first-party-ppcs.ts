@@ -241,7 +241,9 @@ export class PpcsVideoFrameDecoder {
     const authenticated = this.#decodeAuthenticated(frame);
     if (authenticated) return { data: authenticated, protection: "ecc-gcm" };
     const legacy = decodePpcsVideoFrame(frame, signCode, this.unwrapLegacyKey);
-    return legacy && beginsWithAnnexB(legacy) ? { data: legacy, protection: "rsa-ecb" } : undefined;
+    return legacy && beginsWithSupportedVideoFraming(legacy)
+      ? { data: legacy, protection: "rsa-ecb" }
+      : undefined;
   }
 
   #decodeAuthenticated(frame: Buffer): Buffer | undefined {
@@ -503,6 +505,19 @@ function beginsWithAnnexB(payload: Buffer): boolean {
     && payload[0] === 0
     && payload[1] === 0
     && (payload[2] === 1 || (payload[2] === 0 && payload[3] === 1));
+}
+
+// Legacy HomeBase media can begin with either an Annex-B start code or a
+// length-prefixed NAL that the stream normalizer converts after decryption.
+function beginsWithSupportedVideoFraming(payload: Buffer): boolean {
+  if (beginsWithAnnexB(payload)) return true;
+  if (payload.length < 5) return false;
+  const length = payload.readUInt32BE(0);
+  const nalHeader = payload[4]!;
+  return length > 0
+    && length <= MAX_NAL_UNIT_BYTES
+    && (nalHeader & 0x80) === 0
+    && (nalHeader & 0x1f) !== 0;
 }
 
 interface PendingPpcsFrame {

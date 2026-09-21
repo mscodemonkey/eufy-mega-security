@@ -235,6 +235,44 @@ test("unwraps and uses the key carried by an encrypted video frame", () => {
   assert.deepEqual(decodePpcsVideoFrame(frame, 1, () => key), Buffer.concat([clear, tail]));
 });
 
+test("accepts a legacy encrypted keyframe with length-prefixed H.264 media", () => {
+  const key = Buffer.alloc(16, 7);
+  const clear = Buffer.alloc(128, 3);
+  clear.writeUInt32BE(124, 0);
+  clear[4] = 0x67;
+  const cipher = createCipheriv("aes-128-ecb", key, null);
+  cipher.setAutoPadding(false);
+  const encrypted = Buffer.concat([cipher.update(clear), cipher.final()]);
+  const frame = Buffer.alloc(151 + encrypted.length);
+  frame.writeUInt32LE(encrypted.length, 0);
+  Buffer.alloc(128, 8).copy(frame, 22);
+  encrypted.copy(frame, 151);
+  const decoder = new PpcsVideoFrameDecoder(() => key);
+
+  assert.deepEqual(decoder.decode(frame, 1), {
+    data: clear,
+    protection: "rsa-ecb",
+  });
+  const normalizer = new PpcsVideoStreamNormalizer();
+  assert.deepEqual(normalizer.push(clear), Buffer.concat([Buffer.from([0, 0, 0, 1]), clear.subarray(4)]));
+  assert.equal(normalizer.framing, "length-prefixed");
+  assert.deepEqual(normalizer.nalTypes, [7]);
+});
+
+test("rejects a legacy encrypted frame without supported video framing", () => {
+  const key = Buffer.alloc(16, 7);
+  const clear = Buffer.alloc(128, 0xff);
+  const cipher = createCipheriv("aes-128-ecb", key, null);
+  cipher.setAutoPadding(false);
+  const encrypted = Buffer.concat([cipher.update(clear), cipher.final()]);
+  const frame = Buffer.alloc(151 + encrypted.length);
+  frame.writeUInt32LE(encrypted.length, 0);
+  Buffer.alloc(128, 8).copy(frame, 22);
+  encrypted.copy(frame, 151);
+
+  assert.equal(new PpcsVideoFrameDecoder(() => key).decode(frame, 1), undefined);
+});
+
 /** Build a deterministic authenticated-media frame for the public decoder contract. */
 function authenticatedFrame(
   recipient: ReturnType<typeof createECDH>,
