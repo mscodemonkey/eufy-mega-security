@@ -15,6 +15,13 @@ editing an 80-column spreadsheet or creating merge conflicts across the whole
 catalogue. JSON was chosen because GitHub renders it clearly, editors can apply
 `schema.json`, and the gateway can consume it without a custom parser.
 
+Each filename combines the primary model code and readable display name, such
+as `t8170-solocam-s340.json`. The `id` stays minimal and stable, so that record
+uses `t8170`. Add the shortest meaningful ID suffix only when distinct records
+share a model code, such as `t8200-standard` and `t8200-variant-6`. Use a stable
+product slug when no model code is confirmed. Source-specific identifiers do
+not belong in filenames or IDs.
+
 ## Evidence boundary
 
 An external declaration says that a property may exist. It does not prove that

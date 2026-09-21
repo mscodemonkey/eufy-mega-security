@@ -1,0 +1,202 @@
+{
+  "$schema": "../schema.json",
+  "id": "t8221",
+  "identity": {
+    "display_name": "Video Doorbell 2E (Battery, T8221)",
+    "model_codes": [
+      "T8221"
+    ],
+    "models_raw": "T8221",
+    "aliases": [
+      "Video Doorbell 2E (Battery, T8221)",
+      "T8221"
+    ],
+    "product_category": "Battery doorbell (HomeBase optional; Wi-Fi chime)"
+  },
+  "device_registry": {
+    "mapping_confidence": "not_in_registry",
+    "docs_status": "Not in docs",
+    "property_count": 0,
+    "command_count": 0,
+    "coverage": "none"
+  },
+  "observations": {
+    "night_vision_control": "unknown (no declared type)",
+    "currently_sold": "Not seen in US collection pages checked (legacy 2022-23 product; Slickdeals bundle with HomeBase)",
+    "notes": "ADDED after review. Eufy HomeBase compatibility guide confirms T8221 (HB3 + HB2, not HB mini). The T8221 manual says HomeBase NOT required (ships with Wi-Fi chime) - both may be true (optional). external declaration device_type not identified; may map onto id 7 or 16 (unverified). Google Assistant page groups T8220/T8221/T8222 as the \"1080p Slim series\" while manual says 2K - CONFLICT on resolution."
+  },
+  "capabilities": {
+    "hardware_feature": [
+      {
+        "key": "power",
+        "context": "default",
+        "available": "yes",
+        "label": "Battery powered (1 Li-ion battery included)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "battery",
+        "context": "default",
+        "available": "yes",
+        "label": "Up to 120 days (lab: 30 events/day, 10 s each); USB-C charging",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "res",
+        "context": "default",
+        "available": "yes",
+        "label": "2K per T8221 manual (conflicts with \"1080p Slim series\" grouping on Google Assistant page)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "storage",
+        "context": "default",
+        "available": "yes",
+        "label": "Local (on Wi-Fi chime); no monthly fee",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "hub",
+        "context": "default",
+        "available": "yes",
+        "label": "HomeBase not required (Wi-Fi chime included); HB3/HB2 compatible per Eufy guide",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "audio",
+        "context": "default",
+        "available": "yes",
+        "label": "Two-way; up to 3 quick replies",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "ai",
+        "context": "default",
+        "available": "yes",
+        "label": "Human detection (people vs pets)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "ip",
+        "context": "default",
+        "available": "yes",
+        "label": "IP54",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "chime",
+        "context": "default",
+        "available": "yes",
+        "label": "Wi-Fi Doorbell Chime included",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      }
+    ],
+    "external_coverage": [
+      {
+        "key": "none",
+        "context": "default",
+        "available": "no",
+        "label": "No device-type or property declarations in the imported research",
+        "access": "-",
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "medium",
+          "notes": "Hardware description exists (vendor_documented rows) but nothing is declared for property/command control. Do not treat as supported/controllable."
+        }
+      }
+    ]
+  }
+}

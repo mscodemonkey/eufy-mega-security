@@ -1,0 +1,119 @@
+{
+  "$schema": "../schema.json",
+  "id": "t8110e",
+  "identity": {
+    "display_name": "eufyCam C34",
+    "model_codes": [
+      "T8110E"
+    ],
+    "models_raw": "T8110E",
+    "aliases": [
+      "eufyCam C34",
+      "T8110E"
+    ],
+    "product_category": "Compact magnetic solar outdoor camera (Wi-Fi)"
+  },
+  "device_registry": {
+    "mapping_confidence": "not_in_registry",
+    "docs_status": "Not in docs",
+    "property_count": 0,
+    "command_count": 0,
+    "coverage": "none"
+  },
+  "observations": {
+    "night_vision_control": "unknown (no declared type)",
+    "observed_device_type": "10034",
+    "observed_device_type_source": "Community issue #917 (device_type 10034, model T8110E, FW 1.1.5.7)",
+    "currently_sold": "Refurbished listing seen on eufy CA; not seen in US pages checked (likely legacy)",
+    "notes": "ADDED after research. Missing from first delivery. device_type 10034 reported by a user (issue #917); maintainers note C-series report device_type = 10000 + model number (C35 = 10035, C37 = 10037, C34 = 10034). No external declaration type/properties in 4.1.1 -> \"unknown device\". Probably shares C35-family properties (T8110) - unverified."
+  },
+  "capabilities": {
+    "hardware_feature": [
+      {
+        "key": "power",
+        "context": "default",
+        "available": "yes",
+        "label": "Battery + solar panel (per eufy CA refurbished listing title: \"Wireless Magnetic Security Camera with Solar Panel\")",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "solar",
+        "context": "default",
+        "available": "yes",
+        "label": "Solar panel (listing)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "wifi",
+        "context": "default",
+        "available": "yes",
+        "label": "Wi-Fi standalone (issue #917: \"outdoor Wi-Fi camera\")",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "hub",
+        "context": "default",
+        "available": "yes",
+        "label": "Standalone (inferred)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      }
+    ],
+    "external_coverage": [
+      {
+        "key": "none",
+        "context": "default",
+        "available": "no",
+        "label": "No device-type or property declarations in the imported research",
+        "access": "-",
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "medium",
+          "notes": "Hardware description exists (vendor_documented rows) but nothing is declared for property/command control. Do not treat as supported/controllable."
+        }
+      }
+    ]
+  }
+}

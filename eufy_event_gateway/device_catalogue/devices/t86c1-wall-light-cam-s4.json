@@ -1,104 +1,39 @@
 {
   "$schema": "../schema.json",
-  "id": "t817l",
+  "id": "t86c1",
   "identity": {
-    "display_name": "Wired Cam C31",
+    "display_name": "Wall Light Cam S4",
     "model_codes": [
-      "T817L",
-      "T817L121"
+      "T86C1",
+      "T86C1121"
     ],
-    "models_raw": "T817L (product code T817L121)",
+    "models_raw": "T86C1 (product code T86C1121)",
     "aliases": [
-      "Wired Cam C31",
-      "T817L",
-      "T817L121"
+      "Wall Light Cam S4",
+      "T86C1",
+      "T86C1121"
     ],
-    "product_category": "Wired plug-in 360 pan/tilt camera (indoor/outdoor)"
+    "product_category": "Solar wall light camera with radar"
   },
   "device_registry": {
-    "mapping_confidence": "hardware_verified",
-    "docs_status": "Developer tested",
-    "property_count": 1,
-    "command_count": 1,
-    "coverage": "hardware_verified",
-    "device_type_id": 10031,
-    "type_name": "WIRED_CAM_C31",
-    "type_label": "Wired Cam C31",
-    "topology": "integrated (own P2P station)"
+    "mapping_confidence": "not_in_registry",
+    "docs_status": "Not in docs",
+    "property_count": 0,
+    "command_count": 0,
+    "coverage": "none"
   },
   "observations": {
-    "night_vision_control": "mode select (app-observed): PureColor/Infrared/Spotlight",
-    "night_vision_user_observed": "Hardware-confirmed: app menu and gateway readback use raw 0 PureColor, raw 1 Infrared, and raw 2 Spotlight.",
-    "observed_device_type": "10031",
-    "observed_device_type_source": "Developer-observed inventory evidence",
+    "night_vision_control": "unknown (no declared type)",
     "currently_sold": "Yes - listed on eufy.com US (Sep 2026)",
-    "notes": "Device type 10031 and night vision readback and writes are confirmed on owned hardware. Raw 0 is PureColor, raw 1 is Infrared, and raw 2 is Spotlight."
+    "notes": "No device_type in the imported property catalogue (not supported / would log \"unknown device\")"
   },
   "capabilities": {
-    "device_property": [
-      {
-        "key": "nightvision",
-        "context": "app-observed",
-        "available": "yes",
-        "label": "Night vision mode (app-facing menu: PureColor / Infrared / Spotlight)",
-        "access": "RW",
-        "protocol": {
-          "protocol_key_name": "(assumed CMD_SET_NIGHT_VISION_TYPE, same as C35)"
-        },
-        "value": {
-          "value_type": "number",
-          "options": [
-            {
-              "value": 0,
-              "declared_label": "(no declared type)",
-              "app_label": "PureColor",
-              "app_label_source": "developer_tested",
-              "evidence_tier": "developer_tested",
-              "hardware_verified": "yes",
-              "evidence_source": "Developer testing with a T817L through the gateway and Eufy app",
-              "verified_date": "2026-09-21",
-              "notes": "Confirmed raw 0 as PureColor."
-            },
-            {
-              "value": 1,
-              "declared_label": "(no declared type)",
-              "app_label": "Infrared",
-              "app_label_source": "developer_tested",
-              "evidence_tier": "developer_tested",
-              "hardware_verified": "yes",
-              "evidence_source": "Developer testing with a T817L through the gateway and Eufy app",
-              "verified_date": "2026-09-21",
-              "notes": "Confirmed raw 1 as Infrared."
-            },
-            {
-              "value": 2,
-              "declared_label": "(no declared type)",
-              "app_label": "Spotlight",
-              "app_label_source": "developer_tested",
-              "evidence_tier": "developer_tested",
-              "hardware_verified": "yes",
-              "evidence_source": "Developer testing with a T817L through the gateway and Eufy app",
-              "verified_date": "2026-09-21",
-              "notes": "Confirmed raw 2 as Spotlight."
-            }
-          ]
-        },
-        "evidence": {
-          "evidence_tier": "developer_tested",
-          "hardware_verified": "yes",
-          "evidence_source": "Developer testing with a T817L through the gateway and Eufy app",
-          "verified_date": "2026-09-21",
-          "confidence": "high",
-          "notes": "All three raw values were written and confirmed against their Eufy app labels."
-        }
-      }
-    ],
     "hardware_feature": [
       {
         "key": "power",
         "context": "default",
         "available": "yes",
-        "label": "Wired, continuous (USB Type-C; plug-in)",
+        "label": "Solar + 10,000 mAh built-in battery",
         "access": "n/a (descriptive)",
         "value": {
           "value_type": "text"
@@ -115,7 +50,7 @@
         "key": "battery",
         "context": "default",
         "available": "yes",
-        "label": "None",
+        "label": "10,000 mAh",
         "access": "n/a (descriptive)",
         "value": {
           "value_type": "text"
@@ -132,7 +67,7 @@
         "key": "solar",
         "context": "default",
         "available": "yes",
-        "label": "No",
+        "label": "Solar",
         "access": "n/a (descriptive)",
         "value": {
           "value_type": "text"
@@ -149,7 +84,7 @@
         "key": "res",
         "context": "default",
         "available": "yes",
-        "label": "1080p (1920x1080), F1.2, 1/2.9\" CMOS",
+        "label": "4K / 8 MP, f/1.6",
         "access": "n/a (descriptive)",
         "value": {
           "value_type": "text"
@@ -166,24 +101,7 @@
         "key": "fov",
         "context": "default",
         "available": "yes",
-        "label": "Not stated",
-        "access": "n/a (descriptive)",
-        "value": {
-          "value_type": "text"
-        },
-        "evidence": {
-          "evidence_tier": "vendor_documented",
-          "hardware_verified": "no",
-          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
-          "verified_date": "2026-09-21",
-          "confidence": "medium"
-        }
-      },
-      {
-        "key": "ptz",
-        "context": "default",
-        "available": "yes",
-        "label": "360° pan/tilt; automatic AI tracking",
+        "label": "120° ultra-wide (manually adjustable)",
         "access": "n/a (descriptive)",
         "value": {
           "value_type": "text"
@@ -200,7 +118,7 @@
         "key": "nv",
         "context": "default",
         "available": "yes",
-        "label": "PureColor Vision (colour without spotlight), infrared, and spotlight options",
+        "label": "Not stated",
         "access": "n/a (descriptive)",
         "value": {
           "value_type": "text"
@@ -217,7 +135,7 @@
         "key": "light",
         "context": "default",
         "available": "yes",
-        "label": "Spotlight option",
+        "label": "Up to 500 lm adjustable; 60 GHz mmWave radar (12 m)",
         "access": "n/a (descriptive)",
         "value": {
           "value_type": "text"
@@ -234,24 +152,7 @@
         "key": "storage",
         "context": "default",
         "available": "yes",
-        "label": "None stated",
-        "access": "n/a (descriptive)",
-        "value": {
-          "value_type": "text"
-        },
-        "evidence": {
-          "evidence_tier": "vendor_documented",
-          "hardware_verified": "no",
-          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
-          "verified_date": "2026-09-21",
-          "confidence": "medium"
-        }
-      },
-      {
-        "key": "sd",
-        "context": "default",
-        "available": "yes",
-        "label": "microSD up to 256 GB (not included)",
+        "label": "32 GB eMMC",
         "access": "n/a (descriptive)",
         "value": {
           "value_type": "text"
@@ -268,7 +169,7 @@
         "key": "hub",
         "context": "default",
         "available": "yes",
-        "label": "Standalone; HomeBase Mini / HomeBase 3 compatible (not HomeBase 2)",
+        "label": "Optional HomeBase S380",
         "access": "n/a (descriptive)",
         "value": {
           "value_type": "text"
@@ -285,7 +186,7 @@
         "key": "wifi",
         "context": "default",
         "available": "yes",
-        "label": "Dual external antennas (bands not specified)",
+        "label": "2.4 GHz 802.11 b/g/n/ax",
         "access": "n/a (descriptive)",
         "value": {
           "value_type": "text"
@@ -302,7 +203,7 @@
         "key": "audio",
         "context": "default",
         "available": "yes",
-        "label": "Built-in mic + speaker",
+        "label": "Two-way",
         "access": "n/a (descriptive)",
         "value": {
           "value_type": "text"
@@ -319,7 +220,7 @@
         "key": "siren",
         "context": "default",
         "available": "yes",
-        "label": "Yes (manual or automatic)",
+        "label": "100 ±3 dB",
         "access": "n/a (descriptive)",
         "value": {
           "value_type": "text"
@@ -336,41 +237,7 @@
         "key": "ai",
         "context": "default",
         "available": "yes",
-        "label": "Human, vehicle, pet, sound, crying; 2 hexagonal active zones",
-        "access": "n/a (descriptive)",
-        "value": {
-          "value_type": "text"
-        },
-        "evidence": {
-          "evidence_tier": "vendor_documented",
-          "hardware_verified": "no",
-          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
-          "verified_date": "2026-09-21",
-          "confidence": "medium"
-        }
-      },
-      {
-        "key": "track",
-        "context": "default",
-        "available": "yes",
-        "label": "Yes (AI tracking + active deterrence)",
-        "access": "n/a (descriptive)",
-        "value": {
-          "value_type": "text"
-        },
-        "evidence": {
-          "evidence_tier": "vendor_documented",
-          "hardware_verified": "no",
-          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
-          "verified_date": "2026-09-21",
-          "confidence": "medium"
-        }
-      },
-      {
-        "key": "ip",
-        "context": "default",
-        "available": "yes",
-        "label": "IP66",
+        "label": "Human, vehicle, pet",
         "access": "n/a (descriptive)",
         "value": {
           "value_type": "text"
@@ -387,7 +254,7 @@
         "key": "temp",
         "context": "default",
         "available": "yes",
-        "label": "Not stated",
+        "label": "-4°F to 122°F (-20 to 50°C)",
         "access": "n/a (descriptive)",
         "value": {
           "value_type": "text"
@@ -404,7 +271,7 @@
         "key": "voice",
         "context": "default",
         "available": "yes",
-        "label": "Alexa, Google Assistant (no HomeKit)",
+        "label": "Google Assistant, HomeKit",
         "access": "n/a (descriptive)",
         "value": {
           "value_type": "text"
@@ -421,7 +288,7 @@
         "key": "extra",
         "context": "default",
         "available": "yes",
-        "label": "93x68x108 mm; upright/inverted mounting; 24/7 recording claimed on retailer listing",
+        "label": "915 g; 245x81.8x142 mm",
         "access": "n/a (descriptive)",
         "value": {
           "value_type": "text"
@@ -435,6 +302,22 @@
         }
       }
     ],
-    "external_coverage": []
+    "external_coverage": [
+      {
+        "key": "none",
+        "context": "default",
+        "available": "no",
+        "label": "No device-type or property declarations in the imported research",
+        "access": "-",
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "medium",
+          "notes": "Hardware description exists (vendor_documented rows) but nothing is declared for property/command control. Do not treat as supported/controllable."
+        }
+      }
+    ]
   }
 }

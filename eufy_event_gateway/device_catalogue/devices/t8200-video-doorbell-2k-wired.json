@@ -1,0 +1,1704 @@
+{
+  "$schema": "../schema.json",
+  "id": "t8200-standard",
+  "identity": {
+    "display_name": "Video Doorbell 2K (Wired)",
+    "model_codes": [
+      "T8200"
+    ],
+    "models_raw": "T8200 (the serial-based X variant and the 1080p sibling are separate columns)",
+    "aliases": [
+      "Video Doorbell 2K (Wired)",
+      "T8200"
+    ],
+    "product_category": "Wired doorbell",
+    "variant_rule": "Default definitions. Serial matching T8200 + len>7 + serial[6]==\"6\" uses the T8200 variant property set instead."
+  },
+  "device_registry": {
+    "mapping_confidence": "verified",
+    "docs_status": "Supported",
+    "property_count": 33,
+    "command_count": 8,
+    "coverage": "declared",
+    "device_type_id": 5,
+    "type_name": "DOORBELL",
+    "type_label": "Doorbell",
+    "topology": "integrated (own P2P station)"
+  },
+  "observations": {
+    "night_vision_control": "boolean autoNightvision",
+    "currently_sold": "Not seen in US collection pages checked (likely legacy)",
+    "notes": "Declaration catalogue type 5 DOORBELL. T8200X serial variant has its own property set. T8201 split into its own column (same external declaration type inferred)."
+  },
+  "capabilities": {
+    "device_command": [
+      {
+        "key": "deviceStartLivestream",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "deviceStartLivestream",
+          "command_name": "deviceStartLivestream"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "deviceStopLivestream",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "deviceStopLivestream",
+          "command_name": "deviceStopLivestream"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "deviceQuickResponse",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "deviceQuickResponse",
+          "command_name": "deviceQuickResponse"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "deviceStartDownload",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "deviceStartDownload",
+          "command_name": "deviceStartDownload"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "deviceCancelDownload",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "deviceCancelDownload",
+          "command_name": "deviceCancelDownload"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "deviceStartTalkback",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "deviceStartTalkback",
+          "command_name": "deviceStartTalkback"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "deviceStopTalkback",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "deviceStopTalkback",
+          "command_name": "deviceStopTalkback"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "deviceSnooze",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "deviceSnooze",
+          "command_name": "deviceSnooze"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      }
+    ],
+    "device_property": [
+      {
+        "key": "name",
+        "context": "default",
+        "available": "yes",
+        "label": "Name",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "device_name"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "model",
+        "context": "default",
+        "available": "yes",
+        "label": "Model",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "device_model"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "serialNumber",
+        "context": "default",
+        "available": "yes",
+        "label": "Serial number",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "device_sn"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "type",
+        "context": "default",
+        "available": "yes",
+        "label": "Type",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "device_type"
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "hardwareVersion",
+        "context": "default",
+        "available": "yes",
+        "label": "Hardware version",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "main_hw_version"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "softwareVersion",
+        "context": "default",
+        "available": "yes",
+        "label": "Software version",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "main_sw_version"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "stationSerialNumber",
+        "context": "default",
+        "available": "yes",
+        "label": "Station serial number",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "station_sn"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "enabled",
+        "context": "default",
+        "available": "yes",
+        "label": "Camera enabled",
+        "access": "RW",
+        "protocol": {
+          "command_name": "CMD_DEVS_SWITCH",
+          "protocol_key_num": 2001,
+          "command_id": 1035
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "autoNightvision",
+        "context": "default",
+        "available": "yes",
+        "label": "Auto Nightvision",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_num": 2002
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "motionDetection",
+        "context": "default",
+        "available": "yes",
+        "label": "Motion Detection",
+        "access": "RW",
+        "protocol": {
+          "command_name": "CMD_CLOSE_EAS",
+          "protocol_key_num": 2027,
+          "command_id": 1016
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "watermark",
+        "context": "default",
+        "available": "yes",
+        "label": "Watermark",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_DEVS_OSD",
+          "protocol_key_num": 1214
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "declared_label": "Off",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 1,
+              "declared_label": "On",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "motionDetected",
+        "context": "default",
+        "available": "yes",
+        "label": "Motion detected",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_motionDetected"
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "personDetected",
+        "context": "default",
+        "available": "yes",
+        "label": "Person detected",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_personDetected"
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "ringing",
+        "context": "default",
+        "available": "yes",
+        "label": "Ringing",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_ringing"
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "statusLed",
+        "context": "default",
+        "available": "yes",
+        "label": "Status LED",
+        "access": "RW",
+        "protocol": {
+          "command_name": "CMD_RECORD_PLAY_CTRL",
+          "protocol_key_num": 2039,
+          "command_id": 1026
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "picture",
+        "context": "default",
+        "available": "yes",
+        "label": "Last Camera Picture",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_picture"
+        },
+        "value": {
+          "value_type": "object"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "motionDetectionSensitivity",
+        "context": "default",
+        "available": "yes",
+        "label": "Motion Detection Sensitivity",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "custom_motionDetectionSensitivity"
+        },
+        "value": {
+          "value_type": "number",
+          "min": 1,
+          "max": 5
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "videoHdr",
+        "context": "default",
+        "available": "yes",
+        "label": "HDR",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_num": 2029
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "videoDistortionCorrection",
+        "context": "default",
+        "available": "yes",
+        "label": "Distortion Correction",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_num": 2033
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "videoStreamingQuality",
+        "context": "default",
+        "available": "yes",
+        "label": "Video Streaming Quality",
+        "access": "RW",
+        "protocol": {
+          "command_name": "CMD_DEVS_UNLOCK",
+          "protocol_key_num": 2031,
+          "command_id": 1020
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "declared_label": "Auto",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 1,
+              "declared_label": "Low",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 2,
+              "declared_label": "Medium",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 3,
+              "declared_label": "High",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "videoRecordingQuality",
+        "context": "default",
+        "available": "yes",
+        "label": "Video Recording Quality",
+        "access": "RW",
+        "protocol": {
+          "command_name": "CMD_STOP_SHARE",
+          "protocol_key_num": 2034,
+          "command_id": 1023
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 1,
+              "declared_label": "Storage Saver (1600 * 1200)",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 2,
+              "declared_label": "Full HD (1600 * 1200)",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 3,
+              "declared_label": "2K HD (2560 * 1920)",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "videoRingRecord",
+        "context": "default",
+        "available": "yes",
+        "label": "Record while live viewing after opening notification",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_num": 2040
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "declared_label": "Disabled",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 1,
+              "declared_label": "Enabled - Recording Quality Preferred",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 2,
+              "declared_label": "Enabled - Streaming Quality Preferred",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "audioRecording",
+        "context": "default",
+        "available": "yes",
+        "label": "Audio Recording",
+        "access": "RW",
+        "protocol": {
+          "command_name": "CMD_FORMAT_SD",
+          "protocol_key_num": 2042,
+          "command_id": 1029
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "chimeIndoor",
+        "context": "default",
+        "available": "yes",
+        "label": "Indoor Chime Enabled",
+        "access": "RW",
+        "protocol": {
+          "command_name": "CMD_STOP_TALKBACK",
+          "protocol_key_num": 2015,
+          "command_id": 1006
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "speakerVolume",
+        "context": "default",
+        "available": "yes",
+        "label": "Speaker Volume",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_num": 2003
+        },
+        "value": {
+          "value_type": "number",
+          "min": 0,
+          "max": 169
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "ringtoneVolume",
+        "context": "default",
+        "available": "yes",
+        "label": "Ringtone Volume",
+        "access": "RW",
+        "protocol": {
+          "command_name": "CMD_CLOSE_PIR",
+          "protocol_key_num": 2022,
+          "command_id": 1012
+        },
+        "value": {
+          "value_type": "number",
+          "min": 0,
+          "max": 100
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "notificationRing",
+        "context": "default",
+        "available": "yes",
+        "label": "Notification Ring detected",
+        "access": "RW",
+        "protocol": {
+          "command_name": "CMD_CHANGE_WIFI_PWD",
+          "protocol_key_num": 2036,
+          "command_id": 1031
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "notificationMotion",
+        "context": "default",
+        "available": "yes",
+        "label": "Notification Motion detected",
+        "access": "RW",
+        "protocol": {
+          "command_name": "CMD_CHANGE_WIFI_PWD",
+          "protocol_key_num": 2036,
+          "command_id": 1031
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "notificationType",
+        "context": "default",
+        "available": "yes",
+        "label": "Notification Type",
+        "access": "RW",
+        "protocol": {
+          "command_name": "CMD_CHANGE_PWD",
+          "protocol_key_num": 2035,
+          "command_id": 1030
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 1,
+              "declared_label": "Most Efficient",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 2,
+              "declared_label": "Include Thumbnail",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 3,
+              "declared_label": "Full Effect",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "snooze",
+        "context": "default",
+        "available": "yes",
+        "label": "Snooze",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_SNOOZE_MODE",
+          "protocol_key_num": 1271
+        },
+        "value": {
+          "value_type": "boolean"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "snoozeTime",
+        "context": "default",
+        "available": "yes",
+        "label": "Snooze Time",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_SNOOZE_MODE",
+          "protocol_key_num": 1271
+        },
+        "value": {
+          "value_type": "number",
+          "unit": "sec"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "snoozeStartTime",
+        "context": "default",
+        "available": "yes",
+        "label": "Snooze Start Time",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "CMD_CAMERA_PUSH_NOTIFY",
+          "protocol_key_num": 2037
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "personName",
+        "context": "default",
+        "available": "yes",
+        "label": "Person Name",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "custom_personName"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      }
+    ],
+    "hardware_feature": [
+      {
+        "key": "power",
+        "context": "default",
+        "available": "yes",
+        "label": "Wired 16-24 VAC, 30 VA+",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "res",
+        "context": "default",
+        "available": "yes",
+        "label": "2K (2560x1920), 4:3, HDR (T8201: 1080p 1600x1200)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "fov",
+        "context": "default",
+        "available": "yes",
+        "label": "160°",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "storage",
+        "context": "default",
+        "available": "yes",
+        "label": "4 GB on-device",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "hub",
+        "context": "default",
+        "available": "yes",
+        "label": "Standalone",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "wifi",
+        "context": "default",
+        "available": "yes",
+        "label": "2.4 GHz",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "audio",
+        "context": "default",
+        "available": "yes",
+        "label": "Two-way",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "ai",
+        "context": "default",
+        "available": "yes",
+        "label": "Human & face detection; pre-buffer recording",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "ip",
+        "context": "default",
+        "available": "yes",
+        "label": "IP65",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "temp",
+        "context": "default",
+        "available": "yes",
+        "label": "-4°F to 122°F",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "voice",
+        "context": "default",
+        "available": "yes",
+        "label": "Alexa (livestream + announcement), Google (livestream)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "chime",
+        "context": "default",
+        "available": "yes",
+        "label": "Free indoor chime (chime box); Alexa",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      }
+    ],
+    "station_command": [
+      {
+        "key": "stationReboot",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "stationReboot",
+          "command_name": "stationReboot"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "stationDownloadImage",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "stationDownloadImage",
+          "command_name": "stationDownloadImage"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "stationDatabaseQueryLatestInfo",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "stationDatabaseQueryLatestInfo",
+          "command_name": "stationDatabaseQueryLatestInfo"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "stationDatabaseQueryByDate",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "stationDatabaseQueryByDate",
+          "command_name": "stationDatabaseQueryByDate"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "stationDatabaseQueryLocal",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "stationDatabaseQueryLocal",
+          "command_name": "stationDatabaseQueryLocal"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "stationDatabaseCoundByDate",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "stationDatabaseCoundByDate",
+          "command_name": "stationDatabaseCoundByDate"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "stationDatabaseDelete",
+        "context": "default",
+        "available": "yes",
+        "access": "invoke",
+        "protocol": {
+          "protocol_key_name": "stationDatabaseDelete",
+          "command_name": "stationDatabaseDelete"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      }
+    ],
+    "station_property": [
+      {
+        "key": "name",
+        "context": "default",
+        "available": "yes",
+        "label": "Name",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "station_name"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "model",
+        "context": "default",
+        "available": "yes",
+        "label": "Model",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "station_model"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "serialNumber",
+        "context": "default",
+        "available": "yes",
+        "label": "Serial number",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "station_sn"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "type",
+        "context": "default",
+        "available": "yes",
+        "label": "Type",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "device_type"
+        },
+        "value": {
+          "value_type": "number"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "hardwareVersion",
+        "context": "default",
+        "available": "yes",
+        "label": "Hardware version",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "main_hw_version"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "softwareVersion",
+        "context": "default",
+        "available": "yes",
+        "label": "Software version",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "main_sw_version"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "lanIpAddress",
+        "context": "default",
+        "available": "yes",
+        "label": "LAN IP Address",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "ip_addr"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "macAddress",
+        "context": "default",
+        "available": "yes",
+        "label": "MAC Address",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "wifi_mac"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "guardMode",
+        "context": "default",
+        "available": "yes",
+        "label": "Guard Mode",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_ARMING",
+          "protocol_key_num": 1224
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "declared_label": "Away",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 1,
+              "declared_label": "Home",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 2,
+              "declared_label": "Schedule",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 3,
+              "declared_label": "Custom 1",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 4,
+              "declared_label": "Custom 2",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 5,
+              "declared_label": "Custom 3",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 47,
+              "declared_label": "Geofencing",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 63,
+              "declared_label": "Disarmed",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "currentMode",
+        "context": "default",
+        "available": "yes",
+        "label": "Current Mode",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "CMD_GET_ALARM_MODE",
+          "protocol_key_num": 1151
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "declared_label": "Away",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 1,
+              "declared_label": "Home",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 3,
+              "declared_label": "Custom 1",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 4,
+              "declared_label": "Custom 2",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 5,
+              "declared_label": "Custom 3",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 63,
+              "declared_label": "Disarmed",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "timeFormat",
+        "context": "default",
+        "available": "yes",
+        "label": "Time Format",
+        "access": "RW",
+        "protocol": {
+          "protocol_key_name": "CMD_SET_HUB_OSD",
+          "protocol_key_num": 1253
+        },
+        "value": {
+          "value_type": "number",
+          "options": [
+            {
+              "value": 0,
+              "declared_label": "12h",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            },
+            {
+              "value": 1,
+              "declared_label": "24h",
+              "evidence_tier": "externally_declared",
+              "hardware_verified": "no",
+              "evidence_source": "Imported device capability research",
+              "verified_date": "2026-09-21"
+            }
+          ]
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      },
+      {
+        "key": "timeZone",
+        "context": "default",
+        "available": "yes",
+        "label": "Time Zone",
+        "access": "R",
+        "protocol": {
+          "protocol_key_name": "time_zone"
+        },
+        "value": {
+          "value_type": "string"
+        },
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "high"
+        }
+      }
+    ]
+  }
+}

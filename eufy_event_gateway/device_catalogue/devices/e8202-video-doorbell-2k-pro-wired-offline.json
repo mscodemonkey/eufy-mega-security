@@ -1,0 +1,165 @@
+{
+  "$schema": "../schema.json",
+  "id": "e8202",
+  "identity": {
+    "display_name": "Video Doorbell 2K Pro (Wired, offline E8202)",
+    "model_codes": [],
+    "models_raw": "E8202 (offline model; product code E82021F2 sold as \"2K Pro Wired\" at Best Buy)",
+    "aliases": [
+      "Video Doorbell 2K Pro (Wired, offline E8202)"
+    ],
+    "product_category": "Wired offline doorbell"
+  },
+  "device_registry": {
+    "mapping_confidence": "not_in_registry",
+    "docs_status": "Not in docs",
+    "property_count": 0,
+    "command_count": 0,
+    "coverage": "none"
+  },
+  "observations": {
+    "night_vision_control": "unknown (no declared type)",
+    "currently_sold": "Not seen in US collection pages checked (likely legacy)",
+    "notes": "Offline-model row from Eufy comparison table. Retail listing E82021F2 is titled \"Smart Wi-Fi Video Doorbell 2K Pro Wired\" - whether E-prefix means offline vs connected is not settled. No external declaration type. Connected T8202 is a separate column."
+  },
+  "capabilities": {
+    "hardware_feature": [
+      {
+        "key": "power",
+        "context": "default",
+        "available": "yes",
+        "label": "Wired 16-24 VAC, 30 VA+",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "res",
+        "context": "default",
+        "available": "yes",
+        "label": "2K (2560x1920), HDR",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "fov",
+        "context": "default",
+        "available": "yes",
+        "label": "160°",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "storage",
+        "context": "default",
+        "available": "yes",
+        "label": "32 GB on-device (5-day continuous recording)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "wifi",
+        "context": "default",
+        "available": "yes",
+        "label": "2.4 GHz",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "ai",
+        "context": "default",
+        "available": "yes",
+        "label": "Human & face",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "ip",
+        "context": "default",
+        "available": "yes",
+        "label": "IP65",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      }
+    ],
+    "external_coverage": [
+      {
+        "key": "none",
+        "context": "default",
+        "available": "no",
+        "label": "No device-type or property declarations in the imported research",
+        "access": "-",
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "medium",
+          "notes": "Hardware description exists (vendor_documented rows) but nothing is declared for property/command control. Do not treat as supported/controllable."
+        }
+      }
+    ]
+  }
+}

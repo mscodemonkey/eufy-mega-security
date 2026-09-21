@@ -6,12 +6,13 @@
  */
 
 import { readdir, readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const catalogueDirectory = join(dirname(fileURLToPath(import.meta.url)), "..", "device_catalogue");
 const devicesDirectory = join(catalogueDirectory, "devices");
-const forbiddenReferencePattern = /sdk|eufy-security-client|mega-yfue|source_repo|file_line|verified_by|xref_mega|build\/http\/types\.js|src\/model\//i;
+const forbiddenReferencePattern = /sdk|eufy-security-client|mega-yfue|source_repo|file_line|verified_by|xref_mega|build\/http\/types\.js|src\/model\/|(?:no)?lib[0-9]|\blibrary\b/i;
+const legacyIdentifierPattern = /(?:^|[-_])(?:no)?lib(?:[0-9_]|$)/i;
 
 async function loadDevices() {
   const files = (await readdir(devicesDirectory)).filter((file) => file.endsWith(".json")).sort();
@@ -34,9 +35,13 @@ async function validateCatalogueSources() {
 
 function validateDevice(file, source, record, ids) {
   const errors = [];
+  const fileStem = basename(file, ".json");
   if (forbiddenReferencePattern.test(source)) errors.push(`${file}: contains forbidden reference-source metadata`);
+  if (legacyIdentifierPattern.test(fileStem)) errors.push(`${file}: contains a legacy source identifier`);
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(fileStem)) errors.push(`${file}: filename must use lowercase kebab case`);
   if (record.$schema !== "../schema.json") errors.push(`${file}: invalid schema reference`);
   if (typeof record.id !== "string" || record.id.length === 0) errors.push(`${file}: missing id`);
+  else if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(record.id)) errors.push(`${file}: id must use lowercase kebab case`);
   else if (ids.has(record.id)) errors.push(`${file}: duplicate id ${record.id}`);
   else ids.add(record.id);
   if (!record.identity || typeof record.identity.display_name !== "string") errors.push(`${file}: missing display name`);
@@ -66,6 +71,44 @@ function validateDevice(file, source, record, ids) {
   return errors;
 }
 
+function validateIdentityKeys(devices) {
+  const errors = [];
+  const recordsByPrimaryModel = new Map();
+  for (const device of devices) {
+    const primaryModel = device.record.identity?.model_codes?.[0];
+    if (!primaryModel) continue;
+    const key = String(primaryModel).toLowerCase();
+    const records = recordsByPrimaryModel.get(key) ?? [];
+    records.push(device);
+    recordsByPrimaryModel.set(key, records);
+  }
+  for (const [primaryModel, records] of recordsByPrimaryModel) {
+    for (const { file, record } of records) {
+      const fileStem = basename(file, ".json");
+      if (!fileStem.startsWith(`${primaryModel}-`)) {
+        errors.push(`${file}: filename must start with primary model ${primaryModel}-`);
+      }
+      if (records.length === 1 && record.id !== primaryModel) {
+        errors.push(`${file}: unique primary model must use id ${primaryModel}`);
+      }
+      if (records.length > 1 && !record.id.startsWith(`${primaryModel}-`)) {
+        errors.push(`${file}: shared primary model id must start with ${primaryModel}-`);
+      }
+      if (records.length > 1 && !record.identity.variant_rule) {
+        errors.push(`${file}: shared primary model requires a variant rule`);
+      }
+    }
+  }
+  for (const { file, record } of devices) {
+    if (record.identity?.model_codes?.length > 0) continue;
+    const fileStem = basename(file, ".json");
+    if (fileStem !== record.id && !fileStem.startsWith(`${record.id}-`)) {
+      errors.push(`${file}: filename must start with id ${record.id}`);
+    }
+  }
+  return errors;
+}
+
 function findDevice(devices, query) {
   const normalized = query.toUpperCase();
   return devices.filter(({ record }) => [
@@ -82,6 +125,7 @@ async function check() {
   const errors = [
     ...await validateCatalogueSources(),
     ...devices.flatMap(({ file, source, record }) => validateDevice(file, source, record, ids)),
+    ...validateIdentityKeys(devices),
   ];
   const capabilityCount = devices.reduce(
     (count, { record }) => count + Object.values(record.capabilities).reduce((sum, rows) => sum + rows.length, 0),

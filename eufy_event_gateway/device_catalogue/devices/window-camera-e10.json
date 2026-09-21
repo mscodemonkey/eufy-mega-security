@@ -1,0 +1,182 @@
+{
+  "$schema": "../schema.json",
+  "id": "window-camera-e10",
+  "identity": {
+    "display_name": "Window Camera E10",
+    "model_codes": [],
+    "models_raw": "Model code not published (announced IFA 2026)",
+    "aliases": [
+      "Window Camera E10"
+    ],
+    "product_category": "Indoor window-mount camera (announced)"
+  },
+  "device_registry": {
+    "mapping_confidence": "not_in_registry",
+    "docs_status": "Not in docs",
+    "property_count": 0,
+    "command_count": 0,
+    "coverage": "none"
+  },
+  "observations": {
+    "night_vision_control": "unknown (no declared type)",
+    "currently_sold": "No - announced for late 2026 ($70)",
+    "notes": "ADDED after research. Announced, not yet shipping; no model code or external declaration data."
+  },
+  "capabilities": {
+    "hardware_feature": [
+      {
+        "key": "power",
+        "context": "default",
+        "available": "yes",
+        "label": "USB-C powered",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "res",
+        "context": "default",
+        "available": "yes",
+        "label": "2.5K",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "nv",
+        "context": "default",
+        "available": "yes",
+        "label": "F1.0 colour night vision",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "ptz",
+        "context": "default",
+        "available": "yes",
+        "label": "25° adjustable tilt (no pan)",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "sd",
+        "context": "default",
+        "available": "yes",
+        "label": "microSD up to 256 GB",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "ai",
+        "context": "default",
+        "available": "yes",
+        "label": "Person, pet, vehicle, noise",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "voice",
+        "context": "default",
+        "available": "yes",
+        "label": "Alexa, Google Home",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      },
+      {
+        "key": "extra",
+        "context": "default",
+        "available": "yes",
+        "label": "Interior-side window mount; anti-reflection optics; $70; release late 2026",
+        "access": "n/a (descriptive)",
+        "value": {
+          "value_type": "text"
+        },
+        "evidence": {
+          "evidence_tier": "vendor_documented",
+          "hardware_verified": "no",
+          "evidence_source": "eufy.com / service.eufy.com product & comparison pages (compiled Sep 2026); descriptive only, not evidence of a writable control",
+          "verified_date": "2026-09-21",
+          "confidence": "medium"
+        }
+      }
+    ],
+    "external_coverage": [
+      {
+        "key": "none",
+        "context": "default",
+        "available": "no",
+        "label": "No device-type or property declarations in the imported research",
+        "access": "-",
+        "evidence": {
+          "evidence_tier": "externally_declared",
+          "hardware_verified": "no",
+          "evidence_source": "Imported device capability research",
+          "verified_date": "2026-09-21",
+          "confidence": "medium",
+          "notes": "Hardware description exists (vendor_documented rows) but nothing is declared for property/command control. Do not treat as supported/controllable."
+        }
+      }
+    ]
+  }
+}

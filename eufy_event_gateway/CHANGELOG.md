@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.73
+
+- Normalise device catalogue IDs to their primary model code and retain readable display names in filenames.
+- Keep short variant suffixes only for the four model codes that identify multiple records.
+- Add validation that filenames retain a model and display slug, unique IDs use their model code, and shared models document their variant rule.
+- Remove the remaining source-specific identifier wording from catalogue records.
+
 ## 0.1.72
 
 - Remove reference-source names, locations, excerpts, and cross-reference fields from the public device catalogue.
