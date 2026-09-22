@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.94
+
+- Add privacy-safe timing counters around HomeBase H.265 viewer conversion to separate camera input pauses from conversion output pauses.
+- Report viewer backpressure counts and maximum queued bytes when a converted stream closes.
+
 ## 0.1.93
 
 - Calculate HomeBase 3 HDD free space from the unused video partition, including the system areas that the Eufy app counts as used.
