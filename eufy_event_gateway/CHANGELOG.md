@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.87
+
+- Add a privacy-safe Firebase delivery receipt before duplicate filtering and push parsing to diagnose missing sensor events.
+
 ## 0.1.86
 
 - Add a once-per-start HomeBase 3 HDD diagnostic with exact numeric and boolean storage fields, calculated byte totals, and redacted text values.
