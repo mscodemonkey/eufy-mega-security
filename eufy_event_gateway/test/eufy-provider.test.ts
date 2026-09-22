@@ -15,6 +15,7 @@ import {
   dskKeyNeedsRefresh,
   inventoryDiagnostics,
   inventoryLogSummaries,
+  homeBaseStorageLogSummary,
   initialHomeBaseState,
   isDiscoveredHomeBase,
   isDoorbellDevice,
@@ -46,6 +47,20 @@ const stationState = (alarmVolume: number | null): HomeBasePpcsState => ({
   promptVolume: null,
   alarmTone: null,
   storage: null,
+  storageDiagnostic: null,
+});
+
+test("formats bounded HomeBase HDD diagnostics without raw text", () => {
+  assert.equal(
+    homeBaseStorageLogSummary("T8030", {
+      present: true,
+      numericFields: ["disk_size:480000", "disk_used:90620"],
+      booleanFields: ["mounted:true"],
+      textFieldLengths: ["disk_path:21"],
+      structuredFields: ["partitions:array"],
+    }, { status: "normal", totalBytes: 447_130_000_000, freeBytes: 356_510_000_000 }),
+    "HomeBase storage observed: model=T8030 hdd_present=true calculated_total_bytes=447130000000 calculated_free_bytes=356510000000 hdd_numeric=disk_size:480000,disk_used:90620 hdd_boolean=mounted:true hdd_text_lengths=disk_path:21 hdd_structured=partitions:array",
+  );
 });
 
 test("refreshes expiring DSK material without replacing non-expiring keys", () => {

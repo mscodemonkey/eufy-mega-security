@@ -75,6 +75,13 @@ test("normalizes HomeBase state and separate physical storage devices", () => {
       emmc: { status: "normal", totalBytes: 1_048_576_000, freeBytes: 786_432_000 },
       hdd: { status: "non_original", totalBytes: 10_485_760_000, freeBytes: 6_291_456_000 },
     },
+    storageDiagnostic: {
+      present: true,
+      numericFields: ["disk_size:10000", "disk_used:4000", "work_status:1"],
+      booleanFields: [],
+      textFieldLengths: ["serial_number:20"],
+      structuredFields: [],
+    },
   });
   assert.equal(JSON.stringify(result).includes("private"), false);
 });
@@ -91,6 +98,13 @@ test("accepts a JSON-encoded storage body and rejects unsupported values", () =>
   assert.equal(result.alarmVolume, null);
   assert.deepEqual(result.storage?.emmc, { status: "reported", totalBytes: 104_857_600, freeBytes: 0 });
   assert.equal(result.storage?.hdd, null);
+  assert.deepEqual(result.storageDiagnostic, {
+    present: false,
+    numericFields: [],
+    booleanFields: [],
+    textFieldLengths: [],
+    structuredFields: [],
+  });
 });
 
 test("uses the HomeBase 3 usable HDD capacity and decimal used-space value", () => {
@@ -108,4 +122,34 @@ test("uses the HomeBase 3 usable HDD capacity and decimal used-space value", () 
     totalBytes: 298_090_820_313,
     freeBytes: 33_720_820_313,
   });
+  assert.deepEqual(result.storageDiagnostic, {
+    present: true,
+    numericFields: ["disk_size:327680", "disk_size_1024:305245", "disk_used:264370", "work_status:0"],
+    booleanFields: [],
+    textFieldLengths: [],
+    structuredFields: [],
+  });
+});
+
+test("summarizes unknown HDD fields without retaining text values", () => {
+  const result = parseHomeBaseState({}, {
+    hdd_info: {
+      disk_size: 480_000,
+      mounted: true,
+      disk_path: "/private/storage/path",
+      partitions: [{ name: "private" }],
+      reserved: null,
+      storage_id: 42,
+      "unsafe key": 7,
+    },
+  });
+
+  assert.deepEqual(result.storageDiagnostic, {
+    present: true,
+    numericFields: ["disk_size:480000", "storage_id:42", "unsafe-key:7"],
+    booleanFields: ["mounted:true"],
+    textFieldLengths: ["disk_path:21"],
+    structuredFields: ["partitions:array", "reserved:null"],
+  });
+  assert.equal(JSON.stringify(result).includes("private"), false);
 });

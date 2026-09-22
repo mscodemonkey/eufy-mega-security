@@ -78,6 +78,16 @@ export interface HomeBasePpcsState {
     readonly emmc: HomeBaseStorageState | null;
     readonly hdd: HomeBaseStorageState | null;
   } | null;
+  readonly storageDiagnostic: HomeBaseStorageDiagnostic | null;
+}
+
+/** Privacy-safe field inventory for one raw HomeBase 3 HDD response. */
+export interface HomeBaseStorageDiagnostic {
+  readonly present: boolean;
+  readonly numericFields: readonly string[];
+  readonly booleanFields: readonly string[];
+  readonly textFieldLengths: readonly string[];
+  readonly structuredFields: readonly string[];
 }
 
 /** Network identity and account fields required for one HomeBase session. */
@@ -441,6 +451,7 @@ export function parseHomeBaseState(cameraInfo: unknown, storage: unknown, storag
     promptVolume: bounded(values.get(CMD_SET_PROMPT_VOLUME), 0, 26),
     alarmTone: bounded(values.get(CMD_HUB_ALARM_TONE), 1, 2),
     storage: storageObserved ? parseStorage(storage) : null,
+    storageDiagnostic: storageObserved ? storageDiagnostic(storage) : null,
   };
 }
 
@@ -462,6 +473,51 @@ function parseStorage(value: unknown): HomeBasePpcsState["storage"] {
     emmc: storageDevice(body.emmc_info, "disk_size", "disk_used"),
     hdd: storageDevice(body.hdd_info, "disk_size", "disk_used", "disk_size_1024"),
   };
+}
+
+function storageDiagnostic(value: unknown): HomeBaseStorageDiagnostic {
+  const parsed = typeof value === "string" ? parseJsonText(value) : value;
+  const body = isRecord(parsed) ? parsed : {};
+  if (!isRecord(body.hdd_info)) {
+    return {
+      present: false,
+      numericFields: [],
+      booleanFields: [],
+      textFieldLengths: [],
+      structuredFields: [],
+    };
+  }
+  const numericFields: string[] = [];
+  const booleanFields: string[] = [];
+  const textFieldLengths: string[] = [];
+  const structuredFields: string[] = [];
+  for (const [rawKey, fieldValue] of Object.entries(body.hdd_info).sort(([left], [right]) => left.localeCompare(right))) {
+    const key = diagnosticKey(rawKey);
+    if (typeof fieldValue === "number" && Number.isFinite(fieldValue)) {
+      numericFields.push(`${key}:${sensitiveDiagnosticKey(rawKey) ? "redacted" : fieldValue}`);
+    } else if (typeof fieldValue === "boolean") {
+      booleanFields.push(`${key}:${fieldValue}`);
+    } else if (typeof fieldValue === "string") {
+      textFieldLengths.push(`${key}:${Buffer.byteLength(fieldValue, "utf8")}`);
+    } else {
+      structuredFields.push(`${key}:${fieldValue === null ? "null" : Array.isArray(fieldValue) ? "array" : typeof fieldValue}`);
+    }
+  }
+  return {
+    present: true,
+    numericFields: numericFields.slice(0, 50),
+    booleanFields: booleanFields.slice(0, 50),
+    textFieldLengths: textFieldLengths.slice(0, 50),
+    structuredFields: structuredFields.slice(0, 50),
+  };
+}
+
+function diagnosticKey(value: string): string {
+  return value.replaceAll(/[^A-Za-z0-9_.-]/g, "-").slice(0, 64) || "unknown";
+}
+
+function sensitiveDiagnosticKey(value: string): boolean {
+  return /(?:account|credential|email|password|serial|signature|token|user)/i.test(value);
 }
 
 function storageDevice(

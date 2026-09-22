@@ -19,7 +19,7 @@ import { MegaClient } from "../mega/client.js";
 import { decodeEventImage, isJpeg } from "../mega/image.js";
 import { MegaPushReceiver, type MegaPushEvent } from "../mega/push.js";
 import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
-import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBasePpcsState } from "../stream/homebase-ppcs.js";
+import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
 import { cameraCapabilityLogSummaries, describeCameraCapabilities, isSupportedCameraType, describeDeviceCapabilities, deviceCapabilityLogSummaries } from "./device-capabilities-core.js";
 import { catalogueIntegrationStatus, hasMainsBatterySentinel } from "./camera-capability-core.js";
 import type { CameraProvider, CaptchaChallenge, CaptchaProvider, ProviderEvents } from "./provider.js";
@@ -156,6 +156,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #pushDeduplicator = new PushEventDeduplicator();
   readonly #stationRefreshFailures = new Map<string, number>();
   readonly #stationReadConfirmed = new Set<string>();
+  readonly #stationStorageDiagnosticLogged = new Set<string>();
   readonly #stations = new Map<string, HomeBaseState>();
   readonly #stationOperations = new Map<string, Promise<HomeBaseState>>();
   readonly #cameraOperations = new Map<string, Promise<CameraIdentity>>();
@@ -950,6 +951,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       try {
         await session.connect();
         const observed = await operation(session);
+        if (observed.storageDiagnostic && !this.#stationStorageDiagnosticLogged.has(serial)) {
+          this.#stationStorageDiagnosticLogged.add(serial);
+          logger.info(
+            "homebase_storage_observed",
+            homeBaseStorageLogSummary(identity.model, observed.storageDiagnostic, observed.storage?.hdd ?? null),
+          );
+        }
         const updated = mergeHomeBaseState(this.#requireStation(serial), observed);
         this.#stations.set(serial, updated);
         this.#events?.station(updated);
@@ -1298,6 +1306,25 @@ function mergeHomeBaseState(existing: HomeBaseState, observed: HomeBasePpcsState
     alarmTone: observed.alarmTone,
     storage: observed.storage ?? existing.storage,
   };
+}
+
+/** Format one bounded HDD field inventory without exposing raw text values. */
+export function homeBaseStorageLogSummary(
+  model: string,
+  diagnostic: HomeBaseStorageDiagnostic,
+  normalized: HomeBaseState["storage"]["hdd"],
+): string {
+  const fields = (values: readonly string[]): string => values.length > 0 ? values.join(",") : "none";
+  return [
+    `HomeBase storage observed: model=${model}`,
+    `hdd_present=${diagnostic.present}`,
+    `calculated_total_bytes=${normalized?.totalBytes ?? "missing"}`,
+    `calculated_free_bytes=${normalized?.freeBytes ?? "missing"}`,
+    `hdd_numeric=${fields(diagnostic.numericFields)}`,
+    `hdd_boolean=${fields(diagnostic.booleanFields)}`,
+    `hdd_text_lengths=${fields(diagnostic.textFieldLengths)}`,
+    `hdd_structured=${fields(diagnostic.structuredFields)}`,
+  ].join(" ");
 }
 
 function validGuardMode(value: number | null): value is number {
