@@ -21,6 +21,8 @@ import { SnapshotStore } from "./storage/snapshot-store.js";
 import { LiveStreamManager } from "./stream/live-stream-manager.js";
 
 const logger = createLogger("gateway");
+const STREAM_TOKEN_LIFETIME_SECONDS = 10 * 60;
+const STREAM_TOKEN_MAX_FUTURE_SECONDS = STREAM_TOKEN_LIFETIME_SECONDS + 60;
 
 /**
  * Serves the gateway's public HTTP contract and optional local auth page.
@@ -341,7 +343,7 @@ export class GatewayServer {
     if (!this.state.getCamera(serial).streamSupported) {
       return json(response, 409, { error: "Livestream control is unavailable for this camera" });
     }
-    const expiresAt = Math.floor(Date.now() / 1_000) + 120;
+    const expiresAt = Math.floor(Date.now() / 1_000) + STREAM_TOKEN_LIFETIME_SECONDS;
     const token = this.config.apiToken
       ? createStreamToken(serial, expiresAt, this.config.apiToken)
       : null;
@@ -506,7 +508,9 @@ export function validateStreamToken(
   const separator = token.indexOf(".");
   if (separator < 1) return false;
   const expiresAt = Number.parseInt(token.slice(0, separator), 10);
-  if (!Number.isSafeInteger(expiresAt) || expiresAt < nowSeconds || expiresAt > nowSeconds + 180) return false;
+  if (!Number.isSafeInteger(expiresAt)
+    || expiresAt < nowSeconds
+    || expiresAt > nowSeconds + STREAM_TOKEN_MAX_FUTURE_SECONDS) return false;
   return equalSecret(token, createStreamToken(serial, expiresAt, apiToken));
 }
 

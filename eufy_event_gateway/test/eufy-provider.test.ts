@@ -49,6 +49,7 @@ const stationState = (alarmVolume: number | null): HomeBasePpcsState => ({
   alarmTone: null,
   storage: null,
   storageDiagnostic: null,
+  childParams: [],
 });
 
 test("formats bounded HomeBase HDD diagnostics without raw text", () => {

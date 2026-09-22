@@ -19,7 +19,7 @@ import { MegaClient } from "../mega/client.js";
 import { decodeEventImage, isJpeg } from "../mega/image.js";
 import { MegaPushReceiver, type MegaPushEvent } from "../mega/push.js";
 import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
-import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
+import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBaseChildParam, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
 import { cameraCapabilityLogSummaries, describeCameraCapabilities, isSupportedCameraType, describeDeviceCapabilities, deviceCapabilityLogSummaries } from "./device-capabilities-core.js";
 import { catalogueIntegrationStatus, hasMainsBatterySentinel } from "./camera-capability-core.js";
 import type { CameraProvider, CaptchaChallenge, CaptchaProvider, ProviderEvents } from "./provider.js";
@@ -166,6 +166,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #motionOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #nightVisionOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #pendingSensorMotionCloudConfirmations = new Set<string>();
+  readonly #liveDeviceReads = new Map<string, MegaInventoryReads>();
+  readonly #liveDeviceParamTypes = new Map<string, readonly number[]>();
   #push: MegaPushReceiver | null = null;
   #events: ProviderEvents | null = null;
   #captchaChallenge: CaptchaChallenge | null = null;
@@ -536,6 +538,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     await Promise.allSettled(this.#cameraOperations.values());
     this.#cameraOperations.clear();
     this.#pendingSensorMotionCloudConfirmations.clear();
+    this.#liveDeviceReads.clear();
+    this.#liveDeviceParamTypes.clear();
     this.#events = null;
   }
 
@@ -595,6 +599,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const devices = parseMegaInventory(inventory);
     this.#devices.clear();
     this.#pendingSensorMotionCloudConfirmations.clear();
+    this.#liveDeviceReads.clear();
+    this.#liveDeviceParamTypes.clear();
     for (const device of devices) {
       this.#devices.set(device.serial, device);
     }
@@ -721,7 +727,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         device.reads.motionEventSeconds,
         this.#pendingSensorMotionCloudConfirmations.has(device.serial),
       );
-      const merged = { ...known, paramTypes: device.paramTypes, reads: device.reads };
+      const liveReads = this.#liveDeviceReads.get(device.serial);
+      const liveParamTypes = this.#liveDeviceParamTypes.get(device.serial) ?? [];
+      const merged = {
+        ...known,
+        paramTypes: [...new Set([...device.paramTypes, ...liveParamTypes])].sort((left, right) => left - right),
+        reads: liveReads ? { ...device.reads, ...liveReads } : device.reads,
+      };
       this.#devices.set(device.serial, merged);
       if (isSupportedMegaCamera(merged)) {
         this.#events?.camera(this.#cameraIdentity(merged));
@@ -976,6 +988,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       try {
         await session.connect();
         const observed = await operation(session);
+        this.#applyHomeBaseChildParams(serial, observed.childParams);
         if (observed.storageDiagnostic && !this.#stationStorageDiagnosticLogged.has(serial)) {
           this.#stationStorageDiagnosticLogged.add(serial);
           logger.info(
@@ -1001,6 +1014,50 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (this.#stationOperations.get(serial) === current) this.#stationOperations.delete(serial);
     }).catch(() => undefined);
     return current;
+  }
+
+  #applyHomeBaseChildParams(stationSerial: string, params: readonly HomeBaseChildParam[]): void {
+    const byChannel = new Map<number, HomeBaseChildParam[]>();
+    for (const param of params) {
+      const rows = byChannel.get(param.channel) ?? [];
+      rows.push(param);
+      byChannel.set(param.channel, rows);
+    }
+    for (const device of this.#devices.values()) {
+      if (device.parentSerial !== stationSerial || device.channel === null) continue;
+      const rows = byChannel.get(device.channel);
+      if (!rows) {
+        this.#liveDeviceReads.delete(device.serial);
+        this.#liveDeviceParamTypes.delete(device.serial);
+        continue;
+      }
+      const reads = safeInventoryReads(
+        rows.map(({ type, value }) => ({ param_type: type, param_value: value })),
+        device.deviceType,
+      );
+      const paramTypes = [...new Set(rows.map(({ type }) => type))].sort((left, right) => left - right);
+      const previous = this.#liveDeviceReads.get(device.serial);
+      this.#liveDeviceReads.set(device.serial, reads);
+      this.#liveDeviceParamTypes.set(device.serial, paramTypes);
+      const merged = {
+        ...device,
+        paramTypes: [...new Set([...device.paramTypes, ...paramTypes])].sort((left, right) => left - right),
+        reads: { ...device.reads, ...reads },
+      };
+      this.#devices.set(device.serial, merged);
+      if (previous?.batteryLevel !== reads.batteryLevel && reads.batteryLevel !== undefined) {
+        logger.info(
+          "camera_live_battery_observed",
+          [
+            `model=${JSON.stringify(device.model)}`,
+            `channel=${device.channel}`,
+            `cloud_level=${device.reads.batteryLevel ?? "missing"}`,
+            `live_level=${reads.batteryLevel}`,
+          ].join(" "),
+        );
+      }
+      if (isSupportedMegaCamera(merged)) this.#events?.camera(this.#cameraIdentity(merged));
+    }
   }
 
   #requireStation(serial: string): HomeBaseState {

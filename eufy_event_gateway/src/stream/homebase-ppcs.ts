@@ -42,6 +42,19 @@ const CMD_STORAGE_INFO_HB3 = 1307;
 const CMD_SET_PAYLOAD = 1350;
 const CMD_NOTIFY_PAYLOAD = 1351;
 const COMMAND_TIMEOUT_MS = 10_000;
+const CHILD_READ_PARAM_TYPES: ReadonlySet<number> = new Set([
+  1011,
+  1035,
+  1101,
+  1138,
+  1198,
+  1277,
+  1550,
+  1551,
+  1605,
+  2001,
+  2111,
+]);
 const STORAGE_STATUSES = new Map<number, string>([
   [-1, "not_present"],
   [0, "normal"],
@@ -79,6 +92,16 @@ export interface HomeBasePpcsState {
     readonly hdd: HomeBaseStorageState | null;
   } | null;
   readonly storageDiagnostic: HomeBaseStorageDiagnostic | null;
+
+  /** Allowlisted current values reported for attached-device channels in the same camera-info reply. */
+  readonly childParams: readonly HomeBaseChildParam[];
+}
+
+/** One non-sensitive attached-device value retained from a HomeBase camera-info reply. */
+export interface HomeBaseChildParam {
+  readonly channel: number;
+  readonly type: number;
+  readonly value: string | number | boolean;
 }
 
 /** Privacy-safe field inventory for one raw HomeBase 3 HDD response. */
@@ -452,7 +475,23 @@ export function parseHomeBaseState(cameraInfo: unknown, storage: unknown, storag
     alarmTone: bounded(values.get(CMD_HUB_ALARM_TONE), 1, 2),
     storage: storageObserved ? parseStorage(storage) : null,
     storageDiagnostic: storageObserved ? storageDiagnostic(storage) : null,
+    childParams: parseChildParams(info.params),
   };
+}
+
+function parseChildParams(value: unknown): HomeBaseChildParam[] {
+  if (!Array.isArray(value)) return [];
+  const output: HomeBaseChildParam[] = [];
+  for (const raw of value) {
+    if (!isRecord(raw)) continue;
+    const channel = safeInteger(raw.dev_type);
+    const type = safeInteger(raw.param_type);
+    const paramValue = raw.param_value;
+    if (channel === null || channel === STATION_CHANNEL || type === null || !CHILD_READ_PARAM_TYPES.has(type)) continue;
+    if (typeof paramValue !== "string" && typeof paramValue !== "number" && typeof paramValue !== "boolean") continue;
+    output.push({ channel, type, value: paramValue });
+  }
+  return output;
 }
 
 /**

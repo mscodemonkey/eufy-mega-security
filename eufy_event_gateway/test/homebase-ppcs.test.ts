@@ -53,6 +53,9 @@ test("normalizes HomeBase state and separate physical storage devices", () => {
       { dev_type: 255, param_type: 1292, param_value: 10 },
       { dev_type: 255, param_type: 1281, param_value: 2 },
       { dev_type: 1, param_type: 1224, param_value: 63 },
+      { dev_type: 1, param_type: 1101, param_value: "73" },
+      { dev_type: 1, param_type: 1277, param_value: 1 },
+      { dev_type: 1, param_type: 9999, param_value: "private" },
     ],
   }, {
     emmc_info: { disk_size: 1_000, disk_used: 250, work_status: 0, disk_path: "/private/emmc" },
@@ -82,6 +85,10 @@ test("normalizes HomeBase state and separate physical storage devices", () => {
       textFieldLengths: ["serial_number:20"],
       structuredFields: [],
     },
+    childParams: [
+      { channel: 1, type: 1101, value: "73" },
+      { channel: 1, type: 1277, value: 1 },
+    ],
   });
   assert.equal(JSON.stringify(result).includes("private"), false);
 });
