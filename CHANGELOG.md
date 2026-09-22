@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.91
+
+- Retain bounded Firebase sibling fields when a decoded Eufy payload entry is also present, allowing HomeBase 2 camera identity to reach motion-event normalization.
+- Add privacy-safe receipt flags for sibling device, station, and event fields without logging their values.
+
 ## 0.1.90
 
 - Use the T8210-family direct Auto night vision command instead of the unrelated three-mode night vision command.
