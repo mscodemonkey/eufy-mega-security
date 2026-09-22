@@ -16,7 +16,9 @@ import { GatewayState } from "../src/domain/gateway-state.js";
 import {
   LiveStreamManager,
   SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS,
+  StreamCadenceTracker,
   VideoParameterSetCache,
+  type ViewerTranscoderSummary,
 } from "../src/stream/live-stream-manager.js";
 
 const camera = {
@@ -30,6 +32,20 @@ const camera = {
 
 test("allows slower cameras 30 seconds to produce a fresh snapshot", () => {
   assert.equal(SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS, 30_000);
+});
+
+test("summarizes stream cadence without retaining timestamps", () => {
+  const tracker = new StreamCadenceTracker();
+  for (const timestamp of [100, 300, 900, 2_000, 4_300]) tracker.record(timestamp);
+
+  assert.deepEqual(tracker.summary, {
+    samples: 5,
+    durationMilliseconds: 4_200,
+    maximumGapMilliseconds: 2_300,
+    gapsAtLeast500Milliseconds: 3,
+    gapsAtLeast1000Milliseconds: 2,
+    gapsAtLeast2000Milliseconds: 1,
+  });
 });
 
 function annexBNal(type: number, ...body: number[]): Buffer {
@@ -203,7 +219,7 @@ test("shares an H.264 fallback with viewers when a camera returns H.265", async 
     return response;
   }) as ServerResponse["writeHead"];
   const bytes: Buffer[] = [];
-  const summaries: Array<{ inputBytes: number; outputBytes: number; outputChunks: number; bootstrapReady: boolean }> = [];
+  const summaries: ViewerTranscoderSummary[] = [];
   manager.on("viewer-transcoder-stopped", (summary) => summaries.push(summary));
   response.on("data", (chunk: Buffer) => bytes.push(Buffer.from(chunk)));
   await manager.addClient(camera.serial, response);
@@ -229,6 +245,24 @@ test("shares an H.264 fallback with viewers when a camera returns H.265", async 
     outputBytes: h264Sps.length + h264Pps.length + annexBNal(0x65, 0x88).length,
     outputChunks: 1,
     bootstrapReady: true,
+    inputCadence: {
+      samples: 1,
+      durationMilliseconds: 0,
+      maximumGapMilliseconds: 0,
+      gapsAtLeast500Milliseconds: 0,
+      gapsAtLeast1000Milliseconds: 0,
+      gapsAtLeast2000Milliseconds: 0,
+    },
+    outputCadence: {
+      samples: 1,
+      durationMilliseconds: 0,
+      maximumGapMilliseconds: 0,
+      gapsAtLeast500Milliseconds: 0,
+      gapsAtLeast1000Milliseconds: 0,
+      gapsAtLeast2000Milliseconds: 0,
+    },
+    clientBackpressureEvents: 0,
+    maximumClientWritableBytes: 0,
   }]);
   await manager.close();
 });

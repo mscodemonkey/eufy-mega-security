@@ -24,6 +24,75 @@ export interface StreamController {
   stopStream(serial: string): Promise<void>;
 }
 
+/** Bounded timing counters for one side of a viewer conversion session. */
+export interface StreamCadenceSummary {
+  readonly samples: number;
+  readonly durationMilliseconds: number;
+  readonly maximumGapMilliseconds: number;
+  readonly gapsAtLeast500Milliseconds: number;
+  readonly gapsAtLeast1000Milliseconds: number;
+  readonly gapsAtLeast2000Milliseconds: number;
+}
+
+/**
+ * Tracks chunk timing without retaining media or wall-clock timestamps.
+ *
+ * One tracker belongs to one viewer transcoder invocation and is discarded
+ * with that invocation. Its summary crosses only the privacy-safe logging
+ * boundary used to compare camera input with converted viewer output.
+ */
+export class StreamCadenceTracker {
+  #firstAtMilliseconds: number | null = null;
+  #lastAtMilliseconds: number | null = null;
+  #samples = 0;
+  #maximumGapMilliseconds = 0;
+  #gapsAtLeast500Milliseconds = 0;
+  #gapsAtLeast1000Milliseconds = 0;
+  #gapsAtLeast2000Milliseconds = 0;
+
+  /** Record one chunk arrival using a monotonic timestamp supplied by the caller or runtime. */
+  record(atMilliseconds = performance.now()): void {
+    if (!Number.isFinite(atMilliseconds)) return;
+    if (this.#firstAtMilliseconds === null) this.#firstAtMilliseconds = atMilliseconds;
+    if (this.#lastAtMilliseconds !== null) {
+      const gapMilliseconds = Math.max(0, atMilliseconds - this.#lastAtMilliseconds);
+      this.#maximumGapMilliseconds = Math.max(this.#maximumGapMilliseconds, gapMilliseconds);
+      if (gapMilliseconds >= 500) this.#gapsAtLeast500Milliseconds += 1;
+      if (gapMilliseconds >= 1_000) this.#gapsAtLeast1000Milliseconds += 1;
+      if (gapMilliseconds >= 2_000) this.#gapsAtLeast2000Milliseconds += 1;
+    }
+    this.#lastAtMilliseconds = atMilliseconds;
+    this.#samples += 1;
+  }
+
+  /** Return integer millisecond counters suitable for one bounded log line. */
+  get summary(): StreamCadenceSummary {
+    const durationMilliseconds = this.#firstAtMilliseconds === null || this.#lastAtMilliseconds === null
+      ? 0
+      : this.#lastAtMilliseconds - this.#firstAtMilliseconds;
+    return {
+      samples: this.#samples,
+      durationMilliseconds: Math.round(durationMilliseconds),
+      maximumGapMilliseconds: Math.round(this.#maximumGapMilliseconds),
+      gapsAtLeast500Milliseconds: this.#gapsAtLeast500Milliseconds,
+      gapsAtLeast1000Milliseconds: this.#gapsAtLeast1000Milliseconds,
+      gapsAtLeast2000Milliseconds: this.#gapsAtLeast2000Milliseconds,
+    };
+  }
+}
+
+/** Privacy-safe outcome for one H.265-to-H.264 viewer conversion. */
+export interface ViewerTranscoderSummary {
+  readonly inputBytes: number;
+  readonly outputBytes: number;
+  readonly outputChunks: number;
+  readonly bootstrapReady: boolean;
+  readonly inputCadence: StreamCadenceSummary;
+  readonly outputCadence: StreamCadenceSummary;
+  readonly clientBackpressureEvents: number;
+  readonly maximumClientWritableBytes: number;
+}
+
 interface Session {
   readonly clients: Set<ServerResponse>;
   readonly pendingClients: Set<ServerResponse>;
@@ -37,6 +106,10 @@ interface Session {
   viewerInputBytes: number;
   viewerOutputBytes: number;
   viewerOutputChunks: number;
+  viewerInputCadence: StreamCadenceTracker;
+  viewerOutputCadence: StreamCadenceTracker;
+  viewerClientBackpressureEvents: number;
+  viewerMaximumClientWritableBytes: number;
   stopTimer: NodeJS.Timeout | null;
   owned: boolean;
   leases: number;
@@ -327,6 +400,10 @@ export class LiveStreamManager extends EventEmitter {
     session.viewerInputBytes = 0;
     session.viewerOutputBytes = 0;
     session.viewerOutputChunks = 0;
+    session.viewerInputCadence = new StreamCadenceTracker();
+    session.viewerOutputCadence = new StreamCadenceTracker();
+    session.viewerClientBackpressureEvents = 0;
+    session.viewerMaximumClientWritableBytes = 0;
 
     source.on("data", (chunk: Buffer) => {
       if (session.generation !== generation) return;
@@ -590,7 +667,12 @@ export class LiveStreamManager extends EventEmitter {
   #writeViewerChunk(session: Session, chunk: Buffer): void {
     for (const client of session.clients) {
       if (session.pendingClients.has(client)) continue;
-      client.write(chunk);
+      const accepted = client.write(chunk);
+      if (!accepted) session.viewerClientBackpressureEvents += 1;
+      session.viewerMaximumClientWritableBytes = Math.max(
+        session.viewerMaximumClientWritableBytes,
+        client.writableLength,
+      );
       if (client.writableLength > 4 * 1024 * 1024) {
         client.destroy(new Error("Live stream client exceeded the four-megabyte backpressure limit"));
       }
@@ -602,10 +684,18 @@ export class LiveStreamManager extends EventEmitter {
     const process = this.createViewerTranscoder();
     session.viewerFfmpeg = process;
     session.viewerParameterSets = new VideoParameterSetCache();
+    session.viewerInputBytes = 0;
+    session.viewerOutputBytes = 0;
+    session.viewerOutputChunks = 0;
+    session.viewerInputCadence = new StreamCadenceTracker();
+    session.viewerOutputCadence = new StreamCadenceTracker();
+    session.viewerClientBackpressureEvents = 0;
+    session.viewerMaximumClientWritableBytes = 0;
     process.stdout.on("data", (chunk: Buffer) => {
       if (session.generation !== generation || session.viewerFfmpeg !== process) return;
       session.viewerOutputBytes += chunk.length;
       session.viewerOutputChunks += 1;
+      session.viewerOutputCadence.record();
       session.viewerParameterSets.push(chunk, "h264");
       const bootstrap = session.viewerParameterSets.bootstrap;
       if (bootstrap) {
@@ -646,16 +736,22 @@ export class LiveStreamManager extends EventEmitter {
   #writeViewerTranscoderInput(session: Session, chunk: Buffer): void {
     if (!session.viewerFfmpeg?.stdin.writable) return;
     session.viewerInputBytes += chunk.length;
+    session.viewerInputCadence.record();
     session.viewerFfmpeg.stdin.write(chunk);
   }
 
   #emitViewerTranscoderSummary(session: Session): void {
-    this.emit("viewer-transcoder-stopped", {
+    const summary: ViewerTranscoderSummary = {
       inputBytes: session.viewerInputBytes,
       outputBytes: session.viewerOutputBytes,
       outputChunks: session.viewerOutputChunks,
       bootstrapReady: session.viewerParameterSets.bootstrap !== null,
-    });
+      inputCadence: session.viewerInputCadence.summary,
+      outputCadence: session.viewerOutputCadence.summary,
+      clientBackpressureEvents: session.viewerClientBackpressureEvents,
+      maximumClientWritableBytes: session.viewerMaximumClientWritableBytes,
+    };
+    this.emit("viewer-transcoder-stopped", summary);
   }
 
   #startSnapshotExtractor(serial: string, codec: VideoCodec): ChildProcessWithoutNullStreams {
@@ -730,6 +826,10 @@ export class LiveStreamManager extends EventEmitter {
         viewerInputBytes: 0,
         viewerOutputBytes: 0,
         viewerOutputChunks: 0,
+        viewerInputCadence: new StreamCadenceTracker(),
+        viewerOutputCadence: new StreamCadenceTracker(),
+        viewerClientBackpressureEvents: 0,
+        viewerMaximumClientWritableBytes: 0,
         stopTimer: null,
         owned: false,
         leases: 0,

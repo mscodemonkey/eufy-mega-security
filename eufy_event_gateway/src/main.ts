@@ -20,7 +20,7 @@ import { SimulatedProvider } from "./provider/simulated-provider.js";
 import { GatewayServer } from "./server.js";
 import { StartupSnapshotWarmup } from "./startup-snapshot-warmup.js";
 import { SnapshotStore } from "./storage/snapshot-store.js";
-import { LiveStreamManager } from "./stream/live-stream-manager.js";
+import { LiveStreamManager, type ViewerTranscoderSummary } from "./stream/live-stream-manager.js";
 
 const logger = createLogger("gateway");
 const providerLogger = createLogger("provider");
@@ -72,15 +72,32 @@ streams.on("warning", (error: unknown) => {
   const detail = error instanceof Error ? error.message : "Unknown media pipeline warning";
   logger.warn("media_pipeline_warning", `Camera media pipeline reported a recoverable warning: ${detail}`);
 });
-streams.on("viewer-transcoder-stopped", (detail: {
-  readonly inputBytes: number;
-  readonly outputBytes: number;
-  readonly outputChunks: number;
-  readonly bootstrapReady: boolean;
-}) => {
+streams.on("viewer-transcoder-stopped", (detail: ViewerTranscoderSummary) => {
+  const input = detail.inputCadence;
+  const output = detail.outputCadence;
   logger.info(
     "viewer_transcoder_stopped",
-    `H.265 viewer conversion stopped: input_bytes=${detail.inputBytes} output_bytes=${detail.outputBytes} output_chunks=${detail.outputChunks} bootstrap_ready=${detail.bootstrapReady}`,
+    [
+      "H.265 viewer conversion stopped:",
+      `input_bytes=${detail.inputBytes}`,
+      `output_bytes=${detail.outputBytes}`,
+      `output_chunks=${detail.outputChunks}`,
+      `bootstrap_ready=${detail.bootstrapReady}`,
+      `input_samples=${input.samples}`,
+      `input_duration_ms=${input.durationMilliseconds}`,
+      `input_max_gap_ms=${input.maximumGapMilliseconds}`,
+      `input_gaps_500ms=${input.gapsAtLeast500Milliseconds}`,
+      `input_gaps_1000ms=${input.gapsAtLeast1000Milliseconds}`,
+      `input_gaps_2000ms=${input.gapsAtLeast2000Milliseconds}`,
+      `output_samples=${output.samples}`,
+      `output_duration_ms=${output.durationMilliseconds}`,
+      `output_max_gap_ms=${output.maximumGapMilliseconds}`,
+      `output_gaps_500ms=${output.gapsAtLeast500Milliseconds}`,
+      `output_gaps_1000ms=${output.gapsAtLeast1000Milliseconds}`,
+      `output_gaps_2000ms=${output.gapsAtLeast2000Milliseconds}`,
+      `client_backpressure_events=${detail.clientBackpressureEvents}`,
+      `client_max_writable_bytes=${detail.maximumClientWritableBytes}`,
+    ].join(" "),
   );
 });
 const startupSnapshots = new StartupSnapshotWarmup(
