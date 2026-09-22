@@ -14,6 +14,7 @@ import {
   confirmStationWrite,
   dskKeyNeedsRefresh,
   inventoryDiagnostics,
+  inventoryMotionOutcome,
   inventoryLogSummaries,
   homeBaseStorageLogSummary,
   initialHomeBaseState,
@@ -189,6 +190,27 @@ test("decodes only validated capability-backed inventory values", () => {
     { param_type: 1101, param_value: "50" },
     { param_type: 1101, param_value: "49" },
   ]).batteryLevel, 49);
+});
+
+test("decodes a motion sensor cloud event timestamp without applying it to cameras", () => {
+  assert.deepEqual(safeInventoryReads([
+    { param_type: 1605, param_value: "1789500000" },
+  ], 10), {
+    lastSeen: "2026-09-15T19:20:00.000Z",
+    motionEventSeconds: 1_789_500_000,
+  });
+  assert.deepEqual(safeInventoryReads([
+    { param_type: 1605, param_value: "1789500000" },
+  ], 8), {});
+});
+
+test("uses advancing cloud motion only when push did not already emit it", () => {
+  assert.equal(inventoryMotionOutcome(undefined, 1_789_500_000, false), "none");
+  assert.equal(inventoryMotionOutcome(1_789_500_000, 1_789_500_000, false), "none");
+  assert.equal(inventoryMotionOutcome(1_789_500_001, 1_789_500_000, false), "none");
+  assert.equal(inventoryMotionOutcome(1_789_500_000, 1_789_500_001, false), "cloud-motion");
+  assert.equal(inventoryMotionOutcome(1_789_500_000, 1_789_500_001, true), "push-confirmed");
+  assert.equal(inventoryMotionOutcome(undefined, 1_789_500_001, true), "push-confirmed");
 });
 
 test("decodes reported camera enablement with family-specific polarity", () => {

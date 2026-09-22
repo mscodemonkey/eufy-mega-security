@@ -48,10 +48,12 @@ test("admits a contact sensor only for its reported implemented fields", () => {
 
 test("does not infer contact state for a PIR sensor or camera", () => {
   const [motion] = describeDeviceCapabilities({
-    serial: "PIR", model: "T8910", category: "eufy_security", deviceType: 10, paramTypes: [1101],
+    serial: "PIR", model: "T8910", category: "eufy_security", deviceType: 10, paramTypes: [1101, 1605],
   }, noSupport);
   assert.equal(motion?.matrix.find(({ id }) => id === "sensor.contact_open")?.deviceEvidence, "not-reported");
   assert.equal(motion?.matrix.find(({ id }) => id === "sensor.motion_event")?.offerable, true);
+  assert.equal(motion?.matrix.find(({ id }) => id === "sensor.motion_event")?.deviceEvidence, "reported-param");
+  assert.equal(motion?.matrix.find(({ id }) => id === "sensor.last_seen")?.offerable, true);
   assert.deepEqual(describeDeviceCapabilities({
     serial: "CAMERA", model: "T8113", category: "eufy_security", deviceType: 8, paramTypes: [1101],
   }, noSupport), []);

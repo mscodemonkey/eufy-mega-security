@@ -79,6 +79,9 @@ export interface MegaInventoryReads {
   readonly lastChargingDays?: number;
   readonly contactOpen?: boolean;
   readonly lastSeen?: string;
+
+  /** Latest standalone PIR event time in Unix seconds, retained for delayed cloud fallback. */
+  readonly motionEventSeconds?: number;
 }
 
 const COLOUR_NIGHT_VISION_MODELS: ReadonlySet<string> = new Set([
@@ -162,6 +165,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #cameraOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #motionOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #nightVisionOperations = new Map<string, Promise<CameraIdentity>>();
+  readonly #pendingSensorMotionCloudConfirmations = new Set<string>();
   #push: MegaPushReceiver | null = null;
   #events: ProviderEvents | null = null;
   #captchaChallenge: CaptchaChallenge | null = null;
@@ -531,6 +535,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#stationOperations.clear();
     await Promise.allSettled(this.#cameraOperations.values());
     this.#cameraOperations.clear();
+    this.#pendingSensorMotionCloudConfirmations.clear();
     this.#events = null;
   }
 
@@ -589,6 +594,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
     const devices = parseMegaInventory(inventory);
     this.#devices.clear();
+    this.#pendingSensorMotionCloudConfirmations.clear();
     for (const device of devices) {
       this.#devices.set(device.serial, device);
     }
@@ -710,6 +716,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     for (const device of refreshed) {
       const known = this.#devices.get(device.serial);
       if (!known) continue;
+      const motionOutcome = inventoryMotionOutcome(
+        known.reads.motionEventSeconds,
+        device.reads.motionEventSeconds,
+        this.#pendingSensorMotionCloudConfirmations.has(device.serial),
+      );
       const merged = { ...known, paramTypes: device.paramTypes, reads: device.reads };
       this.#devices.set(device.serial, merged);
       if (isSupportedMegaCamera(merged)) {
@@ -717,6 +728,19 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       }
       const sensor = securitySensorState(merged);
       if (sensor) this.#events?.sensor(sensor);
+      if (motionOutcome === "none") continue;
+      this.#pendingSensorMotionCloudConfirmations.delete(device.serial);
+      logger.info(
+        "sensor_motion_cloud_observed",
+        [
+          `model=${JSON.stringify(device.model)}`,
+          `channel=${device.channel ?? "missing"}`,
+          `previous=${known.reads.motionEventSeconds ?? "missing"}`,
+          `current=${device.reads.motionEventSeconds ?? "missing"}`,
+          `outcome=${motionOutcome}`,
+        ].join(" "),
+      );
+      if (motionOutcome === "cloud-motion") this.#events?.sensorMotion(device.serial, true);
     }
   }
 
@@ -877,6 +901,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       return;
     }
     if ((device.deviceType === 10 || device.deviceType === 127) && event.eventType === 14) {
+      this.#pendingSensorMotionCloudConfirmations.add(event.cameraSerial);
       events.sensorMotion(event.cameraSerial, true);
       return;
     }
@@ -1120,7 +1145,11 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const temperature = finiteNumber(params.get(1138));
   const batteryStatus = finiteNumber(params.get(2111));
   const contact = finiteNumber(params.get(1550));
-  const lastSeen = finiteNumber(params.get(1551));
+  const contactLastSeen = validUnixSeconds(params.get(1551));
+  const motionEventSeconds = deviceType === 10 || deviceType === 127
+    ? validUnixSeconds(params.get(1605))
+    : undefined;
+  const lastSeen = contactLastSeen ?? motionEventSeconds;
   const batteryLevel = percentage(1101);
   const batteryHealth = percentage(1198);
   const openDevice = finiteNumber(params.get(2001));
@@ -1141,10 +1170,28 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
     ...(batteryHealth !== undefined ? { batteryHealth } : {}),
     ...(temperature !== null && temperature >= -50 && temperature <= 100 ? { batteryTemperature: temperature } : {}),
     ...(contact === 0 || contact === 1 ? { contactOpen: contact === 1 } : {}),
-    ...(lastSeen !== null && lastSeen >= 946_684_800 && lastSeen <= Date.now() / 1_000 + 86_400
+    ...(lastSeen !== undefined
       ? { lastSeen: new Date(lastSeen * 1_000).toISOString() }
       : {}),
+    ...(motionEventSeconds !== undefined ? { motionEventSeconds } : {}),
   };
+}
+
+/**
+ * Decide whether a cloud PIR timestamp is a new fallback event or confirms a push already emitted.
+ *
+ * The first observed timestamp establishes a baseline unless a push is waiting for confirmation.
+ * Equal or older values never replay historical motion after startup or a cloud rollback.
+ */
+export function inventoryMotionOutcome(
+  previous: number | undefined,
+  current: number | undefined,
+  pushPending: boolean,
+): "none" | "push-confirmed" | "cloud-motion" {
+  if (current === undefined) return "none";
+  if (previous === undefined) return pushPending ? "push-confirmed" : "none";
+  if (current <= previous) return "none";
+  return pushPending ? "push-confirmed" : "cloud-motion";
 }
 
 /** Resolve the family-specific raw 1035 value for a desired camera state. */
@@ -1162,6 +1209,13 @@ function finiteNumber(value: unknown): number | null {
   if (typeof value === "string" && !/^-?\d+(?:\.\d+)?$/.test(value.trim())) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function validUnixSeconds(value: unknown): number | undefined {
+  const parsed = finiteNumber(value);
+  return parsed !== null && parsed >= 946_684_800 && parsed <= Date.now() / 1_000 + 86_400
+    ? parsed
+    : undefined;
 }
 
 /**
@@ -1224,7 +1278,8 @@ function securitySensorState(device: MegaInventoryDevice): SecuritySensorState |
   const contact = device.paramTypes.includes(1550);
   const motion = device.deviceType === 10 || device.deviceType === 127;
   const battery = device.paramTypes.includes(1101);
-  const lastSeen = device.paramTypes.includes(1551);
+  const lastSeen = device.paramTypes.includes(1551)
+    || (motion && device.paramTypes.includes(1605));
   if (!contact && !motion && !battery && !lastSeen) return null;
   if (![2, 10, 20, 21, 22, 123, 126, 127].includes(device.deviceType ?? -1)) return null;
   return {
