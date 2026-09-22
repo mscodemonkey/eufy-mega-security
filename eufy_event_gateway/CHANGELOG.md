@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.88
+
+- Adds a delayed cloud fallback for standalone PIR motion sensors when their realtime push does not reach the gateway.
+- Exposes the cloud-reported PIR event time through the sensor last-seen diagnostic and logs timestamp transitions without device identifiers.
+- Prevents the cloud fallback from replaying historical motion at startup or duplicating a motion push that already worked.
+
 ## 0.1.87
 
 - Add a privacy-safe Firebase delivery receipt before duplicate filtering and push parsing to diagnose missing sensor events.
