@@ -44,6 +44,7 @@ const CMD_NOTIFY_PAYLOAD = 1351;
 const COMMAND_TIMEOUT_MS = 10_000;
 const CHILD_READ_PARAM_TYPES: ReadonlySet<number> = new Set([
   1011,
+  1013,
   1035,
   1101,
   1138,

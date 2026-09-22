@@ -168,6 +168,7 @@ test("retains only the freshest private HomeBase LAN address", () => {
 
 test("decodes only validated capability-backed inventory values", () => {
   assert.deepEqual(safeInventoryReads([
+    { param_type: 1013, param_value: "0" },
     { param_type: 1101, param_value: "82" },
     { param_type: 2111, param_value: "4" },
     { param_type: 1198, param_value: "96" },
@@ -176,6 +177,7 @@ test("decodes only validated capability-backed inventory values", () => {
     { param_type: 1551, param_value: "1789500000" },
     { param_type: 9999, param_value: "private" },
   ]), {
+    autoNightVisionEnabled: false,
     batteryLevel: 82,
     batteryCharging: true,
     batteryHealth: 96,
@@ -226,6 +228,9 @@ test("decodes the reported motion-detection switch without inventing it", () => 
   assert.equal(safeInventoryReads([{ param_type: 1011, param_value: "1" }]).motionDetectionEnabled, true);
   assert.equal(safeInventoryReads([{ param_type: 1011, param_value: "0" }]).motionDetectionEnabled, false);
   assert.equal(safeInventoryReads([{ param_type: 1011, param_value: "2" }]).motionDetectionEnabled, undefined);
+  assert.equal(safeInventoryReads([{ param_type: 1013, param_value: "1" }]).autoNightVisionEnabled, true);
+  assert.equal(safeInventoryReads([{ param_type: 1013, param_value: "0" }]).autoNightVisionEnabled, false);
+  assert.equal(safeInventoryReads([{ param_type: 1013, param_value: "2" }]).autoNightVisionEnabled, undefined);
   assert.equal(safeInventoryReads([{ param_type: 1277, param_value: "2" }]).nightVisionMode, 2);
   assert.equal(safeInventoryReads([{ param_type: 1277, param_value: "3" }]).nightVisionMode, undefined);
 });

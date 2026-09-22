@@ -71,6 +71,7 @@ export interface MegaInventoryDevice {
 export interface MegaInventoryReads {
   readonly enabled?: boolean;
   readonly motionDetectionEnabled?: boolean;
+  readonly autoNightVisionEnabled?: boolean;
   readonly nightVisionMode?: number;
   readonly batteryLevel?: number;
   readonly batteryCharging?: boolean;
@@ -417,7 +418,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return current;
   }
 
-  /** Write the verified 1277 night-vision mode and publish fresh inventory state. */
+  /** Write the camera family's night-vision control and publish fresh confirmed state. */
   setCameraNightVision(serial: string, mode: number): Promise<CameraIdentity> {
     if (!Number.isSafeInteger(mode) || mode < 0 || mode > 2) {
       return Promise.reject(new Error("Night vision mode must be 0, 1, or 2"));
@@ -425,10 +426,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const previous = this.#nightVisionOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
     const current = previous.catch(() => this.#requireCameraIdentity(serial)).then(async () => {
       const device = this.#devices.get(serial);
-      if (!device || !isSupportedMegaCamera(device) || device.reads.nightVisionMode === undefined) {
+      if (!device || !isSupportedMegaCamera(device)) {
         throw new Error("Night vision control is not supported for this camera");
       }
-      const supportedModes = isAutoNightVisionDoorbell(device)
+      const autoNightVision = isAutoNightVisionDoorbell(device);
+      const supportedModes = autoNightVision && device.reads.autoNightVisionEnabled !== undefined
         ? [0, 1]
         : nightVisionModes(device).map(({ value }) => value);
       if (!supportedModes.includes(mode)) {
@@ -447,16 +449,32 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         accountId: device.adminUserId, homeBaseAttached: true, purpose: "control", maxSeconds: 40,
         resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
       });
+      let acknowledgementTimedOut = false;
       try {
         await session.start();
-        await session.writeNightVision(mode);
+        try {
+          if (autoNightVision) await session.writeAutoNightVision(mode === 1);
+          else await session.writeNightVision(mode);
+        } catch (error) {
+          if (!(autoNightVision && error instanceof CameraControlAcknowledgementTimeoutError)) throw error;
+          acknowledgementTimedOut = true;
+        }
       } finally {
         session.close();
       }
       for (let attempt = 0; attempt < 12; attempt += 1) {
-        await this.#refreshInventoryReads();
+        if (autoNightVision) await this.refreshStation(peer.serial);
+        else await this.#refreshInventoryReads();
         const refreshed = this.#devices.get(serial);
-        if (refreshed?.reads.nightVisionMode === mode) return this.#cameraIdentity(refreshed);
+        const confirmed = autoNightVision
+          ? refreshed?.reads.autoNightVisionEnabled === (mode === 1)
+          : refreshed?.reads.nightVisionMode === mode;
+        if (confirmed && refreshed) {
+          if (acknowledgementTimedOut) {
+            logger.warn("camera_auto_night_vision_acknowledgement_missing", "Auto night vision was confirmed by local readback after its acknowledgement timed out");
+          }
+          return this.#cameraIdentity(refreshed);
+        }
         await delay(2_000);
       }
       throw new Error("Night vision write was not confirmed by readback");
@@ -790,10 +808,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.adminUserId !== null
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === true
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
-      autoNightVisionEnabled: isAutoNightVisionDoorbell(device) && device.reads.nightVisionMode !== undefined
-        ? device.reads.nightVisionMode === 1
+      autoNightVisionEnabled: isAutoNightVisionDoorbell(device) && device.reads.autoNightVisionEnabled !== undefined
+        ? device.reads.autoNightVisionEnabled
         : null,
-      autoNightVisionControlSupported: device.reads.nightVisionMode !== undefined
+      autoNightVisionControlSupported: device.reads.autoNightVisionEnabled !== undefined
         && isAutoNightVisionDoorbell(device)
         && device.channel !== null
         && device.adminUserId !== null
@@ -1212,6 +1230,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const openDevice = finiteNumber(params.get(2001));
   const cameraSwitch = finiteNumber(params.get(1035));
   const motionSwitch = finiteNumber(params.get(1011));
+  const autoNightVision = finiteNumber(params.get(1013));
   const nightVisionMode = finiteNumber(params.get(1277));
   const enabled = openDevice === 0 || openDevice === 1
     ? openDevice === 1
@@ -1221,6 +1240,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   return {
     ...(enabled !== undefined ? { enabled } : {}),
     ...(motionSwitch === 0 || motionSwitch === 1 ? { motionDetectionEnabled: motionSwitch === 1 } : {}),
+    ...(autoNightVision === 0 || autoNightVision === 1 ? { autoNightVisionEnabled: autoNightVision === 1 } : {}),
     ...(nightVisionMode === 0 || nightVisionMode === 1 || nightVisionMode === 2 ? { nightVisionMode } : {}),
     ...(batteryLevel !== undefined ? { batteryLevel } : {}),
     ...(batteryStatus !== null ? { batteryCharging: batteryStatus !== 0 && batteryStatus !== 2 } : {}),

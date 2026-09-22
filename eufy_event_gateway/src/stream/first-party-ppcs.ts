@@ -778,6 +778,27 @@ export class FirstPartyPpcsSession {
     await acknowledgement;
   }
 
+  /** Send the T8210-family 1013 direct-binary Auto night vision switch and await its result. */
+  async writeAutoNightVision(enabled: boolean): Promise<void> {
+    if (this.#options.purpose !== "control") throw new Error("Auto night vision control requires a control session");
+    if (!this.#remote) throw new Error("Auto night vision control session is not connected");
+    if (!this.#options.homeBaseAttached) throw new Error("Auto night vision control requires a HomeBase-attached camera");
+    const accountId = this.#options.accountId;
+    if (!accountId) throw new Error("Auto night vision control account identity is unavailable");
+    const body = buildAutoNightVisionCommandBody(
+      this.#options.channel,
+      enabled,
+      accountId,
+      commandKey(this.#options.stationSerial, this.#options.p2pDid),
+    );
+    const acknowledgement = this.#waitForControlResult(1013);
+    for (let index = 0; index < 3; index += 1) {
+      this.#sendCommand(1013, body);
+      if (index < 2) await delay(200);
+    }
+    await acknowledgement;
+  }
+
   /** Send the verified HomeBase-attached night-vision mode command. */
   async writeNightVision(mode: number): Promise<void> {
     if (this.#options.purpose !== "control") throw new Error("Night vision control requires a control session");
@@ -1241,6 +1262,15 @@ function buildIntStringCommandBody(value: number, valueSub: number, accountId: s
   const plain = Buffer.concat([valueSubBuffer, valueBuffer, accountBuffer]);
   return rawPayload(encryptLevel1(plain, key), valueSub, 1, [1, 0], 0);
 }
+
+/** Build the verified 1013 direct-binary body used by T8210-family Auto night vision writes. */
+export function buildAutoNightVisionCommandBody(channel: number, enabled: boolean, accountId: string, key: Buffer): Buffer {
+  if (!accountId) throw new Error("Auto night vision control requires a non-empty account identity");
+  if (!Number.isSafeInteger(channel) || channel < 0 || channel > 255) throw new Error("Auto night vision control requires a valid camera channel");
+  if (key.length !== 16) throw new Error("Auto night vision control requires a 16-byte command key");
+  return buildIntStringCommandBody(enabled ? 1 : 0, channel, accountId, key);
+}
+
 /** Build the bounded direct-command body used by camera enablement writes. */
 export function buildCameraEnableBody(channel: number, value: number, accountId: string): Buffer {
   if (!accountId) throw new Error("Camera control requires a non-empty account identity");

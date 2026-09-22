@@ -9,6 +9,7 @@ import { createCipheriv, createDecipheriv, createECDH, createHmac } from "node:c
 import test from "node:test";
 
 import {
+  buildAutoNightVisionCommandBody,
   buildCameraEnableBody,
   buildAttachedMediaControlValue,
   buildLegacyAttachedMediaStopPayload,
@@ -57,6 +58,22 @@ test("builds a bounded camera enablement body without leaking adjacent data", ()
   assert.equal(body.subarray(8, 21).toString("ascii"), "account-owner");
   assert.ok(body.subarray(21).every((value) => value === 0));
   assert.throws(() => buildCameraEnableBody(3, 0, ""), /non-empty account identity/);
+});
+
+test("builds the T8210-family Auto night vision direct command body", () => {
+  const key = Buffer.from("0123456789abcdef", "ascii");
+  const body = buildAutoNightVisionCommandBody(4, false, "account-owner", key);
+  assert.equal(body[4], 1);
+  assert.equal(body[5], 0);
+  assert.equal(body[6], 4);
+  assert.equal(body[7], 1);
+  const decipher = createDecipheriv("aes-128-ecb", key, null);
+  decipher.setAutoPadding(false);
+  const plain = Buffer.concat([decipher.update(body.subarray(10)), decipher.final()]);
+  assert.equal(plain.readUInt32LE(0), 4);
+  assert.equal(plain.readUInt32LE(4), 0);
+  assert.equal(plain.subarray(8, 21).toString("ascii"), "account-owner");
+  assert.ok(plain.subarray(136).every((value) => value === 0));
 });
 
 test("builds the verified night-vision SET_PAYLOAD body", () => {
