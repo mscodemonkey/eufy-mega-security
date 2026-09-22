@@ -55,6 +55,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 - 🟠 Indoor Cam S350 T8416: discovery and Home Assistant entities are confirmed on direct Wi-Fi and T9000-attached setups. Live video through T9000 is waiting on that station's PPCS lookup result, and privacy-mode control is not yet exposed.
 - 🟠 Indoor Cam E30 4K T8417: discovery and properties are confirmed. Direct media arrives, but live video remains blank and codec startup is unresolved. Events and snapshots still need confirmation.
 - 🟠 eufyCam C37 T814X: Mega type 10037 is admitted through its reported HomeBase 3 route. Discovery, events, snapshots, and live video need reporter confirmation.
+- 🟠 eufyCam E40 T8144: discovery, motion, person, pet, and sound events are confirmed through HomeBase 2. Fresh snapshots work, but live view is mixed. Chrome has shown a picture for 7 to 10 seconds while Safari remains blank.
 
 ### Doorbells
 
@@ -68,11 +69,12 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 ### Standalone sensors
 
 - ✅ Entry Sensor T8900: discovery and open or closed state are confirmed on real hardware.
-- 🟠 Motion Sensor T8910: discovery and the motion entity are implemented, but the first hardware test was inconclusive because the reported sensor may have had a low battery.
+- 🟠 Motion Sensor T8910: discovery and the motion entity are implemented. A HomeBase 2 setup confirms that the sensor wakes an attached doorbell, but its own push event does not reach the gateway. The cloud timestamp fallback still needs hardware confirmation.
 
 ### Recognised but not supported
 
 - MiniBase Chime T8023: Eufy's inventory lists it as the E340 doorbell's parent connection. The gateway can use that connection metadata for the doorbell, but it does not create a Home Assistant entity for the chime or expose its settings.
+- Floodlight Camera E30 T8426, Mega type 87: recognised in the device catalogue. The first report has a ready parent station but no usable stream route, and the exact parent model still needs confirmation before admission.
 - T85D0, Mega type 202: reported in camera-focused diagnostics, but it belongs to a non-camera device family. Lock and access-control entities are not implemented.
 
 If a tested device behaves differently for you, [open an issue](https://github.com/mscodemonkey/eufy-mega-security/issues) with its model number and what happened. Do not post serial numbers, credentials, or verification codes.

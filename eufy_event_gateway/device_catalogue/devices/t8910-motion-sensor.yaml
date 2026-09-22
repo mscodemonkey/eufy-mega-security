@@ -54,7 +54,10 @@ capabilities:
     motion:
       connections:
         T8010:
-          status: declared
+          status: failing
+          tested_on: 2026-09-22
+          tested_by: ooorit
+          notes: The sensor wakes an attached doorbell, but no T8910 push delivery reaches the gateway. The cloud timestamp fallback still needs confirmation.
         T8025:
           status: declared
         T8030:

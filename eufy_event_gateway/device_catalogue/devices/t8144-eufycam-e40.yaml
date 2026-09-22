@@ -90,19 +90,19 @@ capabilities:
     live_view:
       connections:
         T8010:
-          status: failing
-          tested_on: 2026-09-20
+          status: mixed
+          tested_on: 2026-09-22
           tested_by: philMo2305
-          notes: All tested cameras stream data but do not produce a usable live picture.
+          notes: Chrome produced a picture for 7 to 10 seconds, while Safari remained blank and the stream did not stay live.
         T8030:
           status: declared
     snapshot:
       connections:
         T8010:
           status: mixed
-          tested_on: 2026-09-20
+          tested_on: 2026-09-22
           tested_by: philMo2305
-          notes: Fresh images appeared on two of four tested cameras.
+          notes: Fresh images work, but intermittent FFmpeg reference-frame errors still appear on the snapshot path.
         T8030:
           status: declared
   events:
