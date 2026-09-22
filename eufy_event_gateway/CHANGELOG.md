@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.89
+
+- Prefer fresh allowlisted child-device values reported by the HomeBase over older cloud inventory values, including battery level and night vision mode.
+- Log the cloud and live battery figures when a HomeBase reports a new local battery value, without exposing device identifiers or arbitrary parameters.
+- Keep signed live-view URLs valid through Home Assistant's retry window so a delayed retry does not fail with an authorization error.
+
 ## 0.1.88
 
 - Adds a delayed cloud fallback for standalone PIR motion sensors when their realtime push does not reach the gateway.
