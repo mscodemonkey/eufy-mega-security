@@ -15,6 +15,7 @@ from pathlib import Path
 
 import voluptuous as vol
 from homeassistant.components.camera import Camera, CameraEntityFeature
+from homeassistant.components.stream.const import CONF_USE_WALLCLOCK_AS_TIMESTAMPS
 from homeassistant.const import ATTR_ENTITY_ID, CONF_FILENAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
@@ -88,6 +89,10 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         Camera.__init__(self)
         self._attr_unique_id = f"{serial}_camera"
         self._published_snapshot_revision = self._snapshot_revision
+
+        # The gateway serves live Annex-B video without container timestamps.
+        # Home Assistant needs arrival times so its stream worker can build HLS.
+        self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = True
 
     @property
     def _snapshot_revision(self) -> int | None:

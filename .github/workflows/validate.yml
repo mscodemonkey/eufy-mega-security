@@ -25,6 +25,9 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run build
+      - name: Test Home Assistant integration contracts
+        working-directory: .
+        run: python3 -m unittest discover -s tests
 
   validate-hacs:
     runs-on: ubuntu-latest
