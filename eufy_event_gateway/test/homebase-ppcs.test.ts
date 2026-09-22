@@ -116,24 +116,37 @@ test("accepts a JSON-encoded storage body and rejects unsupported values", () =>
   });
 });
 
-test("uses the HomeBase 3 usable HDD capacity and decimal used-space value", () => {
+test("uses the HomeBase 3 usable capacity and unused video partition", () => {
   const result = parseHomeBaseState({}, {
     hdd_info: {
-      disk_size: 327_680,
-      disk_size_1024: 305_245,
-      disk_used: 264_370,
+      disk_size: 491_520,
+      disk_size_1024: 457_862,
+      disk_used: 67_627,
+      system_size: 7_793,
+      system_size_data: 18_183,
+      video_size: 431_885,
+      video_used: 67_002,
       work_status: 0,
     },
   });
 
   assert.deepEqual(result.storage?.hdd, {
     status: "normal",
-    totalBytes: 298_090_820_313,
-    freeBytes: 33_720_820_313,
+    totalBytes: 447_130_859_375,
+    freeBytes: 356_331_054_688,
   });
   assert.deepEqual(result.storageDiagnostic, {
     present: true,
-    numericFields: ["disk_size:327680", "disk_size_1024:305245", "disk_used:264370", "work_status:0"],
+    numericFields: [
+      "disk_size:491520",
+      "disk_size_1024:457862",
+      "disk_used:67627",
+      "system_size:7793",
+      "system_size_data:18183",
+      "video_size:431885",
+      "video_used:67002",
+      "work_status:0",
+    ],
     booleanFields: [],
     textFieldLengths: [],
     structuredFields: [],
