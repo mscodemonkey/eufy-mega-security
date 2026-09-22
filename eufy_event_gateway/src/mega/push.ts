@@ -183,8 +183,8 @@ export function safeUnparsedShape(data: unknown): string {
     "data_record=true",
     `outer_payload=${nestedRecord(data.payload) !== null}`,
     `inner_payload=${nestedRecord(outer.payload) !== null}`,
-    `device_field=${text(outer.device_sn) !== null || text(payload.device_sn) !== null}`,
-    `station_field=${text(outer.station_sn) !== null || text(payload.station_sn) !== null}`,
+    `device_field=${text(data.device_sn) !== null || text(outer.device_sn) !== null || text(payload.device_sn) !== null}`,
+    `station_field=${text(data.station_sn) !== null || text(outer.station_sn) !== null || text(payload.station_sn) !== null}`,
     `notification_field=${isRecord(data.notification)}`,
   ].join(" ");
 }

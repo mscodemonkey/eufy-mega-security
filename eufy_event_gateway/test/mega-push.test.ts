@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { mcsDeliveryLogSummary } from "../src/mega/android-push/push-client.js";
+import { decodeMcsAppData, mcsDeliveryLogSummary } from "../src/mega/android-push/push-client.js";
 import { parsePushEvent, safeUnparsedShape } from "../src/mega/push.js";
 
 test("summarizes every MCS delivery without retaining identifiers or payloads", () => {
@@ -22,9 +22,27 @@ test("summarizes every MCS delivery without retaining identifiers or payloads", 
 
   assert.equal(
     summary,
-    "persistent_id_present=true duplicate=true app_data_entries=2 payload_entry=true category_present=true",
+    "persistent_id_present=true duplicate=true app_data_entries=2 payload_entry=true device_entry=true station_entry=false event_entry=false category_present=true",
   );
   assert.equal(summary.includes("private"), false);
+});
+
+test("retains Firebase sibling identity beside a decoded payload entry", () => {
+  const payload = Buffer.from(`${JSON.stringify({ a: 3101, msg_type: 1 })}\0`).toString("base64");
+  const decoded = decodeMcsAppData({ appData: [
+    { key: "payload", value: payload },
+    { key: "device_sn", value: "camera" },
+    { key: "station_sn", value: "station" },
+  ] });
+
+  assert.deepEqual(decoded, {
+    payload: { a: 3101, msg_type: 1 },
+    device_sn: "camera",
+    station_sn: "station",
+  });
+  assert.equal(parsePushEvent(decoded)?.cameraSerial, "camera");
+  assert.equal(parsePushEvent(decoded)?.stationSerial, "station");
+  assert.equal(parsePushEvent(decoded)?.eventType, 3101);
 });
 
 test("normalizes a nested HomeBase 3 Mega notification", () => {

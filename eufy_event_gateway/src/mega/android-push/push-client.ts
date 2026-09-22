@@ -13,6 +13,7 @@ import { mcsRoot } from "./proto.js";
 import { MessageTag } from "./message-tags.js";
 import { McsParser } from "./parser.js";
 import type {
+  EufyPushMessage,
   FcmCredentials,
   McsMessage,
   PushEvent,
@@ -42,16 +43,46 @@ function nonemptyString(value: unknown): value is string {
 export function mcsDeliveryLogSummary(object: unknown, duplicate: boolean): string {
   const record = typeof object === "object" && object !== null ? object as Record<string, unknown> : {};
   const appData = Array.isArray(record.appData) ? record.appData.slice(0, 100) : [];
-  const payloadEntry = appData.some((entry) =>
-    typeof entry === "object" && entry !== null && (entry as Record<string, unknown>).key === "payload"
-  );
+  const keys = new Set(appData.flatMap((entry) => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const key = (entry as Record<string, unknown>).key;
+    return typeof key === "string" ? [key] : [];
+  }));
   return [
     `persistent_id_present=${typeof record.persistentId === "string"}`,
     `duplicate=${duplicate}`,
     `app_data_entries=${appData.length}`,
-    `payload_entry=${payloadEntry}`,
+    `payload_entry=${keys.has("payload")}`,
+    `device_entry=${keys.has("device_sn")}`,
+    `station_entry=${keys.has("station_sn")}`,
+    `event_entry=${keys.has("a") || keys.has("event_type")}`,
     `category_present=${typeof record.category === "string"}`,
   ].join(" ");
+}
+
+/** Decode bounded Firebase app-data fields while retaining the complete Eufy envelope. */
+export function decodeMcsAppData(object: unknown): EufyPushMessage {
+  const record = typeof object === "object" && object !== null ? object as Record<string, unknown> : {};
+  const data: Record<string, unknown> = {};
+  const appData = Array.isArray(record.appData) ? record.appData.slice(0, 100) : [];
+  for (const entry of appData) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const item = entry as Record<string, unknown>;
+    if (typeof item.key !== "string" || item.key.length > 128 || typeof item.value !== "string") continue;
+    if (item.key === "payload") {
+      if (item.value.length > 90_000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(item.value)) continue;
+      const json = readNullTerminated(Buffer.from(item.value, "base64"));
+      if (Buffer.byteLength(json, "utf8") > 65_536) continue;
+      try {
+        data.payload = JSON.parse(json);
+      } catch {
+        data.payload = json;
+      }
+    } else if (item.value.length <= 2_048) {
+      data[item.key] = item.value;
+    }
+  }
+  return data as EufyPushMessage;
 }
 
 /**
@@ -262,24 +293,7 @@ export class PushClient extends EventEmitter {
       if (duplicate) return;
       this.persistentIds = [...this.persistentIds.slice(-99), object.persistentId];
     }
-    const data: Record<string, any> = {};
-    const appData = Array.isArray(object?.appData) ? object.appData.slice(0, 100) : [];
-    for (const kv of appData) {
-      if (typeof kv?.key !== "string" || kv.key.length > 128 || typeof kv.value !== "string") continue;
-      if (kv.key === "payload") {
-        if (kv.value.length > 90_000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(kv.value)) continue;
-        const json = readNullTerminated(Buffer.from(kv.value, "base64"));
-        if (Buffer.byteLength(json, "utf8") > 65_536) continue;
-        try {
-          data.payload = JSON.parse(json);
-        } catch {
-          data.payload = json;
-        }
-      } else {
-        if (kv.value.length > 2_048) continue;
-        data[kv.key] = kv.value;
-      }
-    }
+    const data = decodeMcsAppData(object);
     const raw: RawPushMessage = {
       id: object?.id,
       from: object?.from,
@@ -288,7 +302,7 @@ export class PushClient extends EventEmitter {
       persistentId: object?.persistentId,
       ttl: object?.ttl,
       sent: object?.sent,
-      payload: data.payload ?? data,
+      payload: data,
     };
     this.emit("message", raw);
     const event = normalizePushEvent(raw);
