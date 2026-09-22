@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.93
+
+- Calculate HomeBase 3 HDD free space from the unused video partition, including the system areas that the Eufy app counts as used.
+- Preserve the existing fallback for HomeBase storage responses that do not include partition figures.
+
 ## 0.1.92
 
 - Give Home Assistant usable arrival timestamps for raw camera video, preventing its stream worker from repeatedly closing and reopening otherwise healthy live views.
