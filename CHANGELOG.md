@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.90
+
+- Use the T8210-family direct Auto night vision command instead of the unrelated three-mode night vision command.
+- Read and confirm the dedicated Auto night vision value from both cloud inventory and current HomeBase child state.
+
 ## 0.1.89
 
 - Prefer fresh allowlisted child-device values reported by the HomeBase over older cloud inventory values, including battery level and night vision mode.
