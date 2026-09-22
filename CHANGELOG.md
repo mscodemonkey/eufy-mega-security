@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.86
+
+- Add a once-per-start HomeBase 3 HDD diagnostic with exact numeric and boolean storage fields, calculated byte totals, and redacted text values.
+
 ## 0.1.85
 
 - Refresh expiring PPCS lookup keys before new camera sessions, avoiding stale credentials during long-running gateway sessions.
