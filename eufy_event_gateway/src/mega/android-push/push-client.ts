@@ -38,6 +38,22 @@ function nonemptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+/** Describe one MCS data delivery without exposing its identifiers or payload. */
+export function mcsDeliveryLogSummary(object: unknown, duplicate: boolean): string {
+  const record = typeof object === "object" && object !== null ? object as Record<string, unknown> : {};
+  const appData = Array.isArray(record.appData) ? record.appData.slice(0, 100) : [];
+  const payloadEntry = appData.some((entry) =>
+    typeof entry === "object" && entry !== null && (entry as Record<string, unknown>).key === "payload"
+  );
+  return [
+    `persistent_id_present=${typeof record.persistentId === "string"}`,
+    `duplicate=${duplicate}`,
+    `app_data_entries=${appData.length}`,
+    `payload_entry=${payloadEntry}`,
+    `category_present=${typeof record.category === "string"}`,
+  ].join(" ");
+}
+
 /**
  * Normalises a decoded eufy envelope without consulting device semantics; semantic event names remain unset.
  * @internal
@@ -240,8 +256,10 @@ export class PushClient extends EventEmitter {
   }
 
   private handleDataMessage(object: any): void {
+    const duplicate = typeof object?.persistentId === "string" && this.persistentIds.includes(object.persistentId);
+    logger.info("mcs_delivery_received", mcsDeliveryLogSummary(object, duplicate));
     if (typeof object?.persistentId === "string") {
-      if (this.persistentIds.includes(object.persistentId)) return;
+      if (duplicate) return;
       this.persistentIds = [...this.persistentIds.slice(-99), object.persistentId];
     }
     const data: Record<string, any> = {};

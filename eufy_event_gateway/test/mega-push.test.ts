@@ -7,7 +7,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { mcsDeliveryLogSummary } from "../src/mega/android-push/push-client.js";
 import { parsePushEvent, safeUnparsedShape } from "../src/mega/push.js";
+
+test("summarizes every MCS delivery without retaining identifiers or payloads", () => {
+  const summary = mcsDeliveryLogSummary({
+    persistentId: "private-persistent-id",
+    category: "private-category",
+    appData: [
+      { key: "payload", value: "private-payload" },
+      { key: "device_sn", value: "private-device" },
+    ],
+  }, true);
+
+  assert.equal(
+    summary,
+    "persistent_id_present=true duplicate=true app_data_entries=2 payload_entry=true category_present=true",
+  );
+  assert.equal(summary.includes("private"), false);
+});
 
 test("normalizes a nested HomeBase 3 Mega notification", () => {
   const result = parsePushEvent({ payload: JSON.stringify({
