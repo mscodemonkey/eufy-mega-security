@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.92
+
+- Give Home Assistant usable arrival timestamps for raw camera video, preventing its stream worker from repeatedly closing and reopening otherwise healthy live views.
+- Add a hosted integration contract check for the Home Assistant stream option.
+
 ## 0.1.91
 
 - Retain bounded Firebase sibling fields when a decoded Eufy payload entry is also present, allowing HomeBase 2 camera identity to reach motion-event normalization.
