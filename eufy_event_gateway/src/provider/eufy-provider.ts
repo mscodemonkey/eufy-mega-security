@@ -941,8 +941,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
     const detection = cameraDetectionKind(event.eventType);
     if (!detection) return;
-    if (detection === "motion") events.motion(event.cameraSerial, true);
-    else if (detection === "person") events.person(event.cameraSerial, true, personName);
+    if (detection === "motion") {
+      events.motion(event.cameraSerial, true);
+
+      // Older HomeBase camera notifications use the generic security event.
+      // A fetch id is the accompanying evidence that the same event identified
+      // a person, while motion remains true for every generic security event.
+      if (event.eventType === 1 && event.fetchId !== null) {
+        events.person(event.cameraSerial, true, personName);
+      }
+    } else if (detection === "person") events.person(event.cameraSerial, true, personName);
     else events.detection(event.cameraSerial, detection, true);
   }
 
@@ -1708,7 +1716,7 @@ function isCameraDetection(eventType: number | null): boolean {
 
 /** Map Eufy's confirmed camera push ids into protocol-neutral detection kinds. */
 export function cameraDetectionKind(eventType: number | null): "motion" | "person" | "stranger" | "pet" | "vehicle" | "dog" | "crying" | "sound" | "packageStranded" | null {
-  if (eventType === 3101) return "motion";
+  if (eventType === 1 || eventType === 3101) return "motion";
   if (eventType === 3102 || eventType === 3111) return "person";
   if (eventType === 3112) return "stranger";
   if (eventType === 3104) return "crying";

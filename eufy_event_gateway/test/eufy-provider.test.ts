@@ -604,6 +604,19 @@ test("admits a T814X C37 without misclassifying T85D0 lock inventory", () => {
   ]);
 });
 
+test("admits a self-parented T8426 E30 through its reported standalone route", () => {
+  const devices = parseMegaInventory({ devices: [{
+    device_sn: "camera", device_model: "T8426", parent_sn: "camera", device_type: 87,
+    device_channel: 0, category: "eufy_security", p2p_did: "did", p2p_conn: "connection",
+  }] });
+
+  const [summary] = inventoryLogSummaries(devices, new Set(["camera"]));
+
+  assert.equal(summary?.acceptedAsCamera, true);
+  assert.equal(summary?.streamRoute, "direct");
+  assert.equal(summary?.streamSupported, true);
+});
+
 test("logs safe motion routing for a T8210 without private push fields", () => {
   const event = {
     eventType: 3101, messageType: 1, notificationStyle: 2, alarmType: null,
@@ -653,9 +666,18 @@ test("shows the known T817L model in safe person-event logs", () => {
 
 test("maps expanded Eufy AI event ids without collapsing their meanings", () => {
   assert.deepEqual(
-    [3101, 3102, 3104, 3105, 3106, 3107, 3108, 3109, 3110, 3111, 3112, 3304, 9999].map(cameraDetectionKind),
-    ["motion", "person", "crying", "sound", "pet", "vehicle", "dog", "dog", "dog", "person", "stranger", "packageStranded", null],
+    [1, 3101, 3102, 3104, 3105, 3106, 3107, 3108, 3109, 3110, 3111, 3112, 3304, 9999].map(cameraDetectionKind),
+    ["motion", "motion", "person", "crying", "sound", "pet", "vehicle", "dog", "dog", "dog", "person", "stranger", "packageStranded", null],
   );
+});
+
+test("logs generic HomeBase camera security notifications as motion", () => {
+  const summary = safePushLogSummary({
+    eventType: 1, messageType: null, notificationStyle: 3,
+    pictureUrl: null, alarmType: null,
+  }, { model: "T8140-R", category: "eufy_security", deviceType: 14 }, true, true);
+
+  assert.match(summary, /event_type=1 message_type=missing notification_style=3 handling=motion/);
 });
 
 test("does not report unsupported HomeBase inventory as a handled camera event", () => {

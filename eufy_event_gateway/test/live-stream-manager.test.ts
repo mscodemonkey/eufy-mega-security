@@ -321,6 +321,39 @@ test("holds an on-demand stream until a fresh snapshot arrives", async () => {
   await manager.close();
 });
 
+test("ignores an event image while an on-demand live snapshot is pending", async () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  const manager = new LiveStreamManager(
+    state,
+    {} as never,
+    {
+      async startStream() {
+        setTimeout(() => state.updateSnapshot(camera.serial, {
+          capturedAt: new Date().toISOString(),
+          contentType: "image/jpeg",
+          source: "event",
+          revision: 1,
+        }), 2);
+        setTimeout(() => state.updateSnapshot(camera.serial, {
+          capturedAt: new Date().toISOString(),
+          contentType: "image/jpeg",
+          source: "live",
+          revision: 2,
+        }), 5);
+      },
+      async stopStream() {},
+    },
+    5,
+  );
+
+  const snapshot = await manager.captureSnapshot(camera.serial, 50);
+
+  assert.equal(snapshot.source, "live");
+  assert.equal(snapshot.revision, 2);
+  await manager.close();
+});
+
 test("releases its state listener after a capture timeout", async () => {
   const state = new GatewayState();
   state.registerCamera(camera);

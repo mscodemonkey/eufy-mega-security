@@ -57,8 +57,8 @@ type PpcsStreamCloseReason = "client_stop" | "first_frame_timeout" | "max_durati
  * Decide whether a HomeBase-attached camera needs its full media start sent again.
  *
  * A HomeBase has no lightweight media keepalive for a child channel. Repeating
- * its start after a decoder-ready keyframe resets that channel, so a reassert
- * is limited to incomplete startup and a genuine media stall.
+ * its start while normalized frames are still arriving resets that channel,
+ * so a reassert is limited to startup without output and a genuine media stall.
  */
 export function needsAttachedMediaReassert(
   lastDeliveredFrameAt: number | null,
@@ -1024,11 +1024,11 @@ export class FirstPartyPpcsSession {
       this.stats.videoFrames++;
       if (this.#writeVideo(payload, signCode)) {
         const decoderReady = hasDecoderReadyKeyframe(this.stats.videoCodec, this.stats.videoNalTypes);
+        if (this.#options.homeBaseAttached) this.#lastAttachedMediaFrameAt = Date.now();
         if ((!this.#options.homeBaseAttached || decoderReady) && this.#firstFrameTimer) {
           clearTimeout(this.#firstFrameTimer);
           this.#firstFrameTimer = null;
         }
-        if (this.#options.homeBaseAttached && decoderReady) this.#lastAttachedMediaFrameAt = Date.now();
       }
     } else if (command === 1300 && this.#options.homeBaseAttached) {
       this.stats.foreignVideoFrames++;

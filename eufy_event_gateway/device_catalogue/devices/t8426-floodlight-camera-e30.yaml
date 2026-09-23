@@ -5,7 +5,8 @@ id: t8426
 name: Floodlight Camera E30
 category: camera
 integration:
-  status: recognised
+  status: ready_to_test
+  handler: camera
 models:
   - T8426
   - T8426121

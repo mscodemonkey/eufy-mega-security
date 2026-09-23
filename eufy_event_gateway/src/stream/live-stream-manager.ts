@@ -552,6 +552,7 @@ export class LiveStreamManager extends EventEmitter {
         if (
           event.type === "snapshot-updated" &&
           event.cameraSerial === serial &&
+          event.snapshot.source === "live" &&
           event.snapshot.revision > previousRevision
         ) {
           cleanup();
