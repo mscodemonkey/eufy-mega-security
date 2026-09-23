@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.95
+
+- Fixed repeating HomeBase camera stream restarts while valid video frames are still arriving.
+- Restored motion events for cameras that use the generic HomeBase security notification, including person events when Eufy supplies the person marker.
+- Made fresh snapshot captures wait for a live camera frame instead of accepting a concurrent event image.
+- Added the standalone T8426 Floodlight Camera E30 as ready to test.
+
 ## 0.1.94
 
 - Add privacy-safe timing counters around HomeBase H.265 viewer conversion to separate camera input pauses from conversion output pauses.
