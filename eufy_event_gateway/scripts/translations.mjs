@@ -12,9 +12,9 @@ import { fileURLToPath } from "node:url";
 
 import { parse } from "yaml";
 
-const action = process.argv[2] ?? "check";
-if (action !== "check" && action !== "generate") {
-  throw new Error("Usage: node scripts/translations.mjs check|generate");
+const action = process.argv[2] ?? "validate";
+if (action !== "validate" && action !== "check" && action !== "generate") {
+  throw new Error("Usage: node scripts/translations.mjs validate|check|generate");
 }
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -69,13 +69,15 @@ for (const [locale, value] of translations) {
 expected.set(resolve(integration, "strings.json"), `${JSON.stringify(english, null, 2)}\n`);
 
 const stale = [];
-for (const [path, content] of expected) {
-  if (action === "generate") {
-    await writeFile(path, content);
-    continue;
+if (action !== "validate") {
+  for (const [path, content] of expected) {
+    if (action === "generate") {
+      await writeFile(path, content);
+      continue;
+    }
+    const current = await readFile(path, "utf8").catch(() => "");
+    if (current !== content) stale.push(path.replace(`${repositoryRoot}/`, ""));
   }
-  const current = await readFile(path, "utf8").catch(() => "");
-  if (current !== content) stale.push(path.replace(`${repositoryRoot}/`, ""));
 }
 
 if (stale.length > 0) {

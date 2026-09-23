@@ -63,8 +63,12 @@ required JSON files are generated from them. To add a language:
    example, Danish is `da.yaml` and Dutch is `nl.yaml`.
 2. Translate only the text values. Keep every YAML key and placeholders such
    as `{medium}` unchanged.
-3. Run `cd eufy_event_gateway && npm run translations:generate`.
-4. Commit the YAML source and generated JSON file, then open a pull request.
+3. Commit the new YAML source and open a pull request. You do not need Node.js
+   and should not generate or commit the JSON output.
+
+GitHub Actions validates the YAML keys, text values, and placeholders. The
+release workflow generates Home Assistant's JSON files from all YAML sources
+when the next release is prepared.
 
 Please translate the wording naturally rather than word for word. Home
 Assistant uses the server's configured language when it creates entity names,

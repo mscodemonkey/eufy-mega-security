@@ -291,6 +291,48 @@ See [device support](#device-support) for the tested setups and features still a
 - API, snapshot, and event endpoints require authentication when the gateway is remotely reachable.
 - Diagnostics intentionally exclude passwords, access tokens, signing keys, notification text, media URLs, and raw payloads.
 
+## Help translate Eufy Mega Security
+
+Translations use YAML files, so you only need to translate text and open a
+pull request. The release workflow generates Home Assistant's JSON files for
+you. You do not need Node.js and should not generate or commit any JSON.
+
+You will need a free GitHub account and Git installed.
+
+1. Open <https://github.com/mscodemonkey/eufy-mega-security> and click
+   **Fork** to make your own copy.
+2. On your fork, click **Code** and copy the HTTPS address. Then check out the
+   repository from a terminal. Replace `YOUR-USERNAME` with your GitHub
+   username:
+
+   ```sh
+   git clone https://github.com/YOUR-USERNAME/eufy-mega-security.git
+   cd eufy-mega-security
+   git checkout -b add-language-translation
+   ```
+
+3. Copy the English source. Name the new file with the language's BCP 47 code.
+   For example, Danish is `da.yaml` and Dutch is `nl.yaml`:
+
+   ```sh
+   cp custom_components/eufy_event_gateway/translation_sources/en.yaml custom_components/eufy_event_gateway/translation_sources/da.yaml
+   ```
+
+4. Open the new YAML file in a text editor and translate only the text values.
+   Keep every key and placeholder such as `{medium}` unchanged.
+5. Commit and push that one YAML file:
+
+   ```sh
+   git add custom_components/eufy_event_gateway/translation_sources/da.yaml
+   git commit -m "Add Danish translation"
+   git push -u origin add-language-translation
+   ```
+
+6. Open your fork on GitHub and click **Compare & pull request**.
+
+GitHub Actions checks the YAML structure and placeholders on the pull request.
+The generated JSON is added when the next release is prepared.
+
 ## Development
 
 ```sh
