@@ -17,9 +17,14 @@ import type { VideoCodec } from "../domain/types.js";
 import { PpcsAccessUnitAssembler } from "./ppcs-access-unit-assembler.js";
 import { ppcsCandidatePorts, ppcsLocalLookupTargets } from "./ppcs-lookup.js";
 
-// PPCS wraps command payloads in an XZYH header. The outer D1 datagrams and
-// these inner command frames use different sequence numbers and byte order.
+// PPCS wraps command payloads in an XZYH header. The outer F1 D0 UDP envelope,
+// the inner D1 data channel, and the XZYH command frame have separate sequence
+// fields. Their numeric fields also use different byte orders.
 const MAGIC = Buffer.from("XZYH", "ascii");
+
+// These request and response values are observed PPCS wire opcodes. Keeping
+// them grouped by direction avoids confusing identical values that have
+// different meanings depending on which peer sent them.
 const REQ = {
   lookup: Buffer.from([0xf1, 0x26]),
   lookup2: Buffer.from([0xf1, 0x6a]),
@@ -39,6 +44,9 @@ const RESP = {
   pong: Buffer.from([0xf1, 0xe1]),
   data: Buffer.from([0xf1, 0xd0]),
 } as const;
+
+// The byte after D1 separates command data from camera video while both travel
+// inside the same outer F1 D0 PPCS transport packet.
 const DATA = { data: Buffer.from([0xd1, 0]), video: Buffer.from([0xd1, 1]) } as const;
 const ATTACHED_MEDIA_STALL_MILLISECONDS = 10_000;
 const ATTACHED_MEDIA_RESTART_DELAY_MILLISECONDS = 250;
@@ -51,6 +59,7 @@ const PPCS_STALE_RETRANSMIT_DEPTH = 1024;
 const ANNEX_B_START_CODE = Buffer.from([0, 0, 0, 1]);
 const MAX_NAL_UNIT_BYTES = 16 * 1024 * 1024;
 
+/** Stable terminal states retained for stream-close diagnostics. */
 type PpcsStreamCloseReason = "client_stop" | "first_frame_timeout" | "max_duration" | "replaced" | "start_failed";
 
 /**
@@ -82,7 +91,7 @@ export function hasDecoderReadyKeyframe(
   return false;
 }
 
-/** Reissue a standalone start until the camera announces a decodable codec configuration. */
+/** Reissue a standalone start until frame metadata or NAL evidence identifies its codec. */
 export function needsStandaloneMediaReassert(
   homeBaseAttached: boolean,
   codec: "h264" | "h265" | "unknown",
@@ -101,7 +110,14 @@ export function acceptsAttachedCameraMedia(command: number, frameChannel: number
   return command !== 1300 || frameChannel === requestedChannel;
 }
 
-/** Build the level-two media-control envelope used for a HomeBase camera start or stop. */
+/**
+ * Build the JSON value encrypted inside a HomeBase media start or stop.
+ *
+ * Command 1003 starts a child camera and must advertise the session's RSA
+ * modulus so the camera can wrap its media key. Command 1004 stops the child
+ * channel and deliberately carries an empty payload. The caller applies
+ * level-two encryption after this function returns.
+ */
 export function buildAttachedMediaControlValue(
   command: 1003 | 1004,
   channel: number,
@@ -255,6 +271,15 @@ export class PpcsVideoFrameDecoder {
     return legacy ? { data: legacy, protection: "rsa-ecb" } : undefined;
   }
 
+  /**
+   * Authenticate and decrypt the ECC-GCM media form used by newer HomeBases.
+   *
+   * Keyframes carry a fresh ECIES-wrapped media key. Delta frames omit that
+   * envelope and reuse the last authenticated key, so the decoder owns it for
+   * the session lifetime. A key from a keyframe is committed only after GCM
+   * authentication succeeds, preventing a damaged frame from poisoning every
+   * later delta frame.
+   */
   #decodeAuthenticated(frame: Buffer): Buffer | undefined {
     if (!this.#eccPrivateKey || frame.length < 179) return undefined;
     const keyframe = ((frame[4] ?? 0) & 1) === 1;
@@ -276,7 +301,15 @@ export class PpcsVideoFrameDecoder {
   }
 }
 
-/** Unwrap and authenticate the 32-byte media key carried by an ECC keyframe envelope. */
+/**
+ * Unwrap and authenticate the 32-byte media key carried by an ECC keyframe.
+ *
+ * The envelope contains a compressed P-256 ephemeral public key, an AES-CBC
+ * IV and ciphertext, and an HMAC. Eufy's ECIES-compatible derivation expands
+ * the ECDH shared secret into separate encryption and authentication material.
+ * Authentication is checked before decryption, and malformed peer points or
+ * padding failures are reported to the caller as an absent key.
+ */
 function unwrapAuthenticatedMediaKey(envelope: Buffer, privateKey: Buffer): Buffer | undefined {
   if (envelope.length !== 129) return undefined;
   try {
@@ -375,11 +408,30 @@ export function isPpcsCameraIdentity(message: Buffer): boolean {
  * Annex-B streams pass through without buffering or rewriting.
  */
 export class PpcsVideoStreamNormalizer {
+
+  // Framing is selected once per camera session. Switching after output has
+  // begun would reinterpret bytes already handed to the downstream decoder.
   #mode: "unknown" | "annexb" | "length-prefixed" = "unknown";
+
+  // At most the incomplete four-byte length prefix from the previous push.
   #prefix = Buffer.alloc(0);
+
+  // Length-prefixed NAL bodies can span several PPCS frames. Once a prefix is
+  // consumed, this counter prevents continuation bytes being mistaken for a
+  // new length field.
   #nalBytesRemaining = 0;
+
+  // The scanner needs a small overlap because an Annex-B start code may be
+  // divided between consecutive output chunks. This never retains video
+  // frames, only enough trailing bytes to recognise the next boundary.
   #nalScanTail = Buffer.alloc(0);
+
+  // Only the first byte after each Annex-B start code is retained. That is
+  // enough to derive the codec-specific NAL type without logging image data.
   readonly #nalHeaderBytes: number[] = [];
+
+  // Access-unit metadata is a fallback only. Parameter-set NAL units observed
+  // in emitted bytes take precedence because they prove the actual codec.
   #declaredCodec: VideoCodec | null = null;
 
   /** The framing selected from the first usable bytes in this session. */
@@ -408,7 +460,19 @@ export class PpcsVideoStreamNormalizer {
     )))];
   }
 
-  /** Convert the next ordered media bytes, retaining incomplete prefixes between calls. */
+  /**
+   * Convert the next ordered media bytes into an Annex-B byte-stream chunk.
+   *
+   * The caller must provide bytes in transport order and must keep one
+   * normalizer for the complete camera session. The first usable bytes select
+   * Annex-B pass-through or four-byte big-endian length-prefix conversion.
+   * Incomplete prefixes and NAL bodies are retained across calls, so an empty
+   * return value means "buffered until more bytes arrive", not "invalid".
+   *
+   * `declaredCodec` is supporting evidence from the PPCS access-unit header.
+   * Parameter-set NAL units take precedence because they prove what the
+   * emitted byte stream actually contains.
+   */
   push(payload: Buffer, declaredCodec?: VideoCodec): Buffer {
     if (declaredCodec && this.#declaredCodec === null) this.#declaredCodec = declaredCodec;
     let data = this.#prefix.length > 0 ? Buffer.concat([this.#prefix, payload]) : payload;
@@ -463,10 +527,31 @@ export class PpcsVideoStreamNormalizer {
     return output.length > 0 ? this.#recordNalTypes(Buffer.concat(output)) : Buffer.alloc(0);
   }
 
+  /**
+   * Observe NAL headers in an outgoing Annex-B chunk and return it unchanged.
+   *
+   * This method is deliberately a side-effecting pass-through. Every path
+   * that emits bytes calls it, which keeps codec diagnostics aligned with the
+   * exact stream delivered to consumers without making a second copy of that
+   * stream. It recognises both legal Annex-B start-code lengths (`00 00 01`
+   * and `00 00 00 01`) and records only the first payload byte after each
+   * start code. H.264 and H.265 interpret that byte differently, so conversion
+   * to public NAL type numbers is deferred to {@link nalTypes} after the codec
+   * has been identified.
+   *
+   * A start code can be split across two `push` calls. `#nalScanTail` carries
+   * the final four bytes of the previous scan so the next call can recognise
+   * that boundary. The diagnostic set is capped at 16 distinct header bytes:
+   * it is intended to answer whether decoder setup and keyframes appeared,
+   * not to retain or fingerprint the camera's video payload.
+   */
   #recordNalTypes(output: Buffer): Buffer {
     const data = this.#nalScanTail.length > 0
       ? Buffer.concat([this.#nalScanTail, output])
       : output;
+
+    // Advance to the byte immediately after each start code. Scanning from
+    // there avoids treating zero bytes inside the start code as a new match.
     for (let offset = 0; offset + 3 < data.length;) {
       if (data[offset] !== 0 || data[offset + 1] !== 0) {
         offset++;
@@ -480,6 +565,10 @@ export class PpcsVideoStreamNormalizer {
         continue;
       }
       const payloadOffset = offset + startLength;
+
+      // The start code is complete but its NAL header belongs to the next
+      // output chunk. The overlap retained below lets that later call finish
+      // the observation without delaying bytes sent to the decoder.
       if (payloadOffset >= data.length) break;
       const headerByte = data[payloadOffset]!;
       if (!this.#nalHeaderBytes.includes(headerByte) && this.#nalHeaderBytes.length < 16) {
@@ -487,11 +576,16 @@ export class PpcsVideoStreamNormalizer {
       }
       offset = payloadOffset + 1;
     }
+
+    // Four bytes cover the longest start code plus a boundary-adjacent byte.
+    // Buffer.from detaches this tiny diagnostic tail from the larger video
+    // buffer so the session does not accidentally keep an entire frame alive.
     this.#nalScanTail = Buffer.from(data.subarray(Math.max(0, data.length - 4)));
     return output;
   }
 }
 
+/** Return whether a chunk starts with a three-byte or four-byte Annex-B marker. */
 function beginsWithAnnexB(payload: Buffer): boolean {
   return payload.length >= 4
     && payload[0] === 0
@@ -499,34 +593,72 @@ function beginsWithAnnexB(payload: Buffer): boolean {
     && (payload[2] === 1 || (payload[2] === 0 && payload[3] === 1));
 }
 
+/** Incomplete XZYH command state owned separately for each PPCS data type. */
 interface PendingPpcsFrame {
+
+  /** Complete command header, present only while waiting for its declared body. */
   readonly header?: Buffer;
+
+  /** Partial command body, or a possible prefix of the next XZYH magic value. */
   readonly payload: Buffer;
 }
 
-/** Peer and camera values required to establish one PPCS media session. */
+/**
+ * Peer, camera, and lifetime values required by one media or control session.
+ *
+ * `EufyProvider` owns discovery and credential acquisition. A session receives
+ * only the values needed for one bounded peer connection and never refreshes
+ * account inventory or persists cryptographic material itself.
+ */
 export interface PpcsCameraOptions {
+
+  /** Serial used only to derive the observed legacy level-one command key. */
   readonly stationSerial: string;
+
+  /** PPCS device identifier encoded into lookup and CAM_CHECK requests. */
   readonly p2pDid: string;
+
+  /** Obfuscated cloud rendezvous list returned by Eufy's inventory service. */
   readonly appConnection: string;
+
+  /** Most recent private peer address, used alongside LAN broadcast lookup. */
   readonly localAddress?: string | null;
+
+  /** DSK authentication material included in cloud rendezvous requests. */
   readonly dskKey: string;
+
+  /** Child-camera channel, or the standalone camera's own channel. */
   readonly channel: number;
+
+  /** Public model identifier used by higher-level diagnostics. */
   readonly cameraModel: string;
 
   /** Parent peer model used only where HomeBase generations have different media lifecycle commands. */
   readonly stationModel?: string;
+
+  /** Eufy account identity required inside camera control payloads. */
   readonly accountId: string | null;
+
+  /** Select the HomeBase child-channel handshake instead of direct camera media. */
   readonly homeBaseAttached?: boolean;
+
+  /** Previously observed HomeBase cipher identifier for safe diagnostics. */
   readonly cipherId?: number | null;
+
+  /** Optional cached ECC key that can authenticate media before gateway-info arrives. */
   readonly initialEccPrivateKey?: string;
+
+  /** Resolve the private ECC key selected by a HomeBase gateway-info frame. */
   readonly resolveCipherKey?: (cipherId: number) => Promise<string | undefined>;
+
+  /** Hard session lifetime, defaulting to 30 seconds when omitted. */
   readonly maxSeconds?: number;
 
   /** Limit the session to one control write instead of starting camera media. */
   readonly purpose?: "media" | "control";
 }
 
+/** One in-flight control command and the promise settled by its result frame. */
 interface PendingControl {
   readonly command: number;
   readonly resolve: () => void;
@@ -536,6 +668,7 @@ interface PendingControl {
 
 /** Identify a write that may have applied even though its result frame was lost. */
 export class CameraControlAcknowledgementTimeoutError extends Error {
+
   /** Create the stable timeout type used by provider readback recovery. */
   constructor() {
     super("Camera enablement acknowledgement timed out");
@@ -544,22 +677,35 @@ export class CameraControlAcknowledgementTimeoutError extends Error {
 }
 
 /**
- * One bounded, first-party PPCS camera session for media or a confirmed write.
+ * One bounded, first-party PPCS camera session for media or a control operation.
  *
  * It handles HomeBase-attached and direct camera paths: DSK lookup,
  * CAM_CHECK, the attached-camera gateway-info and level-two media sequence
- * when required, and Annex-B H.264 extraction. It has no dependency on
+ * when required, and Annex-B H.264 or H.265 output. It has no dependency on
  * eufy-security-client or the expiring Web Portal PIN.
  *
  * Media sessions emit Annex-B bytes on `output`. Control sessions suppress
- * media startup and accept one acknowledged camera command before closing.
+ * media startup and expose the small set of verified writes below. Some writes
+ * wait for a result frame, while the observed fire-and-repeat forms return
+ * after their bounded UDP transmissions.
  * `start` resolves after the peer answers the lookup, not after the first video
  * frame. A camera can therefore be reachable while still failing later during
  * key unwrap or media start. The public stats object makes that distinction
  * visible in diagnostics.
  */
 export class FirstPartyPpcsSession {
+
+  /** Ordered Annex-B video bytes; the session ends this stream when it closes. */
   readonly output = new PassThrough();
+
+  /**
+   * Bounded, privacy-safe observations collected over this session.
+   *
+   * Arrays retain only distinct shapes or a small leading sample. The two hex
+   * fields contain bounded wire prefixes used for protocol-shape diagnosis,
+   * while decoded media, account values, keys, and full payloads are excluded.
+   * The provider reads this object when it builds stream-close diagnostics.
+   */
   readonly stats = {
     camId: 0,
     localLookupCandidates: 0,
@@ -608,6 +754,9 @@ export class FirstPartyPpcsSession {
   readonly #videoDecoder = new PpcsVideoFrameDecoder((wrapped) => (
     privateDecrypt({ key: this.#rsa.privateKey, padding: 1 }, wrapped)
   ));
+
+  // `#remote` is set only after a CAM_ID response wins the lookup race. All
+  // later command and heartbeat traffic stays pinned to that responding peer.
   #remote: { host: string; port: number } | null = null;
   #seq = 0;
   #closed = false;
@@ -617,6 +766,9 @@ export class FirstPartyPpcsSession {
   #level2Key: Buffer | null = null;
   #level2Seq = 0;
   #gatewayPromise: Promise<void> | null = null;
+
+  // PPCS sequences are independent for each inner data type. Combining them
+  // would manufacture false gaps when command and video datagrams interleave.
   #lastSequenceByType = new Map<number, number>();
   readonly #videoNormalizer = new PpcsVideoStreamNormalizer();
   readonly #videoAssembler = new PpcsAccessUnitAssembler((drop) => {
@@ -631,7 +783,7 @@ export class FirstPartyPpcsSession {
   #selfAddress: { host: string; port: number } | null = null;
   #pendingControl: PendingControl | null = null;
 
-  /** Return the codec declared by received PPCS frame metadata, when known. */
+  /** Return the codec proven by emitted NAL headers, or frame metadata as a fallback. */
   get videoCodec(): VideoCodec | null {
     const codec = this.#videoNormalizer.codec;
     return codec === "unknown" ? null : codec;
@@ -644,7 +796,14 @@ export class FirstPartyPpcsSession {
     if (options.initialEccPrivateKey) this.#videoDecoder.setEccPrivateKey(options.initialEccPrivateKey);
   }
 
-  /** Bind UDP, perform lookup and handshake, then start heartbeats. */
+  /**
+   * Bind UDP, find the requested peer, and start the bounded session lifetime.
+   *
+   * Resolution means a direct or relay CAM_ID response established `#remote`.
+   * It does not mean media decryption, decoder setup, or first-frame delivery
+   * succeeded. Media sessions therefore retain a separate first-frame timer,
+   * while every session gets a maximum-duration timer and heartbeat loop.
+   */
   async start(): Promise<void> {
 
     // Bind an ephemeral UDP port, then try LAN and cloud lookup addresses. A
@@ -711,7 +870,13 @@ export class FirstPartyPpcsSession {
     this.#heartbeat.unref?.();
   }
 
-  /** Send one camera enablement write and wait for the peer's command result. */
+  /**
+   * Send camera enablement value 0 or 1 and await its command-result frame.
+   *
+   * A missing result rejects with {@link CameraControlAcknowledgementTimeoutError}
+   * because the UDP write may still have reached the camera. The provider can
+   * then perform a fresh readback instead of sending the command twice.
+   */
   async writeCameraEnabled(rawValue: number): Promise<void> {
     if (this.#options.purpose !== "control") throw new Error("Camera control requires a control session");
     if (!this.#remote) throw new Error("Camera control session is not connected");
@@ -737,7 +902,13 @@ export class FirstPartyPpcsSession {
     await acknowledgement;
   }
 
-  /** Send the verified 1011 direct-binary motion switch and await its result. */
+  /**
+   * Send the verified command-1011 motion switch and await its result.
+   *
+   * The HomeBase route requires an established level-two key. Three identical
+   * transmissions tolerate loss on the UDP and HomeBase radio hops while one
+   * acknowledgement slot owns the operation's final result.
+   */
   async writeMotionDetection(enabled: boolean): Promise<void> {
     if (this.#options.purpose !== "control") throw new Error("Motion control requires a control session");
     if (!this.#remote) throw new Error("Motion control session is not connected");
@@ -761,7 +932,12 @@ export class FirstPartyPpcsSession {
     await acknowledgement;
   }
 
-  /** Send the T8210-family 1013 direct-binary Auto night vision switch and await its result. */
+  /**
+   * Send the T8210-family command-1013 Auto night-vision switch.
+   *
+   * This observed command uses the legacy direct binary envelope even for an
+   * attached camera. It is retransmitted three times and waits for one result.
+   */
   async writeAutoNightVision(enabled: boolean): Promise<void> {
     if (this.#options.purpose !== "control") throw new Error("Auto night vision control requires a control session");
     if (!this.#remote) throw new Error("Auto night vision control session is not connected");
@@ -782,7 +958,13 @@ export class FirstPartyPpcsSession {
     await acknowledgement;
   }
 
-  /** Send the verified HomeBase-attached night-vision mode command. */
+  /**
+   * Send the verified HomeBase-attached night-vision mode command.
+   *
+   * Modes 0 through 2 are wrapped in command 1350 and sent three times through
+   * the negotiated level-two channel. This observed form has no awaited result
+   * frame, so resolution confirms transmission rather than device readback.
+   */
   async writeNightVision(mode: number): Promise<void> {
     if (this.#options.purpose !== "control") throw new Error("Night vision control requires a control session");
     if (!this.#remote) throw new Error("Night vision control session is not connected");
@@ -802,7 +984,13 @@ export class FirstPartyPpcsSession {
     }
   }
 
-  /** Send the reference camera siren duration command for a bounded local probe. */
+  /**
+   * Send the observed command-1202 camera siren duration three times.
+   *
+   * This low-level method validates only that the duration is a non-negative
+   * whole number. The provider owns the supported upper limit and any readback
+   * or stop policy. Resolution confirms transmission, not siren activation.
+   */
   async writeCameraSiren(durationSeconds: number): Promise<void> {
     if (this.#options.purpose !== "control") throw new Error("Camera siren control requires a control session");
     if (!this.#remote) throw new Error("Camera siren control session is not connected");
@@ -816,7 +1004,13 @@ export class FirstPartyPpcsSession {
     }
   }
 
-  /** End the peer session and retain its terminal reason for privacy-safe diagnostics. */
+  /**
+   * End the peer session and retain its terminal reason for diagnostics.
+   *
+   * Closing is idempotent. It clears every timer, rejects an outstanding
+   * control wait, drops incomplete access-unit state, sends the appropriate
+   * attached-media stop before PPCS END, closes UDP, and ends `output`.
+   */
   close(reason: PpcsStreamCloseReason = "client_stop"): void {
     if (this.#closed) return;
     this.#closed = true;
@@ -840,6 +1034,7 @@ export class FirstPartyPpcsSession {
     this.output.end();
   }
 
+  /** Send LAN lookup to broadcast and known private targets, then query cloud rendezvous peers. */
   #lookup(): void {
     if (this.#remote) return;
     const local = Buffer.from([0, 0]);
@@ -856,10 +1051,18 @@ export class FirstPartyPpcsSession {
     }
   }
 
+  /** Probe the base and adjacent ports on one lookup candidate for CAM_ID. */
   #checkCandidate(address: { host: string; port: number }): void {
     for (const port of ppcsCandidatePorts(address.port)) this.#check({ host: address.host, port });
   }
 
+  /**
+   * Route one outer PPCS UDP response and acknowledge accepted data packets.
+   *
+   * Returns `true` only for the first camera identity response. `start` uses
+   * that signal to resolve peer discovery, while media and control frames keep
+   * flowing through this same socket listener for the rest of the session.
+   */
   #handle(message: Buffer, info: RemoteInfo): boolean {
     if (has(message, RESP.localLookup)) {
       this.stats.localLookupCandidates++;
@@ -896,6 +1099,20 @@ export class FirstPartyPpcsSession {
     return false;
   }
 
+  /**
+   * Reassemble the XZYH command byte stream carried by one PPCS data type.
+   *
+   * UDP datagrams may split a command header, split its declared payload, or
+   * contain several commands. Partial state is keyed by data type because Eufy
+   * interleaves independently sequenced command and video streams. A sequence
+   * gap discards only that type's partial command. Keeping it would join bytes
+   * from opposite sides of a missing datagram and produce a plausible but
+   * corrupt frame.
+   *
+   * When unexpected bytes precede a complete XZYH marker, the parser makes one
+   * recovery attempt within the current datagram. A second blockage is kept as
+   * a diagnostic instead of repeatedly scanning arbitrary media bytes.
+   */
   #consumeData(data: Buffer, sequence: number, type: number): void {
     const previous = this.#lastSequenceByType.get(type);
     const disposition = ppcsSequenceDisposition(previous ?? null, sequence);
@@ -972,6 +1189,14 @@ export class FirstPartyPpcsSession {
     this.#updatePendingBytes();
   }
 
+  /**
+   * Dispatch one complete XZYH command after transport reassembly.
+   *
+   * Result frames settle the single pending control promise. Gateway-info
+   * frames establish HomeBase level-two encryption, camera-info frames supply
+   * privacy-safe structural diagnostics, and command 1300 carries media. For a
+   * HomeBase peer, media is accepted only from the requested child channel.
+   */
   #handleFrame(header: Buffer, payload: Buffer, type: number): void {
     const command = header.readUInt16LE(4);
     const size = header.readUInt32LE(6);
@@ -1018,6 +1243,17 @@ export class FirstPartyPpcsSession {
     }
   }
 
+  /**
+   * Decode, assemble, normalize, and publish one command-1300 media payload.
+   *
+   * The layers are intentionally separate. The decoder removes the frame's
+   * cryptographic envelope, the access-unit assembler joins HomeBase chunks,
+   * the access-unit assembler joins PPCS chunks, and the stream normalizer
+   * converts codec framing to Annex-B. Only bytes
+   * that survive all three stages reach {@link output}. The return value means
+   * at least one normalized chunk was written, so callers must not treat a
+   * decrypted continuation or buffered length prefix as visible video.
+   */
   #writeVideo(frame: Buffer, signCode: number): boolean {
     if (frame.length < 22) {
       this.#recordVideoResult("short");
@@ -1052,17 +1288,26 @@ export class FirstPartyPpcsSession {
     return wrote;
   }
 
+  /** Retain a bounded set of distinct pipeline outcomes for close diagnostics. */
   #recordVideoResult(result: string): void {
     if (!this.stats.videoResults.includes(result) && this.stats.videoResults.length < 8) {
       this.stats.videoResults.push(result);
     }
   }
 
+  /** Recalculate how many command-stream bytes are retained between datagrams. */
   #updatePendingBytes(): void {
     this.stats.pendingBytes = [...this.#pendingByType.values()]
       .reduce((total, value) => total + (value.header?.length ?? 0) + value.payload.length, 0);
   }
 
+  /**
+   * Inspect command 1103 for the battery-history response shape.
+   *
+   * The payload may use level-one or negotiated level-two protection. Once
+   * decoded, only the schema of parameter 3100 is recorded. Its timestamps,
+   * usage values, and other reporter-specific content never enter diagnostics.
+   */
   #inspectCameraInfo(payload: Buffer, signCode: number): void {
     let clear = payload;
     if ((signCode === 2 || signCode === 8) && this.#level2Key) {
@@ -1083,6 +1328,12 @@ export class FirstPartyPpcsSession {
     }
   }
 
+  /**
+   * Serialize HomeBase gateway-info handling while an ECC key is being found.
+   *
+   * HomeBase may retransmit command 1100. Sharing the active promise prevents
+   * duplicate asynchronous key resolution and competing media starts.
+   */
   async #handleGatewayInfo(payload: Buffer): Promise<void> {
     if (this.#gatewayPromise) return this.#gatewayPromise;
     if (!this.#options.homeBaseAttached || this.#level2Key || !this.#options.resolveCipherKey || payload.length < 133) return;
@@ -1090,6 +1341,15 @@ export class FirstPartyPpcsSession {
     try { await this.#gatewayPromise; } finally { this.#gatewayPromise = null; }
   }
 
+  /**
+   * Derive the HomeBase level-two control key from command 1100.
+   *
+   * The outer envelope uses the deterministic level-one command key. Its
+   * cipher identifier selects an ECC private key supplied by the provider,
+   * which unwraps the per-session AES key. Media startup is delayed until this
+   * chain succeeds because attached-camera lifecycle commands require level
+   * two protection.
+   */
   async #deriveLevel2(payload: Buffer): Promise<void> {
     let plainPayload: Buffer;
     try { plainPayload = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); } catch (error) { this.stats.level2Error = `gateway decrypt failed: ${error instanceof Error ? error.message : String(error)}`; return; }
@@ -1106,6 +1366,7 @@ export class FirstPartyPpcsSession {
     if (this.#options.purpose !== "control") this.#startAttachedMedia();
   }
 
+  /** Wait for in-progress gateway negotiation before an attached control write. */
   async #waitForLevel2Key(): Promise<void> {
     const deadline = Date.now() + CONTROL_TIMEOUT_MILLISECONDS;
     while (!this.#level2Key && !this.stats.level2Error && Date.now() < deadline) {
@@ -1116,6 +1377,14 @@ export class FirstPartyPpcsSession {
     }
   }
 
+  /**
+   * Reserve the session's single acknowledgement slot for a control command.
+   *
+   * A timeout is deliberately ambiguous: UDP loss means the camera may have
+   * applied the write even though its result frame did not arrive. The typed
+   * error lets the provider choose a readback rather than blindly retrying a
+   * potentially non-idempotent operation.
+   */
   #waitForControlResult(command: number): Promise<void> {
     if (this.#pendingControl) return Promise.reject(new Error("Camera already has a control command in flight"));
     return new Promise<void>((resolve, reject) => {
@@ -1127,6 +1396,7 @@ export class FirstPartyPpcsSession {
     });
   }
 
+  /** Start an attached channel, or restart it after output has genuinely stalled. */
   #startAttachedMedia(): void {
     if (!this.#remote || !this.#level2Key) return;
     if (this.stats.mediaStartAttempts > 0) {
@@ -1188,6 +1458,7 @@ export class FirstPartyPpcsSession {
     this.#send(REQ.data, packet, this.#remote);
   }
 
+  /** Send the level-one START_LIVE command used by a standalone camera peer. */
   #startOwnMedia(): void {
     this.stats.mediaStartAttempts++;
     const key = publicModulus(this.#rsa.publicKey);
@@ -1205,29 +1476,53 @@ export class FirstPartyPpcsSession {
     ));
   }
 
-  #check(address: { host: string; port: number }): void { this.#send(REQ.check, Buffer.concat([encodeDid(this.#options.p2pDid), Buffer.alloc(3)]), address); }
+  /** Ask one candidate endpoint to prove it owns the requested camera DID. */
+  #check(address: { host: string; port: number }): void {
+    this.#send(REQ.check, Buffer.concat([encodeDid(this.#options.p2pDid), Buffer.alloc(3)]), address);
+  }
+
+  /** Wrap and send one inner XZYH command over the established data channel. */
   #sendCommand(command: number, payload: Buffer): void {
     if (!this.#remote) return;
     const header = Buffer.concat([DATA.data, u16(this.#seq++), MAGIC, u16le(command)]);
     this.#send(REQ.data, Buffer.concat([header, payload]), this.#remote);
   }
+
+  /** Add the outer PPCS type and length header, then write one UDP datagram. */
   #send(type: Buffer, payload: Buffer, address: { host: string; port: number }): void {
     this.#socket.send(Buffer.concat([type, u16(payload.length), payload]), address.port, address.host);
   }
 }
 
+/** Translate a PPCS access-unit stream marker into the domain codec name. */
 function ppcsVideoCodec(streamType: number): VideoCodec | null {
   if (streamType === 1) return "h264";
   if (streamType === 2) return "h265";
   return null;
 }
 
-function voidPayload(channel: number): Buffer { const result = Buffer.alloc(10); result.writeUInt16LE(1, 4); result[6] = channel; return result; }
+/** Build the minimal unencrypted body used by commands without a value payload. */
+function voidPayload(channel: number): Buffer {
+  const result = Buffer.alloc(10);
+  result.writeUInt16LE(1, 4);
+  result[6] = channel;
+  return result;
+}
+
+/** Build the D1 data-channel and XZYH prefix shared by inner camera commands. */
 function commandHeader(sequence: number, command: number): Buffer {
   const result = Buffer.concat([DATA.data, u16(sequence), MAGIC, Buffer.alloc(2)]);
   result.writeUInt16LE(command, 8);
   return result;
 }
+
+/**
+ * Wrap command bytes in Eufy's ten-byte value envelope.
+ *
+ * `signCode` identifies the protection scheme, `magic` identifies its payload
+ * family, and `streamId` routes a HomeBase child stream. This is the inner
+ * command value envelope, not the outer UDP or XZYH header.
+ */
 function rawPayload(data: Buffer, channel: number, signCode: number, magic: readonly [number, number], streamId: number): Buffer {
   const result = Buffer.alloc(10 + data.length);
   result.writeUInt16LE(data.length, 0); result[4] = magic[0]; result[5] = magic[1];
@@ -1235,6 +1530,7 @@ function rawPayload(data: Buffer, channel: number, signCode: number, magic: read
   data.copy(result, 10); return result;
 }
 
+/** Build and level-one encrypt the fixed-width integer/account command form. */
 function buildIntStringCommandBody(value: number, valueSub: number, accountId: string, key: Buffer): Buffer {
   const valueSubBuffer = Buffer.alloc(4);
   valueSubBuffer.writeUInt32LE(valueSub >>> 0, 0);
@@ -1246,7 +1542,13 @@ function buildIntStringCommandBody(value: number, valueSub: number, accountId: s
   return rawPayload(encryptLevel1(plain, key), valueSub, 1, [1, 0], 0);
 }
 
-/** Build the verified 1013 direct-binary body used by T8210-family Auto night vision writes. */
+/**
+ * Build the verified command-1013 body used by T8210-family Auto night vision.
+ *
+ * The account identity occupies the protocol's fixed 128-byte field. The
+ * resulting value uses the legacy level-one key even when the target camera is
+ * reached through a HomeBase.
+ */
 export function buildAutoNightVisionCommandBody(channel: number, enabled: boolean, accountId: string, key: Buffer): Buffer {
   if (!accountId) throw new Error("Auto night vision control requires a non-empty account identity");
   if (!Number.isSafeInteger(channel) || channel < 0 || channel > 255) throw new Error("Auto night vision control requires a valid camera channel");
@@ -1254,7 +1556,12 @@ export function buildAutoNightVisionCommandBody(channel: number, enabled: boolea
   return buildIntStringCommandBody(enabled ? 1 : 0, channel, accountId, key);
 }
 
-/** Build the bounded direct-command body used by camera enablement writes. */
+/**
+ * Build the fixed-width channel, value, and account body for camera writes.
+ *
+ * Callers validate the command-specific meaning of `value`. This helper owns
+ * only the binary layout shared by enablement and motion-detection commands.
+ */
 export function buildCameraEnableBody(channel: number, value: number, accountId: string): Buffer {
   if (!accountId) throw new Error("Camera control requires a non-empty account identity");
   const body = Buffer.alloc(8 + 128);
@@ -1264,7 +1571,13 @@ export function buildCameraEnableBody(channel: number, value: number, accountId:
   return body;
 }
 
-/** Build the verified SET_PAYLOAD body for a HomeBase-attached night-vision write. */
+/**
+ * Build the verified SET_PAYLOAD JSON for an attached-camera night-vision mode.
+ *
+ * The outer command targets the HomeBase control channel, while the nested
+ * `channel` selects the child camera. `night_sion` retains Eufy's observed
+ * field spelling and must not be corrected as an English typo.
+ */
 export function buildNightVisionBody(channel: number, mode: number, accountId: string): Buffer {
   if (!accountId) throw new Error("Night vision control requires a non-empty account identity");
   if (!Number.isSafeInteger(channel) || channel < 0 || channel > 255) throw new Error("Night vision control requires a valid camera channel");
@@ -1278,6 +1591,7 @@ export function buildNightVisionBody(channel: number, mode: number, accountId: s
   }));
 }
 
+/** Pad and encrypt a legacy control value with AES-128-ECB. */
 function encryptLevel1(plaintext: Buffer, key: Buffer): Buffer {
   const padded = Buffer.alloc(Math.ceil(Math.max(plaintext.length, 16) / 16) * 16);
   plaintext.copy(padded);
@@ -1285,6 +1599,14 @@ function encryptLevel1(plaintext: Buffer, key: Buffer): Buffer {
   cipher.setAutoPadding(false);
   return Buffer.concat([cipher.update(padded), cipher.final()]);
 }
+
+/**
+ * Encrypt a negotiated HomeBase command with AES-256-GCM.
+ *
+ * The four bytes after the nonce are envelope metadata expected by the peer.
+ * Only the low sequence byte is carried there; XZYH owns the independent
+ * transport sequence used for ordering and acknowledgement.
+ */
 function encryptLevel2(plaintext: Buffer, key: Buffer, sequence: number): Buffer {
   const nonce = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, nonce);
@@ -1292,6 +1614,8 @@ function encryptLevel2(plaintext: Buffer, key: Buffer, sequence: number): Buffer
   const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
   return Buffer.concat([cipher.getAuthTag(), nonce, Buffer.from([sequence & 0xff, 3, 2, 1]), ciphertext]);
 }
+
+/** Authenticate and decrypt either observed level-two response envelope form. */
 function decryptLevel2(payload: Buffer, key: Buffer, signCode: number): Buffer | undefined {
   const ciphertextOffset = signCode === 8 ? 32 : 28;
   if (payload.length < ciphertextOffset) return undefined;
@@ -1319,6 +1643,7 @@ export function batteryHistoryProbeSummary(value: string): string {
   }
 }
 
+/** Recursively reduce an unknown JSON value to a bounded, value-free schema. */
 function describeProbeValue(value: unknown, depth: number): string {
   if (value === null) return "null";
   if (Array.isArray(value)) {
@@ -1341,7 +1666,18 @@ function describeProbeValue(value: unknown, depth: number): string {
   return "unknown";
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
+/** Narrow an unknown JSON value to a non-null object with string keys. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Unwrap the level-two AES key from a HomeBase gateway-info ECIES envelope.
+ *
+ * This observed path decrypts the envelope's fixed ciphertext region without
+ * interpreting padding. Callers therefore validate the resulting length
+ * before accepting its first 32 bytes as key material.
+ */
 function unwrapGatewayInfo(envelope: Buffer, privateKeyHex: string): Buffer | undefined {
   try {
     if (envelope.length < 129) return undefined;
@@ -1357,13 +1693,61 @@ function unwrapGatewayInfo(envelope: Buffer, privateKeyHex: string): Buffer | un
     return Buffer.concat([decrypt.update(ciphertext), decrypt.final()]);
   } catch { return undefined; }
 }
-function publicModulus(key: ReturnType<typeof generateKeyPairSync>["publicKey"]): string { const jwk = key.export({ format: "jwk" }) as { n: string }; return Buffer.from(jwk.n, "base64url").toString("hex").replace(/^00/, ""); }
-function u16(value: number): Buffer { const b = Buffer.alloc(2); b.writeUInt16BE(value); return b; }
-function u16le(value: number): Buffer { const b = Buffer.alloc(2); b.writeUInt16LE(value); return b; }
-function has(value: Buffer, header: Buffer): boolean { return value.subarray(0, 2).equals(header); }
-function commandKey(serial: string, did: string): Buffer { return Buffer.from(`${serial.slice(-7)}${did.substring(did.indexOf("-"), did.indexOf("-") + 9)}`); }
-function decryptEcb(value: Buffer, key: Buffer): Buffer { const decipher = createDecipheriv(`aes-${key.length * 8}-ecb`, key, null); decipher.setAutoPadding(false); return Buffer.concat([decipher.update(value), decipher.final()]); }
-function encodeDid(value: string): Buffer { const [a, b, c] = value.split("-"); const result = Buffer.alloc(20); Buffer.from(a ?? "").copy(result); result.writeUInt32BE(Number(b ?? 0), 8); Buffer.from(c ?? "").copy(result, 12); return result; }
+
+/** Export the session RSA public modulus in the camera's unprefixed hex form. */
+function publicModulus(key: ReturnType<typeof generateKeyPairSync>["publicKey"]): string {
+  const jwk = key.export({ format: "jwk" }) as { n: string };
+  return Buffer.from(jwk.n, "base64url").toString("hex").replace(/^00/, "");
+}
+
+/** Encode a 16-bit PPCS transport value in network byte order. */
+function u16(value: number): Buffer {
+  const result = Buffer.alloc(2);
+  result.writeUInt16BE(value);
+  return result;
+}
+
+/** Encode a 16-bit XZYH command value in little-endian order. */
+function u16le(value: number): Buffer {
+  const result = Buffer.alloc(2);
+  result.writeUInt16LE(value);
+  return result;
+}
+
+/** Return whether a datagram starts with the requested two-byte PPCS type. */
+function has(value: Buffer, header: Buffer): boolean {
+  return value.subarray(0, 2).equals(header);
+}
+
+/** Derive the observed 16-byte legacy command key from peer identity fields. */
+function commandKey(serial: string, did: string): Buffer {
+  return Buffer.from(`${serial.slice(-7)}${did.substring(did.indexOf("-"), did.indexOf("-") + 9)}`);
+}
+
+/** Decrypt a block-aligned value without interpreting protocol padding. */
+function decryptEcb(value: Buffer, key: Buffer): Buffer {
+  const decipher = createDecipheriv(`aes-${key.length * 8}-ecb`, key, null);
+  decipher.setAutoPadding(false);
+  return Buffer.concat([decipher.update(value), decipher.final()]);
+}
+
+/** Encode the three textual DID components in PPCS's fixed 20-byte layout. */
+function encodeDid(value: string): Buffer {
+  const [prefix, number, suffix] = value.split("-");
+  const result = Buffer.alloc(20);
+  Buffer.from(prefix ?? "").copy(result);
+  result.writeUInt32BE(Number(number ?? 0), 8);
+  Buffer.from(suffix ?? "").copy(result, 12);
+  return result;
+}
+
+/**
+ * Decode Eufy's obfuscated comma-separated cloud rendezvous host list.
+ *
+ * The decoded portion used here yields only hostnames. PPCS cloud lookup uses
+ * the fixed 32100 port, and actual camera candidates arrive in the lookup
+ * responses sent by those rendezvous servers.
+ */
 function decodeCloudAddresses(value: string): { host: string; port: number }[] {
   const table = Buffer.from("4959433db5bf6da347534f6165e371e9677f02030badb3892b2f35c16b8b959711e5a70deff1050783fb9d3bc5c713171d1f2529d3df", "hex");
   const encoded = value.split(":", 1)[0] ?? ""; const out = Buffer.alloc(Math.floor(encoded.length / 2));
@@ -1371,6 +1755,15 @@ function decodeCloudAddresses(value: string): { host: string; port: number }[] {
   return out.toString().split(",").filter(Boolean).map((host) => ({ host, port: 32100 }));
 }
 
+/**
+ * Discover the local IPv4 address selected by the host's routing table.
+ *
+ * Connecting an unbound UDP socket does not send application data. It lets the
+ * operating system choose the interface it would route toward the public DNS
+ * address. Cloud lookup then advertises that interface address with the main
+ * PPCS socket's bound port. Failure is non-fatal because the alternate lookup
+ * form does not require a caller address.
+ */
 function detectLocalIpv4(): Promise<string | null> {
   return new Promise((resolve) => {
     const probe = createSocket("udp4");
@@ -1391,6 +1784,7 @@ function detectLocalIpv4(): Promise<string | null> {
   });
 }
 
+/** Pause between bounded retransmissions of the same observed control request. */
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
