@@ -20,6 +20,9 @@ import type { MegaClient } from "./client.js";
 
 const logger = createLogger("push");
 
+/** AI meanings that structured push evidence can establish without notification text. */
+export type MegaPushDetectionEvidence = "person" | "vehicle" | "pet" | "dog" | "crying" | "sound";
+
 /** Normalized subset of an Android FCM/Eufy notification used by the provider. */
 export interface MegaPushEvent {
   readonly cameraSerial: string;
@@ -29,6 +32,7 @@ export interface MegaPushEvent {
   readonly messageType: number | null;
   readonly notificationStyle: number | null;
   readonly personName: string | null;
+  readonly detectionEvidence: readonly MegaPushDetectionEvidence[];
   readonly content: string | null;
   readonly pictureUrl: string | null;
   readonly filePath: string | null;
@@ -155,6 +159,7 @@ export function parsePushEvent(data: unknown): MegaPushEvent | null {
     messageType: integer(payload.msg_type),
     notificationStyle: integer(payload.notification_style),
     personName: text(payload.f) ?? text(payload.nick_name),
+    detectionEvidence: structuredDetectionEvidence(payload),
     content: text(outer.content) ?? text(payload.content) ?? text(data.content),
     pictureUrl: text(payload.pic_url),
     filePath: text(payload.file_path) ?? text(payload.p),
@@ -166,6 +171,63 @@ export function parsePushEvent(data: unknown): MegaPushEvent | null {
     sensorOpen: sensorOpen(payload.e),
     eventId: text(payload.unique_id) ?? text(outer.unique_id) ?? text(data.unique_id),
   };
+}
+
+/**
+ * Reduce structured AI results to detection kinds without retaining face
+ * records, identifiers, counts, object arrays, or recognition metadata.
+ *
+ * Generic HomeBase security pushes can keep event type `1` even when the Eufy
+ * app has a more specific classification. These optional AI fields are more
+ * specific than the generic event type. Default zero values and
+ * `ai_detect_type` are deliberately ignored because the latter may describe
+ * enabled camera settings rather than the object detected in this event.
+ */
+function structuredDetectionEvidence(payload: Record<string, unknown>): MegaPushDetectionEvidence[] {
+  const evidence = new Set<MegaPushDetectionEvidence>();
+  const person = payload.person;
+  if (positiveSignal(person)
+    || positiveInteger(payload.person_count)
+    || positiveInteger(payload.person_id)
+    || positiveInteger(payload.face_id)
+    || [payload.ai_faces, payload.face_ids, payload.familiar_faces]
+      .some((value) => Array.isArray(value) && value.length > 0)) {
+    evidence.add("person");
+  }
+
+  const objectNames = Array.isArray(payload.objects)
+    ? payload.objects
+    : isRecord(payload.objects) && Array.isArray(payload.objects.names) ? payload.objects.names : [];
+  for (const value of objectNames) {
+    if (typeof value !== "string") continue;
+    const name = value.trim().toLowerCase();
+    if (["person", "human"].includes(name)) evidence.add("person");
+    else if (["vehicle", "car", "truck", "bus", "motorcycle", "bicycle"].includes(name)) evidence.add("vehicle");
+    else if (name === "dog") evidence.add("dog");
+    else if (["pet", "animal", "cat"].includes(name)) evidence.add("pet");
+    else if (name === "crying") evidence.add("crying");
+    else if (name === "sound") evidence.add("sound");
+  }
+
+  if (Array.isArray(payload.vehicle_types) && payload.vehicle_types.length > 0) evidence.add("vehicle");
+  if (positiveSignal(payload.pet_type)) {
+    evidence.add(typeof payload.pet_type === "string" && payload.pet_type.trim().toLowerCase() === "dog" ? "dog" : "pet");
+  }
+  if (positiveSignal(payload.crying)) evidence.add("crying");
+  if (positiveSignal(payload.sound_detection) || positiveSignal(payload.sound_type)) evidence.add("sound");
+  return [...evidence];
+}
+
+/** Return whether an optional scalar represents affirmative event evidence. */
+function positiveSignal(value: unknown): boolean {
+  if (value === true || (typeof value === "number" && value > 0)) return true;
+  return typeof value === "string" && !/^(?:|0|false|none|null)$/i.test(value.trim());
+}
+
+/** Return whether an optional integer field carries a positive event value. */
+function positiveInteger(value: unknown): boolean {
+  const parsed = integer(value);
+  return parsed !== null && parsed > 0;
 }
 
 function sensorOpen(value: unknown): boolean | null {

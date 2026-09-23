@@ -13,7 +13,7 @@
  */
 import { join } from "node:path";
 
-import type { BatteryState, CameraIdentity, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
+import type { BatteryState, CameraIdentity, DetectionKind, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
 import { createLogger } from "../logging.js";
 import { MegaClient } from "../mega/client.js";
 import { decodeEventImage, isJpeg } from "../mega/image.js";
@@ -942,13 +942,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const detection = cameraDetectionKind(event.eventType);
     if (!detection) return;
     if (detection === "motion") {
-      events.motion(event.cameraSerial, true);
-
       // Older HomeBase camera notifications use the generic security event.
-      // A fetch id is the accompanying evidence that the same event identified
-      // a person, while motion remains true for every generic security event.
-      if (event.eventType === 1 && event.fetchId !== null) {
-        events.person(event.cameraSerial, true, personName);
+      // A fetch id or structured AI result supplies the classification hidden
+      // by that generic code. Motion remains true for every generic security
+      // event, including those without more specific AI evidence.
+      const kinds = event.eventType === 1 ? genericSecurityDetectionKinds(event) : ["motion"] as const;
+      for (const kind of kinds) {
+        if (kind === "motion") events.motion(event.cameraSerial, true);
+        else if (kind === "person") events.person(event.cameraSerial, true, personName);
+        else events.detection(event.cameraSerial, kind, true);
       }
     } else if (detection === "person") events.person(event.cameraSerial, true, personName);
     else events.detection(event.cameraSerial, detection, true);
@@ -1664,7 +1666,8 @@ export function ppcsStreamLogSummary(
  * @param stationManaged Whether the station has a supported local control entity.
  */
 export function safePushLogSummary(
-  event: Pick<MegaPushEvent, "eventType" | "messageType" | "notificationStyle" | "pictureUrl" | "alarmType">,
+  event: Pick<MegaPushEvent, "eventType" | "messageType" | "notificationStyle" | "pictureUrl" | "alarmType">
+    & Partial<Pick<MegaPushEvent, "detectionEvidence">>,
   device: Pick<MegaInventoryDevice, "model" | "category" | "deviceType"> | null,
   stationPresent: boolean,
   stationManaged: boolean,
@@ -1692,11 +1695,30 @@ export function safePushLogSummary(
     `notification_style=${safePushCode(event.notificationStyle)}`,
     `handling=${handling}`,
     `picture_present=${event.pictureUrl !== null}`,
+    `ai_evidence=${event.detectionEvidence?.join(",") || "none"}`,
   ].join(" ");
 }
 
 function safePushCode(value: number | null): number | "missing" {
   return value !== null && Number.isSafeInteger(value) && value >= 0 && value <= 65_535 ? value : "missing";
+}
+
+/**
+ * Return motion plus any AI classifications proven by a generic security event.
+ *
+ * Motion is deliberately the first result for every event type `1`, including
+ * events that have no AI evidence. A fetch id is retained as the legacy person
+ * signal, while structured evidence can additionally identify other AI
+ * meanings supported by the provider. Non-generic event types keep using their
+ * explicit numeric mapping and return no fallback classifications.
+ */
+export function genericSecurityDetectionKinds(
+  event: Pick<MegaPushEvent, "eventType" | "fetchId" | "detectionEvidence">,
+): readonly Exclude<DetectionKind, "doorbell">[] {
+  if (event.eventType !== 1) return [];
+  const evidence = new Set<Exclude<DetectionKind, "doorbell">>(["motion", ...event.detectionEvidence]);
+  if (event.fetchId !== null) evidence.add("person");
+  return [...evidence];
 }
 
 /** Extract a recognized name only from push events that represent a person. */

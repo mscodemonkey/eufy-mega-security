@@ -17,6 +17,7 @@ import {
   inventoryMotionOutcome,
   inventoryLogSummaries,
   homeBaseStorageLogSummary,
+  genericSecurityDetectionKinds,
   initialHomeBaseState,
   isDiscoveredHomeBase,
   isDoorbellDevice,
@@ -671,13 +672,36 @@ test("maps expanded Eufy AI event ids without collapsing their meanings", () => 
   );
 });
 
-test("logs generic HomeBase camera security notifications as motion", () => {
+test("logs structured AI evidence on a generic HomeBase security event", () => {
   const summary = safePushLogSummary({
     eventType: 1, messageType: null, notificationStyle: 3,
-    pictureUrl: null, alarmType: null,
+    pictureUrl: null, alarmType: null, detectionEvidence: ["person", "vehicle"],
   }, { model: "T8140-R", category: "eufy_security", deviceType: 14 }, true, true);
 
-  assert.match(summary, /event_type=1 message_type=missing notification_style=3 handling=motion/);
+  assert.match(summary, /event_type=1 message_type=missing notification_style=3 handling=motion picture_present=false ai_evidence=person,vehicle/);
+});
+
+test("always routes generic HomeBase security as motion plus only proven AI meanings", () => {
+  assert.deepEqual(genericSecurityDetectionKinds({
+    eventType: 1,
+    fetchId: null,
+    detectionEvidence: ["person", "vehicle", "dog"],
+  }), ["motion", "person", "vehicle", "dog"]);
+  assert.deepEqual(genericSecurityDetectionKinds({
+    eventType: 1,
+    fetchId: 42,
+    detectionEvidence: [],
+  }), ["motion", "person"]);
+  assert.deepEqual(genericSecurityDetectionKinds({
+    eventType: 1,
+    fetchId: null,
+    detectionEvidence: [],
+  }), ["motion"]);
+  assert.deepEqual(genericSecurityDetectionKinds({
+    eventType: 3101,
+    fetchId: 42,
+    detectionEvidence: ["vehicle"],
+  }), []);
 });
 
 test("does not report unsupported HomeBase inventory as a handled camera event", () => {

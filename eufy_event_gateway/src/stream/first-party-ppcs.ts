@@ -201,21 +201,52 @@ export function decodePpcsVideoFrame(
   signCode: number,
   unwrapKey: (wrapped: Buffer) => Buffer | undefined,
 ): Buffer | undefined {
-  if (frame.length < 22) return undefined;
+  return decodeLegacyPpcsVideoFrame(frame, signCode, unwrapKey).data;
+}
+
+/** Privacy-safe structural reason a PPCS media frame could not be decoded. */
+export type PpcsVideoFrameDecodeFailure =
+  | "short-frame"
+  | "clear-length"
+  | "authenticated-short"
+  | "legacy-length"
+  | "legacy-key-unwrap"
+  | "legacy-key-unavailable"
+  | "legacy-key-size"
+  | "legacy-decrypt";
+
+interface LegacyPpcsVideoFrameDecodeResult {
+  readonly data?: Buffer;
+  readonly failure?: PpcsVideoFrameDecodeFailure;
+}
+
+/** Decode legacy media while retaining only a bounded structural failure reason. */
+function decodeLegacyPpcsVideoFrame(
+  frame: Buffer,
+  signCode: number,
+  unwrapKey: (wrapped: Buffer) => Buffer | undefined,
+): LegacyPpcsVideoFrameDecodeResult {
+  if (frame.length < 22) return { failure: "short-frame" };
   const length = frame.readUInt32LE(0);
   if (signCode <= 0 || length < 128) {
-    if (frame.length < 22 + length) return undefined;
-    return frame.subarray(22, 22 + length);
+    if (frame.length < 22 + length) return { failure: "clear-length" };
+    return { data: frame.subarray(22, 22 + length) };
   }
-  if (frame.length < 151 + length) return undefined;
+  if (frame.length < 151 + length) return { failure: "legacy-length" };
+  let key: Buffer | undefined;
   try {
-    const key = unwrapKey(frame.subarray(22, 150));
-    if (!key || (key.length !== 16 && key.length !== 32)) return undefined;
+    key = unwrapKey(frame.subarray(22, 150));
+  } catch {
+    return { failure: "legacy-key-unwrap" };
+  }
+  if (!key) return { failure: "legacy-key-unavailable" };
+  if (key.length !== 16 && key.length !== 32) return { failure: "legacy-key-size" };
+  try {
     const encrypted = frame.subarray(151, 151 + 128);
     const clear = decryptEcb(encrypted, key);
-    return Buffer.concat([clear, frame.subarray(151 + 128, 151 + length)]);
+    return { data: Buffer.concat([clear, frame.subarray(151 + 128, 151 + length)]) };
   } catch {
-    return undefined;
+    return { failure: "legacy-decrypt" };
   }
 }
 
@@ -236,9 +267,15 @@ export interface DecodedPpcsVideoFrame {
 export class PpcsVideoFrameDecoder {
   #eccPrivateKey: Buffer | null = null;
   #mediaKey: Buffer | null = null;
+  #lastFailure: PpcsVideoFrameDecodeFailure | null = null;
 
   /** Create a decoder around the session's legacy RSA unwrap operation. */
   constructor(private readonly unwrapLegacyKey: (wrapped: Buffer) => Buffer | undefined) {}
+
+  /** Return the structural reason the most recent decode failed, without media or key data. */
+  get lastFailure(): PpcsVideoFrameDecodeFailure | null {
+    return this.#lastFailure;
+  }
 
   /** Replace the camera key used for authenticated media and forget any prior stream key. */
   setEccPrivateKey(value: string): void {
@@ -256,9 +293,11 @@ export class PpcsVideoFrameDecoder {
    * 128-byte encrypted prefix.
    */
   decode(frame: Buffer, signCode: number): DecodedPpcsVideoFrame | undefined {
+    this.#lastFailure = null;
     if (signCode <= 0) {
-      const data = decodePpcsVideoFrame(frame, signCode, this.unwrapLegacyKey);
-      return data ? { data, protection: "clear" } : undefined;
+      const result = decodeLegacyPpcsVideoFrame(frame, signCode, this.unwrapLegacyKey);
+      this.#lastFailure = result.failure ?? null;
+      return result.data ? { data: result.data, protection: "clear" } : undefined;
     }
 
     const authenticated = this.#decodeAuthenticated(frame);
@@ -266,9 +305,13 @@ export class PpcsVideoFrameDecoder {
 
     // A short signed frame cannot carry the legacy 128-byte encrypted prefix.
     // Falling through after failed GCM authentication would emit its envelope as video.
-    if (frame.length >= 4 && frame.readUInt32LE(0) < 128) return undefined;
-    const legacy = decodePpcsVideoFrame(frame, signCode, this.unwrapLegacyKey);
-    return legacy ? { data: legacy, protection: "rsa-ecb" } : undefined;
+    if (frame.length >= 4 && frame.readUInt32LE(0) < 128) {
+      this.#lastFailure = "authenticated-short";
+      return undefined;
+    }
+    const legacy = decodeLegacyPpcsVideoFrame(frame, signCode, this.unwrapLegacyKey);
+    this.#lastFailure = legacy.failure ?? null;
+    return legacy.data ? { data: legacy.data, protection: "rsa-ecb" } : undefined;
   }
 
   /**
@@ -1265,7 +1308,8 @@ export class FirstPartyPpcsSession {
       return decoded?.data;
     });
     if (!decoded?.data.length) {
-      this.#recordVideoResult(signCode > 0 ? "encrypted-frame-rejected" : "plaintext-frame-rejected");
+      const failure = this.#videoDecoder.lastFailure ?? "unknown";
+      this.#recordVideoResult(signCode > 0 ? `encrypted-frame-rejected-${failure}` : `plaintext-frame-rejected-${failure}`);
       return false;
     }
     let wrote = false;

@@ -278,6 +278,26 @@ test("accepts a legacy encrypted keyframe with length-prefixed H.264 media", () 
   assert.deepEqual(normalizer.nalTypes, [7]);
 });
 
+test("classifies a failed legacy key unwrap without exposing frame data", () => {
+  const frame = Buffer.alloc(151 + 128);
+  frame.writeUInt32LE(128, 0);
+  const decoder = new PpcsVideoFrameDecoder(() => {
+    throw new Error("private key detail must not enter diagnostics");
+  });
+
+  assert.equal(decoder.decode(frame, 1), undefined);
+  assert.equal(decoder.lastFailure, "legacy-key-unwrap");
+});
+
+test("classifies an unsupported unwrapped legacy media key size", () => {
+  const frame = Buffer.alloc(151 + 128);
+  frame.writeUInt32LE(128, 0);
+  const decoder = new PpcsVideoFrameDecoder(() => Buffer.alloc(24));
+
+  assert.equal(decoder.decode(frame, 1), undefined);
+  assert.equal(decoder.lastFailure, "legacy-key-size");
+});
+
 test("accepts a decrypted legacy continuation without a video start code", () => {
   const key = Buffer.alloc(16, 7);
   const clear = Buffer.alloc(128, 0xff);

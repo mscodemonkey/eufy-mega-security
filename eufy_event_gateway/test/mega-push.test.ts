@@ -52,10 +52,35 @@ test("normalizes a nested HomeBase 3 Mega notification", () => {
   }) });
   assert.deepEqual(result, {
     cameraSerial: "camera", stationSerial: "station", cameraName: "Test camera", eventType: 3111,
-    messageType: 1, notificationStyle: null, personName: "Alex", content: "Alex has been detected.",
+    messageType: 1, notificationStyle: null, personName: "Alex", detectionEvidence: [],
+    content: "Alex has been detected.",
     pictureUrl: "https://example.invalid/image", filePath: null, fetchId: null, senseId: null,
     guardMode: null, effectiveMode: null, alarmType: null, sensorOpen: null, eventId: null,
   });
+});
+
+test("reduces structured AI fields to privacy-safe detection kinds", () => {
+  const person = parsePushEvent({
+    device_sn: "camera",
+    a: 1,
+    person_count: 1,
+    ai_faces: [{ face_id: 42, confidence: 99 }],
+    objects: ["person", "car", "dog"],
+    crying: true,
+    sound_detection: 1,
+  });
+  const motion = parsePushEvent({
+    device_sn: "camera",
+    a: 1,
+    person: 0,
+    person_count: 0,
+    face_ids: [],
+  });
+
+  assert.deepEqual(person?.detectionEvidence, ["person", "vehicle", "dog", "crying", "sound"]);
+  assert.deepEqual(motion?.detectionEvidence, []);
+  assert.equal(JSON.stringify(person).includes("confidence"), false);
+  assert.equal(JSON.stringify(person).includes("42"), false);
 });
 
 test("normalizes contact state without retaining the raw push", () => {
