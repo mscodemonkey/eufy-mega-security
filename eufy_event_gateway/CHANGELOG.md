@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.96
+
+- Retry HomeBase state discovery through both LAN broadcast and the current private address, including bounded nearby UDP ports, so station entities can recover when the first local lookup is missed.
+- The Home Assistant i18n engine is now up and running, with translatable entity names and selectable values, contributor-friendly YAML sources, and generated runtime JSON. Translators are wanted for the first community language files.
+
 ## 0.1.95
 
 - Fixed repeating HomeBase camera stream restarts while valid video frames are still arriving.
