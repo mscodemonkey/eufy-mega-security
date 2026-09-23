@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.98
+
+- Keep motion active for every generic security notification while also emitting person, vehicle, pet, dog, crying, and sound events when the push contains matching structured evidence.
+- Add privacy-safe standalone camera video diagnostics that identify the media decode stage which rejected an encrypted frame.
+
 ## 0.1.97
 
 - Admit the standalone T8130 SoloCam E20, T8131 SoloCam E40, and T8B00 SoloCam C210 through the existing direct-camera handler as ready to test.
