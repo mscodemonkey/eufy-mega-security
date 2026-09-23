@@ -18,3 +18,4 @@ eufy_event_gateway/src/provider/sensor-capability-advanced.local.txt
 eufy_event_gateway/src/provider/homebase-capability-advanced.local.txt
 eufy_event_gateway/src/provider/doorbell-capability-advanced.local.txt
 docs/capability-workflow.local.md
+docs/TODO.md
