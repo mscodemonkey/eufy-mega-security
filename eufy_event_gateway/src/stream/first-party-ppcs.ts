@@ -232,7 +232,18 @@ function decodeLegacyPpcsVideoFrame(
     if (frame.length < 22 + length) return { failure: "clear-length" };
     return { data: frame.subarray(22, 22 + length) };
   }
-  if (frame.length < 151 + length) return { failure: "legacy-length" };
+
+  // Standalone cameras can include the 22-byte metadata header in their
+  // declared value, while HomeBase frames declare only the media bytes. The
+  // former wire form is exactly 129 bytes longer than its declaration.
+  const legacyMediaEnd = 151 + length;
+  const standaloneMediaEnd = 129 + length;
+  const mediaEnd = frame.length >= legacyMediaEnd
+    ? legacyMediaEnd
+    : frame.length === standaloneMediaEnd && frame.length >= 151 + 128
+      ? frame.length
+      : undefined;
+  if (mediaEnd === undefined) return { failure: "legacy-length" };
   let key: Buffer | undefined;
   try {
     key = unwrapKey(frame.subarray(22, 150));
@@ -244,7 +255,7 @@ function decodeLegacyPpcsVideoFrame(
   try {
     const encrypted = frame.subarray(151, 151 + 128);
     const clear = decryptEcb(encrypted, key);
-    return { data: Buffer.concat([clear, frame.subarray(151 + 128, 151 + length)]) };
+    return { data: Buffer.concat([clear, frame.subarray(151 + 128, mediaEnd)]) };
   } catch {
     return { failure: "legacy-decrypt" };
   }

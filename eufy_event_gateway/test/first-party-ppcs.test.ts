@@ -278,6 +278,25 @@ test("accepts a legacy encrypted keyframe with length-prefixed H.264 media", () 
   assert.deepEqual(normalizer.nalTypes, [7]);
 });
 
+test("accepts standalone encrypted media whose declared length includes its metadata header", () => {
+  const key = Buffer.alloc(16, 7);
+  const clear = Buffer.concat([Buffer.from([0, 0, 0, 1, 0x40]), Buffer.alloc(123, 3)]);
+  const cipher = createCipheriv("aes-128-ecb", key, null);
+  cipher.setAutoPadding(false);
+  const encrypted = Buffer.concat([cipher.update(clear), cipher.final()]);
+  const tail = Buffer.alloc(50, 4);
+  const frame = Buffer.alloc(151 + encrypted.length + tail.length);
+  frame.writeUInt32LE(frame.length - 129, 0);
+  Buffer.alloc(128, 8).copy(frame, 22);
+  encrypted.copy(frame, 151);
+  tail.copy(frame, 151 + encrypted.length);
+
+  assert.deepEqual(
+    new PpcsVideoFrameDecoder(() => key).decode(frame, 1),
+    { data: Buffer.concat([clear, tail]), protection: "rsa-ecb" },
+  );
+});
+
 test("classifies a failed legacy key unwrap without exposing frame data", () => {
   const frame = Buffer.alloc(151 + 128);
   frame.writeUInt32LE(128, 0);
