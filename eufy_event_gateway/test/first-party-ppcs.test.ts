@@ -24,14 +24,16 @@ import {
   needsStandaloneMediaReassert,
   PpcsVideoFrameDecoder,
   PpcsVideoStreamNormalizer,
-  ppcsCandidatePorts,
   ppcsCommandMagicOffset,
   ppcsFrameChannel,
   ppcsLookupCandidate,
-  ppcsLocalLookupTargets,
   ppcsPartialCommandPrefix,
   ppcsSequenceDisposition,
 } from "../src/stream/first-party-ppcs.js";
+import {
+  ppcsCandidatePorts,
+  ppcsLocalLookupTargets,
+} from "../src/stream/ppcs-lookup.js";
 
 test("builds the two PPCS cloud lookup variants", () => {
   const did = "EUPRCAM-000000-XXXXX";

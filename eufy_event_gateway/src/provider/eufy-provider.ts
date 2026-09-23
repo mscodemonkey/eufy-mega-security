@@ -1008,6 +1008,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const session = new HomeBasePpcsSession({
         serial,
         p2pDid: identity.p2pDid,
+        localAddress: identity.localAddress,
         accountId: identity.adminUserId,
         userName: identity.userName ?? "Home Assistant",
         localAddress: identity.localAddress,

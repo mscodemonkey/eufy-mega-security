@@ -11,6 +11,7 @@ import { createCipheriv, createDecipheriv } from "node:crypto";
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 
 import type { HomeBaseStorageState } from "../domain/types.js";
+import { ppcsCandidatePorts, ppcsLocalLookupTargets } from "./ppcs-lookup.js";
 
 const MAGIC = Buffer.from("XZYH");
 /** PPCS request headers exposed for protocol regression tests. */
@@ -42,6 +43,7 @@ const CMD_STORAGE_INFO_HB3 = 1307;
 const CMD_SET_PAYLOAD = 1350;
 const CMD_NOTIFY_PAYLOAD = 1351;
 const COMMAND_TIMEOUT_MS = 10_000;
+const LOOKUP_RETRY_MILLISECONDS = 1_000;
 const CHILD_READ_PARAM_TYPES: ReadonlySet<number> = new Set([
   1011,
   1013,
@@ -118,11 +120,11 @@ export interface HomeBaseStorageDiagnostic {
 export interface HomeBasePpcsOptions {
   readonly serial: string;
   readonly p2pDid: string;
-  readonly accountId: string;
-  readonly userName: string;
 
   /** Private inventory address used when the LAN blocks broadcast discovery. */
   readonly localAddress?: string | null;
+  readonly accountId: string;
+  readonly userName: string;
 }
 
 interface PendingCommand {
@@ -157,6 +159,7 @@ export class HomeBasePpcsSession {
   #cameraInfoWaiter: { resolve: (value: CameraInfo) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> } | null = null;
   #storageWaiter: { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> } | null = null;
   #heartbeat: ReturnType<typeof setInterval> | null = null;
+  #lookupTimer: ReturnType<typeof setInterval> | null = null;
 
   /** Create an unopened session for a known HomeBase. */
   constructor(private readonly options: HomeBasePpcsOptions) {
@@ -167,21 +170,40 @@ export class HomeBasePpcsSession {
   /** Discover the HomeBase on the local network and establish its UDP peer. */
   async connect(): Promise<void> {
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("HomeBase local PPCS lookup timed out")), 10_000);
-      this.#socket.once("error", (error) => { clearTimeout(timer); reject(error); });
+      const timer = setTimeout(() => {
+        if (this.#lookupTimer) clearInterval(this.#lookupTimer);
+        this.#lookupTimer = null;
+        reject(new Error("HomeBase local PPCS lookup timed out"));
+      }, 10_000);
+      this.#socket.once("error", (error) => {
+        clearTimeout(timer);
+        if (this.#lookupTimer) clearInterval(this.#lookupTimer);
+        this.#lookupTimer = null;
+        reject(error);
+      });
       this.#socket.on("message", (message, info) => {
         try {
-          if (this.#handle(message, info)) { clearTimeout(timer); resolve(); }
+          if (this.#handle(message, info)) {
+            clearTimeout(timer);
+            if (this.#lookupTimer) clearInterval(this.#lookupTimer);
+            this.#lookupTimer = null;
+            resolve();
+          }
         } catch (error) {
           clearTimeout(timer);
+          if (this.#lookupTimer) clearInterval(this.#lookupTimer);
+          this.#lookupTimer = null;
           reject(error);
         }
       });
       this.#socket.bind(0, () => {
         this.#socket.setBroadcast(true);
-        for (const target of homeBaseLocalLookupTargets(this.options.localAddress)) {
-          this.#send(HOMEBASE_PPCS_REQUEST_HEADERS.localLookup, Buffer.from([0, 0]), target);
-        }
+        this.#lookup();
+        this.#lookupTimer = setInterval(
+          () => this.#lookup(),
+          LOOKUP_RETRY_MILLISECONDS,
+        );
+        this.#lookupTimer.unref?.();
       });
     });
     const gatewayInfoPromise = this.#waitForGatewayInfo();
@@ -261,6 +283,7 @@ export class HomeBasePpcsSession {
     if (this.#closed) return;
     this.#closed = true;
     if (this.#heartbeat) clearInterval(this.#heartbeat);
+    if (this.#lookupTimer) clearInterval(this.#lookupTimer);
     const error = new Error("HomeBase session closed before the operation completed");
     this.#rejectPending(error);
     if (this.#remote) this.#send(HOMEBASE_PPCS_REQUEST_HEADERS.end, Buffer.alloc(0), this.#remote);
@@ -279,8 +302,8 @@ export class HomeBasePpcsSession {
 
   #handle(message: Buffer, info: RemoteInfo): boolean {
     if (has(message, RESP.localLookup)) {
-      if (decodeDid(message.subarray(4, 24)) === this.options.p2pDid) {
-        this.#check({ host: info.address, port: info.port });
+      for (const port of ppcsCandidatePorts(info.port)) {
+        this.#check({ host: info.address, port });
       }
       return false;
     }
@@ -298,6 +321,17 @@ export class HomeBasePpcsSession {
       this.#consumeData(message.subarray(8), sequence, type[1] ?? 0);
     }
     return false;
+  }
+
+  #lookup(): void {
+    if (this.#remote) return;
+    for (const address of ppcsLocalLookupTargets(this.options.localAddress)) {
+      this.#send(
+        HOMEBASE_PPCS_REQUEST_HEADERS.localLookup,
+        Buffer.from([0, 0]),
+        address,
+      );
+    }
   }
 
   #consumeData(data: Buffer, sequence: number, type: number): void {
@@ -450,10 +484,7 @@ export class HomeBasePpcsSession {
 export function homeBaseLocalLookupTargets(
   localAddress?: string | null,
 ): Array<{ readonly host: string; readonly port: number }> {
-  return [
-    { host: "255.255.255.255", port: 32_108 },
-    ...(localAddress ? [{ host: localAddress, port: 32_108 }] : []),
-  ];
+  return ppcsLocalLookupTargets(localAddress);
 }
 
 /** Build the wrapped guard-mode value accepted by current HomeBase firmware. */
@@ -720,10 +751,6 @@ function encodeDid(value: string): Buffer {
   result.writeUInt32BE(Number(number ?? 0), 8);
   Buffer.from(suffix ?? "").copy(result, 12);
   return result;
-}
-
-function decodeDid(value: Buffer): string {
-  return `${value.subarray(0, 8).toString().replace(/\0+$/g, "")}-${value.readUInt32BE(8).toString().padStart(6, "0")}-${value.subarray(12, 20).toString().replace(/\0+$/g, "")}`;
 }
 
 function u16(value: number): Buffer {

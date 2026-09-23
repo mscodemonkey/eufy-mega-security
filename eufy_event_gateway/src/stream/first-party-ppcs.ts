@@ -15,6 +15,7 @@ import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
 import type { VideoCodec } from "../domain/types.js";
 import { PpcsAccessUnitAssembler } from "./ppcs-access-unit-assembler.js";
+import { ppcsCandidatePorts, ppcsLocalLookupTargets } from "./ppcs-lookup.js";
 
 // PPCS wraps command payloads in an XZYH header. The outer D1 datagrams and
 // these inner command frames use different sequence numbers and byte order.
@@ -44,7 +45,6 @@ const ATTACHED_MEDIA_RESTART_DELAY_MILLISECONDS = 250;
 const FIRST_VIDEO_FRAME_TIMEOUT_MILLISECONDS = 20_000;
 const CONTROL_TIMEOUT_MILLISECONDS = 10_000;
 const LOOKUP_RETRY_MILLISECONDS = 1_000;
-const LOCAL_LOOKUP_PORT = 32_108;
 const PPCS_RECEIVE_BUFFER_BYTES = 1024 * 1024;
 const PPCS_SEQUENCE_LOOKBACK = 0x8000;
 const PPCS_STALE_RETRANSMIT_DEPTH = 1024;
@@ -365,23 +365,6 @@ export function ppcsLookupCandidate(message: Buffer): { readonly host: string; r
 /** Return whether a PPCS response completes either a direct or relay peer handshake. */
 export function isPpcsCameraIdentity(message: Buffer): boolean {
   return has(message, RESP.camId) || has(message, RESP.turnServerCamId);
-}
-
-/** Enumerate the advertised UDP port and the bounded NAT-remap neighbourhood used by PPCS. */
-export function ppcsCandidatePorts(port: number): number[] {
-  const ports: number[] = [];
-  for (let candidate = port - 3; candidate <= port + 3; candidate++) {
-    if (candidate > 0 && candidate <= 65_535) ports.push(candidate);
-  }
-  return ports;
-}
-
-/** Build broadcast and current-SDK directed targets for a local PPCS lookup. */
-export function ppcsLocalLookupTargets(localAddress?: string | null): Array<{ readonly host: string; readonly port: number }> {
-  return [
-    { host: "255.255.255.255", port: LOCAL_LOOKUP_PORT },
-    ...(localAddress ? [{ host: localAddress, port: LOCAL_LOOKUP_PORT }] : []),
-  ];
 }
 
 /**
