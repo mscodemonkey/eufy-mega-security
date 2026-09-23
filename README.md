@@ -55,12 +55,12 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 - 🟠 Indoor Cam S350 T8416: discovery and Home Assistant entities are confirmed on direct Wi-Fi and T9000-attached setups. Live video through T9000 is waiting on that station's PPCS lookup result, and privacy-mode control is not yet exposed.
 - 🟠 Indoor Cam E30 4K T8417: discovery and properties are confirmed. Direct media arrives, but live video remains blank and codec startup is unresolved. Events and snapshots still need confirmation.
 - 🟠 eufyCam C37 T814X: Mega type 10037 is admitted through its reported HomeBase 3 route. Discovery, events, snapshots, and live video need reporter confirmation.
-- 🟠 eufyCam E40 T8144: discovery, motion, person, pet, and sound events are confirmed through HomeBase 2. Fresh snapshots work, but live view is mixed. Chrome has shown a picture for 7 to 10 seconds while Safari remains blank.
+- 🟠 eufyCam E40 T8144: discovery, motion, person, pet, and sound events are confirmed through HomeBase 2. Fresh snapshots work, but live view is mixed. Chrome has sustained video for more than 100 seconds after an occasional failed first attempt, while Safari shows only a frozen first frame.
 
 ### Doorbells
 
-- 🟠 Video Doorbell T8200: discovery and its self-parented PPCS session are confirmed. Press notifications and video frames remain unresolved on the reported hardware.
-- ✅ Video Doorbell T8210: live streams and snapshots produced on real hardware. A separate HomeBase 2 report still has blank or frozen playback under investigation.
+- 🟠 Video Doorbell T8200: discovery, entities, motion and person events, and retained event images are confirmed through its self-parented PPCS session. Press notifications, live video, and on-demand snapshots remain unresolved on the reported hardware.
+- ✅ Video Doorbell T8210: live streams and snapshots produced on real hardware. One HomeBase 2 reporter now has smooth playback, while another still receives video data without a rendered view.
 - ✅ Video Doorbell T8213: discovered with sensors, retained images, and a live stream through HomeBase 3.
 - 🟠 Video Doorbell E340 T8214: discovery and Home Assistant entities are confirmed through a T9000. A separate T8030 report confirms live video but reports intermittent jumps back to an earlier frame. T9000 live video remains blocked at lookup, and press notifications need targeted results.
 - 🟠 Video Doorbell C30 T8224: Mega type 96 admission and Home Assistant entities are reporter-confirmed. A physical button press is confirmed as push event 3103, and the latest event handler awaits reporter testing. Live media is not yet supported on the reported route.

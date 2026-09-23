@@ -11,6 +11,7 @@ import test from "node:test";
 import {
   buildHomeBaseGuardModeValue,
   HOMEBASE_PPCS_REQUEST_HEADERS,
+  homeBaseLocalLookupTargets,
   isHomeBaseResultFrame,
   parseHomeBaseState,
 } from "../src/stream/homebase-ppcs.js";
@@ -27,6 +28,16 @@ test("builds the current HomeBase guard-mode payload", () => {
 test("uses PPCS local-lookup and camera-check request headers", () => {
   assert.equal(HOMEBASE_PPCS_REQUEST_HEADERS.localLookup.toString("hex"), "f130");
   assert.equal(HOMEBASE_PPCS_REQUEST_HEADERS.check.toString("hex"), "f141");
+});
+
+test("adds the HomeBase inventory address to local discovery", () => {
+  assert.deepEqual(homeBaseLocalLookupTargets(null), [
+    { host: "255.255.255.255", port: 32_108 },
+  ]);
+  assert.deepEqual(homeBaseLocalLookupTargets("192.168.1.50"), [
+    { host: "255.255.255.255", port: 32_108 },
+    { host: "192.168.1.50", port: 32_108 },
+  ]);
 });
 
 test("reads the command-result flag from the inner frame type byte", () => {

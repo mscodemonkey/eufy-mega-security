@@ -39,22 +39,29 @@ capabilities:
       connections:
         direct:
           status: failing
-          tested_on: 2026-09-17
+          tested_on: 2026-09-23
           tested_by: sm0keKings
-          notes: The device accepts the request but sends no usable video frame.
+          notes: The self-parented device accepts repeated starts but sends no type 2 data or usable video frame.
     snapshot:
       connections:
         direct:
-          status: declared
+          status: failing
+          tested_on: 2026-09-23
+          tested_by: sm0keKings
+          notes: On-demand capture receives no video frame, while retained event images work.
   events:
     motion:
       connections:
         direct:
-          status: declared
+          status: reported
+          tested_on: 2026-09-23
+          tested_by: sm0keKings
     person:
       connections:
         direct:
-          status: declared
+          status: reported
+          tested_on: 2026-09-23
+          tested_by: sm0keKings
     doorbell_press:
       connections:
         direct:

@@ -91,9 +91,9 @@ capabilities:
       connections:
         T8010:
           status: mixed
-          tested_on: 2026-09-22
+          tested_on: 2026-09-23
           tested_by: philMo2305
-          notes: Chrome produced a picture for 7 to 10 seconds, while Safari remained blank and the stream did not stay live.
+          notes: Chrome sustained live video for up to 106 seconds after one failed first attempt. Safari rendered only a frozen first frame.
         T8030:
           status: declared
     snapshot:

@@ -120,6 +120,9 @@ export interface HomeBasePpcsOptions {
   readonly p2pDid: string;
   readonly accountId: string;
   readonly userName: string;
+
+  /** Private inventory address used when the LAN blocks broadcast discovery. */
+  readonly localAddress?: string | null;
 }
 
 interface PendingCommand {
@@ -176,7 +179,9 @@ export class HomeBasePpcsSession {
       });
       this.#socket.bind(0, () => {
         this.#socket.setBroadcast(true);
-        this.#send(HOMEBASE_PPCS_REQUEST_HEADERS.localLookup, Buffer.from([0, 0]), { host: "255.255.255.255", port: 32108 });
+        for (const target of homeBaseLocalLookupTargets(this.options.localAddress)) {
+          this.#send(HOMEBASE_PPCS_REQUEST_HEADERS.localLookup, Buffer.from([0, 0]), target);
+        }
       });
     });
     const gatewayInfoPromise = this.#waitForGatewayInfo();
@@ -439,6 +444,16 @@ export class HomeBasePpcsSession {
   #send(type: Buffer, payload: Buffer, address: { host: string; port: number }): void {
     this.#socket.send(Buffer.concat([type, u16(payload.length), payload]), address.port, address.host);
   }
+}
+
+/** Build the broadcast and inventory-directed targets for HomeBase discovery. */
+export function homeBaseLocalLookupTargets(
+  localAddress?: string | null,
+): Array<{ readonly host: string; readonly port: number }> {
+  return [
+    { host: "255.255.255.255", port: 32_108 },
+    ...(localAddress ? [{ host: localAddress, port: 32_108 }] : []),
+  ];
 }
 
 /** Build the wrapped guard-mode value accepted by current HomeBase firmware. */

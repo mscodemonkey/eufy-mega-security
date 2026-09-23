@@ -1010,6 +1010,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         p2pDid: identity.p2pDid,
         accountId: identity.adminUserId,
         userName: identity.userName ?? "Home Assistant",
+        localAddress: identity.localAddress,
       });
       try {
         await session.connect();
