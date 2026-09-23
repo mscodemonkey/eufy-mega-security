@@ -32,17 +32,17 @@ GUARD_MODE_GEOFENCING = 47
 GUARD_MODE_DISARMED = 63
 
 GUARD_MODES = {
-    GUARD_MODE_AWAY: "Away",
-    GUARD_MODE_HOME: "Home",
-    GUARD_MODE_SCHEDULE: "Schedule",
-    GUARD_MODE_CUSTOM_1: "Custom 1",
-    GUARD_MODE_CUSTOM_2: "Custom 2",
-    GUARD_MODE_CUSTOM_3: "Custom 3",
-    GUARD_MODE_GEOFENCING: "Geofencing",
-    GUARD_MODE_DISARMED: "Disarmed",
+    GUARD_MODE_AWAY: "away",
+    GUARD_MODE_HOME: "home",
+    GUARD_MODE_SCHEDULE: "schedule",
+    GUARD_MODE_CUSTOM_1: "custom_1",
+    GUARD_MODE_CUSTOM_2: "custom_2",
+    GUARD_MODE_CUSTOM_3: "custom_3",
+    GUARD_MODE_GEOFENCING: "geofencing",
+    GUARD_MODE_DISARMED: "disarmed",
 }
 
 ALARM_TONES = {
-    1: "Alarm sound 1",
-    2: "Alarm sound 2",
+    1: "alarm_sound_1",
+    2: "alarm_sound_2",
 }

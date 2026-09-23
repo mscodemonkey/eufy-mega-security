@@ -53,6 +53,24 @@ EUFY_GATEWAY_PROVIDER=simulated npm run dev
 
 The simulated provider gives the HTTP API, SSE events, entity state, and stream lifecycle a deterministic local source.
 
+## Translating the Home Assistant integration
+
+Human-edited translations live in
+`custom_components/eufy_event_gateway/translation_sources/`. Home Assistant's
+required JSON files are generated from them. To add a language:
+
+1. Copy `en.yaml` to a file named with the language's BCP 47 code. For
+   example, Danish is `da.yaml` and Dutch is `nl.yaml`.
+2. Translate only the text values. Keep every YAML key and placeholders such
+   as `{medium}` unchanged.
+3. Run `cd eufy_event_gateway && npm run translations:generate`.
+4. Commit the YAML source and generated JSON file, then open a pull request.
+
+Please translate the wording naturally rather than word for word. Home
+Assistant uses the server's configured language when it creates entity names,
+so existing entities may retain their previous names until Home Assistant
+recreates them.
+
 ## Checks before opening a pull request
 
 Run the same gateway checks used by GitHub Actions:

@@ -22,6 +22,14 @@ from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity, EufyStationEntity
 
 
+NIGHT_VISION_MODE_KEYS = {
+    "Off": "off",
+    "Colour": "colour",
+    "Infrared": "infrared",
+    "Spotlight": "spotlight",
+}
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: EufyGatewayConfigEntry,
@@ -127,8 +135,13 @@ def _night_vision_modes(camera: dict[str, Any]) -> dict[int, str]:
             continue
         value = raw_mode.get("value")
         name = raw_mode.get("name")
-        if isinstance(value, int) and not isinstance(value, bool) and isinstance(name, str):
-            modes[value] = name
+        if (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and isinstance(name, str)
+            and name in NIGHT_VISION_MODE_KEYS
+        ):
+            modes[value] = NIGHT_VISION_MODE_KEYS[name]
     return modes
 
 

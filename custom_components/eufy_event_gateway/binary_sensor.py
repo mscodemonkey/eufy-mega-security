@@ -117,17 +117,17 @@ class EufyDetectionSensor(EufyGatewayEntity, BinarySensorEntity):
         super().__init__(coordinator, serial)
         self.kind = kind
         self._attr_unique_id = f"{serial}_{kind}"
-        self._attr_name = {
-            "motion": "Motion",
-            "person": "Person",
-            "doorbell": "Doorbell",
-            "stranger": "Stranger",
-            "pet": "Pet",
-            "vehicle": "Vehicle",
-            "dog": "Dog",
-            "crying": "Crying",
-            "sound": "Sound",
-            "packageStranded": "Package stranded",
+        self._attr_translation_key = {
+            "motion": "motion_detection",
+            "person": "person_detection",
+            "doorbell": "doorbell_press",
+            "stranger": "stranger_detection",
+            "pet": "pet_detection",
+            "vehicle": "vehicle_detection",
+            "dog": "dog_detection",
+            "crying": "crying_detection",
+            "sound": "sound_detection",
+            "packageStranded": "package_stranded",
         }[kind]
         self._attr_device_class = {
             "motion": BinarySensorDeviceClass.MOTION,
@@ -158,7 +158,7 @@ class EufyCameraChargingSensor(EufyGatewayEntity, BinarySensorEntity):
     preserves an unknown state until the gateway has decoded a valid value.
     """
 
-    _attr_name = "Battery charging"
+    _attr_translation_key = "battery_charging"
     _attr_device_class = BinarySensorDeviceClass.BATTERY_CHARGING
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
@@ -191,7 +191,9 @@ class EufyStandaloneBinarySensor(EufySecuritySensorEntity, BinarySensorEntity):
         BinarySensorEntity.__init__(self)
         self.kind = kind
         self._attr_unique_id = f"{serial}_{kind}"
-        self._attr_name = "Contact" if kind == "contact" else "Motion"
+        self._attr_translation_key = (
+            "contact_sensor" if kind == "contact" else "motion_detection"
+        )
         self._attr_device_class = (
             BinarySensorDeviceClass.OPENING
             if kind == "contact"

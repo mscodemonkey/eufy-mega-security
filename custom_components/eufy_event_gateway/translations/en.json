@@ -1,36 +1,187 @@
 {
+  "title": "Eufy Mega Security",
   "entity": {
     "button": {
-      "compatibility_report": {"name": "Help test this device"}
+      "compatibility_report": {
+        "name": "Help test this device"
+      }
     },
     "alarm_control_panel": {
-      "eufy_home_base_alarm": {"name": "Alarm"}
+      "eufy_home_base_alarm": {
+        "name": "Alarm"
+      }
     },
     "binary_sensor": {
-      "eufy_station_connection": {"name": "Connection"},
-      "eufy_station_camera_route": {"name": "Camera route"}
+      "motion_detection": {
+        "name": "Motion"
+      },
+      "person_detection": {
+        "name": "Person"
+      },
+      "doorbell_press": {
+        "name": "Doorbell"
+      },
+      "stranger_detection": {
+        "name": "Stranger"
+      },
+      "pet_detection": {
+        "name": "Pet"
+      },
+      "vehicle_detection": {
+        "name": "Vehicle"
+      },
+      "dog_detection": {
+        "name": "Dog"
+      },
+      "crying_detection": {
+        "name": "Crying"
+      },
+      "sound_detection": {
+        "name": "Sound"
+      },
+      "package_stranded": {
+        "name": "Package stranded"
+      },
+      "battery_charging": {
+        "name": "Battery charging"
+      },
+      "contact_sensor": {
+        "name": "Contact"
+      },
+      "eufy_station_connection": {
+        "name": "Connection"
+      },
+      "eufy_station_camera_route": {
+        "name": "Camera route"
+      }
     },
     "number": {
-      "eufy_station_alarm_volume": {"name": "Alarm volume"},
-      "eufy_station_prompt_volume": {"name": "Prompt volume"}
+      "eufy_station_alarm_volume": {
+        "name": "Alarm volume"
+      },
+      "eufy_station_prompt_volume": {
+        "name": "Prompt volume"
+      }
     },
     "select": {
-      "eufy_guard_mode_select": {"name": "Guard mode"},
-      "eufy_alarm_tone_select": {"name": "Alarm tone"},
-      "camera_night_vision": {"name": "Night vision"}
+      "eufy_guard_mode_select": {
+        "name": "Guard mode",
+        "state": {
+          "away": "Away",
+          "home": "Home",
+          "schedule": "Schedule",
+          "custom_1": "Custom 1",
+          "custom_2": "Custom 2",
+          "custom_3": "Custom 3",
+          "geofencing": "Geofencing",
+          "disarmed": "Disarmed"
+        }
+      },
+      "eufy_alarm_tone_select": {
+        "name": "Alarm tone",
+        "state": {
+          "alarm_sound_1": "Alarm sound 1",
+          "alarm_sound_2": "Alarm sound 2"
+        }
+      },
+      "camera_night_vision": {
+        "name": "Night vision",
+        "state": {
+          "off": "Off",
+          "colour": "Colour",
+          "infrared": "Infrared",
+          "spotlight": "Spotlight"
+        }
+      }
     },
     "sensor": {
-      "eufy_guard_mode_sensor": {"name": "Guard mode"},
-      "eufy_effective_mode_sensor": {"name": "Effective mode"}
+      "last_recognized_person": {
+        "name": "Last recognized person"
+      },
+      "battery": {
+        "name": "Battery"
+      },
+      "battery_health": {
+        "name": "Battery health"
+      },
+      "battery_temperature": {
+        "name": "Battery temperature"
+      },
+      "days_since_last_charging": {
+        "name": "Days since last charging"
+      },
+      "last_seen": {
+        "name": "Last seen"
+      },
+      "eufy_guard_mode_sensor": {
+        "name": "Guard mode",
+        "state": {
+          "away": "Away",
+          "home": "Home",
+          "schedule": "Schedule",
+          "custom_1": "Custom 1",
+          "custom_2": "Custom 2",
+          "custom_3": "Custom 3",
+          "geofencing": "Geofencing",
+          "disarmed": "Disarmed"
+        }
+      },
+      "eufy_effective_mode_sensor": {
+        "name": "Effective mode",
+        "state": {
+          "away": "Away",
+          "home": "Home",
+          "schedule": "Schedule",
+          "custom_1": "Custom 1",
+          "custom_2": "Custom 2",
+          "custom_3": "Custom 3",
+          "geofencing": "Geofencing",
+          "disarmed": "Disarmed"
+        }
+      },
+      "storage_total": {
+        "name": "{medium} total"
+      },
+      "storage_free": {
+        "name": "{medium} free"
+      },
+      "storage_status": {
+        "name": "{medium} status",
+        "state": {
+          "not_present": "Not present",
+          "normal": "Normal",
+          "non_original": "Non-original storage",
+          "mount_failed": "Mount failed",
+          "format_failed": "Format failed",
+          "removed": "Removed",
+          "formatting": "Formatting",
+          "busy": "Busy",
+          "repairing": "Repairing",
+          "io_error": "I/O error",
+          "at_risk": "At risk",
+          "mounting": "Mounting",
+          "reported": "Reported"
+        }
+      }
     },
     "switch": {
-      "camera_enabled": {"name": "Camera enabled"},
-      "camera_motion_detection": {"name": "Motion detection"},
-      "auto_night_vision": {"name": "Auto night vision"}
+      "camera_enabled": {
+        "name": "Camera enabled"
+      },
+      "camera_motion_detection": {
+        "name": "Motion detection"
+      },
+      "auto_night_vision": {
+        "name": "Auto night vision"
+      }
     },
     "siren": {
-      "camera_siren": {"name": "Siren"},
-      "homebase_siren": {"name": "Siren"}
+      "camera_siren": {
+        "name": "Siren"
+      },
+      "homebase_siren": {
+        "name": "Siren"
+      }
     }
   },
   "config": {
@@ -46,6 +197,22 @@
           "url": "For example, http://192.168.1.20:3218",
           "api_token": "Leave blank while the gateway is restricted to the same host."
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Eufy Mega Security",
+        "description": "Update the address or API token used to reach the gateway.",
+        "data": {
+          "url": "Gateway URL",
+          "api_token": "API token"
+        },
+        "data_description": {
+          "url": "For the local app, use the address supplied by Supervisor discovery. Manual installs usually use http://127.0.0.1:3218.",
+          "api_token": "Use the same token configured in the Eufy Mega Security app."
+        }
+      },
+      "hassio_confirm": {
+        "title": "Connect to the Eufy Mega Security app",
+        "description": "Home Assistant discovered the local Eufy Mega Security app. Submit to create its camera and detection entities."
       }
     },
     "error": {
@@ -53,7 +220,10 @@
       "invalid_auth": "The gateway rejected the API token"
     },
     "abort": {
-      "already_configured": "This gateway is already configured"
+      "already_configured": "This gateway is already configured",
+      "reconfigure_successful": "The gateway connection was updated",
+      "hassio_connected": "The integration is now connected to the local Eufy Mega Security app",
+      "invalid_discovery": "The app supplied invalid connection details"
     }
   }
 }

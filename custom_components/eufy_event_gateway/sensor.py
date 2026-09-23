@@ -162,7 +162,7 @@ class EufyRecognizedPersonSensor(EufyGatewayEntity, SensorEntity):
     or fallback naming of its own.
     """
 
-    _attr_name = "Last recognized person"
+    _attr_translation_key = "last_recognized_person"
     _attr_icon = "mdi:face-recognition"
 
     def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
@@ -209,22 +209,24 @@ class EufyCameraBatterySensor(EufyGatewayEntity, SensorEntity):
             if field == "lastChargingDays"
             else f"{serial}_battery_{field}"
         )
+        self._attr_translation_key = {
+            "level": "battery",
+            "health": "battery_health",
+            "temperature": "battery_temperature",
+            "lastChargingDays": "days_since_last_charging",
+        }[field]
         if field == "level":
-            self._attr_name = "Battery"
             self._attr_device_class = SensorDeviceClass.BATTERY
             self._attr_native_unit_of_measurement = PERCENTAGE
         elif field == "health":
-            self._attr_name = "Battery health"
             self._attr_native_unit_of_measurement = PERCENTAGE
             self._attr_icon = "mdi:battery-heart"
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
         elif field == "temperature":
-            self._attr_name = "Battery temperature"
             self._attr_device_class = SensorDeviceClass.TEMPERATURE
             self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
         else:
-            self._attr_name = "Days since last charging"
             self._attr_native_unit_of_measurement = UnitOfTime.DAYS
             self._attr_icon = "mdi:battery-clock"
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -243,7 +245,7 @@ class EufyStandaloneBatterySensor(EufySecuritySensorEntity, SensorEntity):
     refreshed coordinator state without polling the physical device itself.
     """
 
-    _attr_name = "Battery"
+    _attr_translation_key = "battery"
     _attr_device_class = SensorDeviceClass.BATTERY
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -269,7 +271,7 @@ class EufySensorLastSeen(EufySecuritySensorEntity, SensorEntity):
     device class and leaves malformed or absent values unknown.
     """
 
-    _attr_name = "Last seen"
+    _attr_translation_key = "last_seen"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
@@ -359,9 +361,11 @@ class EufyStorageSensor(EufyStationEntity, SensorEntity):
         SensorEntity.__init__(self)
         self.medium = medium
         self.property_name = property_name
-        label = "Total" if property_name == "totalBytes" else "Free"
         medium_label = "eMMC" if medium == "emmc" else "HDD"
-        self._attr_name = f"{medium_label} {label}"
+        self._attr_translation_key = (
+            "storage_total" if property_name == "totalBytes" else "storage_free"
+        )
+        self._attr_translation_placeholders = {"medium": medium_label}
         self._attr_unique_id = f"{serial}_{medium}_{property_name}"
 
     @property
@@ -392,7 +396,8 @@ class EufyStorageStatusSensor(EufyStationEntity, SensorEntity):
         SensorEntity.__init__(self)
         self.medium = medium
         medium_label = "eMMC" if medium == "emmc" else "HDD"
-        self._attr_name = f"{medium_label} status"
+        self._attr_translation_key = "storage_status"
+        self._attr_translation_placeholders = {"medium": medium_label}
         self._attr_unique_id = f"{serial}_{medium}_status"
 
     @property
