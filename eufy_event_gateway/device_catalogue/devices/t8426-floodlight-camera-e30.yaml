@@ -28,11 +28,17 @@ capabilities:
     live_view:
       connections:
         direct:
-          status: declared
+          status: failing
+          tested_on: 2026-09-23
+          tested_by: kingrun
+          notes: Direct media produces H.265 output frames without a complete decoder bootstrap, and the viewer remains blank.
     snapshot:
       connections:
         direct:
-          status: declared
+          status: failing
+          tested_on: 2026-09-23
+          tested_by: kingrun
+          notes: On-demand capture does not produce a visible image on the reported direct setup.
   events:
     motion:
       connections:

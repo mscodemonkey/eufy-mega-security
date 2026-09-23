@@ -159,7 +159,10 @@ capabilities:
     motion:
       connections:
         T8010:
-          status: unknown
+          status: reported
+          tested_on: 2026-09-23
+          tested_by: DocUltra
+          notes: Generic HomeBase security notifications now raise motion reliably.
         T8030:
           status: tested
           tested_on: 2026-09-20
@@ -167,7 +170,10 @@ capabilities:
     person:
       connections:
         T8010:
-          status: unknown
+          status: failing
+          tested_on: 2026-09-23
+          tested_by: DocUltra
+          notes: The Eufy app labels the event as a person, but the gateway notification carries only generic motion evidence.
         T8030:
           status: tested
           tested_on: 2026-09-20

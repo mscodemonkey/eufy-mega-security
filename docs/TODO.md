@@ -21,9 +21,10 @@ provider path and a real-device result both exist.
 - [ ] Investigate the shared media parser failures now reported for T8400,
   T8410, and T8425. Compare encrypted-frame handling, codec bootstrap, and
   rapid successive stream requests before changing any one model in isolation.
-- [ ] Investigate the HomeBase 2 T8210 media path from issues #84 and #86.
-  Keep stream corruption, fresh snapshot failure, and access-token errors as
-  separate observations until the gateway summaries identify the common stage.
+- [ ] Investigate the remaining HomeBase 2 T8210 media path from issues #25 and
+  #84. One reporter now has smooth continuous playback, while another receives
+  valid video frames without a rendered view. Keep viewer conversion, fresh
+  snapshot failure, and visible playback as separate observations.
 
 ## Implemented and awaiting wider coverage
 

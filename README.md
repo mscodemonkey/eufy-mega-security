@@ -34,7 +34,8 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 
 ### Cameras
 
-- ✅ EufyCam 2C T8113-Z: discovery, motion and person events, snapshots, and live video have been confirmed on real hardware.
+- ✅ EufyCam 2C T8113-Z: discovery, snapshots, live video, and motion events have been confirmed on real hardware. Person events work through HomeBase 3, while the reported HomeBase 2 notification carries only generic motion evidence.
+- 🟠 eufyCam 2 Pro T8140-R: discovery, snapshots, live video, and motion events are confirmed through HomeBase 2. Battery values and person detection still need work on the reported setup.
 - ✅ EufyCam 2C Pro T8142-Z: discovery, snapshots, and live video are confirmed through HomeBase 2. Event delivery still needs focused confirmation.
 - ✅ USB-C-powered camera T817L: live streams and snapshots produced on real hardware.
 - ✅ eufyCam S330 (Mega model T8160): discovered with sensors, retained images, and live streaming through HomeBase 3.
@@ -42,10 +43,12 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 - 🟠 eufyCam S3 Pro T8162: discovery, person, pet, and vehicle events, and retained snapshots are confirmed through a T9000. Live video is waiting on that station's PPCS lookup result.
 - ✅ SoloCam C20 (Mega model T8134): discovery, motion and person events, and live video are reporter-confirmed. Battery availability and retained event images are being investigated separately.
 - 🟠 SoloCam E30 T8171: Mega type 88 is admitted through its reported ready HomeBase route. Discovery, events, snapshots, and live video await reporter testing.
+- 🟠 SoloCam E20 T8130, SoloCam E40 T8131, and SoloCam C210 T8B00: each exact standalone model is admitted through the direct camera handler. Discovery, events, snapshots, and live video await reporter testing.
 - ✅ SoloCam S230 / S40 T8124: discovery and live video are confirmed through HomeBase 3. Events and fresh snapshots still need focused confirmation.
 - 🟠 SoloCam S340 T8170: discovery, person events, and retained snapshots are confirmed through a T9000. Live video is waiting on that station's PPCS lookup result.
 - 🟠 Solar Wall Light Cam S120 T81A0: discovery, sensors, motion events, retained snapshots, and live video are confirmed. Fresh captures can still time out during peer lookup or before a later valid frame, and clip recording needs focused confirmation.
 - 🟠 Floodlight Cam E340 T8425: discovery, person and vehicle events, and retained snapshots are confirmed through a T9000. Live video is waiting on that station's PPCS lookup result.
+- 🟠 Floodlight Camera E30 T8426: standalone discovery and Home Assistant entities are confirmed. Direct media reaches the gateway, but live view and fresh snapshots remain blank because the H.265 stream has no complete decoder bootstrap.
 - 🟠 Floodlight Cam S330 / 2 Pro T8423: discovery and an event snapshot are confirmed in a HomeBase 3 setup. Live sessions still deliver only H.265 slices without a usable decoder bootstrap, including at the lowest stream quality.
 - 🟠 Wired Wall Light Cam S100 T84A1: discovery and direct PPCS are confirmed. One setup has repeated working H.264 live video, while another receives only delta slices without the codec bootstrap, so snapshots and live video remain under investigation across hardware setups.
 - ✅ Indoor Cam Pan & Tilt T8410: discovered with sensors, a retained image, and a live stream through HomeBase 3.
@@ -74,7 +77,6 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 ### Recognised but not supported
 
 - MiniBase Chime T8023: Eufy's inventory lists it as the E340 doorbell's parent connection. The gateway can use that connection metadata for the doorbell, but it does not create a Home Assistant entity for the chime or expose its settings.
-- Floodlight Camera E30 T8426, Mega type 87: recognised in the device catalogue. The first report has a ready parent station but no usable stream route, and the exact parent model still needs confirmation before admission.
 - T85D0, Mega type 202: reported in camera-focused diagnostics, but it belongs to a non-camera device family. Lock and access-control entities are not implemented.
 
 If a tested device behaves differently for you, [open an issue](https://github.com/mscodemonkey/eufy-mega-security/issues) with its model number and what happened. Do not post serial numbers, credentials, or verification codes.
