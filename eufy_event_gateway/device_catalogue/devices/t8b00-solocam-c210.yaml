@@ -5,7 +5,8 @@ id: t8b00
 name: SoloCam C210
 category: camera
 integration:
-  status: recognised
+  status: ready_to_test
+  handler: camera
 models:
   - T8B00
 device_type: 64

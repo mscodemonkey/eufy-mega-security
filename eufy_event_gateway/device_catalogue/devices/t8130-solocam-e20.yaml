@@ -5,7 +5,8 @@ id: t8130
 name: SoloCam E20
 category: camera
 integration:
-  status: recognised
+  status: ready_to_test
+  handler: camera
 models:
   - T8130
 device_type: 32

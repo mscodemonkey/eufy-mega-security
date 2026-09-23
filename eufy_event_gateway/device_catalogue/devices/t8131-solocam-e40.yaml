@@ -5,7 +5,8 @@ id: t8131
 name: SoloCam E40
 category: camera
 integration:
-  status: recognised
+  status: ready_to_test
+  handler: camera
 models:
   - T8131
 device_type: 33

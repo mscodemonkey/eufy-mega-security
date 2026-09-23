@@ -148,6 +148,25 @@ test("admits the EufyCam E40 camera type", () => {
   assert.equal(manifest.capabilities.some(({ id }) => id === "liveVideo"), true);
 });
 
+test("admits reported standalone SoloCams without claiming hardware support", () => {
+  const reportedModels = [
+    { model: "T8130", deviceType: 32 },
+    { model: "T8131", deviceType: 33 },
+    { model: "T8B00", deviceType: 64 },
+  ] as const;
+
+  for (const { model, deviceType } of reportedModels) {
+    const manifest = describeCameraCapabilities({
+      serial: "reported-solocam", model, category: "eufy_security", deviceType, paramTypes: [],
+    }, { doorbellSupported: false, streamSupported: false, routeReady: true });
+
+    assert.equal(catalogueIntegrationStatus(model, deviceType), "ready_to_test");
+    assert.equal(manifest.acceptedAsCamera, true);
+    assert.equal(manifest.reviewCandidate, false);
+    assert.equal(manifest.peerRouteReady, true);
+  }
+});
+
 test("offers compatibility feedback only for the exact ready-to-test model", () => {
   assert.equal(catalogueIntegrationStatus("T8140-R", 14), "ready_to_test");
   assert.equal(catalogueIntegrationStatus("T8224", 96), "supported");
