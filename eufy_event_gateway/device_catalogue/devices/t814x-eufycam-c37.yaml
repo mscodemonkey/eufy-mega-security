@@ -11,14 +11,32 @@ models:
   - T814X
   - T814XS
 device_type: 10037
-notes: Community inventory identifies this model as type 10037. A snapshot was reported working while live video failed.
+notes: Community inventory identifies this model as type 10037.
 capabilities:
+  controls:
+    enabled:
+      connections:
+        T8030:
+          status: reported
+          tested_on: 2026-09-24
+          tested_by: Eli1230t2
+      read:
+        parameter: 1035
+      write:
+        command: 1035
+      values:
+        "0": "Off"
+        "1": "On"
   media:
     snapshot:
       connections:
         T8030:
           status: reported
+          tested_on: 2026-09-24
+          tested_by: Eli1230t2
     live_view:
       connections:
         T8030:
-          status: failing
+          status: reported
+          tested_on: 2026-09-24
+          tested_by: Eli1230t2

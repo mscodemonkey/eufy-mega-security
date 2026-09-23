@@ -29,8 +29,8 @@ capabilities:
       connections:
         direct:
           status: mixed
-          tested_on: 2026-09-20
-          notes: One setup produces live H.264 video, while another receives media without a usable picture.
+          tested_on: 2026-09-24
+          notes: Codec setup and playback start across reported setups, but one remains choppy and can freeze during stream recycling.
     snapshot:
       connections:
         direct:

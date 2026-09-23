@@ -27,9 +27,10 @@ capabilities:
     live_view:
       connections:
         direct:
-          status: reported
-          tested_on: 2026-09-20
+          status: failing
+          tested_on: 2026-09-24
           tested_by: frcbn
+          notes: H.265 media arrives without complete codec setup, so live playback cannot start.
     snapshot:
       connections:
         direct:

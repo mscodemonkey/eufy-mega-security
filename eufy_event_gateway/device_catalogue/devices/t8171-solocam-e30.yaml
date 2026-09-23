@@ -5,7 +5,7 @@ id: t8171
 name: SoloCam E30
 category: camera
 integration:
-  status: ready_to_test
+  status: supported
   handler: camera
 models:
   - T8171
@@ -106,8 +106,8 @@ capabilities:
         direct:
           status: declared
         T8010:
-          status: failing
-          tested_on: 2026-09-18
+          status: reported
+          tested_on: 2026-09-24
           tested_by: unja4711
         T8030:
           status: declared
@@ -116,8 +116,8 @@ capabilities:
         direct:
           status: declared
         T8010:
-          status: failing
-          tested_on: 2026-09-18
+          status: reported
+          tested_on: 2026-09-24
           tested_by: unja4711
         T8030:
           status: declared
@@ -127,7 +127,9 @@ capabilities:
         direct:
           status: declared
         T8010:
-          status: declared
+          status: reported
+          tested_on: 2026-09-24
+          tested_by: unja4711
         T8030:
           status: declared
     person:

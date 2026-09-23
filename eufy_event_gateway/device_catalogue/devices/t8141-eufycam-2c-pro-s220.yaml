@@ -103,7 +103,9 @@ capabilities:
     motion:
       connections:
         T8010:
-          status: declared
+          status: reported
+          tested_on: 2026-09-24
+          tested_by: guidog66
     person:
       connections:
         T8010:

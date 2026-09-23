@@ -43,9 +43,9 @@ capabilities:
       connections:
         direct:
           status: failing
-          tested_on: 2026-09-20
-          tested_by: jsole510
-          notes: Media arrives without a usable picture.
+          tested_on: 2026-09-24
+          tested_by: frcbn
+          notes: H.264 media arrives, but codec setup is incomplete and encrypted frames using the alternate declared-length form are rejected.
         T9000:
           status: failing
           tested_on: 2026-09-17
