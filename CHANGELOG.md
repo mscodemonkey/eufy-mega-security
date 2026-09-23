@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.97
+
+- Admit the standalone T8130 SoloCam E20, T8131 SoloCam E40, and T8B00 SoloCam C210 through the existing direct-camera handler as ready to test.
+- Record the latest HomeBase 2 motion and person-event results for T8113 and T8140-R, plus the standalone T8426 media result.
+- Align the public device list and implementation backlog with the current hardware evidence.
+
 ## 0.1.96
 
 - Retry HomeBase state discovery through both LAN broadcast and the current private address, including bounded nearby UDP ports, so station entities can recover when the first local lookup is missed.
