@@ -233,15 +233,17 @@ function decodeLegacyPpcsVideoFrame(
     return { data: frame.subarray(22, 22 + length) };
   }
 
-  // Standalone cameras can include the 22-byte metadata header in their
-  // declared value, while HomeBase frames declare only the media bytes. The
-  // former wire form is exactly 129 bytes longer than its declaration.
+  // Direct cameras have reported three declaration boundaries: media bytes,
+  // the 22-byte metadata header plus media, or the complete signed frame.
+  // The outer XZYH frame already supplies the trusted transport boundary.
   const legacyMediaEnd = 151 + length;
   const standaloneMediaEnd = 129 + length;
   const mediaEnd = frame.length >= legacyMediaEnd
     ? legacyMediaEnd
     : frame.length === standaloneMediaEnd && frame.length >= 151 + 128
       ? frame.length
+      : frame.length === length && frame.length >= 151 + 128
+        ? frame.length
       : undefined;
   if (mediaEnd === undefined) return { failure: "legacy-length" };
   let key: Buffer | undefined;

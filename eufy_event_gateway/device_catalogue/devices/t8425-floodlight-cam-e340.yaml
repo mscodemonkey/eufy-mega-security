@@ -66,13 +66,17 @@ capabilities:
     motion:
       connections:
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-09-24
+          tested_by: frcbn
         T9000:
           status: declared
     person:
       connections:
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-09-24
+          tested_by: frcbn
         T9000:
           status: reported
           tested_on: 2026-09-16

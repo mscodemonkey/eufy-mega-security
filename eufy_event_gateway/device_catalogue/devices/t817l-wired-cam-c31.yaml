@@ -113,10 +113,18 @@ capabilities:
           status: declared
           tested_on: 2026-09-21
           tested_by: mscodemonkey
+        direct:
+          status: tested
+          tested_on: 2026-09-24
+          tested_by: monkey-80
     person:
       connections:
         T8030:
           status: declared
+        direct:
+          status: tested
+          tested_on: 2026-09-24
+          tested_by: monkey-80
     stranger:
       connections:
         T8030:
