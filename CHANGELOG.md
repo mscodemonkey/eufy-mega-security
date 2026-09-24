@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.99
+
+- Accept the standalone encrypted video length reported by the T8426 so its decoder setup can reach Home Assistant.
+- Refresh signed camera stream URLs before they expire so Home Assistant reconnects do not loop on 401 responses.
+
 ## 0.1.98
 
 - Keep motion active for every generic security notification while also emitting person, vehicle, pet, dog, crying, and sound events when the push contains matching structured evidence.
