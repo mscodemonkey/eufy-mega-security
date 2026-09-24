@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.100
+
+- Accept the complete-frame length form used by direct-camera encrypted video startup, so affected cameras can retain the decoder setup frame.
+- Admit T8123, T8420, and T8441 cameras through the existing handler for real-hardware discovery, controls, event, snapshot, and live-view testing.
+
 ## 0.1.99
 
 - Accept the standalone encrypted video length reported by the T8426 so its decoder setup can reach Home Assistant.
