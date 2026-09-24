@@ -9,6 +9,7 @@ a signed stream path, or a bounded capture/recording action.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 import os
 import tempfile
 from pathlib import Path
@@ -24,6 +25,7 @@ from homeassistant.helpers.entity_platform import (
     AddEntitiesCallback,
     async_get_current_platform,
 )
+from homeassistant.helpers.event import async_track_time_interval
 
 from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
@@ -31,6 +33,7 @@ from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity
 
 CONF_DURATION = "duration"
+STREAM_SOURCE_REFRESH_INTERVAL = timedelta(minutes=5)
 
 
 async def async_setup_entry(
@@ -93,6 +96,26 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         # The gateway serves live Annex-B video without container timestamps.
         # Home Assistant needs arrival times so its stream worker can build HLS.
         self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = True
+
+    async def async_added_to_hass(self) -> None:
+        """Start updates and refresh credentials on Home Assistant's cached stream."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass,
+                self._async_refresh_stream_source,
+                STREAM_SOURCE_REFRESH_INTERVAL,
+            )
+        )
+
+    async def _async_refresh_stream_source(self, now: datetime) -> None:
+        """Replace an active stream URL before its signed credential expires."""
+        del now
+        if self.stream is None:
+            return
+        self.stream.update_source(
+            await self.coordinator.client.stream_url(self.serial)
+        )
 
     @property
     def _snapshot_revision(self) -> int | None:
