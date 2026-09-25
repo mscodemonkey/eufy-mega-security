@@ -15,4 +15,4 @@
 - Do not publish a release merely to create activity. Group related fixes, verify them locally, then release when there is a definite testable change.
 - Before posting or editing a comment, check the final text for em dashes, en dashes, semicolons, literal `\\n` sequences, and other unintended control characters.
 - Send Markdown with real line breaks. When using the GitHub API, build the body from a temporary Markdown file and verify the stored body through the API after posting.
-- Thank the reporter once for the evidence they supplied, vary the wording naturally, and finish with a separate signoff.
+- Thank the reporter once with a short, natural acknowledgement, then finish with a separate signoff. Do not make the thank-you a detailed recap of the test, logs, applications, or other evidence they supplied. Explain what the evidence changes separately when that matters. Vary the wording freely and write new acknowledgements when they sound natural. Treat examples as tone guidance, not a fixed phrase bank. For a follow-up from someone who has already helped, use "again" naturally.
