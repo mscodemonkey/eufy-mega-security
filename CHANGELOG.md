@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.102
+
+- Accept an additional encrypted media length form reported by standalone T8425 and T8426 cameras while keeping the validated outer frame boundary as the safety limit.
+- Force stalled media conversion workers to exit after a camera session closes, preventing abandoned workers from continuing to consume CPU.
+
 ## 0.1.101
 
 - Add timed on and off actions for the compatible T81A0 camera light.
