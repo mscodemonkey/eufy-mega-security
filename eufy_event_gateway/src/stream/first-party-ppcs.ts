@@ -398,13 +398,37 @@ function unwrapAuthenticatedMediaKey(envelope: Buffer, privateKey: Buffer): Buff
  * cameras use the separate negotiated level-two path.
  */
 export function buildStandaloneLiveStartPayload(value: string, channel: number, key: Buffer): Buffer {
+  return buildStandaloneJsonControlPayload(value, channel, key, 11);
+}
+
+/**
+ * Encrypt one standalone JSON control value in Eufy's level-one string envelope.
+ *
+ * The outer XZYH command is supplied by the caller. Live start and wall-light
+ * controls both use this body under command 1700. Live start adds frame type
+ * 11, while ordinary controls leave that byte clear.
+ */
+export function buildStandaloneJsonControlPayload(
+  value: string,
+  channel: number,
+  key: Buffer,
+  frameType = 0,
+): Buffer {
   const bytes = Buffer.from(value);
   const plain = Buffer.alloc(Math.ceil(Math.max(bytes.length, 16) / 16) * 16);
   bytes.copy(plain);
   const cipher = createCipheriv("aes-128-ecb", key, null);
   cipher.setAutoPadding(false);
   const encrypted = Buffer.concat([cipher.update(plain), cipher.final()]);
-  return rawPayload(encrypted, channel, 1, [1, 0], 11);
+  return rawPayload(encrypted, channel, 1, [1, 0], frameType);
+}
+
+/** Build the observed timed wall-light value carried by standalone command 1700. */
+export function buildTimedCameraLightControlValue(enabled: boolean): string {
+  return JSON.stringify({
+    commandType: 1400,
+    data: { time: 0, type: 2, value: enabled ? 1 : 0 },
+  });
 }
 
 /**
@@ -1056,6 +1080,25 @@ export class FirstPartyPpcsSession {
     const body = buildIntStringCommandBody(durationSeconds, this.#options.channel, accountId, commandKey(this.#options.stationSerial, this.#options.p2pDid));
     for (let index = 0; index < 3; index += 1) {
       this.#sendCommand(1202, body);
+      if (index < 2) await delay(200);
+    }
+  }
+
+  /** Send the standalone wall-light family's momentary on or off command. */
+  async writeTimedCameraLight(enabled: boolean): Promise<void> {
+    if (this.#options.purpose !== "control") throw new Error("Camera light control requires a control session");
+    if (!this.#remote) throw new Error("Camera light control session is not connected");
+    if (this.#options.homeBaseAttached) throw new Error("Timed camera light control requires a standalone camera");
+    const payload = buildStandaloneJsonControlPayload(
+      buildTimedCameraLightControlValue(enabled),
+      this.#options.channel,
+      commandKey(this.#options.stationSerial, this.#options.p2pDid),
+    );
+
+    // The vendor path is fire-and-forget and reports no durable light state.
+    // Repeat the idempotent frame so one lost UDP datagram does not lose the action.
+    for (let index = 0; index < 3; index += 1) {
+      this.#sendCommand(1700, payload);
       if (index < 2) await delay(200);
     }
   }

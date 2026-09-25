@@ -34,6 +34,15 @@ test("retains a recognized person after the transient sensor clears", () => {
   assert.equal(result.lastDetection?.occurredAt, "2026-09-11T01:02:03.000Z");
 });
 
+test("exposes only provider-confirmed timed light support", () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  assert.equal(state.getCamera(camera.serial).timedLightControlSupported, false);
+
+  state.registerCamera({ ...camera, timedLightControlSupported: true });
+  assert.equal(state.getCamera(camera.serial).timedLightControlSupported, true);
+});
+
 test("does not claim an identity for Eufy unknown values", () => {
   assert.equal(normalizePersonName(undefined), null);
   assert.equal(normalizePersonName(""), null);

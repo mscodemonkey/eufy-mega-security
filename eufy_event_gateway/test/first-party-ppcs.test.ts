@@ -16,7 +16,9 @@ import {
   buildNightVisionBody,
   acceptsAttachedCameraMedia,
   buildPpcsCloudLookup,
+  buildStandaloneJsonControlPayload,
   buildStandaloneLiveStartPayload,
+  buildTimedCameraLightControlValue,
   decodePpcsVideoFrame,
   hasDecoderReadyKeyframe,
   isPpcsCameraIdentity,
@@ -127,6 +129,27 @@ test("labels a standalone live start as level-one frame type 11", () => {
 
   assert.equal(payload.readUInt16LE(0), payload.length - 10);
   assert.deepEqual(payload.subarray(4, 10), Buffer.from([1, 0, 4, 1, 11, 0]));
+
+  const decipher = createDecipheriv("aes-128-ecb", key, null);
+  decipher.setAutoPadding(false);
+  const clear = Buffer.concat([decipher.update(payload.subarray(10)), decipher.final()]);
+  assert.equal(clear.subarray(0, value.length).toString("utf8"), value);
+});
+
+test("builds the wall-light control as a level-one command 1700 value", () => {
+  const key = Buffer.from("0123456789abcdef", "utf8");
+  const value = buildTimedCameraLightControlValue(true);
+  const payload = buildStandaloneJsonControlPayload(value, 3, key);
+
+  assert.deepEqual(JSON.parse(value), {
+    commandType: 1400,
+    data: { time: 0, type: 2, value: 1 },
+  });
+  assert.deepEqual(
+    JSON.parse(buildTimedCameraLightControlValue(false)),
+    { commandType: 1400, data: { time: 0, type: 2, value: 0 } },
+  );
+  assert.deepEqual(payload.subarray(4, 10), Buffer.from([1, 0, 3, 1, 0, 0]));
 
   const decipher = createDecipheriv("aes-128-ecb", key, null);
   decipher.setAutoPadding(false);

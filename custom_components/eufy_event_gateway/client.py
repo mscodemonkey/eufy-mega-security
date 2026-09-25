@@ -203,6 +203,14 @@ class GatewayClient:
             payload={"duration": duration},
         )
 
+    async def set_camera_light(self, serial: str, enabled: bool) -> None:
+        """Send a momentary manual-light action without inventing persistent state."""
+        await self._json(
+            f"/api/cameras/{serial}/light",
+            method="POST",
+            payload={"enabled": enabled},
+        )
+
     async def record_clip(self, serial: str, duration: int) -> bytes:
         """Request a bounded MP4 and reject a response that is not an MP4 file."""
         try:

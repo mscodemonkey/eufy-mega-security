@@ -1,9 +1,9 @@
-"""Explicit compatibility-report actions for unconfirmed Eufy cameras.
+"""Stateless actions for Eufy compatibility reports and timed camera lights.
 
-The gateway marks admitted catalogue entries that still need real-device
-results. Home Assistant exposes one diagnostic button for those cameras.
-Pressing it creates a local, reviewable GitHub handoff and never uploads data
-or contacts the project in the background.
+The gateway advertises which cameras need compatibility evidence and which
+wall-light families accept the verified momentary light command. Home
+Assistant owns only the button entities. The gateway owns command routing and
+the camera firmware owns its automatic light timeout.
 """
 
 from __future__ import annotations
@@ -30,22 +30,31 @@ async def async_setup_entry(
     entry: EufyGatewayConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Create help-test actions for admitted cameras awaiting confirmation."""
+    """Create capability-backed report and timed-light actions."""
     coordinator = entry.runtime_data.coordinator
-    known: set[str] = set()
+    known: set[tuple[str, str]] = set()
 
     def add_new() -> None:
-        serials = {
-            serial
-            for serial, camera in coordinator.cameras.items()
-            if camera.get("catalogueStatus") == "ready_to_test"
-        } - known
-        if serials:
-            known.update(serials)
-            async_add_entities(
-                EufyCompatibilityReportButton(coordinator, serial)
-                for serial in sorted(serials)
-            )
+        entities: list[ButtonEntity] = []
+        for serial, camera in sorted(coordinator.cameras.items()):
+            report_key = (serial, "compatibility_report")
+            if (
+                camera.get("catalogueStatus") == "ready_to_test"
+                and report_key not in known
+            ):
+                known.add(report_key)
+                entities.append(EufyCompatibilityReportButton(coordinator, serial))
+            if camera.get("timedLightControlSupported") is not True:
+                continue
+            for enabled in (True, False):
+                action = "light_on" if enabled else "light_off"
+                light_key = (serial, action)
+                if light_key in known:
+                    continue
+                known.add(light_key)
+                entities.append(EufyCameraLightButton(coordinator, serial, enabled))
+        if entities:
+            async_add_entities(entities)
 
     add_new()
     entry.async_on_unload(coordinator.async_add_listener(add_new))
@@ -98,3 +107,33 @@ Please describe anything that did not work and attach the Eufy Mega Security dia
             title="Help test this Eufy device",
             notification_id=f"{DOMAIN}_compatibility_report",
         )
+
+
+class EufyCameraLightButton(EufyGatewayEntity, ButtonEntity):
+    """Send one timed light action without presenting a persistent switch state.
+
+    One on and one off button live for the config entry's platform lifetime.
+    The camera decides when an activated light times out, so this entity never
+    guesses whether the physical light is still illuminated.
+    """
+
+    def __init__(
+        self,
+        coordinator: EufyGatewayCoordinator,
+        serial: str,
+        enabled: bool,
+    ) -> None:
+        """Bind a stable on or off action to one capability-backed camera."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        ButtonEntity.__init__(self)
+        self._enabled = enabled
+        action = "on" if enabled else "off"
+        self._attr_unique_id = f"{serial}_camera_light_{action}"
+        self._attr_translation_key = f"camera_light_{action}"
+        self._attr_icon = (
+            "mdi:lightbulb-on-outline" if enabled else "mdi:lightbulb-off-outline"
+        )
+
+    async def async_press(self) -> None:
+        """Ask the gateway to send the verified momentary light command."""
+        await self.coordinator.client.set_camera_light(self.serial, self._enabled)

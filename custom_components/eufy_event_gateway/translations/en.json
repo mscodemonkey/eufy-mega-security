@@ -4,6 +4,12 @@
     "button": {
       "compatibility_report": {
         "name": "Help test this device"
+      },
+      "camera_light_on": {
+        "name": "Turn camera light on"
+      },
+      "camera_light_off": {
+        "name": "Turn camera light off"
       }
     },
     "alarm_control_panel": {

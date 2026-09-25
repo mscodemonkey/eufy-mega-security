@@ -97,6 +97,14 @@ const AUTO_NIGHT_VISION_DOORBELL_MODELS: ReadonlySet<string> = new Set([
   "T8210",
   "T8210C",
 ]);
+const TIMED_LIGHT_JSON_DEVICE_TYPES: ReadonlySet<number> = new Set([151, 10005]);
+
+/** Return whether a device uses the verified timed JSON wall-light command. */
+export function supportsTimedCameraLight(
+  device: Pick<MegaInventoryDevice, "deviceType">,
+): boolean {
+  return device.deviceType !== null && TIMED_LIGHT_JSON_DEVICE_TYPES.has(device.deviceType);
+}
 
 function isAutoNightVisionDoorbell(
   device: Pick<MegaInventoryDevice, "model" | "deviceType" | "category">,
@@ -166,6 +174,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #cameraOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #motionOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #nightVisionOperations = new Map<string, Promise<CameraIdentity>>();
+  readonly #lightOperations = new Map<string, Promise<void>>();
   readonly #pendingSensorMotionCloudConfirmations = new Set<string>();
   readonly #liveDeviceReads = new Map<string, MegaInventoryReads>();
   readonly #liveDeviceParamTypes = new Map<string, readonly number[]>();
@@ -555,6 +564,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#stationOperations.clear();
     await Promise.allSettled(this.#cameraOperations.values());
     this.#cameraOperations.clear();
+    await Promise.allSettled(this.#lightOperations.values());
+    this.#lightOperations.clear();
     this.#pendingSensorMotionCloudConfirmations.clear();
     this.#liveDeviceReads.clear();
     this.#liveDeviceParamTypes.clear();
@@ -817,12 +828,60 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.adminUserId !== null
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === true
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+      timedLightControlSupported: supportsTimedCameraLight(device)
+        && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === false
+        && device.channel !== null
+        && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       cameraSirenControlSupported: device.paramTypes.includes(1015)
         && device.channel !== null
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       battery: batteryState(device),
     };
+  }
+
+  /** Send the verified momentary wall-light command over a ready direct route. */
+  setCameraLight(serial: string, enabled: boolean): Promise<void> {
+    const previous = this.#lightOperations.get(serial) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(async () => {
+      const device = this.#devices.get(serial);
+      if (!device || !isSupportedMegaCamera(device) || !supportsTimedCameraLight(device)) {
+        throw new Error("Timed camera light control is not supported for this camera");
+      }
+      const route = ppcsStreamRoute(device, this.#devices);
+      const peer = route?.peer;
+      const dsk = peer ? await this.#dskKey(peer.serial) : null;
+      if (route?.homeBaseAttached !== false || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null) {
+        throw new Error("Timed camera light control requires a ready standalone route");
+      }
+      const session = new FirstPartyPpcsSession({
+        stationSerial: peer.serial,
+        p2pDid: peer.p2pDid,
+        appConnection: peer.p2pConnection,
+        localAddress: peer.localAddress,
+        dskKey: dsk.key,
+        channel: device.channel,
+        cameraModel: device.model,
+        accountId: device.adminUserId,
+        homeBaseAttached: false,
+        purpose: "control",
+        maxSeconds: 30,
+      });
+      try {
+        await session.start();
+        await session.writeTimedCameraLight(enabled);
+      } finally {
+        session.close();
+      }
+    }).catch((error: unknown) => {
+      logger.warn("camera_light_failed", `Timed camera light command failed: error=${safeError(error)}`);
+      throw error;
+    });
+    this.#lightOperations.set(serial, current);
+    void current.finally(() => {
+      if (this.#lightOperations.get(serial) === current) this.#lightOperations.delete(serial);
+    }).catch(() => undefined);
+    return current;
   }
 
   /** Trigger or stop the camera siren when inventory reports its EAS capability. */

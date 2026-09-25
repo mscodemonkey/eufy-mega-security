@@ -51,6 +51,9 @@ export interface CameraProvider {
   /** Write a reported night-vision mode and return fresh inventory-backed state. */
   setCameraNightVision(serial: string, mode: number): Promise<CameraIdentity>;
 
+  /** Send the camera family's momentary manual-light command. */
+  setCameraLight(serial: string, enabled: boolean): Promise<void>;
+
   /** Trigger or stop the camera siren using its device-side duration. */
   setCameraSiren(serial: string, durationSeconds: number): Promise<void>;
   /** Trigger or stop a HomeBase siren using its station-side duration command. */

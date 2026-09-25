@@ -71,6 +71,7 @@ export class SimulatedProvider implements CameraProvider {
       nightVisionControlSupported: true,
       autoNightVisionEnabled: null,
       autoNightVisionControlSupported: false,
+      timedLightControlSupported: true,
       cameraSirenControlSupported: true,
       battery: {
         supported: ["level", "charging", "health", "temperature", "lastChargingDays"],
@@ -148,6 +149,7 @@ export class SimulatedProvider implements CameraProvider {
       nightVisionControlSupported: true,
       autoNightVisionEnabled: null,
       autoNightVisionControlSupported: false,
+      timedLightControlSupported: true,
       cameraSirenControlSupported: true,
       battery: {
         supported: ["level", "charging", "health", "temperature", "lastChargingDays"] as const,
@@ -181,6 +183,7 @@ export class SimulatedProvider implements CameraProvider {
       nightVisionControlSupported: true,
       autoNightVisionEnabled: null,
       autoNightVisionControlSupported: false,
+      timedLightControlSupported: true,
       cameraSirenControlSupported: true,
     };
     this.#events?.camera(identity);
@@ -209,6 +212,7 @@ export class SimulatedProvider implements CameraProvider {
       nightVisionControlSupported: true,
       autoNightVisionEnabled: null,
       autoNightVisionControlSupported: false,
+      timedLightControlSupported: true,
       cameraSirenControlSupported: true,
     };
     this.#events?.camera(identity);
@@ -220,6 +224,11 @@ export class SimulatedProvider implements CameraProvider {
     if (!Number.isSafeInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 900) {
       throw new Error("Camera siren command is invalid");
     }
+    this.#assertSerial(serial);
+  }
+
+  /** Accept a deterministic momentary light command for API and entity tests. */
+  async setCameraLight(serial: string, _enabled: boolean): Promise<void> {
     this.#assertSerial(serial);
   }
 

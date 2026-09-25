@@ -31,6 +31,7 @@ import {
   safePushLogSummary,
   safeInventoryReads,
   supportsHomeBaseGuardMode,
+  supportsTimedCameraLight,
 } from "../src/provider/eufy-provider.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, type HomeBasePpcsState } from "../src/stream/homebase-ppcs.js";
 
@@ -72,6 +73,14 @@ test("refreshes expiring DSK material without replacing non-expiring keys", () =
   assert.equal(dskKeyNeedsRefresh({ expiresAt: null }, now), false);
   assert.equal(dskKeyNeedsRefresh({ expiresAt: now + 60_000 }, now), true);
   assert.equal(dskKeyNeedsRefresh({ expiresAt: now + 60_001 }, now), false);
+});
+
+test("limits timed JSON light control to the verified wall-light family", () => {
+  assert.equal(supportsTimedCameraLight({ deviceType: 10005 }), true);
+  assert.equal(supportsTimedCameraLight({ deviceType: 151 }), true);
+  assert.equal(supportsTimedCameraLight({ deviceType: 61 }), false);
+  assert.equal(supportsTimedCameraLight({ deviceType: 10031 }), false);
+  assert.equal(supportsTimedCameraLight({ deviceType: null }), false);
 });
 
 test("accepts matching T8030 readback after an acknowledgement timeout", async () => {
