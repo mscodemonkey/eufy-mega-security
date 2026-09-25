@@ -233,19 +233,14 @@ function decodeLegacyPpcsVideoFrame(
     return { data: frame.subarray(22, 22 + length) };
   }
 
-  // Direct cameras have reported three declaration boundaries: media bytes,
-  // the 22-byte metadata header plus media, or the complete signed frame.
-  // The outer XZYH frame already supplies the trusted transport boundary.
+  // Direct cameras have reported declarations for media bytes, metadata plus
+  // media, the complete signed frame, and values beyond the outer frame. The
+  // XZYH transport boundary is authoritative when a declaration overruns it.
+  if (frame.length < 151 + 128) return { failure: "legacy-length" };
   const legacyMediaEnd = 151 + length;
-  const standaloneMediaEnd = 129 + length;
   const mediaEnd = frame.length >= legacyMediaEnd
     ? legacyMediaEnd
-    : frame.length === standaloneMediaEnd && frame.length >= 151 + 128
-      ? frame.length
-      : frame.length === length && frame.length >= 151 + 128
-        ? frame.length
-      : undefined;
-  if (mediaEnd === undefined) return { failure: "legacy-length" };
+    : frame.length;
   let key: Buffer | undefined;
   try {
     key = unwrapKey(frame.subarray(22, 150));
