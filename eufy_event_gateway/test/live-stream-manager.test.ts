@@ -17,6 +17,7 @@ import {
   LiveStreamManager,
   SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS,
   StreamCadenceTracker,
+  terminateMediaProcess,
   VideoParameterSetCache,
   type ViewerTranscoderSummary,
 } from "../src/stream/live-stream-manager.js";
@@ -342,6 +343,47 @@ test("keeps process pipe failures recoverable while an H.265 viewer is stopping"
   assert.deepEqual(warnings, [pipeError, pipeError]);
   assert.equal(state.getCamera(camera.serial).stream.viewers, 0);
   await manager.close();
+});
+
+test("force-kills a media child that ignores graceful termination", async () => {
+  const signals: NodeJS.Signals[] = [];
+  const process = Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    exitCode: null,
+    signalCode: null,
+    kill(signal: NodeJS.Signals) {
+      signals.push(signal);
+      return true;
+    },
+  }) as unknown as ChildProcessWithoutNullStreams;
+
+  terminateMediaProcess(process, 5);
+  await new Promise((resolve) => setTimeout(resolve, 15));
+
+  assert.deepEqual(signals, ["SIGTERM", "SIGKILL"]);
+});
+
+test("cancels forced media termination after the child closes", async () => {
+  const signals: NodeJS.Signals[] = [];
+  const process = Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    exitCode: null,
+    signalCode: null,
+    kill(signal: NodeJS.Signals) {
+      signals.push(signal);
+      return true;
+    },
+  }) as unknown as ChildProcessWithoutNullStreams;
+
+  terminateMediaProcess(process, 5);
+  process.emit("close", 0, "SIGTERM");
+  await new Promise((resolve) => setTimeout(resolve, 15));
+
+  assert.deepEqual(signals, ["SIGTERM"]);
 });
 
 test("ignores callbacks from a replaced source generation", async () => {
