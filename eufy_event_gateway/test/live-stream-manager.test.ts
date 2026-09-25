@@ -99,9 +99,10 @@ test("retains H.265 VPS, SPS, and PPS in decoder order", () => {
 
   assert.equal(cache.codec, "h265");
   assert.deepEqual(cache.bootstrap, Buffer.concat([vps, sps, pps]));
+  assert.deepEqual(cache.startup, Buffer.concat([vps, sps, pps, idr]));
 });
 
-test("uses bounded opening bytes when an H.265 camera announces only VPS", () => {
+test("waits for a complete H.265 decoder start instead of probing vendor headers", () => {
   const cache = new VideoParameterSetCache();
   const vendorHeaders = Buffer.concat([
     annexBNal(0x66, 0x01, 0x01),
@@ -113,7 +114,28 @@ test("uses bounded opening bytes when an H.265 camera announces only VPS", () =>
   cache.push(vendorHeaders);
 
   assert.equal(cache.codec, "h265");
-  assert.deepEqual(cache.bootstrap, vendorHeaders);
+  assert.equal(cache.bootstrap, null);
+  assert.equal(cache.startup, null);
+});
+
+test("retains split H.265 configuration through the first IDR", () => {
+  const cache = new VideoParameterSetCache();
+  const vps = annexBNal(0x40, 0x01, 0x0c);
+  const delta = annexBNal(0x02, 0x01, 0xaa);
+  const sps = annexBNal(0x42, 0x01, 0x01);
+  const pps = annexBNal(0x44, 0x01, 0xc0);
+  const idr = annexBNal(0x26, 0x01, 0xbb);
+
+  cache.push(Buffer.concat([vps, delta]), "h265");
+  assert.equal(cache.bootstrap, null);
+  assert.equal(cache.startup, null);
+  cache.push(Buffer.concat([sps, pps]));
+  assert.equal(cache.bootstrap, null);
+  assert.equal(cache.startup, null);
+  cache.push(idr);
+
+  assert.deepEqual(cache.bootstrap, Buffer.concat([vps, sps, pps]));
+  assert.deepEqual(cache.startup, Buffer.concat([vps, sps, pps, idr]));
 });
 
 test("uses the provider codec marker instead of a conflicting NAL-byte guess", () => {

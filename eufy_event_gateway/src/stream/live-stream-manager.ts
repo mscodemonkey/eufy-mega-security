@@ -138,12 +138,13 @@ const MAX_PARAMETER_SET_SCAN_BYTES = 1024 * 1024;
 export const SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS = 30_000;
 
 /**
- * Retains the latest complete H.264 or H.265 parameter sets from an Annex-B stream.
+ * Retains the latest complete H.264 or H.265 decoder start from an Annex-B stream.
  *
  * Input chunks may divide NAL units arbitrarily. H.264 waits for SPS and PPS.
- * Some existing Eufy H.265 streams announce only VPS as a standard parameter
- * set, so their bounded opening bytes are retained for FFmpeg to probe. Camera
- * content is held only in memory and is never exposed in logs.
+ * H.265 waits for VPS, SPS, PPS, and an IDR because FFmpeg cannot recover a
+ * usable picture by probing Eufy's vendor headers or inter frames without that
+ * standard decoder configuration. Camera content is held only in memory and is
+ * never exposed in logs.
  */
 export class VideoParameterSetCache {
   #pending = Buffer.alloc(0);
@@ -167,7 +168,17 @@ export class VideoParameterSetCache {
         ? Buffer.concat([bootstrap, this.#opening.subarray(randomAccessOffset)])
         : null;
     }
-    return this.#codec && this.#opening.length > 0 ? this.#opening : this.bootstrap;
+    if (this.#codec === "h265") {
+      const bootstrap = this.bootstrap;
+      const randomAccessOffset = annexBNalOffset(this.#opening, (header) => {
+        const type = (header >> 1) & 0x3f;
+        return type === 19 || type === 20;
+      });
+      return bootstrap && randomAccessOffset !== null
+        ? Buffer.concat([bootstrap, this.#opening.subarray(randomAccessOffset)])
+        : null;
+    }
+    return null;
   }
 
   /** Return codec headers in decoder order once every required set is known. */
@@ -175,7 +186,7 @@ export class VideoParameterSetCache {
     if (this.#codec === "h265") {
       return this.#vps && this.#sps && this.#pps
         ? Buffer.concat([this.#vps, this.#sps, this.#pps])
-        : this.#vps && this.#opening.length > 0 ? this.#opening : null;
+        : null;
     }
     return this.#codec === "h264" && this.#sps && this.#pps
       ? Buffer.concat([this.#sps, this.#pps])
