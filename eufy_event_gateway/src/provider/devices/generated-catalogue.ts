@@ -486,7 +486,7 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
       "T8441"
     ],
     "deviceType": 45,
-    "status": "ready_to_test",
+    "status": "supported",
     "handler": "camera"
   },
   {
@@ -616,7 +616,7 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
       "T8123"
     ],
     "deviceType": 61,
-    "status": "ready_to_test",
+    "status": "supported",
     "handler": "camera"
   },
   {

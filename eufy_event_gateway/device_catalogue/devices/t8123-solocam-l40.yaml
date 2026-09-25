@@ -5,7 +5,7 @@ id: t8123
 name: SoloCam L40
 category: camera
 integration:
-  status: ready_to_test
+  status: supported
   handler: camera
 models:
   - T8123
@@ -51,7 +51,10 @@ capabilities:
     motion_detection:
       connections:
         direct:
-          status: declared
+          status: failing
+          tested_on: 2026-09-25
+          tested_by: monkey-80
+          notes: The current control path rejects a standalone camera because it requires a HomeBase route.
       read:
         parameter: 1011
       write:
@@ -63,20 +66,28 @@ capabilities:
     live_view:
       connections:
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-09-25
+          tested_by: monkey-80
     snapshot:
       connections:
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-09-25
+          tested_by: monkey-80
   events:
     motion:
       connections:
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-09-25
+          tested_by: monkey-80
     person:
       connections:
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-09-25
+          tested_by: monkey-80
     pet:
       connections:
         direct:

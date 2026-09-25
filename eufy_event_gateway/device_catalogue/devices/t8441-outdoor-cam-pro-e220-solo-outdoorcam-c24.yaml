@@ -5,7 +5,7 @@ id: t8441
 name: Outdoor Cam Pro / E220 (Solo OutdoorCam C24)
 category: camera
 integration:
-  status: ready_to_test
+  status: supported
   handler: camera
 models:
   - T8441
@@ -27,16 +27,23 @@ capabilities:
     live_view:
       connections:
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-09-25
+          tested_by: monkey-80
     snapshot:
       connections:
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-09-25
+          tested_by: monkey-80
   events:
     motion:
       connections:
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-09-25
+          tested_by: monkey-80
+          notes: At least one event reached Home Assistant, but delivery was sparse during the test period.
     person:
       connections:
         direct:

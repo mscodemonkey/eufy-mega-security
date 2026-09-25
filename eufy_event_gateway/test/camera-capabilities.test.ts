@@ -148,22 +148,22 @@ test("admits the EufyCam E40 camera type", () => {
   assert.equal(manifest.capabilities.some(({ id }) => id === "liveVideo"), true);
 });
 
-test("admits reported cameras with ready routes without claiming hardware support", () => {
+test("admits catalogued cameras with ready routes at their evidence status", () => {
   const reportedModels = [
-    { model: "T8123", deviceType: 61 },
-    { model: "T8130", deviceType: 32 },
-    { model: "T8131", deviceType: 33 },
-    { model: "T8B00", deviceType: 64 },
-    { model: "T8420", deviceType: 3 },
-    { model: "T8441", deviceType: 45 },
+    { model: "T8123", deviceType: 61, status: "supported" },
+    { model: "T8130", deviceType: 32, status: "ready_to_test" },
+    { model: "T8131", deviceType: 33, status: "ready_to_test" },
+    { model: "T8B00", deviceType: 64, status: "ready_to_test" },
+    { model: "T8420", deviceType: 3, status: "ready_to_test" },
+    { model: "T8441", deviceType: 45, status: "supported" },
   ] as const;
 
-  for (const { model, deviceType } of reportedModels) {
+  for (const { model, deviceType, status } of reportedModels) {
     const manifest = describeCameraCapabilities({
       serial: "reported-solocam", model, category: "eufy_security", deviceType, paramTypes: [],
     }, { doorbellSupported: false, streamSupported: false, routeReady: true });
 
-    assert.equal(catalogueIntegrationStatus(model, deviceType), "ready_to_test");
+    assert.equal(catalogueIntegrationStatus(model, deviceType), status);
     assert.equal(manifest.acceptedAsCamera, true);
     assert.equal(manifest.reviewCandidate, false);
     assert.equal(manifest.peerRouteReady, true);
