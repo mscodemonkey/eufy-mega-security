@@ -129,6 +129,7 @@ interface Recording {
 
 type ClipRemuxer = (video: Buffer, codec: VideoCodec) => Promise<Buffer>;
 type ViewerTranscoderFactory = () => ChildProcessWithoutNullStreams;
+type SnapshotExtractorFactory = (codec: VideoCodec) => ChildProcessWithoutNullStreams;
 
 const MAX_RECORDING_BYTES = 256 * 1024 * 1024;
 const MAX_PARAMETER_SET_SCAN_BYTES = 1024 * 1024;
@@ -273,6 +274,7 @@ export class LiveStreamManager extends EventEmitter {
     private readonly stopGraceMilliseconds: number,
     private readonly remuxClip: ClipRemuxer = remuxVideoToMp4,
     private readonly createViewerTranscoder: ViewerTranscoderFactory = spawnH265ViewerTranscoder,
+    private readonly createSnapshotExtractor: SnapshotExtractorFactory = spawnSnapshotExtractor,
   ) {
     super();
   }
@@ -302,6 +304,10 @@ export class LiveStreamManager extends EventEmitter {
     this.#updateState(serial, session);
 
     response.on("close", () => this.#removeClient(serial, response));
+    response.once("error", (error) => {
+      this.emit("warning", error);
+      this.#removeClient(serial, response);
+    });
 
     // Start the provider only after the HTTP client is registered so the first
     // video bytes can be fanned out to Home Assistant immediately.
@@ -756,25 +762,7 @@ export class LiveStreamManager extends EventEmitter {
   }
 
   #startSnapshotExtractor(serial: string, codec: VideoCodec): ChildProcessWithoutNullStreams {
-
-    // FFmpeg turns the shared Annex-B stream into JPEGs. The store keeps the
-    // latest complete frame, so an idle camera still has a useful image.
-    const process = spawn("ffmpeg", [
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-f",
-      codec === "h265" ? "hevc" : "h264",
-      "-i",
-      "pipe:0",
-      "-vf",
-      "fps=1/2",
-      "-f",
-      "image2pipe",
-      "-vcodec",
-      "mjpeg",
-      "pipe:1",
-    ]);
+    const process = this.createSnapshotExtractor(codec);
     const parser = new JpegParser();
     process.stdout.on("data", (chunk: Buffer) => {
       for (const image of parser.push(chunk)) {
@@ -786,6 +774,8 @@ export class LiveStreamManager extends EventEmitter {
     process.stderr.on("data", (chunk: Buffer) => {
       this.emit("ffmpeg-error", `pipeline=snapshot ${chunk.toString("utf8").trim()}`);
     });
+    process.stdin.on("error", (error) => this.emit("warning", error));
+    process.once("error", (error) => this.emit("warning", error));
     return process;
   }
 
@@ -869,6 +859,26 @@ function spawnH265ViewerTranscoder(): ChildProcessWithoutNullStreams {
     "repeat-headers=1",
     "-f",
     "h264",
+    "pipe:1",
+  ]);
+}
+
+/** Start the JPEG extractor that retains a fresh image from the shared camera source. */
+function spawnSnapshotExtractor(codec: VideoCodec): ChildProcessWithoutNullStreams {
+  return spawn("ffmpeg", [
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-f",
+    codec === "h265" ? "hevc" : "h264",
+    "-i",
+    "pipe:0",
+    "-vf",
+    "fps=1/2",
+    "-f",
+    "image2pipe",
+    "-vcodec",
+    "mjpeg",
     "pipe:1",
   ]);
 }

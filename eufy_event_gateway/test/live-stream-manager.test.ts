@@ -267,6 +267,61 @@ test("shares an H.264 fallback with viewers when a camera returns H.265", async 
   await manager.close();
 });
 
+test("keeps process pipe failures recoverable while an H.265 viewer is stopping", async () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  let manager: LiveStreamManager;
+  let source: PassThrough;
+  const viewer = Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill: () => true,
+  }) as unknown as ChildProcessWithoutNullStreams;
+  const snapshot = Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill: () => true,
+  }) as unknown as ChildProcessWithoutNullStreams;
+  manager = new LiveStreamManager(
+    state,
+    {} as never,
+    {
+      async startStream() {
+        source = new PassThrough();
+        manager.attachSource(camera.serial, source, () => "h265");
+      },
+      async stopStream() {
+        source.end();
+      },
+    },
+    5,
+    undefined,
+    () => viewer,
+    () => snapshot,
+  );
+  const warnings: Error[] = [];
+  manager.on("warning", (error: Error) => warnings.push(error));
+  const response = new PassThrough() as unknown as ServerResponse;
+  response.writeHead = (() => response) as ServerResponse["writeHead"];
+  await manager.addClient(camera.serial, response);
+
+  source!.write(Buffer.concat([
+    annexBNal(0x40, 0x01, 0x0c),
+    annexBNal(0x42, 0x01, 0x01),
+    annexBNal(0x44, 0x01, 0xc0),
+    annexBNal(0x26, 0x01, 0xaa),
+  ]));
+  const pipeError = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+  snapshot.stdin.emit("error", pipeError);
+  response.emit("error", pipeError);
+
+  assert.deepEqual(warnings, [pipeError, pipeError]);
+  assert.equal(state.getCamera(camera.serial).stream.viewers, 0);
+  await manager.close();
+});
+
 test("ignores callbacks from a replaced source generation", async () => {
   const state = new GatewayState();
   state.registerCamera(camera);
