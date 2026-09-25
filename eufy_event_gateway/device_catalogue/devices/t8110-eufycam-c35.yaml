@@ -5,7 +5,8 @@ id: t8110
 name: eufyCam C35
 category: camera
 integration:
-  status: recognised
+  status: ready_to_test
+  handler: camera
 models:
   - T8110
 device_type: 10035
@@ -13,22 +14,42 @@ capabilities:
   readable:
     battery_level:
       connections:
+        T8030:
+          status: reported
+          tested_on: 2026-09-25
+          tested_by: dcamposjr-lgtm
         direct:
           status: declared
       read:
         parameter: 1101
     battery_charging:
       connections:
+        T8030:
+          status: reported
+          tested_on: 2026-09-25
+          tested_by: dcamposjr-lgtm
         direct:
           status: declared
       read:
         parameter: 2111
     battery_temperature:
       connections:
+        T8030:
+          status: reported
+          tested_on: 2026-09-25
+          tested_by: dcamposjr-lgtm
         direct:
           status: declared
       read:
         parameter: 1138
+    battery_health:
+      connections:
+        T8030:
+          status: reported
+          tested_on: 2026-09-25
+          tested_by: dcamposjr-lgtm
+      read:
+        parameter: 1198
     last_charging_days:
       connections:
         direct:
@@ -61,10 +82,20 @@ capabilities:
   media:
     live_view:
       connections:
+        T8030:
+          status: reported
+          tested_on: 2026-09-25
+          tested_by: dcamposjr-lgtm
+          notes: HomeBase route metadata is ready, but a working live view is not confirmed.
         direct:
           status: declared
     snapshot:
       connections:
+        T8030:
+          status: reported
+          tested_on: 2026-09-25
+          tested_by: dcamposjr-lgtm
+          notes: HomeBase route metadata is ready, but a fresh snapshot is not confirmed.
         direct:
           status: declared
   events:

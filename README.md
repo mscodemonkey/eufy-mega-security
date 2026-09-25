@@ -35,6 +35,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 ### Cameras
 
 - ✅ EufyCam 2C T8113-Z: discovery, snapshots, live video, and motion events have been confirmed on real hardware. Person events work through HomeBase 3, while the reported HomeBase 2 notification carries only generic motion evidence.
+- 🟠 eufyCam C35 T8110: Mega type 10035 is admitted through its reported HomeBase 3 route. Discovery, events, snapshots, live video, and battery entities await reporter testing.
 - 🟠 eufyCam 2 Pro T8140-R: discovery, snapshots, live video, and motion events are confirmed through HomeBase 2. Battery values and person detection still need work on the reported setup.
 - ✅ EufyCam 2C Pro T8142-Z: discovery, snapshots, and live video are confirmed through HomeBase 2. Event delivery still needs focused confirmation.
 - ✅ USB-C-powered camera T817L: live streams and snapshots produced on real hardware.

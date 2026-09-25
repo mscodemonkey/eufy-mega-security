@@ -214,18 +214,18 @@ test("marks an unknown camera-like row for review without admitting it", () => {
   assert.equal(station.reviewCandidate, false);
 });
 
-test("recognizes catalogued cameras without admitting unsupported types", () => {
+test("admits the reported T8110 through its existing camera handler", () => {
   const catalogued = describeCameraCapabilities({
     serial: "known", model: "T8110", category: "eufy_security", deviceType: 10035,
     paramTypes: [],
-  }, { doorbellSupported: false, streamSupported: false, routeReady: false });
+  }, { doorbellSupported: false, streamSupported: true, routeReady: true });
 
-  assert.equal(catalogued.acceptedAsCamera, false);
+  assert.equal(catalogued.acceptedAsCamera, true);
   assert.equal(catalogued.reviewCandidate, false);
-  assert.equal(catalogued.reason, "catalogued-camera-type");
+  assert.equal(catalogued.reason, "supported-camera-type");
   assert.match(
     cameraCapabilityLogSummaries([catalogued])[0]?.message ?? "",
-    /admission=catalogued-camera ha_adapter=none accepted=false/,
+    /admission=known-camera-type ha_adapter=camera accepted=true/,
   );
 });
 

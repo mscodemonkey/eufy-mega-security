@@ -400,6 +400,23 @@ test("admits T8142-Z inventory through a ready HomeBase 2", () => {
   assert.equal(summaries[0]?.streamSupported, true);
 });
 
+test("admits a reported T8110 C35 through its ready HomeBase 3", () => {
+  const devices = parseMegaInventory({ devices: [
+    {
+      device_sn: "camera", device_model: "T8110", parent_sn: "station", device_type: 10035,
+      device_channel: 1, category: "eufy_security",
+    },
+    {
+      device_sn: "station", device_model: "T8030", device_type: 18,
+      category: "eufy_security", p2p_did: "did", p2p_conn: "connection",
+    },
+  ] });
+  const summaries = inventoryLogSummaries(devices, new Set(["station"]));
+  assert.equal(summaries[0]?.acceptedAsCamera, true);
+  assert.equal(summaries[0]?.streamRoute, "homebase");
+  assert.equal(summaries[0]?.streamSupported, true);
+});
+
 test("admits a reported T8140-R eufyCam 2 Pro through HomeBase 2", () => {
   const [camera, station] = parseMegaInventory({ devices: [
     {
