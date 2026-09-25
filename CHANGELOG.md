@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.101
+
+- Add timed on and off actions for the compatible T81A0 camera light.
+- Add the T8110 eufyCam C35 to the existing HomeBase 3 camera handler for hardware testing, while preserving its reported battery state.
+- Keep closed live-view and snapshot converter pipes from stopping the gateway during overlapping media sessions.
+- Wait for complete H.265 decoder configuration and a keyframe before starting viewer conversion, preventing FFmpeg from starting with incomplete camera headers.
+
 ## 0.1.100
 
 - Accept the complete-frame length form used by direct-camera encrypted video startup, so affected cameras can retain the decoder setup frame.
