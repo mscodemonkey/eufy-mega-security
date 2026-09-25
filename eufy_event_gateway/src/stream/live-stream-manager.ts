@@ -132,6 +132,7 @@ type ViewerTranscoderFactory = () => ChildProcessWithoutNullStreams;
 type SnapshotExtractorFactory = (codec: VideoCodec) => ChildProcessWithoutNullStreams;
 
 const MAX_RECORDING_BYTES = 256 * 1024 * 1024;
+const MEDIA_PROCESS_TERMINATION_GRACE_MILLISECONDS = 2_000;
 const MAX_PARAMETER_SET_SCAN_BYTES = 1024 * 1024;
 
 /** Time allowed for peer lookup and a decodable fresh frame on slower cameras. */
@@ -795,8 +796,7 @@ export class LiveStreamManager extends EventEmitter {
     session.source?.removeAllListeners();
     session.source = null;
     if (session.ffmpeg) {
-      session.ffmpeg.stdin.end();
-      session.ffmpeg.kill("SIGTERM");
+      terminateMediaProcess(session.ffmpeg);
       session.ffmpeg = null;
     }
     this.#stopViewerTranscoder(session);
@@ -805,8 +805,7 @@ export class LiveStreamManager extends EventEmitter {
   #stopViewerTranscoder(session: Session): void {
     if (session.viewerFfmpeg) {
       this.#emitViewerTranscoderSummary(session);
-      session.viewerFfmpeg.stdin.end();
-      session.viewerFfmpeg.kill("SIGTERM");
+      terminateMediaProcess(session.viewerFfmpeg);
       session.viewerFfmpeg = null;
     }
     session.viewerParameterSets = new VideoParameterSetCache();
@@ -845,6 +844,31 @@ export class LiveStreamManager extends EventEmitter {
   #updateState(serial: string, session: Session, error: string | null = null): void {
     this.state.updateStream(serial, session.state, session.clients.size, error);
   }
+}
+
+/**
+ * Stop an FFmpeg media child and force termination if graceful shutdown stalls.
+ *
+ * The owner drops its process reference immediately after this call, so this
+ * helper retains the close listener and escalation timer until the child is
+ * reaped. The grace override exists for focused lifecycle tests.
+ */
+export function terminateMediaProcess(
+  process: ChildProcessWithoutNullStreams,
+  forceAfterMilliseconds = MEDIA_PROCESS_TERMINATION_GRACE_MILLISECONDS,
+): void {
+  if (process.stdin.writable) process.stdin.end();
+  if (process.exitCode !== null || process.signalCode !== null) return;
+  let forceTimer: NodeJS.Timeout | null = null;
+  const closed = () => {
+    if (forceTimer) clearTimeout(forceTimer);
+  };
+  process.once("close", closed);
+  process.kill("SIGTERM");
+  forceTimer = setTimeout(() => {
+    if (process.exitCode === null && process.signalCode === null) process.kill("SIGKILL");
+  }, forceAfterMilliseconds);
+  forceTimer.unref?.();
 }
 
 /** Start the shared low-latency fallback used only when a camera returns H.265. */
