@@ -1,0 +1,164 @@
+title: Eufy Mega Security
+entity:
+  button:
+    compatibility_report:
+      name: Hjælp med at teste denne enhed
+  alarm_control_panel:
+    eufy_home_base_alarm:
+      name: Alarm
+  binary_sensor:
+    motion_detection:
+      name: Bevægelse
+    person_detection:
+      name: Person
+    doorbell_press:
+      name: Dørklokke
+    stranger_detection:
+      name: Fremmed
+    pet_detection:
+      name: Kæledyr
+    vehicle_detection:
+      name: Køretøj
+    dog_detection:
+      name: Hund
+    crying_detection:
+      name: Græder
+    sound_detection:
+      name: Lyd
+    package_stranded:
+      name: Pakke leveret
+    battery_charging:
+      name: Batteri oplader
+    contact_sensor:
+      name: Kontakt
+    eufy_station_connection:
+      name: Forbindelse
+    eufy_station_camera_route:
+      name: Kamera rute
+  number:
+    eufy_station_alarm_volume:
+      name: Alarm lydstyrke
+    eufy_station_prompt_volume:
+      name: Instruks lydstyrke
+  select:
+    eufy_guard_mode_select:
+      name: beskyttelsestilstand
+      state:
+        away: Ude
+        home: Hjemme
+        schedule: Skema
+        custom_1: Tilpasset 1
+        custom_2: Tilpasset 2
+        custom_3: Tilpasset 3
+        geofencing: Geofencing
+        disarmed: Frakoblet
+    eufy_alarm_tone_select:
+      name: Alarm tone
+      state:
+        alarm_sound_1: Alarm lyd 1
+        alarm_sound_2: Alarm lyd 2
+    camera_night_vision:
+      name: Night vision
+      state:
+        off: Fra
+        colour: Farve
+        infrared: Infrarød
+        spotlight: Spotlys
+  sensor:
+    last_recognized_person:
+      name: Sidste genkendte person
+    battery:
+      name: Batteri
+    battery_health:
+      name: Batteri helbred
+    battery_temperature:
+      name: Batteri temperatur
+    days_since_last_charging:
+      name: Dage siden sidste opladning
+    last_seen:
+      name: Sidst set
+    eufy_guard_mode_sensor:
+      name: Beskyttelsestilstand
+      state:
+        away: Ude
+        home: Hjemme
+        schedule: Skema
+        custom_1: Tilpasset 1
+        custom_2: Tilpasset 2
+        custom_3: Tilpasset 3
+        geofencing: Geofencing
+        disarmed: Frakoblet
+    eufy_effective_mode_sensor:
+      name: Effektiv tilstand
+      state:
+        away: Ude
+        home: Hjemme
+        schedule: Schedule
+        custom_1: Tilpasset 1
+        custom_2: Tilpasset 2
+        custom_3: Tilpasset 3
+        geofencing: Geofencing
+        disarmed: Frakoblet
+    storage_total:
+      name: "{medium} total"
+    storage_free:
+      name: "{medium} fri"
+    storage_status:
+      name: "{medium} status"
+      state:
+        not_present: Ikke tilstede
+        normal: Normal
+        non_original: Uoriginal opbevaring
+        mount_failed: Montering fejlede
+        format_failed: Formatering fejlede
+        removed: Fjernet
+        formatting: Formatterer
+        busy: Optaget
+        repairing: Gen-parring
+        io_error: I/O fejl
+        at_risk: I fare
+        mounting: Monterer
+        reported: Reporteret
+  switch:
+    camera_enabled:
+      name: Kamera tilsluttet
+    camera_motion_detection:
+      name: Bevægelses detektering
+    auto_night_vision:
+      name: Auto night vision
+  siren:
+    camera_siren:
+      name: Sirene
+    homebase_siren:
+      name: Sirene
+config:
+  step:
+    user:
+      title: Forbind til Eufy Mega Security
+      description: Indtast addressen Home Assistant bruger til at forbinde til lokal gateway.
+      data:
+        url: Gateway URL
+        api_token: API nøgle
+      data_description:
+        url: Eksempel, http://192.168.1.20:3218
+        api_token: Lad være tom hvis gateway er begrænset til samme vært.
+    reconfigure:
+      title: Genkonfigurer Eufy Mega Security
+      description: Opdater addresse eller API nøgle til gateway.
+      data:
+        url: Gateway URL
+        api_token: API nøgle
+      data_description:
+        url: For den lokale app, brug adressen leveret af Supervisor discovery. Manuelle installationer bruger normalt http://127.0.0.1:3218.
+        api_token: Brug den samme nøgle som er konfigureteret i Eufy Mega Security appen.
+    hassio_confirm:
+      title: Forbind til Eufy Mega Security appen
+      description: Home Assistant fandt den lokale Eufy Mega Security app. Tilføj for at oprette kamera og detektions entiteter.
+  error:
+    cannot_connect: Kunne ikke forbinde til gateway
+    invalid_auth: Gatewayen afviste API nøglen
+  abort:
+    already_configured: Denne gateway er allerede konfigureret
+    reconfigure_successful: Gateway forbindelsen er opdateret
+    hassio_connected: Integrationen er nu forbundet med den lokale Eufy Mega Security app
+    invalid_discovery: Appen leverede ugyldige forbindelses detaljer
