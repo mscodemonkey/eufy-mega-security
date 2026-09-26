@@ -245,6 +245,26 @@ test("decodes the reported motion-detection switch without inventing it", () => 
   assert.equal(safeInventoryReads([{ param_type: 1277, param_value: "3" }]).nightVisionMode, undefined);
 });
 
+test("keeps confirmed motion-detection reads stable across tested camera families", () => {
+  const testedCameras = [
+    { model: "T8210", deviceType: 7 },
+    { model: "T817L", deviceType: 10_031 },
+    { model: "T8113-Z", deviceType: 8 },
+  ] as const;
+
+  for (const camera of testedCameras) {
+    const [device] = parseMegaInventory({ devices: [{
+      device_sn: camera.model,
+      device_model: camera.model,
+      device_type: camera.deviceType,
+      category: "eufy_security",
+      params: [{ param_type: 1011, param_value: "1" }],
+    }] });
+
+    assert.equal(device?.reads.motionDetectionEnabled, true, camera.model);
+  }
+});
+
 test("uses camera-specific labels for the three night modes", () => {
   assert.deepEqual(nightVisionModes({
     model: "T8113-Z",

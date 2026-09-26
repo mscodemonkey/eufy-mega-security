@@ -16,6 +16,7 @@ If you are new to the project, read [`DEVELOPERS_START_HERE.md`](DEVELOPERS_STAR
 | `docs/CAMERA_CAPABILITY_MATRIX.md` | Camera core discovery boundary and implemented battery reads. |
 | `docs/DEVICE_CAPABILITY_BASELINES.md` | Separate sensor, HomeBase, and doorbell core discovery boundaries. |
 | `docs/DEVICE_COMPATIBILITY_MATRIX.md` | Device, HomeBase topology, capability, and versioned hardware evidence ledger. |
+| `docs/GENERATED_DEVICE_SUPPORT.md` | Generated list of every catalogue device admitted to an implemented handler. |
 | `eufy_event_gateway/device_catalogue/` | Contributor-editable identity, admission, property, command, and evidence source, split into one validated YAML file per device. |
 | `docs/TODO.md` | Implementation backlog and hardware-evidence follow-up list. |
 | `hacs.json` | HACS metadata for the custom integration. |

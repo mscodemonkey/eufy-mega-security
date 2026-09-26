@@ -1,5 +1,8 @@
 # Changelog
 
+- Generate a support catalogue from the device YAML records and reject admitted devices without a typed catalogue row.
+- Cover confirmed motion-detection reads for the tested doorbell, T817L Wired Cam C31, and T8113-Z families.
+
 ## 0.1.102
 
 - Accept an additional encrypted media length form reported by standalone T8425 and T8426 cameras while keeping the validated outer frame boundary as the safety limit.
