@@ -5,7 +5,7 @@ id: t8419
 name: Indoor Cam C210
 category: camera
 integration:
-  status: ready_to_test
+  status: supported
   handler: camera
 models:
   - T8419
@@ -27,10 +27,10 @@ capabilities:
     live_view:
       connections:
         direct:
-          status: failing
-          tested_on: 2026-09-24
+          status: tested
+          tested_on: 2026-09-26
           tested_by: frcbn
-          notes: H.265 media arrives without complete codec setup, so live playback cannot start.
+          notes: Direct H.265 playback is visibly working on v0.1.103 even when the source summary does not observe every codec bootstrap unit in that session.
     snapshot:
       connections:
         direct:
