@@ -13,6 +13,7 @@ import { parse } from "yaml";
 const catalogueDirectory = join(dirname(fileURLToPath(import.meta.url)), "..", "device_catalogue");
 const devicesDirectory = join(catalogueDirectory, "devices");
 const generatedRuntimeFile = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "provider", "devices", "generated-catalogue.ts");
+const generatedSupportFile = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "docs", "GENERATED_DEVICE_SUPPORT.md");
 const forbiddenReferencePattern = /sdk|eufy-security-client|mega-yfue|source_repo|file_line|verified_by|xref_mega|build\/http\/types\.js|src\/model\/|(?:no)?lib[0-9]|\blibrary\b/i;
 const legacyIdentifierPattern = /(?:^|[-_])(?:no)?lib(?:[0-9_]|$)/i;
 const deviceExtensions = [".yaml"];
@@ -114,6 +115,9 @@ function validateSimplifiedDevice(file, record) {
     }
     if (["supported", "ready_to_test"].includes(integration.status) && integration.handler === undefined) {
       errors.push(`${file}: ${integration.status} integration must name its handler`);
+    }
+    if (["supported", "ready_to_test"].includes(integration.status) && !Number.isSafeInteger(record.device_type)) {
+      errors.push(`${file}: ${integration.status} integration must have a numeric device_type`);
     }
   }
   if (record.aliases !== undefined
@@ -378,10 +382,43 @@ export const GENERATED_NON_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set(${
 `;
 }
 
+function markdownCell(value) {
+  return String(value).replaceAll("|", "\\|").replaceAll("\n", " ");
+}
+
+function supportDocument(devices) {
+  const rows = devices
+    .map(({ record }) => record)
+    .filter(({ integration }) => ["supported", "ready_to_test"].includes(integration.status))
+    .sort((left, right) => left.models[0].localeCompare(right.models[0]))
+    .map((record) => `| ${markdownCell(record.models.join(", "))} | ${markdownCell(record.name)} | ${record.device_type} | ${record.integration.handler} | ${record.integration.status} |`);
+  return `# Generated device support catalogue
+
+This document is generated from \`eufy_event_gateway/device_catalogue/\`. Edit the
+device YAML records, then run \`npm run catalogue:generate\`. The detailed
+hardware evidence and topology-specific results remain in
+\`DEVICE_COMPATIBILITY_MATRIX.md\`.
+
+| Model | Device | Type | Handler | Status |
+| --- | --- | ---: | --- | --- |
+${rows.join("\n")}
+`;
+}
+
 async function generatedRuntimeMismatch(devices) {
   const expected = runtimeModule(devices);
   try {
     return await readFile(generatedRuntimeFile, "utf8") === expected ? null : expected;
+  } catch (error) {
+    if (error?.code === "ENOENT") return expected;
+    throw error;
+  }
+}
+
+async function generatedSupportMismatch(devices) {
+  const expected = supportDocument(devices);
+  try {
+    return await readFile(generatedSupportFile, "utf8") === expected ? null : expected;
   } catch (error) {
     if (error?.code === "ENOENT") return expected;
     throw error;
@@ -398,6 +435,9 @@ async function check() {
   ];
   if (await generatedRuntimeMismatch(devices) !== null) {
     errors.push("generated runtime catalogue is stale; run npm run catalogue:generate");
+  }
+  if (await generatedSupportMismatch(devices) !== null) {
+    errors.push("generated support catalogue is stale; run npm run catalogue:generate");
   }
   const capabilityCount = devices.reduce(
     (count, { record }) => count + countCapabilities(record),
@@ -423,7 +463,8 @@ async function generate() {
   ];
   if (errors.length > 0) throw new Error(errors.join("\n"));
   await writeFile(generatedRuntimeFile, runtimeModule(devices), "utf8");
-  console.log(generatedRuntimeFile);
+  await writeFile(generatedSupportFile, supportDocument(devices), "utf8");
+  console.log(JSON.stringify({ runtime: generatedRuntimeFile, support: generatedSupportFile }));
 }
 
 async function query(model, capabilityKey) {
