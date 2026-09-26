@@ -13,7 +13,7 @@
 import { createCipheriv, createDecipheriv, createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes, timingSafeEqual } from "node:crypto";
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
-import type { VideoCodec } from "../domain/types.js";
+import type { CameraPresetPosition, VideoCodec } from "../domain/types.js";
 import { PpcsAccessUnitAssembler } from "./ppcs-access-unit-assembler.js";
 import { ppcsCandidatePorts, ppcsLocalLookupTargets } from "./ppcs-lookup.js";
 
@@ -741,6 +741,47 @@ interface PendingControl {
   readonly timer: ReturnType<typeof setTimeout>;
 }
 
+/** One in-flight JSON control query correlated by its inner command type. */
+interface PendingControlQuery {
+  readonly command: number;
+  readonly resolve: (payload: Record<string, unknown>) => void;
+  readonly reject: (error: Error) => void;
+  readonly timer: ReturnType<typeof setTimeout>;
+}
+
+/** Build the JSON carried by a command-1700 camera control query. */
+export function buildCameraControlQueryValue(
+  commandType: number,
+  data: Readonly<Record<string, unknown>>,
+): string {
+  if (!Number.isSafeInteger(commandType) || commandType <= 0) {
+    throw new Error("Camera control query command must be a positive integer");
+  }
+  return JSON.stringify({ commandType, data });
+}
+
+/**
+ * Reduce a preset query reply to slot indexes, occupancy, and default state.
+ *
+ * Names, thumbnails, coordinates, and other camera-specific fields are
+ * intentionally discarded so diagnostic probes retain no scene information.
+ */
+export function parseCameraPresetPositions(payload: unknown): CameraPresetPosition[] {
+  if (!isRecord(payload) || !Array.isArray(payload.points)) return [];
+  const positions: CameraPresetPosition[] = [];
+  for (const point of payload.points) {
+    if (!isRecord(point)) continue;
+    const index = integerValue(point.index ?? point.id ?? point.value);
+    if (index === null || index < 0 || index > 255) continue;
+    positions.push({
+      index,
+      enabled: booleanFlag(point.enable ?? point.enabled),
+      isDefault: booleanFlag(point.isdefault ?? point.isDefault),
+    });
+  }
+  return positions;
+}
+
 /** Identify a write that may have applied even though its result frame was lost. */
 export class CameraControlAcknowledgementTimeoutError extends Error {
 
@@ -857,6 +898,7 @@ export class FirstPartyPpcsSession {
   #lookupTimer: ReturnType<typeof setInterval> | null = null;
   #selfAddress: { host: string; port: number } | null = null;
   #pendingControl: PendingControl | null = null;
+  #pendingControlQuery: PendingControlQuery | null = null;
 
   /** Return the codec proven by emitted NAL headers, or frame metadata as a fallback. */
   get videoCodec(): VideoCodec | null {
@@ -1099,6 +1141,18 @@ export class FirstPartyPpcsSession {
   }
 
   /**
+   * Query the camera's preset slots without fetching names or thumbnails.
+   *
+   * The command-1700 request receives a command-1351 notification whose inner
+   * command identifies the preset query. A timeout means no readable preset
+   * contract was observed and does not imply that the camera has no presets.
+   */
+  async queryPresetPositions(): Promise<readonly CameraPresetPosition[]> {
+    const payload = await this.#queryControlPayload(6034, { value: 0 });
+    return parseCameraPresetPositions(payload);
+  }
+
+  /**
    * End the peer session and retain its terminal reason for diagnostics.
    *
    * Closing is idempotent. It clears every timer, rejects an outstanding
@@ -1118,6 +1172,11 @@ export class FirstPartyPpcsSession {
       clearTimeout(this.#pendingControl.timer);
       this.#pendingControl.reject(new Error("Camera control session closed before acknowledgement"));
       this.#pendingControl = null;
+    }
+    if (this.#pendingControlQuery) {
+      clearTimeout(this.#pendingControlQuery.timer);
+      this.#pendingControlQuery.reject(new Error("Camera control session closed before query response"));
+      this.#pendingControlQuery = null;
     }
     this.#videoAssembler.reset();
     if (this.#options.purpose !== "control" && this.#options.homeBaseAttached) {
@@ -1318,6 +1377,25 @@ export class FirstPartyPpcsSession {
       return;
     }
 
+    if (command === 1351 && this.#pendingControlQuery) {
+      let clear = payload;
+      if (signCode === 8 && this.#level2Key) clear = decryptLevel2(payload, this.#level2Key, signCode) ?? payload;
+      else if (signCode > 0 && payload.length % 16 === 0) {
+        try { clear = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); } catch { clear = payload; }
+      }
+      const decoded = parseJsonRecord(clear);
+      const responsePayload = decoded && decoded.cmd === this.#pendingControlQuery.command
+        ? jsonRecord(decoded.payload)
+        : undefined;
+      if (responsePayload) {
+        const pending = this.#pendingControlQuery;
+        this.#pendingControlQuery = null;
+        clearTimeout(pending.timer);
+        pending.resolve(responsePayload);
+        return;
+      }
+    }
+
     // 1100 carries the encrypted HomeBase gateway details. 1300 carries
     // media frames after the level-2 request has been accepted.
     if (command === 1100 && signCode === 1) { this.stats.gatewayInfo++; void this.#handleGatewayInfo(payload); }
@@ -1489,6 +1567,67 @@ export class FirstPartyPpcsSession {
       }, CONTROL_TIMEOUT_MILLISECONDS);
       this.#pendingControl = { command, resolve, reject, timer };
     });
+  }
+
+  /** Send one correlated JSON control query over the negotiated camera route. */
+  async #queryControlPayload(
+    command: number,
+    data: Readonly<Record<string, unknown>>,
+  ): Promise<Record<string, unknown>> {
+    if (this.#options.purpose !== "control") throw new Error("Camera query requires a control session");
+    if (!this.#remote) throw new Error("Camera control session is not connected");
+    if (this.#pendingControlQuery || this.#pendingControl) {
+      throw new Error("Camera already has a control operation in flight");
+    }
+    if (this.#options.homeBaseAttached) await this.#waitForLevel2Key();
+    let pendingQuery: PendingControlQuery | undefined;
+    const response = new Promise<Record<string, unknown>>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.#pendingControlQuery = null;
+        reject(new Error(`Camera control query ${command} timed out`));
+      }, CONTROL_TIMEOUT_MILLISECONDS);
+      pendingQuery = { command, resolve, reject, timer };
+      this.#pendingControlQuery = pendingQuery;
+    });
+    try {
+      await this.#sendControlPayload(command, data);
+    } catch (error) {
+      this.#pendingControlQuery = null;
+      if (pendingQuery) {
+        clearTimeout(pendingQuery.timer);
+        pendingQuery.reject(error instanceof Error ? error : new Error("Camera control query send failed"));
+      }
+      await response.catch(() => undefined);
+      throw error;
+    }
+    return response;
+  }
+
+  /** Send one JSON control payload after the camera route is ready. */
+  async #sendControlPayload(
+    command: number,
+    data: Readonly<Record<string, unknown>>,
+  ): Promise<void> {
+    if (this.#options.purpose !== "control") throw new Error("Camera control requires a control session");
+    if (!this.#remote) throw new Error("Camera control session is not connected");
+    if (this.#options.homeBaseAttached) await this.#waitForLevel2Key();
+    const value = buildCameraControlQueryValue(command, data);
+    if (this.#options.homeBaseAttached) {
+      const sequence = this.#level2Seq++;
+      const encrypted = encryptLevel2(Buffer.from(value), this.#level2Key!, sequence);
+      const header = commandHeader(this.#seq++, 1700);
+      this.#send(
+        REQ.data,
+        Buffer.concat([header, rawPayload(encrypted, this.#options.channel, 8, [8, 0], 0)]),
+        this.#remote,
+      );
+    } else {
+      this.#sendCommand(1700, buildStandaloneJsonControlPayload(
+        value,
+        this.#options.channel,
+        commandKey(this.#options.stationSerial, this.#options.p2pDid),
+      ));
+    }
   }
 
   /** Start an attached channel, or restart it after output has genuinely stalled. */
@@ -1764,6 +1903,41 @@ function describeProbeValue(value: unknown, depth: number): string {
 /** Narrow an unknown JSON value to a non-null object with string keys. */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Parse one bounded integer carried as either a JSON number or numeric text. */
+function integerValue(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+/** Interpret the camera's observed boolean flag forms without truthy coercion. */
+function booleanFlag(value: unknown): boolean {
+  return value === true || value === 1 || value === "1";
+}
+
+/** Parse a decrypted, NUL-padded PPCS body as one JSON object. */
+function parseJsonRecord(value: Buffer): Record<string, unknown> | undefined {
+  const text = value.toString("utf8").replace(/\0+$/g, "").trim();
+  if (!text.startsWith("{")) return undefined;
+  try {
+    const decoded: unknown = JSON.parse(text);
+    return isRecord(decoded) ? decoded : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Accept a reply payload that is already an object or contains JSON text. */
+function jsonRecord(value: unknown): Record<string, unknown> | undefined {
+  if (isRecord(value)) return value;
+  if (typeof value !== "string" || !value.trimStart().startsWith("{")) return undefined;
+  try {
+    const decoded: unknown = JSON.parse(value);
+    return isRecord(decoded) ? decoded : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

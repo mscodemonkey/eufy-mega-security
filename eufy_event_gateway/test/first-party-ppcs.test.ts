@@ -10,6 +10,7 @@ import test from "node:test";
 
 import {
   buildAutoNightVisionCommandBody,
+  buildCameraControlQueryValue,
   buildCameraEnableBody,
   buildAttachedMediaControlValue,
   buildLegacyAttachedMediaStopPayload,
@@ -24,6 +25,7 @@ import {
   isPpcsCameraIdentity,
   needsAttachedMediaReassert,
   needsStandaloneMediaReassert,
+  parseCameraPresetPositions,
   PpcsVideoFrameDecoder,
   PpcsVideoStreamNormalizer,
   ppcsCommandMagicOffset,
@@ -62,6 +64,26 @@ test("builds a bounded camera enablement body without leaking adjacent data", ()
   assert.equal(body.subarray(8, 21).toString("ascii"), "account-owner");
   assert.ok(body.subarray(21).every((value) => value === 0));
   assert.throws(() => buildCameraEnableBody(3, 0, ""), /non-empty account identity/);
+});
+
+test("builds and parses the privacy-safe preset-position query contract", () => {
+  assert.deepEqual(JSON.parse(buildCameraControlQueryValue(6034, { value: 0 })), {
+    commandType: 6034,
+    data: { value: 0 },
+  });
+  assert.throws(() => buildCameraControlQueryValue(0, {}), /positive integer/);
+  assert.deepEqual(parseCameraPresetPositions({ points: [
+    { index: 0, enable: 0, isdefault: 0, name: "discarded" },
+    { index: 3, enable: 1, isdefault: 1, thumbnail: "discarded" },
+    { id: "7", enabled: true, isDefault: false },
+    { index: -1, enable: 1 },
+    { name: "missing index" },
+  ] }), [
+    { index: 0, enabled: false, isDefault: false },
+    { index: 3, enabled: true, isDefault: true },
+    { index: 7, enabled: true, isDefault: false },
+  ]);
+  assert.deepEqual(parseCameraPresetPositions({}), []);
 });
 
 test("builds the T8210-family Auto night vision direct command body", () => {

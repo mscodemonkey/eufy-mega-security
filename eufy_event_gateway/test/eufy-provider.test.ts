@@ -31,6 +31,7 @@ import {
   safePushLogSummary,
   safeInventoryReads,
   supportsHomeBaseGuardMode,
+  supportsPresetPositions,
   supportsTimedCameraLight,
 } from "../src/provider/eufy-provider.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, type HomeBasePpcsState } from "../src/stream/homebase-ppcs.js";
@@ -81,6 +82,13 @@ test("limits timed JSON light control to the verified wall-light family", () => 
   assert.equal(supportsTimedCameraLight({ deviceType: 61 }), false);
   assert.equal(supportsTimedCameraLight({ deviceType: 10031 }), false);
   assert.equal(supportsTimedCameraLight({ deviceType: null }), false);
+});
+
+test("limits stored-position queries to the hardware-proven T817L family", () => {
+  assert.equal(supportsPresetPositions({ model: "T817L" }), true);
+  assert.equal(supportsPresetPositions({ model: "T817L121" }), true);
+  assert.equal(supportsPresetPositions({ model: "T8171" }), false);
+  assert.equal(supportsPresetPositions({ model: "T8417" }), false);
 });
 
 test("accepts matching T8030 readback after an acknowledgement timeout", async () => {
