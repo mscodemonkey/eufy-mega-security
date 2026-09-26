@@ -22,6 +22,9 @@ from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
 from .const import (
     GUARD_MODE_AWAY,
+    GUARD_MODE_CUSTOM_1,
+    GUARD_MODE_CUSTOM_2,
+    GUARD_MODE_CUSTOM_3,
     GUARD_MODE_DISARMED,
     GUARD_MODE_HOME,
 )
@@ -69,6 +72,9 @@ class EufyHomeBaseAlarm(EufyStationEntity, AlarmControlPanelEntity):
     _attr_supported_features = (
         AlarmControlPanelEntityFeature.ARM_AWAY
         | AlarmControlPanelEntityFeature.ARM_HOME
+        | AlarmControlPanelEntityFeature.ARM_NIGHT
+        | AlarmControlPanelEntityFeature.ARM_VACATION
+        | AlarmControlPanelEntityFeature.ARM_CUSTOM_BYPASS
     )
 
     def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
@@ -92,9 +98,9 @@ class EufyHomeBaseAlarm(EufyStationEntity, AlarmControlPanelEntity):
             GUARD_MODE_AWAY: AlarmControlPanelState.ARMED_AWAY,
             GUARD_MODE_HOME: AlarmControlPanelState.ARMED_HOME,
             GUARD_MODE_DISARMED: AlarmControlPanelState.DISARMED,
-            3: AlarmControlPanelState.ARMED_CUSTOM_BYPASS,
-            4: AlarmControlPanelState.ARMED_CUSTOM_BYPASS,
-            5: AlarmControlPanelState.ARMED_CUSTOM_BYPASS,
+            GUARD_MODE_CUSTOM_1: AlarmControlPanelState.ARMED_CUSTOM_BYPASS,
+            GUARD_MODE_CUSTOM_2: AlarmControlPanelState.ARMED_NIGHT,
+            GUARD_MODE_CUSTOM_3: AlarmControlPanelState.ARMED_VACATION,
         }.get(mode)
 
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
@@ -104,6 +110,18 @@ class EufyHomeBaseAlarm(EufyStationEntity, AlarmControlPanelEntity):
     async def async_alarm_arm_home(self, code: str | None = None) -> None:
         """Arm in Home mode, accepting Home Assistant's code-free argument."""
         await self._async_set_mode(GUARD_MODE_HOME, AlarmControlPanelState.ARMING)
+
+    async def async_alarm_arm_night(self, code: str | None = None) -> None:
+        """Arm in Eufy's second custom mode, accepting Home Assistant's code-free argument."""
+        await self._async_set_mode(GUARD_MODE_CUSTOM_2, AlarmControlPanelState.ARMING)
+
+    async def async_alarm_arm_vacation(self, code: str | None = None) -> None:
+        """Arm in Eufy's third custom mode, accepting Home Assistant's code-free argument."""
+        await self._async_set_mode(GUARD_MODE_CUSTOM_3, AlarmControlPanelState.ARMING)
+
+    async def async_alarm_arm_custom_bypass(self, code: str | None = None) -> None:
+        """Arm in Eufy's first custom mode, accepting Home Assistant's code-free argument."""
+        await self._async_set_mode(GUARD_MODE_CUSTOM_1, AlarmControlPanelState.ARMING)
 
     async def async_alarm_disarm(self, code: str | None = None) -> None:
         """Disarm the HomeBase, accepting Home Assistant's code argument."""
