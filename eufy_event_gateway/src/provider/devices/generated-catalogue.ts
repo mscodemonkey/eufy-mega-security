@@ -661,7 +661,7 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
       "T8426121"
     ],
     "deviceType": 87,
-    "status": "ready_to_test",
+    "status": "supported",
     "handler": "camera"
   },
   {
@@ -1171,7 +1171,7 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
       "T8419"
     ],
     "deviceType": 10009,
-    "status": "ready_to_test",
+    "status": "supported",
     "handler": "camera"
   },
   {

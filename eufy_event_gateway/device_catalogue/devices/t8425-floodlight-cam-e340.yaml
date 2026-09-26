@@ -42,10 +42,10 @@ capabilities:
     live_view:
       connections:
         direct:
-          status: failing
-          tested_on: 2026-09-24
-          tested_by: frcbn
-          notes: H.264 media arrives, but codec setup is incomplete and encrypted frames using the alternate declared-length form are rejected.
+          status: mixed
+          tested_on: 2026-09-26
+          tested_by: jsole510
+          notes: Live view starts with a ready H.265 decoder and visible playback after v0.1.103, but revisiting the view can intermittently freeze until the page is reopened.
         T9000:
           status: failing
           tested_on: 2026-09-17
@@ -54,10 +54,10 @@ capabilities:
     snapshot:
       connections:
         direct:
-          status: failing
-          tested_on: 2026-09-20
+          status: tested
+          tested_on: 2026-09-26
           tested_by: jsole510
-          notes: Fresh capture does not produce a usable picture.
+          notes: Fresh Home Assistant snapshot capture succeeds on v0.1.103.
         T9000:
           status: reported
           tested_on: 2026-09-16

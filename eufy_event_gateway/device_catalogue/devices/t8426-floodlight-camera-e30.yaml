@@ -5,7 +5,7 @@ id: t8426
 name: Floodlight Camera E30
 category: camera
 integration:
-  status: ready_to_test
+  status: supported
   handler: camera
 models:
   - T8426
@@ -28,10 +28,10 @@ capabilities:
     live_view:
       connections:
         direct:
-          status: failing
-          tested_on: 2026-09-24
+          status: tested
+          tested_on: 2026-09-26
           tested_by: kingrun
-          notes: Direct media produces H.265 output frames without a complete decoder bootstrap, and live view remains blank after the first alternate-length fix.
+          notes: Direct live video is visible after the v0.1.103 media-boundary fix, with continuous source and viewer delivery across the reported two-minute session.
     snapshot:
       connections:
         direct:
