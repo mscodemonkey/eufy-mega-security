@@ -35,10 +35,10 @@ capabilities:
     snapshot:
       connections:
         direct:
-          status: failing
-          tested_on: 2026-09-24
+          status: tested
+          tested_on: 2026-09-26
           tested_by: kingrun
-          notes: The camera exposes only the startup still image, while on-demand capture does not refresh it on the reported direct setup.
+          notes: On-demand capture refreshes the image and its displayed timestamp after the v0.1.103 media-boundary fix.
   events:
     motion:
       connections:

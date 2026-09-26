@@ -19,7 +19,7 @@ hardware evidence and topology-specific results remain in
 | T8134 | SoloCam S220 | 63 | camera | supported |
 | T8140, T8140R, T8140-R | eufyCam 2 Pro (S221) | 14 | camera | ready_to_test |
 | T8141, T8142, T8142-Z | eufyCam 2C Pro (S220) | 15 | camera | supported |
-| T8144 | eufyCam E40 | 49 | camera | ready_to_test |
+| T8144 | eufyCam E40 | 49 | camera | supported |
 | T814X, T814XS | eufyCam C37 | 10037 | camera | supported |
 | T8160 | eufyCam 3 (S330) | 19 | camera | supported |
 | T8161 | eufyCam 3C (S300) | 23 | camera | supported |
