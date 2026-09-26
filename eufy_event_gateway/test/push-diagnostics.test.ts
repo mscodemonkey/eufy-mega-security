@@ -38,6 +38,27 @@ test("push diagnostics are bounded to the latest 50 whitelisted records", () => 
   assert.equal(diagnostics[49]?.cameraSerial, "camera-54");
 });
 
+test("event delivery diagnostics count transport outcomes without payloads", () => {
+  const state = new GatewayState();
+  state.recordEventReceiverState("starting");
+  state.recordEventReceiverState("connected");
+  state.recordEventDelivery("parsed", 0);
+  state.recordEventDelivery("unparsed", 60_000);
+  state.recordEventDelivery("empty", 120_000);
+  state.recordEventReceiverState("disconnected");
+
+  assert.deepEqual(state.eventDeliveryDiagnostic(180_000), {
+    receiverState: "disconnected",
+    connectionCount: 1,
+    disconnectionCount: 1,
+    deliveryCount: 3,
+    parsedCount: 1,
+    emptyCount: 1,
+    unparsedCount: 1,
+    lastDeliveryAge: "one_to_five_minutes",
+  });
+});
+
 test("catalogue evidence removes local identities while retaining test facts", () => {
   const state = new GatewayState();
   state.updateInventoryDiagnostics([{

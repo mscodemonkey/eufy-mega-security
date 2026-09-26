@@ -19,6 +19,7 @@ import {
   StreamCadenceTracker,
   terminateMediaProcess,
   VideoParameterSetCache,
+  type ViewerDeliverySummary,
   type ViewerTranscoderSummary,
 } from "../src/stream/live-stream-manager.js";
 
@@ -243,7 +244,9 @@ test("shares an H.264 fallback with viewers when a camera returns H.265", async 
   }) as ServerResponse["writeHead"];
   const bytes: Buffer[] = [];
   const summaries: ViewerTranscoderSummary[] = [];
+  const deliverySummaries: ViewerDeliverySummary[] = [];
   manager.on("viewer-transcoder-stopped", (summary) => summaries.push(summary));
+  manager.on("viewer-delivery-stopped", (summary) => deliverySummaries.push(summary));
   response.on("data", (chunk: Buffer) => bytes.push(Buffer.from(chunk)));
   await manager.addClient(camera.serial, response);
 
@@ -288,6 +291,14 @@ test("shares an H.264 fallback with viewers when a camera returns H.265", async 
     maximumClientWritableBytes: 0,
   }]);
   await manager.close();
+  assert.equal(deliverySummaries.length, 1);
+  assert.equal(deliverySummaries[0]?.model, "T8210");
+  assert.equal(deliverySummaries[0]?.sourceCodec, "h265");
+  assert.equal(deliverySummaries[0]?.sourceChunks, 2);
+  assert.equal(deliverySummaries[0]?.viewerChunks, 1);
+  assert.equal(deliverySummaries[0]?.clientStarts, 1);
+  assert.equal(deliverySummaries[0]?.clientWrites, 1);
+  assert.equal(deliverySummaries[0]?.clientBackpressureEvents, 0);
 });
 
 test("keeps process pipe failures recoverable while an H.265 viewer is stopping", async () => {

@@ -27,6 +27,8 @@ export interface ProviderEvents {
   sensorMotion(serial: string, detected: boolean): void;
   snapshot(serial: string, data: Buffer, contentType: string): void;
   pushDiagnostic(diagnostic: PushDiagnostic): void;
+  eventReceiverState(state: "starting" | "connected" | "disconnected" | "stopped"): void;
+  eventDelivery(outcome: "parsed" | "empty" | "unparsed"): void;
   inventory(diagnostics: InventoryDiagnostic[]): void;
   cameraCapabilities(manifests: readonly CameraCapabilityManifest[]): void;
   deviceCapabilities(manifests: readonly DeviceCapabilityManifest[]): void;

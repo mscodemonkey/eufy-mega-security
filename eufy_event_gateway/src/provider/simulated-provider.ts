@@ -119,6 +119,7 @@ export class SimulatedProvider implements CameraProvider {
       deviceType: 18,
       paramTypes: [],
     }, { homeBaseSupported: true, homeBaseGuardModeSupported: true, homeBaseRouteReady: true, doorbellSupported: false, cameraStreamSupported: false }));
+    events.eventReceiverState("connected");
     events.connection("connected", "simulated provider");
   }
 
@@ -265,6 +266,7 @@ export class SimulatedProvider implements CameraProvider {
   }
 
   async close(): Promise<void> {
+    this.#events?.eventReceiverState("stopped");
     this.#events?.connection("disconnected", "simulated provider stopped");
     this.#events = null;
   }
@@ -272,6 +274,7 @@ export class SimulatedProvider implements CameraProvider {
   detectMotion(personName: string | null = null): void {
     const events = this.#events;
     if (!events) return;
+    events.eventDelivery("parsed");
     events.pushDiagnostic({
       receivedAt: new Date().toISOString(),
       cameraSerial: SimulatedProvider.serial,

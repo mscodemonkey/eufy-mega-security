@@ -69,10 +69,13 @@ export class MegaPushReceiver {
     private readonly client: MegaClient,
     private readonly path: string,
     private readonly onEvent: (event: MegaPushEvent) => void,
+    private readonly onReceiverState: (state: "starting" | "connected" | "disconnected" | "stopped") => void = () => undefined,
+    private readonly onDelivery: (outcome: "parsed" | "empty" | "unparsed") => void = () => undefined,
   ) {}
 
   /** Register as the Eufy Android app and forward normalized notifications. */
   async start(): Promise<void> {
+    this.onReceiverState("starting");
     this.#state = await loadState(this.path);
     if (!this.#state.credentials) {
       const credentials = await new FcmRegistrar().register();
@@ -88,13 +91,23 @@ export class MegaPushReceiver {
     const receiver = new PushClient(credentials);
     receiver.setPersistentIds([...this.#state.persistentIds]);
     this.#receiver = receiver;
-    receiver.on("connect", () => logger.info("push_receiver_ready", "Android FCM receiver login acknowledged"));
-    receiver.on("disconnect", () => logger.warn("push_socket_disconnected", "Android FCM receiver disconnected; transport will retry"));
+    receiver.on("connect", () => {
+      this.onReceiverState("connected");
+      logger.info("push_receiver_ready", "Android FCM receiver login acknowledged");
+    });
+    receiver.on("disconnect", () => {
+      this.onReceiverState("disconnected");
+      logger.warn("push_socket_disconnected", "Android FCM receiver disconnected; transport will retry");
+    });
     receiver.on("error", (error: Error) => logger.warn("push_socket_unavailable", `Android FCM receiver error: ${error.message}`));
     receiver.on("message", (message: RawPushMessage) => {
       const newPersistentId = Boolean(message.persistentId && !this.#state.persistentIds.includes(message.persistentId));
       this.#recordPersistentId(message.persistentId);
       const event = parsePushEvent(message.payload);
+      const outcome = event
+        ? "parsed"
+        : !isRecord(message.payload) || Object.keys(message.payload).length === 0 ? "empty" : "unparsed";
+      this.onDelivery(outcome);
       logger.info("push_received", `persistent_id_present=${Boolean(message.persistentId)} new_id=${newPersistentId} payload_record=${isRecord(message.payload)} parsed=${event !== null}`);
       if (event) this.onEvent(event);
       else if (!isRecord(message.payload) || Object.keys(message.payload).length === 0) logger.info("push_empty", "Android FCM notification had no Eufy data fields");
@@ -114,6 +127,7 @@ export class MegaPushReceiver {
   async close(): Promise<void> {
     this.#receiver?.close();
     this.#receiver = null;
+    this.onReceiverState("stopped");
     await this.#saveQueue;
   }
 

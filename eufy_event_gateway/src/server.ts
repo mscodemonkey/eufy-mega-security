@@ -118,6 +118,9 @@ export class GatewayServer {
       if (request.method === "GET" && url.pathname === "/api/diagnostics/push") {
         return json(response, 200, { events: this.state.listPushDiagnostics() });
       }
+      if (request.method === "GET" && url.pathname === "/api/diagnostics/event-delivery") {
+        return json(response, 200, this.state.eventDeliveryDiagnostic());
+      }
       if (request.method === "GET" && url.pathname === "/api/diagnostics/inventory") {
         return json(response, 200, { devices: this.state.listInventoryDiagnostics() });
       }

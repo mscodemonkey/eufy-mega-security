@@ -93,6 +93,22 @@ export interface ViewerTranscoderSummary {
   readonly maximumClientWritableBytes: number;
 }
 
+/** Codec-independent delivery evidence from camera source through HTTP viewers. */
+export interface ViewerDeliverySummary {
+  readonly model: string;
+  readonly sourceCodec: VideoCodec | null;
+  readonly sourceBytes: number;
+  readonly sourceChunks: number;
+  readonly sourceCadence: StreamCadenceSummary;
+  readonly viewerBytes: number;
+  readonly viewerChunks: number;
+  readonly viewerCadence: StreamCadenceSummary;
+  readonly clientStarts: number;
+  readonly clientWrites: number;
+  readonly clientBackpressureEvents: number;
+  readonly maximumClientWritableBytes: number;
+}
+
 interface Session {
   readonly clients: Set<ServerResponse>;
   readonly pendingClients: Set<ServerResponse>;
@@ -110,6 +126,15 @@ interface Session {
   viewerOutputCadence: StreamCadenceTracker;
   viewerClientBackpressureEvents: number;
   viewerMaximumClientWritableBytes: number;
+  sourceBytes: number;
+  sourceChunks: number;
+  sourceCadence: StreamCadenceTracker;
+  viewerDeliveryBytes: number;
+  viewerDeliveryChunks: number;
+  viewerDeliveryCadence: StreamCadenceTracker;
+  viewerClientStarts: number;
+  viewerClientWrites: number;
+  model: string;
   stopTimer: NodeJS.Timeout | null;
   owned: boolean;
   leases: number;
@@ -306,7 +331,7 @@ export class LiveStreamManager extends EventEmitter {
     // Headers retained from a stopped source belong to its old encoding session.
     // Wait for the replacement source instead of sending two HTTP header blocks.
     if (session.source && session.state === "streaming" && viewerBootstrap && viewerCodec) {
-      this.#startClient(response, viewerCodec, viewerBootstrap);
+      this.#startClient(session, response, viewerCodec, viewerBootstrap);
     } else {
       session.pendingClients.add(response);
       if (sourceCodec === "h265" && sourceBootstrap && !session.viewerFfmpeg) {
@@ -422,9 +447,21 @@ export class LiveStreamManager extends EventEmitter {
     session.viewerOutputCadence = new StreamCadenceTracker();
     session.viewerClientBackpressureEvents = 0;
     session.viewerMaximumClientWritableBytes = 0;
+    session.sourceBytes = 0;
+    session.sourceChunks = 0;
+    session.sourceCadence = new StreamCadenceTracker();
+    session.viewerDeliveryBytes = 0;
+    session.viewerDeliveryChunks = 0;
+    session.viewerDeliveryCadence = new StreamCadenceTracker();
+    session.viewerClientStarts = 0;
+    session.viewerClientWrites = 0;
+    session.model = this.state.getCamera(serial).model;
 
     source.on("data", (chunk: Buffer) => {
       if (session.generation !== generation) return;
+      session.sourceBytes += chunk.length;
+      session.sourceChunks += 1;
+      session.sourceCadence.record();
       session.parameterSets.push(chunk, codecHint());
       const bootstrap = session.parameterSets.bootstrap;
       const startup = session.parameterSets.startup;
@@ -447,7 +484,7 @@ export class LiveStreamManager extends EventEmitter {
           let started = false;
           for (const client of session.pendingClients) {
             if (session.clients.has(client)) {
-              this.#startClient(client, codec, startup);
+              this.#startClient(session, client, codec, startup);
               started = true;
             }
           }
@@ -672,7 +709,7 @@ export class LiveStreamManager extends EventEmitter {
     this.#updateState(serial, session, error?.message ?? null);
   }
 
-  #startClient(response: ServerResponse, codec: VideoCodec, bootstrap: Buffer): void {
+  #startClient(session: Session, response: ServerResponse, codec: VideoCodec, bootstrap: Buffer): void {
     if (!response.headersSent) {
       response.writeHead(200, {
         "Content-Type": codec === "h265" ? "video/h265" : "video/h264",
@@ -680,12 +717,16 @@ export class LiveStreamManager extends EventEmitter {
         Connection: "keep-alive",
       });
     }
+    session.viewerClientStarts += 1;
     response.write(bootstrap);
   }
 
   #writeViewerChunk(session: Session, chunk: Buffer): void {
+    let delivered = false;
     for (const client of session.clients) {
       if (session.pendingClients.has(client)) continue;
+      delivered = true;
+      session.viewerClientWrites += 1;
       const accepted = client.write(chunk);
       if (!accepted) session.viewerClientBackpressureEvents += 1;
       session.viewerMaximumClientWritableBytes = Math.max(
@@ -695,6 +736,11 @@ export class LiveStreamManager extends EventEmitter {
       if (client.writableLength > 4 * 1024 * 1024) {
         client.destroy(new Error("Live stream client exceeded the four-megabyte backpressure limit"));
       }
+    }
+    if (delivered) {
+      session.viewerDeliveryBytes += chunk.length;
+      session.viewerDeliveryChunks += 1;
+      session.viewerDeliveryCadence.record();
     }
   }
 
@@ -719,7 +765,7 @@ export class LiveStreamManager extends EventEmitter {
       const bootstrap = session.viewerParameterSets.bootstrap;
       if (bootstrap) {
         for (const client of session.pendingClients) {
-          if (session.clients.has(client)) this.#startClient(client, "h264", bootstrap);
+          if (session.clients.has(client)) this.#startClient(session, client, "h264", bootstrap);
         }
         session.pendingClients.clear();
       }
@@ -792,6 +838,7 @@ export class LiveStreamManager extends EventEmitter {
   }
 
   #cleanupSource(session: Session): void {
+    if (session.source) this.#emitViewerDeliverySummary(session);
     session.generation += 1;
     session.source?.removeAllListeners();
     session.source = null;
@@ -809,6 +856,24 @@ export class LiveStreamManager extends EventEmitter {
       session.viewerFfmpeg = null;
     }
     session.viewerParameterSets = new VideoParameterSetCache();
+  }
+
+  #emitViewerDeliverySummary(session: Session): void {
+    const summary: ViewerDeliverySummary = {
+      model: session.model,
+      sourceCodec: session.parameterSets.codec,
+      sourceBytes: session.sourceBytes,
+      sourceChunks: session.sourceChunks,
+      sourceCadence: session.sourceCadence.summary,
+      viewerBytes: session.viewerDeliveryBytes,
+      viewerChunks: session.viewerDeliveryChunks,
+      viewerCadence: session.viewerDeliveryCadence.summary,
+      clientStarts: session.viewerClientStarts,
+      clientWrites: session.viewerClientWrites,
+      clientBackpressureEvents: session.viewerClientBackpressureEvents,
+      maximumClientWritableBytes: session.viewerMaximumClientWritableBytes,
+    };
+    this.emit("viewer-delivery-stopped", summary);
   }
 
   #session(serial: string): Session {
@@ -831,6 +896,15 @@ export class LiveStreamManager extends EventEmitter {
         viewerOutputCadence: new StreamCadenceTracker(),
         viewerClientBackpressureEvents: 0,
         viewerMaximumClientWritableBytes: 0,
+        sourceBytes: 0,
+        sourceChunks: 0,
+        sourceCadence: new StreamCadenceTracker(),
+        viewerDeliveryBytes: 0,
+        viewerDeliveryChunks: 0,
+        viewerDeliveryCadence: new StreamCadenceTracker(),
+        viewerClientStarts: 0,
+        viewerClientWrites: 0,
+        model: "unknown",
         stopTimer: null,
         owned: false,
         leases: 0,

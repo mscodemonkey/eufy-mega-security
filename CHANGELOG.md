@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.103
+
+- Add codec-independent viewer delivery diagnostics that separate camera input, converted output, HTTP delivery, stalls, and client backpressure.
+- Include privacy-safe push receiver state and aggregate delivery outcomes in Home Assistant diagnostics without payloads, device identities, or exact event times.
+
 ## 0.1.102
 
 - Accept an additional encrypted media length form reported by standalone T8425 and T8426 cameras while keeping the validated outer frame boundary as the safety limit.

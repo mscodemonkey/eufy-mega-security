@@ -91,6 +91,11 @@ class GatewayClient:
         """Fetch the gateway's privacy-safe device catalogue evidence."""
         return await self._json("/api/diagnostics/catalogue-evidence")
 
+    async def event_delivery_diagnostic(self) -> dict[str, Any]:
+        """Fetch process-lifetime push transport counters without payload data."""
+
+        return await self._json("/api/diagnostics/event-delivery")
+
     async def station(self, serial: str) -> dict[str, Any]:
         """Fetch one HomeBase state by serial for an explicit readback."""
         payload = await self._json(f"/api/stations/{serial}")
