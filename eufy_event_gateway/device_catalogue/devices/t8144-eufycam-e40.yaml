@@ -5,7 +5,7 @@ id: t8144
 name: eufyCam E40
 category: camera
 integration:
-  status: ready_to_test
+  status: supported
   handler: camera
 models:
   - T8144
@@ -90,19 +90,19 @@ capabilities:
     live_view:
       connections:
         T8010:
-          status: mixed
-          tested_on: 2026-09-23
+          status: tested
+          tested_on: 2026-09-26
           tested_by: philMo2305
-          notes: Chrome sustained live video for up to 106 seconds after one failed first attempt. Safari rendered only a frozen first frame.
+          notes: Live video is reliable in Chrome, Safari, and the Home Assistant iOS app, including reported sessions lasting more than one minute.
         T8030:
           status: declared
     snapshot:
       connections:
         T8010:
-          status: mixed
-          tested_on: 2026-09-22
+          status: tested
+          tested_on: 2026-09-26
           tested_by: philMo2305
-          notes: Fresh images work, but intermittent FFmpeg reference-frame errors still appear on the snapshot path.
+          notes: Fresh snapshots update reliably on the reported HomeBase 2 setup.
         T8030:
           status: declared
   events:

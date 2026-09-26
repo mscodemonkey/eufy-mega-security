@@ -57,23 +57,25 @@ until curl -fsS http://127.0.0.1:3218/live >/dev/null 2>&1; do
   sleep 1
 done
 
-gateway_host="$(hostname)"
-discovery_config="$(jq -cn \
-  --arg host "$gateway_host" \
-  --argjson port 3218 \
-  --arg api_token "$EUFY_GATEWAY_API_TOKEN" \
-  '{host:$host, port:$port, api_token:$api_token}')"
-discovery_payload="$(jq -cn \
-  --arg service eufy_event_gateway \
-  --argjson config "$discovery_config" \
-  '{service:$service, config:$config}')"
+if [ -n "${SUPERVISOR_TOKEN:-}" ]; then
+  gateway_host="$(hostname)"
+  discovery_config="$(jq -cn \
+    --arg host "$gateway_host" \
+    --argjson port 3218 \
+    --arg api_token "$EUFY_GATEWAY_API_TOKEN" \
+    '{host:$host, port:$port, api_token:$api_token}')"
+  discovery_payload="$(jq -cn \
+    --arg service eufy_event_gateway \
+    --argjson config "$discovery_config" \
+    '{service:$service, config:$config}')"
 
-if ! curl -fsS \
-  -H "Authorization: Bearer $SUPERVISOR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "$discovery_payload" \
-  http://supervisor/discovery >/dev/null 2>&1; then
-  launcher_error supervisor_discovery_failed "Gateway is healthy, but Supervisor discovery failed"
+  if ! curl -fsS \
+    -H "Authorization: Bearer $SUPERVISOR_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "$discovery_payload" \
+    http://supervisor/discovery >/dev/null 2>&1; then
+    launcher_error supervisor_discovery_failed "Gateway is healthy, but Supervisor discovery failed"
+  fi
 fi
 
 set +e
