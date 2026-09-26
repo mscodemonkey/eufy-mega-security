@@ -228,6 +228,12 @@ export class SimulatedProvider implements CameraProvider {
     this.#assertSerial(serial);
   }
 
+  /** Return no stored PTZ positions because the fixed simulator has no pan motor. */
+  async getCameraPresetPositions(serial: string): Promise<readonly []> {
+    this.#assertSerial(serial);
+    return [];
+  }
+
   /** Accept a deterministic momentary light command for API and entity tests. */
   async setCameraLight(serial: string, _enabled: boolean): Promise<void> {
     this.#assertSerial(serial);

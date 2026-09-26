@@ -197,6 +197,13 @@ export interface CameraIdentity {
   readonly battery?: BatteryState | null;
 }
 
+/** Privacy-safe stored PTZ slot returned by a camera's live preset query. */
+export interface CameraPresetPosition {
+  readonly index: number;
+  readonly enabled: boolean;
+  readonly isDefault: boolean;
+}
+
 /** A previously known camera feature found in one device's discovery evidence. */
 export interface CameraCapability {
   readonly id: "motion" | "person" | "doorbellPress" | "retainedImage" | "liveVideo" | "batteryLevel" | "batteryCharging" | "batteryHealth" | "batteryTemperature";

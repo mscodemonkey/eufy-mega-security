@@ -13,7 +13,7 @@
  */
 import { join } from "node:path";
 
-import type { BatteryState, CameraIdentity, DetectionKind, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
+import type { BatteryState, CameraIdentity, CameraPresetPosition, DetectionKind, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
 import { createLogger } from "../logging.js";
 import { MegaClient } from "../mega/client.js";
 import { decodeEventImage, isJpeg } from "../mega/image.js";
@@ -123,6 +123,11 @@ export function nightVisionModes(
     { value: 1, name: "Infrared" },
     { value: 2, name: "Spotlight" },
   ];
+}
+
+/** Return whether live hardware has proven the model's preset query contract. */
+export function supportsPresetPositions(device: Pick<MegaInventoryDevice, "model">): boolean {
+  return device.model.toUpperCase().startsWith("T817L");
 }
 
 /** Safe, grouped inventory evidence suitable for copied support logs. */
@@ -914,6 +919,46 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     } finally {
       session.close();
     }
+  }
+
+  /** Query privacy-safe preset occupancy over the camera's live HomeBase route. */
+  async getCameraPresetPositions(serial: string): Promise<readonly CameraPresetPosition[]> {
+    const device = this.#devices.get(serial);
+    if (!device || !isSupportedMegaCamera(device) || !supportsPresetPositions(device)) {
+      throw new Error("Camera preset positions are not supported for this camera");
+    }
+    await this.stopStream(serial);
+    const session = await this.#cameraPresetSession(device);
+    try {
+      await session.start();
+      return await session.queryPresetPositions();
+    } finally {
+      session.close();
+    }
+  }
+
+  /** Build one control session for a model with verified stored-position support. */
+  async #cameraPresetSession(device: MegaInventoryDevice): Promise<FirstPartyPpcsSession> {
+    const route = ppcsStreamRoute(device, this.#devices);
+    const peer = route?.peer;
+    const dsk = peer ? await this.#dskKey(peer.serial) : null;
+    if (!route?.homeBaseAttached || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
+      throw new Error("Camera preset positions require a ready HomeBase-attached route");
+    }
+    return new FirstPartyPpcsSession({
+      stationSerial: peer.serial,
+      p2pDid: peer.p2pDid,
+      appConnection: peer.p2pConnection,
+      localAddress: peer.localAddress,
+      dskKey: dsk.key,
+      channel: device.channel,
+      cameraModel: device.model,
+      accountId: device.adminUserId,
+      homeBaseAttached: true,
+      purpose: "control",
+      maxSeconds: 40,
+      resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
+    });
   }
 
   /** Trigger or stop a HomeBase siren through the station-side duration command. */

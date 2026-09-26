@@ -11,7 +11,7 @@
  */
 import type { Readable } from "node:stream";
 
-import type { CameraCapabilityManifest, CameraIdentity, DetectionKind, DeviceCapabilityManifest, HomeBaseState, InventoryDiagnostic, PushDiagnostic, SecuritySensorState, VideoCodec } from "../domain/types.js";
+import type { CameraCapabilityManifest, CameraIdentity, CameraPresetPosition, DetectionKind, DeviceCapabilityManifest, HomeBaseState, InventoryDiagnostic, PushDiagnostic, SecuritySensorState, VideoCodec } from "../domain/types.js";
 
 /** Callbacks through which a provider reports normalized observations. */
 export interface ProviderEvents {
@@ -58,6 +58,10 @@ export interface CameraProvider {
 
   /** Trigger or stop the camera siren using its device-side duration. */
   setCameraSiren(serial: string, durationSeconds: number): Promise<void>;
+
+  /** Query stored camera positions without returning names, images, or coordinates. */
+  getCameraPresetPositions(serial: string): Promise<readonly CameraPresetPosition[]>;
+
   /** Trigger or stop a HomeBase siren using its station-side duration command. */
   setHomeBaseSiren(serial: string, durationSeconds: number): Promise<HomeBaseState>;
   refreshStation(serial: string): Promise<HomeBaseState>;

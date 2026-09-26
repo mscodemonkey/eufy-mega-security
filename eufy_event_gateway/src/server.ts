@@ -166,6 +166,12 @@ export class GatewayServer {
       ) {
         return await this.#cameraLight(request, segments[2]!, response);
       }
+      if (
+        request.method === "GET" &&
+        segments[0] === "api" && segments[1] === "cameras" && segments[3] === "preset-positions" && segments.length === 4
+      ) {
+        return await this.#cameraPresetPositions(segments[2]!, response);
+      }
       if (request.method === "GET" && segments[0] === "api" && segments[1] === "stations" && segments.length === 3) {
         return this.#stationJson(segments[2]!, response);
       }
@@ -305,6 +311,13 @@ export class GatewayServer {
     const body = await readJson(request);
     await this.provider.setCameraLight(serial, requiredBoolean(body.enabled));
     return json(response, 200, { ok: true });
+  }
+
+  /** Return only preset indexes, occupancy, and the default marker. */
+  async #cameraPresetPositions(serial: string, response: ServerResponse): Promise<void> {
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    const positions = await this.provider.getCameraPresetPositions(serial);
+    return json(response, 200, { positions });
   }
 
   #stationJson(serial: string, response: ServerResponse): void {
