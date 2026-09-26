@@ -27,6 +27,7 @@ import type {
   DeviceCapabilityManifest,
   DetectionKind,
   SecuritySensorState,
+  EventDeliveryDiagnostic,
 } from "./types.js";
 
 /** Mutable internal representation; callers receive immutable snapshots. */
@@ -64,6 +65,17 @@ export class GatewayState extends EventEmitter {
   readonly #stations = new Map<string, HomeBaseState>();
   readonly #sensors = new Map<string, SecuritySensorState>();
   readonly #pushDiagnostics: PushDiagnostic[] = [];
+  #eventDeliveryDiagnostic: EventDeliveryDiagnostic = {
+    receiverState: "stopped",
+    connectionCount: 0,
+    disconnectionCount: 0,
+    deliveryCount: 0,
+    parsedCount: 0,
+    emptyCount: 0,
+    unparsedCount: 0,
+    lastDeliveryAge: "none",
+  };
+  #lastEventDeliveryAtMilliseconds: number | null = null;
   readonly #motionClearTimers = new Map<string, NodeJS.Timeout>();
   readonly #personClearTimers = new Map<string, NodeJS.Timeout>();
   readonly #doorbellClearTimers = new Map<string, NodeJS.Timeout>();
@@ -324,6 +336,43 @@ export class GatewayState extends EventEmitter {
   /** Return a copy of the bounded push diagnostic history. */
   listPushDiagnostics(): PushDiagnostic[] {
     return [...this.#pushDiagnostics];
+  }
+
+  /** Record receiver lifecycle without retaining connection or account data. */
+  recordEventReceiverState(state: "starting" | "connected" | "disconnected" | "stopped"): void {
+    this.#eventDeliveryDiagnostic = {
+      ...this.#eventDeliveryDiagnostic,
+      receiverState: state,
+      connectionCount: this.#eventDeliveryDiagnostic.connectionCount + (state === "connected" ? 1 : 0),
+      disconnectionCount: this.#eventDeliveryDiagnostic.disconnectionCount + (state === "disconnected" ? 1 : 0),
+    };
+  }
+
+  /** Count one raw Firebase delivery by parse outcome without retaining its payload. */
+  recordEventDelivery(outcome: "parsed" | "empty" | "unparsed", receivedAtMilliseconds = Date.now()): void {
+    this.#lastEventDeliveryAtMilliseconds = receivedAtMilliseconds;
+    this.#eventDeliveryDiagnostic = {
+      ...this.#eventDeliveryDiagnostic,
+      deliveryCount: this.#eventDeliveryDiagnostic.deliveryCount + 1,
+      parsedCount: this.#eventDeliveryDiagnostic.parsedCount + (outcome === "parsed" ? 1 : 0),
+      emptyCount: this.#eventDeliveryDiagnostic.emptyCount + (outcome === "empty" ? 1 : 0),
+      unparsedCount: this.#eventDeliveryDiagnostic.unparsedCount + (outcome === "unparsed" ? 1 : 0),
+      lastDeliveryAge: "under_one_minute",
+    };
+  }
+
+  /** Return a copy of process-lifetime event-delivery counters. */
+  eventDeliveryDiagnostic(nowMilliseconds = Date.now()): EventDeliveryDiagnostic {
+    const elapsed = this.#lastEventDeliveryAtMilliseconds === null
+      ? null
+      : Math.max(0, nowMilliseconds - this.#lastEventDeliveryAtMilliseconds);
+    const lastDeliveryAge = elapsed === null
+      ? "none"
+      : elapsed < 60_000 ? "under_one_minute"
+      : elapsed < 5 * 60_000 ? "one_to_five_minutes"
+      : elapsed < 30 * 60_000 ? "five_to_thirty_minutes"
+      : "over_thirty_minutes";
+    return { ...this.#eventDeliveryDiagnostic, lastDeliveryAge };
   }
 
   /** Replace the current inventory explanation after provider discovery. */

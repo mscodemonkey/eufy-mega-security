@@ -716,6 +716,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#client,
       join(this.config.persistentDirectory, "mega-push.json"),
       (event) => this.#handlePush(events, event),
+      (state) => events.eventReceiverState(state),
+      (outcome) => events.eventDelivery(outcome),
     );
     await this.#push.start();
     events.connection("connected", "Gateway events and snapshots are ready; live viewing requires a validated PPCS camera path");

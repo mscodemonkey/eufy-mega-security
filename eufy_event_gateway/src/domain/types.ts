@@ -272,6 +272,18 @@ export interface PushDiagnostic {
   readonly hasSenseId: boolean;
 }
 
+/** Aggregate push transport health without device identities or payload data. */
+export interface EventDeliveryDiagnostic {
+  readonly receiverState: "starting" | "connected" | "disconnected" | "stopped";
+  readonly connectionCount: number;
+  readonly disconnectionCount: number;
+  readonly deliveryCount: number;
+  readonly parsedCount: number;
+  readonly emptyCount: number;
+  readonly unparsedCount: number;
+  readonly lastDeliveryAge: "none" | "under_one_minute" | "one_to_five_minutes" | "five_to_thirty_minutes" | "over_thirty_minutes";
+}
+
 /** Explains why an upstream device was accepted or rejected as a camera. */
 export interface InventoryDiagnostic {
   readonly serial: string;

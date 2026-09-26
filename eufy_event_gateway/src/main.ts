@@ -20,7 +20,7 @@ import { SimulatedProvider } from "./provider/simulated-provider.js";
 import { GatewayServer } from "./server.js";
 import { StartupSnapshotWarmup } from "./startup-snapshot-warmup.js";
 import { SnapshotStore } from "./storage/snapshot-store.js";
-import { LiveStreamManager, type ViewerTranscoderSummary } from "./stream/live-stream-manager.js";
+import { LiveStreamManager, type ViewerDeliverySummary, type ViewerTranscoderSummary } from "./stream/live-stream-manager.js";
 
 const logger = createLogger("gateway");
 const providerLogger = createLogger("provider");
@@ -100,6 +100,31 @@ streams.on("viewer-transcoder-stopped", (detail: ViewerTranscoderSummary) => {
     ].join(" "),
   );
 });
+streams.on("viewer-delivery-stopped", (detail: ViewerDeliverySummary) => {
+  const source = detail.sourceCadence;
+  const viewer = detail.viewerCadence;
+  logger.info(
+    "viewer_delivery_stopped",
+    [
+      `Viewer delivery stopped: model=${detail.model}`,
+      `codec=${detail.sourceCodec ?? "unknown"}`,
+      `source_bytes=${detail.sourceBytes}`,
+      `source_chunks=${detail.sourceChunks}`,
+      `source_duration_ms=${source.durationMilliseconds}`,
+      `source_max_gap_ms=${source.maximumGapMilliseconds}`,
+      `source_gaps_2000ms=${source.gapsAtLeast2000Milliseconds}`,
+      `viewer_bytes=${detail.viewerBytes}`,
+      `viewer_chunks=${detail.viewerChunks}`,
+      `viewer_duration_ms=${viewer.durationMilliseconds}`,
+      `viewer_max_gap_ms=${viewer.maximumGapMilliseconds}`,
+      `viewer_gaps_2000ms=${viewer.gapsAtLeast2000Milliseconds}`,
+      `client_starts=${detail.clientStarts}`,
+      `client_writes=${detail.clientWrites}`,
+      `client_backpressure_events=${detail.clientBackpressureEvents}`,
+      `client_max_writable_bytes=${detail.maximumClientWritableBytes}`,
+    ].join(" "),
+  );
+});
 const startupSnapshots = new StartupSnapshotWarmup(
   (serial) => state.hasCamera(serial) && state.getCamera(serial).snapshot !== null,
   (serial) => streams.captureStartupSnapshot(serial),
@@ -156,6 +181,12 @@ const providerEvents: ProviderEvents = {
   },
   pushDiagnostic(diagnostic) {
     state.recordPushDiagnostic(diagnostic);
+  },
+  eventReceiverState(receiverState) {
+    state.recordEventReceiverState(receiverState);
+  },
+  eventDelivery(outcome) {
+    state.recordEventDelivery(outcome);
   },
   inventory(diagnostics) {
     state.updateInventoryDiagnostics(diagnostics);

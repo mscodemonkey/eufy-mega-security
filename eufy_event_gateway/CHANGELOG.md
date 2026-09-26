@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.103
+
+- Add codec-independent viewer delivery diagnostics that separate camera input, converted output, HTTP delivery, stalls, and client backpressure.
+- Include privacy-safe push receiver state and aggregate delivery outcomes in Home Assistant diagnostics without payloads, device identities, or exact event times.
 - Generate a support catalogue from the device YAML records and reject admitted devices without a typed catalogue row.
 - Cover confirmed motion-detection reads for the tested doorbell, T817L Wired Cam C31, and T8113-Z families.
 
