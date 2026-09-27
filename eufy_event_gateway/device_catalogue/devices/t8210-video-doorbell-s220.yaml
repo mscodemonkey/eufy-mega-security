@@ -193,7 +193,9 @@ capabilities:
     motion:
       connections:
         T8010:
-          status: declared
+          status: tested
+          tested_on: 2026-09-28
+          tested_by: guidog66
         T8025:
           status: declared
         T8030:
@@ -203,7 +205,9 @@ capabilities:
     person:
       connections:
         T8010:
-          status: declared
+          status: tested
+          tested_on: 2026-09-28
+          tested_by: guidog66
         T8025:
           status: declared
         T8030:
