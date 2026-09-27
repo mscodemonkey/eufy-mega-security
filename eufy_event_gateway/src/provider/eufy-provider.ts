@@ -996,8 +996,19 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       events.sensorMotion(event.cameraSerial, true);
       return;
     }
-    if (event.eventType === 3103 && isDoorbellDevice(device)) {
-      events.doorbell(event.cameraSerial, true);
+    const doorbellPush = doorbellPushKind(event);
+    if (doorbellPush !== null && isDoorbellDevice(device)) {
+      if (doorbellPush === "press") {
+        events.doorbell(event.cameraSerial, true);
+        return;
+      }
+      events.motion(event.cameraSerial, true);
+      const kinds = new Set(event.detectionEvidence);
+      if (personName !== null) kinds.add("person");
+      for (const kind of kinds) {
+        if (kind === "person") events.person(event.cameraSerial, true, personName);
+        else events.detection(event.cameraSerial, kind, true);
+      }
       return;
     }
     const detection = cameraDetectionKind(event.eventType);
@@ -1738,7 +1749,16 @@ export function safePushLogSummary(
   let handling = "unhandled";
   if (stationManaged && event.eventType === 9) handling = "station_guard";
   else if (stationManaged && event.eventType === 10 && event.alarmType !== null) handling = "station_alarm";
-  else if (cameraAccepted && event.eventType === 3103 && device !== null && isDoorbellDevice(device)) handling = "doorbell_press";
+  else if (
+    cameraAccepted
+    && device !== null
+    && isDoorbellDevice(device)
+    && doorbellPushKind(event) !== null
+  ) {
+    const doorbellPush = doorbellPushKind(event);
+    if (doorbellPush === "press") handling = "doorbell_press";
+    else if (doorbellPush === "detection") handling = "doorbell_detection";
+  }
   else if (cameraAccepted && isCameraDetection(event.eventType)) {
     handling = cameraDetectionKind(event.eventType) ?? "unhandled";
   }
@@ -1758,6 +1778,14 @@ export function safePushLogSummary(
     `picture_present=${event.pictureUrl !== null}`,
     `ai_evidence=${event.detectionEvidence?.join(",") || "none"}`,
   ].join(" ");
+}
+
+/** Distinguish a doorbell press from style-3 detection pushes that reuse event type 3103. */
+export function doorbellPushKind(
+  event: Pick<MegaPushEvent, "eventType" | "notificationStyle">,
+): "press" | "detection" | null {
+  if (event.eventType !== 3103) return null;
+  return event.notificationStyle === 3 ? "detection" : "press";
 }
 
 function safePushCode(value: number | null): number | "missing" {

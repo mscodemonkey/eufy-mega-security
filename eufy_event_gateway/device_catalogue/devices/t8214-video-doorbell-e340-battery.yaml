@@ -43,6 +43,15 @@ capabilities:
           status: declared
       read:
         parameter: 1138
+    last_recognized_person:
+      connections:
+        T8030:
+          status: failing
+          tested_on: 2026-09-28
+          tested_by: philippk75
+          notes: Named person data reaches the gateway, but v0.1.103 classifies style-3 event 3103 as a doorbell press before recording the detection.
+      read:
+        field: last_recognized_person
   controls:
     enabled:
       connections:
@@ -117,7 +126,10 @@ capabilities:
         direct:
           status: declared
         T8030:
-          status: declared
+          status: failing
+          tested_on: 2026-09-28
+          tested_by: philippk75
+          notes: Style-3 event 3103 reaches the gateway but v0.1.103 classifies it as a doorbell press.
         T9000:
           status: declared
     person:
@@ -125,7 +137,10 @@ capabilities:
         direct:
           status: declared
         T8030:
-          status: declared
+          status: failing
+          tested_on: 2026-09-28
+          tested_by: philippk75
+          notes: Named person data reaches the gateway but v0.1.103 does not record the person detection.
         T9000:
           status: declared
     pet:
