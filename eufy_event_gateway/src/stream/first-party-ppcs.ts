@@ -461,9 +461,12 @@ export function buildPpcsCloudLookup(
   };
 }
 
-/** Read a peer candidate from either PPCS cloud lookup response form. */
+/** Read an advertised peer candidate from a LAN or cloud lookup response. */
 export function ppcsLookupCandidate(message: Buffer): { readonly host: string; readonly port: number } | null {
-  if ((!has(message, RESP.lookupAddr) && !has(message, RESP.lookupAddr2)) || message.length < 12) return null;
+  if (
+    (!has(message, RESP.lookupAddr) && !has(message, RESP.lookupAddr2) && !has(message, RESP.localLookup))
+    || message.length < 12
+  ) return null;
   return {
     port: message.readUInt16LE(6),
     host: `${message[11]}.${message[10]}.${message[9]}.${message[8]}`,
@@ -1099,14 +1102,13 @@ export class FirstPartyPpcsSession {
   /**
    * Send the verified command-1011 motion switch and await its result.
    *
-   * The HomeBase route requires an established level-two key. Three identical
-   * transmissions tolerate loss on the UDP and HomeBase radio hops while one
-   * acknowledgement slot owns the operation's final result.
+   * Both standalone and HomeBase-attached routes use the level-two direct
+   * binary form. Three identical transmissions tolerate loss on the UDP path
+   * while one acknowledgement slot owns the operation's final result.
    */
   async writeMotionDetection(enabled: boolean): Promise<void> {
     if (this.#options.purpose !== "control") throw new Error("Motion control requires a control session");
     if (!this.#remote) throw new Error("Motion control session is not connected");
-    if (!this.#options.homeBaseAttached) throw new Error("Motion control requires a HomeBase-attached camera");
     const accountId = this.#options.accountId;
     if (!accountId) throw new Error("Motion control account identity is unavailable");
     await this.#waitForLevel2Key();
@@ -1322,7 +1324,14 @@ export class FirstPartyPpcsSession {
   #handle(message: Buffer, info: RemoteInfo): boolean {
     if (has(message, RESP.localLookup)) {
       this.stats.localLookupCandidates++;
-      this.#checkCandidate({ host: info.address, port: info.port });
+      const source = { host: info.address, port: info.port };
+      this.#checkCandidate(source);
+      const advertised = ppcsLookupCandidate(message);
+      if (
+        advertised
+        && advertised.host !== "0.0.0.0"
+        && (advertised.host !== source.host || advertised.port !== source.port)
+      ) this.#checkCandidate(advertised);
       return false;
     }
     const candidate = ppcsLookupCandidate(message);
@@ -1633,26 +1642,27 @@ export class FirstPartyPpcsSession {
   }
 
   /**
-   * Serialize HomeBase gateway-info handling while an ECC key is being found.
+   * Serialize gateway-info handling while an ECC key is being found.
    *
-   * HomeBase may retransmit command 1100. Sharing the active promise prevents
+   * A peer may retransmit command 1100. Sharing the active promise prevents
    * duplicate asynchronous key resolution and competing media starts.
    */
   async #handleGatewayInfo(payload: Buffer): Promise<void> {
     if (this.#gatewayPromise) return this.#gatewayPromise;
-    if (!this.#options.homeBaseAttached || this.#level2Key || !this.#options.resolveCipherKey || payload.length < 133) return;
+    if (this.#level2Key || !this.#options.resolveCipherKey || payload.length < 133) return;
     this.#gatewayPromise = this.#deriveLevel2(payload);
     try { await this.#gatewayPromise; } finally { this.#gatewayPromise = null; }
   }
 
   /**
-   * Derive the HomeBase level-two control key from command 1100.
+   * Derive the peer's level-two control key from command 1100.
    *
    * The outer envelope uses the deterministic level-one command key. Its
    * cipher identifier selects an ECC private key supplied by the provider,
-   * which unwraps the per-session AES key. Media startup is delayed until this
-   * chain succeeds because attached-camera lifecycle commands require level
-   * two protection.
+   * which unwraps the per-session AES key. Attached-camera media startup is
+   * delayed until this chain succeeds because its lifecycle commands require
+   * level-two protection. Standalone control sessions can use the same key for
+   * direct-binary commands without changing their level-one media behaviour.
    */
   async #deriveLevel2(payload: Buffer): Promise<void> {
     let plainPayload: Buffer;
@@ -1670,7 +1680,7 @@ export class FirstPartyPpcsSession {
     if (this.#options.purpose !== "control") this.#startAttachedMedia();
   }
 
-  /** Wait for in-progress gateway negotiation before an attached control write. */
+  /** Wait for in-progress gateway negotiation before a level-two control write. */
   async #waitForLevel2Key(): Promise<void> {
     const deadline = Date.now() + CONTROL_TIMEOUT_MILLISECONDS;
     while (!this.#level2Key && !this.stats.level2Error && Date.now() < deadline) {

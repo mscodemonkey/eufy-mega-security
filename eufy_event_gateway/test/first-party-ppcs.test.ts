@@ -163,7 +163,7 @@ test("reissues a standalone start only while codec headers are missing", () => {
 });
 
 test("accepts both PPCS cloud candidate response forms", () => {
-  for (const header of [[0xf1, 0x40], [0xf1, 0x82]]) {
+  for (const header of [[0xf1, 0x40], [0xf1, 0x82], [0xf1, 0x41]]) {
     const response = Buffer.alloc(24);
     response.set(header, 0);
     response.writeUInt16LE(32_108, 6);

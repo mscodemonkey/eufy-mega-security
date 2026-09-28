@@ -413,14 +413,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const route = ppcsStreamRoute(device, this.#devices);
       const peer = route?.peer;
       const dsk = peer ? await this.#dskKey(peer.serial) : null;
-      if (!route?.homeBaseAttached || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
-        throw new Error("Camera motion detection control requires a HomeBase-attached camera");
+      if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
+        throw new Error("Camera motion detection control is unavailable for this camera");
       }
       const session = new FirstPartyPpcsSession({
         stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
         localAddress: peer.localAddress,
         dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
-        accountId: device.adminUserId, homeBaseAttached: true, purpose: "control", maxSeconds: 40,
+        accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 40,
         resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
       });
       try {
@@ -1014,7 +1014,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const route = ppcsStreamRoute(device, this.#devices);
       const peer = route?.peer;
       const dsk = peer ? await this.#dskKey(peer.serial) : null;
-      if (route?.homeBaseAttached !== false || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null) {
+      if (
+        route?.homeBaseAttached !== false
+        || !peer?.p2pDid
+        || !peer.p2pConnection
+        || !dsk
+        || device.channel === null
+      ) {
         throw new Error("Timed camera light control requires a ready standalone route");
       }
       const session = new FirstPartyPpcsSession({

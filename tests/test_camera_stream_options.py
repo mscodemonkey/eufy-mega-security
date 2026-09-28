@@ -41,7 +41,7 @@ class CameraStreamOptionsTest(unittest.TestCase):
         self.assertIs(assignments[0].value.value, True)
 
     def test_live_stream_refreshes_its_signed_source_before_expiry(self) -> None:
-        """Keep reconnects from reusing the ten-minute URL created at startup."""
+        """Refresh active viewers without restarting an idle camera stream."""
         tree = ast.parse(CAMERA_SOURCE.read_text())
         camera_class = next(
             node
@@ -72,6 +72,13 @@ class CameraStreamOptionsTest(unittest.TestCase):
             for node in ast.walk(methods["_async_refresh_stream_source"])
             if isinstance(node, ast.Call)
         ]
+        self.assertTrue(
+            any(
+                isinstance(call.func, ast.Attribute)
+                and call.func.attr == "outputs"
+                for call in refresh_calls
+            )
+        )
         self.assertTrue(
             any(
                 isinstance(call.func, ast.Attribute)

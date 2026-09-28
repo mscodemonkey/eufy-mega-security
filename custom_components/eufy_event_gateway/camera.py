@@ -109,13 +109,12 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         )
 
     async def _async_refresh_stream_source(self, now: datetime) -> None:
-        """Replace an active stream URL before its signed credential expires."""
+        """Replace an actively consumed stream URL before its credential expires."""
         del now
-        if self.stream is None:
+        stream = self.stream
+        if stream is None or not stream.outputs():
             return
-        self.stream.update_source(
-            await self.coordinator.client.stream_url(self.serial)
-        )
+        stream.update_source(await self.coordinator.client.stream_url(self.serial))
 
     @property
     def _snapshot_revision(self) -> int | None:
