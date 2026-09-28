@@ -74,6 +74,9 @@ export interface MegaInventoryReads {
   readonly guardMode?: number;
   readonly autoNightVisionEnabled?: boolean;
   readonly nightVisionMode?: number;
+
+  /** Raw parameter 6250 value, retained without assigning privacy-mode polarity. */
+  readonly privacy6250Value?: 0 | 1;
   readonly batteryLevel?: number;
   readonly batteryCharging?: boolean;
   readonly batteryHealth?: number;
@@ -103,6 +106,7 @@ const TIMED_LIGHT_JSON_DEVICE_TYPES: ReadonlySet<number> = new Set([151, 10005])
 const STANDALONE_GUARD_MODE_MODELS: ReadonlySet<string> = new Set([
   "T8170", "T8171", "T8400", "T8410", "T8442",
 ]);
+const PRIVACY_PARAMETER_PROBE_DEVICE_TYPES: ReadonlySet<number> = new Set([104, 105]);
 
 /** Return whether a device uses the verified timed JSON wall-light command. */
 export function supportsTimedCameraLight(
@@ -116,6 +120,32 @@ export function supportsStandaloneGuardMode(
   device: Pick<MegaInventoryDevice, "model">,
 ): boolean {
   return STANDALONE_GUARD_MODE_MODELS.has(device.model.toUpperCase());
+}
+
+/** Return whether a camera belongs to the narrowly scoped privacy-readback investigation. */
+export function supportsPrivacyParameterProbe(
+  device: Pick<MegaInventoryDevice, "deviceType">,
+): boolean {
+  return device.deviceType !== null && PRIVACY_PARAMETER_PROBE_DEVICE_TYPES.has(device.deviceType);
+}
+
+/** Describe parameter 6250 without claiming which raw value means physical privacy. */
+export function privacyParameterLogSummary(
+  device: Pick<MegaInventoryDevice, "deviceType" | "model" | "channel" | "paramTypes" | "reads">,
+  previousValue?: 0 | 1,
+): string | null {
+  if (!supportsPrivacyParameterProbe(device)) return null;
+  const value = device.reads.privacy6250Value;
+  const status = value !== undefined
+    ? String(value)
+    : device.paramTypes.includes(6250) ? "invalid" : "missing";
+  return [
+    `model=${JSON.stringify(device.model)}`,
+    `channel=${device.channel ?? "missing"}`,
+    "parameter=6250",
+    `value=${status}`,
+    `previous=${previousValue ?? "missing"}`,
+  ].join(" ");
 }
 
 function isAutoNightVisionDoorbell(
@@ -836,6 +866,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         ].join(" "),
       );
     }
+    for (const device of devices) {
+      const summary = privacyParameterLogSummary(device);
+      if (summary) logger.info("camera_privacy_parameter_observed", summary);
+    }
     events.inventory(diagnostics);
 
     await this.#push?.close();
@@ -893,6 +927,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         reads: liveReads ? { ...device.reads, ...liveReads } : device.reads,
       };
       this.#devices.set(device.serial, merged);
+      if (known.reads.privacy6250Value !== merged.reads.privacy6250Value) {
+        const summary = privacyParameterLogSummary(merged, known.reads.privacy6250Value);
+        if (summary) logger.info("camera_privacy_parameter_observed", summary);
+      }
       if (isSupportedMegaCamera(merged)) {
         this.#events?.camera(this.#cameraIdentity(merged));
       }
@@ -1581,6 +1619,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const guardMode = finiteNumber(params.get(1224));
   const autoNightVision = finiteNumber(params.get(1013));
   const nightVisionMode = finiteNumber(params.get(1277));
+  const privacy6250 = finiteNumber(params.get(6250));
   const enabled = openDevice === 0 || openDevice === 1
     ? openDevice === 1
     : cameraSwitch === 0 || cameraSwitch === 1
@@ -1592,6 +1631,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
     ...(guardMode !== null && [0, 1, 2, 3, 4, 5, 6, 47, 63].includes(guardMode) ? { guardMode } : {}),
     ...(autoNightVision === 0 || autoNightVision === 1 ? { autoNightVisionEnabled: autoNightVision === 1 } : {}),
     ...(nightVisionMode === 0 || nightVisionMode === 1 || nightVisionMode === 2 ? { nightVisionMode } : {}),
+    ...(privacy6250 === 0 || privacy6250 === 1 ? { privacy6250Value: privacy6250 } : {}),
     ...(batteryLevel !== undefined ? { batteryLevel } : {}),
     ...(batteryStatus !== null ? { batteryCharging: batteryStatus !== 0 && batteryStatus !== 2 } : {}),
     ...(batteryHealth !== undefined ? { batteryHealth } : {}),

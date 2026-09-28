@@ -29,9 +29,11 @@ import {
   personNameFromPush,
   ppcsStreamLogSummary,
   ppcsStreamRoute,
+  privacyParameterLogSummary,
   safePushLogSummary,
   safeInventoryReads,
   supportsHomeBaseGuardMode,
+  supportsPrivacyParameterProbe,
   supportsPresetPositions,
   supportsStandaloneGuardMode,
   supportsTimedCameraLight,
@@ -84,6 +86,38 @@ test("limits timed JSON light control to the verified wall-light family", () => 
   assert.equal(supportsTimedCameraLight({ deviceType: 61 }), false);
   assert.equal(supportsTimedCameraLight({ deviceType: 10031 }), false);
   assert.equal(supportsTimedCameraLight({ deviceType: null }), false);
+});
+
+test("limits privacy parameter diagnostics to T8416 and T8417", () => {
+  assert.equal(supportsPrivacyParameterProbe({ deviceType: 104 }), true);
+  assert.equal(supportsPrivacyParameterProbe({ deviceType: 105 }), true);
+  assert.equal(supportsPrivacyParameterProbe({ deviceType: 10031 }), false);
+  assert.equal(supportsPrivacyParameterProbe({ deviceType: null }), false);
+});
+
+test("reports raw privacy evidence without assigning physical polarity", () => {
+  const base = {
+    model: "T8417",
+    deviceType: 105,
+    channel: 0,
+    paramTypes: [6250],
+  } as const;
+  assert.equal(
+    privacyParameterLogSummary({ ...base, reads: { privacy6250Value: 1 } }, 0),
+    'model="T8417" channel=0 parameter=6250 value=1 previous=0',
+  );
+  assert.equal(
+    privacyParameterLogSummary({ ...base, reads: {} }),
+    'model="T8417" channel=0 parameter=6250 value=invalid previous=missing',
+  );
+  assert.equal(
+    privacyParameterLogSummary({ ...base, paramTypes: [], reads: {} }),
+    'model="T8417" channel=0 parameter=6250 value=missing previous=missing',
+  );
+  assert.equal(
+    privacyParameterLogSummary({ ...base, deviceType: 10031, reads: { privacy6250Value: 1 } }),
+    null,
+  );
 });
 
 test("limits stored-position queries to the hardware-proven T817L family", () => {
@@ -271,6 +305,12 @@ test("limits standalone guard mode to SDK-backed camera models", () => {
   }
   assert.equal(supportsStandaloneGuardMode({ model: "T81A0" }), false);
   assert.equal(supportsStandaloneGuardMode({ model: "T817L" }), false);
+});
+
+test("retains only boolean-shaped raw privacy parameter evidence", () => {
+  assert.equal(safeInventoryReads([{ param_type: 6250, param_value: "0" }]).privacy6250Value, 0);
+  assert.equal(safeInventoryReads([{ param_type: 6250, param_value: "1" }]).privacy6250Value, 1);
+  assert.equal(safeInventoryReads([{ param_type: 6250, param_value: "2" }]).privacy6250Value, undefined);
 });
 
 test("keeps confirmed motion-detection reads stable across tested camera families", () => {

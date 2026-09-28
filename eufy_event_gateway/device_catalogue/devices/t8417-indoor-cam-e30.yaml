@@ -13,6 +13,21 @@ models:
 device_type: 105
 capabilities:
   controls:
+    privacy_mode:
+      connections:
+        direct:
+          status: reported
+          tested_on: 2026-09-25
+          tested_by: nicofirst1
+          notes: The reporter's inventory contains parameter 6250, but its raw polarity and correspondence to the physical lens are not yet confirmed.
+      read:
+        parameter: 6250
+      write:
+        command: 6250
+      values:
+        "0": "Unknown polarity"
+        "1": "Unknown polarity"
+      notes: Diagnostic only. The integration reports raw changes without exposing a control or claiming physical privacy state.
     motion_detection:
       connections:
         direct:
