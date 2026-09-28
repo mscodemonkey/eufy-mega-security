@@ -13,6 +13,19 @@ models:
 device_type: 104
 capabilities:
   controls:
+    privacy_mode:
+      connections:
+        direct:
+          status: declared
+          notes: The official-app command shape is identified, but physical polarity and cloud readback still require reporter confirmation.
+      read:
+        parameter: 6250
+      write:
+        command: 6250
+      values:
+        "0": "Unknown polarity"
+        "1": "Unknown polarity"
+      notes: Diagnostic only. The integration reports raw changes without exposing a control or claiming physical privacy state.
     motion_detection:
       connections:
         direct:
