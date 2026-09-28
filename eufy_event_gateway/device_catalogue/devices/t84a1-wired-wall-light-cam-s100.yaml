@@ -24,6 +24,18 @@ capabilities:
       values:
         "0": "Off"
         "1": "On"
+    siren:
+      connections:
+        direct:
+          status: declared
+      write:
+        command: 1202
+        input:
+          name: duration_seconds
+          type: integer
+          minimum: 0
+          maximum: 900
+      notes: A duration of 0 stops the siren. Physical start and stop still await reporter confirmation.
   media:
     live_view:
       connections:

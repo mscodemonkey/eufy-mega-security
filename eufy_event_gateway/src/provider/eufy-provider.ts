@@ -103,6 +103,7 @@ const AUTO_NIGHT_VISION_DOORBELL_MODELS: ReadonlySet<string> = new Set([
   "T8210C",
 ]);
 const TIMED_LIGHT_JSON_DEVICE_TYPES: ReadonlySet<number> = new Set([151, 10005]);
+const DIRECT_CAMERA_SIREN_DEVICE_TYPES: ReadonlySet<number> = new Set([151]);
 const STANDALONE_GUARD_MODE_MODELS: ReadonlySet<string> = new Set([
   "T8170", "T8171", "T8400", "T8410", "T8442",
 ]);
@@ -113,6 +114,16 @@ export function supportsTimedCameraLight(
   device: Pick<MegaInventoryDevice, "deviceType">,
 ): boolean {
   return device.deviceType !== null && TIMED_LIGHT_JSON_DEVICE_TYPES.has(device.deviceType);
+}
+
+/** Limit siren writes to advertised HomeBase cameras or proven direct families. */
+export function supportsCameraSiren(
+  device: Pick<MegaInventoryDevice, "deviceType" | "paramTypes">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached"> | null,
+): boolean {
+  if (!route) return false;
+  if (route.homeBaseAttached) return device.paramTypes.includes(1015);
+  return device.deviceType !== null && DIRECT_CAMERA_SIREN_DEVICE_TYPES.has(device.deviceType);
 }
 
 /** Return whether SDK evidence identifies this model as a standalone security endpoint. */
@@ -1030,7 +1041,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === false
         && device.channel !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
-      cameraSirenControlSupported: device.paramTypes.includes(1015)
+      cameraSirenControlSupported: supportsCameraSiren(device, ppcsStreamRoute(device, this.#devices))
         && device.channel !== null
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
@@ -1091,26 +1102,26 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return current;
   }
 
-  /** Trigger or stop the camera siren when inventory reports its EAS capability. */
+  /** Trigger or stop a camera siren only on a proven route and device family. */
   async setCameraSiren(serial: string, durationSeconds: number): Promise<void> {
     if (!Number.isSafeInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 900) {
       throw new Error("Camera siren duration must be a whole number from 0 to 900 seconds");
     }
     const device = this.#devices.get(serial);
-    if (!device || !isSupportedMegaCamera(device) || !device.paramTypes.includes(1015)) {
+    const route = device ? ppcsStreamRoute(device, this.#devices) : null;
+    if (!device || !route || !isSupportedMegaCamera(device) || !supportsCameraSiren(device, route)) {
       throw new Error("Camera siren control is not supported for this camera");
     }
-    const route = ppcsStreamRoute(device, this.#devices);
     const peer = route?.peer;
     const dsk = peer ? await this.#dskKey(peer.serial) : null;
-    if (!route?.homeBaseAttached || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
-      throw new Error("Camera siren control requires a ready HomeBase-attached camera route");
+    if (!peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
+      throw new Error("Camera siren control requires a ready camera route");
     }
     const session = new FirstPartyPpcsSession({
       stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
       localAddress: peer.localAddress,
       dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
-      accountId: device.adminUserId, homeBaseAttached: true, purpose: "control", maxSeconds: 30,
+      accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 30,
       resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
     });
     try {
