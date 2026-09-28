@@ -65,6 +65,12 @@ export interface CameraProvider {
   /** Move a camera once to an enabled stored position. */
   selectCameraPresetPosition(serial: string, index: number): Promise<void>;
 
+  /** Send the camera's physically verified AI-tracking action. */
+  setCameraAiTracking(serial: string, enabled: boolean): Promise<void>;
+
+  /** Send the camera's physically verified automatic-cruise action. */
+  setCameraAutoCruise(serial: string, enabled: boolean): Promise<void>;
+
   /** Trigger or stop a HomeBase siren using its station-side duration command. */
   setHomeBaseSiren(serial: string, durationSeconds: number): Promise<HomeBaseState>;
   refreshStation(serial: string): Promise<HomeBaseState>;

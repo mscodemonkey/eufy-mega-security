@@ -852,6 +852,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       presetPositionControlSupported: t817lControlsSupported,
+      aiTrackingControlSupported: t817lControlsSupported,
+      autoCruiseControlSupported: t817lControlsSupported,
       battery: batteryState(device),
     };
   }
@@ -958,6 +960,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       }
       await session.selectPresetPosition(index);
     });
+  }
+
+  /** Send the reversible AI-tracking action proven on local hardware. */
+  setCameraAiTracking(serial: string, enabled: boolean): Promise<void> {
+    return this.#queueT817LControl(serial, "ai_tracking", (session) => session.writeAiTracking(enabled));
+  }
+
+  /** Send the reversible automatic-cruise action proven on local hardware. */
+  setCameraAutoCruise(serial: string, enabled: boolean): Promise<void> {
+    return this.#queueT817LControl(serial, "auto_cruise", (session) => session.writeAutoCruise(enabled));
   }
 
   /** Serialize T817L actions and release any live session before taking control. */

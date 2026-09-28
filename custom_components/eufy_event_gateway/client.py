@@ -240,6 +240,22 @@ class GatewayClient:
             payload={"index": index},
         )
 
+    async def set_camera_ai_tracking(self, serial: str, enabled: bool) -> None:
+        """Send the physically verified AI-tracking action without local state."""
+        await self._json(
+            f"/api/cameras/{serial}/ai-tracking",
+            method="POST",
+            payload={"enabled": enabled},
+        )
+
+    async def set_camera_auto_cruise(self, serial: str, enabled: bool) -> None:
+        """Send the physically verified automatic-cruise action without state."""
+        await self._json(
+            f"/api/cameras/{serial}/auto-cruise",
+            method="POST",
+            payload={"enabled": enabled},
+        )
+
     async def record_clip(self, serial: str, duration: int) -> bytes:
         """Request a bounded MP4 and reject a response that is not an MP4 file."""
         try:

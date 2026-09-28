@@ -1,9 +1,9 @@
 /**
  * Protects the cross-language T817L action contract.
  *
- * The gateway advertises hardware-proven preset discovery and movement while
- * keeping tracking and cruise hidden until local acknowledgement or readback
- * exists. The Python integration consumes only the resulting preset contract.
+ * The gateway advertises only hardware-proven capabilities and owns every
+ * protocol write. The Python integration consumes those exact fields and
+ * endpoints as state-free buttons, so it never invents persistent readback.
  */
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -22,20 +22,22 @@ test("gateway and Home Assistant share one T817L action contract", async () => {
   ) as { entity: { button: Record<string, unknown> } };
 
   assert.match(server, /segments\[3\] === "preset-position"/);
+  assert.match(server, /segments\[3\] === "ai-tracking"/);
+  assert.match(server, /segments\[3\] === "auto-cruise"/);
   assert.match(client, /\/api\/cameras\/\{serial\}\/preset-position/);
+  assert.match(client, /\/api\/cameras\/\{serial\}\/ai-tracking/);
+  assert.match(client, /\/api\/cameras\/\{serial\}\/auto-cruise/);
   assert.match(button, /presetPositionControlSupported/);
-  assert.doesNotMatch(server, /segments\[3\] === "ai-tracking"/);
-  assert.doesNotMatch(server, /segments\[3\] === "auto-cruise"/);
-  assert.doesNotMatch(button, /aiTrackingControlSupported|autoCruiseControlSupported/);
-  for (const key of ["camera_preset", "camera_preset_default"]) {
-    assert.ok(strings.entity.button[key]);
-  }
+  assert.match(button, /aiTrackingControlSupported/);
+  assert.match(button, /autoCruiseControlSupported/);
   for (const key of [
+    "camera_preset",
+    "camera_preset_default",
     "camera_ai_tracking_on",
     "camera_ai_tracking_off",
     "camera_auto_cruise_on",
     "camera_auto_cruise_off",
   ]) {
-    assert.equal(strings.entity.button[key], undefined);
+    assert.ok(strings.entity.button[key]);
   }
 });
