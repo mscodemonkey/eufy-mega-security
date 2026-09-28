@@ -16,18 +16,6 @@
       },
       "camera_preset_default": {
         "name": "Go to default preset"
-      },
-      "camera_ai_tracking_on": {
-        "name": "Enable AI tracking"
-      },
-      "camera_ai_tracking_off": {
-        "name": "Disable AI tracking"
-      },
-      "camera_auto_cruise_on": {
-        "name": "Start automatic cruise"
-      },
-      "camera_auto_cruise_off": {
-        "name": "Stop automatic cruise"
       }
     },
     "alarm_control_panel": {

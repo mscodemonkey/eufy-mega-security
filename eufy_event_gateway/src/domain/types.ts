@@ -73,8 +73,6 @@ export interface CameraState {
   readonly timedLightControlSupported: boolean;
   readonly cameraSirenControlSupported: boolean;
   readonly presetPositionControlSupported: boolean;
-  readonly aiTrackingControlSupported: boolean;
-  readonly autoCruiseControlSupported: boolean;
   readonly motionDetected: boolean;
   readonly personDetected: boolean;
   readonly strangerDetected: boolean;
@@ -198,8 +196,6 @@ export interface CameraIdentity {
   readonly timedLightControlSupported?: boolean;
   readonly cameraSirenControlSupported?: boolean;
   readonly presetPositionControlSupported?: boolean;
-  readonly aiTrackingControlSupported?: boolean;
-  readonly autoCruiseControlSupported?: boolean;
   readonly battery?: BatteryState | null;
 }
 

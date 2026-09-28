@@ -81,18 +81,6 @@ async def async_setup_entry(
                         continue
                     known.add(light_key)
                     entities.append(EufyCameraLightButton(coordinator, serial, enabled))
-            for capability, entity_type in (
-                ("aiTrackingControlSupported", EufyCameraAiTrackingButton),
-                ("autoCruiseControlSupported", EufyCameraAutoCruiseButton),
-            ):
-                if camera.get(capability) is not True:
-                    continue
-                for enabled in (True, False):
-                    action_key = (serial, f"{capability}_{enabled}")
-                    if action_key in known:
-                        continue
-                    known.add(action_key)
-                    entities.append(entity_type(coordinator, serial, enabled))
             if (
                 camera.get("presetPositionControlSupported") is True
                 and serial not in preset_discovered
@@ -223,66 +211,4 @@ class EufyCameraPresetButton(EufyGatewayEntity, ButtonEntity):
         except GatewayClientError as error:
             raise HomeAssistantError(
                 f"Could not move to camera preset: {error}"
-            ) from error
-
-
-class EufyCameraAiTrackingButton(EufyGatewayEntity, ButtonEntity):
-    """Expose explicit AI-tracking actions without claiming readable state."""
-
-    def __init__(
-        self,
-        coordinator: EufyGatewayCoordinator,
-        serial: str,
-        enabled: bool,
-    ) -> None:
-        """Bind one enable or disable action to a verified T817L route."""
-        EufyGatewayEntity.__init__(self, coordinator, serial)
-        ButtonEntity.__init__(self)
-        self._enabled = enabled
-        action = "on" if enabled else "off"
-        self._attr_unique_id = f"{serial}_camera_ai_tracking_{action}"
-        self._attr_translation_key = f"camera_ai_tracking_{action}"
-        self._attr_icon = "mdi:target-account" if enabled else "mdi:target"
-
-    async def async_press(self) -> None:
-        """Send one app-confirmed AI-tracking action through the gateway."""
-        try:
-            await self.coordinator.client.set_camera_ai_tracking(
-                self.serial, self._enabled
-            )
-        except GatewayClientError as error:
-            raise HomeAssistantError(
-                f"Could not change AI tracking: {error}"
-            ) from error
-
-
-class EufyCameraAutoCruiseButton(EufyGatewayEntity, ButtonEntity):
-    """Expose automatic-cruise actions without claiming readable state."""
-
-    def __init__(
-        self,
-        coordinator: EufyGatewayCoordinator,
-        serial: str,
-        enabled: bool,
-    ) -> None:
-        """Bind one enable or disable action to a verified T817L route."""
-        EufyGatewayEntity.__init__(self, coordinator, serial)
-        ButtonEntity.__init__(self)
-        self._enabled = enabled
-        action = "on" if enabled else "off"
-        self._attr_unique_id = f"{serial}_camera_auto_cruise_{action}"
-        self._attr_translation_key = f"camera_auto_cruise_{action}"
-        self._attr_icon = (
-            "mdi:camera-control" if enabled else "mdi:camera-off-outline"
-        )
-
-    async def async_press(self) -> None:
-        """Send one app-confirmed automatic-cruise action through the gateway."""
-        try:
-            await self.coordinator.client.set_camera_auto_cruise(
-                self.serial, self._enabled
-            )
-        except GatewayClientError as error:
-            raise HomeAssistantError(
-                f"Could not change automatic cruise: {error}"
             ) from error

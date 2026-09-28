@@ -76,7 +76,7 @@ capabilities:
       values:
         "0": "Off"
         "1": "On"
-      notes: The official app confirms state after writes. The local route exposes separate actions until equivalent readback is available.
+      notes: The official app confirms state after writes. The local route keeps this hidden until it can acknowledge the write or return equivalent readback.
     automatic_cruise:
       connections:
         T8030:
@@ -90,7 +90,7 @@ capabilities:
       values:
         "0": "Off"
         "1": "On"
-      notes: The official app confirms state after writes. The local route exposes separate actions until equivalent readback is available.
+      notes: The official app confirms state after writes. The local route keeps this hidden until it can acknowledge the write or return equivalent readback.
     motion_detection:
       connections:
         T8030:

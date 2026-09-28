@@ -38,7 +38,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 - 🟠 eufyCam C35 T8110: Mega type 10035 is admitted through its reported HomeBase 3 route. Discovery, events, snapshots, live video, and battery entities await reporter testing.
 - 🟠 eufyCam 2 Pro T8140-R: discovery, snapshots, live video, and motion events are confirmed through HomeBase 2. Battery values and person detection still need work on the reported setup.
 - ✅ EufyCam 2C Pro T8142-Z: discovery, snapshots, and live video are confirmed through HomeBase 2. Event delivery still needs focused confirmation.
-- ✅ Wired Cam C31 T817L: live streams, snapshots, preset discovery and movement, AI tracking, and automatic cruise produced on real hardware through HomeBase 3. Tracking and cruise are exposed as explicit actions until local state readback is available.
+- ✅ Wired Cam C31 T817L: live streams, snapshots, and preset discovery and movement are confirmed on real hardware through HomeBase 3. AI tracking and automatic cruise were observed through the official app but remain hidden until the local route can acknowledge them or read their state back.
 - ✅ eufyCam S330 (Mega model T8160): discovered with sensors, retained images, and live streaming through HomeBase 3.
 - ✅ eufyCam S300 / 3C T8161: discovery, person events, and live video are confirmed through HomeBase 3. Discovery, events, and retained snapshots are confirmed through a T9000, where live video remains blocked at PPCS lookup.
 - 🟠 eufyCam S3 Pro T8162: discovery, person, pet, and vehicle events, and retained snapshots are confirmed through a T9000. Live video is waiting on that station's PPCS lookup result.
@@ -98,11 +98,10 @@ readback before Home Assistant publishes the new state. Hardware confirmation
 is still required across the reported HomeBase 2 camera families.
 
 The T817L gets one button for every enabled preset reported by the camera,
-including its default position. It also gets separate enable and disable
-buttons for AI tracking and automatic cruise. These are actions rather than
-switches because the direct HomeBase route does not yet return their current
-state. Preset movement is sent once and is never retried when the camera moves
-without returning a command acknowledgement.
+including its default position. Preset movement is sent once and is never
+retried when the camera moves without returning a command acknowledgement.
+AI tracking and automatic cruise remain hidden until the local route can
+acknowledge those writes or return their current state.
 
 Supported doorbells also get a Doorbell binary sensor. A bell press turns it on
 for 10 seconds, so an automation can catch the press without opening a video stream.
