@@ -20,7 +20,12 @@ import { SimulatedProvider } from "./provider/simulated-provider.js";
 import { GatewayServer } from "./server.js";
 import { StartupSnapshotWarmup } from "./startup-snapshot-warmup.js";
 import { SnapshotStore } from "./storage/snapshot-store.js";
-import { LiveStreamManager, type ViewerDeliverySummary, type ViewerTranscoderSummary } from "./stream/live-stream-manager.js";
+import {
+  LiveStreamManager,
+  type ViewerClientSummary,
+  type ViewerDeliverySummary,
+  type ViewerTranscoderSummary,
+} from "./stream/live-stream-manager.js";
 
 const logger = createLogger("gateway");
 const providerLogger = createLogger("provider");
@@ -122,6 +127,26 @@ streams.on("viewer-delivery-stopped", (detail: ViewerDeliverySummary) => {
       `client_writes=${detail.clientWrites}`,
       `client_backpressure_events=${detail.clientBackpressureEvents}`,
       `client_max_writable_bytes=${detail.maximumClientWritableBytes}`,
+    ].join(" "),
+  );
+});
+streams.on("viewer-client-stopped", (detail: ViewerClientSummary) => {
+  logger.info(
+    "viewer_client_stopped",
+    [
+      `Viewer client stopped: model=${detail.model}`,
+      `codec=${detail.sourceCodec ?? "unknown"}`,
+      `source_active=${detail.sourceActive}`,
+      `delivery_started=${detail.deliveryStarted}`,
+      `duration_ms=${detail.durationMilliseconds}`,
+      `first_byte_delay_ms=${detail.firstByteDelayMilliseconds ?? "none"}`,
+      `last_byte_age_ms=${detail.lastByteAgeMilliseconds ?? "none"}`,
+      `delivered_bytes=${detail.deliveredBytes}`,
+      `delivered_chunks=${detail.deliveredChunks}`,
+      `backpressure_events=${detail.backpressureEvents}`,
+      `maximum_writable_bytes=${detail.maximumWritableBytes}`,
+      `source_bytes=${detail.sourceBytes}`,
+      `source_chunks=${detail.sourceChunks}`,
     ].join(" "),
   );
 });

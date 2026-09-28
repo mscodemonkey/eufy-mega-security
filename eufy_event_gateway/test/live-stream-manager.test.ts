@@ -19,6 +19,7 @@ import {
   StreamCadenceTracker,
   terminateMediaProcess,
   VideoParameterSetCache,
+  type ViewerClientSummary,
   type ViewerDeliverySummary,
   type ViewerTranscoderSummary,
 } from "../src/stream/live-stream-manager.js";
@@ -244,8 +245,10 @@ test("shares an H.264 fallback with viewers when a camera returns H.265", async 
   }) as ServerResponse["writeHead"];
   const bytes: Buffer[] = [];
   const summaries: ViewerTranscoderSummary[] = [];
+  const clientSummaries: ViewerClientSummary[] = [];
   const deliverySummaries: ViewerDeliverySummary[] = [];
   manager.on("viewer-transcoder-stopped", (summary) => summaries.push(summary));
+  manager.on("viewer-client-stopped", (summary) => clientSummaries.push(summary));
   manager.on("viewer-delivery-stopped", (summary) => deliverySummaries.push(summary));
   response.on("data", (chunk: Buffer) => bytes.push(Buffer.from(chunk)));
   await manager.addClient(camera.serial, response);
@@ -266,6 +269,30 @@ test("shares an H.264 fallback with viewers when a camera returns H.265", async 
   assert.equal(contentType, "video/h264");
   assert.ok(Buffer.concat(bytes).includes(h264Sps));
   response.emit("close");
+  assert.equal(clientSummaries.length, 1);
+  assert.deepEqual(
+    {
+      model: clientSummaries[0]?.model,
+      sourceCodec: clientSummaries[0]?.sourceCodec,
+      sourceActive: clientSummaries[0]?.sourceActive,
+      deliveryStarted: clientSummaries[0]?.deliveryStarted,
+      deliveredBytes: clientSummaries[0]?.deliveredBytes,
+      deliveredChunks: clientSummaries[0]?.deliveredChunks,
+      backpressureEvents: clientSummaries[0]?.backpressureEvents,
+      sourceChunks: clientSummaries[0]?.sourceChunks,
+    },
+    {
+      model: "T8210",
+      sourceCodec: "h265",
+      sourceActive: true,
+      deliveryStarted: true,
+      deliveredBytes: h264Sps.length + h264Pps.length + annexBNal(0x65, 0x88).length
+        + h264Sps.length + h264Pps.length,
+      deliveredChunks: 2,
+      backpressureEvents: 0,
+      sourceChunks: 2,
+    },
+  );
   assert.deepEqual(summaries, [{
     inputBytes: Buffer.concat(transcoderInput).length,
     outputBytes: h264Sps.length + h264Pps.length + annexBNal(0x65, 0x88).length,
