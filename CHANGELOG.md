@@ -7,6 +7,7 @@
 - Add standalone camera Home, Away, and Disarmed controls for SDK-backed models, with fresh local state readback required before Home Assistant reports success.
 - Add separate package-delivered and package-taken detection entities instead of discarding those push events.
 - Add diagnostic signal-strength sensors for security accessories that report the verified RSSI parameter.
+- Add the Danish translation contributed by @BalooDK in PR #217. Thanks for helping make the integration accessible to more people.
 - Stop refreshing cached Home Assistant stream sources when no active stream consumer remains.
 - Add acknowledged direct-camera motion control for T8123 and probe the LAN endpoint advertised by T9000 discovery.
 - Add privacy-safe per-viewer lifecycle evidence that distinguishes source delivery, HTTP startup, stalls, and backpressure.
