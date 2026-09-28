@@ -103,7 +103,6 @@ const AUTO_NIGHT_VISION_DOORBELL_MODELS: ReadonlySet<string> = new Set([
   "T8210C",
 ]);
 const TIMED_LIGHT_JSON_DEVICE_TYPES: ReadonlySet<number> = new Set([151, 10005]);
-const DIRECT_CAMERA_SIREN_DEVICE_TYPES: ReadonlySet<number> = new Set([151]);
 const STANDALONE_GUARD_MODE_MODELS: ReadonlySet<string> = new Set([
   "T8170", "T8171", "T8400", "T8410", "T8442",
 ]);
@@ -116,14 +115,12 @@ export function supportsTimedCameraLight(
   return device.deviceType !== null && TIMED_LIGHT_JSON_DEVICE_TYPES.has(device.deviceType);
 }
 
-/** Limit siren writes to advertised HomeBase cameras or proven direct families. */
+/** Limit siren writes to HomeBase cameras that advertise the attached-camera command. */
 export function supportsCameraSiren(
-  device: Pick<MegaInventoryDevice, "deviceType" | "paramTypes">,
+  device: Pick<MegaInventoryDevice, "paramTypes">,
   route: Pick<PpcsStreamRoute, "homeBaseAttached"> | null,
 ): boolean {
-  if (!route) return false;
-  if (route.homeBaseAttached) return device.paramTypes.includes(1015);
-  return device.deviceType !== null && DIRECT_CAMERA_SIREN_DEVICE_TYPES.has(device.deviceType);
+  return route?.homeBaseAttached === true && device.paramTypes.includes(1015);
 }
 
 /** Return whether SDK evidence identifies this model as a standalone security endpoint. */
@@ -2062,7 +2059,7 @@ export function ppcsStreamLogSummary(
  */
 export function safePushLogSummary(
   event: Pick<MegaPushEvent, "eventType" | "messageType" | "notificationStyle" | "pictureUrl" | "alarmType">
-    & Partial<Pick<MegaPushEvent, "detectionEvidence">>,
+    & Partial<Pick<MegaPushEvent, "detectionEvidence" | "personName">>,
   device: Pick<MegaInventoryDevice, "model" | "category" | "deviceType"> | null,
   stationPresent: boolean,
   stationManaged: boolean,
@@ -2105,10 +2102,14 @@ export function safePushLogSummary(
 
 /** Distinguish a doorbell press from style-3 detection pushes that reuse event type 3103. */
 export function doorbellPushKind(
-  event: Pick<MegaPushEvent, "eventType" | "notificationStyle">,
+  event: Pick<MegaPushEvent, "eventType" | "notificationStyle">
+    & Partial<Pick<MegaPushEvent, "detectionEvidence" | "personName">>,
 ): "press" | "detection" | null {
   if (event.eventType !== 3103) return null;
-  return event.notificationStyle === 3 ? "detection" : "press";
+  if (event.notificationStyle !== 3) return "press";
+  const hasStructuredDetection = (event.detectionEvidence?.length ?? 0) > 0
+    || (typeof event.personName === "string" && event.personName.trim().length > 0);
+  return hasStructuredDetection ? "detection" : "press";
 }
 
 function safePushCode(value: number | null): number | "missing" {

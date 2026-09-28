@@ -16,10 +16,10 @@ capabilities:
     privacy_mode:
       connections:
         direct:
-          status: reported
-          tested_on: 2026-09-25
+          status: failing
+          tested_on: 2026-09-28
           tested_by: nicofirst1
-          notes: The reporter's inventory contains parameter 6250, but its raw polarity and correspondence to the physical lens are not yet confirmed.
+          notes: Parameter 6250 remained 0 with the physical lens both open and closed, so it is not a usable privacy-state readback.
       read:
         parameter: 6250
       write:
@@ -27,7 +27,7 @@ capabilities:
       values:
         "0": "Unknown polarity"
         "1": "Unknown polarity"
-      notes: Diagnostic only. The integration reports raw changes without exposing a control or claiming physical privacy state.
+      notes: Diagnostic only. The integration reports the raw value without exposing a control or claiming physical privacy state.
     motion_detection:
       connections:
         direct:

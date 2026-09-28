@@ -100,6 +100,13 @@ test("does not infer battery or camera features for unreported params and access
   }, { doorbellSupported: false, streamSupported: true });
   assert.equal(mains.capabilities.some(({ id }) => id === "batteryLevel"), false);
   assert.equal(mains.matrix.find(({ id }) => id === "battery.level")?.deviceEvidence, "suppressed-sentinel");
+
+  const poweredCamera = describeCameraCapabilities({
+    serial: "powered-camera", model: "T8600", category: "eufy_security", deviceType: 24,
+    paramTypes: [1101, 2111, 1138],
+  }, { doorbellSupported: false, streamSupported: true });
+  assert.equal(poweredCamera.capabilities.some(({ id }) => id.startsWith("battery")), false);
+  assert.equal(poweredCamera.matrix.find(({ id }) => id === "battery.level")?.deviceEvidence, "suppressed-sentinel");
 });
 
 test("suppresses T817L battery-shaped fields without changing camera support", () => {

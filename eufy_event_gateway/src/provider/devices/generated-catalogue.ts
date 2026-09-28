@@ -307,7 +307,7 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
       "T8600"
     ],
     "deviceType": 24,
-    "status": "ready_to_test",
+    "status": "supported",
     "handler": "camera"
   },
   {
@@ -1242,11 +1242,23 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
     "deviceType": 10037,
     "status": "supported",
     "handler": "camera"
+  },
+  {
+    "id": "t814x",
+    "name": "eufyCam C37",
+    "category": "camera",
+    "models": [
+      "T814X",
+      "T814XS"
+    ],
+    "deviceType": 10039,
+    "status": "supported",
+    "handler": "camera"
   }
 ] as const;
 
 /** Device types admitted to the implemented camera handler. */
-export const GENERATED_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([3,5,7,8,9,14,15,19,23,24,26,30,31,32,33,38,45,47,48,49,61,62,63,64,87,88,91,94,96,104,105,151,203,10005,10009,10031,10035,10037]);
+export const GENERATED_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([3,5,7,8,9,14,15,19,23,24,26,30,31,32,33,38,45,47,48,49,61,62,63,64,87,88,91,94,96,104,105,151,203,10005,10009,10031,10035,10037,10039]);
 
 /** Device types admitted to the implemented standalone-sensor handler. */
 export const GENERATED_SENSOR_DEVICE_TYPES: ReadonlySet<number> = new Set([2,10,20,126,127]);
@@ -1255,7 +1267,7 @@ export const GENERATED_SENSOR_DEVICE_TYPES: ReadonlySet<number> = new Set([2,10,
 export const GENERATED_HOMEBASE_DEVICE_TYPES: ReadonlySet<number> = new Set([0,18,27,28]);
 
 /** Known camera-like types, including recognised devices not yet admitted. */
-export const GENERATED_KNOWN_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([1,3,4,5,7,8,9,14,15,16,19,23,24,26,30,31,32,33,34,35,37,38,39,44,45,46,47,48,49,60,61,62,63,64,87,88,89,91,93,94,95,96,98,100,104,105,110,111,131,132,133,151,301,303,10005,10008,10009,10010,10011,10031,10034,10035,10037]);
+export const GENERATED_KNOWN_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([1,3,4,5,7,8,9,14,15,16,19,23,24,26,30,31,32,33,34,35,37,38,39,44,45,46,47,48,49,60,61,62,63,64,87,88,89,91,93,94,95,96,98,100,104,105,110,111,131,132,133,151,301,303,10005,10008,10009,10010,10011,10031,10034,10035,10037,10039]);
 
 /** Known non-camera types that must not enter camera review or admission. */
 export const GENERATED_NON_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([0,2,10,11,18,20,25,27,28,51,54,55,58,90,123,126,127,140,141,142,143,157,159,161,180,184,189,201,202,203,209,211,300]);

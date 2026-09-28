@@ -46,10 +46,10 @@ capabilities:
     last_recognized_person:
       connections:
         T8030:
-          status: failing
+          status: reported
           tested_on: 2026-09-28
           tested_by: philippk75
-          notes: Named person data reaches the gateway, but v0.1.103 classifies style-3 event 3103 as a doorbell press before recording the detection.
+          notes: Named person data updates the Home Assistant entity after the style-3 detection routing change.
       read:
         field: last_recognized_person
   controls:
@@ -126,10 +126,10 @@ capabilities:
         direct:
           status: declared
         T8030:
-          status: failing
+          status: reported
           tested_on: 2026-09-28
           tested_by: philippk75
-          notes: Style-3 event 3103 reaches the gateway but v0.1.103 classifies it as a doorbell press.
+          notes: Style-3 person detections update motion after the v0.1.104 routing change.
         T9000:
           status: declared
     person:
@@ -137,10 +137,10 @@ capabilities:
         direct:
           status: declared
         T8030:
-          status: failing
+          status: reported
           tested_on: 2026-09-28
           tested_by: philippk75
-          notes: Named person data reaches the gateway but v0.1.103 does not record the person detection.
+          notes: Style-3 named-person detections update the Home Assistant entity.
         T9000:
           status: declared
     pet:
@@ -172,6 +172,9 @@ capabilities:
         direct:
           status: declared
         T8030:
-          status: declared
+          status: failing
+          tested_on: 2026-09-28
+          tested_by: philippk75
+          notes: v0.1.105 treated style-3 presses without AI evidence as detections. The next release restores press routing while retaining named-person detections.
         T9000:
           status: declared

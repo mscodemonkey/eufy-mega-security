@@ -11,7 +11,10 @@ models:
   - T814X
   - T814XS
 device_type: 10037
-notes: Community inventory identifies this model as type 10037.
+alternate_device_types:
+  - value: 10039
+    status: reported
+notes: HomeBase-attached inventory reports type 10037. The standalone solar variant reports type 10039.
 capabilities:
   controls:
     enabled:
@@ -30,12 +33,16 @@ capabilities:
   media:
     snapshot:
       connections:
+        direct:
+          status: declared
         T8030:
           status: reported
           tested_on: 2026-09-24
           tested_by: Eli1230t2
     live_view:
       connections:
+        direct:
+          status: declared
         T8030:
           status: reported
           tested_on: 2026-09-24
