@@ -71,6 +71,7 @@ export interface MegaInventoryDevice {
 export interface MegaInventoryReads {
   readonly enabled?: boolean;
   readonly motionDetectionEnabled?: boolean;
+  readonly guardMode?: number;
   readonly autoNightVisionEnabled?: boolean;
   readonly nightVisionMode?: number;
   readonly batteryLevel?: number;
@@ -98,12 +99,22 @@ const AUTO_NIGHT_VISION_DOORBELL_MODELS: ReadonlySet<string> = new Set([
   "T8210C",
 ]);
 const TIMED_LIGHT_JSON_DEVICE_TYPES: ReadonlySet<number> = new Set([151, 10005]);
+const STANDALONE_GUARD_MODE_MODELS: ReadonlySet<string> = new Set([
+  "T8170", "T8171", "T8400", "T8410", "T8442",
+]);
 
 /** Return whether a device uses the verified timed JSON wall-light command. */
 export function supportsTimedCameraLight(
   device: Pick<MegaInventoryDevice, "deviceType">,
 ): boolean {
   return device.deviceType !== null && TIMED_LIGHT_JSON_DEVICE_TYPES.has(device.deviceType);
+}
+
+/** Return whether SDK evidence identifies this model as a standalone security endpoint. */
+export function supportsStandaloneGuardMode(
+  device: Pick<MegaInventoryDevice, "model">,
+): boolean {
+  return STANDALONE_GUARD_MODE_MODELS.has(device.model.toUpperCase());
 }
 
 function isAutoNightVisionDoorbell(
@@ -177,7 +188,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #stations = new Map<string, HomeBaseState>();
   readonly #stationOperations = new Map<string, Promise<HomeBaseState>>();
   readonly #cameraOperations = new Map<string, Promise<CameraIdentity>>();
+  readonly #cameraCapabilityOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #motionOperations = new Map<string, Promise<CameraIdentity>>();
+  readonly #guardModeOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #nightVisionOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #lightOperations = new Map<string, Promise<void>>();
   readonly #t817lControlOperations = new Map<string, Promise<void>>();
@@ -433,6 +446,111 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return current;
   }
 
+  /** Refresh a direct camera's known reads from its read-only parameter table. */
+  refreshCameraCapabilities(serial: string): Promise<CameraIdentity> {
+    const previous = this.#cameraCapabilityOperations.get(serial)
+      ?? Promise.resolve(this.#requireCameraIdentity(serial));
+    const current = previous.catch(() => this.#requireCameraIdentity(serial)).then(async () => {
+      const device = this.#devices.get(serial);
+      if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
+      const route = ppcsStreamRoute(device, this.#devices);
+      const peer = route?.peer;
+      if (route?.homeBaseAttached && peer) {
+        await this.refreshStation(peer.serial);
+        return this.#cameraIdentity(this.#devices.get(serial) ?? device);
+      }
+      const dsk = peer ? await this.#dskKey(peer.serial) : null;
+      if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk
+        || device.channel === null || !device.adminUserId) {
+        throw new Error("Camera capability refresh requires a ready PPCS route");
+      }
+      await this.stopStream(serial);
+      const session = new FirstPartyPpcsSession({
+        stationSerial: peer.serial,
+        p2pDid: peer.p2pDid,
+        appConnection: peer.p2pConnection,
+        localAddress: peer.localAddress,
+        dskKey: dsk.key,
+        channel: device.channel,
+        cameraModel: device.model,
+        accountId: device.adminUserId,
+        homeBaseAttached: false,
+        purpose: "control",
+        maxSeconds: 40,
+      });
+      let params;
+      try {
+        await session.start();
+        params = await session.readCameraInfo();
+      } finally {
+        session.close();
+      }
+      const merged = this.#mergeCameraInfo(device, params);
+      const identity = this.#cameraIdentity(merged);
+      this.#events?.camera(identity);
+      logger.info(
+        "camera_capability_refresh",
+        `Camera capability refresh completed: model=${safeLogModel(device.model)} param_count=${merged.paramTypes.length} guard_mode=${merged.reads.guardMode === undefined ? "not-reported" : "reported"}`,
+      );
+      return identity;
+    }).catch((error: unknown) => {
+      logger.warn("camera_capability_refresh_failed", `Camera capability refresh failed: error=${safeError(error)}`);
+      throw error;
+    });
+    this.#cameraCapabilityOperations.set(serial, current);
+    void current.finally(() => {
+      if (this.#cameraCapabilityOperations.get(serial) === current) this.#cameraCapabilityOperations.delete(serial);
+    }).catch(() => undefined);
+    return current;
+  }
+
+  /** Set a standalone camera guard mode and require fresh local readback. */
+  setCameraGuardMode(serial: string, mode: number): Promise<CameraIdentity> {
+    if (![0, 1, 63].includes(mode)) return Promise.reject(new Error("Unsupported standalone camera guard mode"));
+    const previous = this.#guardModeOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
+    const current = previous.catch(() => this.#requireCameraIdentity(serial)).then(async () => {
+      const device = this.#devices.get(serial);
+      if (!device || !isSupportedMegaCamera(device) || !supportsStandaloneGuardMode(device)) {
+        throw new Error("Standalone camera guard mode is not supported for this camera");
+      }
+      const route = ppcsStreamRoute(device, this.#devices);
+      const peer = route?.peer;
+      const dsk = peer ? await this.#dskKey(peer.serial) : null;
+      if (!route || route.homeBaseAttached || !peer?.p2pDid || !peer.p2pConnection || !dsk
+        || device.channel !== 0 || !device.adminUserId || !device.userName) {
+        throw new Error("Standalone camera guard mode requires a ready direct route and account identity");
+      }
+      await this.stopStream(serial);
+      const session = new FirstPartyPpcsSession({
+        stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
+        localAddress: peer.localAddress, dskKey: dsk.key, channel: device.channel,
+        cameraModel: device.model, accountId: device.adminUserId,
+        homeBaseAttached: false, purpose: "control", maxSeconds: 40,
+      });
+      try {
+        await session.start();
+        await session.writeStandaloneGuardMode(mode, device.userName);
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+          await delay(1_000);
+          const params = await session.readCameraInfo();
+          const refreshed = this.#mergeCameraInfo(this.#devices.get(serial) ?? device, params);
+          if (refreshed.reads.guardMode === mode) return this.#cameraIdentity(refreshed);
+        }
+      } finally {
+        session.close();
+      }
+      throw new Error("Standalone camera guard mode write was not confirmed by local readback");
+    }).catch((error: unknown) => {
+      logger.warn("camera_guard_mode_failed", `Standalone camera guard mode failed: error=${safeError(error)}`);
+      throw error;
+    });
+    this.#guardModeOperations.set(serial, current);
+    void current.finally(() => {
+      if (this.#guardModeOperations.get(serial) === current) this.#guardModeOperations.delete(serial);
+    }).catch(() => undefined);
+    return current;
+  }
+
   /** Write the camera family's night-vision control and publish fresh confirmed state. */
   setCameraNightVision(serial: string, mode: number): Promise<CameraIdentity> {
     if (!Number.isSafeInteger(mode) || mode < 0 || mode > 2) {
@@ -524,7 +642,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const station = await this.#queueStationOperation(
       serial,
       false,
-      async (session) => session.readState(isHomeBase3(identity)),
+      async (session) => session.readState(true),
       "discovered",
     );
     if (station.stateReadSupported && !this.#stationReadConfirmed.has(serial)) {
@@ -801,6 +919,24 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return this.#cameraIdentity(device);
   }
 
+  #mergeCameraInfo(
+    device: MegaInventoryDevice,
+    params: readonly { readonly param_type: number; readonly param_value: string | number | boolean }[],
+  ): MegaInventoryDevice {
+    const reads = safeInventoryReads(params, device.deviceType);
+    const paramTypes = [...new Set(params.map(({ param_type }) => param_type))]
+      .sort((left, right) => left - right);
+    const merged = {
+      ...device,
+      paramTypes: [...new Set([...device.paramTypes, ...paramTypes])].sort((left, right) => left - right),
+      reads: { ...device.reads, ...reads },
+    };
+    this.#liveDeviceReads.set(device.serial, reads);
+    this.#liveDeviceParamTypes.set(device.serial, paramTypes);
+    this.#devices.set(device.serial, merged);
+    return merged;
+  }
+
   #cameraIdentity(device: MegaInventoryDevice): CameraIdentity {
     const dskPeerSerials = new Set(this.#dskKeys.keys());
     const t817lControlsSupported = supportsPresetPositions(device)
@@ -818,13 +954,21 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials),
       enabled: device.reads.enabled ?? null,
       enableControlSupported: device.reads.enabled !== undefined
-        && device.channel !== null
+        && device.channel === 0
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       motionDetectionEnabled: device.reads.motionDetectionEnabled ?? null,
       motionDetectionControlSupported: device.reads.motionDetectionEnabled !== undefined
         && device.channel !== null
         && device.adminUserId !== null
+        && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+      guardMode: device.reads.guardMode ?? null,
+      guardModeControlSupported: device.reads.guardMode !== undefined
+        && supportsStandaloneGuardMode(device)
+        && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === false
+        && device.channel === 0
+        && device.adminUserId !== null
+        && device.userName !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       nightVisionMode: device.reads.nightVisionMode ?? null,
       nightVisionModes: nightVisionModes(device),
@@ -1196,6 +1340,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         accountId: identity.adminUserId,
         userName: identity.userName ?? "Home Assistant",
         localAddress: identity.localAddress,
+        storageProtocol: isHomeBase3(identity) ? "homebase3" : "homebase2",
+        firmware: identity.firmware,
       });
       try {
         await session.connect();
@@ -1424,6 +1570,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const openDevice = finiteNumber(params.get(2001));
   const cameraSwitch = finiteNumber(params.get(1035));
   const motionSwitch = finiteNumber(params.get(1011));
+  const guardMode = finiteNumber(params.get(1224));
   const autoNightVision = finiteNumber(params.get(1013));
   const nightVisionMode = finiteNumber(params.get(1277));
   const enabled = openDevice === 0 || openDevice === 1
@@ -1434,6 +1581,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   return {
     ...(enabled !== undefined ? { enabled } : {}),
     ...(motionSwitch === 0 || motionSwitch === 1 ? { motionDetectionEnabled: motionSwitch === 1 } : {}),
+    ...(guardMode !== null && [0, 1, 2, 3, 4, 5, 6, 47, 63].includes(guardMode) ? { guardMode } : {}),
     ...(autoNightVision === 0 || autoNightVision === 1 ? { autoNightVisionEnabled: autoNightVision === 1 } : {}),
     ...(nightVisionMode === 0 || nightVisionMode === 1 || nightVisionMode === 2 ? { nightVisionMode } : {}),
     ...(batteryLevel !== undefined ? { batteryLevel } : {}),
@@ -1615,7 +1763,8 @@ export function initialHomeBaseState(device: MegaInventoryDevice, dskReady: bool
     alarmVolume: null,
     promptVolume: null,
     alarmTone: null,
-    storage: { emmc: null, hdd: null },
+    storageSupported: controlsSupported ? ["emmc", "hdd"] : ["sd"],
+    storage: { sd: null, emmc: null, hdd: null },
   };
 }
 
@@ -1938,7 +2087,7 @@ function isCameraDetection(eventType: number | null): boolean {
 }
 
 /** Map Eufy's confirmed camera push ids into protocol-neutral detection kinds. */
-export function cameraDetectionKind(eventType: number | null): "motion" | "person" | "stranger" | "pet" | "vehicle" | "dog" | "crying" | "sound" | "packageStranded" | null {
+export function cameraDetectionKind(eventType: number | null): "motion" | "person" | "stranger" | "pet" | "vehicle" | "dog" | "crying" | "sound" | "packageDelivered" | "packageTaken" | "packageStranded" | null {
   if (eventType === 1 || eventType === 3101) return "motion";
   if (eventType === 3102 || eventType === 3111) return "person";
   if (eventType === 3112) return "stranger";
@@ -1947,6 +2096,8 @@ export function cameraDetectionKind(eventType: number | null): "motion" | "perso
   if (eventType === 3106) return "pet";
   if (eventType === 3107) return "vehicle";
   if (eventType === 3108 || eventType === 3109 || eventType === 3110) return "dog";
+  if (eventType === 3301) return "packageDelivered";
+  if (eventType === 3302) return "packageTaken";
   if (eventType === 3304) return "packageStranded";
   return null;
 }

@@ -19,7 +19,7 @@ const noSupport = { homeBaseSupported: false, homeBaseGuardModeSupported: false,
 
 test("keeps published non-camera catalogues small and unique", () => {
   const entries = [...SENSOR_CAPABILITY_CORE, ...HOMEBASE_CAPABILITY_CORE, ...DOORBELL_CAPABILITY_CORE];
-  assert.equal(entries.length, 22);
+  assert.equal(entries.length, 23);
   assert.equal(new Set(entries.map(({ id }) => id)).size, entries.length);
   assert.equal(entries.every(({ evidenceParamIds }) => evidenceParamIds.every((id) => Number.isSafeInteger(id) && id >= 0 && id <= 65_535)), true);
   assert.equal(SENSOR_CAPABILITY_CORE.every(({ gatewaySupport }) => gatewaySupport === "implemented"), true);
@@ -87,6 +87,7 @@ test("offers proven HomeBase 2 guard mode without HomeBase 3-only controls", () 
       "homebase.guard_mode",
       "homebase.guard_mode_write",
       "homebase.effective_mode",
+      "homebase.sd_storage",
     ],
   );
   assert.equal(homeBase2?.matrix.find(({ id }) => id === "homebase.guard_mode_write")?.offerable, true);

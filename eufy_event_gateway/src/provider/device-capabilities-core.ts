@@ -140,6 +140,7 @@ function describeHomeBaseFamily(
     "homebase.guard_mode",
     "homebase.guard_mode_write",
     "homebase.effective_mode",
+    "homebase.sd_storage",
   ]);
   return {
     ...manifest,

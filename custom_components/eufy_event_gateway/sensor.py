@@ -90,22 +90,30 @@ async def async_setup_entry(
         storage_station_serials = {
             serial
             for serial, station in coordinator.stations.items()
-            if station.get("controlsSupported") is True
+            if station.get("storageSupported")
         } - known_storage_stations
         if storage_station_serials:
             known_storage_stations.update(storage_station_serials)
             entities = []
             for serial in sorted(storage_station_serials):
-                entities.extend(
-                    (
-                        EufyStorageSensor(coordinator, serial, "emmc", "totalBytes"),
-                        EufyStorageSensor(coordinator, serial, "emmc", "freeBytes"),
-                        EufyStorageStatusSensor(coordinator, serial, "emmc"),
-                        EufyStorageSensor(coordinator, serial, "hdd", "totalBytes"),
-                        EufyStorageSensor(coordinator, serial, "hdd", "freeBytes"),
-                        EufyStorageStatusSensor(coordinator, serial, "hdd"),
+                for medium in coordinator.stations[serial].get(
+                    "storageSupported", []
+                ):
+                    if medium not in ("sd", "emmc", "hdd"):
+                        continue
+                    entities.extend(
+                        (
+                            EufyStorageSensor(
+                                coordinator, serial, medium, "totalBytes"
+                            ),
+                            EufyStorageSensor(
+                                coordinator, serial, medium, "freeBytes"
+                            ),
+                            EufyStorageStatusSensor(
+                                coordinator, serial, medium
+                            ),
+                        )
                     )
-                )
             async_add_entities(entities)
 
         sensor_serials = set(coordinator.sensors) - known_sensors
@@ -339,7 +347,7 @@ class EufyStorageSensor(EufyStationEntity, SensorEntity):
     """Expose total or free capacity for one HomeBase storage medium.
 
     The gateway reports bytes, while this entity presents decimal gigabytes to
-    Home Assistant. Missing HDD or eMMC records remain unknown rather than
+    Home Assistant. Missing SD, HDD, or eMMC records remain unknown rather than
     appearing as zero-capacity media.
     """
 
@@ -356,12 +364,12 @@ class EufyStorageSensor(EufyStationEntity, SensorEntity):
         medium: str,
         property_name: str,
     ) -> None:
-        """Create a storage capacity sensor for eMMC or HDD."""
+        """Create a storage capacity sensor for one supported medium."""
         EufyStationEntity.__init__(self, coordinator, serial)
         SensorEntity.__init__(self)
         self.medium = medium
         self.property_name = property_name
-        medium_label = "eMMC" if medium == "emmc" else "HDD"
+        medium_label = {"sd": "SD card", "emmc": "eMMC", "hdd": "HDD"}[medium]
         self._attr_translation_key = (
             "storage_total" if property_name == "totalBytes" else "storage_free"
         )
@@ -381,7 +389,7 @@ class EufyStorageStatusSensor(EufyStationEntity, SensorEntity):
     """Expose the gateway-reported health label for one storage medium.
 
     This diagnostic shares the station's lifecycle and returns unknown when the
-    selected HDD or eMMC record is absent; it does not infer health from free
+    selected SD, HDD, or eMMC record is absent; it does not infer health from free
     capacity or connection state.
     """
 
@@ -391,11 +399,11 @@ class EufyStorageStatusSensor(EufyStationEntity, SensorEntity):
     def __init__(
         self, coordinator: EufyGatewayCoordinator, serial: str, medium: str
     ) -> None:
-        """Create a storage status sensor for eMMC or HDD."""
+        """Create a storage status sensor for one supported medium."""
         EufyStationEntity.__init__(self, coordinator, serial)
         SensorEntity.__init__(self)
         self.medium = medium
-        medium_label = "eMMC" if medium == "emmc" else "HDD"
+        medium_label = {"sd": "SD card", "emmc": "eMMC", "hdd": "HDD"}[medium]
         self._attr_translation_key = "storage_status"
         self._attr_translation_placeholders = {"medium": medium_label}
         self._attr_unique_id = f"{serial}_{medium}_status"

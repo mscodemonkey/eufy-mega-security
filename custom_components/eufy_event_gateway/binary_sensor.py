@@ -58,6 +58,8 @@ async def async_setup_entry(
                         EufyDetectionSensor(coordinator, serial, "dog"),
                         EufyDetectionSensor(coordinator, serial, "crying"),
                         EufyDetectionSensor(coordinator, serial, "sound"),
+                        EufyDetectionSensor(coordinator, serial, "packageDelivered"),
+                        EufyDetectionSensor(coordinator, serial, "packageTaken"),
                         EufyDetectionSensor(coordinator, serial, "packageStranded"),
                     ]
                 )
@@ -127,6 +129,8 @@ class EufyDetectionSensor(EufyGatewayEntity, BinarySensorEntity):
             "dog": "dog_detection",
             "crying": "crying_detection",
             "sound": "sound_detection",
+            "packageDelivered": "package_delivered",
+            "packageTaken": "package_taken",
             "packageStranded": "package_stranded",
         }[kind]
         self._attr_device_class = {
@@ -139,6 +143,8 @@ class EufyDetectionSensor(EufyGatewayEntity, BinarySensorEntity):
             "dog": BinarySensorDeviceClass.OCCUPANCY,
             "crying": BinarySensorDeviceClass.SOUND,
             "sound": BinarySensorDeviceClass.SOUND,
+            "packageDelivered": BinarySensorDeviceClass.OCCUPANCY,
+            "packageTaken": BinarySensorDeviceClass.OCCUPANCY,
             "packageStranded": BinarySensorDeviceClass.PROBLEM,
         }[kind]
         if kind == "doorbell":

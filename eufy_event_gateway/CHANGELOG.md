@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.104
+
+- Add read-only HomeBase 2 SD-card status and capacity support using its generation-specific local query.
+- Add standalone camera Home, Away, and Disarmed controls for SDK-backed models, with fresh local state readback required before Home Assistant reports success.
+- Add separate package-delivered and package-taken detection entities instead of discarding those push events.
+
 ## 0.1.103
 
 - Add codec-independent viewer delivery diagnostics that separate camera input, converted output, HTTP delivery, stalls, and client backpressure.

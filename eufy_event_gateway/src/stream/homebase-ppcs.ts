@@ -39,6 +39,7 @@ const CMD_SET_HUB_SPEAKER_VOLUME = 1235;
 const CMD_HUB_ALARM_TONE = 1281;
 const CMD_HOMEBASE_TONE = 1201;
 const CMD_SET_PROMPT_VOLUME = 1292;
+const CMD_STORAGE_INFO_HB2 = 1144;
 const CMD_STORAGE_INFO_HB3 = 1307;
 const CMD_SET_PAYLOAD = 1350;
 const CMD_NOTIFY_PAYLOAD = 1351;
@@ -91,6 +92,7 @@ export interface HomeBasePpcsState {
   readonly promptVolume: number | null;
   readonly alarmTone: number | null;
   readonly storage: {
+    readonly sd: HomeBaseStorageState | null;
     readonly emmc: HomeBaseStorageState | null;
     readonly hdd: HomeBaseStorageState | null;
   } | null;
@@ -125,6 +127,12 @@ export interface HomeBasePpcsOptions {
   readonly localAddress?: string | null;
   readonly accountId: string;
   readonly userName: string;
+
+  /** Selects the generation-specific storage query, or disables storage reads. */
+  readonly storageProtocol?: "homebase2" | "homebase3" | "none";
+
+  /** Inventory firmware used only to select the HomeBase 2 request shape. */
+  readonly firmware?: string | null;
 }
 
 interface PendingCommand {
@@ -221,7 +229,32 @@ export class HomeBasePpcsSession {
     this.#sendCommand(CMD_CAMERA_INFO, intPayload(255, STATION_CHANNEL, this.#key));
     const cameraInfo = await cameraInfoPromise;
 
-    if (!includeStorage) return parseHomeBaseState(cameraInfo, null, false);
+    if (!includeStorage || !this.options.storageProtocol || this.options.storageProtocol === "none") {
+      return parseHomeBaseState(cameraInfo, null, false);
+    }
+    if (this.options.storageProtocol === "homebase2") {
+      const storagePromise = this.#waitForStorage();
+      const firmware = safeText(cameraInfo.main_sw_version, 100) ?? this.options.firmware;
+      const payload = buildHomeBase2StorageRequestPayload(
+        firmware,
+        this.options.accountId,
+        this.#key,
+      );
+      this.#sendCommand(CMD_STORAGE_INFO_HB2, payload);
+      try {
+        const storage = await storagePromise;
+        return {
+          ...parseHomeBaseState(cameraInfo, null, false),
+          storage: {
+            sd: Buffer.isBuffer(storage) ? parseHomeBase2StorageResponse(storage) : null,
+            emmc: null,
+            hdd: null,
+          },
+        };
+      } catch {
+        return parseHomeBaseState(cameraInfo, null, false);
+      }
+    }
     const storagePromise = this.#waitForStorage();
     const storageRequest = JSON.stringify({
       account_id: this.options.accountId,
@@ -358,6 +391,13 @@ export class HomeBasePpcsSession {
     const clear = signCode > 0 && payload.length > 0 && payload.length % 16 === 0
       ? decryptEcb(payload, this.#key)
       : payload;
+    if (command === CMD_STORAGE_INFO_HB2 && this.#storageWaiter && clear.length >= 12) {
+      const waiter = this.#storageWaiter;
+      this.#storageWaiter = null;
+      clearTimeout(waiter.timer);
+      waiter.resolve(clear);
+      return;
+    }
     if (resultMessage) {
       if (this.#pendingCommand?.outerCommand !== command || clear.length < 4) return;
       const pending = this.#pendingCommand;
@@ -556,6 +596,7 @@ function parseStorage(value: unknown): HomeBasePpcsState["storage"] {
   const parsed = typeof value === "string" ? parseJsonText(value) : value;
   const body = isRecord(parsed) ? parsed : {};
   return {
+    sd: null,
     emmc: storageDevice(body.emmc_info, "disk_size", "disk_used"),
     hdd: storageDevice(
       body.hdd_info,
@@ -566,6 +607,53 @@ function parseStorage(value: unknown): HomeBasePpcsState["storage"] {
       "video_used",
     ),
   };
+}
+
+/** Decode the compact HomeBase 2 SD-card status and capacity response. */
+export function parseHomeBase2StorageResponse(value: Buffer): HomeBaseStorageState | null {
+  if (value.length < 12) return null;
+  const result = value.readInt32LE(0);
+  if (result < -1) return null;
+  const totalMebibytes = value.readUInt32LE(4);
+  const freeMebibytes = value.readUInt32LE(8);
+  const totalBytes = totalMebibytes > 0 ? totalMebibytes * 1024 * 1024 : null;
+  const freeBytes = totalBytes !== null && freeMebibytes <= totalMebibytes
+    ? freeMebibytes * 1024 * 1024
+    : null;
+  if (
+    (totalBytes !== null && !Number.isSafeInteger(totalBytes))
+    || (freeBytes !== null && !Number.isSafeInteger(freeBytes))
+  ) return null;
+  return {
+    status: STORAGE_STATUSES.get(result) ?? `unknown_${result}`,
+    totalBytes,
+    freeBytes,
+  };
+}
+
+/** Return whether HomeBase 2 firmware uses the payload-free SD query. */
+export function usesModernHomeBase2StorageRequest(firmware: string | null | undefined): boolean {
+  if (!firmware) return false;
+  const parts = firmware.match(/\d+/g)?.slice(0, 4).map(Number) ?? [];
+  const minimum = [3, 2, 7, 6];
+  if (parts.length < minimum.length) return false;
+  for (let index = 0; index < minimum.length; index++) {
+    const difference = parts[index]! - minimum[index]!;
+    if (difference !== 0) return difference > 0;
+  }
+  return true;
+}
+
+/** Build the firmware-specific payload for the read-only HomeBase 2 SD query. */
+export function buildHomeBase2StorageRequestPayload(
+  firmware: string | null | undefined,
+  accountId: string,
+  key: Buffer,
+): Buffer {
+  if (usesModernHomeBase2StorageRequest(firmware)) return voidPayload(STATION_CHANNEL);
+  if (!accountId) throw new Error("HomeBase 2 storage query requires account identity");
+  if (key.length !== 16) throw new Error("HomeBase 2 storage query requires a 16-byte command key");
+  return twoIntegerPayload(0, 0, STATION_CHANNEL, key, accountId);
 }
 
 function storageDiagnostic(value: unknown): HomeBaseStorageDiagnostic {
@@ -661,6 +749,19 @@ function intPayload(value: number, channel: number, key: Buffer, suffix = ""): B
   integer.writeUInt32LE(value, 0);
   const suffixBytes = suffix ? fixedString(suffix) : Buffer.alloc(0);
   return encryptedPayload(Buffer.concat([integer, suffixBytes]), channel, key);
+}
+
+function twoIntegerPayload(
+  value: number,
+  valueSub: number,
+  channel: number,
+  key: Buffer,
+  suffix: string,
+): Buffer {
+  const integers = Buffer.alloc(8);
+  integers.writeUInt32LE(value, 0);
+  integers.writeUInt32LE(valueSub, 4);
+  return encryptedPayload(Buffer.concat([integers, fixedString(suffix)]), channel, key);
 }
 
 function stringPayload(value: string, channel: number, key: Buffer): Buffer {

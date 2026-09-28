@@ -50,6 +50,12 @@ export interface CameraProvider {
   /** Write camera motion detection and return fresh inventory-backed state. */
   setCameraMotionDetection(serial: string, enabled: boolean): Promise<CameraIdentity>;
 
+  /** Refresh one direct camera's safe reads from its on-device parameter table. */
+  refreshCameraCapabilities(serial: string): Promise<CameraIdentity>;
+
+  /** Set one standalone camera guard mode and require fresh inventory readback. */
+  setCameraGuardMode(serial: string, mode: number): Promise<CameraIdentity>;
+
   /** Write a reported night-vision mode and return fresh inventory-backed state. */
   setCameraNightVision(serial: string, mode: number): Promise<CameraIdentity>;
 

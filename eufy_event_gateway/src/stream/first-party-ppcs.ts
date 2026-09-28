@@ -749,6 +749,18 @@ interface PendingControlQuery {
   readonly timer: ReturnType<typeof setTimeout>;
 }
 
+/** One validated camera-info row returned by the read-only PPCS query. */
+export interface PpcsCameraInfoParam {
+  readonly param_type: number;
+  readonly param_value: string | number | boolean;
+}
+
+interface PendingCameraInfo {
+  readonly resolve: (params: readonly PpcsCameraInfoParam[]) => void;
+  readonly reject: (error: Error) => void;
+  readonly timer: ReturnType<typeof setTimeout>;
+}
+
 /** Build the JSON carried by a command-1700 camera control query. */
 export function buildCameraControlQueryValue(
   commandType: number,
@@ -857,6 +869,8 @@ export class FirstPartyPpcsSession {
     incompleteAccessUnitBytes: 0,
     foreignVideoFrames: 0,
     batteryHistory: "not-reported",
+    cameraInfoParamTypes: [] as number[],
+    standaloneGuardMode: null as number | null,
     firstDataHex: "",
     cipherId: 0,
     level2Error: "",
@@ -919,6 +933,7 @@ export class FirstPartyPpcsSession {
   #selfAddress: { host: string; port: number } | null = null;
   #pendingControl: PendingControl | null = null;
   #pendingControlQuery: PendingControlQuery | null = null;
+  #pendingCameraInfo: PendingCameraInfo | null = null;
 
   /** Return the codec proven by emitted NAL headers, or frame metadata as a fallback. */
   get videoCodec(): VideoCodec | null {
@@ -1037,6 +1052,48 @@ export class FirstPartyPpcsSession {
       this.#sendCommand(1035, rawPayload(encrypted, this.#options.channel, 1, [1, 0], 0));
     }
     await acknowledgement;
+  }
+
+  /** Send the standalone 1224 mode command over the camera's direct route. */
+  async writeStandaloneGuardMode(mode: number, userName: string): Promise<void> {
+    if (this.#options.purpose !== "control") throw new Error("Guard-mode control requires a control session");
+    if (!this.#remote) throw new Error("Guard-mode control session is not connected");
+    if (this.#options.homeBaseAttached) throw new Error("Standalone guard-mode control requires a direct camera route");
+    if (![0, 1, 63].includes(mode)) throw new Error("Unsupported standalone camera guard mode");
+    const accountId = this.#options.accountId;
+    if (!accountId || !userName) throw new Error("Standalone guard-mode account identity is unavailable");
+    const value = buildStandaloneGuardModeValue(
+      accountId,
+      userName,
+      mode,
+    );
+    const encrypted = encryptLevel1(
+      Buffer.from(value),
+      commandKey(this.#options.stationSerial, this.#options.p2pDid),
+    );
+    this.#sendCommand(1350, rawPayload(encrypted, 0, 1, [1, 0], 0));
+  }
+
+  /** Read the camera parameter table without changing device state. */
+  readCameraInfo(): Promise<readonly PpcsCameraInfoParam[]> {
+    if (this.#options.purpose !== "control") {
+      return Promise.reject(new Error("Camera-info refresh requires a control session"));
+    }
+    if (!this.#remote) return Promise.reject(new Error("Camera-info session is not connected"));
+    if (this.#options.homeBaseAttached) {
+      return Promise.reject(new Error("Direct camera-info refresh does not support a HomeBase route"));
+    }
+    if (this.#pendingCameraInfo) {
+      return Promise.reject(new Error("Camera-info refresh is already in progress"));
+    }
+    return new Promise<readonly PpcsCameraInfoParam[]>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.#pendingCameraInfo = null;
+        reject(new Error("Camera-info refresh timed out"));
+      }, CONTROL_TIMEOUT_MILLISECONDS);
+      this.#pendingCameraInfo = { resolve, reject, timer };
+      this.#sendCommand(1103, voidPayload(this.#options.channel));
+    });
   }
 
   /**
@@ -1218,6 +1275,11 @@ export class FirstPartyPpcsSession {
       clearTimeout(this.#pendingControlQuery.timer);
       this.#pendingControlQuery.reject(new Error("Camera control session closed before query response"));
       this.#pendingControlQuery = null;
+    }
+    if (this.#pendingCameraInfo) {
+      clearTimeout(this.#pendingCameraInfo.timer);
+      this.#pendingCameraInfo.reject(new Error("Camera-info session closed before readback"));
+      this.#pendingCameraInfo = null;
     }
     this.#videoAssembler.reset();
     if (this.#options.purpose !== "control" && this.#options.homeBaseAttached) {
@@ -1516,11 +1578,11 @@ export class FirstPartyPpcsSession {
   }
 
   /**
-   * Inspect command 1103 for the battery-history response shape.
+   * Inspect command 1103 for reusable capability and battery-history evidence.
    *
    * The payload may use level-one or negotiated level-two protection. Once
-   * decoded, only the schema of parameter 3100 is recorded. Its timestamps,
-   * usage values, and other reporter-specific content never enter diagnostics.
+   * decoded, only parameter identifiers, the bounded guard-mode enum, and the
+   * schema of parameter 3100 are recorded. Other values never enter diagnostics.
    */
   #inspectCameraInfo(payload: Buffer, signCode: number): void {
     let clear = payload;
@@ -1534,6 +1596,34 @@ export class FirstPartyPpcsSession {
     try {
       const decoded: unknown = JSON.parse(text);
       if (!isRecord(decoded) || !Array.isArray(decoded.params)) return;
+      const params = decoded.params.flatMap((candidate): PpcsCameraInfoParam[] => (
+        isRecord(candidate)
+        && Number.isSafeInteger(candidate.param_type)
+        && (typeof candidate.param_value === "string"
+          || typeof candidate.param_value === "number"
+          || typeof candidate.param_value === "boolean")
+          ? [{
+            param_type: candidate.param_type as number,
+            param_value: candidate.param_value as string | number | boolean,
+          }]
+          : []
+      ));
+      this.stats.cameraInfoParamTypes = [...new Set(params.map(({ param_type }) => param_type))]
+        .sort((left, right) => left - right)
+        .slice(0, 256);
+      const guardMode = params.find(({ param_type }) => param_type === 1224);
+      if (guardMode) {
+        const parsed = Number(guardMode.param_value);
+        if ([0, 1, 2, 3, 4, 5, 6, 47, 63].includes(parsed)) {
+          this.stats.standaloneGuardMode = parsed;
+        }
+      }
+      if (this.#pendingCameraInfo) {
+        const pending = this.#pendingCameraInfo;
+        this.#pendingCameraInfo = null;
+        clearTimeout(pending.timer);
+        pending.resolve(params);
+      }
       const entry = decoded.params.find((candidate) => isRecord(candidate) && candidate.param_type === 3100);
       if (!isRecord(entry) || typeof entry.param_value !== "string") return;
       this.stats.batteryHistory = batteryHistoryProbeSummary(entry.param_value);
@@ -1815,6 +1905,23 @@ function buildIntStringCommandBody(value: number, valueSub: number, accountId: s
   Buffer.from(accountId).copy(accountBuffer);
   const plain = Buffer.concat([valueSubBuffer, valueBuffer, accountBuffer]);
   return rawPayload(encryptLevel1(plain, key), valueSub, 1, [1, 0], 0);
+}
+
+/** Build the wrapped standalone-camera security-mode command value. */
+export function buildStandaloneGuardModeValue(
+  accountId: string,
+  userName: string,
+  mode: number,
+): string {
+  if (!accountId || !userName) throw new Error("Standalone guard mode requires account identity");
+  if (![0, 1, 63].includes(mode)) throw new Error("Unsupported standalone camera guard mode");
+  return JSON.stringify({
+    account_id: accountId,
+    cmd: 1224,
+    mChannel: 0,
+    mValue3: 0,
+    payload: { mode_type: mode, user_name: userName },
+  });
 }
 
 /**

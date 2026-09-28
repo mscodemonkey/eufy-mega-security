@@ -6,14 +6,18 @@
  * numbers from the device response.
  */
 import assert from "node:assert/strict";
+import { createDecipheriv } from "node:crypto";
 import test from "node:test";
 
 import {
   buildHomeBaseGuardModeValue,
+  buildHomeBase2StorageRequestPayload,
   HOMEBASE_PPCS_REQUEST_HEADERS,
   homeBaseLocalLookupTargets,
   isHomeBaseResultFrame,
+  parseHomeBase2StorageResponse,
   parseHomeBaseState,
+  usesModernHomeBase2StorageRequest,
 } from "../src/stream/homebase-ppcs.js";
 
 test("builds the current HomeBase guard-mode payload", () => {
@@ -87,6 +91,7 @@ test("normalizes HomeBase state and separate physical storage devices", () => {
     promptVolume: 10,
     alarmTone: 2,
     storage: {
+      sd: null,
       emmc: { status: "normal", totalBytes: 1_048_576_000, freeBytes: 786_432_000 },
       hdd: { status: "non_original", totalBytes: 10_485_760_000, freeBytes: 6_291_456_000 },
     },
@@ -104,6 +109,45 @@ test("normalizes HomeBase state and separate physical storage devices", () => {
     ],
   });
   assert.equal(JSON.stringify(result).includes("private"), false);
+});
+
+test("normalizes a HomeBase 2 SD-card response without retaining device data", () => {
+  const response = Buffer.alloc(12);
+  response.writeInt32LE(0, 0);
+  response.writeUInt32LE(120_321, 4);
+  response.writeUInt32LE(24_024, 8);
+
+  assert.deepEqual(parseHomeBase2StorageResponse(response), {
+    status: "normal",
+    totalBytes: 126_165_712_896,
+    freeBytes: 25_190_989_824,
+  });
+  assert.equal(parseHomeBase2StorageResponse(Buffer.alloc(11)), null);
+});
+
+test("selects the payload-free HomeBase 2 SD query by firmware", () => {
+  assert.equal(usesModernHomeBase2StorageRequest("3.2.7.5"), false);
+  assert.equal(usesModernHomeBase2StorageRequest("3.2.7.6"), true);
+  assert.equal(usesModernHomeBase2StorageRequest("3.4.2.6h"), true);
+  assert.equal(usesModernHomeBase2StorageRequest(null), false);
+});
+
+test("builds both HomeBase 2 SD query payload generations", () => {
+  const key = Buffer.from("0123456789abcdef", "ascii");
+  assert.equal(
+    buildHomeBase2StorageRequestPayload("3.2.7.6", "account-owner", key).toString("hex"),
+    "000000000100ff000000",
+  );
+
+  const legacy = buildHomeBase2StorageRequestPayload("3.2.7.5", "account-owner", key);
+  assert.equal(legacy[6], 255);
+  assert.equal(legacy[7], 1);
+  const decipher = createDecipheriv("aes-128-ecb", key, null);
+  decipher.setAutoPadding(false);
+  const plain = Buffer.concat([decipher.update(legacy.subarray(10)), decipher.final()]);
+  assert.equal(plain.readUInt32LE(0), 0);
+  assert.equal(plain.readUInt32LE(4), 0);
+  assert.equal(plain.subarray(8, 21).toString("ascii"), "account-owner");
 });
 
 test("accepts a JSON-encoded storage body and rejects unsupported values", () => {

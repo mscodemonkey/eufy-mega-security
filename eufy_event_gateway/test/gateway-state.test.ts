@@ -101,15 +101,21 @@ test("keeps expanded AI detections distinct and clears their transient flags", a
   state.registerCamera(camera);
   state.recordDetection(camera.serial, "pet", true);
   state.recordDetection(camera.serial, "vehicle", true);
+  state.recordDetection(camera.serial, "packageDelivered", true);
+  state.recordDetection(camera.serial, "packageTaken", true);
 
   assert.equal(state.getCamera(camera.serial).motionDetected, true);
   assert.equal(state.getCamera(camera.serial).petDetected, true);
   assert.equal(state.getCamera(camera.serial).vehicleDetected, true);
-  assert.equal(state.getCamera(camera.serial).lastDetection?.kind, "vehicle");
+  assert.equal(state.getCamera(camera.serial).packageDeliveredDetected, true);
+  assert.equal(state.getCamera(camera.serial).packageTakenDetected, true);
+  assert.equal(state.getCamera(camera.serial).lastDetection?.kind, "packageTaken");
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(state.getCamera(camera.serial).motionDetected, false);
   assert.equal(state.getCamera(camera.serial).petDetected, false);
   assert.equal(state.getCamera(camera.serial).vehicleDetected, false);
+  assert.equal(state.getCamera(camera.serial).packageDeliveredDetected, false);
+  assert.equal(state.getCamera(camera.serial).packageTakenDetected, false);
 });
 
 test("keeps general motion active across overlapping visual detections", () => {
@@ -207,7 +213,9 @@ test("retains immutable HomeBase snapshots and emits station updates", () => {
     alarmVolume: 20,
     promptVolume: 10,
     alarmTone: 2,
+    storageSupported: ["emmc", "hdd"] as const,
     storage: {
+      sd: null,
       emmc: { status: "normal", totalBytes: 100, freeBytes: 40 },
       hdd: null,
     },

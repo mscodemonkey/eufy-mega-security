@@ -22,6 +22,8 @@ entity:
   alarm_control_panel:
     eufy_home_base_alarm:
       name: Alarm
+    eufy_standalone_camera_alarm:
+      name: Camera alarm
   binary_sensor:
     motion_detection:
       name: Motion
@@ -41,6 +43,10 @@ entity:
       name: Crying
     sound_detection:
       name: Sound
+    package_delivered:
+      name: Package delivered
+    package_taken:
+      name: Package taken
     package_stranded:
       name: Package stranded
     battery_charging:

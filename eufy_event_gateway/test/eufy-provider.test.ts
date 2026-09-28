@@ -33,6 +33,7 @@ import {
   safeInventoryReads,
   supportsHomeBaseGuardMode,
   supportsPresetPositions,
+  supportsStandaloneGuardMode,
   supportsTimedCameraLight,
 } from "../src/provider/eufy-provider.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, type HomeBasePpcsState } from "../src/stream/homebase-ppcs.js";
@@ -254,6 +255,21 @@ test("decodes the reported motion-detection switch without inventing it", () => 
   assert.equal(safeInventoryReads([{ param_type: 1277, param_value: "3" }]).nightVisionMode, undefined);
 });
 
+test("decodes only supported standalone guard-mode values", () => {
+  assert.equal(safeInventoryReads([{ param_type: 1224, param_value: "0" }]).guardMode, 0);
+  assert.equal(safeInventoryReads([{ param_type: 1224, param_value: 1 }]).guardMode, 1);
+  assert.equal(safeInventoryReads([{ param_type: 1224, param_value: "63" }]).guardMode, 63);
+  assert.equal(safeInventoryReads([{ param_type: 1224, param_value: "99" }]).guardMode, undefined);
+});
+
+test("limits standalone guard mode to SDK-backed camera models", () => {
+  for (const model of ["T8170", "T8171", "T8400", "T8410", "T8442"]) {
+    assert.equal(supportsStandaloneGuardMode({ model }), true);
+  }
+  assert.equal(supportsStandaloneGuardMode({ model: "T81A0" }), false);
+  assert.equal(supportsStandaloneGuardMode({ model: "T817L" }), false);
+});
+
 test("keeps confirmed motion-detection reads stable across tested camera families", () => {
   const testedCameras = [
     { model: "T8210", deviceType: 7 },
@@ -372,7 +388,8 @@ test("enables only the proven T8010 guard-mode control on current firmware", () 
     alarmVolume: null,
     promptVolume: null,
     alarmTone: null,
-    storage: { emmc: null, hdd: null },
+    storageSupported: ["sd"],
+    storage: { sd: null, emmc: null, hdd: null },
   });
 });
 
@@ -752,8 +769,8 @@ test("shows the known T817L model in safe person-event logs", () => {
 
 test("maps expanded Eufy AI event ids without collapsing their meanings", () => {
   assert.deepEqual(
-    [1, 3101, 3102, 3104, 3105, 3106, 3107, 3108, 3109, 3110, 3111, 3112, 3304, 9999].map(cameraDetectionKind),
-    ["motion", "motion", "person", "crying", "sound", "pet", "vehicle", "dog", "dog", "dog", "person", "stranger", "packageStranded", null],
+    [1, 3101, 3102, 3104, 3105, 3106, 3107, 3108, 3109, 3110, 3111, 3112, 3301, 3302, 3304, 9999].map(cameraDetectionKind),
+    ["motion", "motion", "person", "crying", "sound", "pet", "vehicle", "dog", "dog", "dog", "person", "stranger", "packageDelivered", "packageTaken", "packageStranded", null],
   );
 });
 

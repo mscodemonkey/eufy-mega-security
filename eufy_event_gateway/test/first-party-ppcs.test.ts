@@ -19,6 +19,7 @@ import {
   acceptsAttachedCameraMedia,
   buildPpcsCloudLookup,
   buildStandaloneJsonControlPayload,
+  buildStandaloneGuardModeValue,
   buildStandaloneLiveStartPayload,
   buildTimedCameraLightControlValue,
   decodePpcsVideoFrame,
@@ -108,6 +109,23 @@ test("builds the app-confirmed T817L pan and tracking payloads", () => {
   });
   assert.equal(buildAiTrackingControlData(false, 1_234).value, 0);
   assert.throws(() => buildAiTrackingControlData(true, -1), /non-negative whole number/);
+});
+
+test("builds the direct standalone-camera guard-mode value", () => {
+  assert.deepEqual(
+    JSON.parse(buildStandaloneGuardModeValue("account-owner", "Home Assistant", 63)),
+    {
+      account_id: "account-owner",
+      cmd: 1224,
+      mChannel: 0,
+      mValue3: 0,
+      payload: { mode_type: 63, user_name: "Home Assistant" },
+    },
+  );
+  assert.throws(
+    () => buildStandaloneGuardModeValue("account-owner", "Home Assistant", 2),
+    /Unsupported standalone camera guard mode/,
+  );
 });
 
 test("builds the T8210-family Auto night vision direct command body", () => {
