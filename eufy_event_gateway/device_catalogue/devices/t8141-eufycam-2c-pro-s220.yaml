@@ -109,7 +109,9 @@ capabilities:
     person:
       connections:
         T8010:
-          status: declared
+          status: tested
+          tested_on: 2026-09-28
+          tested_by: guidog66
     pet:
       connections:
         T8010:

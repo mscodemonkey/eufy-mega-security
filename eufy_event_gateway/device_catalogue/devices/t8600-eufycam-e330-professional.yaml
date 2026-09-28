@@ -5,11 +5,37 @@ id: t8600
 name: eufyCam E330 (Professional)
 category: camera
 integration:
-  status: recognised
+  status: ready_to_test
+  handler: camera
 models:
   - T8600
 device_type: 24
 capabilities:
+  readable:
+    battery_level:
+      connections:
+        T8030:
+          status: reported
+          tested_on: 2026-09-28
+          tested_by: kdekok
+      read:
+        parameter: 1101
+    battery_charging:
+      connections:
+        T8030:
+          status: reported
+          tested_on: 2026-09-28
+          tested_by: kdekok
+      read:
+        parameter: 2111
+    battery_temperature:
+      connections:
+        T8030:
+          status: reported
+          tested_on: 2026-09-28
+          tested_by: kdekok
+      read:
+        parameter: 1138
   controls:
     enabled:
       connections:

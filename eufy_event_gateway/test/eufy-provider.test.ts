@@ -12,6 +12,7 @@ import {
   cameraDetectionKind,
   cameraEnableRawValue,
   confirmStationWrite,
+  doorbellPushKind,
   dskKeyNeedsRefresh,
   inventoryDiagnostics,
   inventoryMotionOutcome,
@@ -617,6 +618,24 @@ test("admits a self-parented T8200 through its own PPCS route", () => {
   assert.equal(isDoorbellDevice(doorbell), true);
 });
 
+test("admits T8600 cameras through their ready HomeBase 3 route", () => {
+  const devices = parseMegaInventory({ devices: [
+    {
+      device_sn: "camera", device_model: "T8600", parent_sn: "station", device_type: 24,
+      device_channel: 2, category: "eufy_security",
+    },
+    {
+      device_sn: "station", device_model: "T8030", device_type: 18,
+      category: "eufy_security", p2p_did: "did", p2p_conn: "connection",
+    },
+  ] });
+
+  const summaries = inventoryLogSummaries(devices, new Set(["station"]));
+
+  assert.equal(summaries[0]?.acceptedAsCamera, true);
+  assert.equal(summaries[0]?.streamSupported, true);
+});
+
 test("accepts SoloCam C20 inventory through a ready HomeBase 3", () => {
   const devices = parseMegaInventory({ devices: [
     {
@@ -709,6 +728,18 @@ test("routes a confirmed T8210 press code as a doorbell event", () => {
     pictureUrl: null, alarmType: null,
   }, { model: "T8113-Z", category: "eufy_security", deviceType: 8 }, true, false);
   assert.match(nonDoorbell, /handling=unhandled/);
+});
+
+test("separates T8214 style-3 detections from doorbell presses", () => {
+  assert.equal(doorbellPushKind({ eventType: 3103, notificationStyle: 3 }), "detection");
+  assert.equal(doorbellPushKind({ eventType: 3103, notificationStyle: 1 }), "press");
+  assert.equal(doorbellPushKind({ eventType: 3102, notificationStyle: 3 }), null);
+
+  const summary = safePushLogSummary({
+    eventType: 3103, messageType: 18, notificationStyle: 3,
+    pictureUrl: null, alarmType: null,
+  }, { model: "T8214", category: "eufy_security", deviceType: 94 }, true, true);
+  assert.match(summary, /event_type=3103 message_type=18 notification_style=3 handling=doorbell_detection/);
 });
 
 test("shows the known T817L model in safe person-event logs", () => {
