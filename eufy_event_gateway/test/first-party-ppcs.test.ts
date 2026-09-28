@@ -10,6 +10,7 @@ import test from "node:test";
 
 import {
   buildAutoNightVisionCommandBody,
+  buildAiTrackingControlData,
   buildCameraControlQueryValue,
   buildCameraEnableBody,
   buildAttachedMediaControlValue,
@@ -84,6 +85,29 @@ test("builds and parses the privacy-safe preset-position query contract", () => 
     { index: 7, enabled: true, isDefault: false },
   ]);
   assert.deepEqual(parseCameraPresetPositions({}), []);
+});
+
+test("builds the app-confirmed T817L pan and tracking payloads", () => {
+  assert.deepEqual(JSON.parse(buildCameraControlQueryValue(6035, { value: 2 })), {
+    commandType: 6035,
+    data: { value: 2 },
+  });
+  assert.deepEqual(JSON.parse(buildCameraControlQueryValue(6031, { value: 1 })), {
+    commandType: 6031,
+    data: { value: 1 },
+  });
+  assert.deepEqual(buildAiTrackingControlData(true, 1_234), {
+    enable: 0,
+    index: 0,
+    status: 0,
+    type: 0,
+    value: 1,
+    voiceID: 0,
+    zonecount: 0,
+    transaction: "1234",
+  });
+  assert.equal(buildAiTrackingControlData(false, 1_234).value, 0);
+  assert.throws(() => buildAiTrackingControlData(true, -1), /non-negative whole number/);
 });
 
 test("builds the T8210-family Auto night vision direct command body", () => {

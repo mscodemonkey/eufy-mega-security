@@ -760,6 +760,26 @@ export function buildCameraControlQueryValue(
   return JSON.stringify({ commandType, data });
 }
 
+/** Build the complete T817L AI-tracking payload observed in the official app. */
+export function buildAiTrackingControlData(
+  enabled: boolean,
+  transaction = Date.now(),
+): Readonly<Record<string, unknown>> {
+  if (!Number.isSafeInteger(transaction) || transaction < 0) {
+    throw new Error("AI-tracking transaction must be a non-negative whole number");
+  }
+  return {
+    enable: 0,
+    index: 0,
+    status: 0,
+    type: 0,
+    value: enabled ? 1 : 0,
+    voiceID: 0,
+    zonecount: 0,
+    transaction: `${transaction}`,
+  };
+}
+
 /**
  * Reduce a preset query reply to slot indexes, occupancy, and default state.
  *
@@ -1150,6 +1170,27 @@ export class FirstPartyPpcsSession {
   async queryPresetPositions(): Promise<readonly CameraPresetPosition[]> {
     const payload = await this.#queryControlPayload(6034, { value: 0 });
     return parseCameraPresetPositions(payload);
+  }
+
+  /** Move once to a stored T817L preset without retrying an ambiguous action. */
+  async selectPresetPosition(index: number): Promise<void> {
+    if (!Number.isSafeInteger(index) || index < 0 || index > 9) {
+      throw new Error("Camera preset index must be between 0 and 9");
+    }
+    await this.#sendControlPayload(6035, { value: index });
+    await delay(500);
+  }
+
+  /** Enable or disable T817L AI tracking using the app-confirmed command shape. */
+  async writeAiTracking(enabled: boolean): Promise<void> {
+    await this.#sendControlPayload(6016, buildAiTrackingControlData(enabled));
+    await delay(500);
+  }
+
+  /** Enable or disable T817L automatic cruise using the app-confirmed action. */
+  async writeAutoCruise(enabled: boolean): Promise<void> {
+    await this.#sendControlPayload(6031, { value: enabled ? 1 : 0 });
+    await delay(500);
   }
 
   /**

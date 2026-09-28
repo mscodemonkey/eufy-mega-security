@@ -172,6 +172,24 @@ export class GatewayServer {
       ) {
         return await this.#cameraPresetPositions(segments[2]!, response);
       }
+      if (
+        request.method === "POST" &&
+        segments[0] === "api" && segments[1] === "cameras" && segments[3] === "preset-position" && segments.length === 4
+      ) {
+        return await this.#cameraPresetPosition(request, segments[2]!, response);
+      }
+      if (
+        request.method === "POST" &&
+        segments[0] === "api" && segments[1] === "cameras" && segments[3] === "ai-tracking" && segments.length === 4
+      ) {
+        return await this.#cameraAiTracking(request, segments[2]!, response);
+      }
+      if (
+        request.method === "POST" &&
+        segments[0] === "api" && segments[1] === "cameras" && segments[3] === "auto-cruise" && segments.length === 4
+      ) {
+        return await this.#cameraAutoCruise(request, segments[2]!, response);
+      }
       if (request.method === "GET" && segments[0] === "api" && segments[1] === "stations" && segments.length === 3) {
         return this.#stationJson(segments[2]!, response);
       }
@@ -318,6 +336,30 @@ export class GatewayServer {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     const positions = await this.provider.getCameraPresetPositions(serial);
     return json(response, 200, { positions });
+  }
+
+  /** Move once to an enabled stored camera position. */
+  async #cameraPresetPosition(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    const body = await readJson(request);
+    await this.provider.selectCameraPresetPosition(serial, requiredInteger(body.index));
+    return json(response, 200, { ok: true });
+  }
+
+  /** Send a state-free AI-tracking enable or disable action. */
+  async #cameraAiTracking(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    const body = await readJson(request);
+    await this.provider.setCameraAiTracking(serial, requiredBoolean(body.enabled));
+    return json(response, 200, { ok: true });
+  }
+
+  /** Send a state-free automatic-cruise enable or disable action. */
+  async #cameraAutoCruise(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    const body = await readJson(request);
+    await this.provider.setCameraAutoCruise(serial, requiredBoolean(body.enabled));
+    return json(response, 200, { ok: true });
   }
 
   #stationJson(serial: string, response: ServerResponse): void {

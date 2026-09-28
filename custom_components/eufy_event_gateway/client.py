@@ -216,6 +216,46 @@ class GatewayClient:
             payload={"enabled": enabled},
         )
 
+    async def camera_preset_positions(self, serial: str) -> list[dict[str, Any]]:
+        """Return enabled-slot metadata without retaining names or thumbnails."""
+        payload = await self._json(f"/api/cameras/{serial}/preset-positions")
+        positions = payload.get("positions")
+        if not isinstance(positions, list):
+            raise GatewayClientError("Gateway returned invalid preset positions")
+        return [
+            position
+            for position in positions
+            if isinstance(position, dict)
+            and isinstance(position.get("index"), int)
+            and not isinstance(position.get("index"), bool)
+            and isinstance(position.get("enabled"), bool)
+            and isinstance(position.get("isDefault"), bool)
+        ]
+
+    async def select_camera_preset_position(self, serial: str, index: int) -> None:
+        """Move once to a gateway-validated stored camera position."""
+        await self._json(
+            f"/api/cameras/{serial}/preset-position",
+            method="POST",
+            payload={"index": index},
+        )
+
+    async def set_camera_ai_tracking(self, serial: str, enabled: bool) -> None:
+        """Send the verified AI-tracking action without inventing local state."""
+        await self._json(
+            f"/api/cameras/{serial}/ai-tracking",
+            method="POST",
+            payload={"enabled": enabled},
+        )
+
+    async def set_camera_auto_cruise(self, serial: str, enabled: bool) -> None:
+        """Send the verified automatic-cruise action without local state."""
+        await self._json(
+            f"/api/cameras/{serial}/auto-cruise",
+            method="POST",
+            payload={"enabled": enabled},
+        )
+
     async def record_clip(self, serial: str, duration: int) -> bytes:
         """Request a bounded MP4 and reject a response that is not an MP4 file."""
         try:

@@ -43,6 +43,24 @@ test("exposes only provider-confirmed timed light support", () => {
   assert.equal(state.getCamera(camera.serial).timedLightControlSupported, true);
 });
 
+test("exposes only provider-confirmed T817L action support", () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  assert.equal(state.getCamera(camera.serial).presetPositionControlSupported, false);
+  assert.equal(state.getCamera(camera.serial).aiTrackingControlSupported, false);
+  assert.equal(state.getCamera(camera.serial).autoCruiseControlSupported, false);
+
+  state.registerCamera({
+    ...camera,
+    presetPositionControlSupported: true,
+    aiTrackingControlSupported: true,
+    autoCruiseControlSupported: true,
+  });
+  assert.equal(state.getCamera(camera.serial).presetPositionControlSupported, true);
+  assert.equal(state.getCamera(camera.serial).aiTrackingControlSupported, true);
+  assert.equal(state.getCamera(camera.serial).autoCruiseControlSupported, true);
+});
+
 test("does not claim an identity for Eufy unknown values", () => {
   assert.equal(normalizePersonName(undefined), null);
   assert.equal(normalizePersonName(""), null);
