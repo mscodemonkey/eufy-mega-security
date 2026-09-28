@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.105
+
+- Add bounded direct siren start and stop actions for T84A1 cameras while keeping physical confirmation pending.
+
 ## 0.1.104
 
 - Add T817L preset-position actions plus physically verified AI-tracking and automatic-cruise on and off actions.
