@@ -125,11 +125,12 @@ export interface SecuritySensorState {
   readonly model: string;
   readonly deviceType: number;
   readonly available: boolean;
-  readonly capabilities: readonly ("battery" | "contact" | "lastSeen" | "motion")[];
+  readonly capabilities: readonly ("battery" | "contact" | "lastSeen" | "motion" | "rssi")[];
   readonly batteryLevel: number | null;
   readonly contactOpen: boolean | null;
   readonly lastSeen: string | null;
   readonly motionDetected: boolean;
+  readonly rssi: number | null;
 }
 
 /** One physical storage device reported by a HomeBase. */

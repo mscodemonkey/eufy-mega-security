@@ -19,6 +19,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import (
     PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     UnitOfInformation,
     UnitOfTemperature,
     UnitOfTime,
@@ -126,6 +127,8 @@ async def async_setup_entry(
                     entities.append(EufyStandaloneBatterySensor(coordinator, serial))
                 if "lastSeen" in capabilities:
                     entities.append(EufySensorLastSeen(coordinator, serial))
+                if "rssi" in capabilities:
+                    entities.append(EufySensorSignalStrength(coordinator, serial))
             async_add_entities(entities)
 
     add_new()
@@ -294,6 +297,33 @@ class EufySensorLastSeen(EufySecuritySensorEntity, SensorEntity):
         """Return an aware datetime, or unknown when the gateway has no valid value."""
         value = self.sensor.get("lastSeen")
         return dt_util.parse_datetime(value) if isinstance(value, str) else None
+
+
+class EufySensorSignalStrength(EufySecuritySensorEntity, SensorEntity):
+    """Expose the accessory-reported link strength without inventing bars.
+
+    Parameter 1141 is shared by supported contact sensors, motion sensors, and
+    keypads. The gateway validates its numeric range and this entity presents
+    the retained dBm reading as a diagnostic measurement.
+    """
+
+    _attr_translation_key = "signal_strength"
+    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+    _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Create a stable signal-strength entity for one accessory."""
+        EufySecuritySensorEntity.__init__(self, coordinator, serial)
+        SensorEntity.__init__(self)
+        self._attr_unique_id = f"{serial}_rssi"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the latest validated raw dBm value."""
+        value = self.sensor.get("rssi")
+        return value if isinstance(value, (int, float)) else None
 
 
 class EufyGuardModeSensor(EufyStationEntity, SensorEntity):

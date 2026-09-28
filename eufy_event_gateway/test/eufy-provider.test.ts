@@ -193,6 +193,7 @@ test("decodes only validated capability-backed inventory values", () => {
     { param_type: 2111, param_value: "4" },
     { param_type: 1198, param_value: "96" },
     { param_type: 1138, param_value: "24.5" },
+    { param_type: 1141, param_value: "-63" },
     { param_type: 1550, param_value: "1" },
     { param_type: 1551, param_value: "1789500000" },
     { param_type: 9999, param_value: "private" },
@@ -204,10 +205,12 @@ test("decodes only validated capability-backed inventory values", () => {
     batteryTemperature: 24.5,
     contactOpen: true,
     lastSeen: "2026-09-15T19:20:00.000Z",
+    rssi: -63,
   });
   assert.deepEqual(safeInventoryReads([
     { param_type: 1101, param_value: "101" },
     { param_type: 1550, param_value: "unknown" },
+    { param_type: 1141, param_value: "12" },
   ]), {});
   assert.equal(safeInventoryReads([
     { param_type: 1101, param_value: "50" },

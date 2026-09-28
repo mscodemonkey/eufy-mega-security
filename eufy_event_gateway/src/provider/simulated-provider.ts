@@ -98,6 +98,7 @@ export class SimulatedProvider implements CameraProvider {
       contactOpen: false,
       lastSeen: new Date().toISOString(),
       motionDetected: false,
+      rssi: null,
     });
     events.station(this.#station);
     events.inventory([{

@@ -81,6 +81,7 @@ export interface MegaInventoryReads {
   readonly lastChargingDays?: number;
   readonly contactOpen?: boolean;
   readonly lastSeen?: string;
+  readonly rssi?: number;
 
   /** Latest standalone PIR event time in Unix seconds, retained for delayed cloud fallback. */
   readonly motionEventSeconds?: number;
@@ -1560,6 +1561,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const temperature = finiteNumber(params.get(1138));
   const batteryStatus = finiteNumber(params.get(2111));
   const contact = finiteNumber(params.get(1550));
+  const rssi = finiteNumber(params.get(1141));
   const contactLastSeen = validUnixSeconds(params.get(1551));
   const motionEventSeconds = deviceType === 10 || deviceType === 127
     ? validUnixSeconds(params.get(1605))
@@ -1589,6 +1591,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
     ...(batteryHealth !== undefined ? { batteryHealth } : {}),
     ...(temperature !== null && temperature >= -50 && temperature <= 100 ? { batteryTemperature: temperature } : {}),
     ...(contact === 0 || contact === 1 ? { contactOpen: contact === 1 } : {}),
+    ...(rssi !== null && rssi >= -150 && rssi <= 0 ? { rssi } : {}),
     ...(lastSeen !== undefined
       ? { lastSeen: new Date(lastSeen * 1_000).toISOString() }
       : {}),
@@ -1699,7 +1702,8 @@ function securitySensorState(device: MegaInventoryDevice): SecuritySensorState |
   const battery = device.paramTypes.includes(1101);
   const lastSeen = device.paramTypes.includes(1551)
     || (motion && device.paramTypes.includes(1605));
-  if (!contact && !motion && !battery && !lastSeen) return null;
+  const rssi = device.paramTypes.includes(1141);
+  if (!contact && !motion && !battery && !lastSeen && !rssi) return null;
   if (![2, 10, 20, 21, 22, 123, 126, 127].includes(device.deviceType ?? -1)) return null;
   return {
     serial: device.serial,
@@ -1712,11 +1716,13 @@ function securitySensorState(device: MegaInventoryDevice): SecuritySensorState |
       ...(contact ? ["contact" as const] : []),
       ...(lastSeen ? ["lastSeen" as const] : []),
       ...(motion ? ["motion" as const] : []),
+      ...(rssi ? ["rssi" as const] : []),
     ],
     batteryLevel: device.reads.batteryLevel ?? null,
     contactOpen: device.reads.contactOpen ?? null,
     lastSeen: device.reads.lastSeen ?? null,
     motionDetected: false,
+    rssi: device.reads.rssi ?? null,
   };
 }
 

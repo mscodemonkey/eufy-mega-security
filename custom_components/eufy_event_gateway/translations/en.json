@@ -146,6 +146,9 @@
       "last_seen": {
         "name": "Last seen"
       },
+      "signal_strength": {
+        "name": "Signal strength"
+      },
       "eufy_guard_mode_sensor": {
         "name": "Guard mode",
         "state": {

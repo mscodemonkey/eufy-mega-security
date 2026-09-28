@@ -233,7 +233,7 @@ test("retains standalone contact state and clears transient sensor motion", asyn
   state.registerSensor({
     serial: "sensor-1", name: "Side gate", model: "T8900", deviceType: 2,
     available: true, capabilities: ["battery", "contact", "motion"],
-    batteryLevel: 74, contactOpen: false, lastSeen: null, motionDetected: false,
+    batteryLevel: 74, contactOpen: false, lastSeen: null, motionDetected: false, rssi: -58,
   });
   state.updateSensorContact("sensor-1", true);
   state.recordSensorMotion("sensor-1", true);
