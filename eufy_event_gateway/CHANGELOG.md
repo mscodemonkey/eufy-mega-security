@@ -12,6 +12,7 @@
 - Stop refreshing cached Home Assistant stream sources when no active stream consumer remains.
 - Add acknowledged direct-camera motion control for T8123 and probe the LAN endpoint advertised by T9000 discovery.
 - Add privacy-safe per-viewer lifecycle evidence that distinguishes source delivery, HTTP startup, stalls, and backpressure.
+- Add a privacy-safe raw parameter diagnostic for T8416 and T8417 without exposing an unverified control or claiming physical state.
 
 ## 0.1.103
 
