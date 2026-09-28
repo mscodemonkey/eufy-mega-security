@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.106
+
+- Restore T8214 doorbell presses when style-3 notifications carry no detection evidence, while retaining motion, person, and familiar-person updates.
+- Remove the unproven direct T84A1 siren entity after hardware testing showed the attached-camera command does not operate this standalone model.
+- Admit the reported standalone T814XS solar variant as Mega type 10039 for hardware testing.
+- Suppress battery-shaped placeholder values on the mains-powered T8600.
+
 ## 0.1.105
 
 - Add bounded direct siren start and stop actions for T84A1 cameras while keeping physical confirmation pending.

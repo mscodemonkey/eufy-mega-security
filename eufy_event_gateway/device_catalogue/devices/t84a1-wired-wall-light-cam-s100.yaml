@@ -27,15 +27,13 @@ capabilities:
     siren:
       connections:
         direct:
-          status: declared
+          status: failing
+          tested_on: 2026-09-28
+          tested_by: philippk75
+          notes: The attached-camera duration command produced no physical start or stop action over the direct route.
       write:
-        command: 1202
-        input:
-          name: duration_seconds
-          type: integer
-          minimum: 0
-          maximum: 900
-      notes: A duration of 0 stops the siren. Physical start and stop still await reporter confirmation.
+        action: unavailable_until_direct_command_is_proven
+      notes: Direct siren control remains unexposed until its separate command contract is identified.
   media:
     live_view:
       connections:

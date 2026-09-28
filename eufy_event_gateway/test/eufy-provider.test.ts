@@ -90,11 +90,11 @@ test("limits timed JSON light control to the verified wall-light family", () => 
 });
 
 test("limits camera sirens by route and device evidence", () => {
-  assert.equal(supportsCameraSiren({ deviceType: 151, paramTypes: [] }, { homeBaseAttached: false }), true);
-  assert.equal(supportsCameraSiren({ deviceType: 8, paramTypes: [1015] }, { homeBaseAttached: true }), true);
-  assert.equal(supportsCameraSiren({ deviceType: 151, paramTypes: [] }, { homeBaseAttached: true }), false);
-  assert.equal(supportsCameraSiren({ deviceType: 8, paramTypes: [1015] }, { homeBaseAttached: false }), false);
-  assert.equal(supportsCameraSiren({ deviceType: 151, paramTypes: [] }, null), false);
+  assert.equal(supportsCameraSiren({ paramTypes: [] }, { homeBaseAttached: false }), false);
+  assert.equal(supportsCameraSiren({ paramTypes: [1015] }, { homeBaseAttached: true }), true);
+  assert.equal(supportsCameraSiren({ paramTypes: [] }, { homeBaseAttached: true }), false);
+  assert.equal(supportsCameraSiren({ paramTypes: [1015] }, { homeBaseAttached: false }), false);
+  assert.equal(supportsCameraSiren({ paramTypes: [1015] }, null), false);
 });
 
 test("limits privacy parameter diagnostics to T8416 and T8417", () => {
@@ -747,6 +747,12 @@ test("admits a T814X C37 without misclassifying T85D0 lock inventory", () => {
   ]);
 });
 
+test("admits the reported standalone T814XS solar type through its direct route", () => {
+  assert.equal(isSupportedMegaCamera({
+    deviceType: 10039, category: "eufy_security",
+  }), true);
+});
+
 test("admits a self-parented T8426 E30 through its reported standalone route", () => {
   const devices = parseMegaInventory({ devices: [{
     device_sn: "camera", device_model: "T8426", parent_sn: "camera", device_type: 87,
@@ -800,15 +806,23 @@ test("routes a confirmed T8210 press code as a doorbell event", () => {
 });
 
 test("separates T8214 style-3 detections from doorbell presses", () => {
-  assert.equal(doorbellPushKind({ eventType: 3103, notificationStyle: 3 }), "detection");
+  assert.equal(doorbellPushKind({ eventType: 3103, notificationStyle: 3, detectionEvidence: ["person"] }), "detection");
+  assert.equal(doorbellPushKind({ eventType: 3103, notificationStyle: 3, personName: "Known person" }), "detection");
+  assert.equal(doorbellPushKind({ eventType: 3103, notificationStyle: 3, detectionEvidence: [] }), "press");
   assert.equal(doorbellPushKind({ eventType: 3103, notificationStyle: 1 }), "press");
   assert.equal(doorbellPushKind({ eventType: 3102, notificationStyle: 3 }), null);
 
   const summary = safePushLogSummary({
     eventType: 3103, messageType: 18, notificationStyle: 3,
-    pictureUrl: null, alarmType: null,
+    pictureUrl: null, alarmType: null, detectionEvidence: ["person"],
   }, { model: "T8214", category: "eufy_security", deviceType: 94 }, true, true);
   assert.match(summary, /event_type=3103 message_type=18 notification_style=3 handling=doorbell_detection/);
+
+  const pressSummary = safePushLogSummary({
+    eventType: 3103, messageType: 18, notificationStyle: 3,
+    pictureUrl: null, alarmType: null, detectionEvidence: [],
+  }, { model: "T8214", category: "eufy_security", deviceType: 94 }, true, true);
+  assert.match(pressSummary, /event_type=3103 message_type=18 notification_style=3 handling=doorbell_press/);
 });
 
 test("shows the known T817L model in safe person-event logs", () => {

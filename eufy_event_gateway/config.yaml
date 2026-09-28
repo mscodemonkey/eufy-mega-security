@@ -1,5 +1,5 @@
 name: Eufy Mega Security
-version: "0.1.105"
+version: "0.1.106"
 slug: eufy_event_gateway
 description: Event-first Eufy camera bridge for Home Assistant
 url: https://github.com/mscodemonkey/eufy-mega-security

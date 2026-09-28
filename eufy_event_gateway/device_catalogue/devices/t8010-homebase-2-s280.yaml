@@ -15,7 +15,7 @@ models:
   - T8010
   - T80101D2
 device_type: 0
-notes: Protocol type 0 is shared with T8001 and T8002. Discovery is supported, but station state and ordinary controls still need HomeBase 2 testing.
+notes: Protocol type 0 is shared with T8001 and T8002. Discovery and read-only SD storage are reported working, while station state and ordinary controls still need HomeBase 2 testing.
 capabilities:
   readable:
     current_mode:
@@ -41,19 +41,26 @@ capabilities:
     storage_status:
       connections:
         direct:
-          status: unknown
+          status: reported
+          tested_on: 2026-09-28
+          tested_by: philMo2305
+          notes: The raw status value 26 is preserved as unknown_26 until its meaning is established.
       read:
         parameter: 1135
     storage_capacity:
       connections:
         direct:
-          status: unknown
+          status: reported
+          tested_on: 2026-09-28
+          tested_by: philMo2305
       read:
         field: sd_capacity
     storage_available:
       connections:
         direct:
-          status: unknown
+          status: reported
+          tested_on: 2026-09-28
+          tested_by: philMo2305
       read:
         field: sd_capacity_available
   controls:

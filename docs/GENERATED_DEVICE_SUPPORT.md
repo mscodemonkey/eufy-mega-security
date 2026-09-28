@@ -50,7 +50,7 @@ hardware evidence and topology-specific results remain in
 | T84A0, T81A0, T81A0111 | Solar Wall Light Cam S120 | 10005 | camera | supported |
 | T84A1, T84A1311 | Wired Wall Light Cam S100 | 151 | camera | supported |
 | T85V0, T85V01Y1, T85V0C, E85V0, E85V0JY1, T85V0JY1 | FamiLock S3 / S3 Max | 203 | camera | supported |
-| T8600 | eufyCam E330 (Professional) | 24 | camera | ready_to_test |
+| T8600 | eufyCam E330 (Professional) | 24 | camera | supported |
 | T8900, T89000D1, T89000D4 | Entry Sensor | 2 | sensor | ready_to_test |
 | T8910, T8910021 | Motion Sensor | 10 | sensor | ready_to_test |
 | T8920, T89200D1 | Water and Freeze Sensor | 20 | sensor | ready_to_test |
