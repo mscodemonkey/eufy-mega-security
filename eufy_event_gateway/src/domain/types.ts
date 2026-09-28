@@ -72,6 +72,9 @@ export interface CameraState {
   readonly autoNightVisionControlSupported: boolean;
   readonly timedLightControlSupported: boolean;
   readonly cameraSirenControlSupported: boolean;
+  readonly presetPositionControlSupported: boolean;
+  readonly aiTrackingControlSupported: boolean;
+  readonly autoCruiseControlSupported: boolean;
   readonly motionDetected: boolean;
   readonly personDetected: boolean;
   readonly strangerDetected: boolean;
@@ -194,7 +197,17 @@ export interface CameraIdentity {
   readonly autoNightVisionControlSupported?: boolean;
   readonly timedLightControlSupported?: boolean;
   readonly cameraSirenControlSupported?: boolean;
+  readonly presetPositionControlSupported?: boolean;
+  readonly aiTrackingControlSupported?: boolean;
+  readonly autoCruiseControlSupported?: boolean;
   readonly battery?: BatteryState | null;
+}
+
+/** Privacy-safe stored PTZ slot returned by a camera's live preset query. */
+export interface CameraPresetPosition {
+  readonly index: number;
+  readonly enabled: boolean;
+  readonly isDefault: boolean;
 }
 
 /** A previously known camera feature found in one device's discovery evidence. */

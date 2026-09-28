@@ -13,7 +13,7 @@
  */
 import { join } from "node:path";
 
-import type { BatteryState, CameraIdentity, DetectionKind, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
+import type { BatteryState, CameraIdentity, CameraPresetPosition, DetectionKind, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
 import { createLogger } from "../logging.js";
 import { MegaClient } from "../mega/client.js";
 import { decodeEventImage, isJpeg } from "../mega/image.js";
@@ -125,6 +125,11 @@ export function nightVisionModes(
   ];
 }
 
+/** Return whether live hardware has proven the model's preset query contract. */
+export function supportsPresetPositions(device: Pick<MegaInventoryDevice, "model">): boolean {
+  return device.model.toUpperCase().startsWith("T817L");
+}
+
 /** Safe, grouped inventory evidence suitable for copied support logs. */
 export interface InventoryLogSummary {
   readonly count: number;
@@ -175,6 +180,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #motionOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #nightVisionOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #lightOperations = new Map<string, Promise<void>>();
+  readonly #t817lControlOperations = new Map<string, Promise<void>>();
   readonly #pendingSensorMotionCloudConfirmations = new Set<string>();
   readonly #liveDeviceReads = new Map<string, MegaInventoryReads>();
   readonly #liveDeviceParamTypes = new Map<string, readonly number[]>();
@@ -566,6 +572,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#cameraOperations.clear();
     await Promise.allSettled(this.#lightOperations.values());
     this.#lightOperations.clear();
+    await Promise.allSettled(this.#t817lControlOperations.values());
+    this.#t817lControlOperations.clear();
     this.#pendingSensorMotionCloudConfirmations.clear();
     this.#liveDeviceReads.clear();
     this.#liveDeviceParamTypes.clear();
@@ -795,6 +803,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   #cameraIdentity(device: MegaInventoryDevice): CameraIdentity {
     const dskPeerSerials = new Set(this.#dskKeys.keys());
+    const t817lControlsSupported = supportsPresetPositions(device)
+      && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === true
+      && device.channel !== null
+      && device.adminUserId !== null
+      && isPpcsRouteReady(device, this.#devices, dskPeerSerials);
     return {
       serial: device.serial,
       name: device.name,
@@ -838,6 +851,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.channel !== null
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+      presetPositionControlSupported: t817lControlsSupported,
+      aiTrackingControlSupported: t817lControlsSupported,
+      autoCruiseControlSupported: t817lControlsSupported,
       battery: batteryState(device),
     };
   }
@@ -914,6 +930,101 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     } finally {
       session.close();
     }
+  }
+
+  /** Query privacy-safe preset occupancy over the camera's live HomeBase route. */
+  async getCameraPresetPositions(serial: string): Promise<readonly CameraPresetPosition[]> {
+    const device = this.#devices.get(serial);
+    if (!device || !isSupportedMegaCamera(device) || !supportsPresetPositions(device)) {
+      throw new Error("Camera preset positions are not supported for this camera");
+    }
+    await this.stopStream(serial);
+    const session = await this.#t817lControlSession(device);
+    try {
+      await session.start();
+      return await session.queryPresetPositions();
+    } finally {
+      session.close();
+    }
+  }
+
+  /** Move once to an enabled stored position after refreshing slot occupancy. */
+  selectCameraPresetPosition(serial: string, index: number): Promise<void> {
+    if (!Number.isSafeInteger(index) || index < 0 || index > 9) {
+      return Promise.reject(new Error("Camera preset index must be between 0 and 9"));
+    }
+    return this.#queueT817LControl(serial, "preset_position", async (session) => {
+      const positions = await session.queryPresetPositions();
+      if (!positions.some((position) => position.index === index && position.enabled)) {
+        throw new Error("Camera preset position is not enabled");
+      }
+      await session.selectPresetPosition(index);
+    });
+  }
+
+  /** Send the reversible AI-tracking action proven on local hardware. */
+  setCameraAiTracking(serial: string, enabled: boolean): Promise<void> {
+    return this.#queueT817LControl(serial, "ai_tracking", (session) => session.writeAiTracking(enabled));
+  }
+
+  /** Send the reversible automatic-cruise action proven on local hardware. */
+  setCameraAutoCruise(serial: string, enabled: boolean): Promise<void> {
+    return this.#queueT817LControl(serial, "auto_cruise", (session) => session.writeAutoCruise(enabled));
+  }
+
+  /** Serialize T817L actions and release any live session before taking control. */
+  #queueT817LControl(
+    serial: string,
+    action: string,
+    operation: (session: FirstPartyPpcsSession) => Promise<void>,
+  ): Promise<void> {
+    const previous = this.#t817lControlOperations.get(serial) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(async () => {
+      const device = this.#devices.get(serial);
+      if (!device || !isSupportedMegaCamera(device) || !supportsPresetPositions(device)) {
+        throw new Error("T817L pan and tracking controls are not supported for this camera");
+      }
+      await this.stopStream(serial);
+      const session = await this.#t817lControlSession(device);
+      try {
+        await session.start();
+        await operation(session);
+      } finally {
+        session.close();
+      }
+    }).catch((error: unknown) => {
+      logger.warn("camera_t817l_control_failed", `T817L camera control failed: action=${action} error=${safeError(error)}`);
+      throw error;
+    });
+    this.#t817lControlOperations.set(serial, current);
+    void current.finally(() => {
+      if (this.#t817lControlOperations.get(serial) === current) this.#t817lControlOperations.delete(serial);
+    }).catch(() => undefined);
+    return current;
+  }
+
+  /** Build one control session for the hardware-verified T817L action set. */
+  async #t817lControlSession(device: MegaInventoryDevice): Promise<FirstPartyPpcsSession> {
+    const route = ppcsStreamRoute(device, this.#devices);
+    const peer = route?.peer;
+    const dsk = peer ? await this.#dskKey(peer.serial) : null;
+    if (!route?.homeBaseAttached || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
+      throw new Error("Camera preset positions require a ready HomeBase-attached route");
+    }
+    return new FirstPartyPpcsSession({
+      stationSerial: peer.serial,
+      p2pDid: peer.p2pDid,
+      appConnection: peer.p2pConnection,
+      localAddress: peer.localAddress,
+      dskKey: dsk.key,
+      channel: device.channel,
+      cameraModel: device.model,
+      accountId: device.adminUserId,
+      homeBaseAttached: true,
+      purpose: "control",
+      maxSeconds: 40,
+      resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
+    });
   }
 
   /** Trigger or stop a HomeBase siren through the station-side duration command. */

@@ -73,6 +73,9 @@ export class SimulatedProvider implements CameraProvider {
       autoNightVisionControlSupported: false,
       timedLightControlSupported: true,
       cameraSirenControlSupported: true,
+      presetPositionControlSupported: false,
+      aiTrackingControlSupported: false,
+      autoCruiseControlSupported: false,
       battery: {
         supported: ["level", "charging", "health", "temperature", "lastChargingDays"],
         level: 82,
@@ -226,6 +229,30 @@ export class SimulatedProvider implements CameraProvider {
       throw new Error("Camera siren command is invalid");
     }
     this.#assertSerial(serial);
+  }
+
+  /** Return no stored PTZ positions because the fixed simulator has no pan motor. */
+  async getCameraPresetPositions(serial: string): Promise<readonly []> {
+    this.#assertSerial(serial);
+    return [];
+  }
+
+  /** Reject stored-position movement because the simulator has no pan motor. */
+  async selectCameraPresetPosition(serial: string, _index: number): Promise<void> {
+    this.#assertSerial(serial);
+    throw new Error("Simulated camera does not support preset positions");
+  }
+
+  /** Reject AI tracking because the simulator has no pan motor. */
+  async setCameraAiTracking(serial: string, _enabled: boolean): Promise<void> {
+    this.#assertSerial(serial);
+    throw new Error("Simulated camera does not support AI tracking");
+  }
+
+  /** Reject automatic cruise because the simulator has no pan motor. */
+  async setCameraAutoCruise(serial: string, _enabled: boolean): Promise<void> {
+    this.#assertSerial(serial);
+    throw new Error("Simulated camera does not support automatic cruise");
   }
 
   /** Accept a deterministic momentary light command for API and entity tests. */
