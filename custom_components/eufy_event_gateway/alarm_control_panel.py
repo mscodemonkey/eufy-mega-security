@@ -1,4 +1,4 @@
-"""HomeBase alarm entities for Eufy Mega Security.
+"""HomeBase and standalone-camera alarm entities for Eufy Mega Security.
 
 The gateway owns guard-mode commands and returns only confirmed station state.
 This platform maps that state to Home Assistant's alarm model while retaining
@@ -29,7 +29,7 @@ from .const import (
     GUARD_MODE_HOME,
 )
 from .coordinator import EufyGatewayCoordinator
-from .entity import EufyStationEntity
+from .entity import EufyGatewayEntity, EufyStationEntity
 
 
 async def async_setup_entry(
@@ -40,6 +40,7 @@ async def async_setup_entry(
     """Create one alarm panel for each HomeBase in the current inventory."""
     coordinator = entry.runtime_data.coordinator
     known: set[str] = set()
+    known_cameras: set[str] = set()
 
     def add_new() -> None:
         serials = {
@@ -51,6 +52,17 @@ async def async_setup_entry(
             known.update(serials)
             async_add_entities(
                 EufyHomeBaseAlarm(coordinator, serial) for serial in sorted(serials)
+            )
+        camera_serials = {
+            serial
+            for serial, camera in coordinator.cameras.items()
+            if camera.get("guardModeControlSupported") is True
+        } - known_cameras
+        if camera_serials:
+            known_cameras.update(camera_serials)
+            async_add_entities(
+                EufyStandaloneCameraAlarm(coordinator, serial)
+                for serial in sorted(camera_serials)
             )
 
     add_new()
@@ -141,6 +153,74 @@ class EufyHomeBaseAlarm(EufyStationEntity, AlarmControlPanelEntity):
         except GatewayClientError as error:
             raise HomeAssistantError(
                 f"Could not change HomeBase guard mode: {error}"
+            ) from error
+        finally:
+            self._pending_state = None
+            self.async_write_ha_state()
+
+
+class EufyStandaloneCameraAlarm(EufyGatewayEntity, AlarmControlPanelEntity):
+    """Expose confirmed security modes for an independently controlled camera.
+
+    The entity follows the camera's direct route and exists only when a known
+    model reports its guard-mode parameter. The gateway owns the write and
+    waits for fresh inventory readback before returning confirmed state.
+    """
+
+    _attr_translation_key = "eufy_standalone_camera_alarm"
+    _attr_code_format = None
+    _attr_code_arm_required = False
+    _attr_supported_features = (
+        AlarmControlPanelEntityFeature.ARM_AWAY
+        | AlarmControlPanelEntityFeature.ARM_HOME
+    )
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Bind a panel to one standalone camera serial."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        AlarmControlPanelEntity.__init__(self)
+        self._attr_unique_id = f"{serial}_alarm"
+        self._pending_state: AlarmControlPanelState | None = None
+
+    @property
+    def alarm_state(self) -> AlarmControlPanelState | None:
+        """Return the current direct-camera guard mode."""
+        if self._pending_state is not None:
+            return self._pending_state
+        return {
+            GUARD_MODE_AWAY: AlarmControlPanelState.ARMED_AWAY,
+            GUARD_MODE_HOME: AlarmControlPanelState.ARMED_HOME,
+            GUARD_MODE_DISARMED: AlarmControlPanelState.DISARMED,
+        }.get(self.camera.get("guardMode"))
+
+    async def async_alarm_arm_away(self, code: str | None = None) -> None:
+        """Arm this camera in Away mode."""
+        await self._async_set_mode(GUARD_MODE_AWAY, AlarmControlPanelState.ARMING)
+
+    async def async_alarm_arm_home(self, code: str | None = None) -> None:
+        """Arm this camera in Home mode."""
+        await self._async_set_mode(GUARD_MODE_HOME, AlarmControlPanelState.ARMING)
+
+    async def async_alarm_disarm(self, code: str | None = None) -> None:
+        """Disarm this camera."""
+        await self._async_set_mode(
+            GUARD_MODE_DISARMED, AlarmControlPanelState.DISARMING
+        )
+
+    async def _async_set_mode(
+        self, mode: int, pending: AlarmControlPanelState
+    ) -> None:
+        """Publish command progress and then the camera's confirmed mode."""
+        self._pending_state = pending
+        self.async_write_ha_state()
+        try:
+            camera = await self.coordinator.client.set_camera_guard_mode(
+                self.serial, mode
+            )
+            self.coordinator.async_set_camera(camera)
+        except GatewayClientError as error:
+            raise HomeAssistantError(
+                f"Could not change standalone camera guard mode: {error}"
             ) from error
         finally:
             self._pending_state = None

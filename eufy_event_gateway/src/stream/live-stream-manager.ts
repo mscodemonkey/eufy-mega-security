@@ -109,9 +109,38 @@ export interface ViewerDeliverySummary {
   readonly maximumClientWritableBytes: number;
 }
 
+/** Privacy-safe delivery evidence captured when one HTTP viewer disconnects. */
+export interface ViewerClientSummary {
+  readonly model: string;
+  readonly sourceCodec: VideoCodec | null;
+  readonly sourceActive: boolean;
+  readonly deliveryStarted: boolean;
+  readonly durationMilliseconds: number;
+  readonly firstByteDelayMilliseconds: number | null;
+  readonly lastByteAgeMilliseconds: number | null;
+  readonly deliveredBytes: number;
+  readonly deliveredChunks: number;
+  readonly backpressureEvents: number;
+  readonly maximumWritableBytes: number;
+  readonly sourceBytes: number;
+  readonly sourceChunks: number;
+}
+
+interface ViewerClientDelivery {
+  readonly requestedAtMilliseconds: number;
+  deliveryStarted: boolean;
+  firstWriteAtMilliseconds: number | null;
+  lastWriteAtMilliseconds: number | null;
+  deliveredBytes: number;
+  deliveredChunks: number;
+  backpressureEvents: number;
+  maximumWritableBytes: number;
+}
+
 interface Session {
   readonly clients: Set<ServerResponse>;
   readonly pendingClients: Set<ServerResponse>;
+  readonly clientDeliveries: Map<ServerResponse, ViewerClientDelivery>;
   readonly recordings: Set<Recording>;
   parameterSets: VideoParameterSetCache;
   state: "idle" | "starting" | "streaming" | "stopping" | "error";
@@ -321,6 +350,16 @@ export class LiveStreamManager extends EventEmitter {
     const session = this.#session(serial);
     this.#cancelStop(session);
     session.clients.add(response);
+    session.clientDeliveries.set(response, {
+      requestedAtMilliseconds: performance.now(),
+      deliveryStarted: false,
+      firstWriteAtMilliseconds: null,
+      lastWriteAtMilliseconds: null,
+      deliveredBytes: 0,
+      deliveredChunks: 0,
+      backpressureEvents: 0,
+      maximumWritableBytes: 0,
+    });
     const sourceBootstrap = session.parameterSets.bootstrap;
     const sourceCodec = session.parameterSets.codec;
     const viewerBootstrap = sourceCodec === "h265"
@@ -536,6 +575,7 @@ export class LiveStreamManager extends EventEmitter {
     const session = this.#session(serial);
     session.clients.delete(response);
     session.pendingClients.delete(response);
+    this.#emitViewerClientSummary(session, response);
     if (session.clients.size === 0) this.#stopViewerTranscoder(session);
     this.#updateState(serial, session);
     this.#scheduleStopIfUnused(serial, session);
@@ -718,7 +758,10 @@ export class LiveStreamManager extends EventEmitter {
       });
     }
     session.viewerClientStarts += 1;
-    response.write(bootstrap);
+    const delivery = session.clientDeliveries.get(response);
+    if (delivery) delivery.deliveryStarted = true;
+    const accepted = response.write(bootstrap);
+    this.#recordViewerClientWrite(session, response, bootstrap.length, accepted);
   }
 
   #writeViewerChunk(session: Session, chunk: Buffer): void {
@@ -728,6 +771,7 @@ export class LiveStreamManager extends EventEmitter {
       delivered = true;
       session.viewerClientWrites += 1;
       const accepted = client.write(chunk);
+      this.#recordViewerClientWrite(session, client, chunk.length, accepted);
       if (!accepted) session.viewerClientBackpressureEvents += 1;
       session.viewerMaximumClientWritableBytes = Math.max(
         session.viewerMaximumClientWritableBytes,
@@ -876,12 +920,57 @@ export class LiveStreamManager extends EventEmitter {
     this.emit("viewer-delivery-stopped", summary);
   }
 
+  #recordViewerClientWrite(
+    session: Session,
+    response: ServerResponse,
+    bytes: number,
+    accepted: boolean,
+  ): void {
+    const delivery = session.clientDeliveries.get(response);
+    if (!delivery) return;
+    const now = performance.now();
+    if (delivery.firstWriteAtMilliseconds === null) delivery.firstWriteAtMilliseconds = now;
+    delivery.lastWriteAtMilliseconds = now;
+    delivery.deliveredBytes += bytes;
+    delivery.deliveredChunks += 1;
+    if (!accepted) delivery.backpressureEvents += 1;
+    delivery.maximumWritableBytes = Math.max(delivery.maximumWritableBytes, response.writableLength);
+  }
+
+  #emitViewerClientSummary(session: Session, response: ServerResponse): void {
+    const delivery = session.clientDeliveries.get(response);
+    if (!delivery) return;
+    session.clientDeliveries.delete(response);
+    const now = performance.now();
+    const summary: ViewerClientSummary = {
+      model: session.model,
+      sourceCodec: session.parameterSets.codec,
+      sourceActive: session.source !== null,
+      deliveryStarted: delivery.deliveryStarted,
+      durationMilliseconds: Math.round(Math.max(0, now - delivery.requestedAtMilliseconds)),
+      firstByteDelayMilliseconds: delivery.firstWriteAtMilliseconds === null
+        ? null
+        : Math.round(Math.max(0, delivery.firstWriteAtMilliseconds - delivery.requestedAtMilliseconds)),
+      lastByteAgeMilliseconds: delivery.lastWriteAtMilliseconds === null
+        ? null
+        : Math.round(Math.max(0, now - delivery.lastWriteAtMilliseconds)),
+      deliveredBytes: delivery.deliveredBytes,
+      deliveredChunks: delivery.deliveredChunks,
+      backpressureEvents: delivery.backpressureEvents,
+      maximumWritableBytes: delivery.maximumWritableBytes,
+      sourceBytes: session.sourceBytes,
+      sourceChunks: session.sourceChunks,
+    };
+    this.emit("viewer-client-stopped", summary);
+  }
+
   #session(serial: string): Session {
     let session = this.#sessions.get(serial);
     if (!session) {
       session = {
         clients: new Set(),
         pendingClients: new Set(),
+        clientDeliveries: new Map(),
         recordings: new Set(),
         parameterSets: new VideoParameterSetCache(),
         state: "idle",

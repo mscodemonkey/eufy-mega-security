@@ -19,6 +19,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import (
     PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     UnitOfInformation,
     UnitOfTemperature,
     UnitOfTime,
@@ -90,22 +91,30 @@ async def async_setup_entry(
         storage_station_serials = {
             serial
             for serial, station in coordinator.stations.items()
-            if station.get("controlsSupported") is True
+            if station.get("storageSupported")
         } - known_storage_stations
         if storage_station_serials:
             known_storage_stations.update(storage_station_serials)
             entities = []
             for serial in sorted(storage_station_serials):
-                entities.extend(
-                    (
-                        EufyStorageSensor(coordinator, serial, "emmc", "totalBytes"),
-                        EufyStorageSensor(coordinator, serial, "emmc", "freeBytes"),
-                        EufyStorageStatusSensor(coordinator, serial, "emmc"),
-                        EufyStorageSensor(coordinator, serial, "hdd", "totalBytes"),
-                        EufyStorageSensor(coordinator, serial, "hdd", "freeBytes"),
-                        EufyStorageStatusSensor(coordinator, serial, "hdd"),
+                for medium in coordinator.stations[serial].get(
+                    "storageSupported", []
+                ):
+                    if medium not in ("sd", "emmc", "hdd"):
+                        continue
+                    entities.extend(
+                        (
+                            EufyStorageSensor(
+                                coordinator, serial, medium, "totalBytes"
+                            ),
+                            EufyStorageSensor(
+                                coordinator, serial, medium, "freeBytes"
+                            ),
+                            EufyStorageStatusSensor(
+                                coordinator, serial, medium
+                            ),
+                        )
                     )
-                )
             async_add_entities(entities)
 
         sensor_serials = set(coordinator.sensors) - known_sensors
@@ -118,6 +127,8 @@ async def async_setup_entry(
                     entities.append(EufyStandaloneBatterySensor(coordinator, serial))
                 if "lastSeen" in capabilities:
                     entities.append(EufySensorLastSeen(coordinator, serial))
+                if "rssi" in capabilities:
+                    entities.append(EufySensorSignalStrength(coordinator, serial))
             async_add_entities(entities)
 
     add_new()
@@ -288,6 +299,33 @@ class EufySensorLastSeen(EufySecuritySensorEntity, SensorEntity):
         return dt_util.parse_datetime(value) if isinstance(value, str) else None
 
 
+class EufySensorSignalStrength(EufySecuritySensorEntity, SensorEntity):
+    """Expose the accessory-reported link strength without inventing bars.
+
+    Parameter 1141 is shared by supported contact sensors, motion sensors, and
+    keypads. The gateway validates its numeric range and this entity presents
+    the retained dBm reading as a diagnostic measurement.
+    """
+
+    _attr_translation_key = "signal_strength"
+    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+    _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Create a stable signal-strength entity for one accessory."""
+        EufySecuritySensorEntity.__init__(self, coordinator, serial)
+        SensorEntity.__init__(self)
+        self._attr_unique_id = f"{serial}_rssi"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the latest validated raw dBm value."""
+        value = self.sensor.get("rssi")
+        return value if isinstance(value, (int, float)) else None
+
+
 class EufyGuardModeSensor(EufyStationEntity, SensorEntity):
     """Expose a read-only configured mode for a station without proven writes."""
 
@@ -339,7 +377,7 @@ class EufyStorageSensor(EufyStationEntity, SensorEntity):
     """Expose total or free capacity for one HomeBase storage medium.
 
     The gateway reports bytes, while this entity presents decimal gigabytes to
-    Home Assistant. Missing HDD or eMMC records remain unknown rather than
+    Home Assistant. Missing SD, HDD, or eMMC records remain unknown rather than
     appearing as zero-capacity media.
     """
 
@@ -356,12 +394,12 @@ class EufyStorageSensor(EufyStationEntity, SensorEntity):
         medium: str,
         property_name: str,
     ) -> None:
-        """Create a storage capacity sensor for eMMC or HDD."""
+        """Create a storage capacity sensor for one supported medium."""
         EufyStationEntity.__init__(self, coordinator, serial)
         SensorEntity.__init__(self)
         self.medium = medium
         self.property_name = property_name
-        medium_label = "eMMC" if medium == "emmc" else "HDD"
+        medium_label = {"sd": "SD card", "emmc": "eMMC", "hdd": "HDD"}[medium]
         self._attr_translation_key = (
             "storage_total" if property_name == "totalBytes" else "storage_free"
         )
@@ -381,7 +419,7 @@ class EufyStorageStatusSensor(EufyStationEntity, SensorEntity):
     """Expose the gateway-reported health label for one storage medium.
 
     This diagnostic shares the station's lifecycle and returns unknown when the
-    selected HDD or eMMC record is absent; it does not infer health from free
+    selected SD, HDD, or eMMC record is absent; it does not infer health from free
     capacity or connection state.
     """
 
@@ -391,11 +429,11 @@ class EufyStorageStatusSensor(EufyStationEntity, SensorEntity):
     def __init__(
         self, coordinator: EufyGatewayCoordinator, serial: str, medium: str
     ) -> None:
-        """Create a storage status sensor for eMMC or HDD."""
+        """Create a storage status sensor for one supported medium."""
         EufyStationEntity.__init__(self, coordinator, serial)
         SensorEntity.__init__(self)
         self.medium = medium
-        medium_label = "eMMC" if medium == "emmc" else "HDD"
+        medium_label = {"sd": "SD card", "emmc": "eMMC", "hdd": "HDD"}[medium]
         self._attr_translation_key = "storage_status"
         self._attr_translation_placeholders = {"medium": medium_label}
         self._attr_unique_id = f"{serial}_{medium}_status"

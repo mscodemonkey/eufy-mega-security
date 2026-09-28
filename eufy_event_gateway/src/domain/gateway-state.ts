@@ -42,6 +42,8 @@ interface MutableCameraState {
   dogDetected: boolean;
   cryingDetected: boolean;
   soundDetected: boolean;
+  packageDeliveredDetected: boolean;
+  packageTakenDetected: boolean;
   packageStrandedDetected: boolean;
   doorbellPressed: boolean;
   lastDetection: Detection | null;
@@ -109,6 +111,8 @@ export class GatewayState extends EventEmitter {
         dogDetected: false,
         cryingDetected: false,
         soundDetected: false,
+        packageDeliveredDetected: false,
+        packageTakenDetected: false,
         packageStrandedDetected: false,
         doorbellPressed: false,
         lastDetection: null,
@@ -250,7 +254,7 @@ export class GatewayState extends EventEmitter {
     occurredAt = new Date(),
   ): void {
     const camera = this.#requireCamera(serial);
-    const field = `${kind}Detected` as keyof Pick<MutableCameraState, "strangerDetected" | "petDetected" | "vehicleDetected" | "dogDetected" | "cryingDetected" | "soundDetected" | "packageStrandedDetected">;
+    const field = `${kind}Detected` as keyof Pick<MutableCameraState, "strangerDetected" | "petDetected" | "vehicleDetected" | "dogDetected" | "cryingDetected" | "soundDetected" | "packageDeliveredDetected" | "packageTakenDetected" | "packageStrandedDetected">;
     camera[field] = detected;
     if (kind !== "crying" && kind !== "sound") this.#refreshAggregateMotion(camera);
     const timerKey = `${serial}:${kind}`;
@@ -445,6 +449,8 @@ export class GatewayState extends EventEmitter {
       enableControlSupported: camera.identity.enableControlSupported ?? false,
       motionDetectionEnabled: camera.identity.motionDetectionEnabled ?? null,
       motionDetectionControlSupported: camera.identity.motionDetectionControlSupported ?? false,
+      guardMode: camera.identity.guardMode ?? null,
+      guardModeControlSupported: camera.identity.guardModeControlSupported ?? false,
       nightVisionMode: camera.identity.nightVisionMode ?? null,
       nightVisionModes: camera.identity.nightVisionModes ?? [],
       nightVisionControlSupported: camera.identity.nightVisionControlSupported ?? false,
@@ -463,6 +469,8 @@ export class GatewayState extends EventEmitter {
       dogDetected: camera.dogDetected,
       cryingDetected: camera.cryingDetected,
       soundDetected: camera.soundDetected,
+      packageDeliveredDetected: camera.packageDeliveredDetected,
+      packageTakenDetected: camera.packageTakenDetected,
       packageStrandedDetected: camera.packageStrandedDetected,
       doorbellPressed: camera.doorbellPressed,
       battery: camera.identity.battery ?? null,
@@ -505,6 +513,8 @@ export class GatewayState extends EventEmitter {
       camera.petDetected ||
       camera.vehicleDetected ||
       camera.dogDetected ||
+      camera.packageDeliveredDetected ||
+      camera.packageTakenDetected ||
       camera.packageStrandedDetected;
   }
 

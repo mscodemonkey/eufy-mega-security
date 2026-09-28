@@ -29,6 +29,7 @@ export const HOMEBASE_CAPABILITY_CORE: readonly CoreCapabilityEntry[] = [
   { id: "homebase.prompt_volume_write", family: "audio", kind: "action", evidenceParamIds: [], gatewaySupport: "implemented", requiresRoute: true },
   { id: "homebase.alarm_tone", family: "audio", kind: "read", evidenceParamIds: [], gatewaySupport: "implemented", requiresRoute: true },
   { id: "homebase.alarm_tone_write", family: "audio", kind: "action", evidenceParamIds: [], gatewaySupport: "implemented", requiresRoute: true },
+  { id: "homebase.sd_storage", family: "storage", kind: "read", evidenceParamIds: [], gatewaySupport: "implemented", requiresRoute: true, note: "HomeBase 2 SD status and capacity use the generation-specific local query." },
   { id: "homebase.emmc_storage", family: "storage", kind: "read", evidenceParamIds: [], gatewaySupport: "implemented", requiresRoute: true, note: "Status and capacity appear only after a successful station read." },
   { id: "homebase.hdd_storage", family: "storage", kind: "read", evidenceParamIds: [], gatewaySupport: "implemented", requiresRoute: true, note: "A missing HDD is not a failed read." },
 ] as const;

@@ -32,6 +32,8 @@ export type DetectionKind =
   | "dog"
   | "crying"
   | "sound"
+  | "packageDelivered"
+  | "packageTaken"
   | "packageStranded"
   | "doorbell";
 
@@ -65,6 +67,8 @@ export interface CameraState {
   readonly enableControlSupported: boolean;
   readonly motionDetectionEnabled: boolean | null;
   readonly motionDetectionControlSupported: boolean;
+  readonly guardMode: number | null;
+  readonly guardModeControlSupported: boolean;
   readonly nightVisionMode: number | null;
   readonly nightVisionModes: readonly NightVisionMode[];
   readonly nightVisionControlSupported: boolean;
@@ -83,6 +87,8 @@ export interface CameraState {
   readonly dogDetected: boolean;
   readonly cryingDetected: boolean;
   readonly soundDetected: boolean;
+  readonly packageDeliveredDetected: boolean;
+  readonly packageTakenDetected: boolean;
   readonly packageStrandedDetected: boolean;
   readonly doorbellPressed: boolean;
   readonly battery: BatteryState | null;
@@ -119,14 +125,15 @@ export interface SecuritySensorState {
   readonly model: string;
   readonly deviceType: number;
   readonly available: boolean;
-  readonly capabilities: readonly ("battery" | "contact" | "lastSeen" | "motion")[];
+  readonly capabilities: readonly ("battery" | "contact" | "lastSeen" | "motion" | "rssi")[];
   readonly batteryLevel: number | null;
   readonly contactOpen: boolean | null;
   readonly lastSeen: string | null;
   readonly motionDetected: boolean;
+  readonly rssi: number | null;
 }
 
-/** One physical storage device reported by a HomeBase 3. */
+/** One physical storage device reported by a HomeBase. */
 export interface HomeBaseStorageState {
   readonly status: string | null;
   readonly totalBytes: number | null;
@@ -160,7 +167,11 @@ export interface HomeBaseState {
   readonly alarmVolume: number | null;
   readonly promptVolume: number | null;
   readonly alarmTone: number | null;
+
+  /** Storage media whose local read protocol is known for this station model. */
+  readonly storageSupported: readonly ("sd" | "emmc" | "hdd")[];
   readonly storage: {
+    readonly sd: HomeBaseStorageState | null;
     readonly emmc: HomeBaseStorageState | null;
     readonly hdd: HomeBaseStorageState | null;
   };
@@ -190,6 +201,8 @@ export interface CameraIdentity {
   readonly enableControlSupported?: boolean;
   readonly motionDetectionEnabled?: boolean | null;
   readonly motionDetectionControlSupported?: boolean;
+  readonly guardMode?: number | null;
+  readonly guardModeControlSupported?: boolean;
   readonly nightVisionMode?: number | null;
   readonly nightVisionModes?: readonly NightVisionMode[];
   readonly nightVisionControlSupported?: boolean;

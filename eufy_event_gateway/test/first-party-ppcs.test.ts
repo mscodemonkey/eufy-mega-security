@@ -19,6 +19,7 @@ import {
   acceptsAttachedCameraMedia,
   buildPpcsCloudLookup,
   buildStandaloneJsonControlPayload,
+  buildStandaloneGuardModeValue,
   buildStandaloneLiveStartPayload,
   buildTimedCameraLightControlValue,
   decodePpcsVideoFrame,
@@ -110,6 +111,23 @@ test("builds the app-confirmed T817L pan and tracking payloads", () => {
   assert.throws(() => buildAiTrackingControlData(true, -1), /non-negative whole number/);
 });
 
+test("builds the direct standalone-camera guard-mode value", () => {
+  assert.deepEqual(
+    JSON.parse(buildStandaloneGuardModeValue("account-owner", "Home Assistant", 63)),
+    {
+      account_id: "account-owner",
+      cmd: 1224,
+      mChannel: 0,
+      mValue3: 0,
+      payload: { mode_type: 63, user_name: "Home Assistant" },
+    },
+  );
+  assert.throws(
+    () => buildStandaloneGuardModeValue("account-owner", "Home Assistant", 2),
+    /Unsupported standalone camera guard mode/,
+  );
+});
+
 test("builds the T8210-family Auto night vision direct command body", () => {
   const key = Buffer.from("0123456789abcdef", "ascii");
   const body = buildAutoNightVisionCommandBody(4, false, "account-owner", key);
@@ -145,7 +163,7 @@ test("reissues a standalone start only while codec headers are missing", () => {
 });
 
 test("accepts both PPCS cloud candidate response forms", () => {
-  for (const header of [[0xf1, 0x40], [0xf1, 0x82]]) {
+  for (const header of [[0xf1, 0x40], [0xf1, 0x82], [0xf1, 0x41]]) {
     const response = Buffer.alloc(24);
     response.set(header, 0);
     response.writeUInt16LE(32_108, 6);

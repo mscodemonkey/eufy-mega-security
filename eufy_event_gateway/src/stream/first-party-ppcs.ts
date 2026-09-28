@@ -461,9 +461,12 @@ export function buildPpcsCloudLookup(
   };
 }
 
-/** Read a peer candidate from either PPCS cloud lookup response form. */
+/** Read an advertised peer candidate from a LAN or cloud lookup response. */
 export function ppcsLookupCandidate(message: Buffer): { readonly host: string; readonly port: number } | null {
-  if ((!has(message, RESP.lookupAddr) && !has(message, RESP.lookupAddr2)) || message.length < 12) return null;
+  if (
+    (!has(message, RESP.lookupAddr) && !has(message, RESP.lookupAddr2) && !has(message, RESP.localLookup))
+    || message.length < 12
+  ) return null;
   return {
     port: message.readUInt16LE(6),
     host: `${message[11]}.${message[10]}.${message[9]}.${message[8]}`,
@@ -749,6 +752,18 @@ interface PendingControlQuery {
   readonly timer: ReturnType<typeof setTimeout>;
 }
 
+/** One validated camera-info row returned by the read-only PPCS query. */
+export interface PpcsCameraInfoParam {
+  readonly param_type: number;
+  readonly param_value: string | number | boolean;
+}
+
+interface PendingCameraInfo {
+  readonly resolve: (params: readonly PpcsCameraInfoParam[]) => void;
+  readonly reject: (error: Error) => void;
+  readonly timer: ReturnType<typeof setTimeout>;
+}
+
 /** Build the JSON carried by a command-1700 camera control query. */
 export function buildCameraControlQueryValue(
   commandType: number,
@@ -857,6 +872,8 @@ export class FirstPartyPpcsSession {
     incompleteAccessUnitBytes: 0,
     foreignVideoFrames: 0,
     batteryHistory: "not-reported",
+    cameraInfoParamTypes: [] as number[],
+    standaloneGuardMode: null as number | null,
     firstDataHex: "",
     cipherId: 0,
     level2Error: "",
@@ -919,6 +936,7 @@ export class FirstPartyPpcsSession {
   #selfAddress: { host: string; port: number } | null = null;
   #pendingControl: PendingControl | null = null;
   #pendingControlQuery: PendingControlQuery | null = null;
+  #pendingCameraInfo: PendingCameraInfo | null = null;
 
   /** Return the codec proven by emitted NAL headers, or frame metadata as a fallback. */
   get videoCodec(): VideoCodec | null {
@@ -1039,17 +1057,58 @@ export class FirstPartyPpcsSession {
     await acknowledgement;
   }
 
+  /** Send the standalone 1224 mode command over the camera's direct route. */
+  async writeStandaloneGuardMode(mode: number, userName: string): Promise<void> {
+    if (this.#options.purpose !== "control") throw new Error("Guard-mode control requires a control session");
+    if (!this.#remote) throw new Error("Guard-mode control session is not connected");
+    if (this.#options.homeBaseAttached) throw new Error("Standalone guard-mode control requires a direct camera route");
+    if (![0, 1, 63].includes(mode)) throw new Error("Unsupported standalone camera guard mode");
+    const accountId = this.#options.accountId;
+    if (!accountId || !userName) throw new Error("Standalone guard-mode account identity is unavailable");
+    const value = buildStandaloneGuardModeValue(
+      accountId,
+      userName,
+      mode,
+    );
+    const encrypted = encryptLevel1(
+      Buffer.from(value),
+      commandKey(this.#options.stationSerial, this.#options.p2pDid),
+    );
+    this.#sendCommand(1350, rawPayload(encrypted, 0, 1, [1, 0], 0));
+  }
+
+  /** Read the camera parameter table without changing device state. */
+  readCameraInfo(): Promise<readonly PpcsCameraInfoParam[]> {
+    if (this.#options.purpose !== "control") {
+      return Promise.reject(new Error("Camera-info refresh requires a control session"));
+    }
+    if (!this.#remote) return Promise.reject(new Error("Camera-info session is not connected"));
+    if (this.#options.homeBaseAttached) {
+      return Promise.reject(new Error("Direct camera-info refresh does not support a HomeBase route"));
+    }
+    if (this.#pendingCameraInfo) {
+      return Promise.reject(new Error("Camera-info refresh is already in progress"));
+    }
+    return new Promise<readonly PpcsCameraInfoParam[]>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.#pendingCameraInfo = null;
+        reject(new Error("Camera-info refresh timed out"));
+      }, CONTROL_TIMEOUT_MILLISECONDS);
+      this.#pendingCameraInfo = { resolve, reject, timer };
+      this.#sendCommand(1103, voidPayload(this.#options.channel));
+    });
+  }
+
   /**
    * Send the verified command-1011 motion switch and await its result.
    *
-   * The HomeBase route requires an established level-two key. Three identical
-   * transmissions tolerate loss on the UDP and HomeBase radio hops while one
-   * acknowledgement slot owns the operation's final result.
+   * Both standalone and HomeBase-attached routes use the level-two direct
+   * binary form. Three identical transmissions tolerate loss on the UDP path
+   * while one acknowledgement slot owns the operation's final result.
    */
   async writeMotionDetection(enabled: boolean): Promise<void> {
     if (this.#options.purpose !== "control") throw new Error("Motion control requires a control session");
     if (!this.#remote) throw new Error("Motion control session is not connected");
-    if (!this.#options.homeBaseAttached) throw new Error("Motion control requires a HomeBase-attached camera");
     const accountId = this.#options.accountId;
     if (!accountId) throw new Error("Motion control account identity is unavailable");
     await this.#waitForLevel2Key();
@@ -1219,6 +1278,11 @@ export class FirstPartyPpcsSession {
       this.#pendingControlQuery.reject(new Error("Camera control session closed before query response"));
       this.#pendingControlQuery = null;
     }
+    if (this.#pendingCameraInfo) {
+      clearTimeout(this.#pendingCameraInfo.timer);
+      this.#pendingCameraInfo.reject(new Error("Camera-info session closed before readback"));
+      this.#pendingCameraInfo = null;
+    }
     this.#videoAssembler.reset();
     if (this.#options.purpose !== "control" && this.#options.homeBaseAttached) {
       this.#stopAttachedMedia();
@@ -1260,7 +1324,14 @@ export class FirstPartyPpcsSession {
   #handle(message: Buffer, info: RemoteInfo): boolean {
     if (has(message, RESP.localLookup)) {
       this.stats.localLookupCandidates++;
-      this.#checkCandidate({ host: info.address, port: info.port });
+      const source = { host: info.address, port: info.port };
+      this.#checkCandidate(source);
+      const advertised = ppcsLookupCandidate(message);
+      if (
+        advertised
+        && advertised.host !== "0.0.0.0"
+        && (advertised.host !== source.host || advertised.port !== source.port)
+      ) this.#checkCandidate(advertised);
       return false;
     }
     const candidate = ppcsLookupCandidate(message);
@@ -1516,11 +1587,11 @@ export class FirstPartyPpcsSession {
   }
 
   /**
-   * Inspect command 1103 for the battery-history response shape.
+   * Inspect command 1103 for reusable capability and battery-history evidence.
    *
    * The payload may use level-one or negotiated level-two protection. Once
-   * decoded, only the schema of parameter 3100 is recorded. Its timestamps,
-   * usage values, and other reporter-specific content never enter diagnostics.
+   * decoded, only parameter identifiers, the bounded guard-mode enum, and the
+   * schema of parameter 3100 are recorded. Other values never enter diagnostics.
    */
   #inspectCameraInfo(payload: Buffer, signCode: number): void {
     let clear = payload;
@@ -1534,6 +1605,34 @@ export class FirstPartyPpcsSession {
     try {
       const decoded: unknown = JSON.parse(text);
       if (!isRecord(decoded) || !Array.isArray(decoded.params)) return;
+      const params = decoded.params.flatMap((candidate): PpcsCameraInfoParam[] => (
+        isRecord(candidate)
+        && Number.isSafeInteger(candidate.param_type)
+        && (typeof candidate.param_value === "string"
+          || typeof candidate.param_value === "number"
+          || typeof candidate.param_value === "boolean")
+          ? [{
+            param_type: candidate.param_type as number,
+            param_value: candidate.param_value as string | number | boolean,
+          }]
+          : []
+      ));
+      this.stats.cameraInfoParamTypes = [...new Set(params.map(({ param_type }) => param_type))]
+        .sort((left, right) => left - right)
+        .slice(0, 256);
+      const guardMode = params.find(({ param_type }) => param_type === 1224);
+      if (guardMode) {
+        const parsed = Number(guardMode.param_value);
+        if ([0, 1, 2, 3, 4, 5, 6, 47, 63].includes(parsed)) {
+          this.stats.standaloneGuardMode = parsed;
+        }
+      }
+      if (this.#pendingCameraInfo) {
+        const pending = this.#pendingCameraInfo;
+        this.#pendingCameraInfo = null;
+        clearTimeout(pending.timer);
+        pending.resolve(params);
+      }
       const entry = decoded.params.find((candidate) => isRecord(candidate) && candidate.param_type === 3100);
       if (!isRecord(entry) || typeof entry.param_value !== "string") return;
       this.stats.batteryHistory = batteryHistoryProbeSummary(entry.param_value);
@@ -1543,26 +1642,27 @@ export class FirstPartyPpcsSession {
   }
 
   /**
-   * Serialize HomeBase gateway-info handling while an ECC key is being found.
+   * Serialize gateway-info handling while an ECC key is being found.
    *
-   * HomeBase may retransmit command 1100. Sharing the active promise prevents
+   * A peer may retransmit command 1100. Sharing the active promise prevents
    * duplicate asynchronous key resolution and competing media starts.
    */
   async #handleGatewayInfo(payload: Buffer): Promise<void> {
     if (this.#gatewayPromise) return this.#gatewayPromise;
-    if (!this.#options.homeBaseAttached || this.#level2Key || !this.#options.resolveCipherKey || payload.length < 133) return;
+    if (this.#level2Key || !this.#options.resolveCipherKey || payload.length < 133) return;
     this.#gatewayPromise = this.#deriveLevel2(payload);
     try { await this.#gatewayPromise; } finally { this.#gatewayPromise = null; }
   }
 
   /**
-   * Derive the HomeBase level-two control key from command 1100.
+   * Derive the peer's level-two control key from command 1100.
    *
    * The outer envelope uses the deterministic level-one command key. Its
    * cipher identifier selects an ECC private key supplied by the provider,
-   * which unwraps the per-session AES key. Media startup is delayed until this
-   * chain succeeds because attached-camera lifecycle commands require level
-   * two protection.
+   * which unwraps the per-session AES key. Attached-camera media startup is
+   * delayed until this chain succeeds because its lifecycle commands require
+   * level-two protection. Standalone control sessions can use the same key for
+   * direct-binary commands without changing their level-one media behaviour.
    */
   async #deriveLevel2(payload: Buffer): Promise<void> {
     let plainPayload: Buffer;
@@ -1580,7 +1680,7 @@ export class FirstPartyPpcsSession {
     if (this.#options.purpose !== "control") this.#startAttachedMedia();
   }
 
-  /** Wait for in-progress gateway negotiation before an attached control write. */
+  /** Wait for in-progress gateway negotiation before a level-two control write. */
   async #waitForLevel2Key(): Promise<void> {
     const deadline = Date.now() + CONTROL_TIMEOUT_MILLISECONDS;
     while (!this.#level2Key && !this.stats.level2Error && Date.now() < deadline) {
@@ -1815,6 +1915,23 @@ function buildIntStringCommandBody(value: number, valueSub: number, accountId: s
   Buffer.from(accountId).copy(accountBuffer);
   const plain = Buffer.concat([valueSubBuffer, valueBuffer, accountBuffer]);
   return rawPayload(encryptLevel1(plain, key), valueSub, 1, [1, 0], 0);
+}
+
+/** Build the wrapped standalone-camera security-mode command value. */
+export function buildStandaloneGuardModeValue(
+  accountId: string,
+  userName: string,
+  mode: number,
+): string {
+  if (!accountId || !userName) throw new Error("Standalone guard mode requires account identity");
+  if (![0, 1, 63].includes(mode)) throw new Error("Unsupported standalone camera guard mode");
+  return JSON.stringify({
+    account_id: accountId,
+    cmd: 1224,
+    mChannel: 0,
+    mValue3: 0,
+    payload: { mode_type: mode, user_name: userName },
+  });
 }
 
 /**

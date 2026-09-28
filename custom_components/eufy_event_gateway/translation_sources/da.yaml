@@ -3,9 +3,27 @@ entity:
   button:
     compatibility_report:
       name: Hjælp med at teste denne enhed
+    camera_light_on:
+      name: Tænd kameralys
+    camera_light_off:
+      name: Sluk kameralys
+    camera_preset:
+      name: Gå til forudindstilling {number}
+    camera_preset_default:
+      name: Gå til standardforudindstilling
+    camera_ai_tracking_on:
+      name: Aktivér AI-sporing
+    camera_ai_tracking_off:
+      name: Deaktivér AI-sporing
+    camera_auto_cruise_on:
+      name: Start automatisk patruljering
+    camera_auto_cruise_off:
+      name: Stop automatisk patruljering
   alarm_control_panel:
     eufy_home_base_alarm:
       name: Alarm
+    eufy_standalone_camera_alarm:
+      name: Kameraalarm
   binary_sensor:
     motion_detection:
       name: Bevægelse
@@ -25,6 +43,10 @@ entity:
       name: Græder
     sound_detection:
       name: Lyd
+    package_delivered:
+      name: Pakke leveret
+    package_taken:
+      name: Pakke afhentet
     package_stranded:
       name: Pakke leveret
     battery_charging:
@@ -77,6 +99,8 @@ entity:
       name: Dage siden sidste opladning
     last_seen:
       name: Sidst set
+    signal_strength:
+      name: Signalstyrke
     eufy_guard_mode_sensor:
       name: Beskyttelsestilstand
       state:

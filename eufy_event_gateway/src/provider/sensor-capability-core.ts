@@ -19,4 +19,5 @@ export const SENSOR_CAPABILITY_CORE: readonly CoreCapabilityEntry[] = [
   { id: "sensor.motion_event", family: "motion", kind: "event", evidenceParamIds: [1605], gatewaySupport: "implemented", baselineWithoutParam: true, note: "Push code 14 is realtime. A later cloud timestamp provides a delayed fallback without enabling test mode." },
   { id: "sensor.battery_level", family: "battery", kind: "read", evidenceParamIds: [1101], gatewaySupport: "implemented", note: "Refreshed from validated Mega inventory values." },
   { id: "sensor.last_seen", family: "diagnostic", kind: "read", evidenceParamIds: [1551, 1605], gatewaySupport: "implemented", note: "Normalized from the family-specific cloud event timestamp." },
+  { id: "sensor.rssi", family: "diagnostic", kind: "read", evidenceParamIds: [1141], gatewaySupport: "implemented", note: "Reported directly by the accessory in dBm without conversion to bars." },
 ] as const;

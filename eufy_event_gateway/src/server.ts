@@ -150,6 +150,18 @@ export class GatewayServer {
       }
       if (
         request.method === "POST" &&
+        segments[0] === "api" && segments[1] === "cameras" && segments[3] === "refresh-capabilities" && segments.length === 4
+      ) {
+        return await this.#cameraCapabilityRefresh(segments[2]!, response);
+      }
+      if (
+        request.method === "POST" &&
+        segments[0] === "api" && segments[1] === "cameras" && segments[3] === "guard-mode" && segments.length === 4
+      ) {
+        return await this.#cameraGuardMode(request, segments[2]!, response);
+      }
+      if (
+        request.method === "POST" &&
         segments[0] === "api" && segments[1] === "cameras" && segments[3] === "night-vision" && segments.length === 4
       ) {
         return await this.#cameraNightVision(request, segments[2]!, response);
@@ -306,6 +318,19 @@ export class GatewayServer {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     const body = await readJson(request);
     const identity = await this.provider.setCameraMotionDetection(serial, requiredBoolean(body.enabled));
+    return json(response, 200, this.state.registerCamera(identity));
+  }
+
+  async #cameraCapabilityRefresh(serial: string, response: ServerResponse): Promise<void> {
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    const identity = await this.provider.refreshCameraCapabilities(serial);
+    return json(response, 200, this.state.registerCamera(identity));
+  }
+
+  async #cameraGuardMode(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    const body = await readJson(request);
+    const identity = await this.provider.setCameraGuardMode(serial, requiredInteger(body.mode));
     return json(response, 200, this.state.registerCamera(identity));
   }
 

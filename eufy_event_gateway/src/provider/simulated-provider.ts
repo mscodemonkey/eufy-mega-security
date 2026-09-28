@@ -35,7 +35,9 @@ function simulatedStation(overrides: Partial<HomeBaseState> = {}): HomeBaseState
     alarmVolume: 20,
     promptVolume: 12,
     alarmTone: 1,
+    storageSupported: ["emmc", "hdd"],
     storage: {
+      sd: null,
       emmc: { status: "healthy", totalBytes: 16_000_000_000, freeBytes: 12_000_000_000 },
       hdd: null,
     },
@@ -96,6 +98,7 @@ export class SimulatedProvider implements CameraProvider {
       contactOpen: false,
       lastSeen: new Date().toISOString(),
       motionDetected: false,
+      rssi: null,
     });
     events.station(this.#station);
     events.inventory([{
@@ -192,6 +195,29 @@ export class SimulatedProvider implements CameraProvider {
     };
     this.#events?.camera(identity);
     return identity;
+  }
+
+  /** Apply deterministic standalone guard-mode state for API tests. */
+  async setCameraGuardMode(serial: string, mode: number): Promise<CameraIdentity> {
+    this.#assertSerial(serial);
+    const identity: CameraIdentity = {
+      serial: SimulatedProvider.serial,
+      name: "Simulated driveway",
+      model: "T8170",
+      stationSerial: SimulatedProvider.serial,
+      streamSupported: true,
+      doorbellSupported: false,
+      guardMode: mode,
+      guardModeControlSupported: true,
+    };
+    this.#events?.camera(identity);
+    return identity;
+  }
+
+  /** Return deterministic direct-camera capability state for API tests. */
+  async refreshCameraCapabilities(serial: string): Promise<CameraIdentity> {
+    this.#assertSerial(serial);
+    return this.setCameraGuardMode(serial, 1);
   }
 
   /** Apply deterministic night-vision state for API and Home Assistant tests. */
