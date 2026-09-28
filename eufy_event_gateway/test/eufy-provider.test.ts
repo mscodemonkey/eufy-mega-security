@@ -33,6 +33,7 @@ import {
   safePushLogSummary,
   safeInventoryReads,
   supportsHomeBaseGuardMode,
+  supportsCameraSiren,
   supportsPrivacyParameterProbe,
   supportsPresetPositions,
   supportsStandaloneGuardMode,
@@ -86,6 +87,14 @@ test("limits timed JSON light control to the verified wall-light family", () => 
   assert.equal(supportsTimedCameraLight({ deviceType: 61 }), false);
   assert.equal(supportsTimedCameraLight({ deviceType: 10031 }), false);
   assert.equal(supportsTimedCameraLight({ deviceType: null }), false);
+});
+
+test("limits camera sirens by route and device evidence", () => {
+  assert.equal(supportsCameraSiren({ deviceType: 151, paramTypes: [] }, { homeBaseAttached: false }), true);
+  assert.equal(supportsCameraSiren({ deviceType: 8, paramTypes: [1015] }, { homeBaseAttached: true }), true);
+  assert.equal(supportsCameraSiren({ deviceType: 151, paramTypes: [] }, { homeBaseAttached: true }), false);
+  assert.equal(supportsCameraSiren({ deviceType: 8, paramTypes: [1015] }, { homeBaseAttached: false }), false);
+  assert.equal(supportsCameraSiren({ deviceType: 151, paramTypes: [] }, null), false);
 });
 
 test("limits privacy parameter diagnostics to T8416 and T8417", () => {
