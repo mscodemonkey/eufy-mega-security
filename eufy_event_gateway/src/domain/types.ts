@@ -69,6 +69,7 @@ export interface CameraState {
   readonly motionDetectionControlSupported: boolean;
   readonly guardMode: number | null;
   readonly guardModeControlSupported: boolean;
+  readonly guardModeRefreshSupported: boolean;
   readonly nightVisionMode: number | null;
   readonly nightVisionModes: readonly NightVisionMode[];
   readonly nightVisionControlSupported: boolean;
@@ -203,6 +204,7 @@ export interface CameraIdentity {
   readonly motionDetectionControlSupported?: boolean;
   readonly guardMode?: number | null;
   readonly guardModeControlSupported?: boolean;
+  readonly guardModeRefreshSupported?: boolean;
   readonly nightVisionMode?: number | null;
   readonly nightVisionModes?: readonly NightVisionMode[];
   readonly nightVisionControlSupported?: boolean;

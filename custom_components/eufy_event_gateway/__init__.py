@@ -10,6 +10,8 @@ Eufy account password or reimplements a Mega endpoint.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from dataclasses import dataclass
 
 from homeassistant.config_entries import ConfigEntry
@@ -17,9 +19,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .client import GatewayClient
+from .client import GatewayClient, GatewayClientError
 from .const import CONF_API_TOKEN, DOMAIN, PLATFORMS
 from .coordinator import EufyGatewayCoordinator
+
+_LOGGER = logging.getLogger(__name__)
+_CAPABILITY_REFRESH_TIMEOUT_SECONDS = 45
 
 
 @dataclass
@@ -51,11 +56,42 @@ async def async_setup_entry(hass: HomeAssistant, entry: EufyGatewayConfigEntry) 
     )
     coordinator = EufyGatewayCoordinator(hass, client)
     await coordinator.async_config_entry_first_refresh()
+    await _refresh_standalone_alarm_capabilities(coordinator)
     _remove_t817l_battery_entities(hass, coordinator)
     entry.runtime_data = GatewayRuntimeData(coordinator)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     coordinator.start_event_listener()
     return True
+
+
+async def _refresh_standalone_alarm_capabilities(
+    coordinator: EufyGatewayCoordinator,
+) -> None:
+    """Refresh eligible standalone alarm reads without blocking entry setup.
+
+    The gateway owns route and model eligibility. Home Assistant waits only for
+    these bounded reads before platform creation so a reported guard mode can
+    create its alarm entity on the same startup. A camera timeout or rejected
+    refresh leaves the original cloud inventory intact and setup continues.
+    """
+    serials = [
+        serial
+        for serial, camera in coordinator.cameras.items()
+        if camera.get("guardModeRefreshSupported") is True
+    ]
+
+    async def refresh(serial: str) -> None:
+        try:
+            async with asyncio.timeout(_CAPABILITY_REFRESH_TIMEOUT_SECONDS):
+                camera = await coordinator.client.refresh_camera_capabilities(serial)
+        except (GatewayClientError, TimeoutError) as error:
+            _LOGGER.warning(
+                "Standalone alarm capability refresh failed during setup: %s", error
+            )
+            return
+        coordinator.async_set_camera(camera)
+
+    await asyncio.gather(*(refresh(serial) for serial in serials))
 
 
 def _remove_t817l_battery_entities(

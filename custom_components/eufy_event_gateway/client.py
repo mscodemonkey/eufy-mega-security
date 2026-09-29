@@ -198,6 +198,15 @@ class GatewayClient:
             raise GatewayClientError("Gateway returned an invalid camera response")
         return camera
 
+    async def refresh_camera_capabilities(self, serial: str) -> dict[str, Any]:
+        """Refresh one eligible direct camera's safe on-device capability reads."""
+        camera = await self._json(
+            f"/api/cameras/{serial}/refresh-capabilities", method="POST"
+        )
+        if not isinstance(camera.get("serial"), str):
+            raise GatewayClientError("Gateway returned an invalid camera response")
+        return camera
+
     async def set_camera_night_vision(
         self, serial: str, mode: int
     ) -> dict[str, Any]:

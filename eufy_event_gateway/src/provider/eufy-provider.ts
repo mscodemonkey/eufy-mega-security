@@ -1019,6 +1019,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.adminUserId !== null
         && device.userName !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+      guardModeRefreshSupported: supportsStandaloneGuardMode(device)
+        && route?.homeBaseAttached === false
+        && device.channel === 0
+        && device.adminUserId !== null
+        && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       nightVisionMode: device.reads.nightVisionMode ?? null,
       nightVisionModes: nightVisionModes(device),
       nightVisionControlSupported: device.reads.nightVisionMode !== undefined
@@ -1312,12 +1317,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         events.doorbell(event.cameraSerial, true);
         return;
       }
-      events.motion(event.cameraSerial, true);
       const kinds = new Set(event.detectionEvidence);
       if (personName !== null) kinds.add("person");
+      if (kinds.has("person")) events.person(event.cameraSerial, true, personName);
+      events.motion(event.cameraSerial, true);
       for (const kind of kinds) {
-        if (kind === "person") events.person(event.cameraSerial, true, personName);
-        else events.detection(event.cameraSerial, kind, true);
+        if (kind !== "person") events.detection(event.cameraSerial, kind, true);
       }
       return;
     }
@@ -1500,7 +1505,6 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const picture = await downloadPushSnapshot(this.#client, event, this.#devices);
       if (picture) {
         events.snapshot(event.cameraSerial, picture.data, "image/jpeg");
-        logger.info("push_snapshot_updated", "Eufy push snapshot retained");
       }
     }).catch((error: unknown) => {
       logger.warn("push_snapshot_unavailable", `Eufy push snapshot unavailable: ${safeError(error)}`);

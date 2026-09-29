@@ -154,6 +154,37 @@ test("records and clears a transient doorbell press for supported cameras", asyn
   state.close();
 });
 
+test("keeps the last recognized person when a plain doorbell press arrives", () => {
+  const state = new GatewayState();
+  const doorbell = { ...camera, doorbellSupported: true };
+  state.registerCamera(doorbell);
+  state.recordPerson(doorbell.serial, true, "Alex", new Date("2026-09-11T01:02:03Z"));
+  state.recordDoorbell(doorbell.serial, true, new Date("2026-09-11T01:03:00Z"));
+
+  const result = state.getCamera(doorbell.serial);
+  assert.equal(result.doorbellPressed, true);
+  assert.equal(result.lastDetection?.personName, "Alex");
+  assert.equal(result.lastDetection?.recognized, true);
+  state.close();
+});
+
+test("does not briefly clear a recognized person when matching motion follows", () => {
+  const state = new GatewayState();
+  const doorbell = { ...camera, doorbellSupported: true };
+  const values: Array<string | null> = [];
+  state.on("event", (event: unknown) => {
+    if ((event as { type?: string }).type !== "camera-updated") return;
+    const detection = (event as { camera: { lastDetection: { personName: string | null } | null } }).camera.lastDetection;
+    values.push(detection?.personName ?? null);
+  });
+  state.registerCamera(doorbell);
+  state.recordPerson(doorbell.serial, true, "Alex", new Date("2026-09-11T01:02:03Z"));
+  state.recordMotion(doorbell.serial, true, new Date("2026-09-11T01:02:03Z"));
+
+  assert.deepEqual(values.slice(-2), ["Alex", "Alex"]);
+  state.close();
+});
+
 test("ignores doorbell presses from cameras without doorbell support", () => {
   const state = new GatewayState();
   state.registerCamera(camera);
