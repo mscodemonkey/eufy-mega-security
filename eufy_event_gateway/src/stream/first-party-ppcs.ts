@@ -390,11 +390,27 @@ function unwrapAuthenticatedMediaKey(envelope: Buffer, privateKey: Buffer): Buff
  * Build the level-one control payload that starts a standalone camera stream.
  *
  * The encrypted JSON is labelled with sign code 1 and frame type 11 so the
- * camera decrypts it as its own-session START_LIVE command. HomeBase-attached
- * cameras use the separate negotiated level-two path.
+ * camera decrypts it as its own-session START_LIVE command. A standalone peer
+ * that later negotiates level two switches to the separate frame-type-10 form.
  */
 export function buildStandaloneLiveStartPayload(value: string, channel: number, key: Buffer): Buffer {
   return buildStandaloneJsonControlPayload(value, channel, key, 11);
+}
+
+/**
+ * Build the negotiated level-two START_LIVE payload used by a standalone peer.
+ *
+ * Direct cameras can advertise their session key after accepting an initial
+ * level-one start. Reissuing this frame type lets the camera bind the stream to
+ * that negotiated session instead of replaying the legacy start indefinitely.
+ */
+export function buildStandaloneLevel2LiveStartPayload(
+  value: string,
+  channel: number,
+  key: Buffer,
+  sequence: number,
+): Buffer {
+  return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), channel, 8, [8, 0], 10);
 }
 
 /**
@@ -894,6 +910,7 @@ export class FirstPartyPpcsSession {
     videoCodec: "unknown" as "h264" | "h265" | "unknown",
     videoNalTypes: [] as number[],
     mediaStartAttempts: 0,
+    mediaStartProtocols: [] as ("level1" | "level2")[],
     mediaStopAttempts: 0,
     mediaStopProtocol: "none" as "none" | "level1-direct" | "level2-payload",
     closeReason: "open" as PpcsStreamCloseReason | "open",
@@ -1664,10 +1681,10 @@ export class FirstPartyPpcsSession {
    *
    * The outer envelope uses the deterministic level-one command key. Its
    * cipher identifier selects an ECC private key supplied by the provider,
-   * which unwraps the per-session AES key. Attached-camera media startup is
-   * delayed until this chain succeeds because its lifecycle commands require
-   * level-two protection. Standalone control sessions can use the same key for
-   * direct-binary commands without changing their level-one media behaviour.
+   * which unwraps the per-session AES key. Attached-camera media startup waits
+   * for this chain because its lifecycle commands require level two. A
+   * standalone media session starts with its level-one fallback, then reissues
+   * START_LIVE at level two as soon as the negotiated key becomes available.
    */
   async #deriveLevel2(payload: Buffer): Promise<void> {
     let plainPayload: Buffer;
@@ -1682,7 +1699,10 @@ export class FirstPartyPpcsSession {
     if (!plain || plain.length < 32) { this.stats.level2Error = "gateway info ECIES unwrap failed"; return; }
     this.#level2Key = plain.subarray(0, 32);
     this.stats.level2++;
-    if (this.#options.purpose !== "control") this.#startAttachedMedia();
+    if (this.#options.purpose !== "control") {
+      if (this.#options.homeBaseAttached) this.#startAttachedMedia();
+      else this.#startOwnMedia();
+    }
   }
 
   /** Wait for in-progress gateway negotiation before a level-two control write. */
@@ -1838,7 +1858,7 @@ export class FirstPartyPpcsSession {
     this.#send(REQ.data, packet, this.#remote);
   }
 
-  /** Send the level-one START_LIVE command used by a standalone camera peer. */
+  /** Send START_LIVE using the strongest protection negotiated with a standalone peer. */
   #startOwnMedia(): void {
     this.stats.mediaStartAttempts++;
     const key = publicModulus(this.#rsa.publicKey);
@@ -1849,6 +1869,17 @@ export class FirstPartyPpcsSession {
       msg_id: 1, camera_type: 0, entrytype: 0, extValue: 1000, ivalue: 1, restore: 0, streamtype: 2,
       video_type: 12, timestamp: now, transaction: `${now}`, encryptkey: key,
     } });
+    if (this.#level2Key) {
+      if (!this.stats.mediaStartProtocols.includes("level2")) this.stats.mediaStartProtocols.push("level2");
+      this.#sendCommand(1700, buildStandaloneLevel2LiveStartPayload(
+        value,
+        this.#options.channel,
+        this.#level2Key,
+        this.#level2Seq++,
+      ));
+      return;
+    }
+    if (!this.stats.mediaStartProtocols.includes("level1")) this.stats.mediaStartProtocols.push("level1");
     this.#sendCommand(1700, buildStandaloneLiveStartPayload(
       value,
       this.#options.channel,
@@ -1998,7 +2029,7 @@ function encryptLevel1(plaintext: Buffer, key: Buffer): Buffer {
 }
 
 /**
- * Encrypt a negotiated HomeBase command with AES-256-GCM.
+ * Encrypt a negotiated level-two command with AES-256-GCM.
  *
  * The four bytes after the nonce are envelope metadata expected by the peer.
  * Only the low sequence byte is carried there; XZYH owns the independent
