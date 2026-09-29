@@ -58,3 +58,34 @@ test("serializes concurrent writes and assigns increasing revisions", async () =
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("does not let a push image replace the retained live frame", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "eufy-gateway-test-"));
+  try {
+    const store = new SnapshotStore(directory);
+    await store.initialize();
+    const live = await store.write("camera", Buffer.from("live"), "image/jpeg", "live");
+    const event = await store.writeEvent("camera", Buffer.from("push"), "image/jpeg");
+
+    assert.equal(event, null);
+    assert.deepEqual(await store.read("camera"), { data: Buffer.from("live"), info: live });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("retains push images until a live frame exists", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "eufy-gateway-test-"));
+  try {
+    const store = new SnapshotStore(directory);
+    await store.initialize();
+    const first = await store.writeEvent("camera", Buffer.from("first"), "image/jpeg");
+    const second = await store.writeEvent("camera", Buffer.from("second"), "image/jpeg");
+
+    assert.equal(first?.revision, 1);
+    assert.equal(second?.revision, 2);
+    assert.equal((await store.read("camera"))?.data.toString(), "second");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

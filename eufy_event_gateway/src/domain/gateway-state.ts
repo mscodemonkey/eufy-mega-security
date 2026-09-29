@@ -291,7 +291,7 @@ export class GatewayState extends EventEmitter {
         personName: null,
         recognized: false,
       };
-      camera.lastDetection = detection;
+      if (camera.lastDetection?.recognized !== true) camera.lastDetection = detection;
       this.emit("event", { type: "detection", cameraSerial: serial, detection } satisfies GatewayEvent);
     }
     this.#emitCamera(serial);
@@ -451,6 +451,7 @@ export class GatewayState extends EventEmitter {
       motionDetectionControlSupported: camera.identity.motionDetectionControlSupported ?? false,
       guardMode: camera.identity.guardMode ?? null,
       guardModeControlSupported: camera.identity.guardModeControlSupported ?? false,
+      guardModeRefreshSupported: camera.identity.guardModeRefreshSupported ?? false,
       nightVisionMode: camera.identity.nightVisionMode ?? null,
       nightVisionModes: camera.identity.nightVisionModes ?? [],
       nightVisionControlSupported: camera.identity.nightVisionControlSupported ?? false,

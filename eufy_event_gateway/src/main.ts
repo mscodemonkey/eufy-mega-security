@@ -202,7 +202,14 @@ const providerEvents: ProviderEvents = {
   },
   snapshot(serial, data, contentType) {
     if (!state.hasCamera(serial)) return;
-    void snapshots.write(serial, data, contentType, "event").then((info) => state.updateSnapshot(serial, info));
+    void snapshots.writeEvent(serial, data, contentType).then((info) => {
+      if (info) {
+        state.updateSnapshot(serial, info);
+        providerLogger.info("push_snapshot_updated", "Eufy push snapshot retained");
+      } else {
+        providerLogger.info("push_snapshot_preserved_live", "Eufy push snapshot did not replace the retained live frame");
+      }
+    });
   },
   pushDiagnostic(diagnostic) {
     state.recordPushDiagnostic(diagnostic);

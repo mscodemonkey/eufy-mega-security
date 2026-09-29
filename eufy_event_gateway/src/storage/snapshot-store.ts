@@ -91,6 +91,32 @@ export class SnapshotStore {
     return operation;
   }
 
+  /** Retain an event image only while no live frame has become the last-good still. */
+  async writeEvent(
+    serial: string,
+    data: Buffer,
+    contentType: string,
+    capturedAt = new Date(),
+  ): Promise<SnapshotInfo | null> {
+    const operation = this.#writeQueue.then(async () => {
+      if (data.length === 0) throw new Error("Refusing to replace a snapshot with an empty image");
+      const previous = this.#records.get(serial);
+      if (previous?.source === "live") return null;
+      const info: SnapshotInfo = {
+        capturedAt: capturedAt.toISOString(),
+        contentType,
+        source: "event",
+        revision: (previous?.revision ?? 0) + 1,
+      };
+      await atomicWrite(this.#imagePath(serial), data);
+      this.#records.set(serial, info);
+      await this.#writeIndex();
+      return info;
+    });
+    this.#writeQueue = operation.then(() => undefined, () => undefined);
+    return operation;
+  }
+
   async #writeIndex(): Promise<void> {
     const records = [...this.#records.entries()].map(([serial, info]) => ({ serial, info }));
     await atomicWrite(join(this.#directory, "index.json"), Buffer.from(`${JSON.stringify(records, null, 2)}\n`));

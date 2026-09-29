@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.108
+
+- Switch direct-camera media retries to the negotiated session after key exchange while retaining the legacy first-start fallback.
+- Refresh eligible standalone alarm capabilities before Home Assistant creates entities, without making a failed camera read block integration setup.
+- Keep the last recognized person through a plain T8214 doorbell press.
+- Prevent a push-event thumbnail from replacing a retained live camera frame.
+
 ## 0.1.107
 
 - Admit eufyCam S4 T8172 type 89 for hardware testing through its reported ready HomeBase 3 route.
