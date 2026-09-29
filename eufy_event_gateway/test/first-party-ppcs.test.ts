@@ -19,6 +19,7 @@ import {
   acceptsAttachedCameraMedia,
   buildPpcsCloudLookup,
   buildStandaloneJsonControlPayload,
+  buildStandaloneLevel2LiveStartPayload,
   buildStandaloneGuardModeValue,
   buildStandaloneLiveStartPayload,
   buildTimedCameraLightControlValue,
@@ -198,6 +199,22 @@ test("labels a standalone live start as level-one frame type 11", () => {
   decipher.setAutoPadding(false);
   const clear = Buffer.concat([decipher.update(payload.subarray(10)), decipher.final()]);
   assert.equal(clear.subarray(0, value.length).toString("utf8"), value);
+});
+
+test("labels a negotiated standalone live start as level-two frame type 10", () => {
+  const key = Buffer.alloc(32, 7);
+  const value = JSON.stringify({ commandType: 1000, data: { cmd: 1000 } });
+  const payload = buildStandaloneLevel2LiveStartPayload(value, 4, key, 257);
+
+  assert.equal(payload.readUInt16LE(0), payload.length - 10);
+  assert.deepEqual(payload.subarray(4, 10), Buffer.from([8, 0, 4, 8, 10, 0]));
+  const encrypted = payload.subarray(10);
+  assert.deepEqual(encrypted.subarray(28, 32), Buffer.from([1, 3, 2, 1]));
+  const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(16, 28));
+  decipher.setAAD(Buffer.from("eufy security", "utf8"));
+  decipher.setAuthTag(encrypted.subarray(0, 16));
+  const clear = Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
+  assert.equal(clear.toString("utf8"), value);
 });
 
 test("builds the wall-light control as a level-one command 1700 value", () => {
