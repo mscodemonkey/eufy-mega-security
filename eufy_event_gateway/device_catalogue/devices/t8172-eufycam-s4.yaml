@@ -5,11 +5,13 @@ id: t8172
 name: eufyCam S4
 category: camera
 integration:
-  status: recognised
+  status: ready_to_test
+  handler: camera
 models:
   - T8172
   - T81721W1
 device_type: 89
+notes: HomeBase 3 inventory reports a ready parent route for type 89.
 capabilities:
   readable:
     battery_level:

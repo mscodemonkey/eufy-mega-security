@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.107
+
+- Admit eufyCam S4 T8172 type 89 for hardware testing through its reported ready HomeBase 3 route.
+- Reassert standalone camera media only after a genuine frame stall so short H.265 bursts can recover without resetting an active stream.
+- Hide motion detection controls on standalone routes until their level-two key exchange is proven, avoiding a control that cannot be sent on T8123 hardware.
+- Add a bounded one-time HomeBase 2 SD diagnostic for the raw result, total MiB, and free MiB fields while keeping unknown status values unmapped.
+
 ## 0.1.106
 
 - Restore T8214 doorbell presses when style-3 notifications carry no detection evidence, while retaining motion, person, and familiar-person updates.

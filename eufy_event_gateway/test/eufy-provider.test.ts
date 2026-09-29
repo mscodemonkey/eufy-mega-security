@@ -18,6 +18,7 @@ import {
   inventoryMotionOutcome,
   inventoryLogSummaries,
   homeBaseStorageLogSummary,
+  supportsMotionDetectionControlRoute,
   genericSecurityDetectionKinds,
   initialHomeBaseState,
   isDiscoveredHomeBase,
@@ -71,6 +72,25 @@ test("formats bounded HomeBase HDD diagnostics without raw text", () => {
     }, { status: "normal", totalBytes: 447_130_000_000, freeBytes: 356_510_000_000 }),
     "HomeBase storage observed: model=T8030 hdd_present=true calculated_total_bytes=447130000000 calculated_free_bytes=356510000000 hdd_numeric=disk_size:480000,disk_used:90620 hdd_boolean=mounted:true hdd_text_lengths=disk_path:21 hdd_structured=partitions:array",
   );
+});
+
+test("formats bounded HomeBase 2 SD diagnostics with raw numeric fields only", () => {
+  assert.equal(
+    homeBaseStorageLogSummary("T8010", {
+      present: true,
+      numericFields: ["result:26", "total_mebibytes:14677", "free_mebibytes:7114"],
+      booleanFields: [],
+      textFieldLengths: [],
+      structuredFields: [],
+    }, { status: "unknown_26", totalBytes: 15_390_785_536, freeBytes: 7_459_536_896 }, "sd"),
+    "HomeBase storage observed: model=T8010 sd_present=true calculated_total_bytes=15390785536 calculated_free_bytes=7459536896 sd_numeric=result:26,total_mebibytes:14677,free_mebibytes:7114 sd_boolean=none sd_text_lengths=none sd_structured=none",
+  );
+});
+
+test("exposes motion writes only through the proven HomeBase-attached key exchange", () => {
+  assert.equal(supportsMotionDetectionControlRoute({ homeBaseAttached: true }), true);
+  assert.equal(supportsMotionDetectionControlRoute({ homeBaseAttached: false }), false);
+  assert.equal(supportsMotionDetectionControlRoute(null), false);
 });
 
 test("refreshes expiring DSK material without replacing non-expiring keys", () => {

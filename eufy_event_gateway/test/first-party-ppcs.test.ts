@@ -155,11 +155,11 @@ test("builds the verified night-vision SET_PAYLOAD body", () => {
   assert.throws(() => buildNightVisionBody(3, 3, "account-owner"), /must be 0, 1, or 2/);
 });
 
-test("reissues a standalone start only while codec headers are missing", () => {
-  assert.equal(needsStandaloneMediaReassert(false, "unknown"), true);
-  assert.equal(needsStandaloneMediaReassert(false, "h264"), false);
-  assert.equal(needsStandaloneMediaReassert(false, "h265"), false);
-  assert.equal(needsStandaloneMediaReassert(true, "unknown"), false);
+test("reissues a standalone start during startup or after a media stall", () => {
+  assert.equal(needsStandaloneMediaReassert(false, null, 1_000), true);
+  assert.equal(needsStandaloneMediaReassert(false, 1_000, 6_000), false);
+  assert.equal(needsStandaloneMediaReassert(false, 1_000, 11_000), true);
+  assert.equal(needsStandaloneMediaReassert(true, null, 1_000), false);
 });
 
 test("accepts both PPCS cloud candidate response forms", () => {
