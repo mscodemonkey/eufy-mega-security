@@ -44,6 +44,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 - 🟠 eufyCam S3 Pro T8162: discovery, person, pet, and vehicle events, and retained snapshots are confirmed through a T9000. Live video is waiting on that station's PPCS lookup result.
 - ✅ SoloCam C20 (Mega model T8134): discovery, motion and person events, and live video are reporter-confirmed. Battery availability and retained event images are being investigated separately.
 - 🟠 SoloCam E30 T8171: Mega type 88 is admitted through its reported ready HomeBase route. Discovery, events, snapshots, and live video await reporter testing.
+- 🟠 eufyCam S4 T8172: Mega type 89 is admitted through its reported ready HomeBase 3 route. Discovery, events, snapshots, and live video await reporter testing.
 - 🟠 SoloCam E20 T8130, SoloCam E40 T8131, and SoloCam C210 T8B00: each exact standalone model is admitted through the direct camera handler. Discovery, events, snapshots, and live video await reporter testing.
 - ✅ SoloCam S230 / S40 T8124: discovery and live video are confirmed through HomeBase 3. Events and fresh snapshots still need focused confirmation.
 - 🟠 SoloCam S340 T8170: discovery, person events, and retained snapshots are confirmed through a T9000. Live video is waiting on that station's PPCS lookup result.
@@ -58,7 +59,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 - 🟠 Indoor Cam 2K Pan & Tilt T8419: Mega type 10009 is admitted through its reported ready route. Discovery, events, snapshots, and live video await reporter testing.
 - 🟠 Indoor Cam S350 T8416: discovery and Home Assistant entities are confirmed on direct Wi-Fi and T9000-attached setups. Live video through T9000 is waiting on that station's PPCS lookup result, and privacy-mode control is not yet exposed.
 - 🟠 Indoor Cam E30 4K T8417: discovery and properties are confirmed. Direct media arrives, but live video remains blank and codec startup is unresolved. Events and snapshots still need confirmation.
-- 🟠 eufyCam C37 T814X / T814XS: Mega type 10037 is admitted through its reported HomeBase 3 route, and the standalone solar variant's reported type 10039 is ready to test. Discovery, events, snapshots, and live video still need confirmation on the direct route.
+- 🟠 eufyCam C37 T814X / T814XS: Mega type 10037 is confirmed through HomeBase 3. The standalone solar variant's type 10039 is confirmed for discovery and person events, while fresh snapshots and reliable live video remain blocked by a short H.265 media stall.
 - 🟠 eufyCam E330 Professional T8600: discovery, fresh snapshots, and live video are confirmed through HomeBase 3. Sustained H.265 playback can stutter, motion and person events still need confirmation, and battery-shaped values are suppressed because this model is mains-powered.
 - 🟢 eufyCam E40 T8144: discovery, motion, person, pet, sound events, fresh snapshots, and live video are confirmed through HomeBase 2. Live video is reliable in Chrome, Safari, and the Home Assistant iOS app.
 

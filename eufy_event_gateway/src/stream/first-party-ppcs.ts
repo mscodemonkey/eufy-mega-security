@@ -91,12 +91,13 @@ export function hasDecoderReadyKeyframe(
   return false;
 }
 
-/** Reissue a standalone start until frame metadata or NAL evidence identifies its codec. */
+/** Reissue a standalone start during startup or after normalized media stalls. */
 export function needsStandaloneMediaReassert(
   homeBaseAttached: boolean,
-  codec: "h264" | "h265" | "unknown",
+  lastDeliveredFrameAt: number | null,
+  now: number,
 ): boolean {
-  return !homeBaseAttached && codec === "unknown";
+  return !homeBaseAttached && needsAttachedMediaReassert(lastDeliveredFrameAt, now);
 }
 
 /**
@@ -929,7 +930,7 @@ export class FirstPartyPpcsSession {
     this.stats.incompleteAccessUnitBytes += drop.carriedBytes;
     this.#recordVideoResult("incomplete-access-unit-dropped");
   });
-  #lastAttachedMediaFrameAt: number | null = null;
+  #lastDeliveredMediaFrameAt: number | null = null;
   #heartbeat: ReturnType<typeof setInterval> | null = null;
   #attachedMediaRestartTimer: ReturnType<typeof setTimeout> | null = null;
   #lookupTimer: ReturnType<typeof setInterval> | null = null;
@@ -1013,11 +1014,15 @@ export class FirstPartyPpcsSession {
       if (
         this.#options.homeBaseAttached
         && this.#level2Key
-        && needsAttachedMediaReassert(this.#lastAttachedMediaFrameAt, Date.now())
+        && needsAttachedMediaReassert(this.#lastDeliveredMediaFrameAt, Date.now())
       ) {
         this.#startAttachedMedia();
       }
-      else if (needsStandaloneMediaReassert(Boolean(this.#options.homeBaseAttached), this.#videoNormalizer.codec)) {
+      else if (needsStandaloneMediaReassert(
+        Boolean(this.#options.homeBaseAttached),
+        this.#lastDeliveredMediaFrameAt,
+        Date.now(),
+      )) {
         this.#startOwnMedia();
       }
       else if (!this.#options.homeBaseAttached) this.#sendCommand(1139, voidPayload(this.#options.channel));
@@ -1516,7 +1521,7 @@ export class FirstPartyPpcsSession {
       this.stats.videoFrames++;
       if (this.#writeVideo(payload, signCode)) {
         const decoderReady = hasDecoderReadyKeyframe(this.stats.videoCodec, this.stats.videoNalTypes);
-        if (this.#options.homeBaseAttached) this.#lastAttachedMediaFrameAt = Date.now();
+        this.#lastDeliveredMediaFrameAt = Date.now();
         if ((!this.#options.homeBaseAttached || decoderReady) && this.#firstFrameTimer) {
           clearTimeout(this.#firstFrameTimer);
           this.#firstFrameTimer = null;

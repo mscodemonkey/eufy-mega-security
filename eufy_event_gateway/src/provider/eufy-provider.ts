@@ -986,8 +986,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   #cameraIdentity(device: MegaInventoryDevice): CameraIdentity {
     const dskPeerSerials = new Set(this.#dskKeys.keys());
+    const route = ppcsStreamRoute(device, this.#devices);
     const t817lControlsSupported = supportsPresetPositions(device)
-      && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === true
+      && route?.homeBaseAttached === true
       && device.channel !== null
       && device.adminUserId !== null
       && isPpcsRouteReady(device, this.#devices, dskPeerSerials);
@@ -1006,13 +1007,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       motionDetectionEnabled: device.reads.motionDetectionEnabled ?? null,
       motionDetectionControlSupported: device.reads.motionDetectionEnabled !== undefined
+        && supportsMotionDetectionControlRoute(route)
         && device.channel !== null
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       guardMode: device.reads.guardMode ?? null,
       guardModeControlSupported: device.reads.guardMode !== undefined
         && supportsStandaloneGuardMode(device)
-        && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === false
+        && route?.homeBaseAttached === false
         && device.channel === 0
         && device.adminUserId !== null
         && device.userName !== null
@@ -1402,9 +1404,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         this.#applyHomeBaseChildParams(serial, observed.childParams);
         if (observed.storageDiagnostic && !this.#stationStorageDiagnosticLogged.has(serial)) {
           this.#stationStorageDiagnosticLogged.add(serial);
+          const storageMedium = isHomeBase3(identity) ? "hdd" : "sd";
           logger.info(
             "homebase_storage_observed",
-            homeBaseStorageLogSummary(identity.model, observed.storageDiagnostic, observed.storage?.hdd ?? null),
+            homeBaseStorageLogSummary(
+              identity.model,
+              observed.storageDiagnostic,
+              observed.storage?.[storageMedium] ?? null,
+              storageMedium,
+            ),
           );
         }
         const updated = mergeHomeBaseState(this.#requireStation(serial), observed);
@@ -1802,6 +1810,13 @@ export function supportsHomeBaseGuardMode(
   return compareFirmware(device.firmware, [2, 0, 7, 9]) >= 0;
 }
 
+/** Return whether a route has the proven level-two key exchange required by motion writes. */
+export function supportsMotionDetectionControlRoute(
+  route: { readonly homeBaseAttached: boolean } | null,
+): boolean {
+  return route?.homeBaseAttached === true;
+}
+
 /** Build inventory-owned station state without inferring an unverified command protocol. */
 export function initialHomeBaseState(device: MegaInventoryDevice, dskReady: boolean): HomeBaseState {
   const controlsSupported = isHomeBase3(device);
@@ -1843,22 +1858,23 @@ function mergeHomeBaseState(existing: HomeBaseState, observed: HomeBasePpcsState
   };
 }
 
-/** Format one bounded HDD field inventory without exposing raw text values. */
+/** Format one bounded station-storage field inventory without exposing raw text values. */
 export function homeBaseStorageLogSummary(
   model: string,
   diagnostic: HomeBaseStorageDiagnostic,
   normalized: HomeBaseState["storage"]["hdd"],
+  medium: "sd" | "hdd" = "hdd",
 ): string {
   const fields = (values: readonly string[]): string => values.length > 0 ? values.join(",") : "none";
   return [
     `HomeBase storage observed: model=${model}`,
-    `hdd_present=${diagnostic.present}`,
+    `${medium}_present=${diagnostic.present}`,
     `calculated_total_bytes=${normalized?.totalBytes ?? "missing"}`,
     `calculated_free_bytes=${normalized?.freeBytes ?? "missing"}`,
-    `hdd_numeric=${fields(diagnostic.numericFields)}`,
-    `hdd_boolean=${fields(diagnostic.booleanFields)}`,
-    `hdd_text_lengths=${fields(diagnostic.textFieldLengths)}`,
-    `hdd_structured=${fields(diagnostic.structuredFields)}`,
+    `${medium}_numeric=${fields(diagnostic.numericFields)}`,
+    `${medium}_boolean=${fields(diagnostic.booleanFields)}`,
+    `${medium}_text_lengths=${fields(diagnostic.textFieldLengths)}`,
+    `${medium}_structured=${fields(diagnostic.structuredFields)}`,
   ].join(" ");
 }
 

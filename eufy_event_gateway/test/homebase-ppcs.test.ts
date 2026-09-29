@@ -12,6 +12,7 @@ import test from "node:test";
 import {
   buildHomeBaseGuardModeValue,
   buildHomeBase2StorageRequestPayload,
+  homeBase2StorageDiagnostic,
   HOMEBASE_PPCS_REQUEST_HEADERS,
   homeBaseLocalLookupTargets,
   isHomeBaseResultFrame,
@@ -123,6 +124,14 @@ test("normalizes a HomeBase 2 SD-card response without retaining device data", (
     freeBytes: 25_190_989_824,
   });
   assert.equal(parseHomeBase2StorageResponse(Buffer.alloc(11)), null);
+  assert.deepEqual(homeBase2StorageDiagnostic(response), {
+    present: true,
+    numericFields: ["result:0", "total_mebibytes:120321", "free_mebibytes:24024"],
+    booleanFields: [],
+    textFieldLengths: [],
+    structuredFields: [],
+  });
+  assert.equal(homeBase2StorageDiagnostic(Buffer.alloc(11)), null);
 });
 
 test("selects the payload-free HomeBase 2 SD query by firmware", () => {

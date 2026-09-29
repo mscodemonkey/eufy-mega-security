@@ -243,13 +243,15 @@ export class HomeBasePpcsSession {
       this.#sendCommand(CMD_STORAGE_INFO_HB2, payload);
       try {
         const storage = await storagePromise;
+        const storageBuffer = Buffer.isBuffer(storage) ? storage : null;
         return {
           ...parseHomeBaseState(cameraInfo, null, false),
           storage: {
-            sd: Buffer.isBuffer(storage) ? parseHomeBase2StorageResponse(storage) : null,
+            sd: storageBuffer ? parseHomeBase2StorageResponse(storageBuffer) : null,
             emmc: null,
             hdd: null,
           },
+          storageDiagnostic: storageBuffer ? homeBase2StorageDiagnostic(storageBuffer) : null,
         };
       } catch {
         return parseHomeBaseState(cameraInfo, null, false);
@@ -628,6 +630,22 @@ export function parseHomeBase2StorageResponse(value: Buffer): HomeBaseStorageSta
     status: STORAGE_STATUSES.get(result) ?? `unknown_${result}`,
     totalBytes,
     freeBytes,
+  };
+}
+
+/** Inventory the bounded numeric fields in a HomeBase 2 SD response. */
+export function homeBase2StorageDiagnostic(value: Buffer): HomeBaseStorageDiagnostic | null {
+  if (value.length < 12) return null;
+  return {
+    present: true,
+    numericFields: [
+      `result:${value.readInt32LE(0)}`,
+      `total_mebibytes:${value.readUInt32LE(4)}`,
+      `free_mebibytes:${value.readUInt32LE(8)}`,
+    ],
+    booleanFields: [],
+    textFieldLengths: [],
+    structuredFields: [],
   };
 }
 
