@@ -5,7 +5,8 @@ id: t8111
 name: eufyCam (original)
 category: camera
 integration:
-  status: recognised
+  status: ready_to_test
+  handler: camera
 models:
   - T8111
 device_type: 1
@@ -15,23 +16,37 @@ capabilities:
       connections:
         T8010:
           status: declared
+        T8030:
+          status: reported
+          tested_on: 2026-09-30
+          tested_by: bushbrother
       read:
         parameter: 1101
     battery_charging:
       connections:
         T8010:
           status: declared
+        T8030:
+          status: reported
+          tested_on: 2026-09-30
+          tested_by: bushbrother
       read:
         parameter: 2111
     battery_temperature:
       connections:
         T8010:
           status: declared
+        T8030:
+          status: reported
+          tested_on: 2026-09-30
+          tested_by: bushbrother
       read:
         parameter: 1138
     last_charging_days:
       connections:
         T8010:
+          status: declared
+        T8030:
           status: declared
       read:
         field: charging_days
@@ -39,6 +54,8 @@ capabilities:
     enabled:
       connections:
         T8010:
+          status: declared
+        T8030:
           status: declared
       read:
         parameter: 99904
@@ -51,6 +68,8 @@ capabilities:
       connections:
         T8010:
           status: declared
+        T8030:
+          status: declared
       read:
         parameter: 1011
       write:
@@ -61,6 +80,8 @@ capabilities:
     siren:
       connections:
         T8010:
+          status: declared
+        T8030:
           status: declared
       requires_parameter: 1015
       write:
@@ -76,28 +97,48 @@ capabilities:
       connections:
         T8010:
           status: declared
+        T8030:
+          status: reported
+          tested_on: 2026-09-30
+          tested_by: bushbrother
+          notes: The HomeBase route is ready, but working live video is not confirmed.
     snapshot:
       connections:
         T8010:
           status: declared
+        T8030:
+          status: reported
+          tested_on: 2026-09-30
+          tested_by: bushbrother
+          notes: The HomeBase route is ready, but a fresh snapshot is not confirmed.
   events:
     motion:
       connections:
         T8010:
           status: declared
+        T8030:
+          status: declared
     person:
       connections:
         T8010:
+          status: declared
+        T8030:
           status: declared
     pet:
       connections:
         T8010:
           status: declared
+        T8030:
+          status: declared
     vehicle:
       connections:
         T8010:
           status: declared
+        T8030:
+          status: declared
     sound:
       connections:
         T8010:
+          status: declared
+        T8030:
           status: declared

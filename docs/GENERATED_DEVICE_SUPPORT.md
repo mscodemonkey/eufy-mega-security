@@ -10,6 +10,7 @@ hardware evidence and topology-specific results remain in
 | T8010, T80101D2 | HomeBase 2 (S280) | 0 | homebase | supported |
 | T8030, T80301D1, T8030TD1 | HomeBase 3 (S380) | 18 | homebase | supported |
 | T8110 | eufyCam C35 | 10035 | camera | ready_to_test |
+| T8111 | eufyCam (original) | 1 | camera | ready_to_test |
 | T8113, T8113-Z | eufyCam 2C | 8 | camera | supported |
 | T8114 | eufyCam 2 | 9 | camera | ready_to_test |
 | T8123 | SoloCam L40 | 61 | camera | supported |
