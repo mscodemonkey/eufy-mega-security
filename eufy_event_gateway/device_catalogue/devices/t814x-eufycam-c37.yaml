@@ -34,7 +34,9 @@ capabilities:
     snapshot:
       connections:
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-09-30
+          tested_by: vicgarhi
         T8030:
           status: reported
           tested_on: 2026-09-24
@@ -42,7 +44,9 @@ capabilities:
     live_view:
       connections:
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-09-30
+          tested_by: vicgarhi
         T8030:
           status: reported
           tested_on: 2026-09-24
