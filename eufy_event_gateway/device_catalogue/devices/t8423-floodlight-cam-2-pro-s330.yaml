@@ -29,10 +29,10 @@ capabilities:
     live_view:
       connections:
         direct:
-          status: failing
-          tested_on: 2026-09-20
+          status: mixed
+          tested_on: 2026-09-30
           tested_by: Volker88
-          notes: A retained event image appears, but live video remains blank.
+          notes: v0.1.108 starts stable H.265 video in most attempts, but some attempts still need the viewer reopened and CPU recovery after closing remains under review.
         T8030:
           status: declared
     snapshot:
