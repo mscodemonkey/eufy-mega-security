@@ -172,9 +172,9 @@ capabilities:
         direct:
           status: declared
         T8030:
-          status: failing
-          tested_on: 2026-09-28
+          status: tested
+          tested_on: 2026-09-29
           tested_by: philippk75
-          notes: v0.1.105 treated style-3 presses without AI evidence as detections. The next release restores press routing while retaining named-person detections.
+          notes: v0.1.106 restored style-3 presses without AI evidence while retaining named-person detections.
         T9000:
           status: declared

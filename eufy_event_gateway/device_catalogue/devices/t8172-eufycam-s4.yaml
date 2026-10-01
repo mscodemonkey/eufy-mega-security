@@ -5,13 +5,13 @@ id: t8172
 name: eufyCam S4
 category: camera
 integration:
-  status: ready_to_test
+  status: supported
   handler: camera
 models:
   - T8172
   - T81721W1
 device_type: 89
-notes: HomeBase 3 inventory reports a ready parent route for type 89.
+notes: HomeBase 3 hardware confirms discovery, media, and core detections for type 89.
 capabilities:
   readable:
     battery_level:
@@ -68,19 +68,45 @@ capabilities:
       connections:
         direct:
           status: declared
+        T8030:
+          status: tested
+          tested_on: 2026-10-01
+          tested_by: RickyN29
+        T9000:
+          status: failing
+          tested_on: 2026-10-01
+          tested_by: basiokan
+          notes: Child-camera peer lookup times out before media starts.
     snapshot:
       connections:
         direct:
           status: declared
+        T8030:
+          status: tested
+          tested_on: 2026-10-01
+          tested_by: RickyN29
+        T9000:
+          status: failing
+          tested_on: 2026-10-01
+          tested_by: basiokan
+          notes: Fresh capture stops at the shared station peer lookup.
   events:
     motion:
       connections:
         direct:
           status: declared
+        T8030:
+          status: tested
+          tested_on: 2026-10-01
+          tested_by: RickyN29
     person:
       connections:
         direct:
           status: declared
+        T8030:
+          status: tested
+          tested_on: 2026-10-01
+          tested_by: RickyN29
     pet:
       connections:
         direct:
@@ -89,6 +115,10 @@ capabilities:
       connections:
         direct:
           status: declared
+        T8030:
+          status: tested
+          tested_on: 2026-10-01
+          tested_by: RickyN29
     sound:
       connections:
         direct:

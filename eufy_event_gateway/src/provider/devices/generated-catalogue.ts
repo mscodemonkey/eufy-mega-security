@@ -684,7 +684,7 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
       "T81721W1"
     ],
     "deviceType": 89,
-    "status": "ready_to_test",
+    "status": "supported",
     "handler": "camera"
   },
   {

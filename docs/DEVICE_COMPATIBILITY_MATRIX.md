@@ -31,7 +31,7 @@ serials, credentials, snapshots, and videos stay outside the repository.
 | --- | --- | --- | --- | --- | --- |
 | HomeBase 2 | T8010, type 0 | `confirmed` | `unsupported` | `implemented` | Read-only configured and effective mode checks are implemented for reporter testing. Writes remain disabled. |
 | HomeBase 3 S380 | T8030, type 18 | `confirmed` | `partial` | `confirmed` | Developer, v0.1.63. Community confirmation for guard mode, alarm panel, and alarm tone. |
-| HomeBase Professional S1 | T9000, type 27 | `confirmed` | `unsupported` | `partial` | Community reports. Inventory works, but PPCS lookup remains unresolved for affected camera families. |
+| HomeBase Professional S1 | T9000, type 27 | `confirmed` | `unsupported` | `partial` | Community reports. Inventory works, but child-camera PPCS lookup remains unresolved across installations that receive no candidates or candidates that never answer. |
 
 ## Cameras
 
@@ -47,9 +47,10 @@ serials, credentials, snapshots, and videos stay outside the repository.
 | SoloCam E30 | T8171, type 88 | `unverified` | `implemented` | `unverified` | `unverified` | Admission and ready parent route implemented. Hardware discovery, events, snapshots, and live video await confirmation. |
 | SoloCam S230 / S40 | T8124, type 62 | `unverified` | `confirmed` | `unverified` | `unverified` | Discovery and live video confirmed. Events and fresh snapshots need focused confirmation. |
 | SoloCam S340 | T8170, type 48 | `unverified` | `unverified` | `partial` | `unverified` | T9000 discovery, person events, and retained snapshots confirmed. Live video unresolved. |
+| eufyCam S4 | T8172, type 89 | `unverified` | `confirmed` | `partial` | `unverified` | HomeBase 3 discovery, motion, person and vehicle events, fresh snapshots, and live video confirmed. T9000 media remains blocked at PPCS lookup. |
 | Solar Wall Light Cam S120 | T81A0, type 10005 | `unverified` | `confirmed` | `unverified` | `confirmed` | Discovery, sensors, motion, retained snapshots, and live video confirmed. Fresh capture can still time out. |
 | Floodlight Cam E340 | T8425, type 47 | `unverified` | `unverified` | `partial` | `unverified` | T9000 discovery, person and vehicle events, and retained snapshots confirmed. Live video unresolved. |
-| Floodlight Cam S330 / 2 Pro | T8423, type 38 | `unverified` | `partial` | `unverified` | `unverified` | Discovery and event snapshot confirmed. Live view still lacks a usable H.265 decoder bootstrap. |
+| Floodlight Cam S330 / 2 Pro | T8423, type 38 | `unverified` | `partial` | `unverified` | `partial` | Discovery and event snapshot confirmed. Direct H.265 live video is stable in most attempts, while startup retries and slow CPU recovery remain under investigation. |
 | Wired Wall Light Cam S100 | T84A1, type 151 | `unverified` | `unverified` | `unverified` | `partial` | Direct PPCS is confirmed. H.264 live video works on one setup, while another receives only delta slices. |
 | Indoor Cam Pan & Tilt | T8410, type 31 | `unverified` | `confirmed` | `unverified` | `unverified` | Sensors, retained image, and live stream confirmed. |
 | Indoor Cam Pan & Tilt | T8410C, numeric type not retained | `unverified` | `confirmed` | `unverified` | `unverified` | Sensors, retained image, and live stream confirmed. |
@@ -67,7 +68,7 @@ serials, credentials, snapshots, and videos stay outside the repository.
 | Video Doorbell | T8200, type 5 | Direct or self-parented | Discovery, entities, motion and person events, and retained event images are confirmed. Press notifications, live video, and on-demand snapshots remain unresolved. | Community, versions not consistently recorded. |
 | Video Doorbell S220 | T8210, type 7 | Direct, HomeBase 2, and HomeBase 3 | Live video and snapshots confirmed directly. Doorbell presses and motion detection control confirmed through HomeBase 3. One HomeBase 2 setup now has smooth playback, while another receives video data without rendering a view. | Developer and community, versions not consistently recorded. |
 | Video Doorbell | T8213, type 91 | HomeBase 3 | Discovery, sensors, retained images, and live stream confirmed. | Developer, v0.1.63. |
-| Video Doorbell E340 | T8214, type 94 | HomeBase 3 and T9000 | T9000 discovery and entities confirmed. T8030 live video has intermittent frame jumps. Press notifications need focused testing. | Community reports, versions not consistently recorded. |
+| Video Doorbell E340 | T8214, type 94 | HomeBase 3 and T9000 | T9000 discovery and entities confirmed. T8030 live video has intermittent frame jumps. Motion, person, familiar-person updates, and corrected press routing are confirmed. Missing push deliveries remain under investigation. | Community reports, versions not consistently recorded. |
 | Video Doorbell C30 | T8224, type 96 | Direct | Admission and doorbell press handling are implemented. Live media remains unverified. | Community evidence from `lsnewman`, issue #83, app/integration v0.1.59 reported; press support released in v0.1.63. |
 | Familock S3 Max | T85V0, type 203 | HomeBase 3 | Discovery and main battery confirmed. H.265 media arrives, but visible playback, snapshots, doorbell events, and lock controls remain unverified or unsupported. | Community reports, versions not consistently recorded. |
 

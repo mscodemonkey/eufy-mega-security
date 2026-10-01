@@ -14,5 +14,9 @@ models:
   - T9000
   - T9000121
 device_type: 27
-notes: The integration has observed this as type 27, but no station controls are confirmed and child-camera peer lookup remains unresolved.
+notes: >-
+  The integration has observed this as type 27, but no station controls are
+  confirmed. Child-camera peer lookup remains unresolved across two
+  installations. One receives local candidates that never answer, while
+  another receives no candidates.
 capabilities: {}
