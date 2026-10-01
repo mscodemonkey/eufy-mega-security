@@ -295,10 +295,11 @@ export class VideoParameterSetCache {
 }
 
 function annexBNalOffset(data: Buffer, matches: (header: number) => boolean): number | null {
+  let result: number | null = null;
   for (const start of annexBStarts(data)) {
-    if (matches(data[start.payloadOffset]!)) return start.offset;
+    if (matches(data[start.payloadOffset]!)) result = start.offset;
   }
-  return null;
+  return result;
 }
 
 function annexBStarts(data: Buffer): Array<{ offset: number; payloadOffset: number }> {
@@ -513,12 +514,12 @@ export class LiveStreamManager extends EventEmitter {
           if (session.ffmpeg.stdin.writable) session.ffmpeg.stdin.write(startup);
         }
         if (codec === "h265") {
-          let started = false;
           if (session.clients.size > 0 && !session.viewerFfmpeg) {
             this.#startViewerTranscoder(serial, session, startup);
-            started = true;
           }
-          if (!started) this.#writeViewerTranscoderInput(session, chunk);
+
+          // Keep the source feed continuous after seeding FFmpeg with the cached decoder start.
+          this.#writeViewerTranscoderInput(session, chunk);
         } else {
           let started = false;
           for (const client of session.pendingClients) {

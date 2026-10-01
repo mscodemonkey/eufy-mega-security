@@ -105,6 +105,20 @@ test("retains H.265 VPS, SPS, and PPS in decoder order", () => {
   assert.deepEqual(cache.startup, Buffer.concat([vps, sps, pps, idr]));
 });
 
+test("starts H.265 decoding from the latest random-access frame", () => {
+  const cache = new VideoParameterSetCache();
+  const vps = annexBNal(0x40, 0x01, 0x0c);
+  const sps = annexBNal(0x42, 0x01, 0x01);
+  const pps = annexBNal(0x44, 0x01, 0xc0);
+  const olderIdr = annexBNal(0x26, 0x01, 0xaa);
+  const delta = annexBNal(0x02, 0x01, 0xbb);
+  const latestIdr = annexBNal(0x28, 0x01, 0xcc);
+
+  cache.push(Buffer.concat([vps, sps, pps, olderIdr, delta, latestIdr]), "h265");
+
+  assert.deepEqual(cache.startup, Buffer.concat([vps, sps, pps, latestIdr]));
+});
+
 test("waits for a complete H.265 decoder start instead of probing vendor headers", () => {
   const cache = new VideoParameterSetCache();
   const vendorHeaders = Buffer.concat([
@@ -258,8 +272,10 @@ test("shares an H.264 fallback with viewers when a camera returns H.265", async 
   const vps = annexBNal(0x40, 0x01, 0x0c);
   const sps = annexBNal(0x42, 0x01, 0x01);
   const pps = annexBNal(0x44, 0x01, 0xc0);
-  source!.write(Buffer.concat([vps, sps, pps, annexBNal(0x26, 0x01, 0xbb)]));
+  const sourceChunk = Buffer.concat([vps, sps, pps, annexBNal(0x26, 0x01, 0xbb)]);
+  source!.write(sourceChunk);
   assert.ok(Buffer.concat(transcoderInput).includes(vps));
+  assert.deepEqual(Buffer.concat(transcoderInput), Buffer.concat([sourceChunk, sourceChunk]));
   assert.equal(bytes.length, 0);
 
   const h264Sps = annexBNal(0x67, 0x42, 0x00, 0x1f);
@@ -299,7 +315,7 @@ test("shares an H.264 fallback with viewers when a camera returns H.265", async 
     outputChunks: 1,
     bootstrapReady: true,
     inputCadence: {
-      samples: 1,
+      samples: 2,
       durationMilliseconds: 0,
       maximumGapMilliseconds: 0,
       gapsAtLeast500Milliseconds: 0,

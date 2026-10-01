@@ -64,11 +64,15 @@ capabilities:
     motion:
       connections:
         T8030:
-          status: declared
+          status: reported
+          tested_on: 2026-10-01
+          tested_by: kdekok
     person:
       connections:
         T8030:
-          status: declared
+          status: reported
+          tested_on: 2026-10-01
+          tested_by: kdekok
     pet:
       connections:
         T8030:

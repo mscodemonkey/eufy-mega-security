@@ -61,7 +61,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 - 🟠 Indoor Cam E30 4K T8417: discovery and properties are confirmed. Direct media arrives, but live video remains blank and codec startup is unresolved. Events and snapshots still need confirmation.
 - ✅ eufyCam C37 T814X / T814XS: Mega type 10037 is confirmed through HomeBase 3. The standalone solar variant's type 10039 is confirmed for discovery, person events, fresh snapshots, and reliable live video.
 - 🟠 eufyCam T8111 original: Mega type 1 is admitted through its reported ready HomeBase 3 route. Discovery, events, snapshots, and live video await reporter testing.
-- 🟠 eufyCam E330 Professional T8600: discovery, fresh snapshots, and live video are confirmed through HomeBase 3. Sustained H.265 playback can stutter, motion and person events still need confirmation, and battery-shaped values are suppressed because this model is mains-powered.
+- ✅ eufyCam E330 Professional T8600: discovery, fresh snapshots, live video, motion events, and person events are confirmed through HomeBase 3. Sustained H.265 playback can stutter, and battery-shaped values are suppressed because this model is mains-powered.
 - 🟢 eufyCam E40 T8144: discovery, motion, person, pet, sound events, fresh snapshots, and live video are confirmed through HomeBase 2. Live video is reliable in Chrome, Safari, and the Home Assistant iOS app.
 
 ### Doorbells
@@ -76,7 +76,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 ### Standalone sensors
 
 - ✅ Entry Sensor T8900: discovery and open or closed state are confirmed on real hardware.
-- 🟠 Motion Sensor T8910: discovery and the motion entity are implemented. A HomeBase 2 setup confirms that the sensor wakes an attached doorbell, but its own push event does not reach the gateway. The cloud timestamp fallback still needs hardware confirmation.
+- 🟠 Motion Sensor T8910: discovery and the motion entity are implemented. A HomeBase 2 setup confirms that the sensor wakes an attached doorbell, but its own push event does not reach the gateway and its cloud timestamp does not advance.
 
 ### Recognised but not supported
 
@@ -144,6 +144,8 @@ On Home Assistant OS or Supervised, the app generates its own private API token 
 ## Before installing
 
 Create a separate Eufy guest account and share only the Home and cameras you want Home Assistant to access. Do not use the Eufy account currently signed into your everyday mobile app; simultaneous Eufy sessions can interfere with one another.
+
+Open the shared Home in the Eufy app while signed in as the guest account and confirm the shared devices are visible. Event delivery also depends on each device's Eufy push-notification setting. On tested HomeBase 3 hardware that setting applied to every account, and the gateway had no separate local event route when device notifications were disabled.
 
 You will need:
 
