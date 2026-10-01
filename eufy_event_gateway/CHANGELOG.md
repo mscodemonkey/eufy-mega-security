@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.109
+
+- Start H.265 viewer conversion from the latest random-access frame and keep feeding the source chunk that opened the converter.
+- Admit the original T8111 eufyCam through its reported ready HomeBase 3 route for hardware testing.
+
 ## 0.1.108
 
 - Switch direct-camera media retries to the negotiated session after key exchange while retaining the legacy first-start fallback.
