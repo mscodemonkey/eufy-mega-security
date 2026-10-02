@@ -59,6 +59,36 @@ test("normalizes a nested HomeBase 3 Mega notification", () => {
   });
 });
 
+test("finds notification detail through every nested envelope and keeps inner identity", () => {
+  const result = parsePushEvent({
+    device_sn: "outer-camera",
+    station_sn: "station",
+    payload: JSON.stringify({ payload: {
+      device_sn: "inner-camera",
+      payload: JSON.stringify({ payload: { a: 3103, msg_type: 18, f: "Alex", pic_url: "https://example.invalid/image", person_count: 1 } }),
+    } }),
+  });
+  assert.equal(result?.cameraSerial, "inner-camera");
+  assert.equal(result?.stationSerial, "station");
+  assert.equal(result?.eventType, 3103);
+  assert.equal(result?.messageType, 18);
+  assert.equal(result?.personName, "Alex");
+  assert.equal(result?.pictureUrl, "https://example.invalid/image");
+  assert.deepEqual(result?.detectionEvidence, ["person"]);
+});
+
+test("rejects malformed, cyclic, and excessively deep payloads without replaying outer events", () => {
+  for (const payload of ["not json", "[]", "1", []]) {
+    assert.equal(parsePushEvent({ device_sn: "camera", a: 3101, payload }), null);
+  }
+  const cyclic: Record<string, unknown> = { device_sn: "camera", a: 3101 };
+  cyclic.payload = cyclic;
+  assert.equal(parsePushEvent(cyclic), null);
+  let deep: Record<string, unknown> = { a: 3101 };
+  for (let depth = 0; depth < 17; depth++) deep = { payload: deep };
+  assert.equal(parsePushEvent({ device_sn: "camera", payload: deep }), null);
+});
+
 test("reduces structured AI fields to privacy-safe detection kinds", () => {
   const person = parsePushEvent({
     device_sn: "camera",
