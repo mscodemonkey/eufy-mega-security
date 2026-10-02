@@ -23,6 +23,13 @@ capabilities:
       values:
         "0": "Off"
         "1": "On"
+    light:
+      connections:
+        direct:
+          status: declared
+          notes: Device type 45 uses the source-backed command-1400 integer and account envelope. Stateless buttons avoid claiming a durable light state.
+      write:
+        command: 1400
   media:
     live_view:
       connections:

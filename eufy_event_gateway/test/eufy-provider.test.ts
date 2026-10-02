@@ -112,6 +112,7 @@ test("limits timed JSON light control to the verified wall-light family", () => 
 });
 
 test("selects the source-backed direct light protocol by camera family", () => {
+  assert.equal(cameraLightControlProtocol({ deviceType: 45 }), "int-string");
   assert.equal(cameraLightControlProtocol({ deviceType: 61 }), "int-string");
   assert.equal(cameraLightControlProtocol({ deviceType: 151 }), "timed-json");
   assert.equal(cameraLightControlProtocol({ deviceType: 10005 }), "timed-json");
