@@ -40,6 +40,7 @@ import {
   supportsPresetPositions,
   supportsStandaloneGuardMode,
   supportsTimedCameraLight,
+  cameraLightControlProtocol,
 } from "../src/provider/eufy-provider.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, type HomeBasePpcsState } from "../src/stream/homebase-ppcs.js";
 
@@ -108,6 +109,14 @@ test("limits timed JSON light control to the verified wall-light family", () => 
   assert.equal(supportsTimedCameraLight({ deviceType: 61 }), false);
   assert.equal(supportsTimedCameraLight({ deviceType: 10031 }), false);
   assert.equal(supportsTimedCameraLight({ deviceType: null }), false);
+});
+
+test("selects the source-backed direct light protocol by camera family", () => {
+  assert.equal(cameraLightControlProtocol({ deviceType: 61 }), "int-string");
+  assert.equal(cameraLightControlProtocol({ deviceType: 151 }), "timed-json");
+  assert.equal(cameraLightControlProtocol({ deviceType: 10005 }), "timed-json");
+  assert.equal(cameraLightControlProtocol({ deviceType: 10031 }), null);
+  assert.equal(cameraLightControlProtocol({ deviceType: null }), null);
 });
 
 test("limits camera sirens by route and device evidence", () => {

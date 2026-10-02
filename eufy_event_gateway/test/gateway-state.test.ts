@@ -65,9 +65,13 @@ test("exposes only provider-confirmed timed light support", () => {
   const state = new GatewayState();
   state.registerCamera(camera);
   assert.equal(state.getCamera(camera.serial).timedLightControlSupported, false);
+  assert.equal(state.getCamera(camera.serial).cameraLightControlSupported, false);
 
   state.registerCamera({ ...camera, timedLightControlSupported: true });
   assert.equal(state.getCamera(camera.serial).timedLightControlSupported, true);
+
+  state.registerCamera({ ...camera, cameraLightControlSupported: true });
+  assert.equal(state.getCamera(camera.serial).cameraLightControlSupported, true);
 });
 
 test("exposes only provider-confirmed T817L action support", () => {

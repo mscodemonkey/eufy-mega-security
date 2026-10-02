@@ -1241,6 +1241,28 @@ export class FirstPartyPpcsSession {
     }
   }
 
+  /** Send command 1400 using the direct spotlight family's integer and account envelope. */
+  async writeStandaloneCameraLight(enabled: boolean): Promise<void> {
+    if (this.#options.purpose !== "control") throw new Error("Camera light control requires a control session");
+    if (!this.#remote) throw new Error("Camera light control session is not connected");
+    if (this.#options.homeBaseAttached) throw new Error("Standalone camera light control requires a direct camera");
+    const accountId = this.#options.accountId;
+    if (!accountId) throw new Error("Camera light control account identity is unavailable");
+    const body = buildStandaloneCameraLightBody(
+      this.#options.channel,
+      enabled,
+      accountId,
+      commandKey(this.#options.stationSerial, this.#options.p2pDid),
+    );
+
+    // The vendor path is fire-and-forget and reports no durable light state.
+    // Repeat the idempotent frame so one lost UDP datagram does not lose the action.
+    for (let index = 0; index < 3; index += 1) {
+      this.#sendCommand(1400, body);
+      if (index < 2) await delay(200);
+    }
+  }
+
   /**
    * Query the camera's preset slots without fetching names or thumbnails.
    *
@@ -1981,6 +2003,21 @@ export function buildAutoNightVisionCommandBody(channel: number, enabled: boolea
   if (!accountId) throw new Error("Auto night vision control requires a non-empty account identity");
   if (!Number.isSafeInteger(channel) || channel < 0 || channel > 255) throw new Error("Auto night vision control requires a valid camera channel");
   if (key.length !== 16) throw new Error("Auto night vision control requires a 16-byte command key");
+  return buildIntStringCommandBody(enabled ? 1 : 0, channel, accountId, key);
+}
+
+/** Build the command-1400 body used by direct SoloCam spotlight controls. */
+export function buildStandaloneCameraLightBody(
+  channel: number,
+  enabled: boolean,
+  accountId: string,
+  key: Buffer,
+): Buffer {
+  if (!accountId) throw new Error("Camera light control requires a non-empty account identity");
+  if (!Number.isSafeInteger(channel) || channel < 0 || channel > 255) {
+    throw new Error("Camera light control requires a valid camera channel");
+  }
+  if (key.length !== 16) throw new Error("Camera light control requires a 16-byte command key");
   return buildIntStringCommandBody(enabled ? 1 : 0, channel, accountId, key);
 }
 
