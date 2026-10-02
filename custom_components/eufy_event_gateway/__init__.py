@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -128,3 +129,35 @@ async def async_unload_entry(
     """Cancel entry-owned background work and unload all entity platforms."""
     await entry.runtime_data.coordinator.async_shutdown()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant,
+    config_entry: EufyGatewayConfigEntry,
+    device_entry: dr.DeviceEntry,
+) -> bool:
+    """Allow user removal only after a successful refresh proves the device absent.
+
+    The gateway owns account inventory. Home Assistant owns the registry and
+    performs the requested deletion after this callback approves it. A failed
+    inventory refresh, an unloaded entry, or any matching camera, station, or
+    sensor keeps the registry association intact.
+    """
+    runtime_data = getattr(config_entry, "runtime_data", None)
+    if runtime_data is None:
+        return False
+    identifiers = {
+        identifier
+        for domain, identifier in device_entry.identifiers
+        if domain == DOMAIN
+    }
+    if not identifiers:
+        return False
+    coordinator = runtime_data.coordinator
+    await coordinator.async_refresh()
+    if not coordinator.last_update_success or coordinator.data is None:
+        return False
+    current_devices = set(coordinator.cameras) | set(coordinator.stations) | set(
+        coordinator.sensors
+    )
+    return identifiers.isdisjoint(current_devices)
