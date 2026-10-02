@@ -234,6 +234,12 @@ export class GatewayServer {
       }
       if (
         request.method === "GET" &&
+        segments[0] === "api" && segments[1] === "cameras" && segments[3] === "event-image" && segments.length === 4
+      ) {
+        return await this.#eventImage(segments[2]!, response);
+      }
+      if (
+        request.method === "GET" &&
         segments[0] === "api" && segments[1] === "cameras" && segments[3] === "live.h264" && segments.length === 4
       ) {
         return await this.#live(segments[2]!, response);
@@ -424,6 +430,20 @@ export class GatewayServer {
       "Last-Modified": new Date(snapshot.info.capturedAt).toUTCString(),
     });
     response.end(snapshot.data);
+  }
+
+  async #eventImage(serial: string, response: ServerResponse): Promise<void> {
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    const eventImage = await this.snapshots.readEvent(serial);
+    if (!eventImage) return json(response, 404, { error: "No event image captured yet" });
+    response.writeHead(200, {
+      "Content-Type": eventImage.info.contentType,
+      "Content-Length": eventImage.data.length,
+      "Cache-Control": "no-cache",
+      ETag: `"${eventImage.info.revision}"`,
+      "Last-Modified": new Date(eventImage.info.capturedAt).toUTCString(),
+    });
+    response.end(eventImage.data);
   }
 
   async #live(serial: string, response: ServerResponse): Promise<void> {

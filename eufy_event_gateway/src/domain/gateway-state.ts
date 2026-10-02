@@ -48,6 +48,7 @@ interface MutableCameraState {
   doorbellPressed: boolean;
   lastDetection: Detection | null;
   snapshot: SnapshotInfo | null;
+  eventImage: SnapshotInfo | null;
   streamState: StreamState;
   streamViewers: number;
   streamStartedAt: string | null;
@@ -117,6 +118,7 @@ export class GatewayState extends EventEmitter {
         doorbellPressed: false,
         lastDetection: null,
         snapshot: null,
+        eventImage: null,
         streamState: "idle",
         streamViewers: 0,
         streamStartedAt: null,
@@ -202,6 +204,13 @@ export class GatewayState extends EventEmitter {
   restoreSnapshot(serial: string, snapshot: SnapshotInfo): void {
     const camera = this.#requireCamera(serial);
     camera.snapshot = snapshot;
+    this.#emitCamera(serial);
+  }
+
+  /** Restore persisted event-image metadata without emitting a detection event. */
+  restoreEventImage(serial: string, eventImage: SnapshotInfo): void {
+    const camera = this.#requireCamera(serial);
+    camera.eventImage = eventImage;
     this.#emitCamera(serial);
   }
 
@@ -302,6 +311,14 @@ export class GatewayState extends EventEmitter {
     const camera = this.#requireCamera(serial);
     camera.snapshot = snapshot;
     this.emit("event", { type: "snapshot-updated", cameraSerial: serial, snapshot } satisfies GatewayEvent);
+    this.#emitCamera(serial);
+  }
+
+  /** Publish new event-image metadata and notify SSE subscribers. */
+  updateEventImage(serial: string, eventImage: SnapshotInfo): void {
+    const camera = this.#requireCamera(serial);
+    camera.eventImage = eventImage;
+    this.emit("event", { type: "event-image-updated", cameraSerial: serial, eventImage } satisfies GatewayEvent);
     this.#emitCamera(serial);
   }
 
@@ -477,6 +494,7 @@ export class GatewayState extends EventEmitter {
       battery: camera.identity.battery ?? null,
       lastDetection: camera.lastDetection,
       snapshot: camera.snapshot,
+      eventImage: camera.eventImage,
       stream: {
         state: camera.streamState,
         viewers: camera.streamViewers,

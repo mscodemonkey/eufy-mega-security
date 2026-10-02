@@ -34,6 +34,33 @@ test("retains a recognized person after the transient sensor clears", () => {
   assert.equal(result.lastDetection?.occurredAt, "2026-09-11T01:02:03.000Z");
 });
 
+test("tracks event images independently of the main retained snapshot", () => {
+  const state = new GatewayState();
+  const events: unknown[] = [];
+  state.on("event", (event) => events.push(event));
+  state.registerCamera(camera);
+  const snapshot = {
+    capturedAt: "2026-10-03T00:00:00.000Z",
+    contentType: "image/jpeg",
+    source: "live" as const,
+    revision: 4,
+  };
+  const eventImage = {
+    capturedAt: "2026-10-03T00:01:00.000Z",
+    contentType: "image/jpeg",
+    source: "event" as const,
+    revision: 2,
+  };
+
+  state.restoreSnapshot(camera.serial, snapshot);
+  state.updateEventImage(camera.serial, eventImage);
+
+  assert.deepEqual(state.getCamera(camera.serial).snapshot, snapshot);
+  assert.deepEqual(state.getCamera(camera.serial).eventImage, eventImage);
+  assert.equal((events.at(-2) as { type: string }).type, "event-image-updated");
+  assert.equal((events.at(-1) as { type: string }).type, "camera-updated");
+});
+
 test("exposes only provider-confirmed timed light support", () => {
   const state = new GatewayState();
   state.registerCamera(camera);
