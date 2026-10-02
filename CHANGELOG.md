@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.111
+
+- Add a separate Event image camera entity for every discovered camera. It retains the latest valid event picture without replacing a fresher live still on the main camera.
+
 ## 0.1.110
 
 - Expose the NVR S4's reported guard mode as read-only station state without enabling unproven arm, disarm, or media controls.
