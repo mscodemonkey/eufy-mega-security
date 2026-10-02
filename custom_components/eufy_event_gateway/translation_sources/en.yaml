@@ -1,5 +1,8 @@
 title: Eufy Mega Security
 entity:
+  camera:
+    event_image:
+      name: Event image
   button:
     compatibility_report:
       name: Help test this device
