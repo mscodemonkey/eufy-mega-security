@@ -50,7 +50,14 @@ async def async_setup_entry(
         if serials:
             known.update(serials)
             async_add_entities(
-                EufyGatewayCamera(coordinator, serial) for serial in sorted(serials)
+                [
+                    entity
+                    for serial in sorted(serials)
+                    for entity in (
+                        EufyGatewayCamera(coordinator, serial),
+                        EufyGatewayEventImage(coordinator, serial),
+                    )
+                ]
             )
 
     add_new()
@@ -204,6 +211,49 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
             await self.hass.async_add_executor_job(_atomic_write, filename, data)
         except (GatewayClientError, OSError) as error:
             raise HomeAssistantError(f"Could not record clip: {error}") from error
+
+
+class EufyGatewayEventImage(EufyGatewayEntity, Camera):
+    """Expose the latest event picture without replacing the main camera still.
+
+    One entity lives beside each discovered camera for the config entry
+    lifetime. The gateway owns validation and durable retention, while this
+    entity performs only authenticated reads and cache-token rotation.
+    """
+
+    _attr_translation_key = "event_image"
+    _attr_content_type = "image/jpeg"
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Create an event-image entity with its own stable unique ID."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        Camera.__init__(self)
+        self._attr_unique_id = f"{serial}_event_image"
+        self._published_event_image_revision = self._event_image_revision
+
+    @property
+    def _event_image_revision(self) -> int | None:
+        """Return the revision used to invalidate Home Assistant's image proxy."""
+        revision = (self.camera.get("eventImage") or {}).get("revision")
+        return revision if isinstance(revision, int) else None
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Rotate the image token after the gateway commits a newer event picture."""
+        revision = self._event_image_revision
+        if revision != self._published_event_image_revision:
+            self._published_event_image_revision = revision
+            self.async_update_token()
+        super()._handle_coordinator_update()
+
+    async def async_camera_image(
+        self, width: int | None = None, height: int | None = None
+    ) -> bytes | None:
+        """Return the last valid event picture without waking the camera."""
+        try:
+            return await self.coordinator.client.event_image(self.serial)
+        except GatewayClientError:
+            return None
 
 
 def _atomic_write(filename: str, data: bytes) -> None:

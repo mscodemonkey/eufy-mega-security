@@ -168,6 +168,8 @@ const providerEvents: ProviderEvents = {
     const stored = snapshots.getInfo(identity.serial);
     if (stored) state.restoreSnapshot(identity.serial, stored);
     else if (identity.streamSupported) startupSnapshots.enqueue(identity.serial);
+    const storedEventImage = snapshots.getEventInfo(identity.serial);
+    if (storedEventImage) state.restoreEventImage(identity.serial, storedEventImage);
   },
   station(station) {
     state.registerStation(station);
@@ -202,9 +204,10 @@ const providerEvents: ProviderEvents = {
   },
   snapshot(serial, data, contentType) {
     if (!state.hasCamera(serial)) return;
-    void snapshots.writeEvent(serial, data, contentType).then((info) => {
-      if (info) {
-        state.updateSnapshot(serial, info);
+    void snapshots.writeEvent(serial, data, contentType).then(({ eventImage, snapshot }) => {
+      state.updateEventImage(serial, eventImage);
+      if (snapshot) {
+        state.updateSnapshot(serial, snapshot);
         providerLogger.info("push_snapshot_updated", "Eufy push snapshot retained");
       } else {
         providerLogger.info("push_snapshot_preserved_live", "Eufy push snapshot did not replace the retained live frame");

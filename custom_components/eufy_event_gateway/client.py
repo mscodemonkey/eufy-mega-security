@@ -149,6 +149,20 @@ class GatewayClient:
         except (ClientError, TimeoutError) as error:
             raise GatewayClientError(str(error)) from error
 
+    async def event_image(self, serial: str) -> bytes | None:
+        """Read the latest event picture, returning None before one arrives."""
+        try:
+            async with self._session.get(
+                self._url(f"/api/cameras/{serial}/event-image"),
+                headers=self._headers,
+            ) as response:
+                if response.status == 404:
+                    return None
+                self._raise_for_status(response)
+                return await response.read()
+        except (ClientError, TimeoutError) as error:
+            raise GatewayClientError(str(error)) from error
+
     async def stream_url(self, serial: str) -> str:
         """Create a short-lived H.264 URL that does not expose the bearer token."""
         payload = await self._json(f"/api/cameras/{serial}/stream-token", method="POST")

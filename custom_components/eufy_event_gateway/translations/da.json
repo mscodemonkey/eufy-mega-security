@@ -1,6 +1,11 @@
 {
   "title": "Eufy Mega Security",
   "entity": {
+    "camera": {
+      "event_image": {
+        "name": "Hændelsesbillede"
+      }
+    },
     "button": {
       "compatibility_report": {
         "name": "Hjælp med at teste denne enhed"

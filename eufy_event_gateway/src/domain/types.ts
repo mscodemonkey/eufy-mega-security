@@ -95,6 +95,7 @@ export interface CameraState {
   readonly battery: BatteryState | null;
   readonly lastDetection: Detection | null;
   readonly snapshot: SnapshotInfo | null;
+  readonly eventImage: SnapshotInfo | null;
   readonly stream: {
     readonly state: StreamState;
     readonly viewers: number;
@@ -187,6 +188,7 @@ export type GatewayEvent =
   | { readonly type: "stations-updated"; readonly stations: readonly HomeBaseState[] }
   | { readonly type: "detection"; readonly cameraSerial: string; readonly detection: Detection }
   | { readonly type: "snapshot-updated"; readonly cameraSerial: string; readonly snapshot: SnapshotInfo }
+  | { readonly type: "event-image-updated"; readonly cameraSerial: string; readonly eventImage: SnapshotInfo }
   | { readonly type: "connection-updated"; readonly state: ConnectionState; readonly detail: string | null };
 
 /** Stable camera metadata discovered from Mega inventory. */
