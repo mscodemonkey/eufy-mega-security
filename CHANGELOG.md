@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.112
+
+- Improve live-video recovery when packets arrive out of order or are retransmitted.
+- Improve direct-device connection attempts by registering multiple UDP source ports and retaining the successful route.
+- Read event details and device identity from nested push notifications more reliably.
+- Allow Home Assistant device removal when a successful fresh gateway inventory confirms the device is no longer present.
+- Suppress misleading battery readings on externally powered T8410 and T84A1 cameras.
+- Add supported light controls for T8123 and T8441 cameras, with physical-device confirmation still required.
+- Improve event-image diagnostics for notifications whose image format isn't supported yet.
+
 ## 0.1.111
 
 - Add a separate Event image camera entity for every discovered camera. It retains the latest valid event picture without replacing a fresher live still on the main camera.
