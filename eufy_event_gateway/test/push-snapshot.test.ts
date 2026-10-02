@@ -38,3 +38,27 @@ test("requires the parent HomeBase identity for an encoded event image", async (
     new Map(),
   ), /HomeBase identity/);
 });
+
+test("reports a truncated JPEG without logging its bytes or download URL", async () => {
+  await assert.rejects(downloadPushSnapshot(
+    { download: async () => Buffer.from([0xff, 0xd8, 0x01, 0x02]) },
+    { pictureUrl: "https://example.invalid/private-signed-url", stationSerial: "station-1" },
+    new Map([["station-1", { p2pDid: "ABC-123456-XYZ" }]]),
+  ), (error: unknown) => {
+    assert.match(String(error), /format=jpeg result=missing_end/);
+    assert.doesNotMatch(String(error), /private-signed-url|ffd8|123456/);
+    return true;
+  });
+});
+
+test("reports an unrecognised v2 wrapper shape without retaining payload data", async () => {
+  await assert.rejects(downloadPushSnapshot(
+    { download: async () => Buffer.from("v2_eufysecurity:camera:event:private-payload") },
+    { pictureUrl: "https://example.invalid/private-signed-url", stationSerial: "station-1" },
+    new Map([["station-1", { p2pDid: "ABC-123456-XYZ" }]]),
+  ), (error: unknown) => {
+    assert.match(String(error), /format=v2 result=missing_both/);
+    assert.doesNotMatch(String(error), /private-payload|private-signed-url|123456/);
+    return true;
+  });
+});

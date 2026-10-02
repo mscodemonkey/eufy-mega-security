@@ -1535,8 +1535,29 @@ export async function downloadPushSnapshot(
   const p2pDid = devices.get(event.stationSerial)?.p2pDid;
   if (!p2pDid) throw new Error("event image cannot be decoded without its HomeBase identity");
   const decoded = decodeEventImage(encoded, p2pDid);
-  if (!isJpeg(decoded)) throw new Error("event image is not a valid JPEG");
+  if (!isJpeg(decoded)) {
+    throw new Error(
+      `event image decode failed: format=${eventImageFormat(encoded)} result=${jpegBoundaryResult(decoded)}`,
+    );
+  }
   return { data: decoded };
+}
+
+/** Classify an event-image wrapper without retaining its contents or identity. */
+function eventImageFormat(data: Buffer): "jpeg" | "legacy" | "unknown" | "v2" {
+  if (data.length >= 2 && data[0] === 0xff && data[1] === 0xd8) return "jpeg";
+  if (data.subarray(0, 16).toString("latin1") === "v2_eufysecurity:") return "v2";
+  if (data.subarray(0, 12).toString("latin1") === "eufysecurity") return "legacy";
+  return "unknown";
+}
+
+/** Describe only which JPEG boundary marker is absent after local decoding. */
+function jpegBoundaryResult(data: Buffer): "missing_both" | "missing_end" | "missing_start" {
+  const starts = data.length >= 2 && data[0] === 0xff && data[1] === 0xd8;
+  const ends = data.length >= 2 && data.at(-2) === 0xff && data.at(-1) === 0xd9;
+  if (starts) return "missing_end";
+  if (ends) return "missing_start";
+  return "missing_both";
 }
 
 /** Parse and normalize the untrusted device list returned by Mega. */
