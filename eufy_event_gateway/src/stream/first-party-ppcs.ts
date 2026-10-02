@@ -190,6 +190,123 @@ export function ppcsSequenceDisposition(
   return advance === 1 ? "next" : "gap";
 }
 
+/** Inbound datagrams retained while one independently sequenced channel waits for a hole. */
+interface PpcsReorderChannel {
+  last: number;
+  held: Map<number, Buffer>;
+  bytes: number;
+  timer?: ReturnType<typeof setTimeout> | undefined;
+}
+
+/**
+ * Delivers PPCS datagrams in channel sequence order before command reassembly.
+ *
+ * One session owns this buffer and closes it before releasing its UDP socket.
+ * A missing packet gets 250 ms to arrive, with at most 128 packets or 2 MiB
+ * retained per channel. Expiry discards the partial command through `onSkip`
+ * before delivering the earliest successor. Acknowledgements remain the
+ * session's responsibility, including duplicates and retransmissions.
+ */
+export class PpcsDatagramReorderBuffer {
+  readonly #channels = new Map<number, PpcsReorderChannel>();
+  #closed = false;
+
+  constructor(
+    private readonly deliver: (data: Buffer, type: number) => void,
+    private readonly onSkip: (type: number, reason: "gap" | "restart") => void,
+    private readonly onRepeat: (reason: "duplicate" | "stale") => void,
+  ) {}
+
+  /** Accept an acknowledged packet, retaining successors until missing data arrives or expires. */
+  push(data: Buffer, sequence: number, type: number): void {
+    if (this.#closed) return;
+    let channel = this.#channels.get(type);
+    if (!channel) {
+      channel = { last: sequence, held: new Map(), bytes: 0 };
+      this.#channels.set(type, channel);
+      this.deliver(data, type);
+      return;
+    }
+    const disposition = ppcsSequenceDisposition(channel.last, sequence);
+    if (disposition === "duplicate" || disposition === "stale") {
+      this.onRepeat(disposition);
+      return;
+    }
+    if (disposition === "restart") {
+      this.#clearTimer(channel);
+      channel.held.clear();
+      channel.bytes = 0;
+      this.onSkip(type, "restart");
+      channel.last = sequence;
+      this.deliver(data, type);
+      return;
+    }
+    if (disposition === "next") {
+      channel.last = sequence;
+      this.deliver(data, type);
+      this.#drain(type, channel);
+      return;
+    }
+    if (channel.held.has(sequence)) {
+      this.onRepeat("duplicate");
+      return;
+    }
+    channel.held.set(sequence, Buffer.from(data));
+    channel.bytes += data.length;
+    if (channel.held.size >= 128 || channel.bytes >= 2 * 1024 * 1024) {
+      this.#abandonHole(type, channel);
+    } else {
+      this.#arm(type, channel);
+    }
+  }
+
+  /** Cancel all gap waits and release retained bytes, preventing delivery after session shutdown. */
+  close(): void {
+    this.#closed = true;
+    for (const channel of this.#channels.values()) this.#clearTimer(channel);
+    this.#channels.clear();
+  }
+
+  #clearTimer(channel: PpcsReorderChannel): void {
+    if (channel.timer) clearTimeout(channel.timer);
+    channel.timer = undefined;
+  }
+
+  #arm(type: number, channel: PpcsReorderChannel): void {
+    if (channel.timer || channel.held.size === 0) return;
+    channel.timer = setTimeout(() => {
+      channel.timer = undefined;
+      this.#abandonHole(type, channel);
+    }, 250);
+    channel.timer.unref?.();
+  }
+
+  #drain(type: number, channel: PpcsReorderChannel): void {
+    this.#clearTimer(channel);
+    while (!this.#closed) {
+      const next = (channel.last + 1) & 0xffff;
+      const data = channel.held.get(next);
+      if (!data) break;
+      channel.held.delete(next);
+      channel.bytes -= data.length;
+      channel.last = next;
+      this.deliver(data, type);
+    }
+    if (!this.#closed) this.#arm(type, channel);
+  }
+
+  #abandonHole(type: number, channel: PpcsReorderChannel): void {
+    this.#clearTimer(channel);
+    const earliest = [...channel.held.keys()].sort(
+      (a, b) => ((a - channel.last) & 0xffff) - ((b - channel.last) & 0xffff),
+    )[0];
+    if (earliest === undefined || this.#closed) return;
+    this.onSkip(type, "gap");
+    channel.last = (earliest - 1) & 0xffff;
+    this.#drain(type, channel);
+  }
+}
+
 /**
  * Decode one legacy PPCS video frame using only the key carried by that frame.
  *
@@ -940,7 +1057,19 @@ export class FirstPartyPpcsSession {
 
   // PPCS sequences are independent for each inner data type. Combining them
   // would manufacture false gaps when command and video datagrams interleave.
-  #lastSequenceByType = new Map<number, number>();
+  #datagramOrder = new PpcsDatagramReorderBuffer(
+    (data, type) => this.#consumeData(data, type),
+    (type, reason) => {
+      if (reason === "restart") this.stats.sequenceRestarts++;
+      else this.stats.sequenceGaps++;
+      this.#pendingByType.delete(type);
+      this.#updatePendingBytes();
+    },
+    (reason) => {
+      if (reason === "duplicate") this.stats.duplicateDatagrams++;
+      else this.stats.staleDatagrams++;
+    },
+  );
   readonly #videoNormalizer = new PpcsVideoStreamNormalizer();
   readonly #videoAssembler = new PpcsAccessUnitAssembler((drop) => {
     this.stats.incompleteAccessUnits++;
@@ -1328,6 +1457,9 @@ export class FirstPartyPpcsSession {
       this.#pendingCameraInfo = null;
     }
     this.#videoAssembler.reset();
+    this.#datagramOrder.close();
+    this.#pendingByType.clear();
+    this.#updatePendingBytes();
     if (this.#options.purpose !== "control" && this.#options.homeBaseAttached) {
       this.#stopAttachedMedia();
     }
@@ -1403,7 +1535,7 @@ export class FirstPartyPpcsSession {
       if (!this.stats.types.includes(type[1] ?? -1)) this.stats.types.push(type[1] ?? -1);
       this.#send(REQ.ack, Buffer.concat([type, u16(1), u16(seq)]), this.#remote);
       const dataType = type[1] ?? 0;
-      if (type.equals(DATA.video) || type.equals(DATA.data) || dataType === 2) this.#consumeData(message.subarray(8), seq, dataType);
+      if (type.equals(DATA.video) || type.equals(DATA.data) || dataType === 2) this.#datagramOrder.push(message.subarray(8), seq, dataType);
     }
     return false;
   }
@@ -1414,7 +1546,7 @@ export class FirstPartyPpcsSession {
    * UDP datagrams may split a command header, split its declared payload, or
    * contain several commands. Partial state is keyed by data type because Eufy
    * interleaves independently sequenced command and video streams. A sequence
-   * gap discards only that type's partial command. Keeping it would join bytes
+   * gap that cannot be recovered discards only that type's partial command. Keeping it would join bytes
    * from opposite sides of a missing datagram and produce a plausible but
    * corrupt frame.
    *
@@ -1422,23 +1554,7 @@ export class FirstPartyPpcsSession {
    * recovery attempt within the current datagram. A second blockage is kept as
    * a diagnostic instead of repeatedly scanning arbitrary media bytes.
    */
-  #consumeData(data: Buffer, sequence: number, type: number): void {
-    const previous = this.#lastSequenceByType.get(type);
-    const disposition = ppcsSequenceDisposition(previous ?? null, sequence);
-    if (disposition === "duplicate") {
-      this.stats.duplicateDatagrams++;
-      return;
-    }
-    if (disposition === "stale") {
-      this.stats.staleDatagrams++;
-      return;
-    }
-    if (disposition === "gap" || disposition === "restart") {
-      if (disposition === "restart") this.stats.sequenceRestarts++;
-      else this.stats.sequenceGaps++;
-      this.#pendingByType.delete(type);
-    }
-    this.#lastSequenceByType.set(type, sequence);
+  #consumeData(data: Buffer, type: number): void {
     const carried = this.#pendingByType.get(type);
     this.#pendingByType.delete(type);
     let body = data;
