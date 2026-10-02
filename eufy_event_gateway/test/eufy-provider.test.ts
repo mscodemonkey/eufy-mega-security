@@ -22,6 +22,7 @@ import {
   genericSecurityDetectionKinds,
   initialHomeBaseState,
   isDiscoveredHomeBase,
+  isInventoryStation,
   isDoorbellDevice,
   isPpcsStreamSupported,
   isSupportedMegaCamera,
@@ -476,6 +477,39 @@ test("keeps old and missing T8010 firmware on read-only guard mode", () => {
   assert.equal(supportsHomeBaseGuardMode({ ...base, firmware: "2.0.7.9" }), true);
   assert.equal(supportsHomeBaseGuardMode({ ...base, firmware: "3.4.2.6h" }), true);
   assert.equal(supportsHomeBaseGuardMode({ ...base, firmware: null }), false);
+});
+
+test("exposes NVR inventory guard mode without enabling HomeBase writes or refresh", () => {
+  const [station] = parseMegaInventory({ devices: [{
+    device_sn: "nvr", device_name: "NVR S4", device_model: "T8N00",
+    device_type: 300, category: "eufy_security",
+    params: [{ param_type: 1224, param_value: "1" }],
+  }] });
+
+  assert.ok(station);
+  assert.equal(isInventoryStation(station), true);
+  assert.equal(isDiscoveredHomeBase(station), false);
+  assert.deepEqual(initialHomeBaseState(station, false), {
+    serial: "nvr",
+    name: "NVR S4",
+    model: "T8N00",
+    firmware: null,
+    available: true,
+    cameraRouteReady: false,
+    controlsSupported: false,
+    guardModeControlSupported: false,
+    stateReadSupported: true,
+    homeBaseSirenControlSupported: false,
+    connected: false,
+    guardMode: 1,
+    effectiveMode: null,
+    alarmActive: null,
+    alarmVolume: null,
+    promptVolume: null,
+    alarmTone: null,
+    storageSupported: [],
+    storage: { sd: null, emmc: null, hdd: null },
+  });
 });
 
 test("classifies recognized Mega camera types without admitting stations or unknown devices", () => {
