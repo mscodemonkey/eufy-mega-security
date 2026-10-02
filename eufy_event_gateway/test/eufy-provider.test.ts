@@ -935,6 +935,15 @@ test("does not report unsupported HomeBase inventory as a handled camera event",
   assert.match(summary, /handling=unhandled/);
 });
 
+test("reports routed motion-sensor pushes as handled", () => {
+  const summary = safePushLogSummary({
+    eventType: 14, messageType: null, notificationStyle: null,
+    pictureUrl: null, alarmType: null,
+  }, { model: "T8910", category: "eufy_security", deviceType: 10 }, true, true);
+
+  assert.match(summary, /model=T8910 .*handling=sensor_motion/);
+});
+
 test("rejects arbitrary inventory labels and invalid push codes from copyable logs", () => {
   const summary = safePushLogSummary({
     eventType: -1, messageType: 999_999, notificationStyle: null,

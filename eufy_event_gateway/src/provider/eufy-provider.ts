@@ -2110,6 +2110,11 @@ export function safePushLogSummary(
   if (stationManaged && event.eventType === 9) handling = "station_guard";
   else if (stationManaged && event.eventType === 10 && event.alarmType !== null) handling = "station_alarm";
   else if (
+    device !== null
+    && (device.deviceType === 10 || device.deviceType === 127)
+    && event.eventType === 14
+  ) handling = "sensor_motion";
+  else if (
     cameraAccepted
     && device !== null
     && isDoorbellDevice(device)
