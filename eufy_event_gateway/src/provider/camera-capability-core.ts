@@ -49,7 +49,7 @@ export function megaDeviceRole(deviceType: number | null): MegaDeviceRole {
 }
 
 /** Known externally powered models whose inventory battery fields are sentinels. */
-export const MAINS_BATTERY_SENTINEL_MODELS: readonly string[] = ["T8425", "T8419", "T817L", "T8600"];
+export const MAINS_BATTERY_SENTINEL_MODELS: readonly string[] = ["T8425", "T8419", "T817L", "T8600", "T8410", "T84A1"];
 
 /** Return whether a model's battery-shaped inventory values are non-battery telemetry. */
 export function hasMainsBatterySentinel(model: string): boolean {

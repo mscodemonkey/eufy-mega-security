@@ -132,6 +132,19 @@ test("suppresses T817L battery-shaped fields without changing camera support", (
   );
 });
 
+test("suppresses fixed battery readings on wired indoor and wall-light cameras", () => {
+  for (const [model, deviceType] of [["T8410", 31], ["T84A1", 151]] as const) {
+    const manifest = describeCameraCapabilities({
+      serial: "wired-camera", model, category: "eufy_security", deviceType,
+      paramTypes: [1101, 2111, 1138, 1198],
+    }, { doorbellSupported: false, streamSupported: true });
+    assert.equal(manifest.acceptedAsCamera, true);
+    assert.equal(manifest.capabilities.some(({ id }) => id.startsWith("battery")), false);
+    assert.ok(manifest.matrix.filter(({ family }) => family === "battery").every(({ deviceEvidence }) => deviceEvidence === "suppressed-sentinel"));
+    assert.equal(manifest.capabilities.some(({ id }) => id === "liveVideo"), true);
+  }
+});
+
 test("describes only battery reads reported by this camera", () => {
   const manifest = describeCameraCapabilities({
     serial: "battery", model: "T8170", category: "eufy_security", deviceType: 48,
@@ -193,7 +206,7 @@ test("keeps advanced research out of the published device matrix", () => {
   }, { doorbellSupported: false, streamSupported: true });
   assert.equal(manifest.matrix.length, 12);
   assert.equal(manifest.matrix.some(({ id }) => id === "camera.sound_detection"), false);
-  assert.equal(manifest.matrix.find(({ id }) => id === "battery.level")?.offerable, true);
+  assert.equal(manifest.matrix.find(({ id }) => id === "battery.level")?.offerable, false);
   assert.equal(manifest.matrix.find(({ id }) => id === "camera.live_stream")?.offerable, true);
   assert.deepEqual(manifest.unmappedParamIds, [6043, 6044, 1240, 9_999]);
 });
@@ -249,7 +262,7 @@ test("groups camera capability logs without device identifiers or parameter valu
   }, { doorbellSupported: false, streamSupported: true });
   const summaries = cameraCapabilityLogSummaries([manifest, { ...manifest, serial: "ANOTHER-PRIVATE-SERIAL" }]);
   assert.equal(summaries[0]?.count, 2);
-  assert.match(summaries[0]?.message ?? "", /model=T8410.*admission=known-camera-type ha_adapter=camera.*battery_read=reported.*reported_reads=1 reported_core=battery.level not_yet_implemented=none.*gateway_offerable=.*battery.level.*unmapped_params=1/);
+  assert.match(summaries[0]?.message ?? "", /model=T8410.*admission=known-camera-type ha_adapter=camera.*battery_read=suppressed.*reported_reads=0 reported_core=none not_yet_implemented=none.*gateway_offerable=.*camera.live_stream.*unmapped_params=1/);
   assert.equal(JSON.stringify(summaries).includes("PRIVATE-SERIAL"), false);
   assert.equal(JSON.stringify(summaries).includes("9999"), false);
 });
