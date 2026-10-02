@@ -22,7 +22,7 @@ test("Home Assistant creates only the storage media advertised by the gateway", 
     "utf8",
   );
 
-  assert.match(provider, /controlsSupported \? \["emmc", "hdd"\] : \["sd"\]/);
+  assert.match(provider, /controlsSupported \? \["emmc", "hdd"\] : homeBase2 \? \["sd"\] : \[\]/);
   assert.match(sensor, /station\.get\("storageSupported"\)/);
   assert.match(sensor, /\{"sd": "SD card", "emmc": "eMMC", "hdd": "HDD"\}/);
 });

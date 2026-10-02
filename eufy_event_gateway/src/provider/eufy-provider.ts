@@ -839,7 +839,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       logger.info("device_capability_group", `count=${count} ${message}`);
     }
     this.#stations.clear();
-    for (const device of devices.filter(isDiscoveredHomeBase)) {
+    for (const device of devices.filter(isInventoryStation)) {
       const station = initialHomeBaseState(
         device,
         this.#dskKeys.has(device.serial),
@@ -891,7 +891,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     await this.#push.start();
     events.connection("connected", "Gateway events and snapshots are ready; live viewing requires a validated PPCS camera path");
     await Promise.allSettled(
-      [...this.#stations.values()].map(({ serial }) => this.refreshStation(serial).then(
+      [...this.#stations.values()]
+        .filter(({ serial }) => {
+          const identity = this.#devices.get(serial);
+          return identity !== undefined && isDiscoveredHomeBase(identity);
+        })
+        .map(({ serial }) => this.refreshStation(serial).then(
         () => this.#recordStationRefreshSuccess(serial),
         (error: unknown) => this.#recordStationRefreshFailure(serial, error),
       )),
@@ -899,6 +904,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (this.#stationRefreshTimer) clearInterval(this.#stationRefreshTimer);
     this.#stationRefreshTimer = setInterval(() => {
       for (const station of this.#stations.values()) {
+        const identity = this.#devices.get(station.serial);
+        if (!identity || !isDiscoveredHomeBase(identity)) continue;
         if (this.#stationOperations.has(station.serial)
           || this.#stationHasActiveMedia(station.serial)) continue;
         void this.refreshStation(station.serial).then(
@@ -1805,6 +1812,14 @@ export function isDiscoveredHomeBase(
     && (isHomeBase3(device) || (device.deviceType === 0 && device.model.startsWith("T8010")));
 }
 
+/** Return whether inventory identifies a station that Home Assistant may represent. */
+export function isInventoryStation(
+  device: Pick<MegaInventoryDevice, "category" | "deviceType" | "model">,
+): boolean {
+  return isDiscoveredHomeBase(device)
+    || (device.category === "eufy_security" && device.deviceType === 300 && device.model.startsWith("T8N00"));
+}
+
 /** Return whether inventory proves support for the wrapped guard-mode command. */
 export function supportsHomeBaseGuardMode(
   device: Pick<MegaInventoryDevice, "category" | "deviceType" | "model" | "firmware">,
@@ -1824,6 +1839,10 @@ export function supportsMotionDetectionControlRoute(
 /** Build inventory-owned station state without inferring an unverified command protocol. */
 export function initialHomeBaseState(device: MegaInventoryDevice, dskReady: boolean): HomeBaseState {
   const controlsSupported = isHomeBase3(device);
+  const homeBase2 = device.category === "eufy_security"
+    && device.deviceType === 0
+    && device.model.startsWith("T8010");
+  const inventoryGuardMode = device.reads.guardMode ?? null;
   return {
     serial: device.serial,
     name: device.name,
@@ -1833,16 +1852,16 @@ export function initialHomeBaseState(device: MegaInventoryDevice, dskReady: bool
     cameraRouteReady: Boolean(device.p2pDid && device.p2pConnection && dskReady),
     controlsSupported,
     guardModeControlSupported: supportsHomeBaseGuardMode(device),
-    stateReadSupported: controlsSupported,
+    stateReadSupported: controlsSupported || inventoryGuardMode !== null,
     homeBaseSirenControlSupported: isDiscoveredHomeBase(device),
     connected: false,
-    guardMode: null,
+    guardMode: inventoryGuardMode,
     effectiveMode: null,
     alarmActive: null,
     alarmVolume: null,
     promptVolume: null,
     alarmTone: null,
-    storageSupported: controlsSupported ? ["emmc", "hdd"] : ["sd"],
+    storageSupported: controlsSupported ? ["emmc", "hdd"] : homeBase2 ? ["sd"] : [],
     storage: { sd: null, emmc: null, hdd: null },
   };
 }

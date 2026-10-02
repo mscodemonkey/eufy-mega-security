@@ -98,10 +98,10 @@ capabilities:
         T8010:
           status: declared
         T8030:
-          status: reported
-          tested_on: 2026-09-30
+          status: tested
+          tested_on: 2026-10-02
           tested_by: bushbrother
-          notes: The HomeBase route is ready, but working live video is not confirmed.
+          notes: Both reported cameras were discovered with working entities and live streaming on v0.1.109. Fresh snapshots remain unconfirmed.
     snapshot:
       connections:
         T8010:
