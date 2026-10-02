@@ -16,6 +16,7 @@ import { PassThrough } from "node:stream";
 import type { CameraPresetPosition, VideoCodec } from "../domain/types.js";
 import { PpcsAccessUnitAssembler } from "./ppcs-access-unit-assembler.js";
 import { ppcsCandidatePorts, ppcsLocalLookupTargets } from "./ppcs-lookup.js";
+import { PpcsLookupSocketPool } from "./ppcs-lookup-sockets.js";
 
 // PPCS wraps command payloads in an XZYH header. The outer F1 D0 UDP envelope,
 // the inner D1 data channel, and the XZYH command frame have separate sequence
@@ -1033,7 +1034,8 @@ export class FirstPartyPpcsSession {
     closeReason: "open" as PpcsStreamCloseReason | "open",
   };
   readonly #options: PpcsCameraOptions;
-  readonly #socket: Socket = createSocket("udp4");
+  #socket: Socket = createSocket("udp4");
+  #lookupSockets: PpcsLookupSocketPool | null = null;
 
   // Eufy's observed video-key frame is exactly 128 bytes, which binds this
   // ephemeral per-stream key pair to RSA-1024 until compatible hardware proves
@@ -1121,12 +1123,13 @@ export class FirstPartyPpcsSession {
         this.close("start_failed");
         reject(error);
       });
-      this.#socket.on("message", (message, info) => {
+      const onMessage = (message: Buffer, info: RemoteInfo, socket: Socket): void => {
         try {
-          if (this.#handle(message, info)) { clearTimeout(timeout); resolve(); }
+          if (this.#handle(message, info, socket)) { clearTimeout(timeout); resolve(); }
         } catch (error) { clearTimeout(timeout); reject(error); }
-      });
-      this.#socket.bind(0, () => {
+      };
+      this.#socket.on("message", (message, info) => onMessage(message, info, this.#socket));
+      this.#socket.bind(0, async () => {
         try {
           this.#socket.setRecvBufferSize(PPCS_RECEIVE_BUFFER_BYTES);
         } catch {
@@ -1138,6 +1141,13 @@ export class FirstPartyPpcsSession {
         void detectLocalIpv4().then((host) => {
           if (host && !this.#closed) this.#selfAddress = { host, port };
         });
+        this.#lookupSockets = new PpcsLookupSocketPool(this.#socket, onMessage, (error) => {
+          clearTimeout(timeout);
+          this.close("start_failed");
+          reject(error);
+        });
+        if (decodeCloudAddresses(this.#options.appConnection).length > 0) await this.#lookupSockets.bindProbes();
+        if (this.#closed) return;
         this.#lookup();
         this.#lookupTimer = setInterval(() => this.#lookup(), LOOKUP_RETRY_MILLISECONDS);
         this.#lookupTimer.unref?.();
@@ -1464,7 +1474,8 @@ export class FirstPartyPpcsSession {
       this.#stopAttachedMedia();
     }
     if (this.#remote) this.#send(REQ.end, Buffer.alloc(0), this.#remote);
-    this.#socket.close();
+    if (this.#lookupSockets) this.#lookupSockets.close();
+    else this.#socket.close();
     this.output.end();
   }
 
@@ -1475,19 +1486,21 @@ export class FirstPartyPpcsSession {
     for (const address of ppcsLocalLookupTargets(this.#options.localAddress)) {
       this.#send(REQ.localLookup, local, address);
     }
-    const lookup = buildPpcsCloudLookup(
-      this.#options.p2pDid,
-      this.#options.dskKey,
-      this.#selfAddress ?? undefined,
-    );
-    for (const address of decodeCloudAddresses(this.#options.appConnection)) {
-      this.#send(lookup.type, lookup.payload, address);
+    for (const socket of this.#lookupSockets?.sockets ?? [this.#socket]) {
+      const lookup = buildPpcsCloudLookup(
+        this.#options.p2pDid,
+        this.#options.dskKey,
+        this.#selfAddress ? { host: this.#selfAddress.host, port: socket.address().port } : undefined,
+      );
+      for (const address of decodeCloudAddresses(this.#options.appConnection)) {
+        this.#send(lookup.type, lookup.payload, address, socket);
+      }
     }
   }
 
   /** Probe the base and adjacent ports on one lookup candidate for CAM_ID. */
-  #checkCandidate(address: { host: string; port: number }): void {
-    for (const port of ppcsCandidatePorts(address.port)) this.#check({ host: address.host, port });
+  #checkCandidate(address: { host: string; port: number }, socket: Socket): void {
+    for (const port of ppcsCandidatePorts(address.port)) this.#check({ host: address.host, port }, socket);
   }
 
   /**
@@ -1497,28 +1510,31 @@ export class FirstPartyPpcsSession {
    * that signal to resolve peer discovery, while media and control frames keep
    * flowing through this same socket listener for the rest of the session.
    */
-  #handle(message: Buffer, info: RemoteInfo): boolean {
+  #handle(message: Buffer, info: RemoteInfo, socket: Socket): boolean {
+    if (this.#closed || (this.#remote && socket !== this.#socket)) return false;
     if (has(message, RESP.localLookup)) {
       this.stats.localLookupCandidates++;
       const source = { host: info.address, port: info.port };
-      this.#checkCandidate(source);
+      this.#checkCandidate(source, socket);
       const advertised = ppcsLookupCandidate(message);
       if (
         advertised
         && advertised.host !== "0.0.0.0"
         && (advertised.host !== source.host || advertised.port !== source.port)
-      ) this.#checkCandidate(advertised);
+      ) this.#checkCandidate(advertised, socket);
       return false;
     }
     const candidate = ppcsLookupCandidate(message);
     if (candidate) {
       if (has(message, RESP.lookupAddr2)) this.stats.alternateLookupCandidates++;
       else this.stats.directLookupCandidates++;
-      if (candidate.host !== "0.0.0.0") this.#checkCandidate(candidate);
+      if (candidate.host !== "0.0.0.0") this.#checkCandidate(candidate, socket);
       return false;
     }
     if (isPpcsCameraIdentity(message)) {
       if (this.#remote) return false;
+      if (this.#lookupSockets && !this.#lookupSockets.adopt(socket)) return false;
+      this.#socket = socket;
       if (this.#lookupTimer) clearInterval(this.#lookupTimer);
       this.stats.camId++;
       this.#remote = { host: info.address, port: info.port };
@@ -2026,8 +2042,8 @@ export class FirstPartyPpcsSession {
   }
 
   /** Ask one candidate endpoint to prove it owns the requested camera DID. */
-  #check(address: { host: string; port: number }): void {
-    this.#send(REQ.check, Buffer.concat([encodeDid(this.#options.p2pDid), Buffer.alloc(3)]), address);
+  #check(address: { host: string; port: number }, socket: Socket): void {
+    this.#send(REQ.check, Buffer.concat([encodeDid(this.#options.p2pDid), Buffer.alloc(3)]), address, socket);
   }
 
   /** Wrap and send one inner XZYH command over the established data channel. */
@@ -2038,8 +2054,8 @@ export class FirstPartyPpcsSession {
   }
 
   /** Add the outer PPCS type and length header, then write one UDP datagram. */
-  #send(type: Buffer, payload: Buffer, address: { host: string; port: number }): void {
-    this.#socket.send(Buffer.concat([type, u16(payload.length), payload]), address.port, address.host);
+  #send(type: Buffer, payload: Buffer, address: { host: string; port: number }, socket: Socket = this.#socket): void {
+    socket.send(Buffer.concat([type, u16(payload.length), payload]), address.port, address.host);
   }
 }
 
