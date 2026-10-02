@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.110
+
+- Expose the NVR S4's reported guard mode as read-only station state without enabling unproven arm, disarm, or media controls.
+- Record confirmed T8910 motion delivery through HomeBase 2 and report routed sensor pushes as handled.
+- Document that T8910 event delivery requires notifications to be enabled for the sensor in the active Eufy mode.
+
 ## 0.1.109
 
 - Start H.265 viewer conversion from the latest random-access frame and keep feeding the source chunk that opened the converter.

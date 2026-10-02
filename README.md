@@ -76,7 +76,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 ### Standalone sensors
 
 - ✅ Entry Sensor T8900: discovery and open or closed state are confirmed on real hardware.
-- 🟠 Motion Sensor T8910: discovery and the motion entity are implemented. A HomeBase 2 setup confirms that the sensor wakes an attached doorbell, but its own push event does not reach the gateway and its cloud timestamp does not advance.
+- ✅ Motion Sensor T8910: discovery and motion events are confirmed through HomeBase 2 when notifications for the sensor are enabled in the active Eufy mode. The cloud last-seen value remains unconfirmed.
 
 ### Recognised but not supported
 
@@ -118,8 +118,9 @@ Standalone sensors get entities only for capabilities they report. The first
 supported set covers entry-sensor open/closed state, PIR motion, battery percentage,
 and last-seen time. Contact and motion pushes update Home Assistant immediately,
 and the gateway refreshes the inventory-backed readings every 60 seconds. The
-T8900 contact path is confirmed on installed hardware. The T8910 motion path still
-needs a conclusive test.
+T8900 contact path is confirmed on installed hardware. T8910 motion pushes are
+confirmed through HomeBase 2 when notifications are enabled for the sensor in
+the active Eufy mode. Its inventory-backed last-seen value remains unconfirmed.
 
 The integration also defines two Home Assistant actions for on-demand streaming:
 
@@ -145,7 +146,7 @@ On Home Assistant OS or Supervised, the app generates its own private API token 
 
 Create a separate Eufy guest account and share only the Home and cameras you want Home Assistant to access. Do not use the Eufy account currently signed into your everyday mobile app; simultaneous Eufy sessions can interfere with one another.
 
-Open the shared Home in the Eufy app while signed in as the guest account and confirm the shared devices are visible. Event delivery also depends on each device's Eufy push-notification setting. On tested HomeBase 3 hardware that setting applied to every account, and the gateway had no separate local event route when device notifications were disabled.
+Open the shared Home in the Eufy app while signed in as the guest account and confirm the shared devices are visible. Event delivery also depends on each device's Eufy push-notification setting. On tested HomeBase 3 hardware that setting applied to every account, and the gateway had no separate local event route when device notifications were disabled. T8910 motion sensors behind HomeBase 2 also require notifications to be enabled for the sensor in the active Eufy mode. That setting sends the push used by the gateway and may also show the same alert on the account owner's phone.
 
 You will need:
 
