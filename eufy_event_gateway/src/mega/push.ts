@@ -158,23 +158,33 @@ function waitForReceiverReady(receiver: PushClient): Promise<void> {
   });
 }
 
-/** Parse nested notification JSON without retaining the original payload. */
+/**
+ * Normalize notification detail from the deepest payload and identity from its enclosing levels.
+ *
+ * Malformed, cyclic, or more than sixteen nested payloads are rejected rather
+ * than attributing an outer event to an unrelated device. Only the normalized
+ * allow-listed fields cross into provider logic.
+ */
 export function parsePushEvent(data: unknown): MegaPushEvent | null {
   if (!isRecord(data)) return null;
-  const outer = nestedRecord(data.payload) ?? data;
-  const payload = nestedRecord(outer.payload) ?? outer;
-  const cameraSerial = text(outer.device_sn) ?? text(payload.device_sn) ?? text(data.device_sn) ?? text(outer.station_sn) ?? text(data.station_sn);
+  const levels = pushPayloadLevels(data);
+  if (!levels) return null;
+  const payload = levels[levels.length - 1]!;
+  const deepestFirst = [...levels].reverse();
+  const field = (key: string): string | null => deepestFirst.map((level) => text(level[key])).find((value) => value !== null) ?? null;
+  const stationSerial = field("station_sn");
+  const cameraSerial = field("device_sn") ?? stationSerial;
   if (!cameraSerial) return null;
   return {
     cameraSerial,
-    stationSerial: text(outer.station_sn) ?? text(payload.station_sn) ?? text(data.station_sn) ?? cameraSerial,
+    stationSerial: stationSerial ?? cameraSerial,
     cameraName: text(payload.name) ?? text(payload.device_name) ?? text(payload.n),
     eventType: integer(payload.a) ?? integer(payload.event_type),
     messageType: integer(payload.msg_type),
     notificationStyle: integer(payload.notification_style),
     personName: text(payload.f) ?? text(payload.nick_name),
     detectionEvidence: structuredDetectionEvidence(payload),
-    content: text(outer.content) ?? text(payload.content) ?? text(data.content),
+    content: field("content"),
     pictureUrl: text(payload.pic_url),
     filePath: text(payload.file_path) ?? text(payload.p),
     fetchId: integer(payload.fetch_id) ?? integer(payload.i),
@@ -183,8 +193,22 @@ export function parsePushEvent(data: unknown): MegaPushEvent | null {
     effectiveMode: integer(payload.station_current_mode) ?? integer(payload.current_mode),
     alarmType: integer(payload.alarm_type),
     sensorOpen: sensorOpen(payload.e),
-    eventId: text(payload.unique_id) ?? text(outer.unique_id) ?? text(data.unique_id),
+    eventId: field("unique_id"),
   };
+}
+
+/** Walk object or JSON payload envelopes with a finite depth and no repeated object identities. */
+function pushPayloadLevels(data: Record<string, unknown>): Record<string, unknown>[] | null {
+  const levels = [data];
+  let current = data;
+  while (current.payload !== undefined && current.payload !== null) {
+    if (levels.length > 16) return null;
+    const next = nestedRecord(current.payload);
+    if (!next || levels.includes(next)) return null;
+    levels.push(next);
+    current = next;
+  }
+  return levels;
 }
 
 /**
