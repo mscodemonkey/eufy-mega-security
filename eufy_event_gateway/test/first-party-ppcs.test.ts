@@ -19,6 +19,7 @@ import {
   acceptsAttachedCameraMedia,
   buildPpcsCloudLookup,
   buildStandaloneJsonControlPayload,
+  buildStandaloneCameraLightBody,
   buildStandaloneLevel2LiveStartPayload,
   buildStandaloneGuardModeValue,
   buildStandaloneLiveStartPayload,
@@ -236,6 +237,19 @@ test("builds the wall-light control as a level-one command 1700 value", () => {
   decipher.setAutoPadding(false);
   const clear = Buffer.concat([decipher.update(payload.subarray(10)), decipher.final()]);
   assert.equal(clear.subarray(0, value.length).toString("utf8"), value);
+});
+
+test("builds the SoloCam spotlight control with the direct integer and account envelope", () => {
+  const key = Buffer.from("0123456789abcdef", "utf8");
+  const body = buildStandaloneCameraLightBody(3, true, "account-1", key);
+  assert.deepEqual(body.subarray(4, 10), Buffer.from([1, 0, 3, 1, 0, 0]));
+
+  const decipher = createDecipheriv("aes-128-ecb", key, null);
+  decipher.setAutoPadding(false);
+  const clear = Buffer.concat([decipher.update(body.subarray(10)), decipher.final()]);
+  assert.equal(clear.readUInt32LE(0), 3);
+  assert.equal(clear.readUInt32LE(4), 1);
+  assert.equal(clear.subarray(8, 17).toString("utf8"), "account-1");
 });
 
 test("reasserts attached media during startup or after a stall", () => {

@@ -62,6 +62,13 @@ capabilities:
       values:
         "0": "Off"
         "1": "On"
+    light:
+      connections:
+        direct:
+          status: declared
+          notes: Command 1400 uses the direct integer and account envelope. Stateless buttons avoid claiming a durable light state.
+      write:
+        command: 1400
   media:
     live_view:
       connections:

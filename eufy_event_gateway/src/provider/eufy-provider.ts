@@ -103,6 +103,7 @@ const AUTO_NIGHT_VISION_DOORBELL_MODELS: ReadonlySet<string> = new Set([
   "T8210C",
 ]);
 const TIMED_LIGHT_JSON_DEVICE_TYPES: ReadonlySet<number> = new Set([151, 10005]);
+const INT_STRING_LIGHT_DEVICE_TYPES: ReadonlySet<number> = new Set([61]);
 const STANDALONE_GUARD_MODE_MODELS: ReadonlySet<string> = new Set([
   "T8170", "T8171", "T8400", "T8410", "T8442",
 ]);
@@ -113,6 +114,16 @@ export function supportsTimedCameraLight(
   device: Pick<MegaInventoryDevice, "deviceType">,
 ): boolean {
   return device.deviceType !== null && TIMED_LIGHT_JSON_DEVICE_TYPES.has(device.deviceType);
+}
+
+/** Select the source-backed direct-camera light wire format for this device family. */
+export function cameraLightControlProtocol(
+  device: Pick<MegaInventoryDevice, "deviceType">,
+): "timed-json" | "int-string" | null {
+  if (device.deviceType === null) return null;
+  if (TIMED_LIGHT_JSON_DEVICE_TYPES.has(device.deviceType)) return "timed-json";
+  if (INT_STRING_LIGHT_DEVICE_TYPES.has(device.deviceType)) return "int-string";
+  return null;
 }
 
 /** Limit siren writes to HomeBase cameras that advertise the attached-camera command. */
@@ -1048,6 +1059,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.adminUserId !== null
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === true
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+      cameraLightControlSupported: cameraLightControlProtocol(device) !== null
+        && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === false
+        && device.channel !== null
+        && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       timedLightControlSupported: supportsTimedCameraLight(device)
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === false
         && device.channel !== null
@@ -1063,13 +1078,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     };
   }
 
-  /** Send the verified momentary wall-light command over a ready direct route. */
+  /** Send a source-backed momentary camera-light command over a ready direct route. */
   setCameraLight(serial: string, enabled: boolean): Promise<void> {
     const previous = this.#lightOperations.get(serial) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(async () => {
       const device = this.#devices.get(serial);
-      if (!device || !isSupportedMegaCamera(device) || !supportsTimedCameraLight(device)) {
-        throw new Error("Timed camera light control is not supported for this camera");
+      const protocol = device ? cameraLightControlProtocol(device) : null;
+      if (!device || !isSupportedMegaCamera(device) || protocol === null) {
+        throw new Error("Camera light control is not supported for this camera");
       }
       const route = ppcsStreamRoute(device, this.#devices);
       const peer = route?.peer;
@@ -1081,7 +1097,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         || !dsk
         || device.channel === null
       ) {
-        throw new Error("Timed camera light control requires a ready standalone route");
+        throw new Error("Camera light control requires a ready standalone route");
       }
       const session = new FirstPartyPpcsSession({
         stationSerial: peer.serial,
@@ -1098,7 +1114,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       });
       try {
         await session.start();
-        await session.writeTimedCameraLight(enabled);
+        if (protocol === "int-string") await session.writeStandaloneCameraLight(enabled);
+        else await session.writeTimedCameraLight(enabled);
       } finally {
         session.close();
       }

@@ -75,6 +75,7 @@ export interface CameraState {
   readonly nightVisionControlSupported: boolean;
   readonly autoNightVisionEnabled: boolean | null;
   readonly autoNightVisionControlSupported: boolean;
+  readonly cameraLightControlSupported: boolean;
   readonly timedLightControlSupported: boolean;
   readonly cameraSirenControlSupported: boolean;
   readonly presetPositionControlSupported: boolean;
@@ -212,6 +213,7 @@ export interface CameraIdentity {
   readonly nightVisionControlSupported?: boolean;
   readonly autoNightVisionEnabled?: boolean | null;
   readonly autoNightVisionControlSupported?: boolean;
+  readonly cameraLightControlSupported?: boolean;
   readonly timedLightControlSupported?: boolean;
   readonly cameraSirenControlSupported?: boolean;
   readonly presetPositionControlSupported?: boolean;

@@ -73,7 +73,10 @@ async def async_setup_entry(
             ):
                 known.add(report_key)
                 entities.append(EufyCompatibilityReportButton(coordinator, serial))
-            if camera.get("timedLightControlSupported") is True:
+            if (
+                camera.get("cameraLightControlSupported") is True
+                or camera.get("timedLightControlSupported") is True
+            ):
                 for enabled in (True, False):
                     action = "light_on" if enabled else "light_off"
                     light_key = (serial, action)
@@ -186,7 +189,7 @@ class EufyCameraLightButton(EufyGatewayEntity, ButtonEntity):
         )
 
     async def async_press(self) -> None:
-        """Ask the gateway to send the verified momentary light command."""
+        """Ask the gateway to send the capability-backed momentary light command."""
         await self.coordinator.client.set_camera_light(self.serial, self._enabled)
 
 
