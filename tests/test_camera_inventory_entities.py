@@ -61,3 +61,12 @@ class CameraInventoryEntitiesTest(unittest.IsolatedAsyncioTestCase):
             "reported_microphone_enabled": False, "reported_speaker_volume": 60,
         })
         self.assertEqual(getter(SimpleNamespace(camera={})), {})
+
+    async def test_reported_settings_are_read_only_and_strictly_boolean(self) -> None:
+        """Retain false settings without leaking raw inventory or unknown values."""
+        getter = load_function("camera.py", "extra_state_attributes", {}, "EufyGatewayCamera")
+        state = {"reportedSettings": {"imageFlipped": False, "statusLedEnabled": True,
+                                      "soundDetectionEnabled": "unknown", "raw": "private"}}
+        self.assertEqual(getter(SimpleNamespace(camera=state)), {
+            "reported_image_flipped": False, "reported_status_indicator_enabled": True,
+        })

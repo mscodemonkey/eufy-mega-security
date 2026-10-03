@@ -166,7 +166,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Expose allowlisted reported audio settings without claiming physical behaviour.
+        """Expose reported audio and camera settings without claiming physical behaviour.
 
         These are cloud configuration values, not live microphone activity or
         proof that a recording contains audio. Missing values remain absent.
@@ -178,11 +178,20 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
             "recordingEnabled": "reported_audio_recording_enabled",
             "speakerVolume": "reported_speaker_volume",
         }
-        return {
+        attributes = {
             attribute: settings[field]
             for field, attribute in fields.items()
             if settings.get(field) is not None
         }
+        reported = self.camera.get("reportedSettings") or {}
+        for field, attribute in (
+            ("imageFlipped", "reported_image_flipped"),
+            ("statusLedEnabled", "reported_status_indicator_enabled"),
+            ("soundDetectionEnabled", "reported_sound_detection_enabled"),
+        ):
+            if isinstance(reported.get(field), bool):
+                attributes[attribute] = reported[field]
+        return attributes
 
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None

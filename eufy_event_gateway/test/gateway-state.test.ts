@@ -37,6 +37,17 @@ test("publishes camera firmware without borrowing a parent version", () => {
   assert.equal(state.getCamera(camera.serial).firmware, "4.2.2.0");
 });
 
+test("publishes reported settings and clears them when fresh inventory no longer reports them", () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  assert.equal(state.getCamera(camera.serial).reportedSettings, null);
+  const reportedSettings = { imageFlipped: false, statusLedEnabled: true, soundDetectionEnabled: null };
+  state.registerCamera({ ...camera, reportedSettings });
+  assert.deepEqual(state.getCamera(camera.serial).reportedSettings, reportedSettings);
+  state.registerCamera({ ...camera, reportedSettings: null });
+  assert.equal(state.getCamera(camera.serial).reportedSettings, null);
+});
+
 test("retains a recognized person after the transient sensor clears", () => {
   const state = new GatewayState();
   state.registerCamera(camera);

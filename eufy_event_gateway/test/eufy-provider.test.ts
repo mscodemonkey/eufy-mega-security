@@ -304,6 +304,27 @@ test("decodes only validated capability-backed inventory values", () => {
   ]).batteryLevel, 49);
 });
 
+test("reports camera configuration without treating a missing or invalid setting as false", () => {
+  const params = [
+    { param_type: 1207, param_value: "0" },
+    { param_type: 1045, param_value: "0" },
+    { param_type: 1716, param_value: "1" },
+    { param_type: 6043, param_value: "1" },
+  ];
+  assert.deepEqual(safeInventoryReads(params, 9), {
+    imageFlipped: false, statusLedEnabled: false, soundDetectionEnabled: true,
+  });
+  assert.deepEqual(safeInventoryReads(params, 5), {
+    imageFlipped: false, statusLedEnabled: true, soundDetectionEnabled: true,
+  });
+  assert.deepEqual(safeInventoryReads([{ param_type: 1045, param_value: "1" }], 5), {});
+  assert.deepEqual(safeInventoryReads([
+    { param_type: 1207, param_value: "2" },
+    { param_type: 1045, param_value: "unknown" },
+    { param_type: 6043, param_value: "-1" },
+  ]), {});
+});
+
 test("normalizes reported audio configuration and rejects non-domain values", () => {
   assert.deepEqual(safeInventoryReads([
     { param_type: 1240, param_value: "1" },

@@ -15,6 +15,8 @@ Motion, person, pet, vehicle, dog, crying, sound, stranger, and stranded-package
 
 Last event image uses Home Assistant's `image` domain, so it does not create a second camera tile on the automatic Security page. It remains available on the device page and in manually added picture cards. Upgraded installations keep their old event-image camera entities hidden for compatibility with existing dashboard cards and automations. These entries are not deleted or disabled. The main camera uses a retained picture while video is idle, with an explicit waiting image only when no picture has ever been captured.
 
+Camera attributes include reported audio configuration and, when supplied, image rotation, status-indicator and sound-detection settings. These are read-only inventory settings, not live hardware verification. Missing or unrecognized values remain absent. Reading them does not wake a camera or offer a new control.
+
 > [!IMPORTANT]
 > This is an early community project built against real EufyCam 2C, HomeBase 3, and Doorbell hardware. It is not affiliated with Anker or Eufy and should not be your only security system.
 

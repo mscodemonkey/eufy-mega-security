@@ -462,6 +462,7 @@ export class GatewayState extends EventEmitter {
       hardwareVersion: camera.identity.hardwareVersion ?? null,
       rssi: camera.identity.rssi ?? null,
       audioSettings: camera.identity.audioSettings ?? null,
+      reportedSettings: camera.identity.reportedSettings ?? null,
       catalogueStatus: camera.identity.catalogueStatus ?? null,
       stationSerial: camera.identity.stationSerial,
       streamSupported: camera.identity.streamSupported,

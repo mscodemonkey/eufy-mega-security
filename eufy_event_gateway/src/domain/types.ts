@@ -62,6 +62,13 @@ export interface CameraAudioSettings {
   readonly speakerVolume: number | null;
 }
 
+/** Inventory configuration only, not live image orientation, lamp output or sound events. */
+export interface CameraReportedSettings {
+  readonly imageFlipped: boolean | null;
+  readonly statusLedEnabled: boolean | null;
+  readonly soundDetectionEnabled: boolean | null;
+}
+
 /** Complete state returned for one camera by the HTTP API. */
 export interface CameraState {
 
@@ -76,6 +83,9 @@ export interface CameraState {
 
   /** Validated inventory audio configuration, exposed without write controls. */
   readonly audioSettings: CameraAudioSettings | null;
+
+  /** Strictly validated camera-owned settings, with unknown values left absent. */
+  readonly reportedSettings: CameraReportedSettings | null;
   readonly serial: string;
   readonly name: string;
   readonly model: string;
@@ -226,6 +236,9 @@ export interface CameraIdentity {
 
   /** Cloud configuration only. A missing setting never implies it is disabled. */
   readonly audioSettings?: CameraAudioSettings | null;
+
+  /** Optional read-only configuration projection from fresh device inventory. */
+  readonly reportedSettings?: CameraReportedSettings | null;
   readonly serial: string;
   readonly name: string;
   readonly model: string;
