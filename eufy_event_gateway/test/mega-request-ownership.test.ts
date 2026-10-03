@@ -142,11 +142,11 @@ test("a present general-service signature is checked before encrypted response d
 
 
 test("cloud history binds signed metadata to one camera and preserves shared ownership", async () => {
-  for (const outcome of ["valid", "missing-signature", "wrong-camera", "empty"]) {
+  for (const outcome of ["valid", "missing-signature", "wrong-camera", "empty", "null"]) {
     let requestBody: unknown;
     const f = await fixture(async (_input, init) => {
       requestBody = JSON.parse(decryptEnvelope(String(init?.body), sharedAesKey(sharedKey)));
-      const data = encryptEnvelope(JSON.stringify(outcome === "empty" ? [] : [{
+      const data = encryptEnvelope(JSON.stringify(outcome === "null" ? null : outcome === "empty" ? [] : [{
         monitor_id: "record-1", device_sn: outcome === "wrong-camera" ? "other" : "synthetic-camera",
         start_time: 100, end_time: 120, cloud_path: "private-temporary-url", extra: "private-key-material",
         cipher_user_id: "guest", member: { action_user_id: "owner" },
@@ -163,7 +163,7 @@ test("cloud history binds signed metadata to one camera and preserves shared own
       else if (outcome === "wrong-camera") await assert.rejects(f.client.cloudHistory("synthetic-camera", query), /invalid record/);
       else {
         const records = await f.client.cloudHistory("synthetic-camera", query);
-        assert.deepEqual(records, outcome === "empty" ? [] : [{ id: "record-1", startTime: 100, endTime: 120, ownerId: "owner", hasCloudMedia: true }]);
+        assert.deepEqual(records, (outcome === "null" || outcome === "empty") ? [] : [{ id: "record-1", startTime: 100, endTime: 120, ownerId: "owner", hasCloudMedia: true }]);
         assert.doesNotMatch(JSON.stringify(records), /private/);
       }
       assert.deepEqual(requestBody, {

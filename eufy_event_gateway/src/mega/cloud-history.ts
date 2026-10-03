@@ -39,10 +39,11 @@ export function validateCloudHistoryQuery(query: CloudHistoryQuery): void {
 
 /** Project checked records for the requested camera, rejecting mixed ownership. */
 export function projectCloudHistory(value: unknown, cameraSerial: string, count: number): readonly CloudHistoryRecord[] {
+  if (value === null || value === undefined) return [];
   if (!Array.isArray(value) || value.length > count) throw new Error("Cloud history has an invalid record list");
   return value.map((row: unknown) => {
     if (!record(row) || row.device_sn !== cameraSerial ||
-      !(typeof row.monitor_id === "string" && row.monitor_id.length > 0 || typeof row.monitor_id === "number" && Number.isSafeInteger(row.monitor_id)) ||
+      !(typeof row.monitor_id === "string" && row.monitor_id.length > 0 || typeof row.monitor_id === "number" && Number.isSafeInteger(row.monitor_id) && row.monitor_id >= 0) ||
       !Number.isSafeInteger(row.start_time) || !Number.isSafeInteger(row.end_time) ||
       Number(row.start_time) < 0 || Number(row.end_time) < Number(row.start_time)) {
       throw new Error("Cloud history has an invalid record");

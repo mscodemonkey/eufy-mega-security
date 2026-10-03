@@ -7,6 +7,7 @@
 - Keep restored verification-only sessions at the user prompt and cancel active and queued cloud work during shutdown.
 - Bound cloud and image bodies while streaming and reject declared-length mismatches before parsing.
 - Add a read-only cloud history metadata API for admitted cameras, with shared-owner preservation and no playback, keys, URLs or deletion.
+- Add a privacy-safe HomeBase custom-mode metadata diagnostic without changing security mode labels or numbers.
 
 ## 0.1.115
 
