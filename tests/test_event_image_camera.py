@@ -45,7 +45,7 @@ class EventImageCameraContractTest(unittest.TestCase):
         source = ast.unparse(self.event_image_class)
 
         self.assertIn("f'{serial}_event_image'", source)
-        self.assertIn("self.camera.get('eventImage')", source)
+        self.assertIn("('eventImage', 'snapshot')", source)
         self.assertIn("self.coordinator.client.event_image(self.serial)", source)
         self.assertNotIn("self.coordinator.client.snapshot(self.serial)", source)
 

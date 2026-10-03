@@ -31,12 +31,20 @@ test("does not download when the event has no picture URL", async () => {
   assert.equal(downloaded, false);
 });
 
-test("requires the parent HomeBase identity for an encoded event image", async () => {
+test("requires the parent HomeBase identity for a legacy encrypted event image", async () => {
   await assert.rejects(downloadPushSnapshot(
-    { download: async () => Buffer.from("encoded") },
+    { download: async () => Buffer.from("eufysecurity:encoded") },
     { pictureUrl: "https://example.invalid/image", stationSerial: "station-1" },
     new Map(),
   ), /HomeBase identity/);
+});
+
+test("decodes keyless v2 wrappers without requiring a station identity", async () => {
+  await assert.rejects(downloadPushSnapshot(
+    { download: async () => Buffer.from("v2_eufysecurity:synthetic:event:incomplete") },
+    { pictureUrl: "https://example.invalid/image", stationSerial: "station-1" },
+    new Map(),
+  ), /format=v2/);
 });
 
 test("reports a truncated JPEG without logging its bytes or download URL", async () => {

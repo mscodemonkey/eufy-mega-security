@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 import os
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import voluptuous as vol
 from homeassistant.components.camera import Camera, CameraEntityFeature
@@ -26,11 +27,13 @@ from homeassistant.helpers.entity_platform import (
     async_get_current_platform,
 )
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers import entity_registry as er
 
 from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity
+from .const import DOMAIN
 
 CONF_DURATION = "duration"
 STREAM_SOURCE_REFRESH_INTERVAL = timedelta(minutes=5)
@@ -44,21 +47,22 @@ async def async_setup_entry(
     """Create cameras now and when a push-only camera first appears."""
     coordinator = entry.runtime_data.coordinator
     known: set[str] = set()
+    registry = er.async_get(hass)
 
     def add_new() -> None:
         serials = set(coordinator.cameras) - known
         if serials:
             known.update(serials)
-            async_add_entities(
-                [
-                    entity
-                    for serial in sorted(serials)
-                    for entity in (
-                        EufyGatewayCamera(coordinator, serial),
-                        EufyGatewayEventImage(coordinator, serial),
-                    )
-                ]
-            )
+            entities = [EufyGatewayCamera(coordinator, serial) for serial in sorted(serials)]
+            for serial in sorted(serials):
+                legacy_id = registry.async_get_entity_id("camera", DOMAIN, f"{serial}_event_image")
+                if legacy_id is None:
+                    continue
+
+                # Only upgrades retain these hidden compatibility cameras.
+                # Entry setup migrates their visibility before platform loading.
+                entities.append(EufyGatewayEventImage(coordinator, serial))
+            async_add_entities(entities)
 
     add_new()
     entry.async_on_unload(coordinator.async_add_listener(add_new))
@@ -144,9 +148,14 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         super()._handle_coordinator_update()
 
     @property
+    def available(self) -> bool:
+        """Keep retained pictures readable while the gateway is temporarily offline."""
+        return bool(self.camera)
+
+    @property
     def supported_features(self) -> CameraEntityFeature:
         """Advertise streaming only when the gateway can control this camera."""
-        if self.camera.get("streamSupported"):
+        if self.coordinator.last_update_success and self.camera.get("streamSupported"):
             return CameraEntityFeature.STREAM
         return CameraEntityFeature(0)
 
@@ -155,17 +164,37 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         """Reflect the gateway's shared stream state in the HA UI."""
         return self.camera.get("stream", {}).get("state") == "streaming"
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose allowlisted reported audio settings without claiming physical behaviour.
+
+        These are cloud configuration values, not live microphone activity or
+        proof that a recording contains audio. Missing values remain absent.
+        """
+        settings = self.camera.get("audioSettings") or {}
+        fields = {
+            "microphoneEnabled": "reported_microphone_enabled",
+            "speakerEnabled": "reported_speaker_enabled",
+            "recordingEnabled": "reported_audio_recording_enabled",
+            "speakerVolume": "reported_speaker_volume",
+        }
+        return {
+            attribute: settings[field]
+            for field, attribute in fields.items()
+            if settings.get(field) is not None
+        }
+
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
-    ) -> bytes | None:
+    ) -> bytes:
         """Return the retained JPEG without starting a new camera session."""
 
         # Home Assistant calls this for the card image. It is intentionally a
         # cheap retained-image read and does not wake a sleeping camera.
-        try:
-            return await self.coordinator.client.snapshot(self.serial)
-        except GatewayClientError:
-            return None
+        return await self.coordinator.image_cache.async_image(
+            self.serial, "snapshot",
+            lambda: self.coordinator.client.snapshot(self.serial),
+        )
 
     async def stream_source(self) -> str | None:
         """Return a short-lived gateway URL for HA's stream pipeline."""
@@ -232,10 +261,18 @@ class EufyGatewayEventImage(EufyGatewayEntity, Camera):
         self._published_event_image_revision = self._event_image_revision
 
     @property
-    def _event_image_revision(self) -> int | None:
-        """Return the revision used to invalidate Home Assistant's image proxy."""
-        revision = (self.camera.get("eventImage") or {}).get("revision")
-        return revision if isinstance(revision, int) else None
+    def available(self) -> bool:
+        """Keep cached event or fallback pictures readable through gateway outages."""
+        return bool(self.camera)
+
+    @property
+    def _event_image_revision(self) -> str | None:
+        """Invalidate either the event image or its still fallback without mixing revisions."""
+        for field in ("eventImage", "snapshot"):
+            revision = (self.camera.get(field) or {}).get("revision")
+            if isinstance(revision, int):
+                return f"{field}:{revision}"
+        return None
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -248,12 +285,12 @@ class EufyGatewayEventImage(EufyGatewayEntity, Camera):
 
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
-    ) -> bytes | None:
-        """Return the last valid event picture without waking the camera."""
-        try:
-            return await self.coordinator.client.event_image(self.serial)
-        except GatewayClientError:
-            return None
+    ) -> bytes:
+        """Return an event picture, retained still fallback, or explicit waiting image."""
+        return await self.coordinator.image_cache.async_image(
+            self.serial, "event-image",
+            lambda: self.coordinator.client.event_image(self.serial),
+        )
 
 
 def _atomic_write(filename: str, data: bytes) -> None:

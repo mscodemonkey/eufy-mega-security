@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.113
+
+- Keep camera cards populated with durable last-good snapshots through gateway and Home Assistant restarts, with a labelled waiting image only before any picture is available.
+- Recover event-picture geometry and contrast instead of forcing an incorrect fixed JPEG header, and repair previously retained affected pictures on startup.
+- Expose Last event image as a Home Assistant image entity so automatic Security pages no longer show a second camera tile. Preserve existing event-camera references as hidden compatibility entries.
+- Retry failed initial snapshot captures on later inventory refreshes with a cooldown and a limited attempt budget.
+- Show reported camera firmware, hardware version, signal strength and allowlisted audio settings when available.
+- Withdraw the failed SoloCam L40 light-control path while preserving the separately confirmed Floodlight control path.
+
 ## 0.1.112
 
 - Improve live-video recovery when packets arrive out of order or are retransmitted.

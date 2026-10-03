@@ -9,6 +9,7 @@
  * not download URLs or decide when a camera event should be retained.
  */
 import { createDecipheriv, createHash } from "node:crypto";
+import { recoverJpegHeader } from "./jpeg-header-recovery.js";
 
 const V2_PREFIX = "v2_eufysecurity:";
 const DC_CHROMA = Buffer.from([0xff, 0xc4, 0x00, 0x1f, 0x01]);
@@ -23,7 +24,7 @@ export function decodeEventImage(data: Buffer, p2pDid = ""): Buffer {
   if (data.subarray(0, V2_PREFIX.length).toString("latin1") === V2_PREFIX) {
     const payload = afterThirdColon(data);
     const cut = payload?.indexOf(DC_CHROMA) ?? -1;
-    if (payload && cut >= 0) return Buffer.concat([JPEG_PREFIX, payload.subarray(cut)]);
+    if (payload && cut >= 0) return recoverJpegHeader(JPEG_PREFIX, payload.subarray(cut)) ?? data;
   }
   if (data.subarray(0, 12).toString() !== "eufysecurity" || !p2pDid) return data;
   const serial = data.subarray(13, 29).toString();
@@ -39,6 +40,17 @@ export function decodeEventImage(data: Buffer, p2pDid = ""): Buffer {
 /** Check the JPEG start marker without parsing or mutating the buffer. */
 export function isJpeg(data: Buffer): boolean {
   return data.length >= 4 && data[0] === 0xff && data[1] === 0xd8 && data.at(-2) === 0xff && data.at(-1) === 0xd9;
+}
+
+/**
+ * Repair only event JPEGs carrying this gateway's old fixed reconstruction header.
+ *
+ * Ordinary camera JPEGs and current reconstructions remain unchanged. A failed
+ * recovery leaves the retained bytes intact rather than deleting evidence.
+ */
+export function repairRetainedEventImage(data: Buffer): Buffer {
+  if (!data.subarray(0, JPEG_PREFIX.length).equals(JPEG_PREFIX)) return data;
+  return recoverJpegHeader(JPEG_PREFIX, data.subarray(JPEG_PREFIX.length)) ?? data;
 }
 
 function afterThirdColon(data: Buffer): Buffer | null {

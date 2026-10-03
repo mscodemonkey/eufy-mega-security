@@ -20,6 +20,23 @@ const camera = {
   doorbellSupported: false,
 };
 
+test("publishes camera firmware without borrowing a parent version", () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  assert.equal(state.getCamera(camera.serial).firmware, null);
+  assert.equal(state.getCamera(camera.serial).hardwareVersion, null);
+  assert.equal(state.getCamera(camera.serial).rssi, null);
+  state.registerCamera({ ...camera, firmware: "4.2.1.7", hardwareVersion: "P1" });
+  assert.equal(state.getCamera(camera.serial).firmware, "4.2.1.7");
+  assert.equal(state.getCamera(camera.serial).hardwareVersion, "P1");
+  state.registerCamera({ ...camera, rssi: -61 });
+  assert.equal(state.getCamera(camera.serial).rssi, -61);
+  state.registerCamera({ ...camera, rssi: null });
+  assert.equal(state.getCamera(camera.serial).rssi, null);
+  state.registerCamera({ ...camera, firmware: "4.2.2.0" });
+  assert.equal(state.getCamera(camera.serial).firmware, "4.2.2.0");
+});
+
 test("retains a recognized person after the transient sensor clears", () => {
   const state = new GatewayState();
   state.registerCamera(camera);

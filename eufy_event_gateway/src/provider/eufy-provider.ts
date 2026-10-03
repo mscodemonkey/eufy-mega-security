@@ -63,12 +63,19 @@ export interface MegaInventoryDevice {
   readonly adminUserId: string | null;
   readonly userName: string | null;
   readonly firmware: string | null;
+
+  /** Camera-reported hardware revision, absent in older inventory responses. */
+  readonly hardwareVersion?: string | null;
   readonly paramTypes: readonly number[];
   readonly reads: MegaInventoryReads;
 }
 
 /** Allowlisted, validated current values retained from one Mega inventory row. */
 export interface MegaInventoryReads {
+  readonly microphoneEnabled?: boolean;
+  readonly speakerEnabled?: boolean;
+  readonly audioRecordingEnabled?: boolean;
+  readonly speakerVolume?: number;
   readonly enabled?: boolean;
   readonly motionDetectionEnabled?: boolean;
   readonly guardMode?: number;
@@ -103,7 +110,9 @@ const AUTO_NIGHT_VISION_DOORBELL_MODELS: ReadonlySet<string> = new Set([
   "T8210C",
 ]);
 const TIMED_LIGHT_JSON_DEVICE_TYPES: ReadonlySet<number> = new Set([151, 10005]);
-const INT_STRING_LIGHT_DEVICE_TYPES: ReadonlySet<number> = new Set([45, 61]);
+
+// Type 61 acknowledged this candidate without operating the reporter's light.
+const INT_STRING_LIGHT_DEVICE_TYPES: ReadonlySet<number> = new Set([45]);
 const STANDALONE_GUARD_MODE_MODELS: ReadonlySet<string> = new Set([
   "T8170", "T8171", "T8400", "T8410", "T8442",
 ]);
@@ -1015,6 +1024,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       name: device.name,
       model: device.model,
       catalogueStatus: catalogueIntegrationStatus(device.model, device.deviceType),
+      firmware: device.firmware,
+      hardwareVersion: device.hardwareVersion ?? null,
+      rssi: device.reads.rssi ?? null,
+      audioSettings: {
+        microphoneEnabled: device.reads.microphoneEnabled ?? null,
+        speakerEnabled: device.reads.speakerEnabled ?? null,
+        recordingEnabled: device.reads.audioRecordingEnabled ?? null,
+        speakerVolume: device.reads.speakerVolume ?? null,
+      },
       stationSerial: device.parentSerial,
       doorbellSupported: isDoorbellDevice(device),
       streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials),
@@ -1550,8 +1568,8 @@ export async function downloadPushSnapshot(
   const encoded = await client.download(event.pictureUrl);
   if (isJpeg(encoded)) return { data: encoded };
   const p2pDid = devices.get(event.stationSerial)?.p2pDid;
-  if (!p2pDid) throw new Error("event image cannot be decoded without its HomeBase identity");
-  const decoded = decodeEventImage(encoded, p2pDid);
+  if (!p2pDid && eventImageFormat(encoded) === "legacy") throw new Error("event image cannot be decoded without its HomeBase identity");
+  const decoded = decodeEventImage(encoded, p2pDid ?? "");
   if (!isJpeg(decoded)) {
     throw new Error(
       `event image decode failed: format=${eventImageFormat(encoded)} result=${jpegBoundaryResult(decoded)}`,
@@ -1606,6 +1624,7 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
       adminUserId: isRecord(value.member) ? safeValue(value.member.admin_user_id, 128) : null,
       userName: isRecord(value.member) ? safeValue(value.member.nick_name, 128) : null,
       firmware: safeValue(value.main_sw_version, 100),
+      hardwareVersion: safeValue(value.main_hw_version, 100),
       paramTypes: safeParamTypes(value.params),
       reads: lastChargingDays === undefined ? reads : { ...reads, lastChargingDays },
     });
@@ -1677,6 +1696,10 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
     : undefined;
   const lastSeen = contactLastSeen ?? motionEventSeconds;
   const batteryLevel = percentage(1101);
+  const microphone = finiteNumber(params.get(1240));
+  const speaker = finiteNumber(params.get(1241));
+  const recordMute = finiteNumber(params.get(1288));
+  const speakerVolume = percentage(1230);
   const batteryHealth = percentage(1198);
   const openDevice = finiteNumber(params.get(2001));
   const cameraSwitch = finiteNumber(params.get(1035));
@@ -1691,6 +1714,12 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
       ? cameraSwitch === cameraEnableRawValue(deviceType, true)
       : undefined;
   return {
+    ...(microphone === 0 || microphone === 1 ? { microphoneEnabled: microphone === 1 } : {}),
+    ...(speaker === 0 || speaker === 1 ? { speakerEnabled: speaker === 1 } : {}),
+
+    // Parameter 1288 reports recording mute, so the normalized setting is inverted.
+    ...(recordMute === 0 || recordMute === 1 ? { audioRecordingEnabled: recordMute === 0 } : {}),
+    ...(speakerVolume !== undefined ? { speakerVolume } : {}),
     ...(enabled !== undefined ? { enabled } : {}),
     ...(motionSwitch === 0 || motionSwitch === 1 ? { motionDetectionEnabled: motionSwitch === 1 } : {}),
     ...(guardMode !== null && [0, 1, 2, 3, 4, 5, 6, 47, 63].includes(guardMode) ? { guardMode } : {}),

@@ -4,7 +4,7 @@
  * The composition root supplies camera discovery, snapshot state, and the live
  * capture operation. This coordinator waits until provider startup is complete,
  * captures one camera at a time to avoid a burst of battery-camera sessions,
- * and leaves failed cameras eligible for another attempt on the next startup.
+ * and retries failed cameras on later inventory refreshes with a bounded budget.
  */
 
 type SnapshotCapture = (serial: string) => Promise<unknown>;
@@ -21,7 +21,7 @@ type SnapshotFailureReporter = (error: unknown) => void;
  */
 export class StartupSnapshotWarmup {
   readonly #scheduled = new Set<string>();
-  readonly #attempted = new Set<string>();
+  readonly #attempted = new Map<string, { count: number; at: number }>();
   #queue: Promise<void> = Promise.resolve();
   #started = false;
   #stopped = false;
@@ -31,11 +31,14 @@ export class StartupSnapshotWarmup {
     private readonly hasSnapshot: SnapshotLookup,
     private readonly capture: SnapshotCapture,
     private readonly reportFailure: SnapshotFailureReporter,
+    private readonly now: () => number = Date.now,
   ) {}
 
   /** Add a camera that should receive an initial retained image. */
   enqueue(serial: string): void {
-    if (this.#stopped || this.#scheduled.has(serial) || this.#attempted.has(serial)) return;
+    const attempted = this.#attempted.get(serial);
+    if (this.#stopped || this.#scheduled.has(serial) || this.hasSnapshot(serial)
+      || attempted && (attempted.count >= 3 || this.now() - attempted.at < 120_000)) return;
     this.#scheduled.add(serial);
     if (this.#started) this.#append(serial);
   }
@@ -62,7 +65,7 @@ export class StartupSnapshotWarmup {
     this.#queue = this.#queue.then(async () => {
       try {
         if (this.#stopped || this.hasSnapshot(serial)) return;
-        this.#attempted.add(serial);
+        this.#attempted.set(serial, { count: (this.#attempted.get(serial)?.count ?? 0) + 1, at: this.now() });
         try {
           await this.capture(serial);
         } catch (error) {
