@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.114
+
+- Report camera rotation, status-indicator and sound-detection configuration without adding controls.
+- Expose validated T8210/T8214 chime configuration and T8210 quality/compression settings as read-only attributes.
+- Complete Security push registration and activation using the existing Mega session, with explicit rejection handling.
+
 ## 0.1.113
 
 - Keep camera cards populated with durable last-good snapshots through gateway and Home Assistant restarts, with a labelled waiting image only before any picture is available.

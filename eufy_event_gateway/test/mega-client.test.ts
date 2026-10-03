@@ -15,6 +15,61 @@ import test from "node:test";
 import { MegaClient } from "../src/mega/client.js";
 import { decryptEnvelope, encryptEnvelope, credentialVerifier, presetKey, sharedAesKey } from "../src/mega/crypto.js";
 
+test("completes encrypted push registration and activation using one restored regional session", async () => {
+  const sharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
+  const paths = ["/app/push/register_push_token", "/v1/apppush/register_push_token", "/v1/app/review/app_push_check"];
+  for (const region of ["us", "eu", "ie"]) {
+    for (const failedStep of [-1, 0, 1, 2]) {
+      const directory = await mkdtemp(join(tmpdir(), "mega-push-registration-"));
+      const openHost = `app-openapi-${region}-pr.eufy.com`;
+      const securityHost = `security-app${region === "us" ? "" : `-${region}`}.eufylife.com`;
+      const requests: Array<{ url: URL; body: unknown; headers: Headers }> = [];
+      try {
+        await writeFile(join(directory, "mega-session.json"), JSON.stringify({
+          version: 2, country: "au", openUdid: "device",
+          credentialVerifier: credentialVerifier("device", "user@example.invalid", "password"),
+          authToken: "synthetic-token", tokenExpiresAt: 2_000_000_000, userId: "synthetic-user",
+          megaDomain: `mega-${region}-pr.eufy.com`, domains: { eufy_security: securityHost },
+          identities: {
+            [openHost]: { keyIdent: "mega-identity", sharedKey, clientPublicKey: "public" },
+            [securityHost]: { keyIdent: "security-identity", sharedKey, clientPublicKey: "public" },
+          },
+        }));
+        const client = new MegaClient({
+          email: "user@example.invalid", password: "password", country: "AU", persistentDirectory: directory,
+          minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000,
+          fetch: async (input, init) => {
+            const url = new URL(String(input));
+            const body = JSON.parse(decryptEnvelope(String(init?.body), sharedAesKey(sharedKey)));
+            requests.push({ url, body, headers: new Headers(init?.headers) });
+            return new Response(JSON.stringify({ code: requests.length - 1 === failedStep ? 9999 : 0, data: {} }));
+          },
+        });
+        await client.connect();
+        if (failedStep === -1) await client.registerPushToken("synthetic-fcm");
+        else await assert.rejects(client.registerPushToken("synthetic-fcm"), /(?:Mega|Security) push (?:registration|activation) failed \(9999\)/);
+        assert.deepEqual(requests.map(({ url }) => url.pathname), paths.slice(0, failedStep === -1 ? 3 : failedStep + 1));
+        assert.deepEqual(requests[0]?.body, { token: "synthetic-fcm", is_notification_enable: true, voip_token: "" });
+        assert.equal(requests[0]?.url.hostname, `app-push-${region}-pr.eufy.com`);
+        for (const request of requests.slice(1)) {
+          assert.equal(request.url.hostname, securityHost);
+          assert.equal(request.headers.get("x-auth-token"), "synthetic-token");
+          assert.equal(request.headers.get("x-key-ident"), "security-identity");
+          assert.equal(request.headers.has("x-signature"), true);
+        }
+        if (requests[1]) assert.deepEqual(requests[1].body, {
+          token: "synthetic-fcm", is_notification_enable: true, transaction: "1700000000000",
+        });
+        if (requests[2]) assert.deepEqual(requests[2].body, {
+          app_type: "eufySecurity", transaction: "1700000000000",
+        });
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    }
+  }
+});
+
 test("replaces and persists a stale Mega identity after error 4404", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mega-identity-recovery-"));
   const sessionPath = join(directory, "mega-session.json");
