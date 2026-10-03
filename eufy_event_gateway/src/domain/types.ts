@@ -77,6 +77,12 @@ export interface CameraReportedSettings {
   /** Doorbell quality rank, not resolution, decoded with its compression setting. */
   readonly doorbellVideoQuality?: number | null;
   readonly highCompressionEncoding?: boolean | null;
+
+  /** Reported T8170 recording policy, not proof that a clip was recorded. */
+  readonly workingMode?: string | null;
+  readonly recordingDurationSeconds?: number | null;
+  readonly recordingIntervalSeconds?: number | null;
+  readonly recordingAutoStop?: boolean | null;
 }
 
 /** Complete state returned for one camera by the HTTP API. */
