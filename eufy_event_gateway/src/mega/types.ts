@@ -24,6 +24,9 @@ export interface MegaSession {
   readonly authToken: string;
   readonly tokenExpiresAt: number;
   readonly userId: string;
+
+  /** Whether the saved token may only submit the verification code that requested it. */
+  readonly verificationPending: boolean;
   readonly megaDomain: string;
   readonly domains: Readonly<Record<string, string>>;
   readonly identities: Readonly<Record<string, MegaIdentity>>;

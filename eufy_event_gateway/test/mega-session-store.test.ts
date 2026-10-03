@@ -21,6 +21,7 @@ const session: MegaSession = {
   authToken: "token",
   tokenExpiresAt: 2_000_000_000,
   userId: "user",
+  verificationPending: false,
   megaDomain: "mega-eu-pr.eufy.com",
   domains: { house: "house" },
   identities: { host: { keyIdent: "id", sharedKey: "key", clientPublicKey: "public" } },

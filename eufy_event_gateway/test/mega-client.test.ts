@@ -238,6 +238,7 @@ test("retains the limited verification session across an app restart", async () 
     assert.deepEqual(await firstProcess.connect(), { state: "verification-required" });
     assert.equal(requests[1]?.token, "limited-token");
     assert.equal(JSON.parse(await readFile(sessionPath, "utf8")).authToken, "limited-token");
+    assert.equal(JSON.parse(await readFile(sessionPath, "utf8")).verificationPending, true);
 
     const restartedProcess = new MegaClient({
       email: "user@example.invalid", password: "password", country: "AU", persistentDirectory: directory,
@@ -246,6 +247,29 @@ test("retains the limited verification session across an app restart", async () 
     assert.deepEqual(await restartedProcess.connect("123456"), { state: "authenticated" });
     assert.equal(requests.at(-1)?.token, "limited-token");
     assert.equal(JSON.parse(await readFile(sessionPath, "utf8")).authToken, "full-token");
+    assert.equal(JSON.parse(await readFile(sessionPath, "utf8")).verificationPending, false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("ignores a stale configured verification code when a full session is valid", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mega-stale-verification-"));
+  const sessionPath = join(directory, "mega-session.json");
+  await writeFile(sessionPath, JSON.stringify({
+    version: 2, country: "au", openUdid: "device",
+    credentialVerifier: credentialVerifier("device", "user@example.invalid", "password"),
+    authToken: "full-token", tokenExpiresAt: 2_000_000_000, userId: "user",
+    megaDomain: "mega-eu-pr.eufy.com", domains: {}, identities: {},
+  }));
+
+  try {
+    const client = new MegaClient({
+      email: "user@example.invalid", password: "password", country: "AU", persistentDirectory: directory,
+      minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000,
+      fetch: async () => { throw new Error("A valid restored session must not log in again"); },
+    });
+    assert.deepEqual(await client.connect("123456"), { state: "authenticated" });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
