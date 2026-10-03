@@ -65,6 +65,7 @@ function validatedSession(value: Record<string, unknown>): MegaSession | null {
     typeof value.credentialVerifier !== "string" || !/^[0-9a-f]{64}$/i.test(value.credentialVerifier) ||
     typeof value.authToken !== "string" ||
     typeof value.tokenExpiresAt !== "number" || typeof value.userId !== "string" ||
+    value.verificationPending !== undefined && typeof value.verificationPending !== "boolean" ||
     typeof value.megaDomain !== "string" || !isStringRecord(value.domains) || !identities
   ) return null;
   return {
@@ -75,6 +76,7 @@ function validatedSession(value: Record<string, unknown>): MegaSession | null {
     authToken: value.authToken,
     tokenExpiresAt: value.tokenExpiresAt,
     userId: value.userId,
+    verificationPending: value.verificationPending === true,
     megaDomain: value.megaDomain,
     domains: value.domains,
     identities,

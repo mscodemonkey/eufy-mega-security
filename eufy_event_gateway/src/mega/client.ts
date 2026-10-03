@@ -104,7 +104,8 @@ export class MegaClient {
   async connect(verificationCode?: string, captchaAnswer?: string, forceLogin = false): Promise<MegaAuthResult> {
     if (forceLogin) this.#session = null;
     if (!this.#session && !forceLogin) await this.#restore();
-    if (!forceLogin && this.isAuthenticated && !verificationCode && !captchaAnswer) {
+    if (!forceLogin && this.isAuthenticated && !captchaAnswer &&
+      (!verificationCode || this.#session?.verificationPending !== true)) {
       if (this.#session) await this.#store.save(this.#session);
       return { state: "authenticated" };
     }
@@ -137,9 +138,13 @@ export class MegaClient {
     if (!isRecord(decoded)) throw new Error(`Mega login failed (${result.code}: ${safeMegaMessage(result.msg)})`);
     const authToken = stringValue(decoded.auth_token) ?? stringValue(decoded.token);
     const userId = stringValue(decoded.user_id) ?? stringValue(decoded.userId);
-    if (authToken && userId) this.#setAuth(authToken, userId, numberValue(decoded.token_expires_at));
+    const verificationPending = result.code === VERIFICATION_REQUIRED ||
+      isRecord(decoded.fa_info) && decoded.fa_info.step === VERIFICATION_REQUIRED;
+    if (authToken && userId) {
+      this.#setAuth(authToken, userId, numberValue(decoded.token_expires_at), verificationPending);
+    }
 
-    if (result.code === VERIFICATION_REQUIRED || isRecord(decoded.fa_info) && decoded.fa_info.step === VERIFICATION_REQUIRED) {
+    if (verificationPending) {
       await this.#call("push", "/app/sendmsg/verify_code", {
         message_type: 2,
         biz_type: 1004,
@@ -520,13 +525,19 @@ export class MegaClient {
     return { id, image };
   }
 
-  #setAuth(authToken: string, userId: string, tokenExpiresAt: number | null): void {
+  #setAuth(
+    authToken: string,
+    userId: string,
+    tokenExpiresAt: number | null,
+    verificationPending: boolean,
+  ): void {
     const base = this.#session;
     if (!base) throw new Error("Mega session was not initialized");
     this.#session = {
       ...base,
       authToken,
       userId,
+      verificationPending,
       tokenExpiresAt: tokenExpiresAt ?? Math.floor(this.#now() / 1_000) + 30 * 24 * 60 * 60,
     };
   }
@@ -563,6 +574,7 @@ function emptySession(country: string, openUdid: string, verifier: string): Mega
     authToken: "",
     tokenExpiresAt: 0,
     userId: "",
+    verificationPending: false,
     megaDomain: "",
     domains: {},
     identities: {},
