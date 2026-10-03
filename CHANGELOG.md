@@ -2,6 +2,8 @@
 
 ## 0.1.114
 
+- Report T8170 recording policy without changing camera configuration.
+
 - Close stalled shared video connections cleanly while preserving the retained camera picture.
 
 - Report camera rotation, status-indicator and sound-detection configuration without adding controls.

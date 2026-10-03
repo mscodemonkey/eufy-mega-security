@@ -87,3 +87,17 @@ class CameraInventoryEntitiesTest(unittest.IsolatedAsyncioTestCase):
         for invalid in (True, "3", -1, 101, None, 2.5):
             state = {"reportedSettings": {"chimeVolume": invalid, "doorbellVideoQuality": invalid}}
             self.assertEqual(getter(SimpleNamespace(camera=state)), {})
+
+    async def test_recording_policy_attributes_are_allowlisted_and_keep_zero(self) -> None:
+        """Configuration reporting must not imply that a recording was made."""
+        getter = load_function("camera.py", "extra_state_attributes", {}, "EufyGatewayCamera")
+        state = {"reportedSettings": {"workingMode": "Customize Recording",
+                 "recordingDurationSeconds": 60, "recordingIntervalSeconds": 0,
+                 "recordingAutoStop": False}}
+        self.assertEqual(getter(SimpleNamespace(camera=state)), {
+            "reported_working_mode": "Customize Recording", "reported_recording_duration_seconds": 60,
+            "reported_recording_interval_seconds": 0, "reported_recording_auto_stop": False,
+        })
+        state = {"reportedSettings": {"workingMode": "unknown", "recordingDurationSeconds": True,
+                                      "recordingIntervalSeconds": -1, "recordingAutoStop": "0"}}
+        self.assertEqual(getter(SimpleNamespace(camera=state)), {})

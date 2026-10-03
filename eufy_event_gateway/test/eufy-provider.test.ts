@@ -355,6 +355,31 @@ test("limits doorbell configuration reads to evidenced families and valid compos
   assert.deepEqual(safeInventoryReads([{ param_type: 1717, param_value: "2.5" }], 5), {});
 });
 
+test("reports T8170 recording policy without guessing another family's mode or sending commands", () => {
+  const params = [
+    { param_type: 1246, param_value: "2" }, { param_type: 1249, param_value: "60" },
+    { param_type: 1250, param_value: "5" }, { param_type: 1251, param_value: "0" },
+  ];
+  assert.deepEqual(safeInventoryReads(params, 48, "T8170"), {
+    workingMode: "Customize Recording", recordingDurationSeconds: 60,
+    recordingIntervalSeconds: 5, recordingAutoStop: true,
+  });
+  for (const [type, model] of [[48, "T8171"], [94, "T8214"], [null, "T8170"], [48, undefined]] as const) {
+    assert.deepEqual(safeInventoryReads(params, type, model), {});
+  }
+  assert.deepEqual(safeInventoryReads([
+    { param_type: 1246, param_value: "0" }, { param_type: 1249, param_value: "0" },
+    { param_type: 1250, param_value: "0" }, { param_type: 1251, param_value: "1" },
+  ], 48, "T8170R"), { workingMode: "Optimal Battery Life", recordingDurationSeconds: 0,
+    recordingIntervalSeconds: 0, recordingAutoStop: false });
+  for (const raw of ["", true, "-1", "1.5", "4294967296", "unknown"]) {
+    assert.deepEqual(safeInventoryReads([{ param_type: 1249, param_value: raw }], 48, "T8170"), {});
+  }
+  assert.deepEqual(safeInventoryReads([
+    { param_type: 1246, param_value: "3" }, { param_type: 1251, param_value: "2" },
+  ], 48, "T8170"), {});
+});
+
 test("normalizes reported audio configuration and rejects non-domain values", () => {
   assert.deepEqual(safeInventoryReads([
     { param_type: 1240, param_value: "1" },

@@ -72,6 +72,10 @@ export interface MegaInventoryDevice {
 
 /** Allowlisted, validated current values retained from one Mega inventory row. */
 export interface MegaInventoryReads {
+  readonly workingMode?: string;
+  readonly recordingDurationSeconds?: number;
+  readonly recordingIntervalSeconds?: number;
+  readonly recordingAutoStop?: boolean;
   readonly homebaseChimeEnabled?: boolean;
   readonly mechanicalChimeEnabled?: boolean;
   readonly wideDynamicRangeEnabled?: boolean;
@@ -1006,7 +1010,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     device: MegaInventoryDevice,
     params: readonly { readonly param_type: number; readonly param_value: string | number | boolean }[],
   ): MegaInventoryDevice {
-    const reads = safeInventoryReads(params, device.deviceType);
+    const reads = safeInventoryReads(params, device.deviceType, device.model);
     const paramTypes = [...new Set(params.map(({ param_type }) => param_type))]
       .sort((left, right) => left - right);
     const merged = {
@@ -1052,6 +1056,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         chimeVolume: device.reads.chimeVolume ?? null,
         doorbellVideoQuality: device.reads.doorbellVideoQuality ?? null,
         highCompressionEncoding: device.reads.highCompressionEncoding ?? null,
+        workingMode: device.reads.workingMode ?? null,
+        recordingDurationSeconds: device.reads.recordingDurationSeconds ?? null,
+        recordingIntervalSeconds: device.reads.recordingIntervalSeconds ?? null,
+        recordingAutoStop: device.reads.recordingAutoStop ?? null,
       },
       stationSerial: device.parentSerial,
       doorbellSupported: isDoorbellDevice(device),
@@ -1520,6 +1528,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const reads = safeInventoryReads(
         rows.map(({ type, value }) => ({ param_type: type, param_value: value })),
         device.deviceType,
+        device.model,
       );
       const paramTypes = [...new Set(rows.map(({ type }) => type))].sort((left, right) => left - right);
       const previous = this.#liveDeviceReads.get(device.serial);
@@ -1627,7 +1636,7 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
     seen.add(serial);
     const model = safeValue(value.device_model, 100) ?? "Unknown Eufy device";
     const deviceType = integer(value.device_type);
-    const reads = safeInventoryReads(value.params, deviceType);
+    const reads = safeInventoryReads(value.params, deviceType, model);
     const lastChargingDays = safeLastChargingDays(value.charging_days);
     devices.push({
       serial,
@@ -1694,7 +1703,7 @@ function isPrivateIpv4(value: string): boolean {
 }
 
 /** Decode only capability-backed numeric inventory reads; arbitrary values are discarded. */
-export function safeInventoryReads(value: unknown, deviceType: number | null = null): MegaInventoryReads {
+export function safeInventoryReads(value: unknown, deviceType: number | null = null, model?: string): MegaInventoryReads {
   if (!Array.isArray(value)) return {};
   const params = new Map<number, unknown>();
   for (const row of value) {
@@ -1735,6 +1744,17 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const compositeQuality = deviceType === 5 ? finiteNumber(params.get(1705)) : null;
   const validComposite = compositeQuality !== null && Number.isInteger(compositeQuality)
     && [0, 1, 2, 3, 5, 6, 7, 8].includes(compositeQuality);
+  const recordingPolicy = deviceType === 48 && /^T8170(?:$|[A-Z0-9-])/.test(model ?? "");
+  const mode = recordingPolicy ? finiteNumber(params.get(1246)) : null;
+  const modeNames = ["Optimal Battery Life", "Optimal Surveillance", "Customize Recording"] as const;
+  const autoStop = recordingPolicy ? finiteNumber(params.get(1251)) : null;
+  const recordingSeconds = (type: number): number | undefined => {
+    const seconds = recordingPolicy ? finiteNumber(params.get(type)) : null;
+    return seconds !== null && Number.isInteger(seconds) && seconds >= 0 && seconds <= 0xffff_ffff
+      ? seconds : undefined;
+  };
+  const duration = recordingSeconds(1249);
+  const interval = recordingSeconds(1250);
   const batteryHealth = percentage(1198);
   const openDevice = finiteNumber(params.get(2001));
   const cameraSwitch = finiteNumber(params.get(1035));
@@ -1749,6 +1769,12 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
       ? cameraSwitch === cameraEnableRawValue(deviceType, true)
       : undefined;
   return {
+    ...(mode !== null && Number.isInteger(mode) && mode >= 0 && mode <= 2 ? { workingMode: modeNames[mode]! } : {}),
+    ...(duration !== undefined ? { recordingDurationSeconds: duration } : {}),
+    ...(interval !== undefined ? { recordingIntervalSeconds: interval } : {}),
+
+    // This setting reports a disable bit: zero means stop early when motion ends.
+    ...(autoStop === 0 || autoStop === 1 ? { recordingAutoStop: autoStop === 0 } : {}),
     ...(homebaseChime === 0 || homebaseChime === 1 ? { homebaseChimeEnabled: homebaseChime === 1 } : {}),
     ...(mechanicalChime === 0 || mechanicalChime === 1 ? { mechanicalChimeEnabled: mechanicalChime === 1 } : {}),
     ...(wideDynamicRange === 0 || wideDynamicRange === 1 ? { wideDynamicRangeEnabled: wideDynamicRange === 1 } : {}),
