@@ -165,6 +165,7 @@ interface Session {
   viewerClientWrites: number;
   model: string;
   stopTimer: NodeJS.Timeout | null;
+  sourceQuietTimer: NodeJS.Timeout | null;
   owned: boolean;
   leases: number;
   generation: number;
@@ -333,7 +334,12 @@ export class LiveStreamManager extends EventEmitter {
   readonly #sessions = new Map<string, Session>();
   #closed = false;
 
-  /** Create a manager with state, image storage, provider, and idle grace. */
+  /**
+   * Create a manager with state, image storage, provider, and idle grace.
+   *
+   * @param sourceQuietMilliseconds Maximum silence after source bytes first arrive.
+   * Startup remains governed by the provider's separate first-frame deadline.
+   */
   constructor(
     private readonly state: GatewayState,
     private readonly snapshots: SnapshotStore,
@@ -342,6 +348,7 @@ export class LiveStreamManager extends EventEmitter {
     private readonly remuxClip: ClipRemuxer = remuxVideoToMp4,
     private readonly createViewerTranscoder: ViewerTranscoderFactory = spawnH265ViewerTranscoder,
     private readonly createSnapshotExtractor: SnapshotExtractorFactory = spawnSnapshotExtractor,
+    private readonly sourceQuietMilliseconds = 30_000,
   ) {
     super();
   }
@@ -499,6 +506,21 @@ export class LiveStreamManager extends EventEmitter {
 
     source.on("data", (chunk: Buffer) => {
       if (session.generation !== generation) return;
+      if (chunk.length === 0) return;
+      if (session.sourceQuietTimer) clearTimeout(session.sourceQuietTimer);
+      session.sourceQuietTimer = setTimeout(() => {
+        if (session.generation !== generation || this.#closed) return;
+        if (session.clients.size === 0 && session.leases === 0) return;
+        const owned = session.owned;
+        const error = new Error("Camera video stopped arriving");
+
+        // Close stale viewers so HA can retry instead of holding a dead source.
+        // Do not reopen the camera automatically or change the retained picture.
+        this.#sourceEnded(serial, generation, error);
+        this.emit("warning", error);
+        if (owned) void this.controller.stopStream(serial).catch((stopError) => this.emit("warning", stopError));
+      }, this.sourceQuietMilliseconds);
+      session.sourceQuietTimer.unref?.();
       session.sourceBytes += chunk.length;
       session.sourceChunks += 1;
       session.sourceCadence.record();
@@ -883,6 +905,8 @@ export class LiveStreamManager extends EventEmitter {
   }
 
   #cleanupSource(session: Session): void {
+    if (session.sourceQuietTimer) clearTimeout(session.sourceQuietTimer);
+    session.sourceQuietTimer = null;
     if (session.source) this.#emitViewerDeliverySummary(session);
     session.generation += 1;
     session.source?.removeAllListeners();
@@ -996,6 +1020,7 @@ export class LiveStreamManager extends EventEmitter {
         viewerClientWrites: 0,
         model: "unknown",
         stopTimer: null,
+        sourceQuietTimer: null,
         owned: false,
         leases: 0,
         generation: 0,
