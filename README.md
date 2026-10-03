@@ -17,6 +17,8 @@ Last event image uses Home Assistant's `image` domain, so it does not create a s
 
 Camera attributes include reported audio configuration and, when supplied, image rotation, status-indicator and sound-detection settings. These are read-only inventory settings, not live hardware verification. Missing or unrecognized values remain absent. Reading them does not wake a camera or offer a new control.
 
+T8210 and T8214 also expose reported HomeBase chime, mechanical chime, WDR and chime-volume settings when supplied. T8210 exposes live-view quality ranks (0 Auto, 1 Low, 2 Medium, 3 High) and the associated high-compression setting. These attributes report configuration only. They do not change the chime, image processing or stream format, and are not inferred for other doorbells.
+
 > [!IMPORTANT]
 > This is an early community project built against real EufyCam 2C, HomeBase 3, and Doorbell hardware. It is not affiliated with Anker or Eufy and should not be your only security system.
 

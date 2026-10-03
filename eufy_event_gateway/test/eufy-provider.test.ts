@@ -325,6 +325,36 @@ test("reports camera configuration without treating a missing or invalid setting
   ]), {});
 });
 
+test("limits doorbell configuration reads to evidenced families and valid composite values", () => {
+  const params = [
+    { param_type: 1702, param_value: "0" },
+    { param_type: 1703, param_value: "1" },
+    { param_type: 1704, param_value: "0" },
+    { param_type: 1717, param_value: "25" },
+    { param_type: 1705, param_value: "8" },
+  ];
+  const common = { homebaseChimeEnabled: false, mechanicalChimeEnabled: true,
+    wideDynamicRangeEnabled: false, chimeVolume: 25 };
+  assert.deepEqual(safeInventoryReads(params, 5), {
+    ...common, doorbellVideoQuality: 3, highCompressionEncoding: true,
+  });
+  assert.deepEqual(safeInventoryReads(params, 94), common);
+  for (const type of [null, 9, 7, 91, 96, 203]) assert.deepEqual(safeInventoryReads(params, type), {});
+  for (const raw of ["", "4", "9", "-1", "1.5", "unknown", null, true]) {
+    assert.deepEqual(safeInventoryReads([{ param_type: 1705, param_value: raw }], 5), {});
+  }
+  for (const raw of [0, 1, 2, 3, 5, 6, 7, 8]) {
+    assert.deepEqual(safeInventoryReads([{ param_type: 1705, param_value: raw }], 5), {
+      doorbellVideoQuality: raw % 5, highCompressionEncoding: raw >= 5,
+    });
+  }
+  assert.deepEqual(safeInventoryReads([
+    { param_type: 1702, param_value: "2" }, { param_type: 1703, param_value: "unknown" },
+    { param_type: 1704, param_value: "-1" }, { param_type: 1717, param_value: "101" },
+  ], 5), {});
+  assert.deepEqual(safeInventoryReads([{ param_type: 1717, param_value: "2.5" }], 5), {});
+});
+
 test("normalizes reported audio configuration and rejects non-domain values", () => {
   assert.deepEqual(safeInventoryReads([
     { param_type: 1240, param_value: "1" },
