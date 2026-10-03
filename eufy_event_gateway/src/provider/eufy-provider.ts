@@ -72,6 +72,9 @@ export interface MegaInventoryDevice {
 
 /** Allowlisted, validated current values retained from one Mega inventory row. */
 export interface MegaInventoryReads {
+  readonly imageFlipped?: boolean;
+  readonly statusLedEnabled?: boolean;
+  readonly soundDetectionEnabled?: boolean;
   readonly microphoneEnabled?: boolean;
   readonly speakerEnabled?: boolean;
   readonly audioRecordingEnabled?: boolean;
@@ -1033,6 +1036,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         recordingEnabled: device.reads.audioRecordingEnabled ?? null,
         speakerVolume: device.reads.speakerVolume ?? null,
       },
+      reportedSettings: {
+        imageFlipped: device.reads.imageFlipped ?? null,
+        statusLedEnabled: device.reads.statusLedEnabled ?? null,
+        soundDetectionEnabled: device.reads.soundDetectionEnabled ?? null,
+      },
       stationSerial: device.parentSerial,
       doorbellSupported: isDoorbellDevice(device),
       streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials),
@@ -1696,6 +1704,10 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
     : undefined;
   const lastSeen = contactLastSeen ?? motionEventSeconds;
   const batteryLevel = percentage(1101);
+  const imageFlipped = finiteNumber(params.get(1207));
+  const doorbell = isDoorbellDevice({ deviceType, category: "eufy_security" });
+  const statusLed = finiteNumber(params.get(doorbell ? 1716 : 1045));
+  const soundDetection = finiteNumber(params.get(6043));
   const microphone = finiteNumber(params.get(1240));
   const speaker = finiteNumber(params.get(1241));
   const recordMute = finiteNumber(params.get(1288));
@@ -1714,6 +1726,9 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
       ? cameraSwitch === cameraEnableRawValue(deviceType, true)
       : undefined;
   return {
+    ...(imageFlipped === 0 || imageFlipped === 1 ? { imageFlipped: imageFlipped === 1 } : {}),
+    ...(statusLed === 0 || statusLed === 1 ? { statusLedEnabled: statusLed === 1 } : {}),
+    ...(soundDetection === 0 || soundDetection === 1 ? { soundDetectionEnabled: soundDetection === 1 } : {}),
     ...(microphone === 0 || microphone === 1 ? { microphoneEnabled: microphone === 1 } : {}),
     ...(speaker === 0 || speaker === 1 ? { speakerEnabled: speaker === 1 } : {}),
 
