@@ -741,7 +741,7 @@ test("admits issue 22 cameras through their inventoried parent peers", () => {
   ]);
 });
 
-test("admits issue 27 Mega cameras through a ready T9000 HomeBase", () => {
+test("admits issue 27 cameras without advertising a PPCS stream through the RTC-only T9000", () => {
   const issue27Cameras = [
     { serial: "t8162", model: "T8162", deviceType: 26, channel: 1 },
     { serial: "t8170", model: "T8170", deviceType: 48, channel: 2 },
@@ -771,13 +771,25 @@ test("admits issue 27 Mega cameras through a ready T9000 HomeBase", () => {
   assert.deepEqual(summaries.slice(0, 4).map(({ deviceType, acceptedAsCamera, streamSupported }) => ({
     deviceType, acceptedAsCamera, streamSupported,
   })), [
-    { deviceType: 26, acceptedAsCamera: true, streamSupported: true },
-    { deviceType: 48, acceptedAsCamera: true, streamSupported: true },
-    { deviceType: 10005, acceptedAsCamera: true, streamSupported: true },
-    { deviceType: 47, acceptedAsCamera: true, streamSupported: true },
+    { deviceType: 26, acceptedAsCamera: true, streamSupported: false },
+    { deviceType: 48, acceptedAsCamera: true, streamSupported: false },
+    { deviceType: 10005, acceptedAsCamera: true, streamSupported: false },
+    { deviceType: 47, acceptedAsCamera: true, streamSupported: false },
   ]);
   assert.equal(summaries.find(({ deviceType, category }) => deviceType === 27 && category === "eufy_security")?.acceptedAsCamera, false);
   assert.equal(summaries.find(({ category }) => category === "other")?.acceptedAsCamera, false);
+});
+
+test("does not offer NVR PPCS media even if its inventory contains legacy-looking credentials", () => {
+  const devices = parseMegaInventory({ devices: [
+    { device_sn: "nvr", device_model: "T8N00141", device_type: 300, category: "eufy_security",
+      p2p_did: "synthetic-did", p2p_conn: "synthetic-connection" },
+    { device_sn: "camera", device_model: "T8416", device_type: 104, category: "eufy_security",
+      parent_sn: "nvr", device_channel: 1 },
+  ] });
+  const summary = inventoryLogSummaries(devices, new Set(["nvr"])).find(({ model }) => model === "T8416")!;
+  assert.equal(summary.acceptedAsCamera, true);
+  assert.equal(summary.streamSupported, false);
 });
 
 test("identifies the T8214 doorbell without classifying the T8416 indoor camera as one", () => {

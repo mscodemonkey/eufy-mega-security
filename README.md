@@ -17,6 +17,8 @@ Last event image uses Home Assistant's `image` domain, so it does not create a s
 
 Camera attributes include reported audio configuration and, when supplied, image rotation, status-indicator and sound-detection settings. These are read-only inventory settings, not live hardware verification. Missing or unrecognized values remain absent. Reading them does not wake a camera or offer a new control.
 
+T9000 Pro HomeBase and T8N00 NVR camera discovery and retained pictures remain separate from live-media support. The gateway does not advertise its PPCS stream or controls through these RTC-only stations, even when inventory includes legacy-looking connection fields. Their alternate media transport is not implemented yet.
+
 T8210 and T8214 also expose reported HomeBase chime, mechanical chime, WDR and chime-volume settings when supplied. T8210 exposes live-view quality ranks (0 Auto, 1 Low, 2 Medium, 3 High) and the associated high-compression setting. These attributes report configuration only. They do not change the chime, image processing or stream format, and are not inferred for other doorbells.
 
 T8170 exposes its reported working mode, clip duration, interval between clips and stop-when-motion-ends setting. The recording settings describe the camera's Customize Recording policy, not the gateway's recording service or proof of a completed clip. They remain read-only and are not inferred for other models.

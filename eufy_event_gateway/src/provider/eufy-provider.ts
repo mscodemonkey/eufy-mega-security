@@ -2156,15 +2156,23 @@ export function isPpcsStreamSupported(
   return isSupportedMegaCamera(device) && isPpcsRouteReady(device, devicesBySerial, dskPeerSerials);
 }
 
-/** Check peer transport prerequisites without treating the row as a camera. */
+/**
+ * Check implemented peer transport prerequisites without admitting the row as a camera.
+ *
+ * RTC-only stations can retain legacy-looking credentials in inventory. Those
+ * values do not establish a usable PPCS route for attached media or controls.
+ */
 export function isPpcsRouteReady(
   device: MegaInventoryDevice,
   devicesBySerial: ReadonlyMap<string, MegaInventoryDevice>,
   dskPeerSerials: ReadonlySet<string>,
 ): boolean {
   const route = ppcsStreamRoute(device, devicesBySerial);
+  const rtcStation = route?.peer.category === "eufy_security"
+    && ((route.peer.deviceType === 27 && route.peer.model.startsWith("T9000"))
+      || (route.peer.deviceType === 300 && route.peer.model.startsWith("T8N00")));
   return Boolean(
-    route?.peer.p2pDid
+    !rtcStation && route?.peer.p2pDid
     && route.peer.p2pConnection
     && device.channel !== null
     && dskPeerSerials.has(route.peer.serial),
