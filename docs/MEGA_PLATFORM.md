@@ -251,3 +251,29 @@ npm run poc:ppcs
 ```
 
 It writes raw media only to the configured local output directory. Do not attach those files or the gateway data directory to an issue without removing account and device identifiers.
+
+
+## Read-only cloud history metadata
+
+The authenticated gateway route
+`GET /api/cameras/{serial}/cloud-history?start={seconds}&end={seconds}`
+reads cloud record metadata through the existing account session. Optional
+`timezone_offset` is a displacement in seconds, `cursor` is the server record
+cursor, and `count` defaults to 100 with a maximum of 1000. The interval must
+be positive and no longer than 31 days. The provider checks that the camera
+belongs to the admitted inventory before sending a request.
+
+The response contains `records` with `id`, `startTime`, `endTime`, `ownerId`
+and `hasCloudMedia`, plus `mediaPlaybackAvailable: false`. Keys, ciphertext,
+private media locations and record titles are omitted. Responses use
+`Cache-Control: no-store`. Calendar availability, URL renewal, recording
+v1/v5/v8 decryption, remuxing and Home Assistant media browsing are still
+unimplemented. This route does not access local HomeBase storage, delete
+recordings, change subscriptions or manufacture live detections.
+
+The general cloud history endpoint's encrypted responses require the observed
+response HMAC before decoding. Native Mega services and bootstrap exchanges do
+not inherit that requirement. A missing signature or mixed-camera record list
+fails the read rather than producing an empty success. The endpoint and shared
+record projection have synthetic coverage. Actual cloud subscription and native
+account compatibility remain to be confirmed before claiming hardware support.
