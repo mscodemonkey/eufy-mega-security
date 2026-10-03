@@ -5,10 +5,48 @@
  * whitelisted `MegaPushEvent` data crosses into provider logic.
  */
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
 
 import { decodeMcsAppData, mcsDeliveryLogSummary } from "../src/mega/android-push/push-client.js";
-import { parsePushEvent, safeUnparsedShape } from "../src/mega/push.js";
+import { connectAndRegisterPush, parsePushEvent, safeUnparsedShape } from "../src/mega/push.js";
+
+/** Test transport that records lifecycle order without contacting Firebase. */
+class FakePushReceiver extends EventEmitter {
+  readonly calls: string[] = [];
+
+  /** Complete the synthetic MCS login synchronously. */
+  connect(): void {
+    this.calls.push("connect");
+    this.emit("connect");
+  }
+
+  /** Record cleanup after a failed cloud registration. */
+  close(): void {
+    this.calls.push("close");
+  }
+}
+
+test("connects Firebase before Eufy push registration", async () => {
+  const receiver = new FakePushReceiver();
+
+  await connectAndRegisterPush(receiver, async () => {
+    receiver.calls.push("register");
+  });
+
+  assert.deepEqual(receiver.calls, ["connect", "register"]);
+});
+
+test("closes a connected receiver when Eufy push registration fails", async () => {
+  const receiver = new FakePushReceiver();
+
+  await assert.rejects(connectAndRegisterPush(receiver, async () => {
+    receiver.calls.push("register");
+    throw new Error("activation rejected");
+  }), /activation rejected/);
+
+  assert.deepEqual(receiver.calls, ["connect", "register", "close"]);
+});
 
 test("summarizes every MCS delivery without retaining identifiers or payloads", () => {
   const summary = mcsDeliveryLogSummary({

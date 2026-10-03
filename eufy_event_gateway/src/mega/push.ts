@@ -86,14 +86,11 @@ export class MegaPushReceiver {
     }
     const credentials = this.#state.credentials;
     if (!credentials) throw new Error("Android FCM credentials were unavailable after registration");
-    await this.client.registerPushToken(credentials.fcmToken);
-    logger.info("push_token_registered", "Mega and Security accepted push registration and activation");
     const receiver = new PushClient(credentials);
     receiver.setPersistentIds([...this.#state.persistentIds]);
     this.#receiver = receiver;
     receiver.on("connect", () => {
-      this.onReceiverState("connected");
-      logger.info("push_receiver_ready", "Android FCM receiver login acknowledged");
+      logger.info("push_receiver_connected", "Android FCM receiver login acknowledged");
     });
     receiver.on("disconnect", () => {
       this.onReceiverState("disconnected");
@@ -113,11 +110,12 @@ export class MegaPushReceiver {
       else if (!isRecord(message.payload) || Object.keys(message.payload).length === 0) logger.info("push_empty", "Android FCM notification had no Eufy data fields");
       else logger.info("push_unparsed", `Android FCM notification lacked a usable Eufy device identity: ${safeUnparsedShape(message.payload)}`);
     });
-    receiver.connect();
     try {
-      await waitForReceiverReady(receiver);
+      await connectAndRegisterPush(receiver, () => this.client.registerPushToken(credentials.fcmToken));
+      this.onReceiverState("connected");
+      logger.info("push_token_registered", "Mega and Security accepted push registration and activation");
+      logger.info("push_receiver_ready", "Android FCM receiver and Eufy notification registration are ready");
     } catch (error) {
-      receiver.close();
       this.#receiver = null;
       throw error;
     }
@@ -144,7 +142,37 @@ export class MegaPushReceiver {
   }
 }
 
-function waitForReceiverReady(receiver: PushClient): Promise<void> {
+/** Minimal receiver lifecycle used to order Firebase login before cloud activation. */
+export interface PushReceiverTransport {
+  once(event: "connect", listener: () => void): this;
+  off(event: "connect", listener: () => void): this;
+  connect(): void;
+  close(): void;
+}
+
+/**
+ * Connect Firebase before registering and checking its token with Eufy.
+ *
+ * Eufy's activation check can reject a freshly issued token until the Android
+ * receiver has completed its MCS login. A registration failure closes the
+ * receiver so callers never expose a half-ready notification connection.
+ */
+export async function connectAndRegisterPush(
+  receiver: PushReceiverTransport,
+  register: () => Promise<void>,
+): Promise<void> {
+  const ready = waitForReceiverReady(receiver);
+  receiver.connect();
+  try {
+    await ready;
+    await register();
+  } catch (error) {
+    receiver.close();
+    throw error;
+  }
+}
+
+function waitForReceiverReady(receiver: PushReceiverTransport): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       receiver.off("connect", onConnect);

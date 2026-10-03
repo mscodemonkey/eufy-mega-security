@@ -8,6 +8,7 @@
 - Bound cloud and image bodies while streaming and reject declared-length mismatches before parsing.
 - Add a read-only cloud history metadata API for admitted cameras, with shared-owner preservation and no playback, keys, URLs or deletion.
 - Add a privacy-safe HomeBase custom-mode metadata diagnostic without changing security mode labels or numbers.
+- Complete the Android receiver login before asking Security to activate its push token, avoiding startup failure for newly registered tokens.
 
 ## 0.1.115
 
