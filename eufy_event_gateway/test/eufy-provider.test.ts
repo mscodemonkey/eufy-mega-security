@@ -63,6 +63,97 @@ test("retains only the device's own reported firmware and hardware metadata", ()
   assert.equal(devices[1]?.hardwareVersion, null);
 });
 
+test("secondary firmware and update flags stay camera-owned and preserve unknown status", () => {
+  for (const [raw, expected] of [[true, true], [1, true], ["1", true], [false, false], [0, false], ["0", false],
+    [undefined, null], [null, null], ["false", null], [2, null], [{}, null]] as const) {
+    const devices = parseMegaInventory({ devices: [
+      { device_sn: "camera", parent_sn: "station", sec_sw_version: "1.2.3", needUpdate: raw },
+      { device_sn: "station", sec_sw_version: "9.9.9", needUpdate: true },
+      { device_sn: "old", parent_sn: "station", sec_sw_version: {}, needUpdate: null },
+    ] });
+    assert.equal(devices[0]?.firmwareSubVersion, "1.2.3");
+    assert.equal(devices[0]?.firmwareUpdateAvailable, expected);
+    assert.equal(devices[2]?.firmwareSubVersion, null);
+    assert.equal(devices[2]?.firmwareUpdateAvailable, null);
+  }
+});
+
+test("ringtone and sound reads are strictly gated to evidenced device families", () => {
+  const params = [
+    { param_type: 1708, param_value: "80" },
+    { param_type: 6044, param_value: "3" },
+    { param_type: 6046, param_value: "2" },
+  ];
+  assert.equal(safeInventoryReads(params, 94, "T8214").ringtoneVolume, 80);
+  assert.equal(safeInventoryReads(params, 5, "T8210").ringtoneVolume, undefined);
+  assert.equal(safeInventoryReads(params, 31, "T8410").soundDetectionSensitivity, 3);
+  assert.equal(safeInventoryReads(params, 31, "T8410").soundDetectionType, 2);
+  assert.equal(safeInventoryReads(params, 31, "T8416").soundDetectionType, undefined);
+  for (const invalid of [true, null, "", 2, 4, 6, {}, []]) {
+    assert.equal(safeInventoryReads([{ param_type: 6044, param_value: invalid }], 31, "T8410").soundDetectionSensitivity, undefined);
+  }
+});
+
+test("recording quality follows the selected mode instead of guessing the first entry", () => {
+  const read = (value: unknown, model = "T8170") => safeInventoryReads([
+    { param_type: 1020, param_value: "0" }, { param_type: 2731, param_value: value },
+  ], 48, model);
+  const config = { cur_mode: 1, mode_0: { quality: 1 }, mode_1: { quality: 3 } };
+  assert.equal(read(JSON.stringify(config)).recordingQualityTier, 3);
+  assert.equal(read(config).recordingQualityTier, 3);
+  assert.equal(read(config).streamingQualityTier, 0);
+  assert.equal(read(config, "T8171").recordingQualityTier, undefined);
+  for (const invalid of ["broken", "x".repeat(4097), 3, {}, { mode_0: { quality: 3 } },
+    { cur_mode: false, mode_0: { quality: 3 } }, { cur_mode: 1, mode_0: { quality: 3 } },
+    { cur_mode: 0, mode_0: { quality: true } }, { cur_mode: 0, mode_0: { quality: 0 } },
+    { cur_mode: 0, mode_0: { quality: 4 } }]) {
+    assert.equal(read(invalid).recordingQualityTier, undefined);
+  }
+});
+
+test("solar reads keep a unitless intensity and reject malformed or wrong-family values", () => {
+  const read = (intensity: unknown, connected: unknown, model = "T8170") => safeInventoryReads([
+    { param_type: 1309, param_value: intensity }, { param_type: 6482, param_value: connected },
+  ], 48, model);
+  assert.equal(read(0, 0).solarIntensity, 0);
+  assert.equal(read(0, 0).solarConnected24h, false);
+  assert.equal(read("125.5", "1").solarIntensity, 125.5);
+  assert.equal(read("125.5", "1").solarConnected24h, true);
+  assert.equal(read(1, 1, "T8410").solarIntensity, undefined);
+  for (const value of [true, "", null, {}, [], -1, Infinity, NaN]) {
+    assert.equal(read(value, value).solarIntensity, undefined);
+    assert.equal(read(value, value).solarConnected24h, undefined);
+  }
+});
+
+test("configuration reads stay model-limited and do not assert physical output", () => {
+  const params = [
+    { param_type: 6020, param_value: "3" }, { param_type: 1214, param_value: "0" },
+    { param_type: 1015, param_value: "0" }, { param_type: 1403, param_value: "1" },
+    { param_type: 1276, param_value: "7" }, { param_type: 1020, param_value: "2" },
+  ];
+  assert.equal(safeInventoryReads(params, 88, "T8171").notificationStyle, 3);
+  assert.equal(safeInventoryReads(params, 88, "T8171").streamingQualityTier, 2);
+  assert.equal(safeInventoryReads(params, 47, "T8425121").watermarkMode, 0);
+  assert.equal(safeInventoryReads(params, 47, "T8425").antiTheftDetectionEnabled, false);
+  assert.equal(safeInventoryReads(params, 48, "T8170").spotlightEnabled, true);
+  assert.equal(safeInventoryReads(params, 48, "T8170").motionSensitivityRaw, 7);
+  assert.equal(safeInventoryReads(params, 88, "T8171").watermarkMode, undefined);
+  assert.equal(safeInventoryReads(params, 48, "T8170").notificationStyle, undefined);
+  assert.equal(safeInventoryReads(params, 47, "T8426").antiTheftDetectionEnabled, undefined);
+  for (const invalid of [true, null, "", {}, [], -1, 8]) {
+    const invalidParams = params.map((param) => ({ ...param, param_value: invalid }));
+    for (const [type, model] of [[88, "T8171"], [47, "T8425"], [48, "T8170"]] as const) {
+      const reads = safeInventoryReads(invalidParams, type, model);
+      assert.equal(reads.notificationStyle, undefined);
+      assert.equal(reads.watermarkMode, undefined);
+      assert.equal(reads.antiTheftDetectionEnabled, undefined);
+      assert.equal(reads.spotlightEnabled, undefined);
+      assert.equal(reads.motionSensitivityRaw, undefined);
+    }
+  }
+});
+
 const stationState = (alarmVolume: number | null): HomeBasePpcsState => ({
   firmware: null,
   guardMode: null,
@@ -243,7 +334,8 @@ test("parses only whitelisted Mega inventory fields and de-duplicates serials", 
   assert.deepEqual(result, [{
     serial: "T8113ABC", name: "Test camera", model: "T8113-Z", parentSerial: "T8030ABC",
     deviceType: 8, category: "eufy_security", channel: 3, p2pDid: "ABC-123456-XYZ",
-    adminUserId: null, userName: null, firmware: null, hardwareVersion: null, p2pConnection: null, localAddress: null, cipherId: null,
+    adminUserId: null, userName: null, firmware: null, hardwareVersion: null,
+    firmwareSubVersion: null, firmwareUpdateAvailable: null, p2pConnection: null, localAddress: null, cipherId: null,
     paramTypes: [], reads: { lastChargingDays: 44 },
   }]);
   assert.equal(JSON.stringify(result).includes("must-not-escape"), false);

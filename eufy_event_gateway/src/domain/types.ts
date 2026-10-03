@@ -64,6 +64,26 @@ export interface CameraAudioSettings {
 
 /** Inventory configuration only, not live image orientation, lamp output or sound events. */
 export interface CameraReportedSettings {
+
+  /** Model-limited ringtone and sound configuration, not live audio or detection results. */
+  readonly ringtoneVolume?: number | null;
+  readonly soundDetectionSensitivity?: number | null;
+  readonly soundDetectionType?: number | null;
+
+  /** Reported quality ranks. They do not assert an observed resolution or codec. */
+  readonly streamingQualityTier?: number | null;
+  readonly recordingQualityTier?: number | null;
+
+  /** Reported solar contribution. Intensity is unitless, not a guessed percentage. */
+  readonly solarIntensity?: number | null;
+  readonly solarConnected24h?: boolean | null;
+
+  /** Model-specific configuration reads, not lamp output or a delivered notification. */
+  readonly notificationStyle?: number | null;
+  readonly watermarkMode?: number | null;
+  readonly antiTheftDetectionEnabled?: boolean | null;
+  readonly spotlightEnabled?: boolean | null;
+  readonly motionSensitivityRaw?: number | null;
   readonly imageFlipped: boolean | null;
   readonly statusLedEnabled: boolean | null;
   readonly soundDetectionEnabled: boolean | null;
@@ -87,6 +107,10 @@ export interface CameraReportedSettings {
 
 /** Complete state returned for one camera by the HTTP API. */
 export interface CameraState {
+
+  /** Optional device-owned secondary firmware and explicit update flag. */
+  readonly firmwareSubVersion?: string | null;
+  readonly firmwareUpdateAvailable?: boolean | null;
 
   /** Reported main firmware version, absent rather than inferred from the station. */
   readonly firmware: string | null;
@@ -240,6 +264,10 @@ export type GatewayEvent =
 
 /** Stable camera metadata discovered from Mega inventory. */
 export interface CameraIdentity {
+
+  /** Camera-owned firmware metadata. Unknown update status never becomes false. */
+  readonly firmwareSubVersion?: string | null;
+  readonly firmwareUpdateAvailable?: boolean | null;
 
   /** Device-reported main firmware, not the parent station's version. */
   readonly firmware?: string | null;

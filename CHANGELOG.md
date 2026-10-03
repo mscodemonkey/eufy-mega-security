@@ -2,6 +2,8 @@
 
 ## 0.1.114
 
+- Expose optional secondary firmware, update availability and model-limited audio, quality and solar readings without adding controls.
+
 - Report T8170 recording policy without changing camera configuration.
 - Do not advertise PPCS media or controls through RTC-only T9000 and T8N00 stations.
 

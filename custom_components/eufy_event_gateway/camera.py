@@ -193,6 +193,9 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
             ("wideDynamicRangeEnabled", "reported_wide_dynamic_range_enabled"),
             ("highCompressionEncoding", "reported_high_compression_encoding"),
             ("recordingAutoStop", "reported_recording_auto_stop"),
+            ("solarConnected24h", "reported_solar_connected_24h"),
+            ("antiTheftDetectionEnabled", "reported_anti_theft_detection_enabled"),
+            ("spotlightEnabled", "reported_spotlight_enabled"),
         ):
             if isinstance(reported.get(field), bool):
                 attributes[attribute] = reported[field]
@@ -208,6 +211,30 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         mode = reported.get("workingMode")
         if mode in ("Optimal Battery Life", "Optimal Surveillance", "Customize Recording"):
             attributes["reported_working_mode"] = mode
+        for field, attribute, allowed in (
+            ("soundDetectionSensitivity", "reported_sound_detection_sensitivity", (1, 3, 5)),
+            ("soundDetectionType", "reported_sound_detection_type", (1, 2)),
+            ("streamingQualityTier", "reported_streaming_quality_tier", (0, 1, 2, 3)),
+            ("recordingQualityTier", "reported_recording_quality_tier", (1, 2, 3)),
+            ("notificationStyle", "reported_notification_style", (1, 2, 3)),
+            ("watermarkMode", "reported_watermark_mode", (0, 1, 2)),
+            ("motionSensitivityRaw", "reported_motion_sensitivity_raw", (1, 2, 3, 4, 5, 6, 7)),
+        ):
+            value = reported.get(field)
+            if type(value) is int and value in allowed:
+                attributes[attribute] = value
+        ringtone = reported.get("ringtoneVolume")
+        if type(ringtone) is int and 0 <= ringtone <= 100:
+            attributes["reported_ringtone_volume"] = ringtone
+        solar = reported.get("solarIntensity")
+        if type(solar) in (int, float) and 0 <= solar <= 9007199254740991:
+            attributes["reported_solar_intensity"] = solar
+        update = self.camera.get("firmwareUpdateAvailable")
+        if isinstance(update, bool):
+            attributes["reported_firmware_update_available"] = update
+        secondary = self.camera.get("firmwareSubVersion")
+        if isinstance(secondary, str) and 0 < len(secondary) <= 100:
+            attributes["reported_secondary_firmware"] = secondary
         return attributes
 
     async def async_camera_image(

@@ -460,6 +460,8 @@ export class GatewayState extends EventEmitter {
       model: camera.identity.model,
       firmware: camera.identity.firmware ?? null,
       hardwareVersion: camera.identity.hardwareVersion ?? null,
+      firmwareSubVersion: camera.identity.firmwareSubVersion ?? null,
+      firmwareUpdateAvailable: camera.identity.firmwareUpdateAvailable ?? null,
       rssi: camera.identity.rssi ?? null,
       audioSettings: camera.identity.audioSettings ?? null,
       reportedSettings: camera.identity.reportedSettings ?? null,
