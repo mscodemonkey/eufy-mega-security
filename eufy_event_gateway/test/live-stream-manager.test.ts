@@ -33,6 +33,75 @@ const camera = {
   doorbellSupported: true,
 };
 
+test("ends both viewers and releases a source that stops producing bytes without reopening it", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  const snapshot = { capturedAt: new Date().toISOString(), contentType: "image/jpeg", source: "live" as const, revision: 1 };
+  state.updateSnapshot(camera.serial, snapshot);
+  let starts = 0;
+  let stops = 0;
+  let source = new PassThrough();
+  let manager: LiveStreamManager;
+  manager = new LiveStreamManager(state, {} as never, {
+    async startStream() {
+      starts++;
+      source = new PassThrough();
+      manager.attachSource(camera.serial, source);
+    },
+    async stopStream() { stops++; },
+  }, 5, undefined, undefined, undefined, 15);
+  const warnings: Error[] = [];
+  manager.on("warning", (error: Error) => warnings.push(error));
+  const first = new PassThrough() as unknown as ServerResponse;
+  const second = new PassThrough() as unknown as ServerResponse;
+  await manager.addClient(camera.serial, first);
+  await manager.addClient(camera.serial, second);
+  source.write(Buffer.from([1]));
+  context.mock.timers.tick(35);
+  assert.equal(first.writableEnded, true);
+  assert.equal(second.writableEnded, true);
+  assert.equal(starts, 1);
+  assert.equal(stops, 1);
+  assert.equal(warnings.length, 1);
+  assert.deepEqual(state.getCamera(camera.serial).snapshot, snapshot);
+  const retry = new PassThrough() as unknown as ServerResponse;
+  await manager.addClient(camera.serial, retry);
+  assert.equal(starts, 2);
+  source.write(Buffer.from([2]));
+  await manager.close();
+  context.mock.timers.tick(25);
+  assert.equal(warnings.length, 1, "closed or replaced sources must not fire stale timers");
+});
+
+test("source activity resets the quiet deadline and idle cleanup cancels it", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  let source = new PassThrough();
+  let stops = 0;
+  let manager: LiveStreamManager;
+  manager = new LiveStreamManager(state, {} as never, {
+    async startStream() { manager.attachSource(camera.serial, source); },
+    async stopStream() { stops++; },
+  }, 5, undefined, undefined, undefined, 40);
+  const response = new PassThrough() as unknown as ServerResponse;
+  const warnings: Error[] = [];
+  manager.on("warning", (error: Error) => warnings.push(error));
+  await manager.addClient(camera.serial, response);
+  for (let index = 0; index < 4; index++) {
+    source.write(Buffer.from([index]));
+    context.mock.timers.tick(15);
+    assert.equal(response.writableEnded, false);
+  }
+  response.emit("close");
+  context.mock.timers.tick(55);
+  await Promise.resolve();
+  assert.equal(stops, 1);
+  assert.deepEqual(warnings, []);
+  await manager.close();
+});
+
 test("allows slower cameras 30 seconds to produce a fresh snapshot", () => {
   assert.equal(SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS, 30_000);
 });
