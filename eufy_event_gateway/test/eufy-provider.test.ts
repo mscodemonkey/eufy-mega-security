@@ -37,6 +37,7 @@ import {
   ppcsStreamLogSummary,
   ppcsStreamRoute,
   privacyParameterLogSummary,
+  refreshInventoryStationState,
   safePushLogSummary,
   safeInventoryReads,
   supportsHomeBaseGuardMode,
@@ -795,6 +796,28 @@ test("exposes NVR inventory guard mode without enabling HomeBase writes or refre
     storageSupported: [],
     storage: { sd: null, emmc: null, hdd: null },
   });
+});
+
+test("refreshes NVR guard mode from inventory without claiming a live station connection", () => {
+  const [initial] = parseMegaInventory({ devices: [{
+    device_sn: "nvr", device_name: "NVR S4", device_model: "T8N00",
+    device_type: 300, category: "eufy_security", main_sw_version: "1.0.0",
+    params: [{ param_type: 1224, param_value: "1" }],
+  }] });
+  const [refreshed] = parseMegaInventory({ devices: [{
+    device_sn: "nvr", device_name: "NVR S4", device_model: "T8N00",
+    device_type: 300, category: "eufy_security", main_sw_version: "1.1.0",
+    params: [{ param_type: 1224, param_value: "3" }],
+  }] });
+
+  assert.ok(initial);
+  assert.ok(refreshed);
+  const state = refreshInventoryStationState(initialHomeBaseState(initial, false), refreshed);
+  assert.equal(state.guardMode, 3);
+  assert.equal(state.firmware, "1.1.0");
+  assert.equal(state.connected, false);
+  assert.equal(state.guardModeControlSupported, false);
+  assert.equal(state.effectiveMode, null);
 });
 
 test("classifies recognized Mega camera types without admitting stations or unknown devices", () => {

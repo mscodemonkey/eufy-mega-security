@@ -1002,6 +1002,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         reads: liveReads ? { ...device.reads, ...liveReads } : device.reads,
       };
       this.#devices.set(device.serial, merged);
+      const knownStation = this.#stations.get(device.serial);
+      if (knownStation && isInventoryStation(merged)) {
+        const refreshedStation = refreshInventoryStationState(knownStation, merged);
+        this.#stations.set(device.serial, refreshedStation);
+        this.#events?.station(refreshedStation);
+      }
       if (known.reads.privacy6250Value !== merged.reads.privacy6250Value) {
         const summary = privacyParameterLogSummary(merged, known.reads.privacy6250Value);
         if (summary) logger.info("camera_privacy_parameter_observed", summary);
@@ -2138,6 +2144,25 @@ export function initialHomeBaseState(device: MegaInventoryDevice, dskReady: bool
     alarmTone: null,
     storageSupported: controlsSupported ? ["emmc", "hdd"] : homeBase2 ? ["sd"] : [],
     storage: { sd: null, emmc: null, hdd: null },
+  };
+}
+
+/**
+ * Apply inventory-owned station readings without claiming a live PPCS read.
+ *
+ * RTC-only stations such as T8N00 cannot use the legacy station refresh, but
+ * the account inventory can still report a newer guard mode. Preserve live
+ * connection and control state while publishing only values owned by that
+ * periodic inventory response.
+ */
+export function refreshInventoryStationState(
+  existing: HomeBaseState,
+  device: MegaInventoryDevice,
+): HomeBaseState {
+  return {
+    ...existing,
+    firmware: device.firmware ?? existing.firmware,
+    guardMode: device.reads.guardMode ?? existing.guardMode,
   };
 }
 
