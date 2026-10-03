@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.115
+
+- Keep the T8N00 guard-mode sensor current through the periodic account refresh.
+- Reuse a valid saved account session when an old verification code remains in app configuration.
+
 ## 0.1.114
 
 - Publish supported child-sensor readings obtained during an existing HomeBase refresh, including contact state and late telemetry.
