@@ -9,6 +9,7 @@
  * tests; the production provider is the only implementation allowed to know
  * Mega and PPCS details.
  */
+import type { CloudHistoryQuery, CloudHistoryRecord } from "../mega/cloud-history.js";
 import type { Readable } from "node:stream";
 
 import type { CameraCapabilityManifest, CameraIdentity, CameraPresetPosition, DetectionKind, DeviceCapabilityManifest, HomeBaseState, InventoryDiagnostic, PushDiagnostic, SecuritySensorState, VideoCodec } from "../domain/types.js";
@@ -40,6 +41,8 @@ export interface ProviderEvents {
 
 /** Lifecycle and stream operations required by the gateway server. */
 export interface CameraProvider {
+  /** Optional read-only cloud metadata, independent of local station storage. */
+  cloudHistory?(serial: string, query: CloudHistoryQuery): Promise<readonly CloudHistoryRecord[]>;
   start(events: ProviderEvents): Promise<void>;
   startStream(serial: string): Promise<void>;
   stopStream(serial: string): Promise<void>;

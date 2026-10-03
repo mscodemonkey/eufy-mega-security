@@ -18,6 +18,7 @@ import { createLogger } from "./logging.js";
 import { SimulatedProvider } from "./provider/simulated-provider.js";
 import type { CameraProvider, CaptchaProvider } from "./provider/provider.js";
 import { SnapshotStore } from "./storage/snapshot-store.js";
+import { validateCloudHistoryQuery } from "./mega/cloud-history.js";
 import { waitingImage } from "./mega/waiting-image.js";
 import { LiveStreamManager } from "./stream/live-stream-manager.js";
 
@@ -139,6 +140,22 @@ export class GatewayServer {
       }
       if (request.method === "GET" && url.pathname === "/api/device-capabilities") {
         return json(response, 200, { devices: this.state.listDeviceCapabilities() });
+      }
+      if (request.method === "GET" && segments[0] === "api" && segments[1] === "cameras" &&
+        segments[3] === "cloud-history" && segments.length === 4) {
+        if (!this.provider.cloudHistory) return json(response, 501, { error: "Cloud history is unavailable" });
+        const start = url.searchParams.get("start");
+        const end = url.searchParams.get("end");
+        if (start === null || end === null) return json(response, 400, { error: "Cloud history requires start and end" });
+        const query = {
+          startTime: Number(start), endTime: Number(end),
+          timezoneOffset: Number(url.searchParams.get("timezone_offset") ?? 0),
+          cursor: Number(url.searchParams.get("cursor") ?? 0), count: Number(url.searchParams.get("count") ?? 100),
+        };
+        validateCloudHistoryQuery(query);
+        response.setHeader("cache-control", "no-store");
+        const records = await this.provider.cloudHistory(segments[2]!, query);
+        return json(response, 200, { records, mediaPlaybackAvailable: false });
       }
       if (request.method === "GET" && segments[0] === "api" && segments[1] === "cameras" && segments.length === 3) {
         return this.#cameraJson(segments[2]!, response);

@@ -15,6 +15,7 @@ import { join } from "node:path";
 
 import type { BatteryState, CameraIdentity, CameraPresetPosition, DetectionKind, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
 import { createLogger } from "../logging.js";
+import type { CloudHistoryQuery, CloudHistoryRecord } from "../mega/cloud-history.js";
 import { MegaClient } from "../mega/client.js";
 import { decodeEventImage, isJpeg } from "../mega/image.js";
 import { MegaPushReceiver, type MegaPushEvent } from "../mega/push.js";
@@ -348,6 +349,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     });
     this.#dskRefreshes.set(peerSerial, refresh);
     return await refresh;
+  }
+
+  /** Read cloud metadata only for a camera admitted in the current account. */
+  async cloudHistory(serial: string, query: CloudHistoryQuery): Promise<readonly CloudHistoryRecord[]> {
+    const camera = this.#devices.get(serial);
+    if (!camera || !isSupportedCameraType(camera)) throw new Error("Camera not found");
+    return this.#client.cloudHistory(serial, query);
   }
 
   async start(events: ProviderEvents): Promise<void> {
@@ -774,7 +782,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return this.#writeStationValue(serial, "alarmTone", value, (session) => session.setAlarmTone(value));
   }
 
+  /** Cancel cloud work and retire provider timers, push and camera sessions. */
   async close(): Promise<void> {
+    this.#client.cancelPendingRequests();
     if (this.#stationRefreshTimer) clearInterval(this.#stationRefreshTimer);
     this.#stationRefreshTimer = null;
     if (this.#inventoryRefreshTimer) clearInterval(this.#inventoryRefreshTimer);

@@ -9,7 +9,9 @@
  * SSE, or the PPCS packet stream. Keeping those concerns out of this class is
  * what makes the Mega layer reusable by a probe or another application.
  */
+import { timingSafeEqual } from "node:crypto";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import {
   beginKeyExchange,
@@ -26,6 +28,8 @@ import {
   sharedAesKey,
   sharedSigningKey,
 } from "./crypto.js";
+import { projectCloudHistory, validateCloudHistoryQuery, type CloudHistoryQuery, type CloudHistoryRecord } from "./cloud-history.js";
+import { readBoundedResponse } from "./bounded-response.js";
 import { MegaSessionStore } from "./session-store.js";
 import type { MegaAuthResult, MegaCaptcha, MegaIdentity, MegaInventory, MegaResult, MegaSession } from "./types.js";
 
@@ -70,6 +74,11 @@ export class MegaClient {
   readonly #wait: (milliseconds: number) => Promise<void>;
   readonly #minimumRequestIntervalMs: number;
   #lastRequestAt = 0;
+  #connectionFlight: { readonly arguments: string; readonly promise: Promise<MegaAuthResult> } | null = null;
+  #requestTail: Promise<unknown> = Promise.resolve();
+  #requestLifetime = new AbortController();
+  readonly #identityFlights = new Map<string, Promise<MegaIdentity>>();
+  readonly #responseIdentities = new WeakMap<MegaResult, MegaIdentity>();
   #session: MegaSession | null = null;
   #pendingCaptcha: MegaCaptcha | null = null;
 
@@ -84,6 +93,15 @@ export class MegaClient {
     this.#store = new MegaSessionStore(join(options.persistentDirectory, "mega-session.json"));
   }
 
+  /**
+   * Cancel queued and active cloud work when the provider shuts down.
+   * A later connect starts a new lifetime, but cancelled jobs cannot dispatch.
+   */
+  cancelPendingRequests(): void {
+    this.#requestLifetime.abort();
+    this.#identityFlights.clear();
+  }
+
   /** Return the pending image challenge, if login requested one. */
   get captcha(): MegaCaptcha | null {
     return this.#pendingCaptcha;
@@ -91,7 +109,7 @@ export class MegaClient {
 
   /** Return true only while the cached token has a one-minute safety margin. */
   get isAuthenticated(): boolean {
-    return this.#session !== null && this.#session.authToken.length > 0 &&
+    return this.#session !== null && this.#session.verificationPending !== true && this.#session.authToken.length > 0 &&
       this.#session.userId.length > 0 && this.#now() / 1_000 < this.#session.tokenExpiresAt - 60;
   }
 
@@ -102,8 +120,30 @@ export class MegaClient {
    * the provider expose the right next step to the user.
    */
   async connect(verificationCode?: string, captchaAnswer?: string, forceLogin = false): Promise<MegaAuthResult> {
+    const argumentsKey = JSON.stringify([verificationCode, captchaAnswer, forceLogin]);
+    if (this.#connectionFlight) {
+      if (this.#connectionFlight.arguments !== argumentsKey) throw new Error("Mega authentication is already in progress");
+      return this.#connectionFlight.promise;
+    }
+    const promise = this.#connect(verificationCode, captchaAnswer, forceLogin);
+    this.#connectionFlight = { arguments: argumentsKey, promise };
+    try {
+      return await promise;
+    } finally {
+      if (this.#connectionFlight?.promise === promise) this.#connectionFlight = null;
+    }
+  }
+
+  async #connect(verificationCode?: string, captchaAnswer?: string, forceLogin = false): Promise<MegaAuthResult> {
+    if (forceLogin) this.cancelPendingRequests();
+    if (this.#requestLifetime.signal.aborted) this.#requestLifetime = new AbortController();
+    const lifetime = this.#requestLifetime.signal;
     if (forceLogin) this.#session = null;
     if (!this.#session && !forceLogin) await this.#restore();
+    lifetime.throwIfAborted();
+    if (!forceLogin && this.#session?.verificationPending && !verificationCode && !captchaAnswer) {
+      return { state: "verification-required" };
+    }
     if (!forceLogin && this.isAuthenticated && !captchaAnswer &&
       (!verificationCode || this.#session?.verificationPending !== true)) {
       if (this.#session) await this.#store.save(this.#session);
@@ -114,8 +154,10 @@ export class MegaClient {
     // Domain discovery and key exchange happen before login because the
     // regional API host and its signing identity are account-specific.
     await this.#ensureDomain();
+    lifetime.throwIfAborted();
     const openApiHost = this.#clusterHost("openapi");
     await this.#identity(openApiHost);
+    lifetime.throwIfAborted();
     const password = encryptPassword(this.#password);
     const result = await this.#call("passport", "/passport/login", {
       email: this.#email,
@@ -134,7 +176,7 @@ export class MegaClient {
       return { state: "captcha-required", captcha: challenge };
     }
 
-    const decoded = this.#decodeResult(result, openApiHost);
+    const decoded = this.#decodeResult(result);
     if (!isRecord(decoded)) throw new Error(`Mega login failed (${result.code}: ${safeMegaMessage(result.msg)})`);
     const authToken = stringValue(decoded.auth_token) ?? stringValue(decoded.token);
     const userId = stringValue(decoded.user_id) ?? stringValue(decoded.userId);
@@ -145,7 +187,7 @@ export class MegaClient {
     }
 
     if (verificationPending) {
-      await this.#call("push", "/app/sendmsg/verify_code", {
+      if (!verificationCode) await this.#call("push", "/app/sendmsg/verify_code", {
         message_type: 2,
         biz_type: 1004,
         transaction: `${this.#now()}`,
@@ -164,10 +206,13 @@ export class MegaClient {
   /** Fetch the account's devices and groups after authentication. */
   async inventory(): Promise<MegaInventory> {
     this.#requireAuthentication();
+    const lifetime = this.#requestLifetime.signal;
     const result = await this.#call("house", "/app/house/get_devs_list", { house_id: "", device_sns: {} });
-    const value = this.#decodeResult(result, this.#clusterHost("openapi"));
+    const value = this.#decodeResult(result);
     if (!isRecord(value) || !Array.isArray(value.devices)) throw new Error("Mega returned an invalid device inventory");
+    lifetime.throwIfAborted();
     const chargingDays = await this.#legacyChargingDays().catch(() => new Map<string, unknown>());
+    lifetime.throwIfAborted();
     return {
       devices: value.devices.filter(isMegaDevice).map((device) => {
         const { charging_days: _placeholder, ...withoutChargingDays } = device;
@@ -177,6 +222,22 @@ export class MegaClient {
       }),
       groups: Array.isArray(value.groups) ? value.groups : [],
     };
+  }
+
+  /**
+   * Read cloud recording metadata for one inventory camera without fetching
+   * media or altering recordings. Local HomeBase storage is a separate API.
+   */
+  async cloudHistory(cameraSerial: string, query: CloudHistoryQuery): Promise<readonly CloudHistoryRecord[]> {
+    this.#requireAuthentication();
+    validateCloudHistoryQuery(query);
+    if (!cameraSerial) throw new SyntaxError("Cloud history requires a camera");
+    const result = await this.#call("security", "/v3/event/app/get_all_video_record", {
+      device_sn: cameraSerial, start_time: query.startTime, end_time: query.endTime,
+      offset: query.timezoneOffset ?? 0, id: query.cursor ?? 0, num: query.count ?? 100,
+      pullup: true, shared: true, storage: 2,
+    });
+    return projectCloudHistory(this.#decodeResult(result), cameraSerial, query.count ?? 100);
   }
 
   /** Read the established Security inventory field without retaining its other device data. */
@@ -190,7 +251,7 @@ export class MegaClient {
       time_zone: new Date(this.#now()).getTimezoneOffset() * -60_000,
       transaction: `${this.#now()}`,
     });
-    const decoded = this.#decodeResult(result, this.#clusterHost("security"));
+    const decoded = this.#decodeResult(result);
     const rows = Array.isArray(decoded)
       ? decoded
       : isRecord(decoded) && Array.isArray(decoded.devices) ? decoded.devices : [];
@@ -219,7 +280,7 @@ export class MegaClient {
       station_sns: [...stationSerials],
       transaction: `${Date.now()}`,
     });
-    const decoded = this.#decodeResult(result, this.#clusterHost("openapi"));
+    const decoded = this.#decodeResult(result);
     const value: Record<string, unknown> = isRecord(decoded) ? decoded : {};
     const output: Record<string, { readonly key: string; readonly expiresAt: number | null }> = {};
     const keys = Array.isArray(value.device_dsks) ? value.device_dsks : [];
@@ -243,7 +304,7 @@ export class MegaClient {
     const result = await this.#call("security", "/v3/app/cipher/get_ciphers", {
       cipher_ids: [...cipherIds], user_id: userId, station_sn: stationSerial,
     });
-    const decoded = this.#decodeResult(result, this.#clusterHost("security"));
+    const decoded = this.#decodeResult(result);
     if (Array.isArray(decoded)) return decoded.filter(isRecord);
     if (!isRecord(decoded)) return [];
     const values = Array.isArray(decoded.ciphers) ? decoded.ciphers : Array.isArray(decoded.data) ? decoded.data : [];
@@ -283,7 +344,7 @@ export class MegaClient {
   /** Download authenticated temporary media through Eufy's allowlisted object-store redirect. */
   async download(url: string, maximumBytes = 20 * 1024 * 1024): Promise<Buffer> {
     const parsed = allowedMediaUrl(url, MEDIA_HOST);
-    const signal = AbortSignal.timeout(30_000);
+    const signal = AbortSignal.any([this.#requestLifetime.signal, AbortSignal.timeout(30_000)]);
     let response: Response | null = null;
     for (let attempt = 0; attempt <= MEDIA_NOT_READY_DELAYS_MS.length; attempt += 1) {
       response = await this.#fetchMedia(parsed, signal);
@@ -294,11 +355,7 @@ export class MegaClient {
     }
     if (!response) throw new Error("Mega media download failed");
     if (!response.ok) throw new Error(`Mega media download failed (HTTP ${response.status})`);
-    const length = Number(response.headers.get("content-length") ?? 0);
-    if (length > maximumBytes) throw new Error("Mega media exceeds the safety limit");
-    const data = Buffer.from(await response.arrayBuffer());
-    if (data.length === 0 || data.length > maximumBytes) throw new Error("Mega media has an invalid size");
-    return data;
+    return readBoundedResponse(response, maximumBytes, signal);
   }
 
   /** Perform one authenticated media lookup and its optional credential-free object-store redirect. */
@@ -381,6 +438,19 @@ export class MegaClient {
   async #identity(host: string): Promise<MegaIdentity> {
     const saved = this.#session?.identities[host];
     if (saved) return saved;
+    const flight = this.#identityFlights.get(host);
+    if (flight) return flight;
+    const exchange = this.#exchangeIdentity(host);
+    this.#identityFlights.set(host, exchange);
+    try {
+      return await exchange;
+    } finally {
+      if (this.#identityFlights.get(host) === exchange) this.#identityFlights.delete(host);
+    }
+  }
+
+  async #exchangeIdentity(host: string): Promise<MegaIdentity> {
+    const lifetime = this.#requestLifetime.signal;
     const eufyLife = host.endsWith(".eufylife.com");
     const localKey = eufyLife ? EUFYLIFE_PRESET_KEY : MEGA_PRESET_KEY;
     const pending = beginKeyExchange(localKey);
@@ -393,6 +463,7 @@ export class MegaClient {
     }
     const encryptedServerPublicKey = stringValue(result.data.server_public_key);
     if (!encryptedServerPublicKey) throw new Error("Mega key exchange omitted the server public key");
+    lifetime.throwIfAborted();
     const identity = finishKeyExchange(pending, encryptedServerPublicKey, localKey);
     const base = this.#session ?? emptySession(this.#country, randomIdentifier(), "");
     this.#session = { ...base, identities: { ...base.identities, [host]: identity } };
@@ -400,15 +471,27 @@ export class MegaClient {
   }
 
   async #call(service: string, path: string, payload: unknown, retryIdentity = true): Promise<MegaResult> {
+    const lifetime = this.#requestLifetime.signal;
+    lifetime.throwIfAborted();
     const host = this.#clusterHost(service);
     const identityHost = host.endsWith(".eufylife.com") ? host : this.#clusterHost("openapi");
     const identity = await this.#identity(identityHost);
+    lifetime.throwIfAborted();
     const result = await this.#signedPost(host, path, payload, identity);
+    lifetime.throwIfAborted();
     if (retryIdentity && TRANSIENT_IDENTITY_ERRORS.has(result.code)) {
-      if (this.#session) this.#session = { ...this.#session, identities: {} };
+      if (this.#session?.identities[identityHost] === identity) {
+        const identities = { ...this.#session.identities };
+        delete identities[identityHost];
+        this.#session = { ...this.#session, identities };
+      }
       const refreshedIdentity = await this.#identity(identityHost);
+      lifetime.throwIfAborted();
       await this.#save();
-      return this.#signedPost(host, path, payload, refreshedIdentity);
+      lifetime.throwIfAborted();
+      const retried = await this.#signedPost(host, path, payload, refreshedIdentity);
+      lifetime.throwIfAborted();
+      return retried;
     }
     return result;
   }
@@ -420,49 +503,90 @@ export class MegaClient {
     identity?: MegaIdentity,
     bootstrap?: { readonly keyIdent: string; readonly encryptedPublicKey: string },
   ): Promise<MegaResult> {
-    const timestamp = `${Math.floor(this.#now() / 1_000)}`;
-    const nonce = randomIdentifier();
-    const encrypted = bootstrap?.encryptedPublicKey ?? encryptEnvelope(JSON.stringify(payload), sharedAesKey(identity!.sharedKey));
-    const body = bootstrap ? JSON.stringify({ client_public_key: encrypted }) : encrypted;
-    const headers = this.#headers(
-      bootstrap?.keyIdent ?? identity!.keyIdent,
-      timestamp,
-      nonce,
-      requestSignature(bootstrap ? (host.endsWith(".eufylife.com") ? EUFYLIFE_PRESET_KEY : MEGA_PRESET_KEY) : sharedSigningKey(identity!.sharedKey), timestamp, nonce, encrypted),
-    );
-    return this.#post(host, path, body, headers);
+    return this.#enqueue(async (signal) => {
+      const timestamp = `${Math.floor(this.#now() / 1_000)}`;
+      const nonce = randomIdentifier();
+      const encrypted = bootstrap?.encryptedPublicKey ?? encryptEnvelope(JSON.stringify(payload), sharedAesKey(identity!.sharedKey));
+      const body = bootstrap ? JSON.stringify({ client_public_key: encrypted }) : encrypted;
+      const signingKey = bootstrap
+        ? (host.endsWith(".eufylife.com") ? EUFYLIFE_PRESET_KEY : MEGA_PRESET_KEY)
+        : sharedSigningKey(identity!.sharedKey);
+      const headers = this.#headers(
+        bootstrap?.keyIdent ?? identity!.keyIdent, timestamp, nonce,
+        requestSignature(signingKey, timestamp, nonce, encrypted),
+      );
+      const result = await this.#post(host, path, body, headers, signal);
+      if (identity) {
+
+        // Only the normal general-client family has an established response
+        // signature contract. Bootstrap and native Mega do not inherit it.
+        if (host.endsWith(".eufylife.com") && typeof result.data === "string" && result.data) {
+          const signature = (result as MegaResult & { signature?: unknown }).signature;
+          const required = path.startsWith("/v3/event/") || path === "/v3/web/cipher/dec_aes_keys";
+          if (required || signature !== undefined) {
+            const expected = requestSignature(signingKey, timestamp, nonce, result.data);
+            if (typeof signature !== "string" || !/^[a-f0-9]{64}$/i.test(signature) ||
+              !timingSafeEqual(Buffer.from(signature, "hex"), Buffer.from(expected, "hex"))) {
+              throw new Error("Mega response validation failed (signature)");
+            }
+          }
+        }
+        this.#responseIdentities.set(result, identity);
+      }
+      return result;
+    });
   }
 
   async #postClear(host: string, path: string, payload: unknown): Promise<MegaResult> {
-    return this.#post(host, path, JSON.stringify(payload), {
+    return this.#enqueue((signal) => this.#post(host, path, JSON.stringify(payload), {
       "app-name": "eufy_mega",
       "app-version": "6.0.51_26722",
       "os-type": "android",
       "content-type": "application/json",
-    });
+    }, signal));
   }
 
-  async #post(host: string, path: string, body: string, headers: Record<string, string>): Promise<MegaResult> {
-
-    // Mega rate-limits aggressively. Serializing requests here also prevents
-    // parallel startup calls from invalidating the short-lived identity.
-    const wait = this.#lastRequestAt + this.#minimumRequestIntervalMs - this.#now();
-    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-    this.#lastRequestAt = this.#now();
-    const response = await this.#fetch(`https://${host}${path}`, {
-      method: "POST",
-      headers,
-      body,
-      signal: AbortSignal.timeout(30_000),
+  async #enqueue<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const signal = this.#requestLifetime.signal;
+    signal.throwIfAborted();
+    const job = this.#requestTail.then(async () => {
+      signal.throwIfAborted();
+      const wait = this.#lastRequestAt + this.#minimumRequestIntervalMs - this.#now();
+      if (wait > 0) await delay(wait, undefined, { signal });
+      signal.throwIfAborted();
+      this.#lastRequestAt = this.#now();
+      return operation(AbortSignal.any([signal, AbortSignal.timeout(30_000)]));
     });
-    const text = await response.text();
+
+    // A refused or cancelled job must not poison the next queue position.
+    this.#requestTail = job.catch(() => undefined);
+    return job;
+  }
+
+  async #post(host: string, path: string, body: string, headers: Record<string, string>, signal: AbortSignal): Promise<MegaResult> {
+    let response: Response;
+    try {
+      response = await this.#fetch(`https://${host}${path}`, {
+        method: "POST", headers, body, signal, redirect: "error",
+      });
+    } catch {
+      signal.throwIfAborted();
+      throw new Error("Mega request failed (transport)");
+    }
+    signal.throwIfAborted();
+    if (response.status !== 200) {
+      await response.body?.cancel();
+      throw new Error(`Mega request failed (HTTP ${response.status})`);
+    }
     let value: unknown;
     try {
-      value = JSON.parse(text);
+      value = JSON.parse((await readBoundedResponse(response, 2 * 1024 * 1024, signal)).toString("utf8"));
     } catch {
-      throw new Error(`Mega request failed (HTTP ${response.status}, invalid JSON at ${host}${path}: ${text.slice(0, 160)})`);
+      signal.throwIfAborted();
+      throw new Error("Mega response validation failed (JSON)");
     }
-    if (!isRecord(value) || typeof value.code !== "number") throw new Error("Mega returned an invalid response");
+    signal.throwIfAborted();
+    if (!isRecord(value) || !Number.isInteger(value.code)) throw new Error("Mega response validation failed (envelope)");
     return value as unknown as MegaResult;
   }
 
@@ -504,20 +628,24 @@ export class MegaClient {
     return headers;
   }
 
-  #decodeResult(result: MegaResult, identityHost: string): unknown {
+  #decodeResult(result: MegaResult): unknown {
     if (!isSuccess(result.code)) {
       if (result.code === VERIFICATION_REQUIRED || CAPTCHA_REQUIRED.has(result.code)) return result.data;
       throw new Error(`Mega request failed (${result.code}: ${safeMegaMessage(result.msg)})`);
     }
     if (typeof result.data !== "string") return result.data;
-    const identity = this.#session?.identities[identityHost];
+    const identity = this.#responseIdentities.get(result);
     if (!identity) throw new Error("Mega response cannot be decrypted without a session identity");
-    return JSON.parse(decryptEnvelope(result.data, sharedAesKey(identity.sharedKey)));
+    try {
+      return JSON.parse(decryptEnvelope(result.data, sharedAesKey(identity.sharedKey)));
+    } catch {
+      throw new Error("Mega response validation failed (encrypted data)");
+    }
   }
 
   async #requestCaptcha(): Promise<MegaCaptcha> {
     const result = await this.#call("passport", "/passport/generate/captcha", { captcha_type: "PIC", biz_type: 0 }, false);
-    const value = this.#decodeResult(result, this.#clusterHost("openapi"));
+    const value = this.#decodeResult(result);
     if (!isRecord(value)) throw new Error("Mega returned an invalid CAPTCHA challenge");
     const id = stringValue(value.captcha_id);
     const image = stringValue(value.item);
@@ -606,5 +734,6 @@ function numberValue(value: unknown): number | null {
 }
 
 function safeMegaMessage(value: string | undefined): string {
-  return (value ?? "unknown error").replace(/token\s*=\s*[^\s,]+/gi, "token=[redacted]");
+  const known = new Set(["get identity error", "token not exist", "Failed to login."]);
+  return value && known.has(value) ? value : "application error";
 }
