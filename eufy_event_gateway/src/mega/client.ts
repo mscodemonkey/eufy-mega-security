@@ -245,7 +245,13 @@ export class MegaClient {
     return values.filter(isRecord);
   }
 
-  /** Register the persistent Firebase token with Mega notification service. */
+  /**
+   * Register one Firebase identity with both account notification backends.
+   *
+   * Security delivery requires its registration and activation check even when
+   * Mega registration succeeds. Reuse this session, never perform a second
+   * login, and fail before starting the receiver if any step is rejected.
+   */
   async registerPushToken(token: string): Promise<void> {
     this.#requireAuthentication();
     const result = await this.#call("push", "/app/push/register_push_token", {
@@ -254,6 +260,19 @@ export class MegaClient {
       voip_token: "",
     }, false);
     if (!isSuccess(result.code)) throw new Error(`Mega push registration failed (${result.code})`);
+    const securityRegistration = await this.#call("security", "/v1/apppush/register_push_token", {
+      token,
+      is_notification_enable: true,
+      transaction: `${this.#now()}`,
+    }, false);
+    if (!isSuccess(securityRegistration.code)) {
+      throw new Error(`Security push registration failed (${securityRegistration.code})`);
+    }
+    const activation = await this.#call("security", "/v1/app/review/app_push_check", {
+      app_type: "eufySecurity",
+      transaction: `${this.#now()}`,
+    }, false);
+    if (!isSuccess(activation.code)) throw new Error(`Security push activation failed (${activation.code})`);
   }
 
   /** Download authenticated temporary media through Eufy's allowlisted object-store redirect. */
