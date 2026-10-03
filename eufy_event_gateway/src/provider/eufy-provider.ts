@@ -988,7 +988,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const liveReads = this.#liveDeviceReads.get(device.serial);
       const liveParamTypes = this.#liveDeviceParamTypes.get(device.serial) ?? [];
       const merged = {
-        ...known,
+        ...mergeInventoryMetadata(known, device),
         paramTypes: [...new Set([...device.paramTypes, ...liveParamTypes])].sort((left, right) => left - right),
         reads: liveReads ? { ...device.reads, ...liveReads } : device.reads,
       };
@@ -1699,6 +1699,17 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
   return devices.map((device) => device.adminUserId || !device.parentSerial
     ? device
     : { ...device, adminUserId: adminUserIds.get(device.parentSerial) ?? null });
+}
+
+/** Refresh camera-owned version metadata without replacing an active transport's routing identity. */
+export function mergeInventoryMetadata(existing: MegaInventoryDevice, fresh: MegaInventoryDevice): MegaInventoryDevice {
+  return {
+    ...existing,
+    firmware: fresh.firmware,
+    hardwareVersion: fresh.hardwareVersion ?? null,
+    firmwareSubVersion: fresh.firmwareSubVersion ?? null,
+    firmwareUpdateAvailable: fresh.firmwareUpdateAvailable ?? null,
+  };
 }
 
 function safeLastChargingDays(value: unknown): number | undefined {

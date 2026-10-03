@@ -16,6 +16,7 @@ import {
   dskKeyNeedsRefresh,
   inventoryDiagnostics,
   inventoryMotionOutcome,
+  mergeInventoryMetadata,
   inventoryLogSummaries,
   homeBaseStorageLogSummary,
   supportsMotionDetectionControlRoute,
@@ -76,6 +77,23 @@ test("secondary firmware and update flags stay camera-owned and preserve unknown
     assert.equal(devices[2]?.firmwareSubVersion, null);
     assert.equal(devices[2]?.firmwareUpdateAvailable, null);
   }
+});
+
+test("inventory refresh updates firmware metadata without replacing live routing", () => {
+  const existing = parseMegaInventory({ devices: [{ device_sn: "camera", parent_sn: "station",
+    device_channel: 3, p2p_did: "existing-route", main_sw_version: "1.0", needUpdate: true }] })[0]!;
+  const fresh = parseMegaInventory({ devices: [{ device_sn: "camera", main_sw_version: "2.0",
+    sec_sw_version: "2.1", main_hw_version: "P2", needUpdate: false }] })[0]!;
+  const merged = mergeInventoryMetadata(existing, fresh);
+  assert.equal(merged.firmware, "2.0");
+  assert.equal(merged.firmwareSubVersion, "2.1");
+  assert.equal(merged.hardwareVersion, "P2");
+  assert.equal(merged.firmwareUpdateAvailable, false);
+  assert.equal(merged.parentSerial, "station");
+  assert.equal(merged.p2pDid, "existing-route");
+  assert.equal(merged.channel, 3);
+  const empty = parseMegaInventory({ devices: [{ device_sn: "camera" }] })[0]!;
+  assert.equal(mergeInventoryMetadata(merged, empty).firmwareUpdateAvailable, null);
 });
 
 test("ringtone and sound reads are strictly gated to evidenced device families", () => {
