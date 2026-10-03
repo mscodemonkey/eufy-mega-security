@@ -51,6 +51,8 @@ class EufyGatewayEntity(CoordinatorEntity[EufyGatewayCoordinator]):
             name=self.camera.get("name") or f"Eufy camera {self.serial[-4:]}",
             manufacturer="Eufy",
             model=self.camera.get("model"),
+            sw_version=self.camera.get("firmware"),
+            hw_version=self.camera.get("hardwareVersion"),
         )
 
 

@@ -10,10 +10,11 @@
  * recreate a cloud session from this directory.
  */
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { SnapshotInfo } from "../domain/types.js";
+import { repairRetainedEventImage } from "../mega/image.js";
 
 /** One JSON index entry linking a camera serial to image metadata. */
 interface SnapshotRecord {
@@ -44,6 +45,7 @@ export class SnapshotStore {
     await mkdir(this.#directory, { recursive: true, mode: 0o700 });
     await this.#loadIndex("index.json", this.#records);
     await this.#loadIndex("event-index.json", this.#eventRecords);
+    await this.#repairEventHeaders();
     await this.#migrateRetainedEventImages();
   }
 
@@ -163,7 +165,14 @@ export class SnapshotStore {
   async #loadIndex(filename: string, destination: Map<string, SnapshotInfo>): Promise<void> {
     try {
       const records = JSON.parse(await readFile(join(this.#directory, filename), "utf8")) as SnapshotRecord[];
-      for (const record of records) destination.set(record.serial, record.info);
+      for (const record of records) {
+        const path = filename === "event-index.json" ? this.#eventImagePath(record.serial) : this.#imagePath(record.serial);
+        try {
+          if ((await stat(path)).size > 0) destination.set(record.serial, record.info);
+        } catch (error) {
+          if (!isMissingFile(error)) throw error;
+        }
+      }
     } catch (error) {
       if (!isMissingFile(error)) throw error;
     }
@@ -183,6 +192,27 @@ export class SnapshotStore {
       changed = true;
     }
     if (changed) await this.#writeEventIndex();
+  }
+
+  async #repairEventHeaders(): Promise<void> {
+    for (const [records, event] of [[this.#records, false], [this.#eventRecords, true]] as const) {
+      let changed = false;
+      for (const [serial, info] of records) {
+        if (info.source !== "event") continue;
+        const path = event ? this.#eventImagePath(serial) : this.#imagePath(serial);
+        try {
+          const previous = await readFile(path);
+          const recovered = repairRetainedEventImage(previous);
+          if (recovered === previous) continue;
+          await atomicWrite(path, recovered);
+          records.set(serial, { ...info, revision: info.revision + 1 });
+          changed = true;
+        } catch (error) {
+          if (!isMissingFile(error)) throw error;
+        }
+      }
+      if (changed) await (event ? this.#writeEventIndex() : this.#writeIndex());
+    }
   }
 
   #imagePath(serial: string): string {

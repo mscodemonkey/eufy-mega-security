@@ -13,6 +13,7 @@ CONF_API_TOKEN = "api_token"
 PLATFORMS = [
     Platform.BUTTON,
     Platform.CAMERA,
+    Platform.IMAGE,
     Platform.BINARY_SENSOR,
     Platform.SENSOR,
     Platform.ALARM_CONTROL_PANEL,

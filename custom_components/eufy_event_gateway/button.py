@@ -188,6 +188,14 @@ class EufyCameraLightButton(EufyGatewayEntity, ButtonEntity):
             "mdi:lightbulb-on-outline" if enabled else "mdi:lightbulb-off-outline"
         )
 
+    @property
+    def available(self) -> bool:
+        """Disable existing actions when fresh inventory withdraws their command path."""
+        return super().available and (
+            self.camera.get("cameraLightControlSupported") is True
+            or self.camera.get("timedLightControlSupported") is True
+        )
+
     async def async_press(self) -> None:
         """Ask the gateway to send the capability-backed momentary light command."""
         await self.coordinator.client.set_camera_light(self.serial, self._enabled)

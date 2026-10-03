@@ -6,6 +6,11 @@
         "name": "Event image"
       }
     },
+    "image": {
+      "event_image": {
+        "name": "Last event image"
+      }
+    },
     "button": {
       "compatibility_report": {
         "name": "Help test this device"

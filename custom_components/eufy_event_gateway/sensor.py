@@ -44,6 +44,7 @@ async def async_setup_entry(
     """Create supported measurement and diagnostic entities from inventory."""
     coordinator = entry.runtime_data.coordinator
     known_cameras: set[str] = set()
+    known_camera_signal: set[str] = set()
     known_mode_stations: set[str] = set()
     known_storage_stations: set[str] = set()
     known_sensors: set[str] = set()
@@ -51,6 +52,17 @@ async def async_setup_entry(
     _migrate_storage_display_units(hass, coordinator)
 
     def add_new() -> None:
+        signal_serials = {
+            serial for serial, camera in coordinator.cameras.items()
+            if camera.get("rssi") is not None
+        } - known_camera_signal
+        if signal_serials:
+            known_camera_signal.update(signal_serials)
+            async_add_entities([
+                EufyCameraSignalStrength(coordinator, serial)
+                for serial in sorted(signal_serials)
+            ])
+
         for serial, station in coordinator.stations.items():
             if station.get("guardModeControlSupported") is not True:
                 continue
@@ -196,6 +208,32 @@ class EufyRecognizedPersonSensor(EufyGatewayEntity, SensorEntity):
             "detected_at": detection.get("occurredAt"),
             "recognized": bool(detection.get("recognized")),
         }
+
+
+class EufyCameraSignalStrength(EufyGatewayEntity, SensorEntity):
+    """Expose inventory-reported camera signal strength as a diagnostic.
+
+    The coordinator owns updates. This entity is created when a validated value
+    first arrives, including after discovery, and never estimates signal from
+    stream health or copies the parent station's value.
+    """
+
+    _attr_translation_key = "signal_strength"
+    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+    _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Create one stable, read-only diagnostic entity."""
+        super().__init__(coordinator, serial)
+        self._attr_unique_id = f"{serial}_rssi"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return a numeric signal value or unknown when no longer reported."""
+        value = self.camera.get("rssi")
+        return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
 class EufyCameraBatterySensor(EufyGatewayEntity, SensorEntity):

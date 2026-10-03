@@ -65,8 +65,10 @@ capabilities:
     light:
       connections:
         direct:
-          status: declared
-          notes: Command 1400 uses the direct integer and account envelope. Stateless buttons avoid claiming a durable light state.
+          status: failing
+          tested_on: 2026-10-03
+          tested_by: monkey-80
+          notes: The integer and account command did not physically operate the light, including with the official app open. The failed command path is disabled pending a different verified path.
       write:
         command: 1400
   media:

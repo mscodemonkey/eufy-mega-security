@@ -54,8 +54,28 @@ export interface SnapshotInfo {
   readonly revision: number;
 }
 
+/** Cloud-reported audio configuration, not proof of physical recording or talkback. */
+export interface CameraAudioSettings {
+  readonly microphoneEnabled: boolean | null;
+  readonly speakerEnabled: boolean | null;
+  readonly recordingEnabled: boolean | null;
+  readonly speakerVolume: number | null;
+}
+
 /** Complete state returned for one camera by the HTTP API. */
 export interface CameraState {
+
+  /** Reported main firmware version, absent rather than inferred from the station. */
+  readonly firmware: string | null;
+
+  /** Device-reported hardware revision, when included in fresh inventory. */
+  readonly hardwareVersion: string | null;
+
+  /** Last validated inventory signal measurement, not a connection-health assertion. */
+  readonly rssi: number | null;
+
+  /** Validated inventory audio configuration, exposed without write controls. */
+  readonly audioSettings: CameraAudioSettings | null;
   readonly serial: string;
   readonly name: string;
   readonly model: string;
@@ -194,6 +214,18 @@ export type GatewayEvent =
 
 /** Stable camera metadata discovered from Mega inventory. */
 export interface CameraIdentity {
+
+  /** Device-reported main firmware, not the parent station's version. */
+  readonly firmware?: string | null;
+
+  /** Hardware revision from the camera record, never inferred from its model. */
+  readonly hardwareVersion?: string | null;
+
+  /** Optional reported signal strength in dBm. */
+  readonly rssi?: number | null;
+
+  /** Cloud configuration only. A missing setting never implies it is disabled. */
+  readonly audioSettings?: CameraAudioSettings | null;
   readonly serial: string;
   readonly name: string;
   readonly model: string;

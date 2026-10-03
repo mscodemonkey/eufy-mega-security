@@ -59,6 +59,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EufyGatewayConfigEntry) 
     await coordinator.async_config_entry_first_refresh()
     await _refresh_standalone_alarm_capabilities(coordinator)
     _remove_t817l_battery_entities(hass, coordinator)
+    _hide_legacy_event_cameras(hass, coordinator)
     entry.runtime_data = GatewayRuntimeData(coordinator)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     coordinator.start_event_listener()
@@ -93,6 +94,23 @@ async def _refresh_standalone_alarm_capabilities(
         coordinator.async_set_camera(camera)
 
     await asyncio.gather(*(refresh(serial) for serial in serials))
+
+
+def _hide_legacy_event_cameras(hass: HomeAssistant, coordinator: EufyGatewayCoordinator) -> None:
+    """Hide old event-camera tiles once while preserving their stable references.
+
+    Run before concurrent platform setup can register the replacement images.
+    Once an image exists, later user visibility choices are left untouched.
+    No registry entries, custom names, or automation references are removed.
+    """
+    registry = er.async_get(hass)
+    for serial in coordinator.cameras:
+        legacy_id = registry.async_get_entity_id("camera", DOMAIN, f"{serial}_event_image")
+        image_id = registry.async_get_entity_id("image", DOMAIN, f"{serial}_event_image")
+        if legacy_id is not None and image_id is None:
+            legacy = registry.async_get(legacy_id)
+            if legacy is not None and legacy.hidden_by is None:
+                registry.async_update_entity(legacy_id, hidden_by=er.RegistryEntryHider.INTEGRATION)
 
 
 def _remove_t817l_battery_entities(

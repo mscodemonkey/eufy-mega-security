@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -22,6 +23,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .client import GatewayClient, GatewayClientError
 from .const import DOMAIN
+from .image_cache import CameraImageCache
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,6 +49,10 @@ class EufyGatewayCoordinator(
             always_update=False,
         )
         self.client = client
+        self.image_cache = CameraImageCache(
+            Path(hass.config.path(".storage", DOMAIN, "camera-images")),
+            hass.async_add_executor_job,
+        )
         self._event_task: asyncio.Task[None] | None = None
 
     async def _async_update_data(self) -> dict[str, dict[str, dict[str, Any]]]:

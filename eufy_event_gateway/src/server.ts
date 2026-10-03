@@ -18,6 +18,7 @@ import { createLogger } from "./logging.js";
 import { SimulatedProvider } from "./provider/simulated-provider.js";
 import type { CameraProvider, CaptchaProvider } from "./provider/provider.js";
 import { SnapshotStore } from "./storage/snapshot-store.js";
+import { waitingImage } from "./mega/waiting-image.js";
 import { LiveStreamManager } from "./stream/live-stream-manager.js";
 
 const logger = createLogger("gateway");
@@ -61,6 +62,12 @@ export class GatewayServer {
     if (!this.#server) return;
     await new Promise<void>((resolve, reject) => this.#server?.close((error) => error ? reject(error) : resolve()));
     this.#server = null;
+  }
+
+  /** Return the actual bound port, including ephemeral test listeners, or null while stopped. */
+  get port(): number | null {
+    const address = this.#server?.address();
+    return address && typeof address !== "string" ? address.port : null;
   }
 
   async #route(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -420,8 +427,8 @@ export class GatewayServer {
 
   async #snapshot(serial: string, response: ServerResponse): Promise<void> {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
-    const snapshot = await this.snapshots.read(serial);
-    if (!snapshot) return json(response, 404, { error: "No snapshot captured yet" });
+    const snapshot = await this.snapshots.read(serial) ?? await this.snapshots.readEvent(serial);
+    if (!snapshot) return this.#waitingImage(response);
     response.writeHead(200, {
       "Content-Type": snapshot.info.contentType,
       "Content-Length": snapshot.data.length,
@@ -434,8 +441,8 @@ export class GatewayServer {
 
   async #eventImage(serial: string, response: ServerResponse): Promise<void> {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
-    const eventImage = await this.snapshots.readEvent(serial);
-    if (!eventImage) return json(response, 404, { error: "No event image captured yet" });
+    const eventImage = await this.snapshots.readEvent(serial) ?? await this.snapshots.read(serial);
+    if (!eventImage) return this.#waitingImage(response);
     response.writeHead(200, {
       "Content-Type": eventImage.info.contentType,
       "Content-Length": eventImage.data.length,
@@ -444,6 +451,15 @@ export class GatewayServer {
       "Last-Modified": new Date(eventImage.info.capturedAt).toUTCString(),
     });
     response.end(eventImage.data);
+  }
+
+  #waitingImage(response: ServerResponse): void {
+    const image = waitingImage();
+    response.writeHead(200, {
+      "Content-Type": "image/jpeg", "Content-Length": image.length,
+      "Cache-Control": "no-store", "X-Eufy-Image-Source": "waiting",
+    });
+    response.end(image);
   }
 
   async #live(serial: string, response: ServerResponse): Promise<void> {

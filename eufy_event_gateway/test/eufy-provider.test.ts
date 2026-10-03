@@ -51,6 +51,18 @@ const event = (overrides: Partial<Parameters<typeof personNameFromPush>[0]>): Pa
   ...overrides,
 });
 
+test("retains only the device's own reported firmware and hardware metadata", () => {
+  const devices = parseMegaInventory({ devices: [
+    { device_sn: "camera", device_model: "T8142", main_sw_version: "4.1.0", main_hw_version: "P1" },
+    { device_sn: "older", parent_sn: "station", main_sw_version: 42, main_hw_version: {} },
+    { device_sn: "station", main_sw_version: "9.0.0", main_hw_version: "S1" },
+  ] });
+  assert.equal(devices[0]?.firmware, "4.1.0");
+  assert.equal(devices[0]?.hardwareVersion, "P1");
+  assert.equal(devices[1]?.firmware, null);
+  assert.equal(devices[1]?.hardwareVersion, null);
+});
+
 const stationState = (alarmVolume: number | null): HomeBasePpcsState => ({
   firmware: null,
   guardMode: null,
@@ -113,7 +125,7 @@ test("limits timed JSON light control to the verified wall-light family", () => 
 
 test("selects the source-backed direct light protocol by camera family", () => {
   assert.equal(cameraLightControlProtocol({ deviceType: 45 }), "int-string");
-  assert.equal(cameraLightControlProtocol({ deviceType: 61 }), "int-string");
+  assert.equal(cameraLightControlProtocol({ deviceType: 61 }), null);
   assert.equal(cameraLightControlProtocol({ deviceType: 151 }), "timed-json");
   assert.equal(cameraLightControlProtocol({ deviceType: 10005 }), "timed-json");
   assert.equal(cameraLightControlProtocol({ deviceType: 10031 }), null);
@@ -231,7 +243,7 @@ test("parses only whitelisted Mega inventory fields and de-duplicates serials", 
   assert.deepEqual(result, [{
     serial: "T8113ABC", name: "Test camera", model: "T8113-Z", parentSerial: "T8030ABC",
     deviceType: 8, category: "eufy_security", channel: 3, p2pDid: "ABC-123456-XYZ",
-    adminUserId: null, userName: null, firmware: null, p2pConnection: null, localAddress: null, cipherId: null,
+    adminUserId: null, userName: null, firmware: null, hardwareVersion: null, p2pConnection: null, localAddress: null, cipherId: null,
     paramTypes: [], reads: { lastChargingDays: 44 },
   }]);
   assert.equal(JSON.stringify(result).includes("must-not-escape"), false);
@@ -290,6 +302,22 @@ test("decodes only validated capability-backed inventory values", () => {
     { param_type: 1101, param_value: "50" },
     { param_type: 1101, param_value: "49" },
   ]).batteryLevel, 49);
+});
+
+test("normalizes reported audio configuration and rejects non-domain values", () => {
+  assert.deepEqual(safeInventoryReads([
+    { param_type: 1240, param_value: "1" },
+    { param_type: 1241, param_value: "0" },
+    { param_type: 1288, param_value: "1" },
+    { param_type: 1230, param_value: "60" },
+  ]), { microphoneEnabled: true, speakerEnabled: false, audioRecordingEnabled: false, speakerVolume: 60 });
+  assert.deepEqual(safeInventoryReads([
+    { param_type: 1240, param_value: "2" },
+    { param_type: 1241, param_value: "unknown" },
+    { param_type: 1288, param_value: "-1" },
+    { param_type: 1230, param_value: "101" },
+  ]), {});
+  assert.equal(safeInventoryReads([{ param_type: 1288, param_value: "0" }]).audioRecordingEnabled, true);
 });
 
 test("decodes a motion sensor cloud event timestamp without applying it to cameras", () => {

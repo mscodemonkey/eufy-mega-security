@@ -3,6 +3,9 @@ entity:
   camera:
     event_image:
       name: Hændelsesbillede
+  image:
+    event_image:
+      name: Seneste hændelsesbillede
   button:
     compatibility_report:
       name: Hjælp med at teste denne enhed

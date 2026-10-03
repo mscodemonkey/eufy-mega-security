@@ -11,7 +11,9 @@ The project is maintained as an open-source gateway and Home Assistant integrati
 
 Reliable, event-first Home Assistant support for Eufy cameras that do not provide a permanent RTSP stream.
 
-Motion, person, pet, vehicle, dog, crying, sound, stranger, and stranded-package detections arrive as distinct Home Assistant entities. Supported doorbells also expose a press sensor. HomeBase 3 familiar-person names appear when Eufy supplies one. Each camera keeps its last good still, while a separate Event image entity retains the latest picture supplied with an event.
+Motion, person, pet, vehicle, dog, crying, sound, stranger, and stranded-package detections arrive as distinct Home Assistant entities. Supported doorbells also expose a press sensor. HomeBase 3 familiar-person names appear when Eufy supplies one. Each camera keeps its last good still, while a separate **Last event image** entity retains the latest picture supplied with an event.
+
+Last event image uses Home Assistant's `image` domain, so it does not create a second camera tile on the automatic Security page. It remains available on the device page and in manually added picture cards. Upgraded installations keep their old event-image camera entities hidden for compatibility with existing dashboard cards and automations. These entries are not deleted or disabled. The main camera uses a retained picture while video is idle, with an explicit waiting image only when no picture has ever been captured.
 
 > [!IMPORTANT]
 > This is an early community project built against real EufyCam 2C, HomeBase 3, and Doorbell hardware. It is not affiliated with Anker or Eufy and should not be your only security system.
