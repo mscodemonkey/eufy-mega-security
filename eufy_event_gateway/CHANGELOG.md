@@ -2,6 +2,8 @@
 
 ## 0.1.114
 
+- Close stalled shared video connections cleanly while preserving the retained camera picture.
+
 - Report camera rotation, status-indicator and sound-detection configuration without adding controls.
 - Expose validated T8210/T8214 chime configuration and T8210 quality/compression settings as read-only attributes.
 - Complete Security push registration and activation using the existing Mega session, with explicit rejection handling.
