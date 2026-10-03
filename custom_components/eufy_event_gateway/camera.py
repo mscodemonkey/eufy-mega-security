@@ -188,9 +188,20 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
             ("imageFlipped", "reported_image_flipped"),
             ("statusLedEnabled", "reported_status_indicator_enabled"),
             ("soundDetectionEnabled", "reported_sound_detection_enabled"),
+            ("homebaseChimeEnabled", "reported_homebase_chime_enabled"),
+            ("mechanicalChimeEnabled", "reported_mechanical_chime_enabled"),
+            ("wideDynamicRangeEnabled", "reported_wide_dynamic_range_enabled"),
+            ("highCompressionEncoding", "reported_high_compression_encoding"),
         ):
             if isinstance(reported.get(field), bool):
                 attributes[attribute] = reported[field]
+        for field, attribute, maximum in (
+            ("chimeVolume", "reported_chime_volume", 100),
+            ("doorbellVideoQuality", "reported_doorbell_video_quality", 3),
+        ):
+            value = reported.get(field)
+            if type(value) is int and 0 <= value <= maximum:
+                attributes[attribute] = value
         return attributes
 
     async def async_camera_image(

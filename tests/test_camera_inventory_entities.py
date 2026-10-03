@@ -70,3 +70,20 @@ class CameraInventoryEntitiesTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(getter(SimpleNamespace(camera=state)), {
             "reported_image_flipped": False, "reported_status_indicator_enabled": True,
         })
+
+    async def test_doorbell_attributes_keep_false_and_reject_unknown_values(self) -> None:
+        """Expose only validated settings, never raw notification configuration."""
+        getter = load_function("camera.py", "extra_state_attributes", {}, "EufyGatewayCamera")
+        state = {"reportedSettings": {
+            "homebaseChimeEnabled": False, "mechanicalChimeEnabled": True,
+            "wideDynamicRangeEnabled": "1", "highCompressionEncoding": False,
+            "chimeVolume": 25, "doorbellVideoQuality": 0, "raw": "private",
+        }}
+        self.assertEqual(getter(SimpleNamespace(camera=state)), {
+            "reported_homebase_chime_enabled": False, "reported_mechanical_chime_enabled": True,
+            "reported_high_compression_encoding": False, "reported_chime_volume": 25,
+            "reported_doorbell_video_quality": 0,
+        })
+        for invalid in (True, "3", -1, 101, None, 2.5):
+            state = {"reportedSettings": {"chimeVolume": invalid, "doorbellVideoQuality": invalid}}
+            self.assertEqual(getter(SimpleNamespace(camera=state)), {})

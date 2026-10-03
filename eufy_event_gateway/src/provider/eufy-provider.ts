@@ -72,6 +72,12 @@ export interface MegaInventoryDevice {
 
 /** Allowlisted, validated current values retained from one Mega inventory row. */
 export interface MegaInventoryReads {
+  readonly homebaseChimeEnabled?: boolean;
+  readonly mechanicalChimeEnabled?: boolean;
+  readonly wideDynamicRangeEnabled?: boolean;
+  readonly chimeVolume?: number;
+  readonly doorbellVideoQuality?: number;
+  readonly highCompressionEncoding?: boolean;
   readonly imageFlipped?: boolean;
   readonly statusLedEnabled?: boolean;
   readonly soundDetectionEnabled?: boolean;
@@ -1040,6 +1046,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         imageFlipped: device.reads.imageFlipped ?? null,
         statusLedEnabled: device.reads.statusLedEnabled ?? null,
         soundDetectionEnabled: device.reads.soundDetectionEnabled ?? null,
+        homebaseChimeEnabled: device.reads.homebaseChimeEnabled ?? null,
+        mechanicalChimeEnabled: device.reads.mechanicalChimeEnabled ?? null,
+        wideDynamicRangeEnabled: device.reads.wideDynamicRangeEnabled ?? null,
+        chimeVolume: device.reads.chimeVolume ?? null,
+        doorbellVideoQuality: device.reads.doorbellVideoQuality ?? null,
+        highCompressionEncoding: device.reads.highCompressionEncoding ?? null,
       },
       stationSerial: device.parentSerial,
       doorbellSupported: isDoorbellDevice(device),
@@ -1712,6 +1724,17 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const speaker = finiteNumber(params.get(1241));
   const recordMute = finiteNumber(params.get(1288));
   const speakerVolume = percentage(1230);
+
+  // These reads have model-specific evidence. Shared parameter IDs alone do not
+  // establish their meaning for every device that reports them.
+  const verifiedDoorbell = deviceType === 5 || deviceType === 94;
+  const homebaseChime = verifiedDoorbell ? finiteNumber(params.get(1702)) : null;
+  const mechanicalChime = verifiedDoorbell ? finiteNumber(params.get(1703)) : null;
+  const wideDynamicRange = verifiedDoorbell ? finiteNumber(params.get(1704)) : null;
+  const chimeVolume = verifiedDoorbell ? percentage(1717) : undefined;
+  const compositeQuality = deviceType === 5 ? finiteNumber(params.get(1705)) : null;
+  const validComposite = compositeQuality !== null && Number.isInteger(compositeQuality)
+    && [0, 1, 2, 3, 5, 6, 7, 8].includes(compositeQuality);
   const batteryHealth = percentage(1198);
   const openDevice = finiteNumber(params.get(2001));
   const cameraSwitch = finiteNumber(params.get(1035));
@@ -1726,6 +1749,14 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
       ? cameraSwitch === cameraEnableRawValue(deviceType, true)
       : undefined;
   return {
+    ...(homebaseChime === 0 || homebaseChime === 1 ? { homebaseChimeEnabled: homebaseChime === 1 } : {}),
+    ...(mechanicalChime === 0 || mechanicalChime === 1 ? { mechanicalChimeEnabled: mechanicalChime === 1 } : {}),
+    ...(wideDynamicRange === 0 || wideDynamicRange === 1 ? { wideDynamicRangeEnabled: wideDynamicRange === 1 } : {}),
+    ...(chimeVolume !== undefined && Number.isInteger(chimeVolume) ? { chimeVolume } : {}),
+    ...(validComposite ? {
+      doorbellVideoQuality: compositeQuality! % 5,
+      highCompressionEncoding: compositeQuality! >= 5,
+    } : {}),
     ...(imageFlipped === 0 || imageFlipped === 1 ? { imageFlipped: imageFlipped === 1 } : {}),
     ...(statusLed === 0 || statusLed === 1 ? { statusLedEnabled: statusLed === 1 } : {}),
     ...(soundDetection === 0 || soundDetection === 1 ? { soundDetectionEnabled: soundDetection === 1 } : {}),

@@ -67,6 +67,16 @@ export interface CameraReportedSettings {
   readonly imageFlipped: boolean | null;
   readonly statusLedEnabled: boolean | null;
   readonly soundDetectionEnabled: boolean | null;
+
+  /** Reported doorbell chime settings, absent outside evidenced model families. */
+  readonly homebaseChimeEnabled?: boolean | null;
+  readonly mechanicalChimeEnabled?: boolean | null;
+  readonly wideDynamicRangeEnabled?: boolean | null;
+  readonly chimeVolume?: number | null;
+
+  /** Doorbell quality rank, not resolution, decoded with its compression setting. */
+  readonly doorbellVideoQuality?: number | null;
+  readonly highCompressionEncoding?: boolean | null;
 }
 
 /** Complete state returned for one camera by the HTTP API. */
