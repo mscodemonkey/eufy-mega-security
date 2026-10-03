@@ -72,6 +72,7 @@ test("normalizes HomeBase state and separate physical storage devices", () => {
       { dev_type: 1, param_type: 1101, param_value: "73" },
       { dev_type: 1, param_type: 1013, param_value: 0 },
       { dev_type: 1, param_type: 1277, param_value: 1 },
+      { dev_type: 3, param_type: 1141, param_value: "-58" },
       { dev_type: 1, param_type: 9999, param_value: "private" },
     ],
   }, {
@@ -107,6 +108,7 @@ test("normalizes HomeBase state and separate physical storage devices", () => {
       { channel: 1, type: 1101, value: "73" },
       { channel: 1, type: 1013, value: 0 },
       { channel: 1, type: 1277, value: 1 },
+      { channel: 3, type: 1141, value: "-58" },
     ],
   });
   assert.equal(JSON.stringify(result).includes("private"), false);

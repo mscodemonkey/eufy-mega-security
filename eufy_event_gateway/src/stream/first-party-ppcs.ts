@@ -17,6 +17,7 @@ import type { CameraPresetPosition, VideoCodec } from "../domain/types.js";
 import { PpcsAccessUnitAssembler } from "./ppcs-access-unit-assembler.js";
 import { ppcsCandidatePorts, ppcsLocalLookupTargets } from "./ppcs-lookup.js";
 import { PpcsLookupSocketPool } from "./ppcs-lookup-sockets.js";
+import { decodeSensorContactNotification, type SensorContactObservation } from "./sensor-status-notification.js";
 
 // PPCS wraps command payloads in an XZYH header. The outer F1 D0 UDP envelope,
 // the inner D1 data channel, and the XZYH command frame have separate sequence
@@ -869,6 +870,9 @@ export interface PpcsCameraOptions {
 
   /** Limit the session to one control write instead of starting camera media. */
   readonly purpose?: "media" | "control";
+
+  /** Passive child-contact observations while an already requested HomeBase session is open. */
+  readonly onSensorContact?: (observation: SensorContactObservation) => void;
 }
 
 /** One in-flight control command and the promise settled by its result frame. */
@@ -1663,6 +1667,19 @@ export class FirstPartyPpcsSession {
         result === 0 ? pending.resolve() : pending.reject(new Error(`Camera rejected enablement command (${result})`));
       }
       return;
+    }
+
+    if (command === 1351 && this.#options.homeBaseAttached && this.#options.onSensorContact) {
+      let clear: Buffer | undefined;
+      if (signCode === 0) clear = payload;
+      else if ((signCode === 2 || signCode === 8) && this.#level2Key) {
+        clear = decryptLevel2(payload, this.#level2Key, signCode);
+      } else if (signCode === 1 && payload.length > 0 && payload.length % 16 === 0) {
+        try { clear = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); } catch { clear = undefined; }
+      }
+      if (clear) {
+        for (const observation of decodeSensorContactNotification(clear)) this.#options.onSensorContact(observation);
+      }
     }
 
     if (command === 1351 && this.#pendingControlQuery) {

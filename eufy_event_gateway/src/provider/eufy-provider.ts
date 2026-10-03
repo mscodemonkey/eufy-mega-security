@@ -20,6 +20,7 @@ import { decodeEventImage, isJpeg } from "../mega/image.js";
 import { MegaPushReceiver, type MegaPushEvent } from "../mega/push.js";
 import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBaseChildParam, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
+import type { SensorContactObservation } from "../stream/sensor-status-notification.js";
 import { cameraCapabilityLogSummaries, describeCameraCapabilities, isSupportedCameraType, describeDeviceCapabilities, deviceCapabilityLogSummaries } from "./device-capabilities-core.js";
 import { catalogueIntegrationStatus, hasMainsBatterySentinel } from "./camera-capability-core.js";
 import type { CameraProvider, CaptchaChallenge, CaptchaProvider, ProviderEvents } from "./provider.js";
@@ -387,6 +388,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         ...(initialEccPrivateKey ? { initialEccPrivateKey } : {}),
         resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
         maxSeconds: this.config.maxStreamSeconds,
+        onSensorContact: (observation) => {
+          const observed = resolveHomeBaseContactObservation(this.#devices.values(), peer.serial, observation);
+          if (!observed) return;
+          this.#devices.set(observed.serial, observed);
+          const cached = this.#liveDeviceReads.get(observed.serial) ?? {};
+          this.#liveDeviceReads.set(observed.serial, { ...cached, contactOpen: observation.open });
+          publishHomeBaseChildSensorObservation(observed, this.#events);
+        },
       });
       this.#ppcsStreams.set(serial, stream);
       try {
@@ -1584,6 +1593,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         );
       }
       if (isSupportedMegaCamera(merged)) this.#events?.camera(this.#cameraIdentity(merged));
+      publishHomeBaseChildSensorObservation(merged, this.#events);
     }
   }
 
@@ -1999,6 +2009,38 @@ function batteryState(device: MegaInventoryDevice): BatteryState | null {
     health: device.reads.batteryHealth ?? null,
     temperature: device.reads.batteryTemperature ?? null,
     lastChargingDays: device.reads.lastChargingDays ?? null,
+  };
+}
+
+/**
+ * Publish validated child-sensor reads after an existing HomeBase state refresh.
+ *
+ * The caller owns channel-to-device matching and merging partial reads. The
+ * gateway owns transient motion timers. This does not connect, request data or
+ * infer a contact state from a missing value, and unsupported devices stay absent.
+ */
+export function publishHomeBaseChildSensorObservation(
+  device: MegaInventoryDevice,
+  events: Pick<ProviderEvents, "sensor"> | null | undefined,
+): void {
+  const sensor = securitySensorState(device);
+  if (sensor) events?.sensor(sensor);
+}
+
+/** Match a passive contact value to exactly one known sensor behind its originating station. */
+export function resolveHomeBaseContactObservation(
+  devices: Iterable<MegaInventoryDevice>,
+  stationSerial: string,
+  observation: SensorContactObservation,
+): MegaInventoryDevice | null {
+  const matches = [...devices].filter((device) => device.parentSerial === stationSerial
+    && device.channel === observation.channel && (device.deviceType === 2 || device.deviceType === 126));
+  if (matches.length !== 1) return null;
+  const device = matches[0]!;
+  return {
+    ...device,
+    paramTypes: [...new Set([...device.paramTypes, 1550])],
+    reads: { ...device.reads, contactOpen: observation.open },
   };
 }
 

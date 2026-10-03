@@ -27,6 +27,8 @@ Optional camera attributes include the device's secondary firmware and explicit 
 
 T8171 exposes reported live-view quality and notification style. T8425 exposes watermark mode and anti-theft detection configuration. T8170 exposes its reported spotlight-enable switch and raw motion-sensitivity value. The spotlight switch does not say whether its lamp is currently illuminated, and notification style does not prove delivery. These settings are not inferred for another model merely because it reports the same parameter number.
 
+Supported child sensors receive validated contact and telemetry updates from the existing HomeBase refresh. While a requested HomeBase camera session is open, matching contact notifications can also update a known sensor without waiting for cloud push. This is passive observation, not an always-on sensor subscription. It doesn't open a connection, wake a sensor or change phone-notification settings.
+
 > [!IMPORTANT]
 > This is an early community project built against real EufyCam 2C, HomeBase 3, and Doorbell hardware. It is not affiliated with Anker or Eufy and should not be your only security system.
 

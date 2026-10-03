@@ -2,6 +2,8 @@
 
 ## 0.1.114
 
+- Publish supported child-sensor readings obtained during an existing HomeBase refresh, including contact state and late telemetry.
+
 - Expose optional secondary firmware, update availability and model-limited audio, quality and solar readings without adding controls.
 
 - Report T8170 recording policy without changing camera configuration.

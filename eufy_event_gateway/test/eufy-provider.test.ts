@@ -8,6 +8,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { GatewayState } from "../src/domain/gateway-state.js";
+
 import {
   cameraDetectionKind,
   cameraEnableRawValue,
@@ -17,6 +19,8 @@ import {
   inventoryDiagnostics,
   inventoryMotionOutcome,
   mergeInventoryMetadata,
+  publishHomeBaseChildSensorObservation,
+  resolveHomeBaseContactObservation,
   inventoryLogSummaries,
   homeBaseStorageLogSummary,
   supportsMotionDetectionControlRoute,
@@ -94,6 +98,63 @@ test("inventory refresh updates firmware metadata without replacing live routing
   assert.equal(merged.channel, 3);
   const empty = parseMegaInventory({ devices: [{ device_sn: "camera" }] })[0]!;
   assert.equal(mergeInventoryMetadata(merged, empty).firmwareUpdateAvailable, null);
+});
+
+test("HomeBase child observations publish contact and late telemetry without resetting motion", () => {
+  const state = new GatewayState();
+  const events = { sensor: (sensor: Parameters<GatewayState["registerSensor"]>[0]) => state.registerSensor(sensor) };
+  const read = (params: unknown[], deviceType = 126) => parseMegaInventory({ devices: [{
+    device_sn: "sensor", parent_sn: "station", device_channel: 3,
+    device_model: deviceType === 126 ? "T90E0" : "T8910", device_type: deviceType, params,
+  }] })[0]!;
+  publishHomeBaseChildSensorObservation(read([{ param_type: 1550, param_value: "0" }]), events);
+  assert.equal(state.listSensors()[0]?.contactOpen, false);
+  publishHomeBaseChildSensorObservation(read([
+    { param_type: 1550, param_value: "1" }, { param_type: 1141, param_value: "-58" },
+    { param_type: 1101, param_value: "74" },
+  ]), events);
+  assert.equal(state.listSensors()[0]?.contactOpen, true);
+  assert.equal(state.listSensors()[0]?.rssi, -58);
+  assert.equal(state.listSensors()[0]?.batteryLevel, 74);
+  assert.ok(state.listSensors()[0]?.capabilities.includes("rssi"));
+  publishHomeBaseChildSensorObservation(read([{ param_type: 1550, param_value: "unknown" }]), events);
+  assert.equal(state.listSensors()[0]?.contactOpen, null);
+  publishHomeBaseChildSensorObservation(read([], 10), events);
+  state.recordSensorMotion("sensor", true);
+  publishHomeBaseChildSensorObservation(read([{ param_type: 1141, param_value: "-61" }], 10), events);
+  assert.equal(state.listSensors()[0]?.motionDetected, true);
+  assert.equal(state.listSensors()[0]?.rssi, -61);
+  state.close();
+});
+
+test("HomeBase child publication never creates an unsupported sensor or infers empty contact state", () => {
+  const published: unknown[] = [];
+  const events = { sensor: (sensor: unknown) => published.push(sensor) };
+  for (const row of [
+    { device_sn: "unknown", device_type: 999, params: [{ param_type: 1550, param_value: "1" }] },
+    { device_sn: "empty", device_type: 126, params: [] },
+    { device_sn: "camera", device_type: 31, params: [{ param_type: 1550, param_value: "0" }] },
+  ]) publishHomeBaseChildSensorObservation(parseMegaInventory({ devices: [row] })[0]!, events);
+  assert.deepEqual(published, []);
+});
+
+test("passive HomeBase contact updates match station and channel without inventing a device", () => {
+  const devices = parseMegaInventory({ devices: [
+    { device_sn: "sensor", parent_sn: "station", device_channel: 3, device_type: 126,
+      device_model: "T90E0", params: [{ param_type: 1101, param_value: "74" }] },
+    { device_sn: "other", parent_sn: "other-station", device_channel: 3, device_type: 2 },
+    { device_sn: "camera", parent_sn: "station", device_channel: 4, device_type: 31 },
+  ] });
+  const observed = resolveHomeBaseContactObservation(devices, "station", { channel: 3, open: false });
+  assert.equal(observed?.serial, "sensor");
+  assert.equal(observed?.reads.contactOpen, false);
+  assert.equal(observed?.reads.batteryLevel, 74);
+  assert.ok(observed?.paramTypes.includes(1550));
+  assert.equal(devices[0]?.reads.contactOpen, undefined);
+  assert.equal(resolveHomeBaseContactObservation(devices, "missing", { channel: 3, open: true }), null);
+  assert.equal(resolveHomeBaseContactObservation(devices, "station", { channel: 4, open: true }), null);
+  assert.equal(resolveHomeBaseContactObservation([...devices, { ...devices[0]!, serial: "duplicate" }],
+    "station", { channel: 3, open: true }), null);
 });
 
 test("ringtone and sound reads are strictly gated to evidenced device families", () => {
