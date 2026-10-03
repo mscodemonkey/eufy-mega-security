@@ -29,6 +29,12 @@ test("publishes camera firmware without borrowing a parent version", () => {
   state.registerCamera({ ...camera, firmware: "4.2.1.7", hardwareVersion: "P1" });
   assert.equal(state.getCamera(camera.serial).firmware, "4.2.1.7");
   assert.equal(state.getCamera(camera.serial).hardwareVersion, "P1");
+  state.registerCamera({ ...camera, firmwareSubVersion: "1.2.3", firmwareUpdateAvailable: false });
+  assert.equal(state.getCamera(camera.serial).firmwareSubVersion, "1.2.3");
+  assert.equal(state.getCamera(camera.serial).firmwareUpdateAvailable, false);
+  state.registerCamera({ ...camera, firmwareSubVersion: null, firmwareUpdateAvailable: null });
+  assert.equal(state.getCamera(camera.serial).firmwareSubVersion, null);
+  assert.equal(state.getCamera(camera.serial).firmwareUpdateAvailable, null);
   state.registerCamera({ ...camera, rssi: -61 });
   assert.equal(state.getCamera(camera.serial).rssi, -61);
   state.registerCamera({ ...camera, rssi: null });

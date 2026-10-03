@@ -66,12 +66,30 @@ export interface MegaInventoryDevice {
 
   /** Camera-reported hardware revision, absent in older inventory responses. */
   readonly hardwareVersion?: string | null;
+
+  /** Secondary firmware reported by this device, never inherited from its station. */
+  readonly firmwareSubVersion?: string | null;
+
+  /** Explicit cloud update flag. Absent or malformed flags remain unknown. */
+  readonly firmwareUpdateAvailable?: boolean | null;
   readonly paramTypes: readonly number[];
   readonly reads: MegaInventoryReads;
 }
 
 /** Allowlisted, validated current values retained from one Mega inventory row. */
 export interface MegaInventoryReads {
+  readonly ringtoneVolume?: number;
+  readonly soundDetectionSensitivity?: number;
+  readonly soundDetectionType?: number;
+  readonly streamingQualityTier?: number;
+  readonly recordingQualityTier?: number;
+  readonly solarIntensity?: number;
+  readonly solarConnected24h?: boolean;
+  readonly notificationStyle?: number;
+  readonly watermarkMode?: number;
+  readonly antiTheftDetectionEnabled?: boolean;
+  readonly spotlightEnabled?: boolean;
+  readonly motionSensitivityRaw?: number;
   readonly workingMode?: string;
   readonly recordingDurationSeconds?: number;
   readonly recordingIntervalSeconds?: number;
@@ -970,7 +988,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const liveReads = this.#liveDeviceReads.get(device.serial);
       const liveParamTypes = this.#liveDeviceParamTypes.get(device.serial) ?? [];
       const merged = {
-        ...known,
+        ...mergeInventoryMetadata(known, device),
         paramTypes: [...new Set([...device.paramTypes, ...liveParamTypes])].sort((left, right) => left - right),
         reads: liveReads ? { ...device.reads, ...liveReads } : device.reads,
       };
@@ -1039,6 +1057,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       catalogueStatus: catalogueIntegrationStatus(device.model, device.deviceType),
       firmware: device.firmware,
       hardwareVersion: device.hardwareVersion ?? null,
+      firmwareSubVersion: device.firmwareSubVersion ?? null,
+      firmwareUpdateAvailable: device.firmwareUpdateAvailable ?? null,
       rssi: device.reads.rssi ?? null,
       audioSettings: {
         microphoneEnabled: device.reads.microphoneEnabled ?? null,
@@ -1047,6 +1067,18 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         speakerVolume: device.reads.speakerVolume ?? null,
       },
       reportedSettings: {
+        ringtoneVolume: device.reads.ringtoneVolume ?? null,
+        soundDetectionSensitivity: device.reads.soundDetectionSensitivity ?? null,
+        soundDetectionType: device.reads.soundDetectionType ?? null,
+        streamingQualityTier: device.reads.streamingQualityTier ?? null,
+        recordingQualityTier: device.reads.recordingQualityTier ?? null,
+        solarIntensity: device.reads.solarIntensity ?? null,
+        solarConnected24h: device.reads.solarConnected24h ?? null,
+        notificationStyle: device.reads.notificationStyle ?? null,
+        watermarkMode: device.reads.watermarkMode ?? null,
+        antiTheftDetectionEnabled: device.reads.antiTheftDetectionEnabled ?? null,
+        spotlightEnabled: device.reads.spotlightEnabled ?? null,
+        motionSensitivityRaw: device.reads.motionSensitivityRaw ?? null,
         imageFlipped: device.reads.imageFlipped ?? null,
         statusLedEnabled: device.reads.statusLedEnabled ?? null,
         soundDetectionEnabled: device.reads.soundDetectionEnabled ?? null,
@@ -1654,6 +1686,9 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
       userName: isRecord(value.member) ? safeValue(value.member.nick_name, 128) : null,
       firmware: safeValue(value.main_sw_version, 100),
       hardwareVersion: safeValue(value.main_hw_version, 100),
+      firmwareSubVersion: safeValue(value.sec_sw_version, 100),
+      firmwareUpdateAvailable: value.needUpdate === true || value.needUpdate === 1 || value.needUpdate === "1"
+        ? true : value.needUpdate === false || value.needUpdate === 0 || value.needUpdate === "0" ? false : null,
       paramTypes: safeParamTypes(value.params),
       reads: lastChargingDays === undefined ? reads : { ...reads, lastChargingDays },
     });
@@ -1664,6 +1699,17 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
   return devices.map((device) => device.adminUserId || !device.parentSerial
     ? device
     : { ...device, adminUserId: adminUserIds.get(device.parentSerial) ?? null });
+}
+
+/** Refresh camera-owned version metadata without replacing an active transport's routing identity. */
+export function mergeInventoryMetadata(existing: MegaInventoryDevice, fresh: MegaInventoryDevice): MegaInventoryDevice {
+  return {
+    ...existing,
+    firmware: fresh.firmware,
+    hardwareVersion: fresh.hardwareVersion ?? null,
+    firmwareSubVersion: fresh.firmwareSubVersion ?? null,
+    firmwareUpdateAvailable: fresh.firmwareUpdateAvailable ?? null,
+  };
 }
 
 function safeLastChargingDays(value: unknown): number | undefined {
@@ -1741,6 +1787,22 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const mechanicalChime = verifiedDoorbell ? finiteNumber(params.get(1703)) : null;
   const wideDynamicRange = verifiedDoorbell ? finiteNumber(params.get(1704)) : null;
   const chimeVolume = verifiedDoorbell ? percentage(1717) : undefined;
+  const ringtoneVolume = deviceType === 94 ? percentage(1708) : undefined;
+  const soundFamily = deviceType === 31 && /^T8410(?:$|[A-Z0-9-])/.test(model ?? "");
+  const soundSensitivity = soundFamily ? finiteNumber(params.get(6044)) : null;
+  const soundType = soundFamily ? finiteNumber(params.get(6046)) : null;
+  const qualityFamily = deviceType === 48 && /^T8170(?:$|[A-Z0-9-])/.test(model ?? "");
+  const t8171 = deviceType === 88 && /^T8171(?:$|[A-Z0-9-])/.test(model ?? "");
+  const t8425 = deviceType === 47 && /^T8425(?:$|[A-Z0-9-])/.test(model ?? "");
+  const streamingQuality = qualityFamily || t8171 ? finiteNumber(params.get(1020)) : null;
+  const recordingQuality = qualityFamily ? activeRecordingQuality(params.get(2731)) : undefined;
+  const solarIntensity = qualityFamily ? finiteNumber(params.get(1309)) : null;
+  const solarConnected = qualityFamily ? finiteNumber(params.get(6482)) : null;
+  const notificationStyle = t8171 ? finiteNumber(params.get(6020)) : null;
+  const watermark = t8425 ? finiteNumber(params.get(1214)) : null;
+  const antiTheft = t8425 ? finiteNumber(params.get(1015)) : null;
+  const spotlight = qualityFamily ? finiteNumber(params.get(1403)) : null;
+  const sensitivity = qualityFamily ? finiteNumber(params.get(1276)) : null;
   const compositeQuality = deviceType === 5 ? finiteNumber(params.get(1705)) : null;
   const validComposite = compositeQuality !== null && Number.isInteger(compositeQuality)
     && [0, 1, 2, 3, 5, 6, 7, 8].includes(compositeQuality);
@@ -1769,6 +1831,22 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
       ? cameraSwitch === cameraEnableRawValue(deviceType, true)
       : undefined;
   return {
+    ...(ringtoneVolume !== undefined && Number.isInteger(ringtoneVolume) ? { ringtoneVolume } : {}),
+    ...(soundSensitivity !== null && [1, 3, 5].includes(soundSensitivity)
+      ? { soundDetectionSensitivity: soundSensitivity } : {}),
+    ...(soundType === 1 || soundType === 2 ? { soundDetectionType: soundType } : {}),
+    ...(streamingQuality !== null && Number.isInteger(streamingQuality) && streamingQuality >= 0 && streamingQuality <= 3
+      ? { streamingQualityTier: streamingQuality } : {}),
+    ...(recordingQuality !== undefined ? { recordingQualityTier: recordingQuality } : {}),
+    ...(solarIntensity !== null && solarIntensity >= 0 && solarIntensity <= Number.MAX_SAFE_INTEGER
+      ? { solarIntensity } : {}),
+    ...(solarConnected === 0 || solarConnected === 1 ? { solarConnected24h: solarConnected === 1 } : {}),
+    ...(notificationStyle !== null && [1, 2, 3].includes(notificationStyle) ? { notificationStyle } : {}),
+    ...(watermark !== null && [0, 1, 2].includes(watermark) ? { watermarkMode: watermark } : {}),
+    ...(antiTheft === 0 || antiTheft === 1 ? { antiTheftDetectionEnabled: antiTheft === 1 } : {}),
+    ...(spotlight === 0 || spotlight === 1 ? { spotlightEnabled: spotlight === 1 } : {}),
+    ...(sensitivity !== null && Number.isInteger(sensitivity) && sensitivity >= 1 && sensitivity <= 7
+      ? { motionSensitivityRaw: sensitivity } : {}),
     ...(mode !== null && Number.isInteger(mode) && mode >= 0 && mode <= 2 ? { workingMode: modeNames[mode]! } : {}),
     ...(duration !== undefined ? { recordingDurationSeconds: duration } : {}),
     ...(interval !== undefined ? { recordingIntervalSeconds: interval } : {}),
@@ -1809,6 +1887,22 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
       : {}),
     ...(motionEventSeconds !== undefined ? { motionEventSeconds } : {}),
   };
+}
+
+/** Decode the explicitly selected recording mode, without guessing a missing mode as zero. */
+function activeRecordingQuality(value: unknown): number | undefined {
+  let parsed: unknown = value;
+  if (typeof value === "string") {
+    if (value.length > 4096) return undefined;
+    try { parsed = JSON.parse(value); } catch { return undefined; }
+  }
+  if (!isRecord(parsed)) return undefined;
+  const mode = parsed.cur_mode;
+  if (typeof mode !== "number" || !Number.isSafeInteger(mode) || mode < 0 || mode > 255) return undefined;
+  const selected = parsed[`mode_${mode}`];
+  if (!isRecord(selected)) return undefined;
+  const tier = selected.quality;
+  return typeof tier === "number" && Number.isInteger(tier) && tier >= 1 && tier <= 3 ? tier : undefined;
 }
 
 /**

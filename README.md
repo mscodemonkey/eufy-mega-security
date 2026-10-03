@@ -23,6 +23,10 @@ T8210 and T8214 also expose reported HomeBase chime, mechanical chime, WDR and c
 
 T8170 exposes its reported working mode, clip duration, interval between clips and stop-when-motion-ends setting. The recording settings describe the camera's Customize Recording policy, not the gateway's recording service or proof of a completed clip. They remain read-only and are not inferred for other models.
 
+Optional camera attributes include the device's secondary firmware and explicit firmware-update flag. Missing flags remain unknown. T8214 ringtone volume is separate from chime volume. T8410 sound sensitivity and sound type are reported only for that model. T8170 exposes separate streaming and active-mode recording quality ranks, plus reported solar intensity and the rolling 24-hour solar-contribution flag. Solar intensity is unitless and is not displayed as a percentage. These reads do not add setters, install firmware, start recordings or verify physical audio, video or solar output.
+
+T8171 exposes reported live-view quality and notification style. T8425 exposes watermark mode and anti-theft detection configuration. T8170 exposes its reported spotlight-enable switch and raw motion-sensitivity value. The spotlight switch does not say whether its lamp is currently illuminated, and notification style does not prove delivery. These settings are not inferred for another model merely because it reports the same parameter number.
+
 > [!IMPORTANT]
 > This is an early community project built against real EufyCam 2C, HomeBase 3, and Doorbell hardware. It is not affiliated with Anker or Eufy and should not be your only security system.
 

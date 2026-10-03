@@ -71,6 +71,36 @@ class CameraInventoryEntitiesTest(unittest.IsolatedAsyncioTestCase):
             "reported_image_flipped": False, "reported_status_indicator_enabled": True,
         })
 
+    async def test_optional_metadata_and_quality_keep_zero_and_false(self) -> None:
+        """Expose validated device metadata and ranks without inventing a resolution."""
+        getter = load_function("camera.py", "extra_state_attributes", {}, "EufyGatewayCamera")
+        state = {"firmwareSubVersion": "1.2.3", "firmwareUpdateAvailable": False,
+                 "reportedSettings": {"ringtoneVolume": 0, "soundDetectionSensitivity": 3,
+                                      "soundDetectionType": 2, "streamingQualityTier": 0,
+                                      "recordingQualityTier": 3}}
+        self.assertEqual(getter(SimpleNamespace(camera=state)), {
+            "reported_secondary_firmware": "1.2.3", "reported_firmware_update_available": False,
+            "reported_ringtone_volume": 0, "reported_sound_detection_sensitivity": 3,
+            "reported_sound_detection_type": 2, "reported_streaming_quality_tier": 0,
+            "reported_recording_quality_tier": 3,
+        })
+        for invalid in (True, "3", {}, [], -1, 101):
+            state = {"firmwareSubVersion": {}, "firmwareUpdateAvailable": "0",
+                     "reportedSettings": {"ringtoneVolume": invalid, "recordingQualityTier": invalid,
+                                          "soundDetectionSensitivity": invalid}}
+            self.assertEqual(getter(SimpleNamespace(camera=state)), {})
+
+    async def test_solar_intensity_is_unitless_and_boolean_is_strict(self) -> None:
+        """Do not rescale solar input or mistake malformed values for disconnected."""
+        getter = load_function("camera.py", "extra_state_attributes", {}, "EufyGatewayCamera")
+        self.assertEqual(getter(SimpleNamespace(camera={"reportedSettings": {
+            "solarIntensity": 125.5, "solarConnected24h": False,
+        }})), {"reported_solar_intensity": 125.5, "reported_solar_connected_24h": False})
+        for invalid in (True, "0", None, -1, float("nan"), float("inf")):
+            self.assertEqual(getter(SimpleNamespace(camera={"reportedSettings": {
+                "solarIntensity": invalid, "solarConnected24h": "1",
+            }})), {})
+
     async def test_doorbell_attributes_keep_false_and_reject_unknown_values(self) -> None:
         """Expose only validated settings, never raw notification configuration."""
         getter = load_function("camera.py", "extra_state_attributes", {}, "EufyGatewayCamera")
