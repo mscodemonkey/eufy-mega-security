@@ -60,8 +60,8 @@ class ImageCacheTest(unittest.IsolatedAsyncioTestCase):
                 raise CLIENT.GatewayClientError("Unavailable")
 
             self.assertEqual(await cache.async_image("synthetic", "snapshot", failed), placeholder)
-            for data in (b"", b"\xff\xd8truncated", b"not a picture"):
-                async def invalid() -> bytes:
+            for data in (None, b"", b"\xff\xd8truncated", b"not a picture"):
+                async def invalid() -> bytes | None:
                     return data
 
                 self.assertEqual(await cache.async_image("synthetic", "snapshot", invalid), placeholder)

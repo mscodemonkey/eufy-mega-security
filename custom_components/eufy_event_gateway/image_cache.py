@@ -39,7 +39,7 @@ class CameraImageCache:
         self._placeholder: bytes | None = None
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
 
-    async def async_image(self, serial: str, kind: str, fetch: Callable[[], Awaitable[bytes]]) -> bytes:
+    async def async_image(self, serial: str, kind: str, fetch: Callable[[], Awaitable[bytes | None]]) -> bytes:
         """Return a current image, a last-good image, or the explicit waiting picture."""
         if kind not in ("snapshot", "event-image"):
             raise ValueError("Unsupported image kind")
@@ -95,6 +95,6 @@ class CameraImageCache:
                 os.unlink(temporary)
 
 
-def usable_image(data: bytes) -> bool:
+def usable_image(data: bytes | None) -> bool:
     """Reject empty, oversized and visibly incomplete JPEG responses at the cache boundary."""
-    return 4 <= len(data) <= 4 * 1024 * 1024 and data[:2] == b"\xff\xd8" and data[-2:] == b"\xff\xd9"
+    return isinstance(data, bytes) and 4 <= len(data) <= 4 * 1024 * 1024 and data[:2] == b"\xff\xd8" and data[-2:] == b"\xff\xd9"
