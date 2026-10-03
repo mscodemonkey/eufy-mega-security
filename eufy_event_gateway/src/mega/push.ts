@@ -87,7 +87,7 @@ export class MegaPushReceiver {
     const credentials = this.#state.credentials;
     if (!credentials) throw new Error("Android FCM credentials were unavailable after registration");
     await this.client.registerPushToken(credentials.fcmToken);
-    logger.info("push_token_registered", "Mega accepted the Eufy Android-app push token");
+    logger.info("push_token_registered", "Mega and Security accepted push registration and activation");
     const receiver = new PushClient(credentials);
     receiver.setPersistentIds([...this.#state.persistentIds]);
     this.#receiver = receiver;
