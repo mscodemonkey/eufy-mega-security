@@ -3,6 +3,7 @@
 ## 0.1.114
 
 - Report T8170 recording policy without changing camera configuration.
+- Do not advertise PPCS media or controls through RTC-only T9000 and T8N00 stations.
 
 - Close stalled shared video connections cleanly while preserving the retained camera picture.
 
