@@ -51,6 +51,7 @@ const CHILD_READ_PARAM_TYPES: ReadonlySet<number> = new Set([
   1035,
   1101,
   1138,
+  1141,
   1198,
   1277,
   1550,
