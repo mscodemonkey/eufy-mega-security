@@ -50,7 +50,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 
 ### NVR
 
-- 🟠 NVR S4 Max T8N00: inventory discovery and read-only guard-mode reporting are implemented, with periodic refresh. Guard-mode reporting still needs hardware confirmation. Arm/disarm controls, storage diagnostics, fresh snapshots, and live video are not yet implemented.
+- 🟠 NVR S4 Max T8N00: inventory discovery and read-only guard-mode reporting are implemented, with periodic refresh confirmed on hardware. Effective mode, arm/disarm controls, storage diagnostics, fresh snapshots, and live video are not yet implemented.
 
 ### Cameras
 
