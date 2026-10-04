@@ -750,17 +750,21 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (!identity || !isDiscoveredHomeBase(identity)) {
       return Promise.reject(new Error("HomeBase state read is unavailable for this station"));
     }
+    let rawRead: HomeBasePpcsState | null = null;
     const station = await this.#queueStationOperation(
       serial,
       false,
-      async (session) => session.readState(true),
+      async (session) => {
+        rawRead = await session.readState(true);
+        return rawRead;
+      },
       "discovered",
     );
-    if (station.stateReadSupported && !this.#stationReadConfirmed.has(serial)) {
+    if (rawRead !== null && !this.#stationReadConfirmed.has(serial)) {
       this.#stationReadConfirmed.add(serial);
       logger.info(
         "station_state_read_ready",
-        `HomeBase state read ready: model=${identity.model} guard_mode=${station.guardMode === null ? "missing" : "present"} effective_mode=${station.effectiveMode === null ? "missing" : "present"}`,
+        homeBaseReadLogSummary(identity.model, rawRead),
       );
     }
     return station;
@@ -1461,6 +1465,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const detection = cameraDetectionKind(event.eventType);
     if (!detection) return;
     if (detection === "motion") {
+
       // Older HomeBase camera notifications use the generic security event.
       // A fetch id or structured AI result supplies the classification hidden
       // by that generic code. Motion remains true for every generic security
@@ -2186,19 +2191,34 @@ export function refreshInventoryStationState(
   };
 }
 
-function mergeHomeBaseState(existing: HomeBaseState, observed: HomeBasePpcsState): HomeBaseState {
+/**
+ * Apply one local station read to the published state.
+ *
+ * Some firmware, such as HomeBase 3 on recent releases, omits values from the
+ * camera-info reply. A missing field means "not reported this time", not a
+ * new value, so it must not erase a mode already known from the account
+ * inventory or from a guard-mode notification.
+ */
+export function mergeHomeBaseState(existing: HomeBaseState, observed: HomeBasePpcsState): HomeBaseState {
   return {
     ...existing,
     firmware: observed.firmware ?? existing.firmware,
     stateReadSupported: true,
     connected: true,
-    guardMode: observed.guardMode,
-    effectiveMode: observed.effectiveMode,
-    alarmVolume: observed.alarmVolume,
-    promptVolume: observed.promptVolume,
-    alarmTone: observed.alarmTone,
+    guardMode: observed.guardMode ?? existing.guardMode,
+    effectiveMode: observed.effectiveMode ?? (observed.guardMode !== null && observed.guardMode !== existing.guardMode
+      ? null
+      : existing.effectiveMode),
+    alarmVolume: observed.alarmVolume ?? existing.alarmVolume,
+    promptVolume: observed.promptVolume ?? existing.promptVolume,
+    alarmTone: observed.alarmTone ?? existing.alarmTone,
     storage: observed.storage ?? existing.storage,
   };
+}
+
+/** Describe mode availability in a raw local read, independently of preserved inventory values. */
+export function homeBaseReadLogSummary(model: string, observed: HomeBasePpcsState): string {
+  return `HomeBase state read ready: model=${model} guard_mode=${observed.guardMode === null ? "missing" : "present"} effective_mode=${observed.effectiveMode === null ? "missing" : "present"}`;
 }
 
 /** Format one bounded station-storage field inventory without exposing raw text values. */

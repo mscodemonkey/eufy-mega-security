@@ -31,7 +31,10 @@ for (const codec of ["h264", "h265"] as const) {
         const headers = codec === "h264"
           ? [0, 0, 0, 1, 0x67, 0x42, 0, 0x1f, 0, 0, 0, 1, 0x68, 0xce, 6]
           : [0, 0, 0, 1, 0x40, 1, 12, 0, 0, 0, 1, 0x42, 1, 1, 0, 0, 0, 1, 0x44, 1, 0xc0];
-        source.end(Buffer.from([...headers, 0, 0, 0, 1, codec === "h264" ? 0x65 : 0x26, 1, starts]));
+
+        // Keyframes carry the first-slice bit, as every real first slice does.
+        const keyframe = codec === "h264" ? [0x65, 0x81, starts] : [0x26, 1, 0x80 | starts];
+        source.end(Buffer.from([...headers, 0, 0, 0, 1, ...keyframe]));
       },
       async stopStream() {},
     }, 5, undefined, () => {
@@ -45,7 +48,7 @@ for (const codec of ["h264", "h265"] as const) {
         (process.stdout as PassThrough).write(Buffer.from([
           0, 0, 0, 1, 0x67, 0x42, 0, 0x1f,
           0, 0, 0, 1, 0x68, 0xce, 6,
-          0, 0, 0, 1, 0x65, 1, starts,
+          0, 0, 0, 1, 0x65, 0x81, starts,
         ]));
       });
       return process;
@@ -65,7 +68,7 @@ for (const codec of ["h264", "h265"] as const) {
       const response: Response = await fetch(`http://127.0.0.1:${address.port}/`, { signal: AbortSignal.timeout(2_000) });
       const bytes = Buffer.from(await response.arrayBuffer());
       assert.equal(response.headers.get("content-type"), "video/h264");
-      assert.ok(bytes.includes(Buffer.from([0, 0, 0, 1, 0x65, 1, attempt])));
+      assert.ok(bytes.includes(Buffer.from([0, 0, 0, 1, 0x65, 0x81, attempt])));
     }
     assert.equal(starts, 2);
   });

@@ -188,6 +188,84 @@ test("starts H.265 decoding from the latest random-access frame", () => {
   assert.deepEqual(cache.startup, Buffer.concat([vps, sps, pps, latestIdr]));
 });
 
+test("moves the decoder start to each new keyframe as the stream continues", () => {
+  const cache = new VideoParameterSetCache();
+  const vps = annexBNal(0x40, 0x01, 0x0c);
+  const sps = annexBNal(0x42, 0x01, 0x01);
+  const pps = annexBNal(0x44, 0x01, 0xc0);
+  const firstIdr = annexBNal(0x26, 0x01, 0xa1);
+  const firstDelta = annexBNal(0x02, 0x01, 0xb1);
+  const laterIdr = annexBNal(0x26, 0x01, 0xa2);
+  const laterDelta = annexBNal(0x02, 0x01, 0xb2);
+
+  cache.push(Buffer.concat([vps, sps, pps, firstIdr, firstDelta]), "h265");
+  cache.push(firstDelta);
+  cache.push(Buffer.concat([laterIdr, laterDelta]));
+  cache.push(laterDelta);
+
+  // A viewer joining now must not be fed the first group followed by unrelated live frames.
+  assert.deepEqual(cache.startup, Buffer.concat([vps, sps, pps, laterIdr, laterDelta, laterDelta]));
+  assert.equal(cache.startupIncludesLatest, true);
+});
+
+test("keeps every slice of a multi-slice keyframe", () => {
+  const cache = new VideoParameterSetCache();
+  const sps = annexBNal(0x67, 0x42, 0x00, 0x1f);
+  const pps = annexBNal(0x68, 0xce, 0x06);
+  const firstSlice = annexBNal(0x65, 0x88, 0x01);
+  const secondSlice = annexBNal(0x65, 0x22, 0x02);
+
+  cache.push(Buffer.concat([sps, pps, firstSlice]));
+  cache.push(secondSlice);
+
+  assert.deepEqual(cache.startup, Buffer.concat([sps, pps, firstSlice, secondSlice]));
+});
+
+test("keeps later H.265 slices attached to the first slice of their keyframe", () => {
+  const cache = new VideoParameterSetCache();
+  const headers = Buffer.concat([annexBNal(0x40, 1, 12), annexBNal(0x42, 1, 1), annexBNal(0x44, 1, 0xc0)]);
+  const first = annexBNal(0x26, 1, 0x81, 0x11);
+  const second = annexBNal(0x26, 1, 0x22, 0x33);
+  cache.push(Buffer.concat([headers, first]), "h265");
+  for (const byte of second) cache.push(Buffer.from([byte]));
+  assert.deepEqual(cache.startup, Buffer.concat([headers, first, second]));
+});
+
+test("finds a keyframe whose start code is split across chunks", () => {
+  const cache = new VideoParameterSetCache();
+  const vps = annexBNal(0x40, 0x01, 0x0c);
+  const sps = annexBNal(0x42, 0x01, 0x01);
+  const pps = annexBNal(0x44, 0x01, 0xc0);
+  const firstIdr = annexBNal(0x26, 0x01, 0xa1);
+  const laterIdr = annexBNal(0x26, 0x01, 0xa2, 0x00);
+  const stream = Buffer.concat([vps, sps, pps, firstIdr, laterIdr]);
+  const split = vps.length + sps.length + pps.length + firstIdr.length + 2;
+
+  cache.push(stream.subarray(0, split), "h265");
+  cache.push(stream.subarray(split));
+
+  assert.deepEqual(cache.startup, Buffer.concat([vps, sps, pps, laterIdr]));
+});
+
+for (const codec of ["h264", "h265"] as const) {
+  test(`discards oversized ${codec} history and recovers a byte-split keyframe`, () => {
+    const cache = new VideoParameterSetCache();
+    const headers = codec === "h264"
+      ? Buffer.concat([annexBNal(0x67, 0x42, 0, 0x1f), annexBNal(0x68, 0xce, 6)])
+      : Buffer.concat([annexBNal(0x40, 1, 12), annexBNal(0x42, 1, 1), annexBNal(0x44, 1, 0xc0)]);
+    const first = codec === "h264" ? annexBNal(0x65, 0x81, 0x11) : annexBNal(0x26, 1, 0x81, 0x11);
+    const later = codec === "h264" ? annexBNal(0x65, 0x82, 0x22) : annexBNal(0x26, 1, 0x82, 0x22);
+    cache.push(Buffer.concat([headers, first]), codec);
+    assert.notEqual(cache.startup, null);
+    cache.push(Buffer.alloc(1024 * 1024 + 16, 0x55));
+    assert.equal(cache.startup, null);
+    assert.equal(cache.startupIncludesLatest, false);
+    for (const byte of later) cache.push(Buffer.from([byte]));
+    assert.deepEqual(cache.startup, Buffer.concat([headers, later]));
+    assert.equal(cache.startupIncludesLatest, true);
+  });
+}
+
 test("waits for a complete H.265 decoder start instead of probing vendor headers", () => {
   const cache = new VideoParameterSetCache();
   const vendorHeaders = Buffer.concat([
@@ -235,7 +313,7 @@ test("uses the provider codec marker instead of a conflicting NAL-byte guess", (
   assert.deepEqual(cache.bootstrap, Buffer.concat([h264Sps, h264Pps]));
 });
 
-test("bootstraps first and repeat HTTP viewers with SPS and PPS", async () => {
+test("bootstraps first and repeat HTTP viewers from the current keyframe", async () => {
   const state = new GatewayState();
   state.registerCamera(camera);
   let manager: LiveStreamManager;
@@ -265,7 +343,7 @@ test("bootstraps first and repeat HTTP viewers with SPS and PPS", async () => {
   assert.equal(firstBytes.length, 0);
   const sps = annexBNal(0x67, 0x42, 0x00, 0x1f);
   const pps = annexBNal(0x68, 0xce, 0x06);
-  const idr = annexBNal(0x65, 4, 5);
+  const idr = annexBNal(0x65, 0x84, 5);
   source!.write(Buffer.concat([sps, pps, idr]));
   assert.deepEqual(
     Buffer.concat(firstBytes).subarray(0, sps.length + pps.length + idr.length),
@@ -287,7 +365,16 @@ test("bootstraps first and repeat HTTP viewers with SPS and PPS", async () => {
   repeatResponse.on("data", (chunk: Buffer) => repeatBytes.push(Buffer.from(chunk)));
   await manager.addClient(camera.serial, repeatResponse);
 
-  assert.deepEqual(Buffer.concat(repeatBytes), Buffer.concat([sps, pps]));
+  // A viewer joining a running source receives the current keyframe, not only headers.
+  assert.deepEqual(Buffer.concat(repeatBytes), Buffer.concat([sps, pps, idr]));
+
+  const oversized = Buffer.alloc(1024 * 1024 + 16, 0x55);
+  const delta = annexBNal(0x41, 0x9a, 0x22);
+  const before = Buffer.concat(firstBytes).length;
+  source!.write(oversized);
+  source!.write(delta);
+  assert.deepEqual(Buffer.concat(firstBytes).subarray(before), Buffer.concat([oversized, delta]));
+  assert.deepEqual(Buffer.concat(repeatBytes).subarray(sps.length + pps.length + idr.length), Buffer.concat([oversized, delta]));
   await manager.close();
 });
 
@@ -344,7 +431,9 @@ test("shares an H.264 fallback with viewers when a camera returns H.265", async 
   const sourceChunk = Buffer.concat([vps, sps, pps, annexBNal(0x26, 0x01, 0xbb)]);
   source!.write(sourceChunk);
   assert.ok(Buffer.concat(transcoderInput).includes(vps));
-  assert.deepEqual(Buffer.concat(transcoderInput), Buffer.concat([sourceChunk, sourceChunk]));
+
+  // The cached decoder start already ends with this chunk, so FFmpeg receives it once.
+  assert.deepEqual(Buffer.concat(transcoderInput), sourceChunk);
   assert.equal(bytes.length, 0);
 
   const h264Sps = annexBNal(0x67, 0x42, 0x00, 0x1f);
@@ -384,7 +473,7 @@ test("shares an H.264 fallback with viewers when a camera returns H.265", async 
     outputChunks: 1,
     bootstrapReady: true,
     inputCadence: {
-      samples: 2,
+      samples: 1,
       durationMilliseconds: 0,
       maximumGapMilliseconds: 0,
       gapsAtLeast500Milliseconds: 0,
@@ -783,4 +872,185 @@ test("reports a video timeout without an unhandled rejection during slow stream 
 
   await assert.rejects(manager.recordClip(camera.serial, 1, 5), /Timed out waiting for camera video/);
   await manager.close();
+});
+
+
+test("keeps headers paired with their retained picture until the next keyframe", () => {
+  const cache = new VideoParameterSetCache();
+  const headers1 = Buffer.concat([annexBNal(0x67, 0x42, 1), annexBNal(0x68, 0x11)]);
+  const headers2 = Buffer.concat([annexBNal(0x67, 0x42, 2), annexBNal(0x68, 0x22)]);
+  const idr1 = annexBNal(0x65, 0x80, 1);
+  cache.push(Buffer.concat([headers1, idr1]), "h264");
+  cache.push(Buffer.concat([headers2, annexBNal(0x06, 0x33)]));
+  assert.deepEqual(cache.startup?.subarray(0, headers1.length), headers1);
+  assert.deepEqual(cache.bootstrap, headers2);
+  const idr2 = annexBNal(0x65, 0x80, 2);
+  cache.push(idr2);
+  assert.deepEqual(cache.startup, Buffer.concat([headers2, idr2]));
+});
+
+test("counts CRA, IDR and ordinary continuation slices once across byte-split headers", () => {
+  const cache = new VideoParameterSetCache();
+  const headers = Buffer.concat([annexBNal(0x40, 1, 12), annexBNal(0x42, 1, 1), annexBNal(0x44, 1, 0xc0)]);
+  const cra = annexBNal(0x2a, 1, 0x80, 1);
+  const continuation = annexBNal(0x2a, 1, 0x20, 2);
+  const idr = annexBNal(0x26, 1, 0x80, 3);
+  for (const byte of Buffer.concat([headers, cra, continuation, idr])) cache.push(Buffer.from([byte]), "h265");
+  assert.deepEqual(cache.startup, Buffer.concat([headers, idr]));
+  assert.deepEqual(cache.diagnostics, { randomAccessPictures: 2, keyframeContinuationNals: 1, startupGroupOverflows: 0 });
+  cache.push(Buffer.alloc(1024 * 1024, 0x55));
+  assert.equal(cache.diagnostics.startupGroupOverflows, 1);
+});
+
+test("does not concatenate the retained group on each source chunk", (context) => {
+  const cache = new VideoParameterSetCache();
+  cache.push(Buffer.concat([annexBNal(0x67, 0x42), annexBNal(0x68, 0x11), annexBNal(0x65, 0x80)]), "h264");
+  const concatenate = Buffer.concat.bind(Buffer);
+  let maximumJoinedBytes = 0;
+  context.mock.method(Buffer, "concat", (chunks: readonly Uint8Array[], length?: number) => {
+    maximumJoinedBytes = Math.max(maximumJoinedBytes, chunks.reduce((size, chunk) => size + chunk.length, 0));
+    return concatenate(chunks, length);
+  });
+  const chunk = Buffer.alloc(1024, 0x55);
+  annexBNal(0x41, 0x22).copy(chunk);
+  for (let index = 0; index < 1000; index++) cache.push(chunk);
+  assert.ok(maximumJoinedBytes < 4096);
+  assert.ok(cache.startup!.length > 1000 * 1024);
+});
+
+test("delivers the completing keyframe chunk to an existing viewer before starting a pending viewer", async () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  const source = new PassThrough();
+  let manager: LiveStreamManager;
+  manager = new LiveStreamManager(state, {} as never, {
+    async startStream() { manager.attachSource(camera.serial, source); },
+    async stopStream() {},
+  }, 5, undefined, undefined, () => Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill: () => true,
+  }) as unknown as ChildProcessWithoutNullStreams);
+  const first = new PassThrough();
+  const second = new PassThrough();
+  Object.assign(first, { writeHead: () => first });
+  Object.assign(second, { writeHead: () => second });
+  const firstBytes: Buffer[] = [];
+  const secondBytes: Buffer[] = [];
+  first.on("data", (chunk: Buffer) => firstBytes.push(chunk));
+  second.on("data", (chunk: Buffer) => secondBytes.push(chunk));
+  await manager.addClient(camera.serial, first as unknown as ServerResponse);
+  const headers = Buffer.concat([annexBNal(0x67, 0x42), annexBNal(0x68, 0x11)]);
+  const prefix = Buffer.from([0, 0, 0, 1, 0x65]);
+  source.write(Buffer.concat([headers, prefix]));
+  await manager.addClient(camera.serial, second as unknown as ServerResponse);
+  const completion = Buffer.from([0x80, 0x22]);
+  source.write(completion);
+  assert.deepEqual(Buffer.concat(firstBytes), Buffer.concat([headers, prefix, completion]));
+  assert.deepEqual(Buffer.concat(secondBytes), Buffer.concat([headers, completion]));
+  await manager.close();
+});
+
+/** Evaluate decoder startup by walking the full prefix in wire order, independently of chunk retention. */
+function decoderStartupOracle(prefix: Buffer, codec: "h264" | "h265"): Buffer | null {
+  const starts: Array<{ offset: number; payload: number }> = [];
+  for (let index = 0; index + 3 < prefix.length; index++) {
+    if (prefix[index] !== 0 || prefix[index + 1] !== 0) continue;
+    const length = prefix[index + 2] === 1 ? 3 : prefix[index + 2] === 0 && prefix[index + 3] === 1 ? 4 : 0;
+    if (!length) continue;
+    starts.push({ offset: index, payload: index + length });
+    index += length - 1;
+  }
+  const headers = new Map<number, Buffer>();
+  const bootstrap = (): Buffer | null => {
+    const types = codec === "h264" ? [7, 8] : [32, 33, 34];
+    return types.every((type) => headers.has(type)) ? Buffer.concat(types.map((type) => headers.get(type)!)) : null;
+  };
+  let picture = -1;
+  let pictureHeaders: Buffer | null = null;
+  for (let index = 0; index < starts.length; index++) {
+    const start = starts[index]!;
+    const header = prefix[start.payload];
+    if (header === undefined) continue;
+    const type = codec === "h264" ? header & 31 : (header >> 1) & 63;
+    const slice = prefix[start.payload + (codec === "h264" ? 1 : 2)];
+    if ((codec === "h264" ? type === 5 : type >= 19 && type <= 21) && slice !== undefined && (slice & 128)) {
+      picture = start.offset;
+      pictureHeaders = bootstrap();
+    }
+    const end = starts[index + 1]?.offset;
+    if (end !== undefined && (codec === "h264" ? type === 7 || type === 8 : type >= 32 && type <= 34)) {
+      headers.set(type, prefix.subarray(start.offset, end));
+    }
+  }
+  const configuration = pictureHeaders ?? bootstrap();
+  return picture >= 0 && configuration ? Buffer.concat([configuration, prefix.subarray(picture)]) : null;
+}
+
+for (const codec of ["h264", "h265"] as const) {
+  test(`${codec} snapshots headers in stream order across multiple changes within one chunk`, () => {
+    const headers = (version: number): Buffer => codec === "h264"
+      ? Buffer.concat([annexBNal(0x67, 0x42, version), annexBNal(0x68, version)])
+      : Buffer.concat([annexBNal(0x40, 1, version), annexBNal(0x42, 1, version), annexBNal(0x44, 1, version)]);
+    const picture = (version: number): Buffer => codec === "h264" ? annexBNal(0x65, 0x80, version) : annexBNal(0x26, 1, 0x80, version);
+    const delta = codec === "h264" ? annexBNal(0x41, 0x22) : annexBNal(0x02, 1, 0x22);
+    const first = Buffer.concat([headers(1), picture(1), delta]);
+    const changes = Buffer.concat([headers(2), delta]);
+    const many = Buffer.concat([headers(2), headers(3), headers(4), headers(5), delta]);
+    for (const chunks of [[Buffer.concat([first, changes])], [headers(1), Buffer.concat([picture(1), delta, changes])],
+      [first, changes], [Buffer.concat([first, many])]]) {
+      const cache = new VideoParameterSetCache();
+      for (const chunk of chunks) cache.push(chunk, codec);
+      assert.deepEqual(cache.startup?.subarray(0, headers(1).length), headers(1));
+    }
+    const cache = new VideoParameterSetCache();
+    cache.push(Buffer.concat([first, changes, picture(2)]), codec);
+    assert.deepEqual(cache.startup, Buffer.concat([headers(2), picture(2)]));
+  });
+
+  test(`${codec} startup matches an independent position oracle for split and combined chunks`, () => {
+    for (const startLength of [3, 4]) {
+      const nal = (...bytes: number[]): Buffer => Buffer.from([...(startLength === 3 ? [0, 0, 1] : [0, 0, 0, 1]), ...bytes]);
+      const headers = (version: number): Buffer => codec === "h264"
+        ? Buffer.concat([nal(0x67, 0x42, version), nal(0x68, version)])
+        : Buffer.concat([nal(0x40, 1, version), nal(0x42, 1, version), nal(0x44, 1, version)]);
+      const picture = (version: number): Buffer => codec === "h264" ? nal(0x65, 0x80, version) : nal(version % 2 ? 0x26 : 0x2a, 1, 0x80, version);
+      const continuation = codec === "h264" ? nal(0x65, 0x22) : nal(0x26, 1, 0x22);
+      const delta = codec === "h264" ? nal(0x41, 0x22) : nal(0x02, 1, 0x22);
+      const stream = Buffer.concat([headers(1), picture(1), continuation, delta, headers(2), delta, picture(2),
+        headers(3), headers(4), headers(5), delta, picture(3), delta]);
+      for (const declared of [false, true]) for (const size of [1, 2, 9, 40, 150, 600]) {
+        const cache = new VideoParameterSetCache();
+        for (let offset = 0; offset < stream.length; offset += size) {
+          cache.push(stream.subarray(offset, offset + size), declared ? codec : undefined);
+          const prefix = stream.subarray(0, offset + size);
+          assert.deepEqual(cache.startup, decoderStartupOracle(prefix, codec), `${codec} prefix=${prefix.length} chunk=${size} start=${startLength} declared=${declared}`);
+        }
+      }
+    }
+  });
+}
+
+test("does not materialise source startup while an H.265 viewer waits on a running transcoder", async () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  const source = new PassThrough();
+  const process = (): ChildProcessWithoutNullStreams => Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill: () => true,
+  }) as unknown as ChildProcessWithoutNullStreams;
+  let manager: LiveStreamManager;
+  manager = new LiveStreamManager(state, {} as never, {
+    async startStream() { manager.attachSource(camera.serial, source, () => "h265"); }, async stopStream() {},
+  }, 5, undefined, process, process);
+  const response = new PassThrough() as unknown as ServerResponse;
+  await manager.addClient(camera.serial, response);
+  source.write(Buffer.concat([annexBNal(0x40, 1, 12), annexBNal(0x42, 1, 1), annexBNal(0x44, 1, 0xc0), annexBNal(0x26, 1, 0x80)]));
+  const original = Object.getOwnPropertyDescriptor(VideoParameterSetCache.prototype, "startup")!;
+  let reads = 0;
+  Object.defineProperty(VideoParameterSetCache.prototype, "startup", { ...original, get() { reads++; return original.get!.call(this); } });
+  try {
+    for (let index = 0; index < 10; index++) source.write(annexBNal(0x02, 1, 0x22));
+    assert.equal(reads, 0);
+  } finally {
+    Object.defineProperty(VideoParameterSetCache.prototype, "startup", original);
+    await manager.close();
+  }
 });

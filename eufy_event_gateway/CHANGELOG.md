@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.117
+
+- Start reopened and additional live viewers from the current complete keyframe, preserving matching decoder headers and multi-slice pictures.
+- Recover silently dropped push connections and report reconnect and shutdown state accurately.
+- Preserve known HomeBase state when local reads omit values, while clearing stale effective mode after a guard-mode change.
+- Refresh cached Home Assistant stream credentials without restarting healthy live views, including idle streams.
+- Clarify privacy-safe custom-mode and video startup diagnostics without guessing custom mode names.
+
 ## 0.1.116
 
 - Serialize concurrent cloud requests, share per-host identity exchanges, and decode responses with their originating identity.

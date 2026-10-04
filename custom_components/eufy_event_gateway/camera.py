@@ -10,6 +10,7 @@ a signed stream path, or a bounded capture/recording action.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -34,6 +35,8 @@ from .client import GatewayClientError
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity
 from .const import DOMAIN
+
+_LOGGER = logging.getLogger(__name__)
 
 CONF_DURATION = "duration"
 STREAM_SOURCE_REFRESH_INTERVAL = timedelta(minutes=5)
@@ -120,12 +123,22 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         )
 
     async def _async_refresh_stream_source(self, now: datetime) -> None:
-        """Replace an actively consumed stream URL before its credential expires."""
+        """Replace a cached stream URL before its credential expires.
+
+        The gateway checks the signed URL only when a connection opens, so a
+        running session does not need it. The new URL is stored for Home
+        Assistant's next reconnect instead of passed to ``update_source``,
+        which restarts the worker at once and would drop a healthy live view
+        and wake the camera again every refresh interval.
+        """
         del now
         stream = self.stream
-        if stream is None or not stream.outputs():
+        if stream is None:
             return
-        stream.update_source(await self.coordinator.client.stream_url(self.serial))
+        try:
+            stream.source = await self.coordinator.client.stream_url(self.serial)
+        except GatewayClientError:
+            _LOGGER.debug("Stream URL renewal failed, keeping the previous URL")
 
     @property
     def _snapshot_revision(self) -> int | None:
