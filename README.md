@@ -48,6 +48,10 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
   discovered cameras. The latest reporter retest still times out during PPCS lookup
   for all seven attached camera models, and it does not receive the T8030 station controls.
 
+### NVR
+
+- 🟠 NVR S4 Max T8N00: inventory discovery and read-only guard-mode reporting are implemented, with periodic refresh. Guard-mode reporting still needs hardware confirmation. Arm/disarm controls, storage diagnostics, fresh snapshots, and live video are not yet implemented.
+
 ### Cameras
 
 - ✅ EufyCam 2C T8113-Z: discovery, snapshots, live video, and motion events have been confirmed on real hardware. Person events work through HomeBase 3, while the reported HomeBase 2 notification carries only generic motion evidence.
