@@ -27,6 +27,8 @@ export type MegaPushDetectionEvidence = "person" | "vehicle" | "pet" | "dog" | "
 /** Final cloud-registration state for one connected Firebase receiver. */
 export type PushRegistrationStatus = "ready" | "activation-unconfirmed";
 
+const RETRY_DELAYS = [15_000, 30_000, 60_000, 120_000, 300_000] as const;
+
 /** Normalized subset of an Android FCM/Eufy notification used by the provider. */
 export interface MegaPushEvent {
   readonly cameraSerial: string;
@@ -59,17 +61,26 @@ interface StoredPushState {
  * Maintains Android FCM delivery for one Mega account and emits normalized events.
  *
  * EufyProvider owns this receiver from start through close. Its transport owns
- * reconnect and in-memory IDs while this boundary persists the private Android
+ * reconnect and in-memory IDs while this module persists the private Android
  * identity and delivered IDs. Camera policy remains with EufyProvider and
  * GatewayState; raw notification fields never reach those neighbours.
+ * Registration failures retain the transport and use a finite retry budget.
+ * Closing or restarting retires all owned waits before transport shutdown.
  */
 export class MegaPushReceiver {
   #receiver: PushClient | null = null;
   #registered = false;
   #connected = false;
-  #activation: PushRegistrationStatus | null = null;
+  #connectRequested = false;
+  #disconnected = false;
   #state: StoredPushState = { version: 2, persistentIds: [] };
   #saveQueue: Promise<void> = Promise.resolve();
+  #lifetime: AbortController | null = null;
+  #retryTimer: ReturnType<typeof setTimeout> | null = null;
+  #attempt = 0;
+  #failed = false;
+  #loaded = false;
+  #credentialRequest: Promise<FcmCredentials> | null = null;
 
   /**
    * Create a receiver using the account client and private state directory.
@@ -85,44 +96,131 @@ export class MegaPushReceiver {
     private readonly createReceiver: (credentials: FcmCredentials) => PushClient = (credentials) => new PushClient(credentials),
   ) {}
 
-  /** Register as the Eufy Android app and return whether activation was confirmed. */
-  async start(): Promise<PushRegistrationStatus> {
+  /**
+   * Start delivery without rejecting for initialization, login or activation failure.
+   * Resolves after the initial attempt settles or is retired. Later attempts are
+   * owned internally and never replace an established Firebase identity.
+   */
+  async start(): Promise<void> {
+    this.#retire();
+    const lifetime = new AbortController();
+    this.#lifetime = lifetime;
+    this.#attempt = 0;
+    this.#failed = false;
+    this.#loaded = false;
+    this.#credentialRequest = null;
     this.#registered = false;
     this.#connected = false;
-    this.#activation = null;
-    this.onReceiverState("starting");
-    this.#state = await loadState(this.path);
-    if (!this.#state.credentials) {
-      const credentials = await new FcmRegistrar().register();
-      this.#state = { ...this.#state, credentials };
-      this.#persistState();
-      await this.#saveQueue;
-      logger.info("push_token_ready", "Firebase issued an Eufy Android-app push token");
+    this.#connectRequested = false;
+    this.#disconnected = false;
+    this.#publish("starting");
+    await this.#runAttempt(lifetime, true).catch(() => undefined);
+  }
+
+  async #runAttempt(lifetime: AbortController, initial: boolean): Promise<void> {
+    let stage: "initialization" | "login" | "registration" | "activation" = "initialization";
+    let activationCode: number | undefined;
+    let counted = false;
+    try {
+      if (!this.#active(lifetime)) return;
+      if (!this.#loaded) {
+        const state = await abortable(loadState(this.path), lifetime.signal);
+        if (!this.#active(lifetime)) return;
+        this.#state = { ...state, ...(this.#state.credentials ? { credentials: this.#state.credentials } : {}) };
+        this.#loaded = true;
+      }
+      if (!this.#state.credentials) {
+        const request = this.#credentialRequest ??= new FcmRegistrar().register();
+        try {
+          const credentials = await abortable(request, lifetime.signal);
+          if (!this.#active(lifetime)) return;
+          this.#state = { ...this.#state, credentials };
+          this.#persistState();
+        } finally {
+          if (this.#active(lifetime)) this.#credentialRequest = null;
+        }
+      }
+      if (!this.#active(lifetime)) return;
+      const credentials = this.#state.credentials!;
+      if (!this.#receiver) this.#attachReceiver(this.createReceiver(credentials), lifetime);
+      const receiver = this.#receiver!;
+      stage = "login";
+      if (!this.#connected) {
+        if (initial) {
+          this.#attempt += 1;
+          counted = true;
+        }
+        const connect = !this.#connectRequested;
+        await waitForReceiverReady(receiver, lifetime.signal, initial || connect ? 20_000 : null,
+          connect ? () => { receiver.connect(); this.#connectRequested = true; } : false);
+      }
+      if (!this.#active(lifetime)) return;
+      if (!counted) {
+        this.#attempt += 1;
+        counted = true;
+      }
+      stage = "registration";
+      const result = await abortable(this.client.registerPushToken(credentials.fcmToken), lifetime.signal);
+      if (!this.#active(lifetime)) return;
+      if (result?.activated !== true) {
+        stage = "activation";
+        const code = result?.code;
+        if (typeof code === "number" && Number.isSafeInteger(code) && Math.abs(code) <= 999999999) activationCode = code;
+        throw new Error("Push activation unavailable");
+      }
+      this.#registered = true;
+      if (this.#connected) this.#publish("connected");
+      try { logger.info("push_token_registered", "Mega and Security accepted push registration and activation"); } catch {}
+      try { logger.info("push_receiver_ready", "Android FCM receiver and Eufy notification registration are ready"); } catch {}
+    } catch (error) {
+      if (!this.#active(lifetime)) return;
+      if (!counted) this.#attempt += 1;
+      this.#failed = true;
+      const delay = RETRY_DELAYS[this.#attempt - 1];
+      if (delay !== undefined) {
+        this.#retryTimer = setTimeout(() => {
+          this.#retryTimer = null;
+          if (this.#active(lifetime)) void this.#runAttempt(lifetime, false).catch(() => undefined);
+        }, delay);
+        this.#retryTimer.unref?.();
+      }
+      if (!this.#disconnected) this.#publish("degraded");
+      const match = error instanceof Error
+        ? /^(Mega push registration|Security push registration) failed \((-?\d{1,9})\)$/.exec(error.message)
+        : null;
+      const code = stage === "activation" ? activationCode : match ? Number(match[2]) : undefined;
+      try { logger.warn("push_registration_degraded", [
+        "Push registration unavailable.", `stage=${stage}`,
+        ...(code !== undefined ? [`code=${code}`] : []),
+        `attempt=${this.#attempt}`, `max_retries=${RETRY_DELAYS.length}`,
+        delay === undefined ? "exhausted=true" : `next_retry_seconds=${delay / 1_000}`,
+      ].join(" ")); } catch {}
     }
-    const credentials = this.#state.credentials;
-    if (!credentials) throw new Error("Android FCM credentials were unavailable after registration");
-    const receiver = this.createReceiver(credentials);
+  }
+
+  #attachReceiver(receiver: PushClient, lifetime: AbortController): void {
     receiver.setPersistentIds([...this.#state.persistentIds]);
     this.#receiver = receiver;
     receiver.on("connect", () => {
-      if (this.#receiver !== receiver) return;
+      if (!this.#active(lifetime) || this.#receiver !== receiver) return;
       this.#connected = true;
-      if (this.#registered && this.#activation) {
-        this.onReceiverState(this.#activation === "ready" ? "connected" : "activation-unconfirmed");
-      }
+      this.#disconnected = false;
+      if (this.#registered) this.#publish("connected");
+      else if (this.#failed) this.#publish("degraded");
       logger.info("push_receiver_connected", "Android FCM receiver login acknowledged");
     });
     receiver.on("disconnect", () => {
-      if (this.#receiver !== receiver) return;
+      if (!this.#active(lifetime) || this.#receiver !== receiver) return;
       this.#connected = false;
-      this.onReceiverState("disconnected");
+      this.#disconnected = true;
+      this.#publish("disconnected");
       logger.warn("push_socket_disconnected", "Android FCM receiver disconnected; transport will retry");
     });
-    receiver.on("error", (error: Error) => {
-      if (this.#receiver === receiver) logger.warn("push_socket_unavailable", `Android FCM receiver error: ${error.message}`);
+    receiver.on("error", () => {
+      if (this.#active(lifetime) && this.#receiver === receiver) logger.warn("push_socket_unavailable", "Android FCM receiver reported a transport error");
     });
     receiver.on("message", (message: RawPushMessage) => {
-      if (this.#receiver !== receiver) return;
+      if (!this.#active(lifetime) || this.#receiver !== receiver) return;
       const newPersistentId = Boolean(message.persistentId && !this.#state.persistentIds.includes(message.persistentId));
       this.#recordPersistentId(message.persistentId);
       const event = parsePushEvent(message.payload);
@@ -135,47 +233,39 @@ export class MegaPushReceiver {
       else if (!isRecord(message.payload) || Object.keys(message.payload).length === 0) logger.info("push_empty", "Android FCM notification had no Eufy data fields");
       else logger.info("push_unparsed", `Android FCM notification lacked a usable Eufy device identity: ${safeUnparsedShape(message.payload)}`);
     });
-    try {
-      let activationCode: number | null = null;
-      const status = await connectAndRegisterPush(receiver, async () => {
-        const result = await this.client.registerPushToken(credentials.fcmToken);
-        activationCode = result.code;
-        return result;
-      });
-      if (this.#receiver !== receiver) return status;
-      this.#registered = true;
-      this.#activation = status;
-      if (this.#connected) this.onReceiverState(status === "ready" ? "connected" : "activation-unconfirmed");
-      if (status === "ready") {
-        logger.info("push_token_registered", "Mega and Security accepted push registration and activation");
-        logger.info("push_receiver_ready", "Android FCM receiver and Eufy notification registration are ready");
-      } else {
-        const code = activationCode ?? "unknown";
-        logger.warn("push_activation_unconfirmed", `Security push activation remains unconfirmed: code=${code}`);
-        logger.info("push_token_registered", `Mega and Security accepted push registration; activation unconfirmed: code=${code}`);
-      }
-      return status;
-    } catch (error) {
-      if (this.#receiver === receiver) this.#receiver = null;
-      throw error;
-    }
   }
 
-  /** Stop the receiver and flush pending private identity state. */
+  /** Retire owned waits synchronously, then flush pending private identity state. */
   async close(): Promise<void> {
+    this.#retire();
+    this.#publish("stopped");
+    await this.#saveQueue;
+  }
+
+  #active(lifetime: AbortController): boolean {
+    return this.#lifetime === lifetime && !lifetime.signal.aborted;
+  }
+
+  /** Reporting must not interrupt registration, retries or shutdown. */
+  #publish(state: EventReceiverState): void {
+    try { this.onReceiverState(state); } catch {}
+  }
+
+  #retire(): void {
+    this.#lifetime?.abort();
+    this.#lifetime = null;
+    if (this.#retryTimer !== null) clearTimeout(this.#retryTimer);
+    this.#retryTimer = null;
     const receiver = this.#receiver;
     this.#receiver = null;
     this.#registered = false;
     this.#connected = false;
-    this.#activation = null;
-    receiver?.close();
-    this.onReceiverState("stopped");
-    await this.#saveQueue;
+    try { receiver?.close(); } catch {}
   }
 
   #persistState(): void {
     this.#saveQueue = this.#saveQueue.then(() => saveState(this.path, this.#state)).catch(() => {
-      logger.warn("push_state_unavailable", "Private Firebase receiver state could not be saved");
+      try { logger.warn("push_state_unavailable", "Private Firebase receiver state could not be saved"); } catch {}
     });
   }
 
@@ -198,36 +288,66 @@ export interface PushReceiverTransport {
  * Connect Firebase before registering and checking its token with Eufy.
  *
  * Eufy's activation check can reject a freshly issued token until the Android
- * receiver has completed its MCS login. A registration failure closes the
+ * receiver has completed its MCS login. A non-ready return leaves transport ownership with the caller. A registration failure closes the
  * receiver so callers never expose a half-ready notification connection.
+ * Cancellation closes the transport and retires login and registration waits.
+ * Late registration results remain handled after cancellation.
  */
 export async function connectAndRegisterPush(
   receiver: PushReceiverTransport,
   register: () => Promise<PushActivationResult>,
+  signal?: AbortSignal,
 ): Promise<PushRegistrationStatus> {
-  const ready = waitForReceiverReady(receiver);
-  receiver.connect();
   try {
-    await ready;
-    const result = await register();
-    return result.activated ? "ready" : "activation-unconfirmed";
+    await waitForReceiverReady(receiver, signal, 20_000, true);
+    const result = await abortable(Promise.resolve().then(register), signal);
+    return result?.activated === true ? "ready" : "activation-unconfirmed";
   } catch (error) {
     receiver.close();
     throw error;
   }
 }
 
-function waitForReceiverReady(receiver: PushReceiverTransport): Promise<void> {
+/** Await login without letting a retired receiver retain listeners or timers. */
+function waitForReceiverReady(
+  receiver: PushReceiverTransport,
+  signal: AbortSignal | undefined,
+  timeoutMilliseconds: number | null,
+  connect: boolean | (() => void),
+): Promise<void> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = (): void => {
+      if (timer !== undefined) clearTimeout(timer);
       receiver.off("connect", onConnect);
-      reject(new Error("Android FCM receiver login timed out"));
-    }, 20_000);
+      signal?.removeEventListener("abort", onAbort);
+    };
     const onConnect = (): void => {
-      clearTimeout(timer);
+      cleanup();
       resolve();
     };
+    const onAbort = (): void => { cleanup(); reject(signal?.reason); };
+    if (signal?.aborted) { reject(signal.reason); return; }
+    if (timeoutMilliseconds !== null) timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("Android FCM receiver login timed out"));
+    }, timeoutMilliseconds);
     receiver.once("connect", onConnect);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (connect) {
+      try { if (typeof connect === "function") connect(); else receiver.connect(); }
+      catch (error) { cleanup(); reject(error); }
+    }
+  });
+}
+
+/** Settle retired waits promptly while still handling the underlying late result. */
+function abortable<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => reject(signal?.reason);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    work.then(resolve, reject).finally(() => signal?.removeEventListener("abort", onAbort));
+    if (signal?.aborted) onAbort();
   });
 }
 

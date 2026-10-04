@@ -274,9 +274,12 @@ export class MegaClient {
     return values;
   }
 
-  /** Identify errors that should trigger a fresh Mega login attempt. */
+  /**
+   * Identify rejected sessions for the caller's one-shot inventory recovery.
+   * The normal login path retains CAPTCHA and verification challenges.
+   */
   isSessionInvalidError(error: unknown): boolean {
-    return error instanceof Error && ([...AUTH_SESSION_INVALID_CODES].some((code) => error.message.includes(`Mega request failed (${code}:`)) ||
+    return error instanceof Error && (error.message === "Mega request failed (HTTP 401)" || [...AUTH_SESSION_INVALID_CODES].some((code) => error.message.includes(`Mega request failed (${code}:`)) ||
       /Mega request failed \(401:.*token not exist/i.test(error.message));
   }
 
@@ -326,8 +329,9 @@ export class MegaClient {
    *
    * Security delivery requires its registration and activation check even when
    * Mega registration succeeds. Reuse this session, never perform a second
-   * login. Registration rejection remains fatal, while a returned activation
-   * rejection is exposed so the receiver can retain transport evidence.
+   * login. The receiver must log in before these requests and owns retries.
+   * Registration rejection throws, while returned unconfirmed activation must
+   * never be treated as ready.
    */
   async registerPushToken(token: string): Promise<PushActivationResult> {
     this.#requireAuthentication();

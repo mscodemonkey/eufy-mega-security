@@ -6,7 +6,7 @@
  */
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import test from "node:test";
+import test, { beforeEach, afterEach } from "node:test";
 
 import { decodeMcsAppData, mcsDeliveryLogSummary } from "../src/mega/android-push/push-client.js";
 import { connectAndRegisterPush, parsePushEvent, safeUnparsedShape } from "../src/mega/push.js";
@@ -26,6 +26,23 @@ class FakePushReceiver extends EventEmitter {
     this.calls.push("close");
   }
 }
+
+const unhandled: unknown[] = [];
+const onUnhandled = (error: unknown): void => { unhandled.push(error); };
+let networkCalls = 0;
+beforeEach((context) => {
+  networkCalls = 0;
+  unhandled.length = 0;
+  process.on("unhandledRejection", onUnhandled);
+  if (!("mock" in context)) throw new Error("Expected test context");
+  context.mock.method(globalThis, "fetch", async () => { ++networkCalls; throw new Error("Network forbidden"); });
+});
+afterEach(async () => {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  process.off("unhandledRejection", onUnhandled);
+  assert.deepEqual(unhandled, []);
+  assert.equal(networkCalls, 0);
+});
 
 test("connects Firebase before Eufy push registration", async () => {
   const receiver = new FakePushReceiver();
@@ -47,6 +64,54 @@ test("closes a connected receiver when Eufy push registration fails", async () =
   }), /activation rejected/);
 
   assert.deepEqual(receiver.calls, ["connect", "register", "close"]);
+});
+
+test("abort while awaiting login removes the listener and closes the transport", async () => {
+  const receiver = new FakePushReceiver();
+  receiver.connect = () => { receiver.calls.push("connect"); };
+  const controller = new AbortController();
+  const pending = connectAndRegisterPush(receiver, async () => ({ activated: true, code: 0 }), controller.signal);
+  controller.abort(new Error("Retired"));
+  await assert.rejects(pending, /Retired/);
+  assert.equal(receiver.listenerCount("connect"), 0);
+  assert.deepEqual(receiver.calls, ["connect", "close"]);
+});
+
+test("abort handles a later registration rejection", async () => {
+  const receiver = new FakePushReceiver();
+  const controller = new AbortController();
+  let reject!: (error: Error) => void;
+  let entered!: () => void;
+  const entering = new Promise<void>((resolve) => { entered = resolve; });
+  const registration = new Promise<{ activated: boolean; code: number | null }>((_resolve, failed) => { reject = failed; });
+  const unhandled: unknown[] = [];
+  const listener = (error: unknown): void => { unhandled.push(error); };
+  process.on("unhandledRejection", listener);
+  try {
+    const pending = connectAndRegisterPush(receiver, () => { entered(); return registration; }, controller.signal);
+    await entering;
+    controller.abort(new Error("Retired"));
+    await assert.rejects(pending, /Retired/);
+    reject(new Error("Late failure"));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.deepEqual(unhandled, []);
+  } finally { process.off("unhandledRejection", listener); }
+});
+
+test("synchronous connect failure leaves no timer rejection or listener", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const receiver = new FakePushReceiver();
+  receiver.connect = () => { throw new Error("Connect failed"); };
+  const unhandled: unknown[] = [];
+  const listener = (error: unknown): void => { unhandled.push(error); };
+  process.on("unhandledRejection", listener);
+  try {
+    await assert.rejects(connectAndRegisterPush(receiver, async () => ({ activated: true, code: 0 })), /Connect failed/);
+    context.mock.timers.tick(20_000);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(receiver.listenerCount("connect"), 0);
+    assert.deepEqual(unhandled, []);
+  } finally { process.off("unhandledRejection", listener); }
 });
 
 test("summarizes every MCS delivery without retaining identifiers or payloads", () => {
@@ -197,3 +262,13 @@ test("normalizes HomeBase guard and alarm push state without retaining unrelated
   assert.equal(result?.alarmType, 3);
   assert.equal(JSON.stringify(result).includes("private@example.invalid"), false);
 });
+
+for (const activated of [true, false, undefined, null, 1, "true"]) {
+  test(`connection helper preserves status for activation ${typeof activated}:${String(activated)}`, async () => {
+    const receiver = new FakePushReceiver();
+    const status = await connectAndRegisterPush(receiver, async () => ({ activated, code: 0 }) as never);
+    assert.equal(status, activated === true ? "ready" : "activation-unconfirmed");
+    assert.deepEqual(receiver.calls, ["connect"]);
+    assert.equal(receiver.listenerCount("connect"), 0);
+  });
+}
