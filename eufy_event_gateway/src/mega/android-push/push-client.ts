@@ -30,6 +30,30 @@ const PORT = 5228;
 const MCS_VERSION = 41;
 const HEARTBEAT_MS = 5 * 60 * 1000;
 
+/** Time allowed for any reply after a heartbeat before the socket is treated as dead. */
+const HEARTBEAT_REPLY_TIMEOUT_MS = 60 * 1000;
+
+/** Time allowed for TLS and MCS login before a stalled attempt is abandoned. */
+const LOGIN_TIMEOUT_MS = 60 * 1000;
+
+/** Probe an idle socket well before the operating system's two-hour default. */
+const TCP_KEEPALIVE_INITIAL_DELAY_MS = 60 * 1000;
+
+/** Timer and socket seams used by tests to exercise liveness without a network. */
+export interface PushClientTransport {
+  readonly connect: () => tls.TLSSocket;
+  readonly heartbeatMilliseconds: number;
+  readonly heartbeatReplyTimeoutMilliseconds: number;
+  readonly loginTimeoutMilliseconds: number;
+}
+
+const DEFAULT_TRANSPORT: PushClientTransport = {
+  connect: () => tls.connect(PORT, HOST, { servername: HOST }),
+  heartbeatMilliseconds: HEARTBEAT_MS,
+  heartbeatReplyTimeoutMilliseconds: HEARTBEAT_REPLY_TIMEOUT_MS,
+  loginTimeoutMilliseconds: LOGIN_TIMEOUT_MS,
+};
+
 function readNullTerminated(buf: Buffer): string {
   const i = buf.indexOf(0);
   return buf.toString("utf8", 0, i === -1 ? buf.length : i);
@@ -143,21 +167,31 @@ export function normalizePushEvent(raw: RawPushMessage): PushEvent {
  * IDs; the caller persists the IDs and decides how camera events are routed.
  */
 export class PushClient extends EventEmitter {
+
   /** Consecutive MCS login rejections tolerated (self-healing propagation) before surfacing an error. */
   private static readonly MAX_LOGIN_FAILURES = 3;
   private socket: tls.TLSSocket | undefined;
   private readonly parser = new McsParser();
   private heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  private heartbeatReplyTimer: ReturnType<typeof setTimeout> | undefined;
+  private loginTimer: ReturnType<typeof setTimeout> | undefined;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private currentDelay = 0;
   private persistentIds: string[] = [];
   private loggedIn = false;
   private closing = false;
+
   /** Consecutive MCS login rejections — transient ones self-heal via reconnect (see {@link onMessage}). */
   private loginFailures = 0;
 
+  /**
+   * Retain an Android identity for reconnects without changing its credentials.
+   *
+   * @param transport Creates each owned TLS socket and supplies the liveness deadlines.
+   */
   constructor(
     private readonly creds: FcmCredentials,
+    private readonly transport: PushClientTransport = DEFAULT_TRANSPORT,
   ) {
     super();
     this.parser.on("message", (m: McsMessage) => this.onMessage(m));
@@ -167,6 +201,8 @@ export class PushClient extends EventEmitter {
   setPersistentIds(ids: string[]): void {
     this.persistentIds = ids;
   }
+
+  /** Return the received-ID window that the receiver persists between process starts. */
   getPersistentIds(): string[] {
     return this.persistentIds;
   }
@@ -184,14 +220,27 @@ export class PushClient extends EventEmitter {
     this.closing = false;
     this.parser.reset();
     this.loggedIn = false;
-    const socket = tls.connect(PORT, HOST, { servername: HOST });
+    const socket = this.transport.connect();
     this.socket = socket;
-    socket.setKeepAlive(true);
+    socket.setKeepAlive(true, TCP_KEEPALIVE_INITIAL_DELAY_MS);
+    this.clearLoginTimer();
+    this.loginTimer = setTimeout(() => {
+      this.loginTimer = undefined;
+      if (this.socket !== socket || this.loggedIn) return;
+      logger.warn("mcs_login_timeout", "Android push MCS login did not complete; reconnecting");
+      socket.destroy();
+    }, this.transport.loginTimeoutMilliseconds);
+    this.loginTimer.unref?.();
     socket.on("secureConnect", () => {
+      if (this.socket !== socket) return;
       logger.info("mcs_tls_connected", "Android push TLS connection established");
       socket.write(this.buildLoginRequest());
     });
     socket.on("data", (d: Buffer) => {
+      if (this.socket !== socket) return;
+
+      // Any inbound bytes prove the connection is still alive.
+      this.clearHeartbeatReplyTimer();
       try {
         this.parser.handleData(d);
       } catch {
@@ -199,8 +248,12 @@ export class PushClient extends EventEmitter {
         socket.destroy();
       }
     });
-    socket.on("close", () => this.onClose());
-    socket.on("error", (e) => this.emit("error", e));
+    socket.on("close", () => {
+      if (this.socket === socket) this.onClose();
+    });
+    socket.on("error", (e) => {
+      if (this.socket === socket) this.emit("error", e);
+    });
   }
 
   private buildLoginRequest(): Buffer {
@@ -245,6 +298,7 @@ export class PushClient extends EventEmitter {
           this.onLoginError(m.object.error);
         } else {
           this.loggedIn = true;
+          this.clearLoginTimer();
           this.currentDelay = 0;
           this.loginFailures = 0;
           this.startHeartbeat();
@@ -309,22 +363,53 @@ export class PushClient extends EventEmitter {
     if (event) this.emit("push", event);
   }
 
+  /**
+   * Ping on an interval and require a reply.
+   *
+   * A connection dropped by a router or NAT gives no close event, so without a
+   * reply deadline the receiver can report connected for hours while Google
+   * holds every notification. Destroying the socket hands recovery to the
+   * normal reconnect path, and the login replays the received persistent IDs.
+   */
   private startHeartbeat(): void {
     this.stopHeartbeat();
     this.heartbeatTimer = setInterval(() => {
-      if (this.socket && this.loggedIn) this.socket.write(this.buildHeartbeatPing());
-    }, HEARTBEAT_MS);
+      const socket = this.socket;
+      if (!socket || !this.loggedIn) return;
+      socket.write(this.buildHeartbeatPing());
+      if (this.heartbeatReplyTimer) return;
+      this.heartbeatReplyTimer = setTimeout(() => {
+        this.heartbeatReplyTimer = undefined;
+        if (this.socket !== socket) return;
+        logger.warn("mcs_heartbeat_timeout", "Android push heartbeat went unanswered; reconnecting");
+        socket.destroy();
+      }, this.transport.heartbeatReplyTimeoutMilliseconds);
+      this.heartbeatReplyTimer.unref?.();
+    }, this.transport.heartbeatMilliseconds);
+    this.heartbeatTimer.unref?.();
   }
   private stopHeartbeat(): void {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = undefined;
+    this.clearHeartbeatReplyTimer();
+  }
+  private clearHeartbeatReplyTimer(): void {
+    if (this.heartbeatReplyTimer) clearTimeout(this.heartbeatReplyTimer);
+    this.heartbeatReplyTimer = undefined;
+  }
+  private clearLoginTimer(): void {
+    if (this.loginTimer) clearTimeout(this.loginTimer);
+    this.loginTimer = undefined;
   }
 
   private onClose(): void {
     this.stopHeartbeat();
+    this.clearLoginTimer();
     this.loggedIn = false;
-    this.emit("disconnect");
-    if (!this.closing) this.scheduleReconnect();
+    if (!this.closing) {
+      this.emit("disconnect");
+      this.scheduleReconnect();
+    }
   }
 
   private scheduleReconnect(): void {
@@ -338,9 +423,11 @@ export class PushClient extends EventEmitter {
     }, delay);
   }
 
+  /** Cancel liveness and recovery timers and destroy the owned socket without a disconnect event. */
   close(): void {
     this.closing = true;
     this.stopHeartbeat();
+    this.clearLoginTimer();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
     this.socket?.destroy();

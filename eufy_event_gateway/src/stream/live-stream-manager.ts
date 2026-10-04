@@ -100,6 +100,9 @@ export interface ViewerDeliverySummary {
   readonly sourceBytes: number;
   readonly sourceChunks: number;
   readonly sourceCadence: StreamCadenceSummary;
+  readonly randomAccessPictures: number;
+  readonly keyframeContinuationNals: number;
+  readonly startupGroupOverflows: number;
   readonly viewerBytes: number;
   readonly viewerChunks: number;
   readonly viewerCadence: StreamCadenceSummary;
@@ -189,6 +192,7 @@ type SnapshotExtractorFactory = (codec: VideoCodec) => ChildProcessWithoutNullSt
 const MAX_RECORDING_BYTES = 256 * 1024 * 1024;
 const MEDIA_PROCESS_TERMINATION_GRACE_MILLISECONDS = 2_000;
 const MAX_PARAMETER_SET_SCAN_BYTES = 1024 * 1024;
+const MAX_STARTUP_GROUP_BYTES = 1024 * 1024;
 
 /** Time allowed for peer lookup and a decodable fresh frame on slower cameras. */
 export const SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS = 30_000;
@@ -197,15 +201,34 @@ export const SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS = 30_000;
  * Retains the latest complete H.264 or H.265 decoder start from an Annex-B stream.
  *
  * Input chunks may divide NAL units arbitrarily. H.264 waits for SPS and PPS.
- * H.265 waits for VPS, SPS, PPS, and an IDR because FFmpeg cannot recover a
+ * H.265 waits for VPS, SPS, PPS, and a random-access picture because FFmpeg cannot recover a
  * usable picture by probing Eufy's vendor headers or inter frames without that
  * standard decoder configuration. Camera content is held only in memory and is
  * never exposed in logs.
+ *
+ * Once the codec is known, the opening buffer follows the stream: every new
+ * random-access picture replaces it, so a viewer or transcoder that joins an
+ * existing session starts from the current group of pictures rather than the
+ * first one the session ever saw. The buffer starts at the first slice of that
+ * picture, which keeps multi-slice keyframes whole.
  */
 export class VideoParameterSetCache {
   #pending = Buffer.alloc(0);
   #codec: VideoCodec | null = null;
-  #opening = Buffer.alloc(0);
+  #openingChunks: Buffer[] = [];
+  #openingBytes = 0;
+  #openingHeaders: Buffer | null = null;
+  #pictureHeadersPayloadOffset = -1;
+  #pictureHeaders: Buffer | null = null;
+  #unidentifiedChunks: Buffer[] = [];
+  #unidentifiedBytes = 0;
+  #receivedBytes = 0;
+  #lastScannedPayload = -1;
+  #randomAccessPictures = 0;
+  #keyframeContinuationNals = 0;
+  #startupGroupOverflows = 0;
+  #openingCurrent = false;
+  #scanTail = Buffer.alloc(0);
   #vps: Buffer | null = null;
   #sps: Buffer | null = null;
   #pps: Buffer | null = null;
@@ -215,26 +238,31 @@ export class VideoParameterSetCache {
     return this.#codec;
   }
 
-  /** Return bounded opening bytes for the first viewer once the codec is known. */
+  /**
+   * Return whether {@link startup} already contains the most recently pushed chunk.
+   *
+   * An oversized group is discarded. Existing consumers continue receiving live
+   * bytes, while new decoders wait for the next retained random-access picture.
+   */
+  get startupIncludesLatest(): boolean {
+    return this.#openingCurrent;
+  }
+
+  /** Return headers captured at the current keyframe followed by its retained group. */
   get startup(): Buffer | null {
-    if (this.#codec === "h264") {
-      const bootstrap = this.bootstrap;
-      const randomAccessOffset = annexBNalOffset(this.#opening, (header) => (header & 0x1f) === 5);
-      return bootstrap && randomAccessOffset !== null
-        ? Buffer.concat([bootstrap, this.#opening.subarray(randomAccessOffset)])
-        : null;
-    }
-    if (this.#codec === "h265") {
-      const bootstrap = this.bootstrap;
-      const randomAccessOffset = annexBNalOffset(this.#opening, (header) => {
-        const type = (header >> 1) & 0x3f;
-        return type === 19 || type === 20;
-      });
-      return bootstrap && randomAccessOffset !== null
-        ? Buffer.concat([bootstrap, this.#opening.subarray(randomAccessOffset)])
-        : null;
-    }
-    return null;
+    const headers = this.#openingHeaders ?? this.bootstrap;
+    return headers && this.#openingCurrent
+      ? Buffer.concat([headers, ...this.#openingChunks], headers.length + this.#openingBytes)
+      : null;
+  }
+
+  /** Return content-free source-session counters. Later slices are normal keyframe traffic. */
+  get diagnostics(): { randomAccessPictures: number; keyframeContinuationNals: number; startupGroupOverflows: number } {
+    return {
+      randomAccessPictures: this.#randomAccessPictures,
+      keyframeContinuationNals: this.#keyframeContinuationNals,
+      startupGroupOverflows: this.#startupGroupOverflows,
+    };
   }
 
   /** Return codec headers in decoder order once every required set is known. */
@@ -251,16 +279,95 @@ export class VideoParameterSetCache {
 
   /** Inspect ordered bytes using provider metadata when it identifies the codec. */
   push(chunk: Buffer, declaredCodec?: VideoCodec | null): void {
+    const previousCodec = this.#codec;
     if (declaredCodec && this.#codec === null) this.#codec = declaredCodec;
-    if (this.startup === null) {
-      const opening = Buffer.concat([this.#opening, chunk]);
-      this.#opening = opening.length <= MAX_PARAMETER_SET_SCAN_BYTES
-        ? opening
-        : Buffer.from(opening.subarray(opening.length - MAX_PARAMETER_SET_SCAN_BYTES));
+    this.#scanParameterSets(chunk);
+    const tail = this.#scanTail;
+    const window = Buffer.concat([tail, chunk]);
+    const windowOffset = this.#receivedBytes - tail.length;
+    this.#receivedBytes += chunk.length;
+    this.#scanTail = Buffer.from(window.subarray(Math.max(0, window.length - RANDOM_ACCESS_SCAN_OVERLAP)));
+    if (this.#codec === null) {
+      this.#unidentifiedChunks.push(Buffer.from(chunk));
+      this.#unidentifiedBytes += chunk.length;
+      while (this.#unidentifiedBytes > MAX_STARTUP_GROUP_BYTES && this.#unidentifiedChunks.length) {
+        this.#unidentifiedBytes -= this.#unidentifiedChunks.shift()!.length;
+      }
+      return;
     }
+
+    // Only the codec transition needs to revisit bytes received before identification.
+    const scan = previousCodec === null && this.#unidentifiedBytes > 0
+      ? Buffer.concat([...this.#unidentifiedChunks, chunk])
+      : window;
+    const scanOffset = previousCodec === null && this.#unidentifiedBytes > 0
+      ? this.#receivedBytes - scan.length
+      : windowOffset;
+    this.#unidentifiedChunks = [];
+    this.#unidentifiedBytes = 0;
+    let openingOffset: number | null = null;
+    let openingPayloadOffset = -1;
+    for (const start of annexBStarts(scan)) {
+      const header = scan[start.payloadOffset];
+      if (header === undefined) continue;
+      const type = this.#codec === "h264" ? header & 0x1f : (header >> 1) & 0x3f;
+      const keyframe = this.#codec === "h264" ? type === 5 : type >= 19 && type <= 21;
+      const slice = scan[start.payloadOffset + (this.#codec === "h264" ? 1 : 2)];
+      const absolutePayload = scanOffset + start.payloadOffset;
+      if (!keyframe || slice === undefined || absolutePayload <= this.#lastScannedPayload) continue;
+      this.#lastScannedPayload = absolutePayload;
+      if ((slice & 0x80) !== 0) {
+        this.#randomAccessPictures += 1;
+        openingOffset = start.offset;
+        openingPayloadOffset = absolutePayload;
+      } else {
+        this.#keyframeContinuationNals += 1;
+      }
+    }
+    if (openingOffset !== null) {
+      this.#openingChunks = [Buffer.from(scan.subarray(openingOffset))];
+      this.#openingBytes = scan.length - openingOffset;
+      this.#openingHeaders = this.#pictureHeadersPayloadOffset === openingPayloadOffset
+        ? this.#pictureHeaders
+        : this.bootstrap;
+      this.#openingCurrent = true;
+    } else if (this.#openingCurrent) {
+      this.#openingChunks.push(Buffer.from(chunk));
+      this.#openingBytes += chunk.length;
+    }
+    if (this.#openingCurrent && this.#openingBytes > MAX_STARTUP_GROUP_BYTES) {
+      this.#startupGroupOverflows += 1;
+      this.#openingChunks = [];
+      this.#openingBytes = 0;
+      this.#openingHeaders = null;
+      this.#pictureHeaders = null;
+      this.#pictureHeadersPayloadOffset = -1;
+      this.#openingCurrent = false;
+    }
+  }
+
+  #capturePictureHeaders(data: Buffer, start: { payloadOffset: number }, baseOffset: number): void {
+    const codec = this.#codec;
+    const header = data[start.payloadOffset];
+    if (!codec || header === undefined) return;
+    const type = codec === "h264" ? header & 0x1f : (header >> 1) & 0x3f;
+    const randomAccess = codec === "h264" ? type === 5 : type >= 19 && type <= 21;
+    const slice = data[start.payloadOffset + (codec === "h264" ? 1 : 2)];
+    const absolutePayload = baseOffset + start.payloadOffset;
+    if (!randomAccess || slice === undefined || (slice & 0x80) === 0
+      || absolutePayload <= this.#pictureHeadersPayloadOffset) return;
+
+    // Capture in NAL order, before later parameter sets in this chunk are accepted.
+    this.#pictureHeadersPayloadOffset = absolutePayload;
+    this.#pictureHeaders = this.bootstrap;
+  }
+
+  #scanParameterSets(chunk: Buffer): void {
+    const baseOffset = this.#receivedBytes - this.#pending.length;
     const data = this.#pending.length > 0 ? Buffer.concat([this.#pending, chunk]) : chunk;
     const starts = annexBStarts(data);
     if (starts.length < 2) {
+      if (starts[0]) this.#capturePictureHeaders(data, starts[0], baseOffset);
       this.#pending = data.length <= MAX_PARAMETER_SET_SCAN_BYTES
         ? Buffer.from(data)
         : Buffer.from(data.subarray(data.length - 3));
@@ -290,18 +397,15 @@ export class VideoParameterSetCache {
         else this.#pps = nal;
         if (this.#sps && this.#pps) this.#codec = "h264";
       }
+      this.#capturePictureHeaders(data, current, baseOffset);
     }
+    this.#capturePictureHeaders(data, starts.at(-1)!, baseOffset);
     this.#pending = Buffer.from(data.subarray(starts.at(-1)!.offset));
   }
 }
 
-function annexBNalOffset(data: Buffer, matches: (header: number) => boolean): number | null {
-  let result: number | null = null;
-  for (const start of annexBStarts(data)) {
-    if (matches(data[start.payloadOffset]!)) result = start.offset;
-  }
-  return result;
-}
+/** Bytes re-scanned across chunk boundaries so a split start code or slice header is not missed. */
+const RANDOM_ACCESS_SCAN_OVERLAP = 8;
 
 function annexBStarts(data: Buffer): Array<{ offset: number; payloadOffset: number }> {
   const starts: Array<{ offset: number; payloadOffset: number }> = [];
@@ -368,11 +472,14 @@ export class LiveStreamManager extends EventEmitter {
       backpressureEvents: 0,
       maximumWritableBytes: 0,
     });
-    const sourceBootstrap = session.parameterSets.bootstrap;
     const sourceCodec = session.parameterSets.codec;
-    const viewerBootstrap = sourceCodec === "h265"
-      ? session.viewerParameterSets.bootstrap
-      : sourceBootstrap;
+
+    // A viewer joining a running source starts from the current keyframe so it
+    // shows a picture now instead of waiting for the camera's next one.
+    const viewerParameterSets = sourceCodec === "h265" ? session.viewerParameterSets : session.parameterSets;
+    const viewerBootstrap = viewerParameterSets.bootstrap && viewerParameterSets.startupIncludesLatest
+      ? viewerParameterSets.startup ?? viewerParameterSets.bootstrap
+      : viewerParameterSets.bootstrap;
     const viewerCodec = sourceCodec === "h265" ? "h264" : sourceCodec;
 
     // Headers retained from a stopped source belong to its old encoding session.
@@ -381,8 +488,9 @@ export class LiveStreamManager extends EventEmitter {
       this.#startClient(session, response, viewerCodec, viewerBootstrap);
     } else {
       session.pendingClients.add(response);
-      if (sourceCodec === "h265" && sourceBootstrap && !session.viewerFfmpeg) {
-        this.#startViewerTranscoder(serial, session, session.parameterSets.startup ?? sourceBootstrap);
+      const startup = session.parameterSets.startup;
+      if (sourceCodec === "h265" && startup && !session.viewerFfmpeg) {
+        this.#startViewerTranscoder(serial, session, startup);
       }
     }
     this.#updateState(serial, session);
@@ -526,32 +634,35 @@ export class LiveStreamManager extends EventEmitter {
       session.sourceCadence.record();
       session.parameterSets.push(chunk, codecHint());
       const bootstrap = session.parameterSets.bootstrap;
-      const startup = session.parameterSets.startup;
       const codec = session.parameterSets.codec;
-      if (bootstrap && startup && codec) {
+      const needsStartup = !session.ffmpeg || (session.pendingClients.size > 0 && !(codec === "h265" && session.viewerFfmpeg))
+        || (codec === "h265" && session.clients.size > 0 && !session.viewerFfmpeg);
+      const startup = needsStartup ? session.parameterSets.startup : null;
+      if (bootstrap && codec) {
         let snapshotStarted = false;
-        if (!session.ffmpeg) {
+        if (!session.ffmpeg && startup) {
           session.ffmpeg = this.#startSnapshotExtractor(serial, codec);
-          snapshotStarted = true;
+          snapshotStarted = session.parameterSets.startupIncludesLatest;
           if (session.ffmpeg.stdin.writable) session.ffmpeg.stdin.write(startup);
         }
         if (codec === "h265") {
-          if (session.clients.size > 0 && !session.viewerFfmpeg) {
+          let transcoderSeeded = false;
+          if (session.clients.size > 0 && !session.viewerFfmpeg && startup) {
             this.#startViewerTranscoder(serial, session, startup);
+            transcoderSeeded = session.parameterSets.startupIncludesLatest;
           }
 
-          // Keep the source feed continuous after seeding FFmpeg with the cached decoder start.
-          this.#writeViewerTranscoderInput(session, chunk);
+          // The cached decoder start already ends with this chunk, so writing it
+          // again would feed FFmpeg the same keyframe twice.
+          if (!transcoderSeeded) this.#writeViewerTranscoderInput(session, chunk);
         } else {
-          let started = false;
+          this.#writeViewerChunk(session, chunk);
           for (const client of session.pendingClients) {
-            if (session.clients.has(client)) {
+            if (session.clients.has(client) && startup) {
               this.#startClient(session, client, codec, startup);
-              started = true;
             }
           }
-          session.pendingClients.clear();
-          if (!started) this.#writeViewerChunk(session, chunk);
+          if (startup) session.pendingClients.clear();
         }
         if (!snapshotStarted && session.ffmpeg?.stdin.writable) session.ffmpeg.stdin.write(chunk);
       }
@@ -934,6 +1045,7 @@ export class LiveStreamManager extends EventEmitter {
       sourceBytes: session.sourceBytes,
       sourceChunks: session.sourceChunks,
       sourceCadence: session.sourceCadence.summary,
+      ...session.parameterSets.diagnostics,
       viewerBytes: session.viewerDeliveryBytes,
       viewerChunks: session.viewerDeliveryChunks,
       viewerCadence: session.viewerDeliveryCadence.summary,
@@ -1080,7 +1192,10 @@ function spawnH265ViewerTranscoder(): ChildProcessWithoutNullStreams {
     "-pix_fmt",
     "yuv420p",
     "-x264-params",
-    "repeat-headers=1",
+
+    // Short keyframe spacing lets a second viewer join the shared fallback
+    // from a recent keyframe instead of waiting up to x264's default 250 frames.
+    "repeat-headers=1:keyint=50",
     "-f",
     "h264",
     "pipe:1",

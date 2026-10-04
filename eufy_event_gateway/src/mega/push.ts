@@ -61,20 +61,29 @@ interface StoredPushState {
  */
 export class MegaPushReceiver {
   #receiver: PushClient | null = null;
+  #registered = false;
+  #connected = false;
   #state: StoredPushState = { version: 2, persistentIds: [] };
   #saveQueue: Promise<void> = Promise.resolve();
 
-  /** Create a receiver using the account client and private state directory. */
+  /**
+   * Create a receiver using the account client and private state directory.
+   *
+   * @param createReceiver Supplies a fresh transport for each start, owned and closed by this receiver.
+   */
   constructor(
     private readonly client: MegaClient,
     private readonly path: string,
     private readonly onEvent: (event: MegaPushEvent) => void,
     private readonly onReceiverState: (state: "starting" | "connected" | "disconnected" | "stopped") => void = () => undefined,
     private readonly onDelivery: (outcome: "parsed" | "empty" | "unparsed") => void = () => undefined,
+    private readonly createReceiver: (credentials: FcmCredentials) => PushClient = (credentials) => new PushClient(credentials),
   ) {}
 
   /** Register as the Eufy Android app and forward normalized notifications. */
   async start(): Promise<void> {
+    this.#registered = false;
+    this.#connected = false;
     this.onReceiverState("starting");
     this.#state = await loadState(this.path);
     if (!this.#state.credentials) {
@@ -86,18 +95,26 @@ export class MegaPushReceiver {
     }
     const credentials = this.#state.credentials;
     if (!credentials) throw new Error("Android FCM credentials were unavailable after registration");
-    const receiver = new PushClient(credentials);
+    const receiver = this.createReceiver(credentials);
     receiver.setPersistentIds([...this.#state.persistentIds]);
     this.#receiver = receiver;
     receiver.on("connect", () => {
+      if (this.#receiver !== receiver) return;
+      this.#connected = true;
+      if (this.#registered) this.onReceiverState("connected");
       logger.info("push_receiver_connected", "Android FCM receiver login acknowledged");
     });
     receiver.on("disconnect", () => {
+      if (this.#receiver !== receiver) return;
+      this.#connected = false;
       this.onReceiverState("disconnected");
       logger.warn("push_socket_disconnected", "Android FCM receiver disconnected; transport will retry");
     });
-    receiver.on("error", (error: Error) => logger.warn("push_socket_unavailable", `Android FCM receiver error: ${error.message}`));
+    receiver.on("error", (error: Error) => {
+      if (this.#receiver === receiver) logger.warn("push_socket_unavailable", `Android FCM receiver error: ${error.message}`);
+    });
     receiver.on("message", (message: RawPushMessage) => {
+      if (this.#receiver !== receiver) return;
       const newPersistentId = Boolean(message.persistentId && !this.#state.persistentIds.includes(message.persistentId));
       this.#recordPersistentId(message.persistentId);
       const event = parsePushEvent(message.payload);
@@ -112,19 +129,24 @@ export class MegaPushReceiver {
     });
     try {
       await connectAndRegisterPush(receiver, () => this.client.registerPushToken(credentials.fcmToken));
-      this.onReceiverState("connected");
+      if (this.#receiver !== receiver) return;
+      this.#registered = true;
+      if (this.#connected) this.onReceiverState("connected");
       logger.info("push_token_registered", "Mega and Security accepted push registration and activation");
       logger.info("push_receiver_ready", "Android FCM receiver and Eufy notification registration are ready");
     } catch (error) {
-      this.#receiver = null;
+      if (this.#receiver === receiver) this.#receiver = null;
       throw error;
     }
   }
 
   /** Stop the receiver and flush pending private identity state. */
   async close(): Promise<void> {
-    this.#receiver?.close();
+    const receiver = this.#receiver;
     this.#receiver = null;
+    this.#registered = false;
+    this.#connected = false;
+    receiver?.close();
     this.onReceiverState("stopped");
     await this.#saveQueue;
   }

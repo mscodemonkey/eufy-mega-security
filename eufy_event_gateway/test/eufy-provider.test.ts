@@ -23,6 +23,7 @@ import {
   resolveHomeBaseContactObservation,
   inventoryLogSummaries,
   homeBaseStorageLogSummary,
+  homeBaseReadLogSummary,
   supportsMotionDetectionControlRoute,
   genericSecurityDetectionKinds,
   initialHomeBaseState,
@@ -38,6 +39,7 @@ import {
   ppcsStreamRoute,
   privacyParameterLogSummary,
   refreshInventoryStationState,
+  mergeHomeBaseState,
   safePushLogSummary,
   safeInventoryReads,
   supportsHomeBaseGuardMode,
@@ -820,6 +822,34 @@ test("refreshes NVR guard mode from inventory without claiming a live station co
   assert.equal(state.effectiveMode, null);
 });
 
+test("keeps a known guard mode when a local station read omits it", () => {
+  const [station] = parseMegaInventory({ devices: [{
+    device_sn: "homebase", device_name: "HomeBase 3", device_model: "T8030",
+    device_type: 0, category: "eufy_security", main_sw_version: "3.8.5.2",
+    params: [{ param_type: 1224, param_value: "1" }],
+  }] });
+  assert.ok(station);
+  const pushed = { ...initialHomeBaseState(station, true), effectiveMode: 1, alarmVolume: 20 };
+
+  const state = mergeHomeBaseState(pushed, {
+    firmware: null,
+    guardMode: null,
+    effectiveMode: null,
+    alarmVolume: null,
+    promptVolume: 5,
+    alarmTone: null,
+    storage: null,
+    storageDiagnostic: null,
+    childParams: [],
+  });
+
+  assert.equal(state.guardMode, 1);
+  assert.equal(state.effectiveMode, 1);
+  assert.equal(state.alarmVolume, 20);
+  assert.equal(state.promptVolume, 5);
+  assert.equal(state.connected, true);
+});
+
 test("classifies recognized Mega camera types without admitting stations or unknown devices", () => {
   const devices = parseMegaInventory({ devices: [
     { device_sn: "doorbell", device_name: "Door", device_model: "T8210", parent_sn: "homebase", device_type: 7, category: "eufy_security" },
@@ -1380,4 +1410,20 @@ test("uses a self-parented camera as its own PPCS peer and blocks a missing pare
   const devices = new Map([[selfParented.serial, selfParented], [missingParent.serial, missingParent]]);
   assert.deepEqual(ppcsStreamRoute(selfParented, devices), { peer: selfParented, homeBaseAttached: false });
   assert.equal(isPpcsStreamSupported(missingParent, devices, new Set([missingParent.serial])), false);
+});
+
+
+test("invalidates omitted effective mode only when the guard mode changes and preserves zeros", async () => {
+  const [station] = parseMegaInventory({ devices: [{ device_sn: "synthetic", device_model: "T8030", device_type: 18, category: "eufy_security" }] });
+  assert.ok(station);
+  const known = { ...initialHomeBaseState(station, true), guardMode: 63, effectiveMode: 63, promptVolume: 5 };
+  const observed = { ...stationState(18), guardMode: 0, effectiveMode: null, promptVolume: 0 };
+  const changed = mergeHomeBaseState(known, observed);
+  assert.equal(changed.guardMode, 0);
+  assert.equal(changed.effectiveMode, null);
+  assert.equal(changed.promptVolume, 0);
+  assert.equal(mergeHomeBaseState(known, { ...observed, guardMode: 63 }).effectiveMode, 63);
+  assert.equal(mergeHomeBaseState(changed, { ...observed, promptVolume: null }).promptVolume, 0);
+  assert.equal(homeBaseReadLogSummary("T8030", { ...observed, guardMode: null }), "HomeBase state read ready: model=T8030 guard_mode=missing effective_mode=missing");
+  await assert.rejects(confirmStationWrite("guardMode", 0, async () => undefined, async () => ({ ...observed, guardMode: null })), /did not confirm guardMode/);
 });
