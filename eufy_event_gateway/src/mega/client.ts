@@ -43,6 +43,16 @@ const MEDIA_HOST = /^security-app(?:-(?:eu|ie))?\.eufylife\.com$/;
 const MEDIA_OBJECT_HOST = /^zhixin-security-[a-z0-9]+(?:-[a-z0-9]+)*\.s3(?:\.[a-z]{2}(?:-[a-z0-9]+)+-\d)?\.amazonaws\.com$/;
 const MEDIA_NOT_READY_DELAYS_MS = [1_000, 2_000] as const;
 
+/** Result of registering one Firebase token with Eufy's notification backends. */
+export interface PushActivationResult {
+
+  /** Whether Security confirmed the final application activation check. */
+  readonly activated: boolean;
+
+  /** Numeric application result when Eufy supplied one, otherwise `null`. */
+  readonly code: number | null;
+}
+
 /** Runtime dependencies and account settings for {@link MegaClient}. */
 export interface MegaClientOptions {
   readonly email: string;
@@ -316,9 +326,10 @@ export class MegaClient {
    *
    * Security delivery requires its registration and activation check even when
    * Mega registration succeeds. Reuse this session, never perform a second
-   * login, and fail before starting the receiver if any step is rejected.
+   * login. Registration rejection remains fatal, while a returned activation
+   * rejection is exposed so the receiver can retain transport evidence.
    */
-  async registerPushToken(token: string): Promise<void> {
+  async registerPushToken(token: string): Promise<PushActivationResult> {
     this.#requireAuthentication();
     const result = await this.#call("push", "/app/push/register_push_token", {
       token,
@@ -338,7 +349,10 @@ export class MegaClient {
       app_type: "eufySecurity",
       transaction: `${this.#now()}`,
     }, false);
-    if (!isSuccess(activation.code)) throw new Error(`Security push activation failed (${activation.code})`);
+    const code = typeof activation.code === "number" && Number.isFinite(activation.code)
+      ? activation.code
+      : null;
+    return { activated: isSuccess(activation.code), code };
   }
 
   /** Download authenticated temporary media through Eufy's allowlisted object-store redirect. */

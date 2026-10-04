@@ -61,7 +61,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 - ✅ Wired Cam C31 T817L: live streams, snapshots, preset discovery and movement, AI tracking, and automatic cruise produced on real hardware through HomeBase 3. Tracking and cruise are exposed as explicit actions because they do not provide readable persistent state.
 - ✅ eufyCam S330 (Mega model T8160): discovered with sensors, retained images, and live streaming through HomeBase 3.
 - ✅ eufyCam S300 / 3C T8161: discovery, person events, and live video are confirmed through HomeBase 3. Discovery, events, and retained snapshots are confirmed through a T9000, where live video remains blocked at PPCS lookup.
-- 🟠 eufyCam S3 Pro T8162: discovery, person, pet, and vehicle events, and retained snapshots are confirmed through a T9000. Live video is waiting on that station's PPCS lookup result.
+- 🟠 eufyCam S3 Pro T8162: HomeBase 3 discovery, snapshots, H.265 live video, motion and person events are reporter-confirmed. T9000 discovery, person, pet, vehicle, and retained snapshots are confirmed, with T9000 live video unresolved. Event-image decoding and a meaningful signal value remain unconfirmed.
 - ✅ SoloCam C20 (Mega model T8134): discovery, motion and person events, and live video are reporter-confirmed. Battery availability and retained event images are being investigated separately.
 - 🟠 SoloCam E30 T8171: Mega type 88 is admitted through its reported ready HomeBase route. Discovery, events, snapshots, and live video await reporter testing.
 - ✅ eufyCam S4 T8172: discovery, motion, person and vehicle events, fresh snapshots, and live video are confirmed through HomeBase 3. The separate T9000 route still times out during peer lookup.
@@ -71,12 +71,13 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 - 🟠 Solar Wall Light Cam S120 T81A0: discovery, sensors, motion events, retained snapshots, and live video are confirmed. Fresh captures can still time out during peer lookup or before a later valid frame, and clip recording needs focused confirmation.
 - 🟠 Floodlight Cam E340 T8425: discovery, person and vehicle events, and retained snapshots are confirmed through a T9000. Live video is waiting on that station's PPCS lookup result.
 - 🟢 Floodlight Camera E30 T8426: standalone discovery, fresh snapshots, and live video are confirmed. The current stream is video-only; audio, two-way talk, and floodlight controls are not implemented for this model.
-- 🟠 Floodlight Cam S330 / 2 Pro T8423: discovery and an event snapshot are confirmed. Direct H.265 live video now starts and stays stable in most attempts, but some attempts still need the viewer reopened and CPU recovery after closing remains under investigation.
+- 🟠 Floodlight Cam S330 / 2 Pro T8423: discovery and an event snapshot are confirmed. Direct H.265 live video is stable in most attempts. CPU recovery after closing live view is reporter-confirmed on v0.1.117. Consistent first-open success is still awaiting confirmation.
 - 🟠 Wired Wall Light Cam S100 T84A1: discovery and direct PPCS are confirmed. One setup has repeated working H.264 live video, while another receives only delta slices without the codec bootstrap, so snapshots and live video remain under investigation across hardware setups.
 - ✅ Indoor Cam Pan & Tilt T8410: discovered with sensors, a retained image, and a live stream through HomeBase 3.
 - ✅ Indoor Cam Pan & Tilt T8410C: discovered with sensors, a retained image, and a live stream through HomeBase 3.
 - 🟠 Indoor Cam 2K T8400: Mega type 30 is admitted through its reported ready route. Discovery, events, snapshots, and live video await reporter testing.
 - 🟠 Indoor Cam 2K Pan & Tilt T8419: Mega type 10009 is admitted through its reported ready route. Discovery, events, snapshots, and live video await reporter testing.
+- 🟠 Indoor Cam C220 T8W11C: Mega type 10010 is admitted as ready to test in v0.1.118. Inventory battery reads are reported. Live media is unavailable without a ready route. Hardware discovery, events and snapshots await confirmation. Type 10008 remains recognised only.
 - 🟠 Indoor Cam S350 T8416: discovery and Home Assistant entities are confirmed on direct Wi-Fi and T9000-attached setups. Live video through T9000 is waiting on that station's PPCS lookup result, and privacy-mode control is not yet exposed.
 - 🟠 Indoor Cam E30 4K T8417: discovery and properties are confirmed. Direct media arrives, but live video remains blank and codec startup is unresolved. Events and snapshots still need confirmation.
 - ✅ eufyCam C37 T814X / T814XS: Mega type 10037 is confirmed through HomeBase 3. The standalone solar variant's type 10039 is confirmed for discovery, person events, fresh snapshots, and reliable live video.
@@ -149,6 +150,8 @@ The integration also defines two Home Assistant actions for on-demand streaming:
 - `eufy_event_gateway.record_clip` records from a camera with a supported live transport.
 
 Live viewing uses the gateway-owned Eufy Mega/PPCS transport. The gateway does not use `eufy-security-client`, the separate SmartLife/Thing login, or an expiring Web Portal Access PIN. The transport has produced real stream and snapshot bytes from both a wired T8210 and USB-C-powered T817L, and v0.1.14 exposes it through the Home Assistant camera entities.
+
+Home Assistant should have direct UDP reachability to the HomeBase. This is inferred from the PPCS transport and one reporter's VLAN result.
 
 The actions work in Home Assistant automations and through Node-RED's Home Assistant Action node. An importable example is included in [`examples/node-red-gate-and-motion.json`](examples/node-red-gate-and-motion.json).
 

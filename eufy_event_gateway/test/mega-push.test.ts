@@ -32,6 +32,7 @@ test("connects Firebase before Eufy push registration", async () => {
 
   await connectAndRegisterPush(receiver, async () => {
     receiver.calls.push("register");
+    return { activated: true, code: 0 };
   });
 
   assert.deepEqual(receiver.calls, ["connect", "register"]);

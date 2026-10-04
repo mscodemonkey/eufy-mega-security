@@ -16,6 +16,14 @@ export type ConnectionState =
   | "authentication-required"
   | "error";
 
+/** Receiver lifecycle states retained without device identities or payload data. */
+export type EventReceiverState =
+  | "starting"
+  | "connected"
+  | "activation-unconfirmed"
+  | "disconnected"
+  | "stopped";
+
 /** Lifecycle states for a camera's shared media source. */
 export type StreamState = "idle" | "starting" | "streaming" | "stopping" | "error";
 
@@ -395,7 +403,7 @@ export interface PushDiagnostic {
 
 /** Aggregate push transport health without device identities or payload data. */
 export interface EventDeliveryDiagnostic {
-  readonly receiverState: "starting" | "connected" | "disconnected" | "stopped";
+  readonly receiverState: EventReceiverState;
   readonly connectionCount: number;
   readonly disconnectionCount: number;
   readonly deliveryCount: number;

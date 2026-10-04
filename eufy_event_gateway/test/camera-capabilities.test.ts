@@ -191,6 +191,24 @@ test("admits catalogued cameras with ready routes at their evidence status", () 
   }
 });
 
+test("admits only T8W11C type 10010 without inventing media or writes", () => {
+  const admitted = describeCameraCapabilities({
+    serial: "t8w11c-v2", model: "T8W11C", category: "eufy_security", deviceType: 10010,
+    paramTypes: [1011, 1101],
+  }, { doorbellSupported: false, streamSupported: false, routeReady: false });
+  const original = describeCameraCapabilities({
+    serial: "t8w11c-original", model: "T8W11C", category: "eufy_security", deviceType: 10008,
+    paramTypes: [1011, 1101],
+  }, { doorbellSupported: false, streamSupported: false, routeReady: false });
+
+  assert.equal(catalogueIntegrationStatus("T8W11C", 10010), "ready_to_test");
+  assert.equal(admitted.acceptedAsCamera, true);
+  assert.equal(admitted.capabilities.some(({ id }) => id === "batteryLevel"), true);
+  assert.equal(admitted.capabilities.some(({ id }) => id === "liveVideo"), false);
+  assert.equal(admitted.matrix.some(({ id, offerable }) => id === "camera.motion_detection" && offerable), false);
+  assert.equal(original.acceptedAsCamera, false);
+});
+
 test("offers compatibility feedback only for the exact ready-to-test model", () => {
   assert.equal(catalogueIntegrationStatus("T8140-R", 14), "ready_to_test");
   assert.equal(catalogueIntegrationStatus("T8224", 96), "supported");

@@ -57,5 +57,6 @@ hardware evidence and topology-specific results remain in
 | T8910, T8910021 | Motion Sensor | 10 | sensor | ready_to_test |
 | T8920, T89200D1 | Water and Freeze Sensor | 20 | sensor | ready_to_test |
 | T8B00 | SoloCam C210 | 64 | camera | ready_to_test |
+| T8W11C, T8W11 | Indoor Cam C220 (T8W11C, v2) | 10010 | camera | ready_to_test |
 | T90E0, T90E0121 | Entry Sensor E20 | 126 | sensor | ready_to_test |
 | T90M0, T90M0121 | Motion Sensor E20 | 127 | sensor | ready_to_test |

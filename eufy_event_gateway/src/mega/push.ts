@@ -12,16 +12,20 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
+import type { EventReceiverState } from "../domain/types.js";
 import { createLogger } from "../logging.js";
 import { FcmRegistrar } from "./android-push/fcm.js";
 import { PushClient } from "./android-push/push-client.js";
 import type { FcmCredentials, RawPushMessage } from "./android-push/types.js";
-import type { MegaClient } from "./client.js";
+import type { MegaClient, PushActivationResult } from "./client.js";
 
 const logger = createLogger("push");
 
 /** AI meanings that structured push evidence can establish without notification text. */
 export type MegaPushDetectionEvidence = "person" | "vehicle" | "pet" | "dog" | "crying" | "sound";
+
+/** Final cloud-registration state for one connected Firebase receiver. */
+export type PushRegistrationStatus = "ready" | "activation-unconfirmed";
 
 /** Normalized subset of an Android FCM/Eufy notification used by the provider. */
 export interface MegaPushEvent {
@@ -63,6 +67,7 @@ export class MegaPushReceiver {
   #receiver: PushClient | null = null;
   #registered = false;
   #connected = false;
+  #activation: PushRegistrationStatus | null = null;
   #state: StoredPushState = { version: 2, persistentIds: [] };
   #saveQueue: Promise<void> = Promise.resolve();
 
@@ -75,15 +80,16 @@ export class MegaPushReceiver {
     private readonly client: MegaClient,
     private readonly path: string,
     private readonly onEvent: (event: MegaPushEvent) => void,
-    private readonly onReceiverState: (state: "starting" | "connected" | "disconnected" | "stopped") => void = () => undefined,
+    private readonly onReceiverState: (state: EventReceiverState) => void = () => undefined,
     private readonly onDelivery: (outcome: "parsed" | "empty" | "unparsed") => void = () => undefined,
     private readonly createReceiver: (credentials: FcmCredentials) => PushClient = (credentials) => new PushClient(credentials),
   ) {}
 
-  /** Register as the Eufy Android app and forward normalized notifications. */
-  async start(): Promise<void> {
+  /** Register as the Eufy Android app and return whether activation was confirmed. */
+  async start(): Promise<PushRegistrationStatus> {
     this.#registered = false;
     this.#connected = false;
+    this.#activation = null;
     this.onReceiverState("starting");
     this.#state = await loadState(this.path);
     if (!this.#state.credentials) {
@@ -101,7 +107,9 @@ export class MegaPushReceiver {
     receiver.on("connect", () => {
       if (this.#receiver !== receiver) return;
       this.#connected = true;
-      if (this.#registered) this.onReceiverState("connected");
+      if (this.#registered && this.#activation) {
+        this.onReceiverState(this.#activation === "ready" ? "connected" : "activation-unconfirmed");
+      }
       logger.info("push_receiver_connected", "Android FCM receiver login acknowledged");
     });
     receiver.on("disconnect", () => {
@@ -128,12 +136,25 @@ export class MegaPushReceiver {
       else logger.info("push_unparsed", `Android FCM notification lacked a usable Eufy device identity: ${safeUnparsedShape(message.payload)}`);
     });
     try {
-      await connectAndRegisterPush(receiver, () => this.client.registerPushToken(credentials.fcmToken));
-      if (this.#receiver !== receiver) return;
+      let activationCode: number | null = null;
+      const status = await connectAndRegisterPush(receiver, async () => {
+        const result = await this.client.registerPushToken(credentials.fcmToken);
+        activationCode = result.code;
+        return result;
+      });
+      if (this.#receiver !== receiver) return status;
       this.#registered = true;
-      if (this.#connected) this.onReceiverState("connected");
-      logger.info("push_token_registered", "Mega and Security accepted push registration and activation");
-      logger.info("push_receiver_ready", "Android FCM receiver and Eufy notification registration are ready");
+      this.#activation = status;
+      if (this.#connected) this.onReceiverState(status === "ready" ? "connected" : "activation-unconfirmed");
+      if (status === "ready") {
+        logger.info("push_token_registered", "Mega and Security accepted push registration and activation");
+        logger.info("push_receiver_ready", "Android FCM receiver and Eufy notification registration are ready");
+      } else {
+        const code = activationCode ?? "unknown";
+        logger.warn("push_activation_unconfirmed", `Security push activation remains unconfirmed: code=${code}`);
+        logger.info("push_token_registered", `Mega and Security accepted push registration; activation unconfirmed: code=${code}`);
+      }
+      return status;
     } catch (error) {
       if (this.#receiver === receiver) this.#receiver = null;
       throw error;
@@ -146,6 +167,7 @@ export class MegaPushReceiver {
     this.#receiver = null;
     this.#registered = false;
     this.#connected = false;
+    this.#activation = null;
     receiver?.close();
     this.onReceiverState("stopped");
     await this.#saveQueue;
@@ -181,13 +203,14 @@ export interface PushReceiverTransport {
  */
 export async function connectAndRegisterPush(
   receiver: PushReceiverTransport,
-  register: () => Promise<void>,
-): Promise<void> {
+  register: () => Promise<PushActivationResult>,
+): Promise<PushRegistrationStatus> {
   const ready = waitForReceiverReady(receiver);
   receiver.connect();
   try {
     await ready;
-    await register();
+    const result = await register();
+    return result.activated ? "ready" : "activation-unconfirmed";
   } catch (error) {
     receiver.close();
     throw error;

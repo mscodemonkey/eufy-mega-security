@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.118
+
+- Keep the provider available when Mega and Security accept push registration but the final activation check is still unconfirmed. Diagnostics now show that state without claiming event delivery works.
+- Admit the T8W11C type 10010 camera path as ready to test while keeping media availability dependent on a usable route.
+- Treat a zero RSSI report as unavailable and add privacy-safe event-image format and size diagnostics.
+- Document the latest T8162 HomeBase 3, T8423 stream cleanup, VLAN reachability, and T8W11C evidence boundaries.
+
 ## 0.1.117
 
 - Start reopened and additional live viewers from the current complete keyframe, preserving matching decoder headers and multi-slice pictures.

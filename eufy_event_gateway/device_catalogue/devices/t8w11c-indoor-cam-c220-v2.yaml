@@ -5,7 +5,8 @@ id: t8w11c-v2
 name: Indoor Cam C220 (T8W11C, v2)
 category: camera
 integration:
-  status: recognised
+  status: ready_to_test
+  handler: camera
 models:
   - T8W11C
   - T8W11

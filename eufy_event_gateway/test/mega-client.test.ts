@@ -46,8 +46,13 @@ test("completes encrypted push registration and activation using one restored re
           },
         });
         await client.connect();
-        if (failedStep === -1) await client.registerPushToken("synthetic-fcm");
-        else await assert.rejects(client.registerPushToken("synthetic-fcm"), /(?:Mega|Security) push (?:registration|activation) failed \(9999\)/);
+        if (failedStep === -1) {
+          assert.deepEqual(await client.registerPushToken("synthetic-fcm"), { activated: true, code: 0 });
+        } else if (failedStep === 2) {
+          assert.deepEqual(await client.registerPushToken("synthetic-fcm"), { activated: false, code: 9999 });
+        } else {
+          await assert.rejects(client.registerPushToken("synthetic-fcm"), /(?:Mega|Security) push registration failed \(9999\)/);
+        }
         assert.deepEqual(requests.map(({ url }) => url.pathname), paths.slice(0, failedStep === -1 ? 3 : failedStep + 1));
         assert.deepEqual(requests[0]?.body, { token: "synthetic-fcm", is_notification_enable: true, voip_token: "" });
         assert.equal(requests[0]?.url.hostname, `app-push-${region}-pr.eufy.com`);

@@ -12,7 +12,7 @@
 import type { CloudHistoryQuery, CloudHistoryRecord } from "../mega/cloud-history.js";
 import type { Readable } from "node:stream";
 
-import type { CameraCapabilityManifest, CameraIdentity, CameraPresetPosition, DetectionKind, DeviceCapabilityManifest, HomeBaseState, InventoryDiagnostic, PushDiagnostic, SecuritySensorState, VideoCodec } from "../domain/types.js";
+import type { CameraCapabilityManifest, CameraIdentity, CameraPresetPosition, DetectionKind, DeviceCapabilityManifest, EventReceiverState, HomeBaseState, InventoryDiagnostic, PushDiagnostic, SecuritySensorState, VideoCodec } from "../domain/types.js";
 
 /** Callbacks through which a provider reports normalized observations. */
 export interface ProviderEvents {
@@ -28,7 +28,7 @@ export interface ProviderEvents {
   sensorMotion(serial: string, detected: boolean): void;
   snapshot(serial: string, data: Buffer, contentType: string): void;
   pushDiagnostic(diagnostic: PushDiagnostic): void;
-  eventReceiverState(state: "starting" | "connected" | "disconnected" | "stopped"): void;
+  eventReceiverState(state: EventReceiverState): void;
   eventDelivery(outcome: "parsed" | "empty" | "unparsed"): void;
   inventory(diagnostics: InventoryDiagnostic[]): void;
   cameraCapabilities(manifests: readonly CameraCapabilityManifest[]): void;
