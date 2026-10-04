@@ -28,6 +28,7 @@ import type {
   DetectionKind,
   SecuritySensorState,
   EventDeliveryDiagnostic,
+  EventReceiverState,
 } from "./types.js";
 
 /** Mutable internal representation; callers receive immutable snapshots. */
@@ -360,7 +361,7 @@ export class GatewayState extends EventEmitter {
   }
 
   /** Record receiver lifecycle without retaining connection or account data. */
-  recordEventReceiverState(state: "starting" | "connected" | "disconnected" | "stopped"): void {
+  recordEventReceiverState(state: EventReceiverState): void {
     this.#eventDeliveryDiagnostic = {
       ...this.#eventDeliveryDiagnostic,
       receiverState: state,

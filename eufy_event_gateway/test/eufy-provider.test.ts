@@ -478,6 +478,19 @@ test("decodes only validated capability-backed inventory values", () => {
   ]).batteryLevel, 49);
 });
 
+test("accepts only plausible finite RSSI measurements", () => {
+  const read = (value: unknown) => safeInventoryReads([{ param_type: 1141, param_value: value }]).rssi;
+  assert.equal(read(-150), -150);
+  assert.equal(read(-151), undefined);
+  assert.equal(read(-1), -1);
+  assert.equal(read(0), undefined);
+  assert.equal(read(1), undefined);
+  assert.equal(read(-0.5), undefined);
+  assert.equal(read(Number.NaN), undefined);
+  assert.equal(read(Number.POSITIVE_INFINITY), undefined);
+  assert.equal(read("-58"), -58);
+});
+
 test("reports camera configuration without treating a missing or invalid setting as false", () => {
   const params = [
     { param_type: 1207, param_value: "0" },
@@ -1184,6 +1197,15 @@ test("logs safe motion routing for a T8210 without private push fields", () => {
   for (const privateValue of ["PRIVATE-SERIAL", "Front Porch", "Alex", "secret", "example.invalid"]) {
     assert.equal(summary.includes(privateValue), false);
   }
+});
+
+test("resolves T8W11C type 10010 push routing to an admitted camera", () => {
+  const summary = safePushLogSummary({
+    eventType: 3101, messageType: 1, notificationStyle: 1,
+    pictureUrl: null, alarmType: null,
+  }, { model: "T8W11C", category: "eufy_security", deviceType: 10010 }, true, true);
+  assert.match(summary, /device_known=true camera_accepted=true/);
+  assert.match(summary, /handling=motion/);
 });
 
 test("logs an unhandled T8210 notification without assuming it was a doorbell press", () => {

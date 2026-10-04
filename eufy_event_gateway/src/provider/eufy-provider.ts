@@ -967,8 +967,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       (state) => events.eventReceiverState(state),
       (outcome) => events.eventDelivery(outcome),
     );
-    await this.#push.start();
-    events.connection("connected", "Gateway events and snapshots are ready; live viewing requires a validated PPCS camera path");
+    const pushStatus = await this.#push.start();
+    events.connection(
+      "connected",
+      pushStatus === "ready"
+        ? "Gateway events and snapshots are ready; live viewing requires a validated PPCS camera path"
+        : "Inventory and snapshots are available. Push activation is unconfirmed, so event delivery is not confirmed. Live viewing requires a validated PPCS camera path",
+    );
     await Promise.allSettled(
       [...this.#stations.values()]
         .filter(({ serial }) => {
@@ -1669,18 +1674,36 @@ export async function downloadPushSnapshot(
   const decoded = decodeEventImage(encoded, p2pDid ?? "");
   if (!isJpeg(decoded)) {
     throw new Error(
-      `event image decode failed: format=${eventImageFormat(encoded)} result=${jpegBoundaryResult(decoded)}`,
+      `event image decode failed: format=${eventImageFormat(encoded)} size=${eventImageSize(encoded)} result=${jpegBoundaryResult(decoded)}`,
     );
   }
   return { data: decoded };
 }
 
-/** Classify an event-image wrapper without retaining its contents or identity. */
-function eventImageFormat(data: Buffer): "jpeg" | "legacy" | "unknown" | "v2" {
+/** Classify an event-image body without retaining its contents or identity. */
+function eventImageFormat(data: Buffer): "binary" | "empty" | "gzip" | "html" | "jpeg" | "json" | "legacy" | "png" | "v2" | "webp" {
+  if (data.length === 0) return "empty";
   if (data.length >= 2 && data[0] === 0xff && data[1] === 0xd8) return "jpeg";
   if (data.subarray(0, 16).toString("latin1") === "v2_eufysecurity:") return "v2";
   if (data.subarray(0, 12).toString("latin1") === "eufysecurity") return "legacy";
-  return "unknown";
+  if (data.length >= 8 && data.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "png";
+  if (data.length >= 12 && data.subarray(0, 4).toString("latin1") === "RIFF" && data.subarray(8, 12).toString("latin1") === "WEBP") return "webp";
+  if (data.length >= 2 && data[0] === 0x1f && data[1] === 0x8b) return "gzip";
+  const prefix = data.subarray(0, 64);
+  let index = prefix.length >= 3 && prefix[0] === 0xef && prefix[1] === 0xbb && prefix[2] === 0xbf ? 3 : 0;
+  while (index < prefix.length && [0x20, 0x09, 0x0a, 0x0d].includes(prefix[index]!)) index += 1;
+  if (prefix[index] === 0x7b || prefix[index] === 0x5b) return "json";
+  if (prefix[index] === 0x3c) return "html";
+  return "binary";
+}
+
+/** Bucket the downloaded event-image size without exposing its exact length. */
+function eventImageSize(data: Buffer): "0" | "<1KiB" | "<64KiB" | "<1MiB" | ">=1MiB" {
+  if (data.length === 0) return "0";
+  if (data.length < 1_024) return "<1KiB";
+  if (data.length < 65_536) return "<64KiB";
+  if (data.length < 1_048_576) return "<1MiB";
+  return ">=1MiB";
 }
 
 /** Describe only which JPEG boundary marker is absent after local decoding. */
@@ -1922,7 +1945,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
     ...(batteryHealth !== undefined ? { batteryHealth } : {}),
     ...(temperature !== null && temperature >= -50 && temperature <= 100 ? { batteryTemperature: temperature } : {}),
     ...(contact === 0 || contact === 1 ? { contactOpen: contact === 1 } : {}),
-    ...(rssi !== null && rssi >= -150 && rssi <= 0 ? { rssi } : {}),
+    ...(rssi !== null && rssi >= -150 && rssi <= -1 ? { rssi } : {}),
     ...(lastSeen !== undefined
       ? { lastSeen: new Date(lastSeen * 1_000).toISOString() }
       : {}),
