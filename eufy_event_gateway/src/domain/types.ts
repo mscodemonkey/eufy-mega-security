@@ -16,13 +16,17 @@ export type ConnectionState =
   | "authentication-required"
   | "error";
 
-/** Receiver lifecycle states retained without device identities or payload data. */
+/**
+ * Push lifecycle without private data. `activation-unconfirmed` is retained for
+ * v0.1.118 compatibility and is no longer emitted by the main receiver.
+ */
 export type EventReceiverState =
   | "starting"
   | "connected"
   | "activation-unconfirmed"
   | "disconnected"
-  | "stopped";
+  | "stopped"
+  | "degraded";
 
 /** Lifecycle states for a camera's shared media source. */
 export type StreamState = "idle" | "starting" | "streaming" | "stopping" | "error";

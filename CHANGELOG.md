@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.119
+
+- Keep cameras and snapshots available when Eufy rejects push registration or activation, instead of failing provider startup.
+- Retry push registration in the background up to five times and show degraded push status in the event-delivery diagnostics and logs until it succeeds.
+- Add tests for rejected activation, recovery, retry limits and shutdown.
+- Event delivery is not yet confirmed as restored on affected setups.
+- Recover a rejected saved login once when inventory returns HTTP 401, while preserving CAPTCHA and verification prompts.
+
 ## 0.1.118
 
 - Keep the provider available when Mega and Security accept push registration but the final activation check is still unconfirmed. Diagnostics now show that state without claiming event delivery works.

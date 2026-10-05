@@ -266,7 +266,8 @@ export interface PpcsStreamRoute {
  *
  * Startup is deliberately ordered. The provider authenticates, discovers all
  * devices, obtains the station keys needed for camera sessions, then starts
- * push delivery. A stream request creates one PPCS session per camera and
+ * push delivery independently. Startup generations prevent late inventory or
+ * receiver work from surviving close or replacement. A stream request creates one PPCS session per camera and
  * closes it when the last consumer releases the source.
  */
 export class EufyProvider implements CameraProvider, CaptchaProvider {
@@ -294,6 +295,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #liveDeviceReads = new Map<string, MegaInventoryReads>();
   readonly #liveDeviceParamTypes = new Map<string, readonly number[]>();
   #push: MegaPushReceiver | null = null;
+  #startupGeneration = 0;
   #events: ProviderEvents | null = null;
   #captchaChallenge: CaptchaChallenge | null = null;
   #verificationRequired = false;
@@ -362,9 +364,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return this.#client.cloudHistory(serial, query);
   }
 
+  /** Authenticate and publish cameras independently of background push readiness. */
   async start(events: ProviderEvents): Promise<void> {
+    const generation = ++this.#startupGeneration;
     this.#events = events;
-    const auth = await this.#client.connect(this.config.verifyCode);
+    let auth;
+    try { auth = await this.#client.connect(this.config.verifyCode); }
+    catch (error) { if (generation !== this.#startupGeneration) return; throw error; }
+    if (generation !== this.#startupGeneration) return;
     if (auth.state !== "authenticated") {
       this.#captchaChallenge = auth.captcha ?? null;
       this.#verificationRequired = auth.state === "verification-required";
@@ -374,7 +381,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       events.connection("authentication-required", detail);
       return;
     }
-    await this.#completeStartup(events);
+    await this.#completeStartup(events, generation);
   }
 
   async startStream(serial: string): Promise<void> {
@@ -790,15 +797,19 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return this.#writeStationValue(serial, "alarmTone", value, (session) => session.setAlarmTone(value));
   }
 
-  /** Cancel cloud work and retire provider timers, push and camera sessions. */
+  /** Retire startup and push synchronously before cancelling shared cloud work. */
   async close(): Promise<void> {
+    ++this.#startupGeneration;
+    const push = this.#push;
+    this.#push = null;
+    const closingPush = push?.close();
+    try { this.#events?.eventReceiverState("stopped"); } catch {}
     this.#client.cancelPendingRequests();
     if (this.#stationRefreshTimer) clearInterval(this.#stationRefreshTimer);
     this.#stationRefreshTimer = null;
     if (this.#inventoryRefreshTimer) clearInterval(this.#inventoryRefreshTimer);
     this.#inventoryRefreshTimer = null;
-    await this.#push?.close();
-    this.#push = null;
+    await closingPush;
     for (const stream of this.#ppcsStreams.values()) stream.close();
     this.#ppcsStreams.clear();
     await Promise.allSettled(this.#stationOperations.values());
@@ -825,7 +836,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   async submitCaptcha(answer: string): Promise<void> {
     if (!this.#captchaChallenge || !this.#events) throw new Error("No Eufy CAPTCHA is waiting for an answer");
-    const result = await this.#client.connect(undefined, answer);
+    const generation = this.#startupGeneration;
+    let result;
+    try { result = await this.#client.connect(undefined, answer); }
+    catch (error) { if (generation !== this.#startupGeneration) return; throw error; }
+    if (generation !== this.#startupGeneration || !this.#events) return;
     if (result.state === "captcha-required") {
       this.#captchaChallenge = result.captcha ?? null;
       throw new Error("Eufy did not accept the CAPTCHA answer");
@@ -843,20 +858,32 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   async submitVerification(code: string): Promise<void> {
     if (!this.#verificationRequired || !this.#events) throw new Error("No Eufy verification is waiting for a code");
-    const result = await this.#client.connect(code);
+    const generation = this.#startupGeneration;
+    let result;
+    try { result = await this.#client.connect(code); }
+    catch (error) { if (generation !== this.#startupGeneration) return; throw error; }
+    if (generation !== this.#startupGeneration || !this.#events) return;
     if (result.state !== "authenticated") throw new Error("Eufy did not accept the verification code");
     this.#verificationRequired = false;
     await this.#completeStartup(this.#events);
   }
 
-  async #completeStartup(events: ProviderEvents): Promise<void> {
+  async #completeStartup(events: ProviderEvents, generation = ++this.#startupGeneration): Promise<void> {
+    try { await this.#runStartup(events, generation); }
+    catch (error) { if (generation !== this.#startupGeneration) return; throw error; }
+  }
+
+  async #runStartup(events: ProviderEvents, generation: number): Promise<void> {
     let inventory;
     try {
       inventory = await this.#client.inventory();
+      if (generation !== this.#startupGeneration) return;
     } catch (error) {
+      if (generation !== this.#startupGeneration) return;
       if (!this.#client.isSessionInvalidError(error)) throw error;
       logger.warn("session_invalidated", "Mega session was invalidated; signing in again");
       const auth = await this.#client.connect(undefined, undefined, true);
+      if (generation !== this.#startupGeneration) return;
       if (auth.state !== "authenticated") {
         this.#captchaChallenge = auth.captcha ?? null;
         this.#verificationRequired = auth.state === "verification-required";
@@ -867,6 +894,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         return;
       }
       inventory = await this.#client.inventory();
+      if (generation !== this.#startupGeneration) return;
     }
     const devices = parseMegaInventory(inventory);
     this.#devices.clear();
@@ -881,8 +909,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const peerSerials = [...new Set(devices.filter((device) => (!device.parentSerial || device.parentSerial === device.serial) && device.p2pDid).map((device) => device.serial))];
     if (peerSerials.length > 0) {
       try {
-        for (const [serial, key] of Object.entries(await this.#client.dskKeys(peerSerials))) this.#dskKeys.set(serial, key);
+        const keys = await this.#client.dskKeys(peerSerials);
+        if (generation !== this.#startupGeneration) return;
+        for (const [serial, key] of Object.entries(keys)) this.#dskKeys.set(serial, key);
       } catch (error) {
+        if (generation !== this.#startupGeneration) return;
         logger.warn("dsk_lookup_unavailable", `Mega DSK lookup unavailable: ${safeError(error)}`);
       }
     }
@@ -959,21 +990,25 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
     events.inventory(diagnostics);
 
-    await this.#push?.close();
-    this.#push = new MegaPushReceiver(
+    const previousPush = this.#push;
+    this.#push = null;
+    await previousPush?.close();
+    if (generation !== this.#startupGeneration) return;
+    const push = new MegaPushReceiver(
       this.#client,
       join(this.config.persistentDirectory, "mega-push.json"),
-      (event) => this.#handlePush(events, event),
-      (state) => events.eventReceiverState(state),
-      (outcome) => events.eventDelivery(outcome),
+      (event) => { if (this.#push === push) this.#handlePush(events, event); },
+      (state) => { if (this.#push === push) events.eventReceiverState(state); },
+      (outcome) => { if (this.#push === push) events.eventDelivery(outcome); },
     );
-    const pushStatus = await this.#push.start();
-    events.connection(
-      "connected",
-      pushStatus === "ready"
-        ? "Gateway events and snapshots are ready; live viewing requires a validated PPCS camera path"
-        : "Inventory and snapshots are available. Push activation is unconfirmed, so event delivery is not confirmed. Live viewing requires a validated PPCS camera path",
-    );
+    this.#push = push;
+    void push.start().catch(() => {
+      if (this.#push !== push || generation !== this.#startupGeneration) return;
+      events.eventReceiverState("degraded");
+      logger.warn("push_start_unavailable", "Push startup unavailable. Camera startup remains independent.");
+    });
+    if (generation !== this.#startupGeneration) return;
+    events.connection("connected", "Cameras and snapshots are ready. Push event delivery is reported separately.");
     await Promise.allSettled(
       [...this.#stations.values()]
         .filter(({ serial }) => {
@@ -985,6 +1020,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         (error: unknown) => this.#recordStationRefreshFailure(serial, error),
       )),
     );
+    if (generation !== this.#startupGeneration) return;
     if (this.#stationRefreshTimer) clearInterval(this.#stationRefreshTimer);
     this.#stationRefreshTimer = setInterval(() => {
       for (const station of this.#stations.values()) {

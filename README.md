@@ -226,6 +226,8 @@ If discovery does not appear, first confirm the app log reports a healthy gatewa
 
 ## Support logs
 
+If Eufy rejects push registration, the app keeps cameras and snapshots available, reports push as degraded in the event-delivery diagnostics and logs, and retries a few times in the background. Events may not arrive until registration succeeds. When reporting this, send the `event=push_registration_degraded` log lines from the latest start (at most six).
+
 Gateway log lines begin with a UTC timestamp and identify the running release, process invocation, component, and event. For example:
 
 ```text

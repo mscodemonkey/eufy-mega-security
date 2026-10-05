@@ -5,11 +5,28 @@
  * bodies, tokens, URLs, and unrelated account fields do not reach diagnostics.
  */
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { beforeEach, afterEach } from "node:test";
 
 import { GatewayState } from "../src/domain/gateway-state.js";
 import type { PushDiagnostic } from "../src/domain/types.js";
 import { describeCameraCapabilities } from "../src/provider/device-capabilities-core.js";
+
+const unhandled: unknown[] = [];
+const onUnhandled = (error: unknown): void => { unhandled.push(error); };
+let networkCalls = 0;
+beforeEach((context) => {
+  networkCalls = 0;
+  unhandled.length = 0;
+  process.on("unhandledRejection", onUnhandled);
+  if (!("mock" in context)) throw new Error("Expected test context");
+  context.mock.method(globalThis, "fetch", async () => { ++networkCalls; throw new Error("Network forbidden"); });
+});
+afterEach(async () => {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  process.off("unhandledRejection", onUnhandled);
+  assert.deepEqual(unhandled, []);
+  assert.equal(networkCalls, 0);
+});
 
 test("push diagnostics are bounded to the latest 50 whitelisted records", () => {
   const state = new GatewayState();
@@ -57,6 +74,17 @@ test("event delivery diagnostics count transport outcomes without payloads", () 
     unparsedCount: 1,
     lastDeliveryAge: "one_to_five_minutes",
   });
+});
+
+test("degraded receiver state serializes without counting a socket connection", () => {
+  const state = new GatewayState();
+  state.recordEventReceiverState("degraded");
+  const result = JSON.parse(JSON.stringify(state.eventDeliveryDiagnostic()));
+  assert.equal(result.receiverState, "degraded");
+  assert.equal(result.connectionCount, 0);
+  assert.equal(result.disconnectionCount, 0);
+  state.recordEventReceiverState("connected");
+  assert.equal(state.eventDeliveryDiagnostic().connectionCount, 1);
 });
 
 test("catalogue evidence removes local identities while retaining test facts", () => {

@@ -10,10 +10,27 @@ import { createECDH } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { beforeEach, afterEach } from "node:test";
 
 import { MegaClient } from "../src/mega/client.js";
 import { decryptEnvelope, encryptEnvelope, credentialVerifier, presetKey, sharedAesKey } from "../src/mega/crypto.js";
+
+const unhandled: unknown[] = [];
+const onUnhandled = (error: unknown): void => { unhandled.push(error); };
+let networkCalls = 0;
+beforeEach((context) => {
+  networkCalls = 0;
+  unhandled.length = 0;
+  process.on("unhandledRejection", onUnhandled);
+  if (!("mock" in context)) throw new Error("Expected test context");
+  context.mock.method(globalThis, "fetch", async () => { ++networkCalls; throw new Error("Network forbidden"); });
+});
+afterEach(async () => {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  process.off("unhandledRejection", onUnhandled);
+  assert.deepEqual(unhandled, []);
+  assert.equal(networkCalls, 0);
+});
 
 test("completes encrypted push registration and activation using one restored regional session", async () => {
   const sharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
@@ -381,4 +398,48 @@ test("fetches PPCS cipher keys through the regional eufy security API", async ()
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("session recovery recognises only the exact HTTP401 request error", () => {
+  const client = new MegaClient({ email: "fixture@example.invalid", password: "redacted", country: "AU", persistentDirectory: "/nonexistent/fixture" });
+  for (const message of ["Mega request failed (HTTP 401)", "Mega request failed (4404: invalid)",
+    "Mega request failed (26084: invalid)", "Mega request failed (26884: invalid)", "Mega request failed (401: token not exist)"]) {
+    assert.equal(client.isSessionInvalidError(new Error(message)), true, message);
+  }
+  for (const value of [new Error("Mega request failed (HTTP 403)"), new Error("Mega request failed (HTTP 404)"),
+    new Error("Mega request failed (HTTP 429)"), new Error("Mega request failed (HTTP 500)"),
+    new Error("Mega media download failed (HTTP 401)"), new Error("prefix Mega request failed (HTTP 401)"),
+    new Error("Mega request failed (HTTP 401) suffix"), "Mega request failed (HTTP 401)", { message: "Mega request failed (HTTP 401)" }, null]) {
+    assert.equal(client.isSessionInvalidError(value), false);
+  }
+});
+
+test("restored inventory and media HTTP401 retain distinct recovery decisions", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mega-http401-"));
+  const host = "app-openapi-eu-pr.eufy.com";
+  const session = { version: 2, country: "au", openUdid: "device",
+    credentialVerifier: credentialVerifier("device", "fixture@example.invalid", "redacted"),
+    authToken: "token", tokenExpiresAt: 2_000_000_000, userId: "user", megaDomain: "mega-eu-pr.eufy.com", domains: {},
+    identities: { [host]: { keyIdent: "identity", sharedKey: "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100", clientPublicKey: "public" } } };
+  const urls: string[] = [];
+  const fakeFetch: typeof fetch = async (input) => { urls.push(String(input)); return new Response("", { status: 401 }); };
+  try {
+    await writeFile(join(directory, "mega-session.json"), JSON.stringify(session));
+    const client = new MegaClient({ email: "fixture@example.invalid", password: "redacted", country: "AU",
+      persistentDirectory: directory, now: () => 1_700_000_000_000, minimumRequestIntervalMs: 0, fetch: fakeFetch });
+    await client.connect();
+    await assert.rejects(client.inventory(), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, "Mega request failed (HTTP 401)");
+      assert.equal(client.isSessionInvalidError(error), true);
+      return true;
+    });
+    await assert.rejects(client.download("https://security-app.eufylife.com/fixture.jpg"), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, "Mega media download failed (HTTP 401)");
+      assert.equal(client.isSessionInvalidError(error), false);
+      return true;
+    });
+    assert.equal(urls.length, 2);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
