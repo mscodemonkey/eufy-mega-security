@@ -16,6 +16,9 @@ import { EufyProvider } from "../src/provider/eufy-provider.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
 import { LiveStreamManager } from "../src/stream/live-stream-manager.js";
 
+// Keep filesystem polling independent of the synthetic retry clock.
+const pollTimeout = globalThis.setTimeout;
+
 const unhandled: unknown[] = [];
 const networkMocks: { mock: { callCount(): number } }[] = [];
 const onUnhandled = (error: unknown): void => { unhandled.push(error); };
@@ -199,7 +202,7 @@ test(`provider ${replacement} retires the old receiver and retry before replacem
   context.mock.method(process.stderr, "write", (chunk: unknown) => { logs.push(String(chunk)); return true; });
   try {
     await f.provider.start(f.events);
-    for (let i = 0; i < 100 && calls < 1; ++i) await new Promise<void>((resolve) => setImmediate(resolve));
+    for (let i = 0; i < 500 && calls < 1; ++i) await new Promise<void>((resolve) => pollTimeout(resolve, 10));
     assert.equal(calls, 1);
     assert.equal(live.size, 1);
     assert.equal(timers.size, 1);
@@ -211,7 +214,7 @@ test(`provider ${replacement} retires the old receiver and retry before replacem
       context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
       await f.provider.submitVerification("synthetic");
     } else await f.provider.start(f.events);
-    for (let i = 0; i < 100 && calls < 2; ++i) await new Promise<void>((resolve) => setImmediate(resolve));
+    for (let i = 0; i < 500 && calls < 2; ++i) await new Promise<void>((resolve) => pollTimeout(resolve, 10));
     assert.equal(calls, 2);
     assert.equal(live.size, 1);
     assert.equal(timers.size, 1);
@@ -264,7 +267,7 @@ for (const code of [-1, 10003]) {
     const timers = retryTimers(context);
     try {
       await f.provider.start(f.events);
-      for (let i = 0; i < 100 && !logs.some((line) => line.includes("push_registration_degraded")); ++i) await new Promise<void>((resolve) => setImmediate(resolve));
+      for (let i = 0; i < 500 && !logs.some((line) => line.includes("push_registration_degraded")); ++i) await new Promise<void>((resolve) => pollTimeout(resolve, 10));
       assert.equal(f.connections.at(-1)?.state, "connected");
       assert.equal(f.connections.at(-1)?.detail, "Cameras and snapshots are ready. Push event delivery is reported separately.");
       assert.equal(register.mock.callCount(), 1);
