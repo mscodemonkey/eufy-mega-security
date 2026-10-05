@@ -37,7 +37,7 @@ import type { MegaAuthResult, MegaCaptcha, MegaIdentity, MegaInventory, MegaResu
 // same challenge and session-recovery behaviour.
 const CAPTCHA_REQUIRED = new Set([100032, 100033]);
 const VERIFICATION_REQUIRED = 26052;
-const TRANSIENT_IDENTITY_ERRORS = new Set([4404, 100028, 100030]);
+const TRANSIENT_IDENTITY_ERRORS = new Set([4404, 4406, 100028, 100030]);
 const AUTH_SESSION_INVALID_CODES = new Set([4404, 26084, 26884]);
 const MEDIA_HOST = /^security-app(?:-(?:eu|ie))?\.eufylife\.com$/;
 const MEDIA_OBJECT_HOST = /^zhixin-security-[a-z0-9]+(?:-[a-z0-9]+)*\.s3(?:\.[a-z]{2}(?:-[a-z0-9]+)+-\d)?\.amazonaws\.com$/;
@@ -616,6 +616,17 @@ export class MegaClient {
     }
     signal.throwIfAborted();
     if (response.status !== 200) {
+      if (response.status === 463) {
+        try {
+          const value: unknown = JSON.parse((await readBoundedResponse(response, 2 * 1024 * 1024, signal)).toString("utf8"));
+          if (isRecord(value) && Number.isInteger(value.code) && TRANSIENT_IDENTITY_ERRORS.has(value.code as number)) {
+            return value as unknown as MegaResult;
+          }
+        } catch {
+          signal.throwIfAborted();
+        }
+        throw new Error("Mega request failed (HTTP 463)");
+      }
       await response.body?.cancel();
       throw new Error(`Mega request failed (HTTP ${response.status})`);
     }

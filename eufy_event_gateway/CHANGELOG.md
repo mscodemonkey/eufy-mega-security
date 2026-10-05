@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.121
+
+- Recover a saved Mega session once when Eufy returns HTTP 463 for an expired request identity, without forcing a new login or retrying unrelated failures.
+- Document the separate network directions required for HomeBase-attached camera media and HomeBase state on a tested isolated VLAN.
+
 ## 0.1.120
 
 - Restore the proven Mega notification registration after Security push activation is rejected, avoiding the repeated activation cycle that could leave fresh camera events unavailable.
