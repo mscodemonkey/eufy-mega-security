@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.120
+
+- Restore the proven Mega notification registration after Security push activation is rejected, avoiding the repeated activation cycle that could leave fresh camera events unavailable.
+- Keep push delivery marked as degraded until a real event confirms it, while cameras, snapshots and live view remain available.
+
 ## 0.1.119
 
 - Keep cameras and snapshots available when Eufy rejects push registration or activation, instead of failing provider startup.

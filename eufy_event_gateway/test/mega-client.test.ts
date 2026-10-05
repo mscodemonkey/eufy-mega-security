@@ -34,7 +34,9 @@ afterEach(async () => {
 
 test("completes encrypted push registration and activation using one restored regional session", async () => {
   const sharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
-  const paths = ["/app/push/register_push_token", "/v1/apppush/register_push_token", "/v1/app/review/app_push_check"];
+  const pushPath = "/app/push/register_push_token";
+  const securityPath = "/v1/apppush/register_push_token";
+  const activationPath = "/v1/app/review/app_push_check";
   for (const region of ["us", "eu", "ie"]) {
     for (const failedStep of [-1, 0, 1, 2]) {
       const directory = await mkdtemp(join(tmpdir(), "mega-push-registration-"));
@@ -65,26 +67,40 @@ test("completes encrypted push registration and activation using one restored re
         await client.connect();
         if (failedStep === -1) {
           assert.deepEqual(await client.registerPushToken("synthetic-fcm"), { activated: true, code: 0 });
-        } else if (failedStep === 2) {
-          assert.deepEqual(await client.registerPushToken("synthetic-fcm"), { activated: false, code: 9999 });
+        } else if (failedStep === 1 || failedStep === 2) {
+          assert.deepEqual(await client.registerPushToken("synthetic-fcm"), {
+            activated: false,
+            code: 9999,
+            failedSecurityStage: failedStep === 1 ? "registration" : "activation",
+            megaRegistrationRestored: true,
+          });
         } else {
-          await assert.rejects(client.registerPushToken("synthetic-fcm"), /(?:Mega|Security) push registration failed \(9999\)/);
+          await assert.rejects(client.registerPushToken("synthetic-fcm"), /Mega push registration failed \(9999\)/);
         }
-        assert.deepEqual(requests.map(({ url }) => url.pathname), paths.slice(0, failedStep === -1 ? 3 : failedStep + 1));
+        const expectedPaths = failedStep === -1
+          ? [pushPath, securityPath, activationPath]
+          : failedStep === 0 ? [pushPath]
+          : failedStep === 1 ? [pushPath, securityPath, pushPath]
+          : [pushPath, securityPath, activationPath, pushPath];
+        assert.deepEqual(requests.map(({ url }) => url.pathname), expectedPaths);
         assert.deepEqual(requests[0]?.body, { token: "synthetic-fcm", is_notification_enable: true, voip_token: "" });
         assert.equal(requests[0]?.url.hostname, `app-push-${region}-pr.eufy.com`);
-        for (const request of requests.slice(1)) {
+        for (const request of requests.filter(({ url }) => url.pathname !== pushPath)) {
           assert.equal(request.url.hostname, securityHost);
           assert.equal(request.headers.get("x-auth-token"), "synthetic-token");
           assert.equal(request.headers.get("x-key-ident"), "security-identity");
           assert.equal(request.headers.has("x-signature"), true);
         }
-        if (requests[1]) assert.deepEqual(requests[1].body, {
+        if (requests.some(({ url }) => url.pathname === securityPath)) assert.deepEqual(requests[1]?.body, {
           token: "synthetic-fcm", is_notification_enable: true, transaction: "1700000000000",
         });
-        if (requests[2]) assert.deepEqual(requests[2].body, {
+        if (requests.some(({ url }) => url.pathname === activationPath)) assert.deepEqual(requests[2]?.body, {
           app_type: "eufySecurity", transaction: "1700000000000",
         });
+        for (const request of requests.filter(({ url }) => url.pathname === pushPath)) {
+          assert.equal(request.url.hostname, `app-push-${region}-pr.eufy.com`);
+          assert.deepEqual(request.body, { token: "synthetic-fcm", is_notification_enable: true, voip_token: "" });
+        }
       } finally {
         await rm(directory, { recursive: true, force: true });
       }

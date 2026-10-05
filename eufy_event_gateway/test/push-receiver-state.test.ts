@@ -219,6 +219,36 @@ for (const code of [-1, 10003]) {
   });
 }
 
+for (const failedSecurityStage of ["registration", "activation"] as const) {
+  test(`restored Mega registration leaves ${failedSecurityStage} failure stably degraded without retries`, async (context) => {
+    context.mock.timers.enable({ apis: ["setTimeout"] });
+    const timers = retryTimers(context);
+    const logs: string[] = [];
+    context.mock.method(process.stderr, "write", (chunk: unknown) => { logs.push(String(chunk)); return true; });
+    let calls = 0;
+    const fixture = await receiverFixture(async () => {
+      ++calls;
+      return { activated: false, code: 10003, failedSecurityStage, megaRegistrationRestored: true };
+    });
+    try {
+      await fixture.receiver.start();
+      assert.equal(calls, 1);
+      assert.equal(fixture.states.at(-1), "degraded");
+      assert.equal(timers.size, 0);
+      context.mock.timers.tick(1_000_000);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(calls, 1);
+      fixture.transports[0]!.emit("disconnect");
+      fixture.transports[0]!.emit("connect");
+      assert.equal(fixture.states.at(-1), "degraded");
+      const warning = logs.find((line) => line.includes("event=push_registration_degraded"));
+      assert.match(warning ?? "", new RegExp(`stage=${failedSecurityStage} code=10003 .*restoration=mega retry=false`));
+    } finally { await fixture.cleanup(); }
+    assert.equal(timers.size, 0);
+    assert.equal(fixture.transports[0]!.closeCalls, 1);
+  });
+}
+
 test("a disconnected retry waits for login without consuming the registration budget", async (context) => {
   context.mock.timers.enable({ apis: ["setTimeout"] });
   let calls = 0;
