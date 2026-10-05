@@ -151,7 +151,14 @@ The integration also defines two Home Assistant actions for on-demand streaming:
 
 Live viewing uses the gateway-owned Eufy Mega/PPCS transport. The gateway does not use `eufy-security-client`, the separate SmartLife/Thing login, or an expiring Web Portal Access PIN. The transport has produced real stream and snapshot bytes from both a wired T8210 and USB-C-powered T817L, and v0.1.14 exposes it through the Home Assistant camera entities.
 
-Home Assistant should have direct UDP reachability to the HomeBase. This is inferred from the PPCS transport and one reporter's VLAN result.
+Home Assistant should have direct network reachability to the HomeBase. On one
+tested isolated-VLAN setup, allowing Home Assistant to reach the HomeBase was
+enough for attached-camera video, but HomeBase state and storage remained
+unavailable until the HomeBase could also reach Home Assistant. Two
+host-specific firewall rules, one in each direction between Home Assistant and
+the HomeBase, were enough. The test allowed all protocols between those two
+hosts, so a narrower port list is not confirmed yet. You should not need to open
+the whole VLAN.
 
 The actions work in Home Assistant automations and through Node-RED's Home Assistant Action node. An importable example is included in [`examples/node-red-gate-and-motion.json`](examples/node-red-gate-and-motion.json).
 
