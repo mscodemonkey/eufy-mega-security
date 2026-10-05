@@ -51,6 +51,12 @@ export interface PushActivationResult {
 
   /** Numeric application result when Eufy supplied one, otherwise `null`. */
   readonly code: number | null;
+
+  /** Security step that rejected the token after Mega accepted it. */
+  readonly failedSecurityStage?: "registration" | "activation";
+
+  /** Whether a final Mega registration restored the pre-Security delivery path. */
+  readonly megaRegistrationRestored?: boolean;
 }
 
 /** Runtime dependencies and account settings for {@link MegaClient}. */
@@ -330,24 +336,29 @@ export class MegaClient {
    * Security delivery requires its registration and activation check even when
    * Mega registration succeeds. Reuse this session, never perform a second
    * login. The receiver must log in before these requests and owns retries.
-   * Registration rejection throws, while returned unconfirmed activation must
-   * never be treated as ready.
+   * A rejected Security step restores the proven Mega registration last and
+   * returns a degraded result. Failure of that restoration still throws so the
+   * receiver can retry without claiming either notification route is usable.
    */
   async registerPushToken(token: string): Promise<PushActivationResult> {
     this.#requireAuthentication();
-    const result = await this.#call("push", "/app/push/register_push_token", {
-      token,
-      is_notification_enable: true,
-      voip_token: "",
-    }, false);
-    if (!isSuccess(result.code)) throw new Error(`Mega push registration failed (${result.code})`);
+    await this.#registerMegaPushToken(token);
     const securityRegistration = await this.#call("security", "/v1/apppush/register_push_token", {
       token,
       is_notification_enable: true,
       transaction: `${this.#now()}`,
     }, false);
     if (!isSuccess(securityRegistration.code)) {
-      throw new Error(`Security push registration failed (${securityRegistration.code})`);
+      const code = typeof securityRegistration.code === "number" && Number.isFinite(securityRegistration.code)
+        ? securityRegistration.code
+        : null;
+      await this.#registerMegaPushToken(token);
+      return {
+        activated: false,
+        code,
+        failedSecurityStage: "registration",
+        megaRegistrationRestored: true,
+      };
     }
     const activation = await this.#call("security", "/v1/app/review/app_push_check", {
       app_type: "eufySecurity",
@@ -356,7 +367,19 @@ export class MegaClient {
     const code = typeof activation.code === "number" && Number.isFinite(activation.code)
       ? activation.code
       : null;
-    return { activated: isSuccess(activation.code), code };
+    if (isSuccess(activation.code)) return { activated: true, code };
+    await this.#registerMegaPushToken(token);
+    return { activated: false, code, failedSecurityStage: "activation", megaRegistrationRestored: true };
+  }
+
+  /** Register the current Firebase identity through the proven Mega notification path. */
+  async #registerMegaPushToken(token: string): Promise<void> {
+    const result = await this.#call("push", "/app/push/register_push_token", {
+      token,
+      is_notification_enable: true,
+      voip_token: "",
+    }, false);
+    if (!isSuccess(result.code)) throw new Error(`Mega push registration failed (${result.code})`);
   }
 
   /** Download authenticated temporary media through Eufy's allowlisted object-store redirect. */

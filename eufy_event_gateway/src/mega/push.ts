@@ -163,9 +163,19 @@ export class MegaPushReceiver {
       const result = await abortable(this.client.registerPushToken(credentials.fcmToken), lifetime.signal);
       if (!this.#active(lifetime)) return;
       if (result?.activated !== true) {
-        stage = "activation";
+        stage = result?.failedSecurityStage ?? "activation";
         const code = result?.code;
         if (typeof code === "number" && Number.isSafeInteger(code) && Math.abs(code) <= 999999999) activationCode = code;
+        if (result?.megaRegistrationRestored === true) {
+          this.#failed = true;
+          if (!this.#disconnected) this.#publish("degraded");
+          try { logger.warn("push_registration_degraded", [
+            "Security push activation unavailable. Mega registration restored.", `stage=${stage}`,
+            ...(activationCode !== undefined ? [`code=${activationCode}`] : []),
+            `attempt=${this.#attempt}`, `max_retries=${RETRY_DELAYS.length}`, "restoration=mega", "retry=false",
+          ].join(" ")); } catch {}
+          return;
+        }
         throw new Error("Push activation unavailable");
       }
       this.#registered = true;

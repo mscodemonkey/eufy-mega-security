@@ -285,6 +285,38 @@ for (const code of [-1, 10003]) {
   });
 }
 
+test("camera readiness keeps a restored Mega registration stably degraded", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const directory = await mkdtemp(join(tmpdir(), "eufy-provider-mega-restored-"));
+  await writeFile(join(directory, "mega-push.json"), JSON.stringify({ version: 2, persistentIds: [], credentials: {
+    fid: "synthetic", androidId: "123", securityToken: "456", fcmToken: "synthetic", createdAt: 1,
+  } }));
+  const f = fixture(context, directory);
+  const live = new Set<PushClient>();
+  context.mock.method(PushClient.prototype, "connect", function (this: PushClient) { live.add(this); this.emit("connect"); });
+  context.mock.method(PushClient.prototype, "close", function (this: PushClient) { live.delete(this); this.emit("disconnect"); });
+  const register = context.mock.method(MegaClient.prototype, "registerPushToken", async () => ({
+    activated: false, code: 10003, failedSecurityStage: "activation" as const, megaRegistrationRestored: true,
+  }));
+  const timers = retryTimers(context);
+  try {
+    await f.provider.start(f.events);
+    for (let i = 0; i < 500 && register.mock.callCount() === 0; ++i) {
+      await new Promise<void>((resolve) => pollTimeout(resolve, 10));
+    }
+    assert.equal(f.connections.at(-1)?.state, "connected");
+    assert.equal(register.mock.callCount(), 1);
+    assert.equal(f.state.eventDeliveryDiagnostic().receiverState, "degraded");
+    assert.equal(live.size, 1);
+    assert.equal(timers.size, 0);
+    context.mock.timers.tick(1_000_000);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(register.mock.callCount(), 1);
+  } finally { await f.provider.close(); await rm(directory, { recursive: true, force: true }); }
+  assert.equal(live.size, 0);
+  assert.equal(timers.size, 0);
+});
+
 for (const outcome of ["success", "second401", "login401", "transport", "captcha-required", "verification-required", "cancel-before-login", "close-after-login"] as const) {
   test(`inventory HTTP401 recovery ${outcome}`, async (context) => {
     const directory = await mkdtemp(join(tmpdir(), "eufy-provider-session-"));
