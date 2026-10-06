@@ -42,6 +42,35 @@ class CameraStreamOptionsTest(unittest.TestCase):
         self.assertIsInstance(assignments[0].value, ast.Constant)
         self.assertIs(assignments[0].value.value, True)
 
+    def test_stream_url_action_requires_a_response(self) -> None:
+        """Keep the temporary URL out of state attributes and event data."""
+        tree = ast.parse(CAMERA_SOURCE.read_text())
+        setup = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.AsyncFunctionDef)
+            and node.name == "async_setup_entry"
+        )
+        registrations = [
+            node
+            for node in ast.walk(setup)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "async_register_entity_service"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value == "get_stream_url"
+        ]
+
+        self.assertEqual(len(registrations), 1)
+        response = next(
+            keyword.value
+            for keyword in registrations[0].keywords
+            if keyword.arg == "supports_response"
+        )
+        self.assertIsInstance(response, ast.Attribute)
+        self.assertEqual(response.attr, "ONLY")
+
     def test_live_stream_refreshes_its_signed_source_before_expiry(self) -> None:
         """Refresh active viewers without restarting an idle camera stream."""
         tree = ast.parse(CAMERA_SOURCE.read_text())
@@ -132,6 +161,65 @@ class CameraStreamRefreshTest(unittest.IsolatedAsyncioTestCase):
         await refresh(camera, None)
         self.assertEqual(stream.source, "renewed-url")
         stream.update_source.assert_not_called()
+
+
+class CameraStreamUrlActionTest(unittest.IsolatedAsyncioTestCase):
+    """Exercise the HLS handoff without importing Home Assistant."""
+
+    @staticmethod
+    def _method():
+        """Compile the entity method with synthetic Home Assistant helpers."""
+        tree = ast.parse(CAMERA_SOURCE.read_text())
+        method = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef)
+            and node.name == "async_get_stream_url"
+        )
+        module = ast.Module(body=[method], type_ignores=[])
+        namespace = {
+            "HomeAssistantError": RuntimeError,
+            "async_request_stream": AsyncMock(
+                return_value="/api/hls/synthetic/master_playlist.m3u8"
+            ),
+            "get_url": Mock(return_value="http://ha.test:8123"),
+        }
+        exec(compile(module, str(CAMERA_SOURCE), "exec"), namespace)
+        return namespace["async_get_stream_url"], namespace
+
+    async def test_returns_home_assistant_hls_url(self) -> None:
+        """Return Home Assistant's endpoint without exposing the gateway URL."""
+        method, namespace = self._method()
+        camera = SimpleNamespace(
+            camera={"streamSupported": True},
+            hass=object(),
+            entity_id="camera.test",
+        )
+
+        response = await method(camera)
+
+        self.assertEqual(
+            response,
+            {
+                "url": "http://ha.test:8123/api/hls/synthetic/master_playlist.m3u8",
+                "content_type": "application/vnd.apple.mpegurl",
+            },
+        )
+        namespace["async_request_stream"].assert_awaited_once_with(
+            camera.hass, camera.entity_id, "hls"
+        )
+
+    async def test_rejects_camera_without_live_route(self) -> None:
+        """Do not create a provider when the gateway lacks a media route."""
+        method, namespace = self._method()
+        camera = SimpleNamespace(
+            camera={"streamSupported": False}, hass=object(), entity_id="camera.test"
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "unavailable"):
+            await method(camera)
+
+        namespace["async_request_stream"].assert_not_awaited()
 
 
 if __name__ == "__main__":
