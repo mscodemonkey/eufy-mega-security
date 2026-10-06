@@ -83,13 +83,13 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 - ✅ eufyCam C37 T814X / T814XS: Mega type 10037 is confirmed through HomeBase 3. The standalone solar variant's type 10039 is confirmed for discovery, person events, fresh snapshots, and reliable live video.
 - 🟠 eufyCam T8111 original: Mega type 1 is admitted through its reported ready HomeBase 3 route. Discovery, events, snapshots, and live video await reporter testing.
 - ✅ eufyCam E330 Professional T8600: discovery, fresh snapshots, live video, motion events, and person events are confirmed through HomeBase 3. Sustained H.265 playback can stutter, and battery-shaped values are suppressed because this model is mains-powered.
-- 🟢 eufyCam E40 T8144: discovery, motion, person, pet, sound events, fresh snapshots, and live video are confirmed through HomeBase 2. Live video is reliable in Chrome, Safari, and the Home Assistant iOS app.
+- 🟠 eufyCam E40 T8144: discovery, motion, person, pet, sound events, fresh snapshots, and live video are confirmed through HomeBase 2. Chrome, Safari, and the Home Assistant iOS app have all produced sustained live video, but a newer report found intermittent first-frame failures and short sessions before a later attempt worked.
 
 ### Doorbells
 
 - 🟠 Video Doorbell T8200: discovery, entities, motion and person events, and retained event images are confirmed through its self-parented PPCS session. Press notifications, live video, and on-demand snapshots remain unresolved on the reported hardware.
 - ✅ Video Doorbell T8210: live streams and snapshots produced on real hardware. One HomeBase 2 reporter now has smooth playback, while another still receives video data without a rendered view.
-- ✅ Video Doorbell T8213: discovered with sensors, retained images, and a live stream through HomeBase 3.
+- 🟠 Video Doorbell T8213: discovery, sensors, retained images, and live video are confirmed through HomeBase 3. A separate HomeBase 3 setup receives H.265 frames but currently produces no viewer output or fresh snapshot, so the media result remains mixed.
 - 🟠 Video Doorbell E340 T8214: discovery and Home Assistant entities are confirmed through a T9000. A separate T8030 report confirms live video, motion, person, familiar-person updates, and restored doorbell presses, but reports intermittent frame jumps. T9000 live video remains blocked at lookup, and missing push deliveries are under investigation separately.
 - 🟠 Video Doorbell C30 T8224: Mega type 96 admission and Home Assistant entities are reporter-confirmed. A physical button press is confirmed as push event 3103, and the latest event handler awaits reporter testing. Live media is not yet supported on the reported route.
 - 🟠 Familock S3 Max T85V0: discovery and the main rechargeable battery are confirmed. HomeBase media arrives with H.265 startup headers, but visible playback remains unconfirmed. Backup AA battery reporting, snapshots, and doorbell events need separate evidence. Lock controls are not exposed.
