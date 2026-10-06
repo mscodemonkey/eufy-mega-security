@@ -40,3 +40,11 @@ record_clip:
           max: 120
           unit_of_measurement: seconds
           mode: box
+
+get_stream_url:
+  name: Get temporary stream URL
+  description: Start Home Assistant's HLS stream for a supported Eufy camera and return a temporary URL for an automation or local player.
+  target:
+    entity:
+      integration: eufy_event_gateway
+      domain: camera

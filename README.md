@@ -144,10 +144,11 @@ T8900 contact path is confirmed on installed hardware. T8910 motion pushes are
 confirmed through HomeBase 2 when notifications are enabled for the sensor in
 the active Eufy mode. Its inventory-backed last-seen value remains unconfirmed.
 
-The integration also defines two Home Assistant actions for on-demand streaming:
+The integration also defines three Home Assistant actions for on-demand streaming:
 
 - `eufy_event_gateway.capture_snapshot` requests a fresh frame from a camera with a supported live transport;
-- `eufy_event_gateway.record_clip` records from a camera with a supported live transport.
+- `eufy_event_gateway.record_clip` records from a camera with a supported live transport;
+- `eufy_event_gateway.get_stream_url` starts Home Assistant's HLS provider and returns a temporary URL for an automation, local restreamer, or compatible player.
 
 Live viewing uses the gateway-owned Eufy Mega/PPCS transport. The gateway does not use `eufy-security-client`, the separate SmartLife/Thing login, or an expiring Web Portal Access PIN. The transport has produced real stream and snapshot bytes from both a wired T8210 and USB-C-powered T817L, and v0.1.14 exposes it through the Home Assistant camera entities.
 
@@ -263,14 +264,15 @@ When requesting support, copy the complete log from the most recent `gateway_sta
 
 ## Automations and Node-RED
 
-Motion, person, and supported doorbell press events are Home Assistant binary sensors, so they appear directly in Node-RED's **Events: state** node. Snapshot and recording requests are ordinary Home Assistant actions, so use an **Action** node with one of:
+Motion, person, and supported doorbell press events are Home Assistant binary sensors, so they appear directly in Node-RED's **Events: state** node. Snapshot, recording, and HLS handoff requests are ordinary Home Assistant actions, so use an **Action** node with one of:
 
 ```text
 eufy_event_gateway.capture_snapshot
 eufy_event_gateway.record_clip
+eufy_event_gateway.get_stream_url
 ```
 
-Both actions target the camera entity. Example recording data:
+All three actions target the camera entity. Example recording data:
 
 ```json
 {
@@ -280,6 +282,12 @@ Both actions target the camera entity. Example recording data:
 ```
 
 Create the target directory first and ensure the path is allowed by Home Assistant. The importable example uses JSONata to add a timestamp to each filename. Import [`examples/node-red-gate-and-motion.json`](examples/node-red-gate-and-motion.json), select your Home Assistant server, replace the example entity IDs, and deploy it.
+
+`get_stream_url` must target one supported camera and use a response variable.
+The response is keyed by camera entity ID and contains `url` and
+`content_type`. The URL points to Home Assistant's HLS provider, not the private
+gateway, and should be passed straight to the local consumer rather than stored.
+Home Assistant invalidates it after the provider becomes idle or restarts.
 
 Recordings are assembled by the gateway with a hard stream-start timeout and duration limit, then written atomically by Home Assistant. A failed request therefore cannot leave a partial MP4 at the requested filename.
 

@@ -209,7 +209,7 @@ PPCS data datagrams are acknowledged and reassembled by type and sequence. `XZYH
 
 `LiveStreamManager` owns one provider source per camera and shares it between viewers and captures. It starts the source on the first consumer, fans H.264 bytes to HTTP clients, feeds FFmpeg for JPEG extraction or MP4 recording, enforces an idle grace period, and closes the source at the configured maximum duration.
 
-The gateway returns a short-lived HMAC-signed path for Home Assistant's camera stream. The integration asks for that path, supplies it to Home Assistant's stream pipeline, and never needs to understand a PPCS packet.
+The gateway returns a short-lived HMAC-signed path for Home Assistant's camera stream. The integration asks for that path, supplies it to Home Assistant's stream pipeline, and never needs to understand a PPCS packet. The `get_stream_url` action starts Home Assistant's HLS provider and returns its temporary endpoint to the caller. It never returns the gateway path or bearer token.
 
 ## The Home Assistant API boundary
 

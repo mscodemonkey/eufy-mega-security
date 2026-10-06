@@ -77,14 +77,14 @@ If you are new to the project, read [`DEVELOPERS_START_HERE.md`](DEVELOPERS_STAR
 | `custom_components/eufy_event_gateway/client.py` | Authenticated HTTP/SSE client for the gateway API. |
 | `custom_components/eufy_event_gateway/coordinator.py` | Polling recovery plus reconnecting SSE updates. |
 | `custom_components/eufy_event_gateway/entity.py` | Shared device registry information and availability for all entities. |
-| `custom_components/eufy_event_gateway/camera.py` | Retained-image cameras, live stream URLs, fresh snapshots, and clip actions. |
+| `custom_components/eufy_event_gateway/camera.py` | Retained-image cameras, temporary Home Assistant HLS handoffs, fresh snapshots, and clip actions. |
 | `custom_components/eufy_event_gateway/alarm_control_panel.py` | Code-free Away, Home, and Disarmed control with transient command progress. |
 | `custom_components/eufy_event_gateway/binary_sensor.py` | Camera detections, battery charging, standalone contact/PIR, and HomeBase connection sensors. |
 | `custom_components/eufy_event_gateway/number.py` | HomeBase alarm and prompt volume controls. |
 | `custom_components/eufy_event_gateway/select.py` | Configured guard-mode and alarm-tone controls. |
 | `custom_components/eufy_event_gateway/sensor.py` | Camera and standalone-sensor battery reads, last-seen time, recognized people, effective mode, and HomeBase storage. |
 | `custom_components/eufy_event_gateway/const.py` | Domain, API-token key, and platform constants. |
-| `custom_components/eufy_event_gateway/services.yaml` | Service descriptions for snapshot and clip actions. |
+| `custom_components/eufy_event_gateway/services.yaml` | Service descriptions for stream URL, snapshot, and clip actions. |
 | `custom_components/eufy_event_gateway/strings.json` | Config-flow and entity translation keys. |
 | `custom_components/eufy_event_gateway/translations/en.json` | English translations used by Home Assistant. |
 

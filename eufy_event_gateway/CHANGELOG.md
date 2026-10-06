@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.122
+
+- Add a response-only `get_stream_url` action that starts Home Assistant's HLS provider and returns its temporary URL for automations, local restreamers and compatible players without exposing the private gateway URL or bearer token.
+
 ## 0.1.121
 
 - Recover a saved Mega session once when Eufy returns HTTP 463 for an expired request identity, without forcing a new login or retrying unrelated failures.

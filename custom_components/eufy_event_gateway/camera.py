@@ -17,10 +17,14 @@ from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.components.camera import Camera, CameraEntityFeature
+from homeassistant.components.camera import (
+    Camera,
+    CameraEntityFeature,
+    async_request_stream,
+)
 from homeassistant.components.stream.const import CONF_USE_WALLCLOCK_AS_TIMESTAMPS
 from homeassistant.const import ATTR_ENTITY_ID, CONF_FILENAME
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant, SupportsResponse, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity_platform import (
@@ -29,6 +33,7 @@ from homeassistant.helpers.entity_platform import (
 )
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.network import get_url
 
 from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
@@ -85,6 +90,12 @@ async def async_setup_entry(
             ),
         },
         "async_record_clip",
+    )
+    platform.async_register_entity_service(
+        "get_stream_url",
+        None,
+        "async_get_stream_url",
+        supports_response=SupportsResponse.ONLY,
     )
 
 
@@ -270,6 +281,23 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         if not self.camera.get("streamSupported"):
             return None
         return await self.coordinator.client.stream_url(self.serial)
+
+    async def async_get_stream_url(self) -> dict[str, str]:
+        """Start Home Assistant's HLS provider and return its temporary URL.
+
+        Home Assistant owns the external access token and clears it after the
+        stream provider becomes idle. The gateway's private hostname and bearer
+        token stay behind the existing camera stream boundary.
+        """
+        if not self.camera.get("streamSupported"):
+            raise HomeAssistantError(
+                "Live stream URL generation is unavailable for this camera"
+            )
+        path = await async_request_stream(self.hass, self.entity_id, "hls")
+        return {
+            "url": f"{get_url(self.hass)}{path}",
+            "content_type": "application/vnd.apple.mpegurl",
+        }
 
     async def async_capture_snapshot(self, filename: str) -> None:
         """Wake the camera and save a fresh frame to an allowlisted HA path."""
