@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.123
+
+- Restart a silent H.265 viewer conversion from a later complete keyframe, with a five-second delay and two-retry limit, while keeping the camera source and waiting Home Assistant viewer open.
+- Report the bounded decoder-restart count in the privacy-safe viewer summary.
+
 ## 0.1.122
 
 - Add a response-only `get_stream_url` action that starts Home Assistant's HLS provider and returns its temporary URL for automations, local restreamers and compatible players without exposing the private gateway URL or bearer token.

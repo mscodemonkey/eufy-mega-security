@@ -88,6 +88,7 @@ streams.on("viewer-transcoder-stopped", (detail: ViewerTranscoderSummary) => {
       `output_bytes=${detail.outputBytes}`,
       `output_chunks=${detail.outputChunks}`,
       `bootstrap_ready=${detail.bootstrapReady}`,
+      `silent_restarts=${detail.silentRestarts}`,
       `input_samples=${input.samples}`,
       `input_duration_ms=${input.durationMilliseconds}`,
       `input_max_gap_ms=${input.maximumGapMilliseconds}`,
