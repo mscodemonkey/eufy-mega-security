@@ -87,6 +87,7 @@ export interface ViewerTranscoderSummary {
   readonly outputBytes: number;
   readonly outputChunks: number;
   readonly bootstrapReady: boolean;
+  readonly silentRestarts: number;
   readonly inputCadence: StreamCadenceSummary;
   readonly outputCadence: StreamCadenceSummary;
   readonly clientBackpressureEvents: number;
@@ -158,6 +159,9 @@ interface Session {
   viewerOutputCadence: StreamCadenceTracker;
   viewerClientBackpressureEvents: number;
   viewerMaximumClientWritableBytes: number;
+  viewerTranscoderSilentRestarts: number;
+  viewerTranscoderStartedAtMilliseconds: number;
+  viewerTranscoderStartedAtRandomAccessPicture: number;
   sourceBytes: number;
   sourceChunks: number;
   sourceCadence: StreamCadenceTracker;
@@ -193,6 +197,8 @@ const MAX_RECORDING_BYTES = 256 * 1024 * 1024;
 const MEDIA_PROCESS_TERMINATION_GRACE_MILLISECONDS = 2_000;
 const MAX_PARAMETER_SET_SCAN_BYTES = 1024 * 1024;
 const MAX_STARTUP_GROUP_BYTES = 1024 * 1024;
+const SILENT_TRANSCODER_RESTART_DELAY_MILLISECONDS = 5_000;
+const MAX_SILENT_TRANSCODER_RESTARTS = 2;
 
 /** Time allowed for peer lookup and a decodable fresh frame on slower cameras. */
 export const SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS = 30_000;
@@ -443,6 +449,7 @@ export class LiveStreamManager extends EventEmitter {
    *
    * @param sourceQuietMilliseconds Maximum silence after source bytes first arrive.
    * Startup remains governed by the provider's separate first-frame deadline.
+   * @param nowMilliseconds Monotonic clock used for bounded decoder recovery.
    */
   constructor(
     private readonly state: GatewayState,
@@ -453,6 +460,7 @@ export class LiveStreamManager extends EventEmitter {
     private readonly createViewerTranscoder: ViewerTranscoderFactory = spawnH265ViewerTranscoder,
     private readonly createSnapshotExtractor: SnapshotExtractorFactory = spawnSnapshotExtractor,
     private readonly sourceQuietMilliseconds = 30_000,
+    private readonly nowMilliseconds: () => number = () => performance.now(),
   ) {
     super();
   }
@@ -602,6 +610,9 @@ export class LiveStreamManager extends EventEmitter {
     session.viewerOutputCadence = new StreamCadenceTracker();
     session.viewerClientBackpressureEvents = 0;
     session.viewerMaximumClientWritableBytes = 0;
+    session.viewerTranscoderSilentRestarts = 0;
+    session.viewerTranscoderStartedAtMilliseconds = 0;
+    session.viewerTranscoderStartedAtRandomAccessPicture = 0;
     session.sourceBytes = 0;
     session.sourceChunks = 0;
     session.sourceCadence = new StreamCadenceTracker();
@@ -636,7 +647,8 @@ export class LiveStreamManager extends EventEmitter {
       const bootstrap = session.parameterSets.bootstrap;
       const codec = session.parameterSets.codec;
       const needsStartup = !session.ffmpeg || (session.pendingClients.size > 0 && !(codec === "h265" && session.viewerFfmpeg))
-        || (codec === "h265" && session.clients.size > 0 && !session.viewerFfmpeg);
+        || (codec === "h265" && session.clients.size > 0 && (!session.viewerFfmpeg
+          || this.#shouldRestartSilentTranscoder(session)));
       const startup = needsStartup ? session.parameterSets.startup : null;
       if (bootstrap && codec) {
         let snapshotStarted = false;
@@ -649,6 +661,9 @@ export class LiveStreamManager extends EventEmitter {
           let transcoderSeeded = false;
           if (session.clients.size > 0 && !session.viewerFfmpeg && startup) {
             this.#startViewerTranscoder(serial, session, startup);
+            transcoderSeeded = session.parameterSets.startupIncludesLatest;
+          } else if (session.viewerFfmpeg && startup && this.#shouldRestartSilentTranscoder(session)) {
+            this.#restartSilentViewerTranscoder(serial, session, startup);
             transcoderSeeded = session.parameterSets.startupIncludesLatest;
           }
 
@@ -922,18 +937,28 @@ export class LiveStreamManager extends EventEmitter {
     }
   }
 
-  #startViewerTranscoder(serial: string, session: Session, startup: Buffer): void {
+  #startViewerTranscoder(
+    serial: string,
+    session: Session,
+    startup: Buffer,
+    preserveSummary = false,
+  ): void {
     const generation = session.generation;
     const process = this.createViewerTranscoder();
     session.viewerFfmpeg = process;
     session.viewerParameterSets = new VideoParameterSetCache();
-    session.viewerInputBytes = 0;
-    session.viewerOutputBytes = 0;
-    session.viewerOutputChunks = 0;
-    session.viewerInputCadence = new StreamCadenceTracker();
-    session.viewerOutputCadence = new StreamCadenceTracker();
-    session.viewerClientBackpressureEvents = 0;
-    session.viewerMaximumClientWritableBytes = 0;
+    if (!preserveSummary) {
+      session.viewerInputBytes = 0;
+      session.viewerOutputBytes = 0;
+      session.viewerOutputChunks = 0;
+      session.viewerInputCadence = new StreamCadenceTracker();
+      session.viewerOutputCadence = new StreamCadenceTracker();
+      session.viewerClientBackpressureEvents = 0;
+      session.viewerMaximumClientWritableBytes = 0;
+      session.viewerTranscoderSilentRestarts = 0;
+    }
+    session.viewerTranscoderStartedAtMilliseconds = this.nowMilliseconds();
+    session.viewerTranscoderStartedAtRandomAccessPicture = session.parameterSets.diagnostics.randomAccessPictures;
     process.stdout.on("data", (chunk: Buffer) => {
       if (session.generation !== generation || session.viewerFfmpeg !== process) return;
       session.viewerOutputBytes += chunk.length;
@@ -976,6 +1001,24 @@ export class LiveStreamManager extends EventEmitter {
     this.#writeViewerTranscoderInput(session, startup);
   }
 
+  #shouldRestartSilentTranscoder(session: Session): boolean {
+    return session.viewerOutputBytes === 0
+      && session.viewerTranscoderSilentRestarts < MAX_SILENT_TRANSCODER_RESTARTS
+      && session.parameterSets.diagnostics.randomAccessPictures
+        > session.viewerTranscoderStartedAtRandomAccessPicture
+      && this.nowMilliseconds() - session.viewerTranscoderStartedAtMilliseconds
+        >= SILENT_TRANSCODER_RESTART_DELAY_MILLISECONDS;
+  }
+
+  #restartSilentViewerTranscoder(serial: string, session: Session, startup: Buffer): void {
+    const previous = session.viewerFfmpeg;
+    if (!previous) return;
+    session.viewerFfmpeg = null;
+    terminateMediaProcess(previous);
+    session.viewerTranscoderSilentRestarts += 1;
+    this.#startViewerTranscoder(serial, session, startup, true);
+  }
+
   #writeViewerTranscoderInput(session: Session, chunk: Buffer): void {
     if (!session.viewerFfmpeg?.stdin.writable) return;
     session.viewerInputBytes += chunk.length;
@@ -989,6 +1032,7 @@ export class LiveStreamManager extends EventEmitter {
       outputBytes: session.viewerOutputBytes,
       outputChunks: session.viewerOutputChunks,
       bootstrapReady: session.viewerParameterSets.bootstrap !== null,
+      silentRestarts: session.viewerTranscoderSilentRestarts,
       inputCadence: session.viewerInputCadence.summary,
       outputCadence: session.viewerOutputCadence.summary,
       clientBackpressureEvents: session.viewerClientBackpressureEvents,
@@ -1036,6 +1080,9 @@ export class LiveStreamManager extends EventEmitter {
       session.viewerFfmpeg = null;
     }
     session.viewerParameterSets = new VideoParameterSetCache();
+    session.viewerTranscoderSilentRestarts = 0;
+    session.viewerTranscoderStartedAtMilliseconds = 0;
+    session.viewerTranscoderStartedAtRandomAccessPicture = 0;
   }
 
   #emitViewerDeliverySummary(session: Session): void {
@@ -1122,6 +1169,9 @@ export class LiveStreamManager extends EventEmitter {
         viewerOutputCadence: new StreamCadenceTracker(),
         viewerClientBackpressureEvents: 0,
         viewerMaximumClientWritableBytes: 0,
+        viewerTranscoderSilentRestarts: 0,
+        viewerTranscoderStartedAtMilliseconds: 0,
+        viewerTranscoderStartedAtRandomAccessPicture: 0,
         sourceBytes: 0,
         sourceChunks: 0,
         sourceCadence: new StreamCadenceTracker(),

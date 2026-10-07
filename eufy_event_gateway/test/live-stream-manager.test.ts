@@ -472,6 +472,7 @@ test("shares an H.264 fallback with viewers when a camera returns H.265", async 
     outputBytes: h264Sps.length + h264Pps.length + annexBNal(0x65, 0x88).length,
     outputChunks: 1,
     bootstrapReady: true,
+    silentRestarts: 0,
     inputCadence: {
       samples: 1,
       durationMilliseconds: 0,
@@ -500,6 +501,125 @@ test("shares an H.264 fallback with viewers when a camera returns H.265", async 
   assert.equal(deliverySummaries[0]?.clientStarts, 1);
   assert.equal(deliverySummaries[0]?.clientWrites, 1);
   assert.equal(deliverySummaries[0]?.clientBackpressureEvents, 0);
+});
+
+test("restarts a silent H.265 transcoder from a later random-access picture", async () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  const source = new PassThrough();
+  const transcoders: ChildProcessWithoutNullStreams[] = [];
+  const createProcess = (): ChildProcessWithoutNullStreams => {
+    const fake = Object.assign(new EventEmitter(), {
+      stdin: new PassThrough(),
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      exitCode: null,
+      signalCode: null as NodeJS.Signals | null,
+      kill(signal: NodeJS.Signals) {
+        fake.signalCode = signal;
+        return true;
+      },
+    });
+    const process = fake as unknown as ChildProcessWithoutNullStreams;
+    transcoders.push(process);
+    return process;
+  };
+  let now = 0;
+  let manager: LiveStreamManager;
+  manager = new LiveStreamManager(state, {} as never, {
+    async startStream() { manager.attachSource(camera.serial, source, () => "h265"); },
+    async stopStream() {},
+  }, 5, undefined, createProcess, createProcess, 30_000, () => now);
+  const response = new PassThrough() as unknown as ServerResponse;
+  response.writeHead = (() => response) as ServerResponse["writeHead"];
+  const delivered: Buffer[] = [];
+  const summaries: ViewerTranscoderSummary[] = [];
+  response.on("data", (chunk: Buffer) => delivered.push(Buffer.from(chunk)));
+  manager.on("viewer-transcoder-stopped", (summary) => summaries.push(summary));
+  await manager.addClient(camera.serial, response);
+
+  const headers = Buffer.concat([
+    annexBNal(0x40, 1, 12),
+    annexBNal(0x42, 1, 1),
+    annexBNal(0x44, 1, 0xc0),
+  ]);
+  source.write(Buffer.concat([headers, annexBNal(0x26, 1, 0x80, 1)]));
+  assert.equal(transcoders.length, 2, "one viewer and one snapshot process should start");
+  const firstViewer = transcoders[1]!;
+
+  now = 6_000;
+  source.write(annexBNal(0x26, 1, 0x80, 2));
+  assert.equal(transcoders.length, 3, "a later complete picture should replace the silent viewer process");
+  const replacementViewer = transcoders[2]!;
+  firstViewer.emit("close", 1);
+  assert.equal(response.destroyed, false, "a superseded process must not destroy the waiting viewer");
+
+  const h264 = Buffer.concat([
+    annexBNal(0x67, 0x42, 0x00, 0x1f),
+    annexBNal(0x68, 0xce, 0x06),
+    annexBNal(0x65, 0x88),
+  ]);
+  (replacementViewer.stdout as PassThrough).write(h264);
+  now = 12_000;
+  source.write(annexBNal(0x26, 1, 0x80, 3));
+  assert.equal(transcoders.length, 3, "output from the replacement disables further silent recovery");
+  assert.ok(Buffer.concat(delivered).includes(h264));
+
+  response.emit("close");
+  assert.equal(summaries.at(-1)?.silentRestarts, 1);
+  await manager.close();
+});
+
+test("caps silent H.265 transcoder recovery within one source session", async () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  const source = new PassThrough();
+  const viewerProcesses: ChildProcessWithoutNullStreams[] = [];
+  const createViewer = (): ChildProcessWithoutNullStreams => {
+    const fake = Object.assign(new EventEmitter(), {
+      stdin: new PassThrough(),
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      exitCode: null,
+      signalCode: null as NodeJS.Signals | null,
+      kill(signal: NodeJS.Signals) {
+        fake.signalCode = signal;
+        return true;
+      },
+    });
+    const process = fake as unknown as ChildProcessWithoutNullStreams;
+    viewerProcesses.push(process);
+    return process;
+  };
+  const createSnapshot = (): ChildProcessWithoutNullStreams => Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    exitCode: null,
+    signalCode: null,
+    kill: () => true,
+  }) as unknown as ChildProcessWithoutNullStreams;
+  let now = 0;
+  let manager: LiveStreamManager;
+  manager = new LiveStreamManager(state, {} as never, {
+    async startStream() { manager.attachSource(camera.serial, source, () => "h265"); },
+    async stopStream() {},
+  }, 5, undefined, createViewer, createSnapshot, 30_000, () => now);
+  const response = new PassThrough() as unknown as ServerResponse;
+  response.writeHead = (() => response) as ServerResponse["writeHead"];
+  await manager.addClient(camera.serial, response);
+  source.write(Buffer.concat([
+    annexBNal(0x40, 1, 12),
+    annexBNal(0x42, 1, 1),
+    annexBNal(0x44, 1, 0xc0),
+    annexBNal(0x26, 1, 0x80, 1),
+  ]));
+  for (const version of [2, 3, 4]) {
+    now += 6_000;
+    source.write(annexBNal(0x26, 1, 0x80, version));
+  }
+  assert.equal(viewerProcesses.length, 3, "the initial decoder may be replaced at most twice");
+  await manager.close();
 });
 
 test("keeps process pipe failures recoverable while an H.265 viewer is stopping", async () => {
