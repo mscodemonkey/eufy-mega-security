@@ -5,8 +5,90 @@ id: t8220
 name: Video Doorbell Slim (Battery, 1080p, T8220)
 category: doorbell
 integration:
-  status: recognised
+  status: ready_to_test
+  handler: camera
 models:
   - T8220
-device_type: null
-capabilities: {}
+device_type: 16
+capabilities:
+  readable:
+    battery_level:
+      connections:
+        T8010:
+          status: reported
+          tested_on: 2026-10-08
+          tested_by: erikas-venckus
+          notes: Inventory reports the value, but its accuracy is not yet confirmed.
+      read:
+        parameter: 1101
+    battery_charging:
+      connections:
+        T8010:
+          status: reported
+          tested_on: 2026-10-08
+          tested_by: erikas-venckus
+          notes: Inventory reports the value, but its accuracy is not yet confirmed.
+      read:
+        parameter: 2111
+    battery_health:
+      connections:
+        T8010:
+          status: reported
+          tested_on: 2026-10-08
+          tested_by: erikas-venckus
+          notes: Inventory reports the value, but its accuracy is not yet confirmed.
+      read:
+        parameter: 1198
+    battery_temperature:
+      connections:
+        T8010:
+          status: reported
+          tested_on: 2026-10-08
+          tested_by: erikas-venckus
+          notes: Inventory reports the value, but its accuracy is not yet confirmed.
+      read:
+        parameter: 1138
+  controls:
+    night_vision:
+      connections:
+        T8010:
+          status: reported
+          tested_on: 2026-10-08
+          tested_by: erikas-venckus
+          notes: Inventory reports the setting, but readback and physical behaviour are not yet confirmed.
+      read:
+        parameter: 1277
+      write:
+        command: 1277
+      values:
+        "0": "Off"
+        "1": "Infrared"
+        "2": "Spotlight"
+  media:
+    live_view:
+      connections:
+        T8010:
+          status: reported
+          tested_on: 2026-10-08
+          tested_by: erikas-venckus
+          notes: The peer route is ready, but a first frame is not confirmed.
+    snapshot:
+      connections:
+        T8010:
+          status: reported
+          tested_on: 2026-10-08
+          tested_by: erikas-venckus
+          notes: The peer route is ready, but a fresh snapshot is not confirmed.
+  events:
+    motion:
+      connections:
+        T8010:
+          status: declared
+    person:
+      connections:
+        T8010:
+          status: declared
+    doorbell_press:
+      connections:
+        T8010:
+          status: declared
