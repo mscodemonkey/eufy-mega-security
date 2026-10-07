@@ -171,6 +171,7 @@ test("admits the EufyCam E40 camera type", () => {
 test("admits catalogued cameras with ready routes at their evidence status", () => {
   const reportedModels = [
     { model: "T8111", deviceType: 1, status: "ready_to_test" },
+    { model: "T8220", deviceType: 16, status: "ready_to_test" },
     { model: "T8123", deviceType: 61, status: "supported" },
     { model: "T8130", deviceType: 32, status: "ready_to_test" },
     { model: "T8131", deviceType: 33, status: "ready_to_test" },
