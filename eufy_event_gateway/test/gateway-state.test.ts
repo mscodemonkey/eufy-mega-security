@@ -54,6 +54,19 @@ test("publishes reported settings and clears them when fresh inventory no longer
   assert.equal(state.getCamera(camera.serial).reportedSettings, null);
 });
 
+test("reports tracking preferences independently from control admission and clears missing reads", () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  assert.equal(state.getCamera(camera.serial).aiTrackingEnabled, null);
+  state.registerCamera({ ...camera, aiTrackingEnabled: true, aiTrackingControlSupported: false });
+  assert.equal(state.getCamera(camera.serial).aiTrackingEnabled, true);
+  assert.equal(state.getCamera(camera.serial).aiTrackingControlSupported, false);
+  state.registerCamera({ ...camera, aiTrackingEnabled: false });
+  assert.equal(state.getCamera(camera.serial).aiTrackingEnabled, false);
+  state.registerCamera(camera);
+  assert.equal(state.getCamera(camera.serial).aiTrackingEnabled, null);
+});
+
 test("retains a recognized person after the transient sensor clears", () => {
   const state = new GatewayState();
   state.registerCamera(camera);

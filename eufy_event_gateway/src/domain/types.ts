@@ -174,6 +174,9 @@ export interface CameraState {
   readonly cameraSirenControlSupported: boolean;
   readonly presetPositionControlSupported: boolean;
   readonly aiTrackingControlSupported: boolean;
+
+  /** Inventory-reported tracking preference, or null when the device supplies no verified value. */
+  readonly aiTrackingEnabled?: boolean | null;
   readonly autoCruiseControlSupported: boolean;
   readonly motionDetected: boolean;
   readonly personDetected: boolean;

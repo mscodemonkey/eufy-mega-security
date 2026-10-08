@@ -491,6 +491,7 @@ export class GatewayState extends EventEmitter {
       cameraSirenControlSupported: camera.identity.cameraSirenControlSupported ?? false,
       presetPositionControlSupported: camera.identity.presetPositionControlSupported ?? false,
       aiTrackingControlSupported: camera.identity.aiTrackingControlSupported ?? false,
+      aiTrackingEnabled: camera.identity.aiTrackingEnabled ?? null,
       autoCruiseControlSupported: camera.identity.autoCruiseControlSupported ?? false,
       motionDetected: camera.motionDetected,
       personDetected: camera.personDetected,

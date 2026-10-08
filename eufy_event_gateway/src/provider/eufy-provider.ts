@@ -299,6 +299,16 @@ export function supportsStandalonePanControl(
     && Boolean(device.adminUserId) && routeReady;
 }
 
+/** Admit SoloCam tracking only on its physically tested direct route with a known preference. */
+export function supportsStandaloneAiTracking(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId" | "reads">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return supportsStandalonePanControl(device, route, routeReady)
+    && typeof device.reads.aiTrackingEnabled === "boolean";
+}
+
 /** Return whether hardware has proven this model/type's preset query contract. */
 export function supportsPresetPositions(
   device: Pick<MegaInventoryDevice, "model"> & Partial<Pick<MegaInventoryDevice, "deviceType">>,
@@ -1547,7 +1557,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       presetPositionControlSupported: t817lControlsSupported || soloCamPanControlsSupported,
-      aiTrackingControlSupported: t817lControlsSupported,
+      aiTrackingControlSupported: t817lControlsSupported || supportsStandaloneAiTracking(
+        device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+      ),
       aiTrackingEnabled: device.reads.aiTrackingEnabled ?? null,
       autoCruiseControlSupported: t817lControlsSupported,
       battery: batteryState(device),
@@ -1659,9 +1671,27 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     });
   }
 
-  /** Send the reversible AI-tracking action proven on local hardware. */
+  /** Write verified tracking, requiring fresh cloud confirmation for standalone SoloCam preferences. */
   setCameraAiTracking(serial: string, enabled: boolean): Promise<void> {
-    return this.#queuePanControl(serial, "ai_tracking", (session) => session.writeAiTracking(enabled));
+    return this.#queuePanControl(serial, "ai_tracking", async (session) => {
+      await session.writeAiTracking(enabled);
+      const device = this.#devices.get(serial);
+      if (device?.model !== "T8171" || device.deviceType !== 88) return;
+
+      // Pre-write device-info overrides must not satisfy a fresh cloud confirmation.
+      const cached = this.#liveDeviceReads.get(serial);
+      if (cached) {
+        const { aiTrackingEnabled: _stale, ...remaining } = cached;
+        this.#liveDeviceReads.set(serial, remaining);
+      }
+      const readDeadline = Date.now() + 65_000;
+      for (let attempt = 0; attempt < 13 && Date.now() < readDeadline; attempt += 1) {
+        await this.#refreshInventoryReads();
+        if (this.#devices.get(serial)?.reads.aiTrackingEnabled === enabled) return;
+        await delay(5_000);
+      }
+      throw new Error("Camera AI tracking write was not confirmed by readback");
+    });
   }
 
   /** Send the reversible automatic-cruise action proven on local hardware. */
@@ -1684,8 +1714,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (action === "auto_cruise" && !device.model.toUpperCase().startsWith("T817L")) {
         throw new Error("Automatic cruise has not been verified for this camera");
       }
-      if (action === "ai_tracking" && device.model === "T8171") {
-        throw new Error("SoloCam AI tracking still requires independent state validation");
+      if (action === "ai_tracking" && device.model === "T8171"
+        && !supportsStandaloneAiTracking(device, ppcsStreamRoute(device, this.#devices),
+          isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys())))) {
+        throw new Error("SoloCam AI tracking requires a known preference and ready direct route");
       }
       const active = this.#ppcsStreams.get(serial);
       const route = ppcsStreamRoute(device, this.#devices);
