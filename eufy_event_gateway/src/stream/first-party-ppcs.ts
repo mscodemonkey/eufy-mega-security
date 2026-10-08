@@ -542,6 +542,18 @@ export function buildSoloCamMotionDetectionPayload(enabled: boolean, key: Buffer
   return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
 }
 
+/** Protect a native SoloCam preset or tracking request on its channel-zero control envelope. */
+export function buildSoloCamPanControlPayload(
+  command: 6034 | 6035 | 6016,
+  value: number | undefined,
+  key: Buffer,
+  sequence: number,
+  transaction: number,
+): Buffer {
+  const body = buildCameraControlQueryValue(command, buildSoloCamPanControlData(command, value, transaction));
+  return rawPayload(encryptLevel2(Buffer.from(body), key, sequence), 0, 8, [8, 0], 0);
+}
+
 /**
  * Encrypt one standalone JSON control value in Eufy's level-one string envelope.
  *
@@ -927,6 +939,26 @@ export function buildCameraControlQueryValue(
   return JSON.stringify({ commandType, data });
 }
 
+/** Build native SoloCam pan-control data, keeping query, slot and tracking meanings distinct. */
+export function buildSoloCamPanControlData(
+  command: 6034 | 6035 | 6016,
+  value?: number,
+  transaction = Date.now(),
+): Readonly<Record<string, unknown>> {
+  if (!Number.isSafeInteger(transaction) || !/^\d{13}$/.test(`${transaction}`)) {
+    throw new Error("SoloCam pan-control transaction requires epoch milliseconds");
+  }
+  if (command === 6034) {
+    if (value !== undefined) throw new Error("Preset query does not accept a slot");
+    return { transaction: `${transaction}` };
+  }
+  if (command !== 6035 && command !== 6016) throw new Error("Unsupported SoloCam pan control");
+  if (!Number.isSafeInteger(value) || value! < 0 || value! > (command === 6016 ? 1 : 9)) {
+    throw new Error("Invalid SoloCam pan-control value");
+  }
+  return { value, transaction: `${transaction}` };
+}
+
 /** Build the complete T817L AI-tracking payload observed in the official app. */
 export function buildAiTrackingControlData(
   enabled: boolean,
@@ -1187,7 +1219,7 @@ export class FirstPartyPpcsSession {
     this.#heartbeat = setInterval(() => {
       if (!this.#remote) return;
       this.#send(REQ.ping, Buffer.alloc(0), this.#remote);
-      if (this.#options.purpose === "control") return;
+      if (this.#options.purpose === "control" && this.stats.mediaStartAttempts === 0) return;
       if (
         this.#options.homeBaseAttached
         && this.#level2Key
@@ -1260,8 +1292,8 @@ export class FirstPartyPpcsSession {
   }
 
   /** Read the camera parameter table without changing device state. */
-  readCameraInfo(): Promise<readonly PpcsCameraInfoParam[]> {
-    if (this.#options.purpose !== "control") {
+  async readCameraInfo(): Promise<readonly PpcsCameraInfoParam[]> {
+    if (this.#options.purpose !== "control" && !this.#usesSoloCamPanControl()) {
       return Promise.reject(new Error("Camera-info refresh requires a control session"));
     }
     if (!this.#remote) return Promise.reject(new Error("Camera-info session is not connected"));
@@ -1271,6 +1303,7 @@ export class FirstPartyPpcsSession {
     if (this.#pendingCameraInfo) {
       return Promise.reject(new Error("Camera-info refresh is already in progress"));
     }
+    if (this.#options.cameraModel === "T8171") await this.#waitForLevel2Key();
     return new Promise<readonly PpcsCameraInfoParam[]>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#pendingCameraInfo = null;
@@ -1458,22 +1491,34 @@ export class FirstPartyPpcsSession {
    * contract was observed and does not imply that the camera has no presets.
    */
   async queryPresetPositions(): Promise<readonly CameraPresetPosition[]> {
-    const payload = await this.#queryControlPayload(6034, { value: 0 });
+    const payload = await this.#queryControlPayload(6034, this.#usesSoloCamPanControl()
+      ? buildSoloCamPanControlData(6034) : { value: 0 });
     return parseCameraPresetPositions(payload);
   }
 
-  /** Move once to a stored T817L preset without retrying an ambiguous action. */
+  /**
+   * Move to a stored position using the model's native absolute command.
+   * The SoloCam requires decoded live video before travel. An owned control
+   * connection drains temporary video; an existing viewer retains its output.
+   */
   async selectPresetPosition(index: number): Promise<void> {
     if (!Number.isSafeInteger(index) || index < 0 || index > 9) {
       throw new Error("Camera preset index must be between 0 and 9");
     }
-    await this.#sendControlPayload(6035, { value: index });
-    await delay(500);
+    const soloCam = this.#usesSoloCamPanControl();
+    if (soloCam) await this.#wakeSoloCamPanMotor();
+    await this.#sendControlPayload(6035,
+      soloCam ? buildSoloCamPanControlData(6035, index) : { value: index });
+
+    // Battery-camera travel can outlast the request's transport drain.
+    await delay(soloCam ? 12_000 : 500);
+    if (this.#closed) throw new Error("Camera connection closed during preset movement");
   }
 
-  /** Enable or disable T817L AI tracking using the app-confirmed command shape. */
+  /** Enable or disable AI tracking using this model's app-confirmed command shape. */
   async writeAiTracking(enabled: boolean): Promise<void> {
-    await this.#sendControlPayload(6016, buildAiTrackingControlData(enabled));
+    await this.#sendControlPayload(6016, this.#usesSoloCamPanControl()
+      ? buildSoloCamPanControlData(6016, enabled ? 1 : 0) : buildAiTrackingControlData(enabled));
     await delay(500);
   }
 
@@ -1963,12 +2008,12 @@ export class FirstPartyPpcsSession {
     command: number,
     data: Readonly<Record<string, unknown>>,
   ): Promise<Record<string, unknown>> {
-    if (this.#options.purpose !== "control") throw new Error("Camera query requires a control session");
+    if (this.#options.purpose !== "control" && !this.#usesSoloCamPanControl()) throw new Error("Camera query requires a control session");
     if (!this.#remote) throw new Error("Camera control session is not connected");
     if (this.#pendingControlQuery || this.#pendingControl) {
       throw new Error("Camera already has a control operation in flight");
     }
-    if (this.#options.homeBaseAttached) await this.#waitForLevel2Key();
+    if (this.#options.homeBaseAttached || this.#usesSoloCamPanControl()) await this.#waitForLevel2Key();
     let pendingQuery: PendingControlQuery | undefined;
     const response = new Promise<Record<string, unknown>>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -1978,6 +2023,10 @@ export class FirstPartyPpcsSession {
       pendingQuery = { command, resolve, reject, timer };
       this.#pendingControlQuery = pendingQuery;
     });
+
+    // A peer can reject or close while the asynchronous send is still draining.
+    // Observe that early rejection now and propagate it through the awaited response.
+    void response.catch(() => undefined);
     try {
       await this.#sendControlPayload(command, data);
     } catch (error) {
@@ -1992,14 +2041,59 @@ export class FirstPartyPpcsSession {
     return response;
   }
 
-  /** Send one JSON control payload after the camera route is ready. */
+  /** Reject untested SoloCam topologies before selecting its native pan-control framing. */
+  #usesSoloCamPanControl(): boolean {
+    if (this.#options.cameraModel !== "T8171") return false;
+    if (this.#options.homeBaseAttached || this.#options.channel !== 0) {
+      throw new Error("SoloCam pan control requires its verified standalone channel-zero route");
+    }
+    return true;
+  }
+
+  /** Require decoded native video before moving the standalone battery camera's motor. */
+  async #wakeSoloCamPanMotor(): Promise<void> {
+    if (!this.#remote || this.#closed) {
+      throw new Error("SoloCam preset wake requires a connected session");
+    }
+    await this.#waitForLevel2Key();
+    if (this.#options.purpose !== "control") {
+      if (this.stats.videoOutputFrames === 0) throw new Error("SoloCam viewer has not confirmed a live camera wake");
+      return;
+    }
+    this.output.resume();
+    this.#startOwnMedia();
+    const deadline = Date.now() + CONTROL_TIMEOUT_MILLISECONDS;
+    while (!this.#closed && this.stats.videoOutputFrames === 0 && Date.now() < deadline) {
+      await delay(50);
+    }
+    if (this.#closed || this.stats.videoOutputFrames === 0) {
+      throw new Error("SoloCam preset movement could not confirm a live camera wake");
+    }
+  }
+
+  /** Send one JSON control payload after the model's negotiated camera route is ready. */
   async #sendControlPayload(
     command: number,
     data: Readonly<Record<string, unknown>>,
   ): Promise<void> {
-    if (this.#options.purpose !== "control") throw new Error("Camera control requires a control session");
+    if (this.#options.purpose !== "control" && !this.#usesSoloCamPanControl()) throw new Error("Camera control requires a control session");
     if (!this.#remote) throw new Error("Camera control session is not connected");
-    if (this.#options.homeBaseAttached) await this.#waitForLevel2Key();
+    const soloCam = this.#usesSoloCamPanControl();
+    if (this.#options.homeBaseAttached || soloCam) await this.#waitForLevel2Key();
+    if (soloCam) {
+
+      // Native absolute writes tolerate retransmission. Drain the last packet
+      // before the owning control session closes, as with the verified motion switch.
+      for (let transmission = 0; transmission < 3; transmission += 1) {
+        this.#sendCommand(1700, buildSoloCamPanControlPayload(
+          command as 6034 | 6035 | 6016,
+          typeof data.value === "number" ? data.value : undefined,
+          this.#level2Key!, this.#level2Seq++, Number(data.transaction),
+        ));
+        await delay(200);
+      }
+      return;
+    }
     const value = buildCameraControlQueryValue(command, data);
     if (this.#options.homeBaseAttached) {
       const sequence = this.#level2Seq++;

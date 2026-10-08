@@ -116,6 +116,9 @@ export interface MegaInventoryReads {
   readonly speakerVolume?: number;
   readonly enabled?: boolean;
   readonly motionDetectionEnabled?: boolean;
+
+  /** Exact SoloCam tracking enable bit, independent of app-side cloud bookkeeping. */
+  readonly aiTrackingEnabled?: boolean;
   readonly guardMode?: number;
   readonly autoNightVisionEnabled?: boolean;
   readonly nightVisionMode?: number;
@@ -263,9 +266,22 @@ export function supportsStandaloneMotionDetection(
     && device.reads.motionDetectionEnabled !== undefined && Boolean(device.adminUserId) && routeReady;
 }
 
-/** Return whether live hardware has proven the model's preset query contract. */
-export function supportsPresetPositions(device: Pick<MegaInventoryDevice, "model">): boolean {
-  return device.model.toUpperCase().startsWith("T817L");
+/** Admit the SoloCam's pan actions only through its hardware-tested, self-owned direct route. */
+export function supportsStandalonePanControl(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return device.model === "T8171" && device.deviceType === 88 && device.channel === 0
+    && route?.homeBaseAttached === false && route.peer.serial === device.serial
+    && Boolean(device.adminUserId) && routeReady;
+}
+
+/** Return whether hardware has proven this model/type's preset query contract. */
+export function supportsPresetPositions(
+  device: Pick<MegaInventoryDevice, "model"> & Partial<Pick<MegaInventoryDevice, "deviceType">>,
+): boolean {
+  return device.model.toUpperCase().startsWith("T817L") || (device.model === "T8171" && device.deviceType === 88);
 }
 
 /** Safe, grouped inventory evidence suitable for copied support logs. */
@@ -322,7 +338,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #guardModeOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #nightVisionOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #lightOperations = new Map<string, Promise<void>>();
-  readonly #t817lControlOperations = new Map<string, Promise<void>>();
+  readonly #panControlOperations = new Map<string, Promise<void>>();
   readonly #pendingSensorMotionCloudConfirmations = new Set<string>();
   readonly #liveDeviceReads = new Map<string, MegaInventoryReads>();
   readonly #liveDeviceParamTypes = new Map<string, readonly number[]>();
@@ -649,6 +665,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         homeBaseAttached: false,
         purpose: "control",
         maxSeconds: 40,
+        resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
       });
       let params;
       try {
@@ -879,8 +896,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#cameraOperations.clear();
     await Promise.allSettled(this.#lightOperations.values());
     this.#lightOperations.clear();
-    await Promise.allSettled(this.#t817lControlOperations.values());
-    this.#t817lControlOperations.clear();
+    await Promise.allSettled(this.#panControlOperations.values());
+    this.#panControlOperations.clear();
     this.#pendingSensorMotionCloudConfirmations.clear();
     this.#liveDeviceReads.clear();
     this.#liveDeviceParamTypes.clear();
@@ -1271,11 +1288,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #cameraIdentity(device: MegaInventoryDevice): CameraIdentity {
     const dskPeerSerials = new Set(this.#dskKeys.keys());
     const route = ppcsStreamRoute(device, this.#devices);
-    const t817lControlsSupported = supportsPresetPositions(device)
+    const t817lControlsSupported = device.model.toUpperCase().startsWith("T817L")
       && route?.homeBaseAttached === true
       && device.channel !== null
       && device.adminUserId !== null
       && isPpcsRouteReady(device, this.#devices, dskPeerSerials);
+    const soloCamPanControlsSupported = supportsStandalonePanControl(
+      device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+    );
     return {
       serial: device.serial,
       name: device.name,
@@ -1381,8 +1401,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.channel !== null
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
-      presetPositionControlSupported: t817lControlsSupported,
+      presetPositionControlSupported: t817lControlsSupported || soloCamPanControlsSupported,
       aiTrackingControlSupported: t817lControlsSupported,
+      aiTrackingEnabled: device.reads.aiTrackingEnabled ?? null,
       autoCruiseControlSupported: t817lControlsSupported,
       battery: batteryState(device),
     };
@@ -1470,20 +1491,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
-  /** Query privacy-safe preset occupancy over the camera's live HomeBase route. */
+  /** Serialize a fresh preset query with movement and tracking on the verified camera route. */
   async getCameraPresetPositions(serial: string): Promise<readonly CameraPresetPosition[]> {
-    const device = this.#devices.get(serial);
-    if (!device || !isSupportedMegaCamera(device) || !supportsPresetPositions(device)) {
-      throw new Error("Camera preset positions are not supported for this camera");
-    }
-    await this.stopStream(serial);
-    const session = await this.#t817lControlSession(device);
-    try {
-      await session.start();
-      return await session.queryPresetPositions();
-    } finally {
-      session.close();
-    }
+    let positions: readonly CameraPresetPosition[] = [];
+    await this.#queuePanControl(serial, "preset_query", async (session) => {
+      positions = await session.queryPresetPositions();
+    });
+    return positions;
   }
 
   /** Move once to an enabled stored position after refreshing slot occupancy. */
@@ -1491,7 +1505,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (!Number.isSafeInteger(index) || index < 0 || index > 9) {
       return Promise.reject(new Error("Camera preset index must be between 0 and 9"));
     }
-    return this.#queueT817LControl(serial, "preset_position", async (session) => {
+    return this.#queuePanControl(serial, "preset_position", async (session) => {
       const positions = await session.queryPresetPositions();
       if (!positions.some((position) => position.index === index && position.enabled)) {
         throw new Error("Camera preset position is not enabled");
@@ -1502,28 +1516,44 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Send the reversible AI-tracking action proven on local hardware. */
   setCameraAiTracking(serial: string, enabled: boolean): Promise<void> {
-    return this.#queueT817LControl(serial, "ai_tracking", (session) => session.writeAiTracking(enabled));
+    return this.#queuePanControl(serial, "ai_tracking", (session) => session.writeAiTracking(enabled));
   }
 
   /** Send the reversible automatic-cruise action proven on local hardware. */
   setCameraAutoCruise(serial: string, enabled: boolean): Promise<void> {
-    return this.#queueT817LControl(serial, "auto_cruise", (session) => session.writeAutoCruise(enabled));
+    return this.#queuePanControl(serial, "auto_cruise", (session) => session.writeAutoCruise(enabled));
   }
 
-  /** Serialize T817L actions and release any live session before taking control. */
-  #queueT817LControl(
+  /** Serialize verified pan actions and release any live session before taking control. */
+  #queuePanControl(
     serial: string,
     action: string,
     operation: (session: FirstPartyPpcsSession) => Promise<void>,
   ): Promise<void> {
-    const previous = this.#t817lControlOperations.get(serial) ?? Promise.resolve();
+    const previous = this.#panControlOperations.get(serial) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(async () => {
       const device = this.#devices.get(serial);
       if (!device || !isSupportedMegaCamera(device) || !supportsPresetPositions(device)) {
-        throw new Error("T817L pan and tracking controls are not supported for this camera");
+        throw new Error("Pan and tracking controls are not supported for this camera");
+      }
+      if (action === "auto_cruise" && !device.model.toUpperCase().startsWith("T817L")) {
+        throw new Error("Automatic cruise has not been verified for this camera");
+      }
+      if (action === "ai_tracking" && device.model === "T8171") {
+        throw new Error("SoloCam AI tracking still requires independent state validation");
+      }
+      const active = this.#ppcsStreams.get(serial);
+      const route = ppcsStreamRoute(device, this.#devices);
+      if (active && supportsStandalonePanControl(device, route, true)
+        && active.stats.closeReason === "open" && active.stats.camId > 0
+        && active.stats.videoOutputFrames > 0) {
+
+        // Native pan controls share the decoded viewer connection and its owner.
+        await operation(active);
+        return;
       }
       await this.stopStream(serial);
-      const session = await this.#t817lControlSession(device);
+      const session = await this.#panControlSession(device);
       try {
         await session.start();
         await operation(session);
@@ -1531,23 +1561,26 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         session.close();
       }
     }).catch((error: unknown) => {
-      logger.warn("camera_t817l_control_failed", `T817L camera control failed: action=${action} error=${safeError(error)}`);
+      logger.warn("camera_t817l_control_failed", `Camera pan control failed: action=${action} error=${safeError(error)}`);
       throw error;
     });
-    this.#t817lControlOperations.set(serial, current);
+    this.#panControlOperations.set(serial, current);
     void current.finally(() => {
-      if (this.#t817lControlOperations.get(serial) === current) this.#t817lControlOperations.delete(serial);
+      if (this.#panControlOperations.get(serial) === current) this.#panControlOperations.delete(serial);
     }).catch(() => undefined);
     return current;
   }
 
-  /** Build one control session for the hardware-verified T817L action set. */
-  async #t817lControlSession(device: MegaInventoryDevice): Promise<FirstPartyPpcsSession> {
+  /** Build an attached T817L or self-owned standalone SoloCam control session. */
+  async #panControlSession(device: MegaInventoryDevice): Promise<FirstPartyPpcsSession> {
     const route = ppcsStreamRoute(device, this.#devices);
     const peer = route?.peer;
     const dsk = peer ? await this.#dskKey(peer.serial) : null;
-    if (!route?.homeBaseAttached || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
-      throw new Error("Camera preset positions require a ready HomeBase-attached route");
+    if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId
+      || (route.homeBaseAttached
+        ? !device.model.toUpperCase().startsWith("T817L")
+        : !supportsStandalonePanControl(device, route, true))) {
+      throw new Error("Camera pan controls require a verified ready route");
     }
     return new FirstPartyPpcsSession({
       stationSerial: peer.serial,
@@ -1558,9 +1591,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       channel: device.channel,
       cameraModel: device.model,
       accountId: device.adminUserId,
-      homeBaseAttached: true,
+      homeBaseAttached: route.homeBaseAttached,
       purpose: "control",
-      maxSeconds: 40,
+      maxSeconds: device.model === "T8171" && device.deviceType === 88 ? 60 : 40,
       resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
     });
   }
@@ -2037,6 +2070,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const recordMute = finiteNumber(params.get(1288));
   const soloE30 = deviceType === 88 && model === "T8171";
   const soloAudioRecording = soloE30 ? finiteNumber(params.get(6012)) : null;
+  const soloAiTracking = soloE30 ? finiteNumber(params.get(6016)) : null;
   const speakerVolume = percentage(1230);
 
   // These reads have model-specific evidence. Shared parameter IDs alone do not
@@ -2137,6 +2171,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
     ...(speakerVolume !== undefined ? { speakerVolume } : {}),
     ...(enabled !== undefined ? { enabled } : {}),
     ...(motionSwitch === 0 || motionSwitch === 1 ? { motionDetectionEnabled: motionSwitch === 1 } : {}),
+    ...(soloAiTracking === 0 || soloAiTracking === 1 ? { aiTrackingEnabled: soloAiTracking === 1 } : {}),
     ...(guardMode !== null && [0, 1, 2, 3, 4, 5, 6, 47, 63].includes(guardMode) ? { guardMode } : {}),
     ...(autoNightVision === 0 || autoNightVision === 1 ? { autoNightVisionEnabled: autoNightVision === 1 } : {}),
     ...(nightVisionMode === 0 || nightVisionMode === 1 || nightVisionMode === 2

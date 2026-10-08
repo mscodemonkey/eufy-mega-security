@@ -22,6 +22,8 @@ import {
   buildStandaloneCameraLightBody,
   buildStandaloneLevel2LiveStartPayload,
   buildSoloCamMotionDetectionPayload,
+  buildSoloCamPanControlData,
+  buildSoloCamPanControlPayload,
   buildStandaloneGuardModeValue,
   buildStandaloneLiveStartPayload,
   buildTimedCameraLightControlValue,
@@ -112,6 +114,35 @@ test("builds the app-confirmed T817L pan and tracking payloads", () => {
   });
   assert.equal(buildAiTrackingControlData(false, 1_234).value, 0);
   assert.throws(() => buildAiTrackingControlData(true, -1), /non-negative whole number/);
+});
+
+test("keeps native SoloCam pan controls distinct from the attached T817L payloads", () => {
+  const transaction = 1_791_490_000_000;
+  assert.deepEqual(buildSoloCamPanControlData(6034, undefined, transaction), { transaction: `${transaction}` });
+  assert.deepEqual(JSON.parse(buildCameraControlQueryValue(6035, buildSoloCamPanControlData(6035, 1, transaction))), {
+    commandType: 6035, data: { value: 1, transaction: `${transaction}` },
+  });
+  for (const value of [0, 1]) {
+    assert.deepEqual(buildSoloCamPanControlData(6016, value, transaction), { value, transaction: `${transaction}` });
+  }
+  assert.throws(() => buildSoloCamPanControlData(6034, 0, transaction), /does not accept/);
+  for (const value of [-1, 10, 1.5, undefined]) assert.throws(() => buildSoloCamPanControlData(6035, value, transaction), /Invalid/);
+  assert.throws(() => buildSoloCamPanControlData(6016, 2, transaction), /Invalid/);
+  assert.throws(() => buildSoloCamPanControlData(6016, 1, 1791490000), /epoch milliseconds/);
+});
+
+test("authenticates native SoloCam preset movement on the control rather than media envelope", () => {
+  const key = Buffer.alloc(32, 7);
+  const payload = buildSoloCamPanControlPayload(6035, 1, key, 257, 1791490000000);
+  assert.deepEqual(payload.subarray(4, 10), Buffer.from([8, 0, 0, 8, 0, 0]));
+  const encrypted = payload.subarray(10);
+  const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(16, 28));
+  decipher.setAAD(Buffer.from("eufy security"));
+  decipher.setAuthTag(encrypted.subarray(0, 16));
+  const clear = Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
+  assert.deepEqual(JSON.parse(clear.toString("utf8")), {
+    commandType: 6035, data: { value: 1, transaction: "1791490000000" },
+  });
 });
 
 test("builds the direct standalone-camera guard-mode value", () => {

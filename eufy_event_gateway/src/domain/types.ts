@@ -325,6 +325,9 @@ export interface CameraIdentity {
   readonly cameraSirenControlSupported?: boolean;
   readonly presetPositionControlSupported?: boolean;
   readonly aiTrackingControlSupported?: boolean;
+
+  /** Model-qualified tracking state; null means the camera has not reported a valid enable bit. */
+  readonly aiTrackingEnabled?: boolean | null;
   readonly autoCruiseControlSupported?: boolean;
   readonly battery?: BatteryState | null;
 }

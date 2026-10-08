@@ -26,6 +26,7 @@ import {
   homeBaseReadLogSummary,
   supportsMotionDetectionControlRoute,
   supportsStandaloneMotionDetection,
+  supportsStandalonePanControl,
   genericSecurityDetectionKinds,
   initialHomeBaseState,
   isDiscoveredHomeBase,
@@ -85,6 +86,15 @@ test("secondary firmware and update flags stay camera-owned and preserve unknown
     assert.equal(devices[2]?.firmwareSubVersion, null);
     assert.equal(devices[2]?.firmwareUpdateAvailable, null);
   }
+});
+
+test("tracking reads require the exact SoloCam model and a canonical enable bit", () => {
+  const params = [{ param_type: 6016, param_value: "1" }];
+  assert.equal(safeInventoryReads(params, 88, "T8171").aiTrackingEnabled, true);
+  assert.equal(safeInventoryReads([{ param_type: 6016, param_value: "0" }], 88, "T8171").aiTrackingEnabled, false);
+  assert.equal(safeInventoryReads(params, 88, "T817L").aiTrackingEnabled, undefined);
+  assert.equal(safeInventoryReads(params, 87, "T8171").aiTrackingEnabled, undefined);
+  assert.equal(safeInventoryReads([{ param_type: 6016, param_value: "2" }], 88, "T8171").aiTrackingEnabled, undefined);
 });
 
 test("inventory refresh updates firmware metadata without replacing live routing", () => {
@@ -350,6 +360,8 @@ test("limits stored-position queries to the hardware-proven T817L family", () =>
   assert.equal(supportsPresetPositions({ model: "T817L" }), true);
   assert.equal(supportsPresetPositions({ model: "T817L121" }), true);
   assert.equal(supportsPresetPositions({ model: "T8171" }), false);
+  assert.equal(supportsPresetPositions({ model: "T8171", deviceType: 88 }), true);
+  assert.equal(supportsPresetPositions({ model: "T8171", deviceType: 10031 }), false);
   assert.equal(supportsPresetPositions({ model: "T8417" }), false);
 });
 
@@ -1481,4 +1493,17 @@ test("SoloCam motion eligibility rejects neighbouring models and unowned or unre
   }
   assert.equal(supportsStandaloneMotionDetection(device, { ...route, homeBaseAttached: true }, true), false);
   assert.equal(supportsStandaloneMotionDetection(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
+});
+
+test("SoloCam pan eligibility admits only the tested model, type and owned standalone channel", () => {
+  const device = { serial: "camera", model: "T8171", deviceType: 88, channel: 0, adminUserId: "fixture-admin" };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [{ device_sn: "camera", device_model: "T8171", device_type: 88 }] })[0]! };
+  assert.equal(supportsStandalonePanControl(device, route, true), true);
+  assert.equal(supportsStandalonePanControl(device, route, false), false);
+  assert.equal(supportsStandalonePanControl(device, null, true), false);
+  for (const change of [{ model: "T817L" }, { model: "T8171X" }, { deviceType: 10031 }, { channel: 1 }, { adminUserId: null }]) {
+    assert.equal(supportsStandalonePanControl({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsStandalonePanControl(device, { ...route, homeBaseAttached: true }, true), false);
+  assert.equal(supportsStandalonePanControl(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
 });
