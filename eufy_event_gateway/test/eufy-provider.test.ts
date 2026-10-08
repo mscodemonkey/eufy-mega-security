@@ -206,6 +206,27 @@ test("recording quality follows the selected mode instead of guessing the first 
   }
 });
 
+test("SoloCam E30 recording quality decodes bounded canonical base64 JSON for its exact model", () => {
+  const read = (value: unknown, type = 88, model = "T8171") => safeInventoryReads([
+    { param_type: 2731, param_value: value },
+  ], type, model).recordingQualityTier;
+  const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64");
+  for (const quality of [1, 2, 3]) {
+    const encoded = encode({ cur_mode: 0, mode_0: { quality }, mode_1: { quality: 3 } });
+    assert.equal(read(encoded), quality);
+    assert.equal(read(encoded, 88, "T8170"), undefined);
+    assert.equal(read(encoded, 48), undefined);
+    assert.equal(read(`${encoded}\n`), undefined);
+  }
+  for (const invalid of ["!!!!", "A===", "e30", "A".repeat(4097), encode([]),
+    encode({ mode_0: { quality: 3 } }), encode({ cur_mode: "0", mode_0: { quality: 3 } }),
+    encode({ cur_mode: 1, mode_0: { quality: 3 } }),
+    encode({ cur_mode: 0, mode_0: { quality: 0 } }),
+    encode({ cur_mode: 0, mode_0: { quality: 4 } })]) {
+    assert.equal(read(invalid), undefined);
+  }
+});
+
 test("solar reads keep a unitless intensity and reject malformed or wrong-family values", () => {
   const read = (intensity: unknown, connected: unknown, model = "T8170") => safeInventoryReads([
     { param_type: 1309, param_value: intensity }, { param_type: 6482, param_value: connected },

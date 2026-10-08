@@ -2233,7 +2233,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const t8171 = deviceType === 88 && /^T8171(?:$|[A-Z0-9-])/.test(model ?? "");
   const t8425 = deviceType === 47 && /^T8425(?:$|[A-Z0-9-])/.test(model ?? "");
   const streamingQuality = qualityFamily || t8171 ? finiteNumber(params.get(1020)) : null;
-  const recordingQuality = qualityFamily ? activeRecordingQuality(params.get(2731)) : undefined;
+  const recordingQuality = qualityFamily || soloE30 ? activeRecordingQuality(params.get(2731)) : undefined;
   const solarIntensity = qualityFamily ? finiteNumber(params.get(1309)) : null;
   const solarConnected = qualityFamily ? finiteNumber(params.get(6482)) : null;
   const notificationStyle = t8171 ? finiteNumber(params.get(6020)) : null;
@@ -2335,12 +2335,17 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   };
 }
 
-/** Decode the explicitly selected recording mode, without guessing a missing mode as zero. */
+/** Decode plain or canonical base64 JSON and require an explicitly selected recording mode. */
 function activeRecordingQuality(value: unknown): number | undefined {
   let parsed: unknown = value;
   if (typeof value === "string") {
     if (value.length > 4096) return undefined;
-    try { parsed = JSON.parse(value); } catch { return undefined; }
+    try { parsed = JSON.parse(value); } catch {
+      if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return undefined;
+      const decoded = Buffer.from(value, "base64");
+      if (decoded.toString("base64") !== value) return undefined;
+      try { parsed = JSON.parse(decoded.toString("utf8")); } catch { return undefined; }
+    }
   }
   if (!isRecord(parsed)) return undefined;
   const mode = parsed.cur_mode;
