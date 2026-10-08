@@ -214,6 +214,19 @@ class GatewayClient:
             raise GatewayClientError("Gateway returned an invalid camera response")
         return camera
 
+    async def set_camera_streaming_quality(
+        self, serial: str, quality: int
+    ) -> dict[str, Any]:
+        """Set live quality independently of recorded-video quality, returning confirmed state."""
+        camera = await self._json(
+            f"/api/cameras/{serial}/streaming-quality",
+            method="POST",
+            payload={"quality": quality},
+        )
+        if not isinstance(camera.get("serial"), str):
+            raise GatewayClientError("Gateway returned an invalid camera response")
+        return camera
+
     async def set_camera_guard_mode(self, serial: str, mode: int) -> dict[str, Any]:
         """Set a standalone camera guard mode and return confirmed state."""
         camera = await self._json(

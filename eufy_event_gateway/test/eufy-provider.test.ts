@@ -27,6 +27,7 @@ import {
   supportsMotionDetectionControlRoute,
   supportsStandaloneMotionDetection,
   supportsStandaloneAudioRecording,
+  supportsStandaloneStreamingQuality,
   supportsStandalonePanControl,
   genericSecurityDetectionKinds,
   initialHomeBaseState,
@@ -1508,6 +1509,20 @@ test("SoloCam audio-recording eligibility rejects neighbouring models and unowne
   }
   assert.equal(supportsStandaloneAudioRecording(device, { ...route, homeBaseAttached: true }, true), false);
   assert.equal(supportsStandaloneAudioRecording(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
+});
+
+test("SoloCam streaming-quality eligibility rejects neighbouring models and unowned or unready routes", () => {
+  const device = { serial: "camera", model: "T8171", deviceType: 88, channel: 0,
+    adminUserId: "fixture-admin", reads: { streamingQualityTier: 0 } };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [{ device_sn: "camera", device_model: "T8171", device_type: 88 }] })[0]! };
+  assert.equal(supportsStandaloneStreamingQuality(device, route, true), true);
+  assert.equal(supportsStandaloneStreamingQuality(device, route, false), false);
+  assert.equal(supportsStandaloneStreamingQuality(device, null, true), false);
+  for (const change of [{ model: "T8170" }, { deviceType: 48 }, { channel: 1 }, { adminUserId: null }, { reads: {} }, { reads: { streamingQualityTier: 4 } }, { reads: { streamingQualityTier: 1.5 } }]) {
+    assert.equal(supportsStandaloneStreamingQuality({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsStandaloneStreamingQuality(device, { ...route, homeBaseAttached: true }, true), false);
+  assert.equal(supportsStandaloneStreamingQuality(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
 });
 
 test("SoloCam pan eligibility admits only the tested model, type and owned standalone channel", () => {

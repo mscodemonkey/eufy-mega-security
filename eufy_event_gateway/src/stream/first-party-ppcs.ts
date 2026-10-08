@@ -551,6 +551,18 @@ export function buildSoloCamAudioRecordingPayload(enabled: boolean, key: Buffer,
   return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
 }
 
+/** Encrypt the native SoloCam streaming-quality wrapper; quality zero restores adaptive streaming. */
+export function buildSoloCamStreamingQualityPayload(
+  quality: number, accountId: string, key: Buffer, sequence: number, now: number,
+): Buffer {
+  if (!Number.isInteger(quality) || quality < 0 || quality > 3) throw new Error("Unsupported SoloCam streaming quality");
+  if (!accountId) throw new Error("Streaming quality requires the camera administrator identity");
+  if (!Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) throw new Error("Streaming quality requires epoch milliseconds");
+  const value = JSON.stringify({ account_id: accountId, cmd: 2730, mChannel: 0, mValue3: 0,
+    payload: { quality, mode: 0, primary_view: 0, channel: 0, transaction: `${now}` } });
+  return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
+}
+
 /** Protect a native SoloCam preset or tracking request on its channel-zero control envelope. */
 export function buildSoloCamPanControlPayload(
   command: 6034 | 6035 | 6016,
@@ -1375,6 +1387,22 @@ export class FirstPartyPpcsSession {
     const transaction = Date.now();
     for (let index = 0; index < 3; index += 1) {
       this.#sendCommand(1700, buildSoloCamAudioRecordingPayload(enabled, this.#level2Key!, this.#level2Seq++, transaction));
+      await delay(200);
+    }
+  }
+
+  /** Send a native quality preference; fresh cloud confirmation remains the caller's responsibility. */
+  async writeStreamingQuality(quality: number): Promise<void> {
+    if (this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId) {
+      throw new Error("Streaming quality requires a connected account-owned control session");
+    }
+    if (this.#options.cameraModel !== "T8171" || this.#options.homeBaseAttached || this.#options.channel !== 0) {
+      throw new Error("Streaming quality requires a standalone SoloCam channel-zero route");
+    }
+    await this.#waitForLevel2Key();
+    const transaction = Date.now();
+    for (let index = 0; index < 3; index += 1) {
+      this.#sendCommand(1350, buildSoloCamStreamingQualityPayload(quality, this.#options.accountId, this.#level2Key!, this.#level2Seq++, transaction));
       await delay(200);
     }
   }

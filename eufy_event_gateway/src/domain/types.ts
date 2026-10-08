@@ -139,6 +139,12 @@ export interface CameraState {
   /** Whether the owned route and known recording baseline admit the verified audio write. */
   readonly audioRecordingControlSupported?: boolean;
 
+  /** Whether the owned ready route and known baseline admit native streaming-quality writes. */
+  readonly streamingQualityControlSupported?: boolean;
+
+  /** Model-specific streaming choices, used only when control admission is true. */
+  readonly streamingQualityModes?: readonly CameraStreamingQualityMode[];
+
   /** Strictly validated camera-owned settings, with unknown values left absent. */
   readonly reportedSettings: CameraReportedSettings | null;
   readonly serial: string;
@@ -197,6 +203,12 @@ export interface CameraState {
 export interface NightVisionMode {
   readonly value: number;
   readonly name: "Off" | "Colour" | "Infrared" | "Infrared on" | "Spotlight";
+}
+
+/** One exact model's app-confirmed streaming quality, independent of recorded-video quality. */
+export interface CameraStreamingQualityMode {
+  readonly value: number;
+  readonly name: "Auto" | "HD (720P)" | "Full HD (1080P)" | "2K";
 }
 
 /** Normalized battery reads exposed only when a device reports each field. */
@@ -301,6 +313,12 @@ export interface CameraIdentity {
 
   /** Optional provider admission for the independently confirmed recorded-audio write. */
   readonly audioRecordingControlSupported?: boolean;
+
+  /** Optional admission for fresh-state-confirmed streaming-quality writes. */
+  readonly streamingQualityControlSupported?: boolean;
+
+  /** Native choices for this model, separate from recorded-video resolution. */
+  readonly streamingQualityModes?: readonly CameraStreamingQualityMode[];
 
   /** Optional read-only configuration projection from fresh device inventory. */
   readonly reportedSettings?: CameraReportedSettings | null;

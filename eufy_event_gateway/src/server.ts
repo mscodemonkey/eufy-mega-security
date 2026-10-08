@@ -180,6 +180,12 @@ export class GatewayServer {
       }
       if (
         request.method === "POST" &&
+        segments[0] === "api" && segments[1] === "cameras" && segments[3] === "streaming-quality" && segments.length === 4
+      ) {
+        return await this.#cameraStreamingQuality(request, segments[2]!, response);
+      }
+      if (
+        request.method === "POST" &&
         segments[0] === "api" && segments[1] === "cameras" && segments[3] === "refresh-capabilities" && segments.length === 4
       ) {
         return await this.#cameraCapabilityRefresh(segments[2]!, response);
@@ -364,6 +370,16 @@ export class GatewayServer {
     const enabled = requiredBoolean(body.enabled);
     if (!this.provider.setCameraAudioRecording) return json(response, 409, { error: "Audio recording control unavailable" });
     const identity = await this.provider.setCameraAudioRecording(serial, enabled);
+    return json(response, 200, this.state.registerCamera(identity));
+  }
+
+  async #cameraStreamingQuality(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    const body = await readJson(request);
+    const quality = requiredInteger(body.quality);
+    if (quality < 0 || quality > 3) throw new SyntaxError("Unsupported streaming quality");
+    if (!this.provider.setCameraStreamingQuality) return json(response, 409, { error: "Streaming quality control unavailable" });
+    const identity = await this.provider.setCameraStreamingQuality(serial, quality);
     return json(response, 200, this.state.registerCamera(identity));
   }
 

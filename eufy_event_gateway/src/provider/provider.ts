@@ -56,6 +56,9 @@ export interface CameraProvider {
   /** Write recorded audio separately from microphone enablement, returning fresh confirmed state. */
   setCameraAudioRecording?(serial: string, enabled: boolean): Promise<CameraIdentity>;
 
+  /** Write a model-reported live quality preference and return fresh confirmed inventory. */
+  setCameraStreamingQuality?(serial: string, quality: number): Promise<CameraIdentity>;
+
   /** Refresh one direct camera's safe reads from its on-device parameter table. */
   refreshCameraCapabilities(serial: string): Promise<CameraIdentity>;
 

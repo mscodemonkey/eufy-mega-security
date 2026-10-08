@@ -277,6 +277,17 @@ export function supportsStandaloneAudioRecording(
     && device.reads.audioRecordingEnabled !== undefined && Boolean(device.adminUserId) && routeReady;
 }
 
+/** Admit the hardware-tested SoloCam streaming-quality write only with an owned, ready direct route and known state. */
+export function supportsStandaloneStreamingQuality(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId" | "reads">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return device.model === "T8171" && device.deviceType === 88 && device.channel === 0
+    && route?.homeBaseAttached === false && route.peer.serial === device.serial
+    && [0, 1, 2, 3].includes(device.reads.streamingQualityTier ?? -1) && Boolean(device.adminUserId) && routeReady;
+}
+
 /** Admit the SoloCam's pan actions only through its hardware-tested, self-owned direct route. */
 export function supportsStandalonePanControl(
   device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">,
@@ -345,6 +356,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #stationOperations = new Map<string, Promise<HomeBaseState>>();
   readonly #cameraOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #cameraCapabilityOperations = new Map<string, Promise<CameraIdentity>>();
+  readonly #streamingQualityOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #audioRecordingOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #motionOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #guardModeOperations = new Map<string, Promise<CameraIdentity>>();
@@ -696,6 +708,67 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#audioRecordingOperations.set(serial, current);
     void current.finally(() => {
       if (this.#audioRecordingOperations.get(serial) === current) this.#audioRecordingOperations.delete(serial);
+    }).catch(() => undefined);
+    return current;
+  }
+
+  /** Stop the current source, write the native quality preference and require fresh inventory confirmation. */
+  setCameraStreamingQuality(serial: string, quality: number): Promise<CameraIdentity> {
+    if (!Number.isInteger(quality) || quality < 0 || quality > 3) return Promise.reject(new Error("Unsupported streaming quality"));
+    const previous = this.#streamingQualityOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
+    const current = previous.catch(() => this.#requireCameraIdentity(serial)).then(async () => {
+      const device = this.#devices.get(serial);
+      if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
+      if (device.deviceType !== 88 || device.model !== "T8171") throw new Error("Streaming quality control is unavailable for this camera");
+      const route = ppcsStreamRoute(device, this.#devices);
+      const peer = route?.peer;
+      const dsk = peer ? await this.#dskKey(peer.serial) : null;
+      if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
+        throw new Error("Camera streaming quality control is unavailable for this camera");
+      }
+      if (route.homeBaseAttached || peer.serial !== device.serial || device.channel !== 0
+        || ![0, 1, 2, 3].includes(device.reads.streamingQualityTier ?? -1)) {
+        throw new Error("SoloCam streaming quality control requires a known standalone channel-zero setting");
+      }
+      await this.stopStream(serial);
+      const session = new FirstPartyPpcsSession({
+        stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
+        localAddress: peer.localAddress,
+        dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
+        accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 40,
+        resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
+      });
+      try {
+        await session.start();
+        await session.writeStreamingQuality(quality);
+      } catch {
+
+        // A failed send can still have changed the setting. Read it before reporting failure.
+      } finally {
+        session.close();
+      }
+
+      // A cached local read predates this write and must not confirm it.
+      const cached = this.#liveDeviceReads.get(serial);
+      if (cached) {
+        const { streamingQualityTier: _stale, ...remaining } = cached;
+        this.#liveDeviceReads.set(serial, remaining);
+      }
+      const readDeadline = Date.now() + 65_000;
+      for (let attempt = 0; attempt < 13 && Date.now() < readDeadline; attempt += 1) {
+        await this.#refreshInventoryReads();
+        const refreshed = this.#devices.get(serial);
+        if (refreshed?.reads.streamingQualityTier === quality) return this.#cameraIdentity(refreshed);
+        await delay(5_000);
+      }
+      throw new Error("Camera streaming quality write was not confirmed by readback");
+    }).catch((error: unknown) => {
+      logger.warn("camera_streaming_quality_failed", `Camera streaming-quality command failed: error=${safeError(error)}`);
+      throw error;
+    });
+    this.#streamingQualityOperations.set(serial, current);
+    void current.finally(() => {
+      if (this.#streamingQualityOperations.get(serial) === current) this.#streamingQualityOperations.delete(serial);
     }).catch(() => undefined);
     return current;
   }
@@ -1416,6 +1489,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.channel === 0
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+      streamingQualityControlSupported: supportsStandaloneStreamingQuality(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
+      streamingQualityModes: supportsStandaloneStreamingQuality(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)) ? [
+        { value: 0, name: "Auto" }, { value: 1, name: "HD (720P)" },
+        { value: 2, name: "Full HD (1080P)" }, { value: 3, name: "2K" },
+      ] : [],
       audioRecordingControlSupported: supportsStandaloneAudioRecording(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
       motionDetectionEnabled: device.reads.motionDetectionEnabled ?? null,
       motionDetectionControlSupported: device.reads.motionDetectionEnabled !== undefined
