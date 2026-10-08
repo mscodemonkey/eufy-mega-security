@@ -154,7 +154,8 @@ test("builds the verified night-vision SET_PAYLOAD body", () => {
     mValue3: 0,
     payload: { channel: 3, night_sion: 2 },
   });
-  assert.throws(() => buildNightVisionBody(3, 3, "account-owner"), /must be 0, 1, or 2/);
+  assert.equal(JSON.parse(buildNightVisionBody(0, 3, "account-owner").toString("utf8")).payload.night_sion, 3);
+  assert.throws(() => buildNightVisionBody(3, 4, "account-owner"), /integer from 0 through 3/);
 });
 
 test("reissues a standalone start during startup or after a media stall", () => {

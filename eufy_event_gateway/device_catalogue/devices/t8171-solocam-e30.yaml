@@ -80,14 +80,16 @@ capabilities:
         T8030:
           status: declared
       read:
-        parameter: 1011
+        parameter: 6040
       write:
-        command: 1011
+        command: 6040
       values:
         "0": "Off"
         "1": "On"
     night_vision:
       connections:
+        direct:
+          status: declared
         T8010:
           status: declared
         T8030:
@@ -99,7 +101,7 @@ capabilities:
       values:
         "0": "Off"
         "1": "Infrared"
-        "2": "Spotlight"
+        "3": "Infrared on"
   media:
     live_view:
       connections:

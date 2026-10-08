@@ -34,8 +34,8 @@ export interface ProviderEvents {
   cameraCapabilities(manifests: readonly CameraCapabilityManifest[]): void;
   deviceCapabilities(manifests: readonly DeviceCapabilityManifest[]): void;
 
-  /** Attach media with a live codec marker populated after the first PPCS frame. */
-  streamStarted(serial: string, video: Readable, codecHint: () => VideoCodec | null): void;
+  /** Attach video and optional verified AAC, owned and ended by the same session. */
+  streamStarted(serial: string, video: Readable, codecHint: () => VideoCodec | null, audio?: Readable): void;
   streamStopped(serial: string): void;
 }
 

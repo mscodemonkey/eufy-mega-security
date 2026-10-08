@@ -133,6 +133,7 @@
           "off": "Fra",
           "colour": "Farve",
           "infrared": "Infrarød",
+          "infrared_on": "Infrarød slået til",
           "spotlight": "Spotlys"
         }
       }

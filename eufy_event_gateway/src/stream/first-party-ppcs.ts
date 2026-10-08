@@ -15,6 +15,7 @@ import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
 import type { CameraPresetPosition, VideoCodec } from "../domain/types.js";
 import { PpcsAccessUnitAssembler } from "./ppcs-access-unit-assembler.js";
+import { decodePpcsAac } from "./ppcs-audio.js";
 import { ppcsCandidatePorts, ppcsLocalLookupTargets } from "./ppcs-lookup.js";
 import { PpcsLookupSocketPool } from "./ppcs-lookup-sockets.js";
 import { decodeSensorContactNotification, type SensorContactObservation } from "./sensor-status-notification.js";
@@ -856,6 +857,9 @@ export interface PpcsCameraOptions {
   /** Select the HomeBase child-channel handshake instead of direct camera media. */
   readonly homeBaseAttached?: boolean;
 
+  /** Provider-validated eligibility for the standalone E30 night-vision command. */
+  readonly standaloneNightVisionSupported?: boolean;
+
   /** Previously observed HomeBase cipher identifier for safe diagnostics. */
   readonly cipherId?: number | null;
 
@@ -974,7 +978,8 @@ export class CameraControlAcknowledgementTimeoutError extends Error {
  * when required, and Annex-B H.264 or H.265 output. It has no dependency on
  * eufy-security-client or the expiring Web Portal PIN.
  *
- * Media sessions emit Annex-B bytes on `output`. Control sessions suppress
+ * Media sessions emit Annex-B bytes on `output` and optional validated AAC on
+ * `audioOutput` for standalone T8171 clip consumers. Control sessions suppress
  * media startup and expose the small set of verified writes below. Some writes
  * wait for a result frame, while the observed fire-and-repeat forms return
  * after their bounded UDP transmissions.
@@ -987,6 +992,9 @@ export class FirstPartyPpcsSession {
 
   /** Ordered Annex-B video bytes; the session ends this stream when it closes. */
   readonly output = new PassThrough();
+
+  /** Optional checked AAC for standalone T8171 clips, ended with the video session. */
+  readonly audioOutput = new PassThrough();
 
   /**
    * Bounded, privacy-safe observations collected over this session.
@@ -1320,19 +1328,35 @@ export class FirstPartyPpcsSession {
   }
 
   /**
-   * Send the verified HomeBase-attached night-vision mode command.
+   * Send the night-vision mode command using the provider-approved peer route.
    *
-   * Modes 0 through 2 are wrapped in command 1350 and sent three times through
-   * the negotiated level-two channel. This observed form has no awaited result
-   * frame, so resolution confirms transmission rather than device readback.
+   * Model-approved modes are wrapped in command 1350 and sent three times through
+   * the negotiated level-two channel for attached cameras. An eligible standalone
+   * E30 uses level one and drains its final transmission before closure. Neither
+   * form awaits a result frame, so resolution confirms transmission only.
    */
   async writeNightVision(mode: number): Promise<void> {
     if (this.#options.purpose !== "control") throw new Error("Night vision control requires a control session");
     if (!this.#remote) throw new Error("Night vision control session is not connected");
-    if (!this.#options.homeBaseAttached) throw new Error("Night vision control requires a HomeBase-attached camera");
+    const standalone = this.#options.homeBaseAttached === false
+      && this.#options.standaloneNightVisionSupported === true
+      && this.#options.cameraModel === "T8171" && this.#options.channel === 0;
+    if (!this.#options.homeBaseAttached && !standalone) throw new Error("Night vision control requires a HomeBase-attached camera");
     const accountId = this.#options.accountId;
     if (!accountId) throw new Error("Night vision control account identity is unavailable");
-    if (!Number.isSafeInteger(mode) || mode < 0 || mode > 2) throw new Error("Night vision mode must be 0, 1, or 2");
+    const maximumMode = this.#options.cameraModel === "T8171" ? 3 : 2;
+    if (!Number.isSafeInteger(mode) || mode < 0 || mode > maximumMode
+      || (this.#options.cameraModel === "T8171" && mode === 2)) {
+      throw new Error("Night vision mode is not supported for this camera model");
+    }
+    if (standalone) {
+      const body = encryptLevel1(buildNightVisionBody(0, mode, accountId), commandKey(this.#options.stationSerial, this.#options.p2pDid));
+      for (let index = 0; index < 3; index += 1) {
+        this.#sendCommand(1350, rawPayload(body, 0, 1, [1, 0], 0));
+        await delay(200);
+      }
+      return;
+    }
     await this.#waitForLevel2Key();
 
     // Replay this idempotent write so the HomeBase radio hop can tolerate a lost UDP frame.
@@ -1481,6 +1505,7 @@ export class FirstPartyPpcsSession {
     if (this.#lookupSockets) this.#lookupSockets.close();
     else this.#socket.close();
     this.output.end();
+    this.audioOutput.end();
   }
 
   /** Send LAN lookup to broadcast and known private targets, then query cloud rendezvous peers. */
@@ -1715,6 +1740,13 @@ export class FirstPartyPpcsSession {
           this.#firstFrameTimer = null;
         }
       }
+    } else if (command === 1301 && signCode === 0 && frameChannel === this.#options.channel
+      && this.#options.cameraModel === "T8171" && !this.#options.homeBaseAttached
+      && this.#options.channel === 0 && this.#options.purpose !== "control") {
+      const audio = decodePpcsAac(payload);
+
+      // Discard audio without consumers instead of retaining an unbounded stream.
+      if (audio && this.audioOutput.listenerCount("data") > 0) this.audioOutput.write(audio);
     } else if (command === 1300 && this.#options.homeBaseAttached) {
       this.stats.foreignVideoFrames++;
     }
@@ -2186,16 +2218,16 @@ export function buildCameraEnableBody(channel: number, value: number, accountId:
 }
 
 /**
- * Build the verified SET_PAYLOAD JSON for an attached-camera night-vision mode.
+ * Build SET_PAYLOAD JSON for the model-approved night-vision value.
  *
- * The outer command targets the HomeBase control channel, while the nested
- * `channel` selects the child camera. `night_sion` retains Eufy's observed
- * field spelling and must not be corrected as an English typo.
+ * The outer control channel and nested camera channel also serve direct channel
+ * zero. T8171 alone uses value 3 for forced infrared; the session enforces that
+ * model restriction. `night_sion` retains Eufy's observed field spelling.
  */
 export function buildNightVisionBody(channel: number, mode: number, accountId: string): Buffer {
   if (!accountId) throw new Error("Night vision control requires a non-empty account identity");
   if (!Number.isSafeInteger(channel) || channel < 0 || channel > 255) throw new Error("Night vision control requires a valid camera channel");
-  if (!Number.isSafeInteger(mode) || mode < 0 || mode > 2) throw new Error("Night vision mode must be 0, 1, or 2");
+  if (!Number.isSafeInteger(mode) || mode < 0 || mode > 3) throw new Error("Night vision mode must be an integer from 0 through 3");
   return Buffer.from(JSON.stringify({
     account_id: accountId,
     cmd: 1277,

@@ -133,6 +133,7 @@
           "off": "Off",
           "colour": "Colour",
           "infrared": "Infrared",
+          "infrared_on": "Infrared on",
           "spotlight": "Spotlight"
         }
       }

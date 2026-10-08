@@ -190,7 +190,7 @@ export interface CameraState {
 /** One camera-specific label for a raw night-vision mode value. */
 export interface NightVisionMode {
   readonly value: number;
-  readonly name: "Off" | "Colour" | "Infrared" | "Spotlight";
+  readonly name: "Off" | "Colour" | "Infrared" | "Infrared on" | "Spotlight";
 }
 
 /** Normalized battery reads exposed only when a device reports each field. */

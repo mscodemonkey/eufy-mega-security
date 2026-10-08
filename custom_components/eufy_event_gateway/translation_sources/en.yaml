@@ -91,6 +91,7 @@ entity:
         off: Off
         colour: Colour
         infrared: Infrared
+        infrared_on: Infrared on
         spotlight: Spotlight
   sensor:
     last_recognized_person:

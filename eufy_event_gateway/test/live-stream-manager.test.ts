@@ -959,6 +959,34 @@ test("records for a bounded duration and releases the on-demand stream", async (
   await manager.close();
 });
 
+test("collects audio only inside the video recording interval and detaches it on cleanup", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  const source = new PassThrough();
+  const audio = new PassThrough();
+  let recordedAudio: Buffer | undefined;
+  let manager!: LiveStreamManager;
+  manager = new LiveStreamManager(state, {} as never, {
+    async startStream() { manager.attachSource(camera.serial, source, () => null, audio); },
+    async stopStream() { source.end(); audio.end(); },
+  }, 5, async (video, _codec, sound) => {
+    recordedAudio = sound;
+    return video;
+  });
+  const recording = manager.recordClip(camera.serial, 1, 50);
+  await Promise.resolve();
+  audio.write(Buffer.from("before-video"));
+  source.write(Buffer.from("video"));
+  audio.write(Buffer.from("included"));
+  context.mock.timers.tick(1_000);
+  await recording;
+  audio.write(Buffer.from("after-video"));
+  assert.equal(recordedAudio?.toString(), "included");
+  await manager.close();
+  assert.equal(audio.listenerCount("data"), 0);
+});
+
 test("rejects a recording when camera video never arrives", async () => {
   const state = new GatewayState();
   state.registerCamera(camera);

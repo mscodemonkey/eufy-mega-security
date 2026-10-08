@@ -26,6 +26,7 @@ NIGHT_VISION_MODE_KEYS = {
     "Off": "off",
     "Colour": "colour",
     "Infrared": "infrared",
+    "Infrared on": "infrared_on",
     "Spotlight": "spotlight",
 }
 
@@ -84,7 +85,7 @@ async def async_setup_entry(
 
 
 class EufyNightVisionSelect(EufyGatewayEntity, SelectEntity):
-    """Expose night-vision modes reported by a HomeBase-attached camera."""
+    """Expose reported night-vision modes for provider-supported camera routes."""
 
     _attr_translation_key = "camera_night_vision"
 
