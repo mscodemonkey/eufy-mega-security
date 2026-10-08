@@ -80,7 +80,7 @@ export class GatewayServer {
         const streamAuthorized =
           request.method === "GET" &&
           segments[1] === "cameras" &&
-          segments[3] === "live.h264" &&
+          (segments[3] === "live.h264" || segments[3] === "live.ts") &&
           segments.length === 4 &&
           validateStreamToken(segments[2]!, url.searchParams.get("access_token"), this.config.apiToken);
         if (!streamAuthorized && !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) {
@@ -264,9 +264,10 @@ export class GatewayServer {
       }
       if (
         request.method === "GET" &&
-        segments[0] === "api" && segments[1] === "cameras" && segments[3] === "live.h264" && segments.length === 4
+        segments[0] === "api" && segments[1] === "cameras"
+        && (segments[3] === "live.h264" || segments[3] === "live.ts") && segments.length === 4
       ) {
-        return await this.#live(segments[2]!, response);
+        return await this.#live(segments[2]!, response, segments[3] === "live.ts");
       }
       if (request.method === "GET" && url.pathname === "/api/events") return this.#events(request, response);
       if (request.method === "POST" && url.pathname === "/api/simulate/detection" && this.simulatedProvider) {
@@ -479,13 +480,17 @@ export class GatewayServer {
     response.end(image);
   }
 
-  async #live(serial: string, response: ServerResponse): Promise<void> {
+  async #live(serial: string, response: ServerResponse, transport = false): Promise<void> {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     if (!this.state.getCamera(serial).streamSupported) {
       return json(response, 409, { error: "This camera was discovered through push events only; livestream control is unavailable" });
     }
+    if (transport && !this.state.getCamera(serial).liveAudioSupported) {
+      return json(response, 409, { error: "Live audio transport is unavailable for this camera" });
+    }
     logger.info("camera_media_request", `model=${safeCameraModel(this.state.getCamera(serial).model)} operation=live_view`);
-    await this.streams.addClient(serial, response);
+    if (transport) await this.streams.addTransportClient(serial, response);
+    else await this.streams.addClient(serial, response);
   }
 
   #streamToken(serial: string, response: ServerResponse): void {
@@ -497,7 +502,8 @@ export class GatewayServer {
     const token = this.config.apiToken
       ? createStreamToken(serial, expiresAt, this.config.apiToken)
       : null;
-    const path = `/api/cameras/${encodeURIComponent(serial)}/live.h264${token ? `?access_token=${encodeURIComponent(token)}` : ""}`;
+    const media = this.state.getCamera(serial).liveAudioSupported ? "live.ts" : "live.h264";
+    const path = `/api/cameras/${encodeURIComponent(serial)}/${media}${token ? `?access_token=${encodeURIComponent(token)}` : ""}`;
     return json(response, 200, { path, expiresAt });
   }
 

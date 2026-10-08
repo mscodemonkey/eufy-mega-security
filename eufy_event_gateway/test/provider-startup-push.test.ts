@@ -795,7 +795,7 @@ test("runtime standalone discovery preserves camera-owned live reads", async (co
   } finally { await f.provider.close(); }
 });
 
-test("SoloCam motion reads do not enable an unverified write route", async (context) => {
+test("SoloCam motion reads do not enable a route without ready session keys", async (context) => {
   const f = discoveryFixture(context);
   context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{
     device_sn: "camera", device_model: "T8171", device_type: 88, category: "eufy_security",
@@ -807,7 +807,7 @@ test("SoloCam motion reads do not enable an unverified write route", async (cont
     await f.provider.start(f.events);
     assert.equal(f.state.getCamera("camera").motionDetectionEnabled, true);
     assert.equal(f.state.getCamera("camera").motionDetectionControlSupported, false);
-    await assert.rejects(f.provider.setCameraMotionDetection("camera", false), /has not been verified/);
+    await assert.rejects(f.provider.setCameraMotionDetection("camera", false), /unavailable/);
     assert.equal(write.mock.callCount(), 0);
   } finally { await f.provider.close(); }
 });

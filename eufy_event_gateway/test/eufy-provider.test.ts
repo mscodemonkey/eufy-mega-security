@@ -25,6 +25,7 @@ import {
   homeBaseStorageLogSummary,
   homeBaseReadLogSummary,
   supportsMotionDetectionControlRoute,
+  supportsStandaloneMotionDetection,
   genericSecurityDetectionKinds,
   initialHomeBaseState,
   isDiscoveredHomeBase,
@@ -1465,4 +1466,19 @@ test("invalidates omitted effective mode only when the guard mode changes and pr
   assert.equal(mergeHomeBaseState(changed, { ...observed, promptVolume: null }).promptVolume, 0);
   assert.equal(homeBaseReadLogSummary("T8030", { ...observed, guardMode: null }), "HomeBase state read ready: model=T8030 guard_mode=missing effective_mode=missing");
   await assert.rejects(confirmStationWrite("guardMode", 0, async () => undefined, async () => ({ ...observed, guardMode: null })), /did not confirm guardMode/);
+});
+
+
+test("SoloCam motion eligibility rejects neighbouring models and unowned or unready routes", () => {
+  const device = { serial: "camera", model: "T8171", deviceType: 88, channel: 0,
+    adminUserId: "fixture-admin", reads: { motionDetectionEnabled: true } };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [{ device_sn: "camera", device_model: "T8171", device_type: 88 }] })[0]! };
+  assert.equal(supportsStandaloneMotionDetection(device, route, true), true);
+  assert.equal(supportsStandaloneMotionDetection(device, route, false), false);
+  assert.equal(supportsStandaloneMotionDetection(device, null, true), false);
+  for (const change of [{ model: "T8170" }, { deviceType: 48 }, { channel: 1 }, { adminUserId: null }, { reads: {} }]) {
+    assert.equal(supportsStandaloneMotionDetection({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsStandaloneMotionDetection(device, { ...route, homeBaseAttached: true }, true), false);
+  assert.equal(supportsStandaloneMotionDetection(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
 });

@@ -3,7 +3,7 @@
  *
  * A camera source opens only for the first viewer or capture request. This
  * manager shares that source, fans Annex-B video to HTTP viewers, feeds
- * FFmpeg for a JPEG frame or bounded MP4, retains the resulting snapshot, cancels idle
+ * FFmpeg for a JPEG frame, live MPEG-TS or bounded MP4, retains the resulting snapshot, cancels idle
  * sources after a grace period, and enforces the maximum stream lifetime. It
  * knows media lifecycle and process management, but not Mega login or PPCS
  * packet construction.
@@ -17,6 +17,7 @@ import { GatewayState } from "../domain/gateway-state.js";
 import type { GatewayEvent, SnapshotInfo, VideoCodec } from "../domain/types.js";
 import { SnapshotStore } from "../storage/snapshot-store.js";
 import { JpegParser } from "./jpeg-parser.js";
+import { LiveTransportMuxer, type VideoViewerResponse } from "./live-transport-muxer.js";
 
 /** Provider operations needed to open and close a camera source. */
 export interface StreamController {
@@ -142,10 +143,11 @@ interface ViewerClientDelivery {
 }
 
 interface Session {
-  readonly clients: Set<ServerResponse>;
-  readonly pendingClients: Set<ServerResponse>;
-  readonly clientDeliveries: Map<ServerResponse, ViewerClientDelivery>;
+  readonly clients: Set<VideoViewerResponse>;
+  readonly pendingClients: Set<VideoViewerResponse>;
+  readonly clientDeliveries: Map<VideoViewerResponse, ViewerClientDelivery>;
   readonly recordings: Set<Recording>;
+  readonly audioConsumers: Set<(chunk: Buffer) => void>;
   parameterSets: VideoParameterSetCache;
   state: "idle" | "starting" | "streaming" | "stopping" | "error";
   source: Readable | null;
@@ -440,7 +442,7 @@ function annexBStarts(data: Buffer): Array<{ offset: number; payloadOffset: numb
  * HTTP viewers receive H.264 directly or share one H.265-to-H.264 transcoder,
  * while a separate FFmpeg process receives the source for retained JPEG
  * snapshots. MP4 clips retain the original camera codec and include optional
- * provider-validated AAC without keeping audio for ordinary video viewers. Ownership counts
+ * provider-validated AAC. Transport viewers multiplex it without retaining a recording. Ownership counts
  * avoid duplicate camera sessions, and the idle grace period prevents
  * refreshes from repeatedly opening and closing a camera.
  */
@@ -470,7 +472,7 @@ export class LiveStreamManager extends EventEmitter {
   }
 
   /** Attach an HTTP viewer, starting the shared provider source if needed. */
-  async addClient(serial: string, response: ServerResponse): Promise<void> {
+  async addClient(serial: string, response: VideoViewerResponse): Promise<void> {
     const session = this.#session(serial);
     this.#cancelStop(session);
     session.clients.add(response);
@@ -520,6 +522,15 @@ export class LiveStreamManager extends EventEmitter {
     } catch (error) {
       response.destroy(error instanceof Error ? error : undefined);
     }
+  }
+
+  /** Share a normal video viewer with a bounded MPEG-TS muxer and validated camera audio. */
+  async addTransportClient(serial: string, response: ServerResponse): Promise<void> {
+    const session = this.#session(serial);
+    const consumeAudio = (chunk: Buffer): void => muxer.acceptAudio(chunk);
+    const muxer = new LiveTransportMuxer(response, () => session.audioConsumers.delete(consumeAudio));
+    session.audioConsumers.add(consumeAudio);
+    await this.addClient(serial, muxer.videoInput);
   }
 
   /** Capture one fresh JPEG through the shared source and return its metadata. */
@@ -593,7 +604,7 @@ export class LiveStreamManager extends EventEmitter {
     }
   }
 
-  /** Attach session-owned video and optional AAC, retaining audio only for active clips. */
+  /** Attach session-owned video and AAC, forwarding audio to viewers and retaining it only for active clips. */
   attachSource(serial: string, source: Readable, codecHint: () => VideoCodec | null = () => null, audio?: Readable): void {
     const session = this.#session(serial);
     this.#cleanupSource(session);
@@ -602,6 +613,7 @@ export class LiveStreamManager extends EventEmitter {
     session.audioSource = audio ?? null;
     audio?.on("data", (chunk: Buffer) => {
       if (session.generation !== generation || chunk.length === 0) return;
+      for (const consume of session.audioConsumers) consume(chunk);
       for (const recording of [...session.recordings]) {
         if (!recording.started) continue;
         recording.audioChunks.push(Buffer.from(chunk));
@@ -739,7 +751,7 @@ export class LiveStreamManager extends EventEmitter {
     );
   }
 
-  #removeClient(serial: string, response: ServerResponse): void {
+  #removeClient(serial: string, response: VideoViewerResponse): void {
     const session = this.#session(serial);
     session.clients.delete(response);
     session.pendingClients.delete(response);
@@ -919,7 +931,7 @@ export class LiveStreamManager extends EventEmitter {
     this.#updateState(serial, session, error?.message ?? null);
   }
 
-  #startClient(session: Session, response: ServerResponse, codec: VideoCodec, bootstrap: Buffer): void {
+  #startClient(session: Session, response: VideoViewerResponse, codec: VideoCodec, bootstrap: Buffer): void {
     if (!response.headersSent) {
       response.writeHead(200, {
         "Content-Type": codec === "h265" ? "video/h265" : "video/h264",
@@ -1129,7 +1141,7 @@ export class LiveStreamManager extends EventEmitter {
 
   #recordViewerClientWrite(
     session: Session,
-    response: ServerResponse,
+    response: VideoViewerResponse,
     bytes: number,
     accepted: boolean,
   ): void {
@@ -1144,7 +1156,7 @@ export class LiveStreamManager extends EventEmitter {
     delivery.maximumWritableBytes = Math.max(delivery.maximumWritableBytes, response.writableLength);
   }
 
-  #emitViewerClientSummary(session: Session, response: ServerResponse): void {
+  #emitViewerClientSummary(session: Session, response: VideoViewerResponse): void {
     const delivery = session.clientDeliveries.get(response);
     if (!delivery) return;
     session.clientDeliveries.delete(response);
@@ -1179,6 +1191,7 @@ export class LiveStreamManager extends EventEmitter {
         pendingClients: new Set(),
         clientDeliveries: new Map(),
         recordings: new Set(),
+        audioConsumers: new Set(),
         parameterSets: new VideoParameterSetCache(),
         state: "idle",
         source: null,

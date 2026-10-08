@@ -533,6 +533,15 @@ export function buildStandaloneLevel2LiveStartPayload(
   return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), channel, 8, [8, 0], 10);
 }
 
+/** Build the app-observed SoloCam motion status envelope, distinct from live-start frame type 10. */
+export function buildSoloCamMotionDetectionPayload(enabled: boolean, key: Buffer, sequence: number, now: number): Buffer {
+  if (!Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) {
+    throw new Error("SoloCam motion transaction requires epoch milliseconds");
+  }
+  const value = JSON.stringify({ commandType: 6040, data: { status: enabled ? 1 : 0, transaction: `${now}` } });
+  return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
+}
+
 /**
  * Encrypt one standalone JSON control value in Eufy's level-one string envelope.
  *
@@ -1275,9 +1284,9 @@ export class FirstPartyPpcsSession {
   /**
    * Send the verified command-1011 motion switch and await its result.
    *
-   * Both standalone and HomeBase-attached routes use the level-two direct
-   * binary form. Three identical transmissions tolerate loss on the UDP path
-   * while one acknowledgement slot owns the operation's final result.
+   * The standalone T8171 uses its native 6040 JSON status command. Its caller
+   * must confirm the setting through a fresh inventory read. Other routes use
+   * the level-two binary form and await its acknowledgement.
    */
   async writeMotionDetection(enabled: boolean): Promise<void> {
     if (this.#options.purpose !== "control") throw new Error("Motion control requires a control session");
@@ -1285,6 +1294,17 @@ export class FirstPartyPpcsSession {
     const accountId = this.#options.accountId;
     if (!accountId) throw new Error("Motion control account identity is unavailable");
     await this.#waitForLevel2Key();
+    if (this.#options.cameraModel === "T8171") {
+      if (this.#options.homeBaseAttached || this.#options.channel !== 0) {
+        throw new Error("SoloCam motion control requires a standalone channel-zero route");
+      }
+      const transaction = Date.now();
+      for (let index = 0; index < 3; index += 1) {
+        this.#sendCommand(1700, buildSoloCamMotionDetectionPayload(enabled, this.#level2Key!, this.#level2Seq++, transaction));
+        await delay(200);
+      }
+      return;
+    }
     const body = buildCameraEnableBody(this.#options.channel, enabled ? 1 : 0, accountId);
     const acknowledgement = this.#waitForControlResult(1011);
     for (let index = 0; index < 3; index += 1) {

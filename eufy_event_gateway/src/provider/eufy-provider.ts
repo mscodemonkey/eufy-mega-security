@@ -252,6 +252,17 @@ export function supportsStandaloneNightVision(
     && routeReady && !isDoorbellDevice(device);
 }
 
+/** Admit the hardware-tested SoloCam motion write only with an owned, ready direct route and known state. */
+export function supportsStandaloneMotionDetection(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId" | "reads">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return device.model === "T8171" && device.deviceType === 88 && device.channel === 0
+    && route?.homeBaseAttached === false && route.peer.serial === device.serial
+    && device.reads.motionDetectionEnabled !== undefined && Boolean(device.adminUserId) && routeReady;
+}
+
 /** Return whether live hardware has proven the model's preset query contract. */
 export function supportsPresetPositions(device: Pick<MegaInventoryDevice, "model">): boolean {
   return device.model.toUpperCase().startsWith("T817L");
@@ -552,39 +563,48 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return current;
   }
 
-  /** Write the verified 1011 motion switch and publish fresh inventory state. */
+  /** Write the model's verified motion command and require fresh inventory confirmation. */
   setCameraMotionDetection(serial: string, enabled: boolean): Promise<CameraIdentity> {
     const previous = this.#motionOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
     const current = previous.catch(() => this.#requireCameraIdentity(serial)).then(async () => {
       const device = this.#devices.get(serial);
       if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
-      if (device.deviceType === 88 && device.model === "T8171") {
-        throw new Error("SoloCam T8171 motion control has not been verified for this connection");
-      }
+      const soloCam = device.deviceType === 88 && device.model === "T8171";
       const route = ppcsStreamRoute(device, this.#devices);
       const peer = route?.peer;
       const dsk = peer ? await this.#dskKey(peer.serial) : null;
       if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
         throw new Error("Camera motion detection control is unavailable for this camera");
       }
-      const session = new FirstPartyPpcsSession({
-        stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
-        localAddress: peer.localAddress,
-        dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
-        accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 40,
-        resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
-      });
-      try {
-        await session.start();
-        await session.writeMotionDetection(enabled);
-      } finally {
-        session.close();
+      if (soloCam && (route.homeBaseAttached || peer.serial !== device.serial || device.channel !== 0
+        || device.reads.motionDetectionEnabled === undefined)) {
+        throw new Error("SoloCam motion control requires a known standalone channel-zero setting");
       }
-      for (let attempt = 0; attempt < 12; attempt += 1) {
-        await this.#refreshInventoryReads();
-        const refreshed = this.#devices.get(serial);
-        if (refreshed?.reads.motionDetectionEnabled === enabled) return this.#cameraIdentity(refreshed);
-        await delay(2_000);
+      if (soloCam) await this.stopStream(serial);
+      for (let operation = 0; operation < (soloCam ? 2 : 1); operation += 1) {
+        const session = new FirstPartyPpcsSession({
+          stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
+          localAddress: peer.localAddress,
+          dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
+          accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 40,
+          resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
+        });
+        try {
+          await session.start();
+          await session.writeMotionDetection(enabled);
+        } catch (error) {
+          if (!soloCam) throw error;
+
+          // A failed send can still have changed the setting. Read it before retrying.
+        } finally {
+          session.close();
+        }
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          await this.#refreshInventoryReads();
+          const refreshed = this.#devices.get(serial);
+          if (refreshed?.reads.motionDetectionEnabled === enabled) return this.#cameraIdentity(refreshed);
+          await delay(2_000);
+        }
       }
       throw new Error("Camera motion detection write was not confirmed by readback");
     }).catch((error: unknown) => {
@@ -1302,6 +1322,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       stationSerial: device.parentSerial,
       doorbellSupported: isDoorbellDevice(device),
       streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials),
+      liveAudioSupported: device.model === "T8171" && device.deviceType === 88 && device.channel === 0
+        && route?.homeBaseAttached === false && route.peer.serial === device.serial
+        && isPpcsStreamSupported(device, this.#devices, dskPeerSerials),
       enabled: device.reads.enabled ?? null,
       enableControlSupported: device.reads.enabled !== undefined
         && device.channel === 0
@@ -1309,8 +1332,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       motionDetectionEnabled: device.reads.motionDetectionEnabled ?? null,
       motionDetectionControlSupported: device.reads.motionDetectionEnabled !== undefined
-        && !(device.deviceType === 88 && device.model === "T8171")
-        && supportsMotionDetectionControlRoute(route)
+        && (device.deviceType === 88 && device.model === "T8171"
+          ? supportsStandaloneMotionDetection(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials))
+          : supportsMotionDetectionControlRoute(route))
         && device.channel !== null
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),

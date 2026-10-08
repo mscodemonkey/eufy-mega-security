@@ -144,6 +144,9 @@ export interface CameraState {
   readonly catalogueStatus: "supported" | "ready_to_test" | "recognised" | null;
   readonly stationSerial: string;
   readonly streamSupported: boolean;
+
+  /** Whether the ready camera route supplies validated AAC for live MPEG-TS delivery. */
+  readonly liveAudioSupported?: boolean;
   readonly doorbellSupported: boolean;
   readonly enabled: boolean | null;
   readonly enableControlSupported: boolean;
@@ -301,6 +304,9 @@ export interface CameraIdentity {
   readonly catalogueStatus?: "supported" | "ready_to_test" | "recognised" | null;
   readonly stationSerial: string;
   readonly streamSupported: boolean;
+
+  /** Optional provider admission for live AAC, independent of reported microphone settings. */
+  readonly liveAudioSupported?: boolean;
   readonly doorbellSupported: boolean;
   readonly enabled?: boolean | null;
   readonly enableControlSupported?: boolean;

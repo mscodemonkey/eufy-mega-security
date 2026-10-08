@@ -164,7 +164,7 @@ class GatewayClient:
             raise GatewayClientError(str(error)) from error
 
     async def stream_url(self, serial: str) -> str:
-        """Create a short-lived H.264 URL that does not expose the bearer token."""
+        """Create a short-lived video or audio/video URL without exposing the bearer token."""
         payload = await self._json(f"/api/cameras/{serial}/stream-token", method="POST")
         path = payload.get("path")
         if not isinstance(path, str) or not path.startswith("/"):
