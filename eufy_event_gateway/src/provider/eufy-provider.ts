@@ -266,6 +266,17 @@ export function supportsStandaloneMotionDetection(
     && device.reads.motionDetectionEnabled !== undefined && Boolean(device.adminUserId) && routeReady;
 }
 
+/** Admit the hardware-tested SoloCam audio-recording write only with an owned, ready direct route and known state. */
+export function supportsStandaloneAudioRecording(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId" | "reads">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return device.model === "T8171" && device.deviceType === 88 && device.channel === 0
+    && route?.homeBaseAttached === false && route.peer.serial === device.serial
+    && device.reads.audioRecordingEnabled !== undefined && Boolean(device.adminUserId) && routeReady;
+}
+
 /** Admit the SoloCam's pan actions only through its hardware-tested, self-owned direct route. */
 export function supportsStandalonePanControl(
   device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">,
@@ -334,6 +345,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #stationOperations = new Map<string, Promise<HomeBaseState>>();
   readonly #cameraOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #cameraCapabilityOperations = new Map<string, Promise<CameraIdentity>>();
+  readonly #audioRecordingOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #motionOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #guardModeOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #nightVisionOperations = new Map<string, Promise<CameraIdentity>>();
@@ -630,6 +642,60 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#motionOperations.set(serial, current);
     void current.finally(() => {
       if (this.#motionOperations.get(serial) === current) this.#motionOperations.delete(serial);
+    }).catch(() => undefined);
+    return current;
+  }
+
+  /** Write the model's verified audio-recording command and require fresh inventory confirmation. */
+  setCameraAudioRecording(serial: string, enabled: boolean): Promise<CameraIdentity> {
+    const previous = this.#audioRecordingOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
+    const current = previous.catch(() => this.#requireCameraIdentity(serial)).then(async () => {
+      const device = this.#devices.get(serial);
+      if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
+      if (device.deviceType !== 88 || device.model !== "T8171") throw new Error("Audio recording control is unavailable for this camera");
+      const route = ppcsStreamRoute(device, this.#devices);
+      const peer = route?.peer;
+      const dsk = peer ? await this.#dskKey(peer.serial) : null;
+      if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
+        throw new Error("Camera audio recording control is unavailable for this camera");
+      }
+      if (route.homeBaseAttached || peer.serial !== device.serial || device.channel !== 0
+        || device.reads.audioRecordingEnabled === undefined) {
+        throw new Error("SoloCam audio recording control requires a known standalone channel-zero setting");
+      }
+      await this.stopStream(serial);
+      for (let operation = 0; operation < 2; operation += 1) {
+        const session = new FirstPartyPpcsSession({
+          stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
+          localAddress: peer.localAddress,
+          dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
+          accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 40,
+          resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
+        });
+        try {
+          await session.start();
+          await session.writeAudioRecording(enabled);
+        } catch {
+
+          // A failed send can still have changed the setting. Read it before retrying.
+        } finally {
+          session.close();
+        }
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          await this.#refreshInventoryReads();
+          const refreshed = this.#devices.get(serial);
+          if (refreshed?.reads.audioRecordingEnabled === enabled) return this.#cameraIdentity(refreshed);
+          await delay(2_000);
+        }
+      }
+      throw new Error("Camera audio recording write was not confirmed by readback");
+    }).catch((error: unknown) => {
+      logger.warn("camera_audio_recording_failed", `Camera audio-recording command failed: error=${safeError(error)}`);
+      throw error;
+    });
+    this.#audioRecordingOperations.set(serial, current);
+    void current.finally(() => {
+      if (this.#audioRecordingOperations.get(serial) === current) this.#audioRecordingOperations.delete(serial);
     }).catch(() => undefined);
     return current;
   }
@@ -1350,6 +1416,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.channel === 0
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+      audioRecordingControlSupported: supportsStandaloneAudioRecording(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
       motionDetectionEnabled: device.reads.motionDetectionEnabled ?? null,
       motionDetectionControlSupported: device.reads.motionDetectionEnabled !== undefined
         && (device.deviceType === 88 && device.model === "T8171"

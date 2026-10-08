@@ -133,8 +133,11 @@ export interface CameraState {
   /** Last validated inventory signal measurement, not a connection-health assertion. */
   readonly rssi: number | null;
 
-  /** Validated inventory audio configuration, exposed without write controls. */
+  /** Validated inventory audio configuration, independent of control admission. */
   readonly audioSettings: CameraAudioSettings | null;
+
+  /** Whether the owned route and known recording baseline admit the verified audio write. */
+  readonly audioRecordingControlSupported?: boolean;
 
   /** Strictly validated camera-owned settings, with unknown values left absent. */
   readonly reportedSettings: CameraReportedSettings | null;
@@ -295,6 +298,9 @@ export interface CameraIdentity {
 
   /** Cloud configuration only. A missing setting never implies it is disabled. */
   readonly audioSettings?: CameraAudioSettings | null;
+
+  /** Optional provider admission for the independently confirmed recorded-audio write. */
+  readonly audioRecordingControlSupported?: boolean;
 
   /** Optional read-only configuration projection from fresh device inventory. */
   readonly reportedSettings?: CameraReportedSettings | null;

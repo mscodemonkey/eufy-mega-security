@@ -53,6 +53,9 @@ export interface CameraProvider {
   /** Write camera motion detection and return fresh inventory-backed state. */
   setCameraMotionDetection(serial: string, enabled: boolean): Promise<CameraIdentity>;
 
+  /** Write recorded audio separately from microphone enablement, returning fresh confirmed state. */
+  setCameraAudioRecording?(serial: string, enabled: boolean): Promise<CameraIdentity>;
+
   /** Refresh one direct camera's safe reads from its on-device parameter table. */
   refreshCameraCapabilities(serial: string): Promise<CameraIdentity>;
 

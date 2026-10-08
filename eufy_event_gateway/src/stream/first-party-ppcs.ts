@@ -542,6 +542,15 @@ export function buildSoloCamMotionDetectionPayload(enabled: boolean, key: Buffer
   return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
 }
 
+/** Build the app-observed SoloCam audio-recording enable envelope, distinct from live-start frame type 10. */
+export function buildSoloCamAudioRecordingPayload(enabled: boolean, key: Buffer, sequence: number, now: number): Buffer {
+  if (!Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) {
+    throw new Error("SoloCam audio transaction requires epoch milliseconds");
+  }
+  const value = JSON.stringify({ commandType: 6012, data: { enable: enabled ? 1 : 0, transaction: `${now}` } });
+  return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
+}
+
 /** Protect a native SoloCam preset or tracking request on its channel-zero control envelope. */
 export function buildSoloCamPanControlPayload(
   command: 6034 | 6035 | 6016,
@@ -1352,6 +1361,22 @@ export class FirstPartyPpcsSession {
       if (index < 2) await delay(200);
     }
     await acknowledgement;
+  }
+
+  /** Send the native standalone audio setting; callers must confirm fresh inventory readback. */
+  async writeAudioRecording(enabled: boolean): Promise<void> {
+    if (this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId) {
+      throw new Error("Audio recording requires a connected account-owned control session");
+    }
+    if (this.#options.cameraModel !== "T8171" || this.#options.homeBaseAttached || this.#options.channel !== 0) {
+      throw new Error("Audio recording requires a standalone SoloCam channel-zero route");
+    }
+    await this.#waitForLevel2Key();
+    const transaction = Date.now();
+    for (let index = 0; index < 3; index += 1) {
+      this.#sendCommand(1700, buildSoloCamAudioRecordingPayload(enabled, this.#level2Key!, this.#level2Seq++, transaction));
+      await delay(200);
+    }
   }
 
   /**

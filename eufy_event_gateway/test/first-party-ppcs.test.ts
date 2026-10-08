@@ -22,6 +22,7 @@ import {
   buildStandaloneCameraLightBody,
   buildStandaloneLevel2LiveStartPayload,
   buildSoloCamMotionDetectionPayload,
+  buildSoloCamAudioRecordingPayload,
   buildSoloCamPanControlData,
   buildSoloCamPanControlPayload,
   buildStandaloneGuardModeValue,
@@ -266,6 +267,23 @@ test("keeps the native SoloCam motion envelope separate from a live-start reques
     });
   }
   assert.throws(() => buildSoloCamMotionDetectionPayload(true, key, 1, 1791464400), /epoch milliseconds/);
+});
+
+test("keeps the native SoloCam recorded-audio envelope separate from a live-start request", () => {
+  const key = Buffer.alloc(32, 7);
+  for (const enabled of [false, true]) {
+    const payload = buildSoloCamAudioRecordingPayload(enabled, key, 257, 1791464400000);
+    assert.deepEqual(payload.subarray(4, 10), Buffer.from([8, 0, 0, 8, 0, 0]));
+    const encrypted = payload.subarray(10);
+    const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(16, 28));
+    decipher.setAAD(Buffer.from("eufy security"));
+    decipher.setAuthTag(encrypted.subarray(0, 16));
+    const clear = Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
+    assert.deepEqual(JSON.parse(clear.toString("utf8")), {
+      commandType: 6012, data: { enable: enabled ? 1 : 0, transaction: "1791464400000" },
+    });
+  }
+  assert.throws(() => buildSoloCamAudioRecordingPayload(true, key, 1, 1791464400), /epoch milliseconds/);
 });
 
 test("builds the wall-light control as a level-one command 1700 value", () => {
