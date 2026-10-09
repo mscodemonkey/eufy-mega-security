@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.124
+
+- Add SoloCam E30 (T8171) standalone discovery and refresh camera names and HomeBase bindings without restarting the gateway.
+- Add hardware-verified standalone infrared modes, motion detection, AI tracking, streaming quality, recorded-audio controls and selection of existing presets.
+- Support SoloCam E30 standalone microSD event browsing and authenticated, seekable playback with audio in Home Assistant.
+- Support verified SoloCam E30 live video and audio, infrared controls, saved-event playback and existing preset movement through HomeBase 3.
+- Correct attached SoloCam video decoding and preserve verified child settings during HomeBase refreshes.
+- Protect shared HomeBase recording downloads from conflicting sibling-camera activity and report clearer live-stream failure reasons.
+- Keep unverified HomeBase SoloCam AI tracking, motion, quality and recorded-audio writes unavailable. Preset creation and editing remain unsupported.
+- Admit T8220 doorbells connected through HomeBase 2 for further hardware testing.
+
 ## 0.1.123
 
 - Restart a silent H.265 viewer conversion from a later complete keyframe, with a five-second delay and two-retry limit, while keeping the camera source and waiting Home Assistant viewer open.
