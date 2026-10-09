@@ -29,6 +29,7 @@ import {
   supportsStandaloneAudioRecording,
   supportsStandaloneStreamingQuality,
   supportsStandalonePanControl,
+  supportsSoloCamStoredRecordings,
   supportsStandaloneAiTracking,
   genericSecurityDetectionKinds,
   initialHomeBaseState,
@@ -1588,4 +1589,20 @@ test("complete inventory rows replace renamed cameras and station/channel bindin
   assert.equal(merged.p2pDid, null); assert.equal(merged.p2pConnection, null);
   assert.deepEqual(mergeInventoryMetadata(merged, initial), initial);
   assert.throws(() => mergeInventoryMetadata(initial, { ...attached, serial: "other" }), /ownership/);
+});
+
+
+test("stored SoloCam media admits only tested direct and HomeBase3 child1 routes", () => {
+  const device = { serial: "camera", model: "T8171", deviceType: 88, channel: 1, adminUserId: "fixture-admin" };
+  const peer = parseMegaInventory({ devices: [{ device_sn: "station", device_model: "T8030", device_type: 18 }] })[0]!;
+  const route = { homeBaseAttached: true, peer };
+  assert.equal(supportsSoloCamStoredRecordings(device, route, true), true);
+  assert.equal(supportsSoloCamStoredRecordings(device, route, false), false);
+  assert.equal(supportsSoloCamStoredRecordings(device, null, true), false);
+  for (const change of [{ model: "T8170" }, { deviceType: 48 }, { channel: 0 }, { channel: 2 }, { adminUserId: null }]) {
+    assert.equal(supportsSoloCamStoredRecordings({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsSoloCamStoredRecordings(device, { ...route, peer: { ...peer, model: "T8010" } }, true), false);
+  assert.equal(supportsSoloCamStoredRecordings(device, { ...route, peer: { ...peer, serial: device.serial } }, true), false);
+  assert.equal(supportsSoloCamStoredRecordings({ ...device, channel: 0 }, { homeBaseAttached: false, peer: { ...peer, serial: device.serial } }, true), true);
 });

@@ -13,6 +13,7 @@
 import { createCipheriv, createDecipheriv, createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes, timingSafeEqual } from "node:crypto";
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
+import { HomeBaseRecordingReader } from "./homebase-recordings.js";
 import { SoloCamRecordingReader, type CameraStoredRecord } from "./stored-recordings.js";
 import type { CameraPresetPosition, VideoCodec } from "../domain/types.js";
 import { PpcsAccessUnitAssembler } from "./ppcs-access-unit-assembler.js";
@@ -423,6 +424,18 @@ export class PpcsVideoFrameDecoder {
     const key = Buffer.from(value, "hex");
     this.#eccPrivateKey = key.length === 32 ? key : null;
     this.#mediaKey = null;
+  }
+
+  /** Authenticate the recording audio envelope using the most recently authenticated video media key. */
+  decodeRecordingAudio(frame: Buffer): Buffer | null {
+    if (!this.#mediaKey || frame.length < 44 || frame[5] !== 0 || frame.readUInt32LE(0) !== frame.length - 44) return null;
+    try {
+      const decipher = createDecipheriv("aes-256-gcm", this.#mediaKey, frame.subarray(32, 44));
+      decipher.setAAD(Buffer.from("eufy security"));
+      decipher.setAuthTag(frame.subarray(16, 32));
+      const clear = Buffer.concat([decipher.update(frame.subarray(44)), decipher.final()]);
+      return decodePpcsAac(Buffer.concat([frame.subarray(0, 16), clear]));
+    } catch { return null; }
   }
 
   /**
@@ -909,6 +922,9 @@ export interface PpcsCameraOptions {
   /** Parent peer model used only where HomeBase generations have different media lifecycle commands. */
   readonly stationModel?: string;
 
+  /** Current inventory child identity used only to project HomeBase recording ownership. */
+  readonly recordingCameraSerial?: string;
+
   /** Eufy account identity required inside camera control payloads. */
   readonly accountId: string | null;
 
@@ -1178,7 +1194,7 @@ export class FirstPartyPpcsSession {
   #pendingCameraInfo: PendingCameraInfo | null = null;
 
   /** Own correlated card reads separately from live media and camera-setting requests. */
-  #recordings: SoloCamRecordingReader | null = null;
+  #recordings: SoloCamRecordingReader | HomeBaseRecordingReader | null = null;
 
   /** Return the codec proven by emitted NAL headers, or frame metadata as a fallback. */
   get videoCodec(): VideoCodec | null {
@@ -1594,7 +1610,7 @@ export class FirstPartyPpcsSession {
     await delay(500);
   }
 
-  /** Read completed standalone SoloCam event clips without changing the card or recording policy. */
+  /** Read completed SoloCam event clips through the provider-validated standalone or HomeBase route. */
   async listStoredRecordings(date: string, signal?: AbortSignal): Promise<readonly CameraStoredRecord[]> {
     const reader = this.#recordingReader();
     await this.#waitForLevel2Key();
@@ -1608,7 +1624,43 @@ export class FirstPartyPpcsSession {
     return await reader.download(record, signal);
   }
 
-  #recordingReader(): SoloCamRecordingReader {
+  #recordingReader(): SoloCamRecordingReader | HomeBaseRecordingReader {
+    if (this.#options.homeBaseAttached) {
+      if (this.#options.cameraModel !== "T8171" || this.#options.stationModel !== "T8030" || this.#options.channel !== 1 ||
+        !this.#options.recordingCameraSerial || this.#options.purpose !== "control" || !this.#options.accountId) {
+        throw new Error("Stored recordings require the verified SoloCam HomeBase route");
+      }
+      this.#recordings ??= new HomeBaseRecordingReader({
+        serial: this.#options.recordingCameraSerial, stationSerial: this.#options.stationSerial, channel: this.#options.channel,
+        query: (transaction, date) => {
+          const value = { account_id: this.#options.accountId, cmd: 1306, mChannel: 255, mValue3: 0,
+            payload: { cmd: 10011, table: "history_record_info", transaction, payload: {
+              count: 100, start_date: date, end_date: date, start_id: 0, end_id: 1, flag: 0, need_ai: 1,
+              res_unzip: 1, update_time: "0", start_time: "0", alarm_id: "",
+            } } };
+          this.#sendCommand(1350, rawPayload(encryptLevel2(Buffer.from(JSON.stringify(value)), this.#level2Key!, this.#level2Seq++), 255, 8, [8, 0], 0));
+        },
+        download: (filepath, key) => {
+          const value = { account_id: this.#options.accountId, cmd: 1024, mChannel: this.#options.channel, mValue3: 1024, payload: { key, filepath } };
+          this.#sendCommand(1350, rawPayload(encryptLevel2(Buffer.from(JSON.stringify(value)), this.#level2Key!, this.#level2Seq++), this.#options.channel, 8, [8, 0], 25));
+        },
+        decodeReply: (payload, sign) => {
+          if (sign === 0) return payload;
+          if ((sign === 8 || sign === 2) && this.#level2Key) return decryptLevel2(payload, this.#level2Key, sign) ?? null;
+          if (sign === 1 && payload.length % 16 === 0) {
+            try { return decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); } catch { return null; }
+          }
+          return null;
+        },
+        decoder: (key) => {
+          const decoder = new PpcsVideoFrameDecoder(() => undefined);
+          decoder.setEccPrivateKey(key);
+          return { video: (payload, sign) => decoder.decode(payload, sign), audio: (payload) => decoder.decodeRecordingAudio(payload),
+            close: () => decoder.setEccPrivateKey("") };
+        },
+      });
+      return this.#recordings;
+    }
     if (this.#options.cameraModel !== "T8171" || this.#options.homeBaseAttached ||
       this.#options.channel !== 0 || this.#options.purpose !== "control" || !this.#options.accountId) {
       throw new Error("Stored recordings require the verified standalone SoloCam route");

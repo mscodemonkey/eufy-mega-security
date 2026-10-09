@@ -62,6 +62,8 @@ If you are new to the project, read [`DEVELOPERS_START_HERE.md`](DEVELOPERS_STAR
 | Path | Purpose |
 | --- | --- |
 | `src/stream/first-party-ppcs.ts` | Production Eufy PPCS UDP lookup, CAM_CHECK, HomeBase key unwrap, media request, H.264 extraction, and heartbeat. PPCS means Eufy's peer-to-peer camera transport. |
+| `src/stream/homebase-recordings.ts` | Reads owned SoloCam E30 history through HomeBase 3 and verifies bounded saved transfers with per-download recipient keys. |
+| `src/stream/stored-recordings.ts` | Reads standalone SoloCam SD events and finalizes and verifies saved MP4 media. |
 | `src/stream/homebase-ppcs.ts` | Short-lived local HomeBase 3 state, storage, acknowledgement, and readback command sessions. |
 | `src/stream/live-stream-manager.ts` | Shares a provider H.264 source, feeds FFmpeg for snapshots/clips, bounds recordings, and stops idle sessions. |
 | `src/stream/jpeg-parser.ts` | Reassembles complete JPEG frames from arbitrary FFmpeg stdout chunks. |

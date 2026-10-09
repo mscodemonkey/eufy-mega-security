@@ -891,6 +891,33 @@ test("binding changes retire owned recording sessions and reject late old-route 
     pollDiscovery(f); await settleDiscovery();
     assert.equal(closes.mock.callCount(), closeCount + 1);
     finish([]); await rejected;
-    assert.equal(f.state.getCamera("camera").storedRecordingsSupported, false);
+    assert.equal(f.state.getCamera("camera").storedRecordingsSupported, true);
+  } finally { finish([]); await f.provider.close(); }
+});
+
+
+test("HomeBase recording ownership prevents a sibling live session until retrieval releases", async (context) => {
+  const f = discoveryFixture(context);
+  const peer = { device_sn: "peer", device_model: "T8030", device_type: 18, category: "eufy_security",
+    p2p_did: "station-peer", p2p_conn: "station-route", member: { admin_user_id: "fixture-account" } };
+  const child = { device_sn: "camera", device_model: "T8171", device_type: 88, category: "eufy_security",
+    parent_sn: "peer", device_channel: 1, member: { admin_user_id: "fixture-account" } };
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [peer, child,
+    { ...child, device_sn: "sibling", device_model: "T8214", device_type: 94, device_channel: 2 }] }));
+  context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ peer: { key: "station-key", expiresAt: null } }));
+  const starts = context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => undefined);
+  let finish!: (records: readonly never[]) => void;
+  const pending = new Promise<readonly never[]>((resolve) => { finish = resolve; });
+  context.mock.method(FirstPartyPpcsSession.prototype, "listStoredRecordings", () => pending);
+  try {
+    await f.provider.start(f.events);
+    const listing = f.provider.listStoredRecordings("camera", "2026-10-09");
+    await settleDiscovery();
+    assert.equal(starts.mock.callCount(), 1);
+    await assert.rejects(f.provider.startStream("sibling"), /recording retrieval/);
+    assert.equal(starts.mock.callCount(), 1);
+    finish([]); await listing;
+    await assert.doesNotReject(f.provider.startStream("sibling"));
+    assert.equal(starts.mock.callCount(), 2);
   } finally { finish([]); await f.provider.close(); }
 });

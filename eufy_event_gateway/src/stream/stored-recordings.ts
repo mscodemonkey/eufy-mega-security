@@ -277,7 +277,8 @@ export async function validateStoredMedia(media: Buffer, signal?: AbortSignal): 
   });
 }
 
-async function finalizeStoredMp4(fragmented: Buffer, signal?: AbortSignal): Promise<Buffer> {
+/** Finalize seekable MP4 bytes in an owned temporary directory and remove that directory on every exit. */
+export async function finalizeStoredMp4(fragmented: Buffer, signal?: AbortSignal): Promise<Buffer> {
   if (signal?.aborted) throw new Error("Camera recording operation was cancelled");
   const directory = await mkdtemp(join(tmpdir(), "eufy-stored-"));
   try {
@@ -300,7 +301,8 @@ async function finalizeStoredMp4(fragmented: Buffer, signal?: AbortSignal): Prom
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
-function recordTime(value: unknown, zone: unknown): string | null {
+/** Interpret the native recording timestamp with its explicit numeric timezone. */
+export function recordTime(value: unknown, zone: unknown): string | null {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value) ||
     typeof zone !== "string" || !/^[+-](?:0\d|1[0-4])[0-5]\d$/.test(zone)) return null;
   const time = Date.parse(`${value.replace(" ", "T")}${zone.slice(0, 3)}:${zone.slice(3)}`);

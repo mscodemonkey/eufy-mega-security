@@ -301,6 +301,17 @@ export function supportsStandalonePanControl(
     && Boolean(device.adminUserId) && routeReady;
 }
 
+/** Admit stored media only for the exact tested SoloCam direct route or HomeBase 3 child channel. */
+export function supportsSoloCamStoredRecordings(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return supportsStandalonePanControl(device, route, routeReady) ||
+    (device.model === "T8171" && device.deviceType === 88 && device.channel === 1 && Boolean(device.adminUserId) && routeReady &&
+      route?.homeBaseAttached === true && route.peer.model === "T8030" && route.peer.serial !== device.serial);
+}
+
 /** Admit SoloCam tracking only on its physically tested direct route with a known preference. */
 export function supportsStandaloneAiTracking(
   device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId" | "reads">,
@@ -462,7 +473,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return this.#client.cloudHistory(serial, query);
   }
 
-  /** List only validated, completed standalone SoloCam event clips for the requested day. */
+  /** List validated, completed SoloCam event clips through its currently verified storage route. */
   async listStoredRecordings(serial: string, date: string, signal?: AbortSignal): Promise<readonly StoredRecordingSummary[]> {
     validateRecordingDate(date);
     return await this.#recordingOperation(serial, signal, async (session) => {
@@ -480,7 +491,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     });
   }
 
-  /** Resolve an opaque owned reference only while its verified standalone route remains available. */
+  /** Resolve an opaque owned reference only while its verified storage route remains available. */
   async downloadStoredRecording(serial: string, id: string, signal?: AbortSignal): Promise<Buffer | null> {
     const reference = this.#recordingReferences.get(id);
     if (!reference || reference.serial !== serial || reference.expiresAt <= Date.now()) return null;
@@ -495,19 +506,24 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const current = previous.catch(() => undefined).then(async () => {
       const device = this.#devices.get(serial);
       const route = device ? ppcsStreamRoute(device, this.#devices) : null;
-      if (this.#recordingClosing || !device || !supportsStandalonePanControl(device, route,
+      if (this.#recordingClosing || !device || !supportsSoloCamStoredRecordings(device, route,
         isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys()))) || signal?.aborted) {
-        throw new Error("Stored recordings require the verified ready standalone SoloCam route");
+        throw new Error("Stored recordings require a verified ready SoloCam route");
       }
-      if (this.#ppcsStreams.has(serial)) throw new Error("Close live view before browsing camera recordings");
+      if (this.#recordingPeerReserved(serial)) throw new Error("Wait for this camera peer's recording retrieval");
+      if (this.#ppcsStreams.has(serial) || (route!.homeBaseAttached && this.#stationHasActiveMedia(route!.peer.serial))) {
+        throw new Error("Close this camera peer's live views before browsing recordings");
+      }
       this.#recordingReservations.add(serial);
       try {
         const peer = route!.peer;
+        await this.#stationOperations.get(peer.serial)?.catch(() => undefined);
         const dsk = await this.#dskKey(peer.serial);
         if (!dsk || signal?.aborted || this.#recordingClosing || this.#ppcsStreams.has(serial)) throw new Error("Recording camera connection is unavailable");
         const session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!,
           appConnection: peer.p2pConnection!, localAddress: peer.localAddress, dskKey: dsk.key,
-          channel: 0, cameraModel: device.model, accountId: device.adminUserId!, homeBaseAttached: false,
+          channel: device.channel!, cameraModel: device.model, stationModel: peer.model, recordingCameraSerial: device.serial,
+          accountId: device.adminUserId!, homeBaseAttached: route!.homeBaseAttached,
           purpose: "control", maxSeconds: 120, resolveCipherKey: (id) => this.#resolveCipherKey(id, peer) });
         this.#recordingSessions.set(serial, session);
         const abort = (): void => session.close();
@@ -554,7 +570,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   async startStream(serial: string): Promise<void> {
-    if (this.#recordingReservations.has(serial)) throw new Error("Wait for recording retrieval before starting live view");
+    if (this.#recordingPeerReserved(serial)) throw new Error("Wait for recording retrieval before starting live view");
     const device = this.#devices.get(serial);
     if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
     const route = ppcsStreamRoute(device, this.#devices);
@@ -563,12 +579,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
     // The production path is deliberately first-party Mega/PPCS.
     if (route && peer?.p2pDid && peer.p2pConnection && dsk && device.channel !== null) {
-      if (this.#recordingReservations.has(serial)) throw new Error("Wait for recording retrieval before starting live view");
+      if (this.#recordingPeerReserved(serial)) throw new Error("Wait for recording retrieval before starting live view");
       this.#ppcsStreams.get(serial)?.close("replaced");
       const initialEccPrivateKey = !route.homeBaseAttached && device.cipherId !== null
         ? await this.#resolveCipherKey(device.cipherId, peer)
         : undefined;
-      if (this.#recordingReservations.has(serial)) throw new Error("Wait for recording retrieval before starting live view");
+      if (this.#recordingPeerReserved(serial)) throw new Error("Wait for recording retrieval before starting live view");
       const stream = new FirstPartyPpcsSession({
         stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
         localAddress: peer.localAddress,
@@ -1659,7 +1675,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       presetPositionControlSupported: t817lControlsSupported || soloCamPanControlsSupported,
-      storedRecordingsSupported: soloCamPanControlsSupported,
+      storedRecordingsSupported: supportsSoloCamStoredRecordings(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
       aiTrackingControlSupported: t817lControlsSupported || supportsStandaloneAiTracking(
         device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       ),
@@ -2040,6 +2056,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (!identity || !accessSupported || !identity.p2pDid || !identity.adminUserId) {
         throw new Error("HomeBase local command identity is unavailable");
       }
+      if (this.#stationHasRecordingReservation(serial)) {
+        if (interruptMedia) throw new Error("Wait for HomeBase recording retrieval before changing station settings");
+        return this.#requireStation(serial);
+      }
       if (interruptMedia) await this.#stopStationMedia(serial);
       else if (this.#stationHasActiveMedia(serial)) return this.#requireStation(serial);
       const session = new HomeBasePpcsSession({
@@ -2140,8 +2160,17 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return station;
   }
 
+  #recordingPeerReserved(serial: string): boolean {
+    const peer = this.#devices.get(serial)?.parentSerial || serial;
+    return [...this.#recordingReservations].some((camera) => (this.#devices.get(camera)?.parentSerial || camera) === peer);
+  }
+
+  #stationHasRecordingReservation(stationSerial: string): boolean {
+    return [...this.#recordingReservations].some((serial) => this.#devices.get(serial)?.parentSerial === stationSerial);
+  }
+
   #stationHasActiveMedia(stationSerial: string): boolean {
-    return [...this.#ppcsStreams.keys()].some((serial) => this.#devices.get(serial)?.parentSerial === stationSerial);
+    return this.#stationHasRecordingReservation(stationSerial) || [...this.#ppcsStreams.keys()].some((serial) => this.#devices.get(serial)?.parentSerial === stationSerial);
   }
 
   async #stopStationMedia(stationSerial: string): Promise<void> {

@@ -1313,8 +1313,9 @@ function spawnSnapshotExtractor(codec: VideoCodec): ChildProcessWithoutNullStrea
   ]);
 }
 
-/** Remux video and optional checked AAC through separate pipes; aborting terminates the owned FFmpeg process. */
-export async function remuxVideoToMp4(video: Buffer, codec: VideoCodec, audio?: Buffer, signal?: AbortSignal): Promise<Buffer> {
+/** Remux checked elementary streams, optionally retaining recorded frame timing. Aborting terminates the owned FFmpeg process. */
+export async function remuxVideoToMp4(video: Buffer, codec: VideoCodec, audio?: Buffer, signal?: AbortSignal, frameRate?: number): Promise<Buffer> {
+  if (frameRate !== undefined && (!Number.isFinite(frameRate) || frameRate < 1 || frameRate > 60)) throw new Error("Invalid recorded frame rate");
   return await new Promise<Buffer>((resolve, reject) => {
     const process = spawn("ffmpeg", [
       "-hide_banner",
@@ -1324,6 +1325,7 @@ export async function remuxVideoToMp4(video: Buffer, codec: VideoCodec, audio?: 
       "+genpts",
       "-f",
       codec === "h265" ? "hevc" : "h264",
+      ...(frameRate === undefined ? [] : ["-framerate", `${frameRate}`]),
       "-i",
       "pipe:0",
       ...(audio?.length ? ["-f", "aac", "-i", "pipe:3", "-map", "0:v:0", "-map", "1:a:0", "-c:a", "copy", "-bsf:a", "aac_adtstoasc"] : []),
