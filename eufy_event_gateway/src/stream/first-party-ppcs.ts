@@ -699,9 +699,13 @@ export class PpcsVideoStreamNormalizer {
 
   /** Return the codec proven by decoder setup, falling back to the PPCS frame marker. */
   get codec(): "h264" | "h265" | "unknown" {
+    const h264Types = new Set(this.#nalHeaderBytes.map((byte) => byte & 0x1f));
+    if (h264Types.has(7) && h264Types.has(8)) return "h264";
     if (this.#nalHeaderBytes.some((byte) => {
       const type = (byte >> 1) & 0x3f;
-      return type === 32 || type === 33 || type === 34;
+
+      // H.264 delta byte 0x41 resembles HEVC VPS, but its low bit excludes a single-layer HEVC header.
+      return (byte & 1) === 0 && (type === 32 || type === 33 || type === 34);
     })) return "h265";
     if (this.#nalHeaderBytes.some((byte) => {
       const type = byte & 0x1f;

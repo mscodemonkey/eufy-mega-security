@@ -740,3 +740,23 @@ test("retains a split length prefix until the next PPCS video frame", () => {
     Buffer.from([0, 0, 0, 1, 0x65, 0x88, 0x84]),
   );
 });
+
+test("H264 setup remains H264 when a delta slice resembles a HEVC VPS", () => {
+  const normalizer = new PpcsVideoStreamNormalizer();
+  normalizer.push(Buffer.from([0, 0, 0, 1, 0x67, 0x64, 0, 0, 1, 0x68, 0xee]), "h264");
+  assert.equal(normalizer.codec, "h264");
+  normalizer.push(Buffer.from([0, 0, 0, 1, 0x41, 0x9a]));
+  assert.equal(normalizer.codec, "h264");
+  assert.deepEqual(normalizer.nalTypes, [7, 8, 1]);
+  const partial = new PpcsVideoStreamNormalizer();
+  partial.push(Buffer.from([0, 0, 0, 1, 0x41, 0x9a]), "h264");
+  assert.equal(partial.codec, "h264");
+});
+
+test("genuine HEVC setup stays HEVC after EOS resembles a lone H264 PPS", () => {
+  const normalizer = new PpcsVideoStreamNormalizer();
+  normalizer.push(Buffer.from([0, 0, 0, 1, 0x40, 0x01, 0, 0, 1, 0x42, 0x01, 0, 0, 1, 0x44, 0x01]), "h264");
+  normalizer.push(Buffer.from([0, 0, 1, 0x48, 0x01]));
+  assert.equal(normalizer.codec, "h265");
+  assert.deepEqual(normalizer.nalTypes, [32, 33, 34, 36]);
+});
