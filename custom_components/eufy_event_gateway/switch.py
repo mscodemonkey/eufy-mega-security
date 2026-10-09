@@ -27,6 +27,7 @@ async def async_setup_entry(
     coordinator = entry.runtime_data.coordinator
     known_enabled: set[str] = set()
     known_motion: set[str] = set()
+    known_audio_recording: set[str] = set()
     known_auto_night_vision: set[str] = set()
 
     def add_new() -> None:
@@ -53,6 +54,19 @@ async def async_setup_entry(
             async_add_entities(
                 EufyCameraMotionSwitch(coordinator, serial)
                 for serial in sorted(motion_serials)
+            )
+        audio_serials = {
+            serial
+            for serial, camera in coordinator.cameras.items()
+            if camera.get("audioRecordingControlSupported") is True
+            and isinstance(camera.get("audioSettings"), dict)
+            and isinstance(camera["audioSettings"].get("recordingEnabled"), bool)
+        } - known_audio_recording
+        if audio_serials:
+            known_audio_recording.update(audio_serials)
+            async_add_entities(
+                EufyAudioRecordingSwitch(coordinator, serial)
+                for serial in sorted(audio_serials)
             )
         auto_night_vision_serials = {
             serial
@@ -142,6 +156,44 @@ class EufyCameraMotionSwitch(EufyGatewayEntity, SwitchEntity):
         except GatewayClientError as error:
             raise HomeAssistantError(
                 f"Could not change camera motion detection: {error}"
+            ) from error
+
+
+class EufyAudioRecordingSwitch(EufyGatewayEntity, SwitchEntity):
+    """Expose the recorded-audio setting, with confirmed state owned by the gateway."""
+
+    _attr_translation_key = "camera_audio_recording"
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Bind the switch to a camera with verified recorded-audio control."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        SwitchEntity.__init__(self)
+        self._attr_unique_id = f"{serial}_camera_audio_recording"
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return the latest camera-reported recorded-audio setting."""
+        settings = self.camera.get("audioSettings")
+        value = settings.get("recordingEnabled") if isinstance(settings, dict) else None
+        return value if isinstance(value, bool) else None
+
+    async def async_turn_on(self, **kwargs: object) -> None:
+        """Enable audio recording and publish confirmed state."""
+        await self._async_set_audio_recording(True)
+
+    async def async_turn_off(self, **kwargs: object) -> None:
+        """Disable audio recording and publish confirmed state."""
+        await self._async_set_audio_recording(False)
+
+    async def _async_set_audio_recording(self, enabled: bool) -> None:
+        try:
+            camera = await self.coordinator.client.set_camera_audio_recording(
+                self.serial, enabled
+            )
+            self.coordinator.async_set_camera(camera)
+        except GatewayClientError as error:
+            raise HomeAssistantError(
+                f"Could not change audio recording: {error}"
             ) from error
 
 

@@ -9,9 +9,12 @@
  * sole production translation point from Eufy-specific data to normalized
  * provider callbacks; Home Assistant-specific naming stays downstream. The
  * provider also emits field-limited push summaries for support logs without
- * forwarding private event fields into the logger.
+ * forwarding private event fields into the logger. Periodic cloud refreshes admit
+ * newly added devices without replacing push receivers or active media sessions.
  */
 import { join } from "node:path";
+import { createHmac, randomBytes } from "node:crypto";
+import { validateRecordingDate, type CameraStoredRecord, type StoredRecordingSummary } from "../stream/stored-recordings.js";
 
 import type { BatteryState, CameraIdentity, CameraPresetPosition, DetectionKind, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
 import { createLogger } from "../logging.js";
@@ -115,6 +118,9 @@ export interface MegaInventoryReads {
   readonly speakerVolume?: number;
   readonly enabled?: boolean;
   readonly motionDetectionEnabled?: boolean;
+
+  /** Exact SoloCam tracking enable bit, independent of app-side cloud bookkeeping. */
+  readonly aiTrackingEnabled?: boolean;
   readonly guardMode?: number;
   readonly autoNightVisionEnabled?: boolean;
   readonly nightVisionMode?: number;
@@ -219,11 +225,18 @@ function isAutoNightVisionDoorbell(
   return isDoorbellDevice(device) && AUTO_NIGHT_VISION_DOORBELL_MODELS.has(device.model);
 }
 
-/** Return the three labels used by this non-doorbell camera family. */
+/** Return model-specific wire values consumed by gateway and Home Assistant selects. */
 export function nightVisionModes(
   device: Pick<MegaInventoryDevice, "model" | "reads" | "deviceType" | "category">,
 ): readonly NightVisionMode[] {
   if (device.reads.nightVisionMode === undefined || isDoorbellDevice(device)) return [];
+  if (device.model === "T8171" && device.deviceType === 88) {
+    return [
+      { value: 3, name: "Infrared on" },
+      { value: 1, name: "Infrared" },
+      { value: 0, name: "Off" },
+    ];
+  }
   const modeZeroName = COLOUR_NIGHT_VISION_MODELS.has(device.model) ? "Colour" : "Off";
   return [
     { value: 0, name: modeZeroName },
@@ -232,9 +245,99 @@ export function nightVisionModes(
   ];
 }
 
-/** Return whether live hardware has proven the model's preset query contract. */
-export function supportsPresetPositions(device: Pick<MegaInventoryDevice, "model">): boolean {
-  return device.model.toUpperCase().startsWith("T817L");
+/** Require the E30's own ready peer and reported mode before offering its direct write. */
+export function supportsStandaloneNightVision(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "category" | "channel" | "adminUserId" | "reads">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return device.model === "T8171" && device.deviceType === 88 && device.channel === 0
+    && route?.homeBaseAttached === false && route.peer.serial === device.serial
+    && device.reads.nightVisionMode !== undefined && Boolean(device.adminUserId)
+    && routeReady && !isDoorbellDevice(device);
+}
+
+/** Admit the hardware-tested SoloCam motion write only with an owned, ready direct route and known state. */
+export function supportsStandaloneMotionDetection(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId" | "reads">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return device.model === "T8171" && device.deviceType === 88 && device.channel === 0
+    && route?.homeBaseAttached === false && route.peer.serial === device.serial
+    && device.reads.motionDetectionEnabled !== undefined && Boolean(device.adminUserId) && routeReady;
+}
+
+/** Admit the hardware-tested SoloCam audio-recording write only with an owned, ready direct route and known state. */
+export function supportsStandaloneAudioRecording(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId" | "reads">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return device.model === "T8171" && device.deviceType === 88 && device.channel === 0
+    && route?.homeBaseAttached === false && route.peer.serial === device.serial
+    && device.reads.audioRecordingEnabled !== undefined && Boolean(device.adminUserId) && routeReady;
+}
+
+/** Admit the hardware-tested SoloCam streaming-quality write only with an owned, ready direct route and known state. */
+export function supportsStandaloneStreamingQuality(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId" | "reads">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return device.model === "T8171" && device.deviceType === 88 && device.channel === 0
+    && route?.homeBaseAttached === false && route.peer.serial === device.serial
+    && [0, 1, 2, 3].includes(device.reads.streamingQualityTier ?? -1) && Boolean(device.adminUserId) && routeReady;
+}
+
+/** Admit the SoloCam's pan actions only through its hardware-tested, self-owned direct route. */
+export function supportsStandalonePanControl(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return device.model === "T8171" && device.deviceType === 88 && device.channel === 0
+    && route?.homeBaseAttached === false && route.peer.serial === device.serial
+    && Boolean(device.adminUserId) && routeReady;
+}
+
+/** Admit preset movement only on the exact SoloCam direct or HomeBase route proven by saved target scenes. */
+export function supportsSoloCamPresetControl(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return supportsStandalonePanControl(device, route, routeReady) ||
+    (device.model === "T8171" && device.deviceType === 88 && device.channel === 1 && Boolean(device.adminUserId) && routeReady &&
+      route?.homeBaseAttached === true && route.peer.model === "T8030" && route.peer.serial !== device.serial);
+}
+
+/** Admit stored media only for the exact tested SoloCam direct route or HomeBase 3 child channel. */
+export function supportsSoloCamStoredRecordings(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return supportsStandalonePanControl(device, route, routeReady) ||
+    (device.model === "T8171" && device.deviceType === 88 && device.channel === 1 && Boolean(device.adminUserId) && routeReady &&
+      route?.homeBaseAttached === true && route.peer.model === "T8030" && route.peer.serial !== device.serial);
+}
+
+/** Admit SoloCam tracking only on its physically tested direct route with a known preference. */
+export function supportsStandaloneAiTracking(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId" | "reads">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return supportsStandalonePanControl(device, route, routeReady)
+    && typeof device.reads.aiTrackingEnabled === "boolean";
+}
+
+/** Return whether hardware has proven this model/type's preset query contract. */
+export function supportsPresetPositions(
+  device: Pick<MegaInventoryDevice, "model"> & Partial<Pick<MegaInventoryDevice, "deviceType">>,
+): boolean {
+  return device.model.toUpperCase().startsWith("T817L") || (device.model === "T8171" && device.deviceType === 88);
 }
 
 /** Safe, grouped inventory evidence suitable for copied support logs. */
@@ -268,12 +371,20 @@ export interface PpcsStreamRoute {
  * devices, obtains the station keys needed for camera sessions, then starts
  * push delivery independently. Startup generations prevent late inventory or
  * receiver work from surviving close or replacement. A stream request creates one PPCS session per camera and
- * closes it when the last consumer releases the source.
+ * closes it when the last consumer releases the source. Runtime inventory refresh
+ * owns additive discovery, while omitted devices retain their existing state.
  */
 export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #client: MegaClient;
   readonly #devices = new Map<string, MegaInventoryDevice>();
   readonly #ppcsStreams = new Map<string, FirstPartyPpcsSession>();
+
+  /** Private card references expire in memory and are never published as filesystem paths. */
+  readonly #recordingReferences = new Map<string, { serial: string; record: CameraStoredRecord; expiresAt: number }>();
+  readonly #recordingIdSecret = randomBytes(32);
+  #recordingClosing = false;
+  readonly #recordingReservations = new Set<string>();
+  readonly #recordingSessions = new Map<string, FirstPartyPpcsSession>();
   readonly #dskKeys = new Map<string, { readonly key: string; readonly expiresAt: number | null }>();
   readonly #dskRefreshes = new Map<string, Promise<{ readonly key: string; readonly expiresAt: number | null } | null>>();
   readonly #cipherKeys = new Map<number, string>();
@@ -286,11 +397,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #stationOperations = new Map<string, Promise<HomeBaseState>>();
   readonly #cameraOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #cameraCapabilityOperations = new Map<string, Promise<CameraIdentity>>();
+  readonly #streamingQualityOperations = new Map<string, Promise<CameraIdentity>>();
+  readonly #audioRecordingOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #motionOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #guardModeOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #nightVisionOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #lightOperations = new Map<string, Promise<void>>();
-  readonly #t817lControlOperations = new Map<string, Promise<void>>();
+  readonly #panControlOperations = new Map<string, Promise<void>>();
   readonly #pendingSensorMotionCloudConfirmations = new Set<string>();
   readonly #liveDeviceReads = new Map<string, MegaInventoryReads>();
   readonly #liveDeviceParamTypes = new Map<string, readonly number[]>();
@@ -301,6 +414,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #verificationRequired = false;
   #stationRefreshTimer: ReturnType<typeof setInterval> | null = null;
   #inventoryRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  #inventoryReadyGeneration: number | null = null;
+  #inventoryRefresh: Promise<void> | null = null;
+  #inventoryTrailingRefresh: Promise<void> | null = null;
+  #inventoryKeyFailures = 0;
 
   constructor(private readonly config: EufyProviderConfig) {
     this.#client = new MegaClient({
@@ -333,7 +450,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (!dskKeyNeedsRefresh(cached)) return cached ?? null;
     const pending = this.#dskRefreshes.get(peerSerial);
     if (pending) return await pending;
+    const generation = this.#startupGeneration;
     const refresh = this.#client.dskKeys([peerSerial]).then((keys) => {
+      if (generation !== this.#startupGeneration) throw new Error("Device key lookup cancelled");
       const replacement = keys[peerSerial] ?? null;
       if (replacement) {
         this.#dskKeys.set(peerSerial, replacement);
@@ -345,6 +464,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       }
       return null;
     }).catch((error: unknown) => {
+      if (generation !== this.#startupGeneration) throw new Error("Device key lookup cancelled");
       if (cached && cached.expiresAt !== null && cached.expiresAt > Date.now()) {
         logger.warn("dsk_refresh_deferred", "PPCS lookup-key refresh failed before expiry; using the still-valid cached key");
         return cached;
@@ -364,9 +484,85 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return this.#client.cloudHistory(serial, query);
   }
 
+  /** List validated, completed SoloCam event clips through its currently verified storage route. */
+  async listStoredRecordings(serial: string, date: string, signal?: AbortSignal): Promise<readonly StoredRecordingSummary[]> {
+    validateRecordingDate(date);
+    return await this.#recordingOperation(serial, signal, async (session) => {
+      const records = await session.listStoredRecordings(date, signal);
+      for (const [id, reference] of this.#recordingReferences) {
+        if (reference.expiresAt <= Date.now()) this.#recordingReferences.delete(id);
+      }
+      return records.map((record) => {
+        const id = createHmac("sha256", this.#recordingIdSecret).update(`${serial}\0${record.storagePath}`).digest("hex");
+        this.#recordingReferences.delete(id);
+        this.#recordingReferences.set(id, { serial, record, expiresAt: Date.now() + 30 * 60_000 });
+        while (this.#recordingReferences.size > 1_000) this.#recordingReferences.delete(this.#recordingReferences.keys().next().value!);
+        return { id, startTime: record.startTime, endTime: record.endTime };
+      });
+    });
+  }
+
+  /** Resolve an opaque owned reference only while its verified storage route remains available. */
+  async downloadStoredRecording(serial: string, id: string, signal?: AbortSignal): Promise<Buffer | null> {
+    const reference = this.#recordingReferences.get(id);
+    if (!reference || reference.serial !== serial || reference.expiresAt <= Date.now()) return null;
+    return await this.#recordingOperation(serial, signal,
+      async (session) => await session.downloadStoredRecording(reference.record, signal));
+  }
+
+  async #recordingOperation<T>(serial: string, signal: AbortSignal | undefined,
+    operation: (session: FirstPartyPpcsSession) => Promise<T>): Promise<T> {
+    const previous = this.#panControlOperations.get(serial) ?? Promise.resolve();
+    let result!: T;
+    const current = previous.catch(() => undefined).then(async () => {
+      const device = this.#devices.get(serial);
+      const route = device ? ppcsStreamRoute(device, this.#devices) : null;
+      if (this.#recordingClosing || !device || !supportsSoloCamStoredRecordings(device, route,
+        isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys()))) || signal?.aborted) {
+        throw new Error("Stored recordings require a verified ready SoloCam route");
+      }
+      if (this.#recordingPeerReserved(serial)) throw new Error("Wait for this camera peer's recording retrieval");
+      if (this.#ppcsStreams.has(serial) || (route!.homeBaseAttached && this.#stationHasActiveMedia(route!.peer.serial))) {
+        throw new Error("Close this camera peer's live views before browsing recordings");
+      }
+      this.#recordingReservations.add(serial);
+      try {
+        const peer = route!.peer;
+        await this.#stationOperations.get(peer.serial)?.catch(() => undefined);
+        const dsk = await this.#dskKey(peer.serial);
+        if (!dsk || signal?.aborted || this.#recordingClosing || this.#ppcsStreams.has(serial)) throw new Error("Recording camera connection is unavailable");
+        const session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!,
+          appConnection: peer.p2pConnection!, localAddress: peer.localAddress, dskKey: dsk.key,
+          channel: device.channel!, cameraModel: device.model, stationModel: peer.model, recordingCameraSerial: device.serial,
+          accountId: device.adminUserId!, homeBaseAttached: route!.homeBaseAttached,
+          purpose: "control", maxSeconds: 120, resolveCipherKey: (id) => this.#resolveCipherKey(id, peer) });
+        this.#recordingSessions.set(serial, session);
+        const abort = (): void => session.close();
+        signal?.addEventListener("abort", abort, { once: true });
+        try {
+          await session.start();
+          result = await operation(session);
+          const currentDevice = this.#devices.get(serial);
+          if (!currentDevice || inventoryBindingChanged(device, currentDevice)) {
+            throw new Error("Camera connection changed during recording retrieval");
+          }
+        } finally {
+          signal?.removeEventListener("abort", abort);
+          session.close();
+          this.#recordingSessions.delete(serial);
+        }
+      } finally { this.#recordingReservations.delete(serial); }
+    });
+    this.#panControlOperations.set(serial, current);
+    try { await current; return result; }
+    finally { if (this.#panControlOperations.get(serial) === current) this.#panControlOperations.delete(serial); }
+  }
+
   /** Authenticate and publish cameras independently of background push readiness. */
   async start(events: ProviderEvents): Promise<void> {
+    this.#recordingClosing = false;
     const generation = ++this.#startupGeneration;
+    this.#retireInventoryRefresh();
     this.#events = events;
     let auth;
     try { auth = await this.#client.connect(this.config.verifyCode); }
@@ -385,6 +581,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   async startStream(serial: string): Promise<void> {
+    if (this.#recordingPeerReserved(serial)) throw new Error("Wait for recording retrieval before starting live view");
     const device = this.#devices.get(serial);
     if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
     const route = ppcsStreamRoute(device, this.#devices);
@@ -393,10 +590,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
     // The production path is deliberately first-party Mega/PPCS.
     if (route && peer?.p2pDid && peer.p2pConnection && dsk && device.channel !== null) {
+      if (this.#recordingPeerReserved(serial)) throw new Error("Wait for recording retrieval before starting live view");
       this.#ppcsStreams.get(serial)?.close("replaced");
       const initialEccPrivateKey = !route.homeBaseAttached && device.cipherId !== null
         ? await this.#resolveCipherKey(device.cipherId, peer)
         : undefined;
+      if (this.#recordingPeerReserved(serial)) throw new Error("Wait for recording retrieval before starting live view");
       const stream = new FirstPartyPpcsSession({
         stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
         localAddress: peer.localAddress,
@@ -428,7 +627,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         if (this.#ppcsStreams.get(serial) === stream) this.#ppcsStreams.delete(serial);
         throw error;
       }
-      this.#events?.streamStarted(serial, stream.output, () => stream.videoCodec);
+      const audio = device.model === "T8171" && device.deviceType === 88
+        && ((route.homeBaseAttached && route.peer.model === "T8030") || (!route.homeBaseAttached && device.channel === 0))
+        ? stream.audioOutput : undefined;
+      this.#events?.streamStarted(serial, stream.output, () => stream.videoCodec, audio);
       const finalize = () => this.#finalizeStream(serial, stream, device, route);
       stream.output.once("end", finalize);
       stream.output.once("close", finalize);
@@ -521,36 +723,48 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return current;
   }
 
-  /** Write the verified 1011 motion switch and publish fresh inventory state. */
+  /** Write the model's verified motion command and require fresh inventory confirmation. */
   setCameraMotionDetection(serial: string, enabled: boolean): Promise<CameraIdentity> {
     const previous = this.#motionOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
     const current = previous.catch(() => this.#requireCameraIdentity(serial)).then(async () => {
       const device = this.#devices.get(serial);
       if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
+      const soloCam = device.deviceType === 88 && device.model === "T8171";
       const route = ppcsStreamRoute(device, this.#devices);
       const peer = route?.peer;
       const dsk = peer ? await this.#dskKey(peer.serial) : null;
       if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
         throw new Error("Camera motion detection control is unavailable for this camera");
       }
-      const session = new FirstPartyPpcsSession({
-        stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
-        localAddress: peer.localAddress,
-        dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
-        accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 40,
-        resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
-      });
-      try {
-        await session.start();
-        await session.writeMotionDetection(enabled);
-      } finally {
-        session.close();
+      if (soloCam && (route.homeBaseAttached || peer.serial !== device.serial || device.channel !== 0
+        || device.reads.motionDetectionEnabled === undefined)) {
+        throw new Error("SoloCam motion control requires a known standalone channel-zero setting");
       }
-      for (let attempt = 0; attempt < 12; attempt += 1) {
-        await this.#refreshInventoryReads();
-        const refreshed = this.#devices.get(serial);
-        if (refreshed?.reads.motionDetectionEnabled === enabled) return this.#cameraIdentity(refreshed);
-        await delay(2_000);
+      if (soloCam) await this.stopStream(serial);
+      for (let operation = 0; operation < (soloCam ? 2 : 1); operation += 1) {
+        const session = new FirstPartyPpcsSession({
+          stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
+          localAddress: peer.localAddress,
+          dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
+          accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 40,
+          resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
+        });
+        try {
+          await session.start();
+          await session.writeMotionDetection(enabled);
+        } catch (error) {
+          if (!soloCam) throw error;
+
+          // A failed send can still have changed the setting. Read it before retrying.
+        } finally {
+          session.close();
+        }
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          await this.#refreshInventoryReads();
+          const refreshed = this.#devices.get(serial);
+          if (refreshed?.reads.motionDetectionEnabled === enabled) return this.#cameraIdentity(refreshed);
+          await delay(2_000);
+        }
       }
       throw new Error("Camera motion detection write was not confirmed by readback");
     }).catch((error: unknown) => {
@@ -560,6 +774,121 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#motionOperations.set(serial, current);
     void current.finally(() => {
       if (this.#motionOperations.get(serial) === current) this.#motionOperations.delete(serial);
+    }).catch(() => undefined);
+    return current;
+  }
+
+  /** Write the model's verified audio-recording command and require fresh inventory confirmation. */
+  setCameraAudioRecording(serial: string, enabled: boolean): Promise<CameraIdentity> {
+    const previous = this.#audioRecordingOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
+    const current = previous.catch(() => this.#requireCameraIdentity(serial)).then(async () => {
+      const device = this.#devices.get(serial);
+      if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
+      if (device.deviceType !== 88 || device.model !== "T8171") throw new Error("Audio recording control is unavailable for this camera");
+      const route = ppcsStreamRoute(device, this.#devices);
+      const peer = route?.peer;
+      const dsk = peer ? await this.#dskKey(peer.serial) : null;
+      if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
+        throw new Error("Camera audio recording control is unavailable for this camera");
+      }
+      if (route.homeBaseAttached || peer.serial !== device.serial || device.channel !== 0
+        || device.reads.audioRecordingEnabled === undefined) {
+        throw new Error("SoloCam audio recording control requires a known standalone channel-zero setting");
+      }
+      await this.stopStream(serial);
+      for (let operation = 0; operation < 2; operation += 1) {
+        const session = new FirstPartyPpcsSession({
+          stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
+          localAddress: peer.localAddress,
+          dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
+          accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 40,
+          resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
+        });
+        try {
+          await session.start();
+          await session.writeAudioRecording(enabled);
+        } catch {
+
+          // A failed send can still have changed the setting. Read it before retrying.
+        } finally {
+          session.close();
+        }
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          await this.#refreshInventoryReads();
+          const refreshed = this.#devices.get(serial);
+          if (refreshed?.reads.audioRecordingEnabled === enabled) return this.#cameraIdentity(refreshed);
+          await delay(2_000);
+        }
+      }
+      throw new Error("Camera audio recording write was not confirmed by readback");
+    }).catch((error: unknown) => {
+      logger.warn("camera_audio_recording_failed", `Camera audio-recording command failed: error=${safeError(error)}`);
+      throw error;
+    });
+    this.#audioRecordingOperations.set(serial, current);
+    void current.finally(() => {
+      if (this.#audioRecordingOperations.get(serial) === current) this.#audioRecordingOperations.delete(serial);
+    }).catch(() => undefined);
+    return current;
+  }
+
+  /** Stop the current source, write the native quality preference and require fresh inventory confirmation. */
+  setCameraStreamingQuality(serial: string, quality: number): Promise<CameraIdentity> {
+    if (!Number.isInteger(quality) || quality < 0 || quality > 3) return Promise.reject(new Error("Unsupported streaming quality"));
+    const previous = this.#streamingQualityOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
+    const current = previous.catch(() => this.#requireCameraIdentity(serial)).then(async () => {
+      const device = this.#devices.get(serial);
+      if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
+      if (device.deviceType !== 88 || device.model !== "T8171") throw new Error("Streaming quality control is unavailable for this camera");
+      const route = ppcsStreamRoute(device, this.#devices);
+      const peer = route?.peer;
+      const dsk = peer ? await this.#dskKey(peer.serial) : null;
+      if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
+        throw new Error("Camera streaming quality control is unavailable for this camera");
+      }
+      if (route.homeBaseAttached || peer.serial !== device.serial || device.channel !== 0
+        || ![0, 1, 2, 3].includes(device.reads.streamingQualityTier ?? -1)) {
+        throw new Error("SoloCam streaming quality control requires a known standalone channel-zero setting");
+      }
+      await this.stopStream(serial);
+      const session = new FirstPartyPpcsSession({
+        stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
+        localAddress: peer.localAddress,
+        dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
+        accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 40,
+        resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
+      });
+      try {
+        await session.start();
+        await session.writeStreamingQuality(quality);
+      } catch {
+
+        // A failed send can still have changed the setting. Read it before reporting failure.
+      } finally {
+        session.close();
+      }
+
+      // A cached local read predates this write and must not confirm it.
+      const cached = this.#liveDeviceReads.get(serial);
+      if (cached) {
+        const { streamingQualityTier: _stale, ...remaining } = cached;
+        this.#liveDeviceReads.set(serial, remaining);
+      }
+      const readDeadline = Date.now() + 65_000;
+      for (let attempt = 0; attempt < 13 && Date.now() < readDeadline; attempt += 1) {
+        await this.#refreshInventoryReads();
+        const refreshed = this.#devices.get(serial);
+        if (refreshed?.reads.streamingQualityTier === quality) return this.#cameraIdentity(refreshed);
+        await delay(5_000);
+      }
+      throw new Error("Camera streaming quality write was not confirmed by readback");
+    }).catch((error: unknown) => {
+      logger.warn("camera_streaming_quality_failed", `Camera streaming-quality command failed: error=${safeError(error)}`);
+      throw error;
+    });
+    this.#streamingQualityOperations.set(serial, current);
+    void current.finally(() => {
+      if (this.#streamingQualityOperations.get(serial) === current) this.#streamingQualityOperations.delete(serial);
     }).catch(() => undefined);
     return current;
   }
@@ -595,6 +924,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         homeBaseAttached: false,
         purpose: "control",
         maxSeconds: 40,
+        resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
       });
       let params;
       try {
@@ -671,8 +1001,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Write the camera family's night-vision control and publish fresh confirmed state. */
   setCameraNightVision(serial: string, mode: number): Promise<CameraIdentity> {
-    if (!Number.isSafeInteger(mode) || mode < 0 || mode > 2) {
-      return Promise.reject(new Error("Night vision mode must be 0, 1, or 2"));
+    if (!Number.isSafeInteger(mode) || mode < 0 || mode > 3) {
+      return Promise.reject(new Error("Night vision mode must be an integer from 0 through 3"));
     }
     const previous = this.#nightVisionOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
     const current = previous.catch(() => this.#requireCameraIdentity(serial)).then(async () => {
@@ -690,15 +1020,21 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const route = ppcsStreamRoute(device, this.#devices);
       const peer = route?.peer;
       const dsk = peer ? await this.#dskKey(peer.serial) : null;
-      if (!route?.homeBaseAttached || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
+      const standaloneNightVisionSupported = supportsStandaloneNightVision(device, route,
+        isPpcsRouteReady(device, this.#devices, new Set(dsk && peer ? [peer.serial] : [])));
+      if ((!route?.homeBaseAttached && !standaloneNightVisionSupported) || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
         throw new Error("Night vision control requires a ready HomeBase-attached camera route");
       }
+
+      // Closing this camera's media frees its direct peer. Consumers request a new stream.
+      if (standaloneNightVisionSupported) await this.stopStream(serial);
       const session = new FirstPartyPpcsSession({
         stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
         localAddress: peer.localAddress,
         dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
-        accountId: device.adminUserId, homeBaseAttached: true, purpose: "control", maxSeconds: 40,
-        resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
+        accountId: device.adminUserId, homeBaseAttached: route!.homeBaseAttached, purpose: "control", maxSeconds: 40,
+        ...(standaloneNightVisionSupported ? { standaloneNightVisionSupported: true }
+          : { resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer) }),
       });
       let acknowledgementTimedOut = false;
       try {
@@ -799,7 +1135,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Retire startup and push synchronously before cancelling shared cloud work. */
   async close(): Promise<void> {
+    this.#recordingClosing = true;
     ++this.#startupGeneration;
+    this.#retireInventoryRefresh();
     const push = this.#push;
     this.#push = null;
     const closingPush = push?.close();
@@ -812,14 +1150,17 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     await closingPush;
     for (const stream of this.#ppcsStreams.values()) stream.close();
     this.#ppcsStreams.clear();
+    for (const session of this.#recordingSessions.values()) session.close();
+    this.#recordingSessions.clear();
+    this.#recordingReferences.clear();
     await Promise.allSettled(this.#stationOperations.values());
     this.#stationOperations.clear();
     await Promise.allSettled(this.#cameraOperations.values());
     this.#cameraOperations.clear();
     await Promise.allSettled(this.#lightOperations.values());
     this.#lightOperations.clear();
-    await Promise.allSettled(this.#t817lControlOperations.values());
-    this.#t817lControlOperations.clear();
+    await Promise.allSettled(this.#panControlOperations.values());
+    this.#panControlOperations.clear();
     this.#pendingSensorMotionCloudConfirmations.clear();
     this.#liveDeviceReads.clear();
     this.#liveDeviceParamTypes.clear();
@@ -869,6 +1210,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   async #completeStartup(events: ProviderEvents, generation = ++this.#startupGeneration): Promise<void> {
+    this.#retireInventoryRefresh();
     try { await this.#runStartup(events, generation); }
     catch (error) { if (generation !== this.#startupGeneration) return; throw error; }
   }
@@ -931,6 +1273,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials),
       routeReady: isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       homeBaseAttached: ppcsStreamRoute(device, this.#devices)?.homeBaseAttached ?? false,
+      standaloneNightVisionSupported: supportsStandaloneNightVision(device, ppcsStreamRoute(device, this.#devices),
+        isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
     }));
     events.cameraCapabilities(manifests);
     for (const { count, message } of cameraCapabilityLogSummaries(manifests)) {
@@ -1035,61 +1379,162 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       }
     }, 60_000);
     this.#stationRefreshTimer.unref();
+    this.#inventoryReadyGeneration = generation;
     if (this.#inventoryRefreshTimer) clearInterval(this.#inventoryRefreshTimer);
     this.#inventoryRefreshTimer = setInterval(() => {
-      void this.#refreshInventoryReads().catch((error: unknown) => {
+      void this.#refreshInventoryReads(false).catch((error: unknown) => {
         logger.warn("inventory_refresh_unavailable", `Mega read refresh unavailable: ${safeError(error)}`);
       });
     }, 60_000);
     this.#inventoryRefreshTimer.unref();
   }
 
-  async #refreshInventoryReads(): Promise<void> {
+  /** Detach generation-owned flights so replacement startup cannot join retired work. */
+  #retireInventoryRefresh(): void {
+    this.#inventoryReadyGeneration = null;
+    this.#inventoryRefresh = null;
+    this.#inventoryTrailingRefresh = null;
+    this.#inventoryKeyFailures = 0;
+    this.#dskRefreshes.clear();
+  }
+
+  /** Join timer reads, but queue a post-command read when a control needs fresh state. */
+  async #refreshInventoryReads(requireFresh = true): Promise<void> {
+    const generation = this.#startupGeneration;
+    const events = this.#events;
+    if (this.#inventoryReadyGeneration !== generation || !events) return;
+    const pending = this.#inventoryRefresh;
+    if (pending) {
+      if (!requireFresh) return pending;
+      if (this.#inventoryTrailingRefresh) return this.#inventoryTrailingRefresh;
+      const trailing = pending.catch(() => undefined).then(() => {
+        if (generation !== this.#startupGeneration) throw new Error("Inventory refresh cancelled");
+        if (this.#inventoryTrailingRefresh === trailing) this.#inventoryTrailingRefresh = null;
+        return this.#refreshInventoryReads(false);
+      }).finally(() => {
+        if (this.#inventoryTrailingRefresh === trailing) this.#inventoryTrailingRefresh = null;
+      });
+      this.#inventoryTrailingRefresh = trailing;
+      return trailing;
+    }
+    const refresh = this.#runInventoryRefresh(events, generation).finally(() => {
+      if (this.#inventoryRefresh === refresh) this.#inventoryRefresh = null;
+    });
+    this.#inventoryRefresh = refresh;
+    return refresh;
+  }
+
+  /** Merge routing peers before publishing additive discovery through the captured generation. */
+  async #runInventoryRefresh(events: ProviderEvents, generation: number): Promise<void> {
     const refreshed = parseMegaInventory(await this.#client.inventory());
+    if (generation !== this.#startupGeneration) throw new Error("Inventory refresh cancelled");
+    if (refreshed.length === 0) return;
+    const previous = new Map(this.#devices);
     for (const device of refreshed) {
       const known = this.#devices.get(device.serial);
-      if (!known) continue;
-      const motionOutcome = inventoryMotionOutcome(
-        known.reads.motionEventSeconds,
-        device.reads.motionEventSeconds,
-        this.#pendingSensorMotionCloudConfirmations.has(device.serial),
-      );
+      const refreshedDevice = known ? mergeInventoryMetadata(known, device) : device;
+      if (known && inventoryBindingChanged(known, refreshedDevice)) {
+        const stream = this.#ppcsStreams.get(device.serial);
+        if (stream) {
+          stream.close("replaced");
+          this.#finalizeStream(device.serial, stream, known, ppcsStreamRoute(known, previous));
+        }
+        this.#recordingSessions.get(device.serial)?.close();
+        for (const [id, reference] of this.#recordingReferences) {
+          if (reference.serial === device.serial) this.#recordingReferences.delete(id);
+        }
+        this.#liveDeviceReads.delete(device.serial);
+        this.#liveDeviceParamTypes.delete(device.serial);
+      }
       const liveReads = this.#liveDeviceReads.get(device.serial);
       const liveParamTypes = this.#liveDeviceParamTypes.get(device.serial) ?? [];
-      const merged = {
-        ...mergeInventoryMetadata(known, device),
+      this.#devices.set(device.serial, {
+        ...refreshedDevice,
         paramTypes: [...new Set([...device.paramTypes, ...liveParamTypes])].sort((left, right) => left - right),
         reads: liveReads ? { ...device.reads, ...liveReads } : device.reads,
-      };
-      this.#devices.set(device.serial, merged);
-      const knownStation = this.#stations.get(device.serial);
-      if (knownStation && isInventoryStation(merged)) {
-        const refreshedStation = refreshInventoryStationState(knownStation, merged);
-        this.#stations.set(device.serial, refreshedStation);
-        this.#events?.station(refreshedStation);
+      });
+    }
+    const missingPeers = [...this.#devices.values()].filter((device) =>
+      (!device.parentSerial || device.parentSerial === device.serial)
+      && device.p2pDid && device.p2pConnection && !this.#dskKeys.has(device.serial)
+      && !(device.category === "eufy_security"
+        && ((device.deviceType === 27 && device.model.startsWith("T9000"))
+          || (device.deviceType === 300 && device.model.startsWith("T8N00")))));
+    if (missingPeers.length > 0) {
+      try {
+        const keys = await this.#client.dskKeys(missingPeers.map(({ serial }) => serial));
+        if (generation !== this.#startupGeneration) throw new Error("Inventory refresh cancelled");
+        for (const peer of missingPeers) {
+          const key = keys[peer.serial];
+          if (key) this.#dskKeys.set(peer.serial, key);
+        }
+        if (missingPeers.some(({ serial }) => !this.#dskKeys.has(serial))) this.#recordInventoryKeyFailure();
+        else this.#inventoryKeyFailures = 0;
+      } catch (error) {
+        if (generation !== this.#startupGeneration) throw new Error("Inventory refresh cancelled");
+        this.#recordInventoryKeyFailure();
       }
-      if (known.reads.privacy6250Value !== merged.reads.privacy6250Value) {
-        const summary = privacyParameterLogSummary(merged, known.reads.privacy6250Value);
+    }
+    const devices = [...this.#devices.values()];
+    const dskPeers = new Set(this.#dskKeys.keys());
+    for (const device of devices) {
+      if (isSupportedMegaCamera(device)) events.camera(this.#cameraIdentity(device));
+    }
+    for (const device of devices) {
+      const sensor = securitySensorState(device);
+      if (sensor) events.sensor(sensor);
+    }
+    for (const device of devices.filter(isInventoryStation)) {
+      const known = this.#stations.get(device.serial);
+      const station = known
+        ? {
+          ...refreshInventoryStationState(known, device),
+          cameraRouteReady: initialHomeBaseState(device, this.#dskKeys.has(device.serial)).cameraRouteReady,
+        }
+        : initialHomeBaseState(device, this.#dskKeys.has(device.serial));
+      this.#stations.set(device.serial, station);
+      events.station(station);
+    }
+    events.inventory(inventoryDiagnostics(devices));
+    events.cameraCapabilities(devices.map((device) => describeCameraCapabilities(device, {
+      doorbellSupported: isDoorbellDevice(device),
+      streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeers),
+      routeReady: isPpcsRouteReady(device, this.#devices, dskPeers),
+      homeBaseAttached: ppcsStreamRoute(device, this.#devices)?.homeBaseAttached ?? false,
+      standaloneNightVisionSupported: supportsStandaloneNightVision(device, ppcsStreamRoute(device, this.#devices),
+        isPpcsRouteReady(device, this.#devices, dskPeers)),
+    })));
+    events.deviceCapabilities(devices.flatMap((device) => describeDeviceCapabilities(device, {
+      homeBaseSupported: isHomeBase3(device),
+      homeBaseGuardModeSupported: supportsHomeBaseGuardMode(device),
+      homeBaseRouteReady: Boolean(device.p2pDid && device.p2pConnection && this.#dskKeys.has(device.serial)),
+      doorbellSupported: isDoorbellDevice(device),
+      cameraStreamSupported: isPpcsStreamSupported(device, this.#devices, dskPeers),
+    })));
+    for (const device of refreshed) {
+      const known = previous.get(device.serial);
+      const merged = this.#devices.get(device.serial)!;
+      if (known?.reads.privacy6250Value !== merged.reads.privacy6250Value) {
+        const summary = privacyParameterLogSummary(merged, known?.reads.privacy6250Value);
         if (summary) logger.info("camera_privacy_parameter_observed", summary);
       }
-      if (isSupportedMegaCamera(merged)) {
-        this.#events?.camera(this.#cameraIdentity(merged));
-      }
-      const sensor = securitySensorState(merged);
-      if (sensor) this.#events?.sensor(sensor);
+      const motionOutcome = inventoryMotionOutcome(
+        known?.reads.motionEventSeconds, device.reads.motionEventSeconds,
+        this.#pendingSensorMotionCloudConfirmations.has(device.serial),
+      );
       if (motionOutcome === "none") continue;
       this.#pendingSensorMotionCloudConfirmations.delete(device.serial);
-      logger.info(
-        "sensor_motion_cloud_observed",
-        [
-          `model=${JSON.stringify(device.model)}`,
-          `channel=${device.channel ?? "missing"}`,
-          `previous=${known.reads.motionEventSeconds ?? "missing"}`,
-          `current=${device.reads.motionEventSeconds ?? "missing"}`,
-          `outcome=${motionOutcome}`,
-        ].join(" "),
-      );
-      if (motionOutcome === "cloud-motion") this.#events?.sensorMotion(device.serial, true);
+      logger.info("sensor_motion_cloud_observed",
+        `model=${safeLogModel(device.model)} outcome=${motionOutcome}`);
+      if (motionOutcome === "cloud-motion") events.sensorMotion(device.serial, true);
+    }
+  }
+
+  /** Limit repeated missing-key warnings while discovery remains available. */
+  #recordInventoryKeyFailure(): void {
+    const failures = ++this.#inventoryKeyFailures;
+    if (failures === 1 || failures % 15 === 0) {
+      logger.warn("inventory_dsk_unavailable", "Connection keys unavailable for discovered peers. Discovery continues and the next inventory refresh will retry.");
     }
   }
 
@@ -1120,11 +1565,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #cameraIdentity(device: MegaInventoryDevice): CameraIdentity {
     const dskPeerSerials = new Set(this.#dskKeys.keys());
     const route = ppcsStreamRoute(device, this.#devices);
-    const t817lControlsSupported = supportsPresetPositions(device)
+    const t817lControlsSupported = device.model.toUpperCase().startsWith("T817L")
       && route?.homeBaseAttached === true
       && device.channel !== null
       && device.adminUserId !== null
       && isPpcsRouteReady(device, this.#devices, dskPeerSerials);
+    const soloCamPanControlsSupported = supportsSoloCamPresetControl(
+      device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+    );
     return {
       serial: device.serial,
       name: device.name,
@@ -1171,14 +1619,26 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       stationSerial: device.parentSerial,
       doorbellSupported: isDoorbellDevice(device),
       streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials),
+      liveAudioSupported: device.model === "T8171" && device.deviceType === 88 && device.channel !== null
+        && Boolean(route && ((route.homeBaseAttached && route.peer.model === "T8030")
+          || (!route.homeBaseAttached && device.channel === 0 && route.peer.serial === device.serial)))
+        && isPpcsStreamSupported(device, this.#devices, dskPeerSerials),
       enabled: device.reads.enabled ?? null,
       enableControlSupported: device.reads.enabled !== undefined
         && device.channel === 0
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+      streamingQualityControlSupported: supportsStandaloneStreamingQuality(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
+      streamingQualityModes: supportsStandaloneStreamingQuality(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)) ? [
+        { value: 0, name: "Auto" }, { value: 1, name: "HD (720P)" },
+        { value: 2, name: "Full HD (1080P)" }, { value: 3, name: "2K" },
+      ] : [],
+      audioRecordingControlSupported: supportsStandaloneAudioRecording(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
       motionDetectionEnabled: device.reads.motionDetectionEnabled ?? null,
       motionDetectionControlSupported: device.reads.motionDetectionEnabled !== undefined
-        && supportsMotionDetectionControlRoute(route)
+        && (device.deviceType === 88 && device.model === "T8171"
+          ? supportsStandaloneMotionDetection(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials))
+          : supportsMotionDetectionControlRoute(route))
         && device.channel !== null
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
@@ -1197,12 +1657,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       nightVisionMode: device.reads.nightVisionMode ?? null,
       nightVisionModes: nightVisionModes(device),
-      nightVisionControlSupported: device.reads.nightVisionMode !== undefined
+      nightVisionControlSupported: supportsStandaloneNightVision(device, route,
+        isPpcsRouteReady(device, this.#devices, dskPeerSerials)) || (device.reads.nightVisionMode !== undefined
         && !isDoorbellDevice(device)
         && device.channel !== null
         && device.adminUserId !== null
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === true
-        && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+        && isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
       autoNightVisionEnabled: isAutoNightVisionDoorbell(device) && device.reads.autoNightVisionEnabled !== undefined
         ? device.reads.autoNightVisionEnabled
         : null,
@@ -1224,8 +1685,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.channel !== null
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
-      presetPositionControlSupported: t817lControlsSupported,
-      aiTrackingControlSupported: t817lControlsSupported,
+      presetPositionControlSupported: t817lControlsSupported || soloCamPanControlsSupported,
+      storedRecordingsSupported: supportsSoloCamStoredRecordings(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
+      aiTrackingControlSupported: t817lControlsSupported || supportsStandaloneAiTracking(
+        device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+      ),
+      aiTrackingEnabled: device.reads.aiTrackingEnabled ?? null,
       autoCruiseControlSupported: t817lControlsSupported,
       battery: batteryState(device),
     };
@@ -1313,20 +1778,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
-  /** Query privacy-safe preset occupancy over the camera's live HomeBase route. */
+  /** Serialize a fresh preset query with movement and tracking on the verified camera route. */
   async getCameraPresetPositions(serial: string): Promise<readonly CameraPresetPosition[]> {
-    const device = this.#devices.get(serial);
-    if (!device || !isSupportedMegaCamera(device) || !supportsPresetPositions(device)) {
-      throw new Error("Camera preset positions are not supported for this camera");
-    }
-    await this.stopStream(serial);
-    const session = await this.#t817lControlSession(device);
-    try {
-      await session.start();
-      return await session.queryPresetPositions();
-    } finally {
-      session.close();
-    }
+    let positions: readonly CameraPresetPosition[] = [];
+    await this.#queuePanControl(serial, "preset_query", async (session) => {
+      positions = await session.queryPresetPositions();
+    });
+    return positions;
   }
 
   /** Move once to an enabled stored position after refreshing slot occupancy. */
@@ -1334,7 +1792,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (!Number.isSafeInteger(index) || index < 0 || index > 9) {
       return Promise.reject(new Error("Camera preset index must be between 0 and 9"));
     }
-    return this.#queueT817LControl(serial, "preset_position", async (session) => {
+    return this.#queuePanControl(serial, "preset_position", async (session) => {
       const positions = await session.queryPresetPositions();
       if (!positions.some((position) => position.index === index && position.enabled)) {
         throw new Error("Camera preset position is not enabled");
@@ -1343,30 +1801,69 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     });
   }
 
-  /** Send the reversible AI-tracking action proven on local hardware. */
+  /** Write verified tracking, requiring fresh cloud confirmation for standalone SoloCam preferences. */
   setCameraAiTracking(serial: string, enabled: boolean): Promise<void> {
-    return this.#queueT817LControl(serial, "ai_tracking", (session) => session.writeAiTracking(enabled));
+    return this.#queuePanControl(serial, "ai_tracking", async (session) => {
+      await session.writeAiTracking(enabled);
+      const device = this.#devices.get(serial);
+      if (device?.model !== "T8171" || device.deviceType !== 88) return;
+
+      // Pre-write device-info overrides must not satisfy a fresh cloud confirmation.
+      const cached = this.#liveDeviceReads.get(serial);
+      if (cached) {
+        const { aiTrackingEnabled: _stale, ...remaining } = cached;
+        this.#liveDeviceReads.set(serial, remaining);
+      }
+      const readDeadline = Date.now() + 65_000;
+      for (let attempt = 0; attempt < 13 && Date.now() < readDeadline; attempt += 1) {
+        await this.#refreshInventoryReads();
+        if (this.#devices.get(serial)?.reads.aiTrackingEnabled === enabled) return;
+        await delay(5_000);
+      }
+      throw new Error("Camera AI tracking write was not confirmed by readback");
+    });
   }
 
   /** Send the reversible automatic-cruise action proven on local hardware. */
   setCameraAutoCruise(serial: string, enabled: boolean): Promise<void> {
-    return this.#queueT817LControl(serial, "auto_cruise", (session) => session.writeAutoCruise(enabled));
+    return this.#queuePanControl(serial, "auto_cruise", (session) => session.writeAutoCruise(enabled));
   }
 
-  /** Serialize T817L actions and release any live session before taking control. */
-  #queueT817LControl(
+  /** Serialize verified pan actions and release any live session before taking control. */
+  #queuePanControl(
     serial: string,
     action: string,
     operation: (session: FirstPartyPpcsSession) => Promise<void>,
   ): Promise<void> {
-    const previous = this.#t817lControlOperations.get(serial) ?? Promise.resolve();
+    const previous = this.#panControlOperations.get(serial) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(async () => {
       const device = this.#devices.get(serial);
       if (!device || !isSupportedMegaCamera(device) || !supportsPresetPositions(device)) {
-        throw new Error("T817L pan and tracking controls are not supported for this camera");
+        throw new Error("Pan and tracking controls are not supported for this camera");
+      }
+      if (this.#recordingPeerReserved(serial)) {
+        throw new Error("Wait for this camera peer's recording retrieval before using pan controls");
+      }
+      if (action === "auto_cruise" && !device.model.toUpperCase().startsWith("T817L")) {
+        throw new Error("Automatic cruise has not been verified for this camera");
+      }
+      if (action === "ai_tracking" && device.model === "T8171"
+        && !supportsStandaloneAiTracking(device, ppcsStreamRoute(device, this.#devices),
+          isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys())))) {
+        throw new Error("SoloCam AI tracking requires a known preference and ready direct route");
+      }
+      const active = this.#ppcsStreams.get(serial);
+      const route = ppcsStreamRoute(device, this.#devices);
+      if (active && supportsSoloCamPresetControl(device, route, true)
+        && active.stats.closeReason === "open" && active.stats.camId > 0
+        && active.stats.videoOutputFrames > 0) {
+
+        // Native pan controls share the decoded viewer connection and its owner.
+        await operation(active);
+        return;
       }
       await this.stopStream(serial);
-      const session = await this.#t817lControlSession(device);
+      const session = await this.#panControlSession(device);
       try {
         await session.start();
         await operation(session);
@@ -1374,23 +1871,26 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         session.close();
       }
     }).catch((error: unknown) => {
-      logger.warn("camera_t817l_control_failed", `T817L camera control failed: action=${action} error=${safeError(error)}`);
+      logger.warn("camera_t817l_control_failed", `Camera pan control failed: action=${action} error=${safeError(error)}`);
       throw error;
     });
-    this.#t817lControlOperations.set(serial, current);
+    this.#panControlOperations.set(serial, current);
     void current.finally(() => {
-      if (this.#t817lControlOperations.get(serial) === current) this.#t817lControlOperations.delete(serial);
+      if (this.#panControlOperations.get(serial) === current) this.#panControlOperations.delete(serial);
     }).catch(() => undefined);
     return current;
   }
 
-  /** Build one control session for the hardware-verified T817L action set. */
-  async #t817lControlSession(device: MegaInventoryDevice): Promise<FirstPartyPpcsSession> {
+  /** Build a control session for a hardware-verified pan route without broadening AI tracking eligibility. */
+  async #panControlSession(device: MegaInventoryDevice): Promise<FirstPartyPpcsSession> {
     const route = ppcsStreamRoute(device, this.#devices);
     const peer = route?.peer;
     const dsk = peer ? await this.#dskKey(peer.serial) : null;
-    if (!route?.homeBaseAttached || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
-      throw new Error("Camera preset positions require a ready HomeBase-attached route");
+    if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId
+      || (route.homeBaseAttached
+        ? !device.model.toUpperCase().startsWith("T817L") && !supportsSoloCamPresetControl(device, route, true)
+        : !supportsStandalonePanControl(device, route, true))) {
+      throw new Error("Camera pan controls require a verified ready route");
     }
     return new FirstPartyPpcsSession({
       stationSerial: peer.serial,
@@ -1401,9 +1901,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       channel: device.channel,
       cameraModel: device.model,
       accountId: device.adminUserId,
-      homeBaseAttached: true,
+      homeBaseAttached: route.homeBaseAttached,
       purpose: "control",
-      maxSeconds: 40,
+      maxSeconds: device.model === "T8171" && device.deviceType === 88 ? 60 : 40,
       resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
     });
   }
@@ -1570,6 +2070,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (!identity || !accessSupported || !identity.p2pDid || !identity.adminUserId) {
         throw new Error("HomeBase local command identity is unavailable");
       }
+      if (this.#stationHasRecordingReservation(serial)) {
+        if (interruptMedia) throw new Error("Wait for HomeBase recording retrieval before changing station settings");
+        return this.#requireStation(serial);
+      }
       if (interruptMedia) await this.#stopStationMedia(serial);
       else if (this.#stationHasActiveMedia(serial)) return this.#requireStation(serial);
       const session = new HomeBasePpcsSession({
@@ -1670,8 +2174,17 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return station;
   }
 
+  #recordingPeerReserved(serial: string): boolean {
+    const peer = this.#devices.get(serial)?.parentSerial || serial;
+    return [...this.#recordingReservations].some((camera) => (this.#devices.get(camera)?.parentSerial || camera) === peer);
+  }
+
+  #stationHasRecordingReservation(stationSerial: string): boolean {
+    return [...this.#recordingReservations].some((serial) => this.#devices.get(serial)?.parentSerial === stationSerial);
+  }
+
   #stationHasActiveMedia(stationSerial: string): boolean {
-    return [...this.#ppcsStreams.keys()].some((serial) => this.#devices.get(serial)?.parentSerial === stationSerial);
+    return this.#stationHasRecordingReservation(stationSerial) || [...this.#ppcsStreams.keys()].some((serial) => this.#devices.get(serial)?.parentSerial === stationSerial);
   }
 
   async #stopStationMedia(stationSerial: string): Promise<void> {
@@ -1801,15 +2314,28 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
     : { ...device, adminUserId: adminUserIds.get(device.parentSerial) ?? null });
 }
 
-/** Refresh camera-owned version metadata without replacing an active transport's routing identity. */
+/**
+ * Refresh complete cloud device rows, including renamed cameras and new station bindings.
+ * Clearly partial metadata rows retain their prior routing identity. The provider
+ * retires sessions and route-local overlays before publishing a changed binding.
+ */
 export function mergeInventoryMetadata(existing: MegaInventoryDevice, fresh: MegaInventoryDevice): MegaInventoryDevice {
+  if (existing.serial !== fresh.serial) throw new Error("Inventory metadata ownership changed");
+  const complete = fresh.model !== "Unknown Eufy device" && fresh.deviceType !== null && fresh.category !== null;
   return {
-    ...existing,
+    ...(complete ? fresh : existing),
     firmware: fresh.firmware,
     hardwareVersion: fresh.hardwareVersion ?? null,
     firmwareSubVersion: fresh.firmwareSubVersion ?? null,
     firmwareUpdateAvailable: fresh.firmwareUpdateAvailable ?? null,
   };
+}
+
+/** Identify changes that invalidate an already owned camera session or local parameter overlay. */
+function inventoryBindingChanged(existing: MegaInventoryDevice, fresh: MegaInventoryDevice): boolean {
+  return existing.parentSerial !== fresh.parentSerial || existing.channel !== fresh.channel
+    || existing.model !== fresh.model || existing.deviceType !== fresh.deviceType
+    || existing.category !== fresh.category || existing.adminUserId !== fresh.adminUserId;
 }
 
 function safeLastChargingDays(value: unknown): number | undefined {
@@ -1878,6 +2404,9 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const microphone = finiteNumber(params.get(1240));
   const speaker = finiteNumber(params.get(1241));
   const recordMute = finiteNumber(params.get(1288));
+  const soloE30 = deviceType === 88 && model === "T8171";
+  const soloAudioRecording = soloE30 ? finiteNumber(params.get(6012)) : null;
+  const soloAiTracking = soloE30 ? finiteNumber(params.get(6016)) : null;
   const speakerVolume = percentage(1230);
 
   // These reads have model-specific evidence. Shared parameter IDs alone do not
@@ -1895,7 +2424,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const t8171 = deviceType === 88 && /^T8171(?:$|[A-Z0-9-])/.test(model ?? "");
   const t8425 = deviceType === 47 && /^T8425(?:$|[A-Z0-9-])/.test(model ?? "");
   const streamingQuality = qualityFamily || t8171 ? finiteNumber(params.get(1020)) : null;
-  const recordingQuality = qualityFamily ? activeRecordingQuality(params.get(2731)) : undefined;
+  const recordingQuality = qualityFamily || soloE30 ? activeRecordingQuality(params.get(2731)) : undefined;
   const solarIntensity = qualityFamily ? finiteNumber(params.get(1309)) : null;
   const solarConnected = qualityFamily ? finiteNumber(params.get(6482)) : null;
   const notificationStyle = t8171 ? finiteNumber(params.get(6020)) : null;
@@ -1920,7 +2449,10 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const batteryHealth = percentage(1198);
   const openDevice = finiteNumber(params.get(2001));
   const cameraSwitch = finiteNumber(params.get(1035));
-  const motionSwitch = finiteNumber(params.get(1011));
+
+  // SoloCam T8171 reports its detection switch through the indoor/solo field.
+  // A conflicting legacy bit must not override that model-specific read.
+  const motionSwitch = finiteNumber(params.get(soloE30 ? 6040 : 1011));
   const guardMode = finiteNumber(params.get(1224));
   const autoNightVision = finiteNumber(params.get(1013));
   const nightVisionMode = finiteNumber(params.get(1277));
@@ -1967,14 +2499,19 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
     ...(microphone === 0 || microphone === 1 ? { microphoneEnabled: microphone === 1 } : {}),
     ...(speaker === 0 || speaker === 1 ? { speakerEnabled: speaker === 1 } : {}),
 
-    // Parameter 1288 reports recording mute, so the normalized setting is inverted.
-    ...(recordMute === 0 || recordMute === 1 ? { audioRecordingEnabled: recordMute === 0 } : {}),
+    // SoloCam T8171 reports an enable bit. Other models retain the inverted mute
+    // field, and a missing SoloCam read must not fall back to that unrelated bit.
+    ...(soloE30
+      ? soloAudioRecording === 0 || soloAudioRecording === 1 ? { audioRecordingEnabled: soloAudioRecording === 1 } : {}
+      : recordMute === 0 || recordMute === 1 ? { audioRecordingEnabled: recordMute === 0 } : {}),
     ...(speakerVolume !== undefined ? { speakerVolume } : {}),
     ...(enabled !== undefined ? { enabled } : {}),
     ...(motionSwitch === 0 || motionSwitch === 1 ? { motionDetectionEnabled: motionSwitch === 1 } : {}),
+    ...(soloAiTracking === 0 || soloAiTracking === 1 ? { aiTrackingEnabled: soloAiTracking === 1 } : {}),
     ...(guardMode !== null && [0, 1, 2, 3, 4, 5, 6, 47, 63].includes(guardMode) ? { guardMode } : {}),
     ...(autoNightVision === 0 || autoNightVision === 1 ? { autoNightVisionEnabled: autoNightVision === 1 } : {}),
-    ...(nightVisionMode === 0 || nightVisionMode === 1 || nightVisionMode === 2 ? { nightVisionMode } : {}),
+    ...(nightVisionMode === 0 || nightVisionMode === 1 || nightVisionMode === 2
+      || (deviceType === 88 && model === "T8171" && nightVisionMode === 3) ? { nightVisionMode } : {}),
     ...(privacy6250 === 0 || privacy6250 === 1 ? { privacy6250Value: privacy6250 } : {}),
     ...(batteryLevel !== undefined ? { batteryLevel } : {}),
     ...(batteryStatus !== null ? { batteryCharging: batteryStatus !== 0 && batteryStatus !== 2 } : {}),
@@ -1989,12 +2526,17 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   };
 }
 
-/** Decode the explicitly selected recording mode, without guessing a missing mode as zero. */
+/** Decode plain or canonical base64 JSON and require an explicitly selected recording mode. */
 function activeRecordingQuality(value: unknown): number | undefined {
   let parsed: unknown = value;
   if (typeof value === "string") {
     if (value.length > 4096) return undefined;
-    try { parsed = JSON.parse(value); } catch { return undefined; }
+    try { parsed = JSON.parse(value); } catch {
+      if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return undefined;
+      const decoded = Buffer.from(value, "base64");
+      if (decoded.toString("base64") !== value) return undefined;
+      try { parsed = JSON.parse(decoded.toString("utf8")); } catch { return undefined; }
+    }
   }
   if (!isRecord(parsed)) return undefined;
   const mode = parsed.cur_mode;

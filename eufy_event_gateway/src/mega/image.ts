@@ -62,7 +62,8 @@ function afterThirdColon(data: Buffer): Buffer | null {
   return null;
 }
 
-function imageKey(serial: string, p2pDid: string, code: string): string {
+/** Derive the native legacy media code; callers keep its first sixteen ASCII key bytes private. */
+export function imageKey(serial: string, p2pDid: string, code: string): string {
   const suffix = idSuffix(p2pDid);
   const offset = (Number.parseInt(serial.at(-1) ?? "0", 16) + 10) % 10;
   const base = `${serial.substring(offset)}${suffix}`;

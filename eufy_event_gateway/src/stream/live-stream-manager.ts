@@ -3,7 +3,7 @@
  *
  * A camera source opens only for the first viewer or capture request. This
  * manager shares that source, fans Annex-B video to HTTP viewers, feeds
- * FFmpeg for a JPEG frame or bounded MP4, retains the resulting snapshot, cancels idle
+ * FFmpeg for a JPEG frame, live MPEG-TS or bounded MP4, retains the resulting snapshot, cancels idle
  * sources after a grace period, and enforces the maximum stream lifetime. It
  * knows media lifecycle and process management, but not Mega login or PPCS
  * packet construction.
@@ -11,12 +11,13 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import type { ServerResponse } from "node:http";
-import type { Readable } from "node:stream";
+import { type Readable, type Writable } from "node:stream";
 
 import { GatewayState } from "../domain/gateway-state.js";
 import type { GatewayEvent, SnapshotInfo, VideoCodec } from "../domain/types.js";
 import { SnapshotStore } from "../storage/snapshot-store.js";
 import { JpegParser } from "./jpeg-parser.js";
+import { LiveTransportMuxer, type VideoViewerResponse } from "./live-transport-muxer.js";
 
 /** Provider operations needed to open and close a camera source. */
 export interface StreamController {
@@ -142,13 +143,15 @@ interface ViewerClientDelivery {
 }
 
 interface Session {
-  readonly clients: Set<ServerResponse>;
-  readonly pendingClients: Set<ServerResponse>;
-  readonly clientDeliveries: Map<ServerResponse, ViewerClientDelivery>;
+  readonly clients: Set<VideoViewerResponse>;
+  readonly pendingClients: Set<VideoViewerResponse>;
+  readonly clientDeliveries: Map<VideoViewerResponse, ViewerClientDelivery>;
   readonly recordings: Set<Recording>;
+  readonly audioConsumers: Set<(chunk: Buffer) => void>;
   parameterSets: VideoParameterSetCache;
   state: "idle" | "starting" | "streaming" | "stopping" | "error";
   source: Readable | null;
+  audioSource: Readable | null;
   ffmpeg: ChildProcessWithoutNullStreams | null;
   viewerFfmpeg: ChildProcessWithoutNullStreams | null;
   viewerParameterSets: VideoParameterSetCache;
@@ -180,16 +183,18 @@ interface Session {
 
 interface Recording {
   readonly chunks: Buffer[];
+  readonly audioChunks: Buffer[];
+  audioSize: number;
   readonly durationMilliseconds: number;
   size: number;
   started: boolean;
   startTimer: NodeJS.Timeout;
   durationTimer: NodeJS.Timeout | null;
-  resolve: (data: Buffer) => void;
+  resolve: (data: { video: Buffer; audio: Buffer }) => void;
   reject: (error: Error) => void;
 }
 
-type ClipRemuxer = (video: Buffer, codec: VideoCodec) => Promise<Buffer>;
+type ClipRemuxer = (video: Buffer, codec: VideoCodec, audio?: Buffer) => Promise<Buffer>;
 type ViewerTranscoderFactory = () => ChildProcessWithoutNullStreams;
 type SnapshotExtractorFactory = (codec: VideoCodec) => ChildProcessWithoutNullStreams;
 
@@ -436,7 +441,8 @@ function annexBStarts(data: Buffer): Array<{ offset: number; payloadOffset: numb
  *
  * HTTP viewers receive H.264 directly or share one H.265-to-H.264 transcoder,
  * while a separate FFmpeg process receives the source for retained JPEG
- * snapshots. MP4 clips retain the original camera codec. Ownership counts
+ * snapshots. MP4 clips retain the original camera codec and include optional
+ * provider-validated AAC. Transport viewers multiplex it without retaining a recording. Ownership counts
  * avoid duplicate camera sessions, and the idle grace period prevents
  * refreshes from repeatedly opening and closing a camera.
  */
@@ -466,7 +472,7 @@ export class LiveStreamManager extends EventEmitter {
   }
 
   /** Attach an HTTP viewer, starting the shared provider source if needed. */
-  async addClient(serial: string, response: ServerResponse): Promise<void> {
+  async addClient(serial: string, response: VideoViewerResponse): Promise<void> {
     const session = this.#session(serial);
     this.#cancelStop(session);
     session.clients.add(response);
@@ -516,6 +522,20 @@ export class LiveStreamManager extends EventEmitter {
     } catch (error) {
       response.destroy(error instanceof Error ? error : undefined);
     }
+  }
+
+  /** Share a normal video viewer with a bounded MPEG-TS muxer and validated camera audio. */
+  async addTransportClient(serial: string, response: ServerResponse): Promise<void> {
+    const session = this.#session(serial);
+    const consumeAudio = (chunk: Buffer): void => muxer.acceptAudio(chunk);
+    const camera = this.state.getCamera(serial);
+
+    // HomeBase 3 can deliver SoloCam AAC about eight seconds after its first video.
+    const audioWait = camera.model === "T8171" && camera.stationSerial !== camera.serial ? 12_000 : 2_000;
+    const muxer = new LiveTransportMuxer(response, () => session.audioConsumers.delete(consumeAudio), audioWait,
+      (reason) => this.emit("warning", new Error(`Camera live transport stopped: reason=${reason}`)));
+    session.audioConsumers.add(consumeAudio);
+    await this.addClient(serial, muxer.videoInput);
   }
 
   /** Capture one fresh JPEG through the shared source and return its metadata. */
@@ -580,10 +600,8 @@ export class LiveStreamManager extends EventEmitter {
     void recording.promise.catch(() => undefined);
     try {
       await this.#ensureStarted(serial, session);
-      return await this.remuxClip(
-        await recording.promise,
-        session.parameterSets.codec ?? "h264",
-      );
+      const recorded = await recording.promise;
+      return await this.remuxClip(recorded.video, session.parameterSets.codec ?? "h264", recorded.audio);
     } finally {
       recording.cancel();
       session.leases -= 1;
@@ -591,12 +609,30 @@ export class LiveStreamManager extends EventEmitter {
     }
   }
 
-  /** Attach provider bytes and its live codec marker to all current consumers. */
-  attachSource(serial: string, source: Readable, codecHint: () => VideoCodec | null = () => null): void {
+  /** Attach session-owned video and AAC, forwarding audio to viewers and retaining it only for active clips. */
+  attachSource(serial: string, source: Readable, codecHint: () => VideoCodec | null = () => null, audio?: Readable): void {
     const session = this.#session(serial);
     this.#cleanupSource(session);
     const generation = session.generation;
     session.source = source;
+    session.audioSource = audio ?? null;
+    audio?.on("data", (chunk: Buffer) => {
+      if (session.generation !== generation || chunk.length === 0) return;
+      for (const consume of session.audioConsumers) consume(chunk);
+      for (const recording of [...session.recordings]) {
+        if (!recording.started) continue;
+        recording.audioChunks.push(Buffer.from(chunk));
+        recording.audioSize += chunk.length;
+        if (recording.audioSize + recording.size > MAX_RECORDING_BYTES) {
+          this.#settleRecording(session, recording, new Error("Recording exceeded the 256 MB safety limit"));
+        }
+      }
+    });
+    audio?.on("error", (error) => {
+      if (session.generation !== generation) return;
+      this.#failRecordings(session, new Error("Camera audio source failed"));
+      this.emit("warning", error);
+    });
     session.state = "streaming";
     session.parameterSets = new VideoParameterSetCache();
     session.viewerParameterSets = new VideoParameterSetCache();
@@ -720,7 +756,7 @@ export class LiveStreamManager extends EventEmitter {
     );
   }
 
-  #removeClient(serial: string, response: ServerResponse): void {
+  #removeClient(serial: string, response: VideoViewerResponse): void {
     const session = this.#session(serial);
     session.clients.delete(response);
     session.pendingClients.delete(response);
@@ -826,11 +862,13 @@ export class LiveStreamManager extends EventEmitter {
     session: Session,
     durationMilliseconds: number,
     startTimeoutMilliseconds: number,
-  ): { promise: Promise<Buffer>; cancel: () => void } {
+  ): { promise: Promise<{ video: Buffer; audio: Buffer }>; cancel: () => void } {
     let recording!: Recording;
-    const promise = new Promise<Buffer>((resolve, reject) => {
+    const promise = new Promise<{ video: Buffer; audio: Buffer }>((resolve, reject) => {
       recording = {
         chunks: [],
+        audioChunks: [],
+        audioSize: 0,
         durationMilliseconds,
         size: 0,
         started: false,
@@ -860,7 +898,7 @@ export class LiveStreamManager extends EventEmitter {
     }
     recording.chunks.push(Buffer.from(chunk));
     recording.size += chunk.length;
-    if (recording.size > MAX_RECORDING_BYTES) {
+    if (recording.size + recording.audioSize > MAX_RECORDING_BYTES) {
       this.#settleRecording(session, recording, new Error("Recording exceeded the 256 MB safety limit"));
     }
   }
@@ -870,7 +908,7 @@ export class LiveStreamManager extends EventEmitter {
     clearTimeout(recording.startTimer);
     if (recording.durationTimer) clearTimeout(recording.durationTimer);
     if (error) recording.reject(error);
-    else recording.resolve(Buffer.concat(recording.chunks, recording.size));
+    else recording.resolve({ video: Buffer.concat(recording.chunks, recording.size), audio: Buffer.concat(recording.audioChunks, recording.audioSize) });
   }
 
   #cancelRecording(session: Session, recording: Recording): void {
@@ -898,7 +936,7 @@ export class LiveStreamManager extends EventEmitter {
     this.#updateState(serial, session, error?.message ?? null);
   }
 
-  #startClient(session: Session, response: ServerResponse, codec: VideoCodec, bootstrap: Buffer): void {
+  #startClient(session: Session, response: VideoViewerResponse, codec: VideoCodec, bootstrap: Buffer): void {
     if (!response.headersSent) {
       response.writeHead(200, {
         "Content-Type": codec === "h265" ? "video/h265" : "video/h264",
@@ -1066,6 +1104,8 @@ export class LiveStreamManager extends EventEmitter {
     session.generation += 1;
     session.source?.removeAllListeners();
     session.source = null;
+    session.audioSource?.removeAllListeners();
+    session.audioSource = null;
     if (session.ffmpeg) {
       terminateMediaProcess(session.ffmpeg);
       session.ffmpeg = null;
@@ -1106,7 +1146,7 @@ export class LiveStreamManager extends EventEmitter {
 
   #recordViewerClientWrite(
     session: Session,
-    response: ServerResponse,
+    response: VideoViewerResponse,
     bytes: number,
     accepted: boolean,
   ): void {
@@ -1121,7 +1161,7 @@ export class LiveStreamManager extends EventEmitter {
     delivery.maximumWritableBytes = Math.max(delivery.maximumWritableBytes, response.writableLength);
   }
 
-  #emitViewerClientSummary(session: Session, response: ServerResponse): void {
+  #emitViewerClientSummary(session: Session, response: VideoViewerResponse): void {
     const delivery = session.clientDeliveries.get(response);
     if (!delivery) return;
     session.clientDeliveries.delete(response);
@@ -1156,9 +1196,11 @@ export class LiveStreamManager extends EventEmitter {
         pendingClients: new Set(),
         clientDeliveries: new Map(),
         recordings: new Set(),
+        audioConsumers: new Set(),
         parameterSets: new VideoParameterSetCache(),
         state: "idle",
         source: null,
+        audioSource: null,
         ffmpeg: null,
         viewerFfmpeg: null,
         viewerParameterSets: new VideoParameterSetCache(),
@@ -1272,8 +1314,9 @@ function spawnSnapshotExtractor(codec: VideoCodec): ChildProcessWithoutNullStrea
   ]);
 }
 
-/** Remux Annex-B H.264 or H.265 into fragmented MP4 without re-encoding. */
-export async function remuxVideoToMp4(video: Buffer, codec: VideoCodec): Promise<Buffer> {
+/** Remux checked elementary streams, optionally retaining recorded frame timing. Aborting terminates the owned FFmpeg process. */
+export async function remuxVideoToMp4(video: Buffer, codec: VideoCodec, audio?: Buffer, signal?: AbortSignal, frameRate?: number): Promise<Buffer> {
+  if (frameRate !== undefined && (!Number.isFinite(frameRate) || frameRate < 1 || frameRate > 60)) throw new Error("Invalid recorded frame rate");
   return await new Promise<Buffer>((resolve, reject) => {
     const process = spawn("ffmpeg", [
       "-hide_banner",
@@ -1283,8 +1326,10 @@ export async function remuxVideoToMp4(video: Buffer, codec: VideoCodec): Promise
       "+genpts",
       "-f",
       codec === "h265" ? "hevc" : "h264",
+      ...(frameRate === undefined ? [] : ["-framerate", `${frameRate}`]),
       "-i",
       "pipe:0",
+      ...(audio?.length ? ["-f", "aac", "-i", "pipe:3", "-map", "0:v:0", "-map", "1:a:0", "-c:a", "copy", "-bsf:a", "aac_adtstoasc"] : []),
       "-c:v",
       "copy",
       "-movflags",
@@ -1292,7 +1337,7 @@ export async function remuxVideoToMp4(video: Buffer, codec: VideoCodec): Promise
       "-f",
       "mp4",
       "pipe:1",
-    ]);
+    ], { stdio: ["pipe", "pipe", "pipe", "pipe"], signal });
     const output: Buffer[] = [];
     let stderr = "";
     let settled = false;
@@ -1302,8 +1347,8 @@ export async function remuxVideoToMp4(video: Buffer, codec: VideoCodec): Promise
       process.kill("SIGKILL");
       reject(new Error("Timed out while packaging the camera recording"));
     }, 30_000);
-    process.stdout.on("data", (chunk: Buffer) => output.push(Buffer.from(chunk)));
-    process.stderr.on("data", (chunk: Buffer) => {
+    process.stdout!.on("data", (chunk: Buffer) => output.push(Buffer.from(chunk)));
+    process.stderr!.on("data", (chunk: Buffer) => {
       if (stderr.length < 8_192) stderr += chunk.toString("utf8");
     });
     process.once("error", (error) => {
@@ -1320,7 +1365,11 @@ export async function remuxVideoToMp4(video: Buffer, codec: VideoCodec): Promise
       if (code === 0 && data.length > 0) resolve(data);
       else reject(new Error(stderr.trim() || `FFmpeg exited with status ${code ?? "unknown"}`));
     });
-    process.stdin.end(video);
+    process.stdin!.on("error", () => undefined);
+    const audioPipe = process.stdio[3] as Writable;
+    audioPipe.on("error", () => undefined);
+    process.stdin!.end(video);
+    audioPipe.end(audio ?? Buffer.alloc(0));
   });
 }
 

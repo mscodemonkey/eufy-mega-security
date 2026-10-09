@@ -19,8 +19,8 @@ CAMERA_SOURCE = Path(__file__).parents[1] / "custom_components/eufy_event_gatewa
 class CameraStreamOptionsTest(unittest.TestCase):
     """Verify the entity supplies the timing metadata Home Assistant needs."""
 
-    def test_live_stream_uses_wallclock_timestamps(self) -> None:
-        """Keep Home Assistant from rejecting raw packets that have no DTS."""
+    def test_live_stream_keeps_transport_timestamps_and_supplies_missing_raw_timestamps(self) -> None:
+        """Preserve audio/video synchronization while retaining raw-video compatibility."""
         tree = ast.parse(CAMERA_SOURCE.read_text())
         assignments = [
             node
@@ -39,8 +39,15 @@ class CameraStreamOptionsTest(unittest.TestCase):
         ]
 
         self.assertEqual(len(assignments), 1)
-        self.assertIsInstance(assignments[0].value, ast.Constant)
-        self.assertIs(assignments[0].value.value, True)
+        expression = compile(ast.Expression(assignments[0].value), str(CAMERA_SOURCE), "eval")
+        for camera, expected in [
+            ({}, True),
+            ({"liveAudioSupported": False}, True),
+            ({"liveAudioSupported": True}, False),
+            ({"liveAudioSupported": "true"}, True),
+        ]:
+            with self.subTest(camera=camera):
+                self.assertIs(eval(expression, {}, {"self": SimpleNamespace(camera=camera)}), expected)
 
     def test_stream_url_action_requires_a_response(self) -> None:
         """Keep the temporary URL out of state attributes and event data."""

@@ -26,6 +26,7 @@ NIGHT_VISION_MODE_KEYS = {
     "Off": "off",
     "Colour": "colour",
     "Infrared": "infrared",
+    "Infrared on": "infrared_on",
     "Spotlight": "spotlight",
 }
 
@@ -40,6 +41,7 @@ async def async_setup_entry(
     registry = er.async_get(hass)
     known_stations: set[str] = set()
     known_night_vision: set[str] = set()
+    known_streaming_quality: set[str] = set()
 
     def add_new() -> None:
         for serial, camera in coordinator.cameras.items():
@@ -79,12 +81,28 @@ async def async_setup_entry(
                 for serial in sorted(camera_serials)
             )
 
+        quality_serials = {
+            serial
+            for serial, camera in coordinator.cameras.items()
+            if camera.get("streamingQualityControlSupported") is True
+            and isinstance(camera.get("reportedSettings"), dict)
+            and type(camera["reportedSettings"].get("streamingQualityTier")) is int
+            and camera["reportedSettings"].get("streamingQualityTier")
+            in _streaming_quality_modes(camera)
+        } - known_streaming_quality
+        if quality_serials:
+            known_streaming_quality.update(quality_serials)
+            async_add_entities(
+                EufyStreamingQualitySelect(coordinator, serial)
+                for serial in sorted(quality_serials)
+            )
+
     add_new()
     entry.async_on_unload(coordinator.async_add_listener(add_new))
 
 
 class EufyNightVisionSelect(EufyGatewayEntity, SelectEntity):
-    """Expose night-vision modes reported by a HomeBase-attached camera."""
+    """Expose reported night-vision modes for provider-supported camera routes."""
 
     _attr_translation_key = "camera_night_vision"
 
@@ -142,6 +160,79 @@ def _night_vision_modes(camera: dict[str, Any]) -> dict[int, str]:
             and name in NIGHT_VISION_MODE_KEYS
         ):
             modes[value] = NIGHT_VISION_MODE_KEYS[name]
+    return modes
+
+
+class EufyStreamingQualitySelect(EufyGatewayEntity, SelectEntity):
+    """Expose an owned camera's live-quality preference using gateway-confirmed state.
+
+    The coordinator owns state and discovery. This entity never changes recorded
+    quality or assumes a resolution until a fresh gateway response confirms it.
+    """
+
+    _attr_translation_key = "camera_streaming_quality"
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Bind the select to one camera admitted by its provider."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        SelectEntity.__init__(self)
+        self._attr_unique_id = f"{serial}_streaming_quality"
+
+    @property
+    def current_option(self) -> str | None:
+        """Return the fresh reported preference rather than an inferred video resolution."""
+        settings = self.camera.get("reportedSettings")
+        quality = settings.get("streamingQualityTier") if isinstance(settings, dict) else None
+        if not isinstance(quality, int) or isinstance(quality, bool):
+            return None
+        return _streaming_quality_modes(self.camera).get(quality)
+
+    @property
+    def options(self) -> list[str]:
+        """Return only the exact model's gateway-supplied native choices."""
+        return list(_streaming_quality_modes(self.camera).values())
+
+    async def async_select_option(self, option: str) -> None:
+        """Publish the new preference only after the gateway confirms fresh readback."""
+        quality = next(
+            (value for value, label in _streaming_quality_modes(self.camera).items() if label == option),
+            None,
+        )
+        if quality is None:
+            raise HomeAssistantError(f"Unsupported streaming quality: {option}")
+        try:
+            camera = await self.coordinator.client.set_camera_streaming_quality(
+                self.serial, quality
+            )
+            self.coordinator.async_set_camera(camera)
+        except GatewayClientError as error:
+            raise HomeAssistantError(
+                f"Could not change streaming quality: {error}"
+            ) from error
+
+
+def _streaming_quality_modes(camera: dict[str, Any]) -> dict[int, str]:
+    """Validate exact native names before translating model-specific choices."""
+    names = {
+        "Auto": "auto", "HD (720P)": "hd",
+        "Full HD (1080P)": "full_hd", "2K": "2k",
+    }
+    raw_modes = camera.get("streamingQualityModes")
+    if not isinstance(raw_modes, list):
+        return {}
+    modes: dict[int, str] = {}
+    for mode in raw_modes:
+        if not isinstance(mode, dict):
+            continue
+        value, name = mode.get("value"), mode.get("name")
+        if (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and 0 <= value <= 3
+            and isinstance(name, str)
+            and name in names
+        ):
+            modes[value] = names[name]
     return modes
 
 

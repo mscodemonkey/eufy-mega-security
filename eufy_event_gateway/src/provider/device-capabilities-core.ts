@@ -43,6 +43,7 @@ export function describeCameraCapabilities(device: CapabilityInventoryRow, optio
   readonly streamSupported: boolean;
   readonly routeReady?: boolean;
   readonly homeBaseAttached?: boolean;
+  readonly standaloneNightVisionSupported?: boolean;
 }): CameraCapabilityManifest {
   const acceptedAsCamera = isSupportedCameraType(device);
   const reason = acceptedAsCamera ? "supported-camera-type"
@@ -73,7 +74,7 @@ export function describeCameraCapabilities(device: CapabilityInventoryRow, optio
   const peerRouteReady = options.routeReady ?? options.streamSupported;
   const matrix = CAMERA_CAPABILITY_CORE.map((entry) => {
     const row = evaluateCoreEntry(entry, observed, acceptedAsCamera, peerRouteReady, mainsSentinel);
-    return entry.id === "camera.night_vision" && options.homeBaseAttached !== true
+    return entry.id === "camera.night_vision" && options.homeBaseAttached !== true && options.standaloneNightVisionSupported !== true
       ? { ...row, offerable: false }
       : row;
   });

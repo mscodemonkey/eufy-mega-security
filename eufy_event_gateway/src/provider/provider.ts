@@ -11,6 +11,7 @@
  */
 import type { CloudHistoryQuery, CloudHistoryRecord } from "../mega/cloud-history.js";
 import type { Readable } from "node:stream";
+import type { StoredRecordingSummary } from "../stream/stored-recordings.js";
 
 import type { CameraCapabilityManifest, CameraIdentity, CameraPresetPosition, DetectionKind, DeviceCapabilityManifest, EventReceiverState, HomeBaseState, InventoryDiagnostic, PushDiagnostic, SecuritySensorState, VideoCodec } from "../domain/types.js";
 
@@ -34,13 +35,19 @@ export interface ProviderEvents {
   cameraCapabilities(manifests: readonly CameraCapabilityManifest[]): void;
   deviceCapabilities(manifests: readonly DeviceCapabilityManifest[]): void;
 
-  /** Attach media with a live codec marker populated after the first PPCS frame. */
-  streamStarted(serial: string, video: Readable, codecHint: () => VideoCodec | null): void;
+  /** Attach video and optional verified AAC, owned and ended by the same session. */
+  streamStarted(serial: string, video: Readable, codecHint: () => VideoCodec | null, audio?: Readable): void;
   streamStopped(serial: string): void;
 }
 
 /** Lifecycle and stream operations required by the gateway server. */
 export interface CameraProvider {
+
+  /** Read local completed event clips without exposing card paths or recording keys. */
+  listStoredRecordings?(serial: string, date: string, signal?: AbortSignal): Promise<readonly StoredRecordingSummary[]>;
+
+  /** Retrieve a previously listed opaque ID; null means the reference expired or is unknown. */
+  downloadStoredRecording?(serial: string, id: string, signal?: AbortSignal): Promise<Buffer | null>;
   /** Optional read-only cloud metadata, independent of local station storage. */
   cloudHistory?(serial: string, query: CloudHistoryQuery): Promise<readonly CloudHistoryRecord[]>;
   start(events: ProviderEvents): Promise<void>;
@@ -52,6 +59,12 @@ export interface CameraProvider {
 
   /** Write camera motion detection and return fresh inventory-backed state. */
   setCameraMotionDetection(serial: string, enabled: boolean): Promise<CameraIdentity>;
+
+  /** Write recorded audio separately from microphone enablement, returning fresh confirmed state. */
+  setCameraAudioRecording?(serial: string, enabled: boolean): Promise<CameraIdentity>;
+
+  /** Write a model-reported live quality preference and return fresh confirmed inventory. */
+  setCameraStreamingQuality?(serial: string, quality: number): Promise<CameraIdentity>;
 
   /** Refresh one direct camera's safe reads from its on-device parameter table. */
   refreshCameraCapabilities(serial: string): Promise<CameraIdentity>;

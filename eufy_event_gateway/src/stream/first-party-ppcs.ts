@@ -13,8 +13,11 @@
 import { createCipheriv, createDecipheriv, createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes, timingSafeEqual } from "node:crypto";
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
+import { HomeBaseRecordingReader } from "./homebase-recordings.js";
+import { SoloCamRecordingReader, type CameraStoredRecord } from "./stored-recordings.js";
 import type { CameraPresetPosition, VideoCodec } from "../domain/types.js";
 import { PpcsAccessUnitAssembler } from "./ppcs-access-unit-assembler.js";
+import { decodePpcsAac } from "./ppcs-audio.js";
 import { ppcsCandidatePorts, ppcsLocalLookupTargets } from "./ppcs-lookup.js";
 import { PpcsLookupSocketPool } from "./ppcs-lookup-sockets.js";
 import { decodeSensorContactNotification, type SensorContactObservation } from "./sensor-status-notification.js";
@@ -111,6 +114,17 @@ export function needsStandaloneMediaReassert(
  */
 export function acceptsAttachedCameraMedia(command: number, frameChannel: number, requestedChannel: number): boolean {
   return command !== 1300 || frameChannel === requestedChannel;
+}
+
+/**
+ * Limit clear SoloCam AAC to its requested child channel and media lifecycle.
+ * Attached routes may use any assigned channel; direct T8171 routes use zero.
+ * Payload validation and protection checks remain with the owning session.
+ */
+export function acceptsSoloCamAudio(cameraModel: string, homeBaseAttached: boolean, requestedChannel: number,
+  frameChannel: number, purpose: string | undefined): boolean {
+  return cameraModel === "T8171" && Number.isSafeInteger(requestedChannel) && requestedChannel >= 0
+    && frameChannel === requestedChannel && (homeBaseAttached || requestedChannel === 0) && purpose !== "control";
 }
 
 /**
@@ -412,6 +426,18 @@ export class PpcsVideoFrameDecoder {
     this.#mediaKey = null;
   }
 
+  /** Authenticate the recording audio envelope using the most recently authenticated video media key. */
+  decodeRecordingAudio(frame: Buffer): Buffer | null {
+    if (!this.#mediaKey || frame.length < 44 || frame[5] !== 0 || frame.readUInt32LE(0) !== frame.length - 44) return null;
+    try {
+      const decipher = createDecipheriv("aes-256-gcm", this.#mediaKey, frame.subarray(32, 44));
+      decipher.setAAD(Buffer.from("eufy security"));
+      decipher.setAuthTag(frame.subarray(16, 32));
+      const clear = Buffer.concat([decipher.update(frame.subarray(44)), decipher.final()]);
+      return decodePpcsAac(Buffer.concat([frame.subarray(0, 16), clear]));
+    } catch { return null; }
+  }
+
   /**
    * Decode one command-1300 payload for access-unit reassembly.
    *
@@ -530,6 +556,48 @@ export function buildStandaloneLevel2LiveStartPayload(
   sequence: number,
 ): Buffer {
   return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), channel, 8, [8, 0], 10);
+}
+
+/** Build the app-observed SoloCam motion status envelope, distinct from live-start frame type 10. */
+export function buildSoloCamMotionDetectionPayload(enabled: boolean, key: Buffer, sequence: number, now: number): Buffer {
+  if (!Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) {
+    throw new Error("SoloCam motion transaction requires epoch milliseconds");
+  }
+  const value = JSON.stringify({ commandType: 6040, data: { status: enabled ? 1 : 0, transaction: `${now}` } });
+  return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
+}
+
+/** Build the app-observed SoloCam audio-recording enable envelope, distinct from live-start frame type 10. */
+export function buildSoloCamAudioRecordingPayload(enabled: boolean, key: Buffer, sequence: number, now: number): Buffer {
+  if (!Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) {
+    throw new Error("SoloCam audio transaction requires epoch milliseconds");
+  }
+  const value = JSON.stringify({ commandType: 6012, data: { enable: enabled ? 1 : 0, transaction: `${now}` } });
+  return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
+}
+
+/** Encrypt the native SoloCam streaming-quality wrapper; quality zero restores adaptive streaming. */
+export function buildSoloCamStreamingQualityPayload(
+  quality: number, accountId: string, key: Buffer, sequence: number, now: number,
+): Buffer {
+  if (!Number.isInteger(quality) || quality < 0 || quality > 3) throw new Error("Unsupported SoloCam streaming quality");
+  if (!accountId) throw new Error("Streaming quality requires the camera administrator identity");
+  if (!Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) throw new Error("Streaming quality requires epoch milliseconds");
+  const value = JSON.stringify({ account_id: accountId, cmd: 2730, mChannel: 0, mValue3: 0,
+    payload: { quality, mode: 0, primary_view: 0, channel: 0, transaction: `${now}` } });
+  return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
+}
+
+/** Protect a native SoloCam preset or tracking request on its channel-zero control envelope. */
+export function buildSoloCamPanControlPayload(
+  command: 6034 | 6035 | 6016,
+  value: number | undefined,
+  key: Buffer,
+  sequence: number,
+  transaction: number,
+): Buffer {
+  const body = buildCameraControlQueryValue(command, buildSoloCamPanControlData(command, value, transaction));
+  return rawPayload(encryptLevel2(Buffer.from(body), key, sequence), 0, 8, [8, 0], 0);
 }
 
 /**
@@ -655,9 +723,13 @@ export class PpcsVideoStreamNormalizer {
 
   /** Return the codec proven by decoder setup, falling back to the PPCS frame marker. */
   get codec(): "h264" | "h265" | "unknown" {
+    const h264Types = new Set(this.#nalHeaderBytes.map((byte) => byte & 0x1f));
+    if (h264Types.has(7) && h264Types.has(8)) return "h264";
     if (this.#nalHeaderBytes.some((byte) => {
       const type = (byte >> 1) & 0x3f;
-      return type === 32 || type === 33 || type === 34;
+
+      // H.264 delta byte 0x41 resembles HEVC VPS, but its low bit excludes a single-layer HEVC header.
+      return (byte & 1) === 0 && (type === 32 || type === 33 || type === 34);
     })) return "h265";
     if (this.#nalHeaderBytes.some((byte) => {
       const type = byte & 0x1f;
@@ -850,11 +922,17 @@ export interface PpcsCameraOptions {
   /** Parent peer model used only where HomeBase generations have different media lifecycle commands. */
   readonly stationModel?: string;
 
+  /** Current inventory child identity used only to project HomeBase recording ownership. */
+  readonly recordingCameraSerial?: string;
+
   /** Eufy account identity required inside camera control payloads. */
   readonly accountId: string | null;
 
   /** Select the HomeBase child-channel handshake instead of direct camera media. */
   readonly homeBaseAttached?: boolean;
+
+  /** Provider-validated eligibility for the standalone E30 night-vision command. */
+  readonly standaloneNightVisionSupported?: boolean;
 
   /** Previously observed HomeBase cipher identifier for safe diagnostics. */
   readonly cipherId?: number | null;
@@ -912,6 +990,26 @@ export function buildCameraControlQueryValue(
     throw new Error("Camera control query command must be a positive integer");
   }
   return JSON.stringify({ commandType, data });
+}
+
+/** Build native SoloCam pan-control data, keeping query, slot and tracking meanings distinct. */
+export function buildSoloCamPanControlData(
+  command: 6034 | 6035 | 6016,
+  value?: number,
+  transaction = Date.now(),
+): Readonly<Record<string, unknown>> {
+  if (!Number.isSafeInteger(transaction) || !/^\d{13}$/.test(`${transaction}`)) {
+    throw new Error("SoloCam pan-control transaction requires epoch milliseconds");
+  }
+  if (command === 6034) {
+    if (value !== undefined) throw new Error("Preset query does not accept a slot");
+    return { transaction: `${transaction}` };
+  }
+  if (command !== 6035 && command !== 6016) throw new Error("Unsupported SoloCam pan control");
+  if (!Number.isSafeInteger(value) || value! < 0 || value! > (command === 6016 ? 1 : 9)) {
+    throw new Error("Invalid SoloCam pan-control value");
+  }
+  return { value, transaction: `${transaction}` };
 }
 
 /** Build the complete T817L AI-tracking payload observed in the official app. */
@@ -974,7 +1072,8 @@ export class CameraControlAcknowledgementTimeoutError extends Error {
  * when required, and Annex-B H.264 or H.265 output. It has no dependency on
  * eufy-security-client or the expiring Web Portal PIN.
  *
- * Media sessions emit Annex-B bytes on `output`. Control sessions suppress
+ * Media sessions emit Annex-B bytes on `output` and optional validated AAC on
+ * `audioOutput` for T8171 media consumers on direct or attached routes. Control sessions suppress
  * media startup and expose the small set of verified writes below. Some writes
  * wait for a result frame, while the observed fire-and-repeat forms return
  * after their bounded UDP transmissions.
@@ -987,6 +1086,9 @@ export class FirstPartyPpcsSession {
 
   /** Ordered Annex-B video bytes; the session ends this stream when it closes. */
   readonly output = new PassThrough();
+
+  /** Optional checked AAC for T8171 media, ended with the video session. */
+  readonly audioOutput = new PassThrough();
 
   /**
    * Bounded, privacy-safe observations collected over this session.
@@ -1091,6 +1193,9 @@ export class FirstPartyPpcsSession {
   #pendingControlQuery: PendingControlQuery | null = null;
   #pendingCameraInfo: PendingCameraInfo | null = null;
 
+  /** Own correlated card reads separately from live media and camera-setting requests. */
+  #recordings: SoloCamRecordingReader | HomeBaseRecordingReader | null = null;
+
   /** Return the codec proven by emitted NAL headers, or frame metadata as a fallback. */
   get videoCodec(): VideoCodec | null {
     const codec = this.#videoNormalizer.codec;
@@ -1170,7 +1275,7 @@ export class FirstPartyPpcsSession {
     this.#heartbeat = setInterval(() => {
       if (!this.#remote) return;
       this.#send(REQ.ping, Buffer.alloc(0), this.#remote);
-      if (this.#options.purpose === "control") return;
+      if (this.#options.purpose === "control" && this.stats.mediaStartAttempts === 0) return;
       if (
         this.#options.homeBaseAttached
         && this.#level2Key
@@ -1243,8 +1348,8 @@ export class FirstPartyPpcsSession {
   }
 
   /** Read the camera parameter table without changing device state. */
-  readCameraInfo(): Promise<readonly PpcsCameraInfoParam[]> {
-    if (this.#options.purpose !== "control") {
+  async readCameraInfo(): Promise<readonly PpcsCameraInfoParam[]> {
+    if (this.#options.purpose !== "control" && !this.#allowsSoloCamViewerControl()) {
       return Promise.reject(new Error("Camera-info refresh requires a control session"));
     }
     if (!this.#remote) return Promise.reject(new Error("Camera-info session is not connected"));
@@ -1254,6 +1359,7 @@ export class FirstPartyPpcsSession {
     if (this.#pendingCameraInfo) {
       return Promise.reject(new Error("Camera-info refresh is already in progress"));
     }
+    if (this.#options.cameraModel === "T8171") await this.#waitForLevel2Key();
     return new Promise<readonly PpcsCameraInfoParam[]>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#pendingCameraInfo = null;
@@ -1267,9 +1373,9 @@ export class FirstPartyPpcsSession {
   /**
    * Send the verified command-1011 motion switch and await its result.
    *
-   * Both standalone and HomeBase-attached routes use the level-two direct
-   * binary form. Three identical transmissions tolerate loss on the UDP path
-   * while one acknowledgement slot owns the operation's final result.
+   * The standalone T8171 uses its native 6040 JSON status command. Its caller
+   * must confirm the setting through a fresh inventory read. Other routes use
+   * the level-two binary form and await its acknowledgement.
    */
   async writeMotionDetection(enabled: boolean): Promise<void> {
     if (this.#options.purpose !== "control") throw new Error("Motion control requires a control session");
@@ -1277,6 +1383,17 @@ export class FirstPartyPpcsSession {
     const accountId = this.#options.accountId;
     if (!accountId) throw new Error("Motion control account identity is unavailable");
     await this.#waitForLevel2Key();
+    if (this.#options.cameraModel === "T8171") {
+      if (this.#options.homeBaseAttached || this.#options.channel !== 0) {
+        throw new Error("SoloCam motion control requires a standalone channel-zero route");
+      }
+      const transaction = Date.now();
+      for (let index = 0; index < 3; index += 1) {
+        this.#sendCommand(1700, buildSoloCamMotionDetectionPayload(enabled, this.#level2Key!, this.#level2Seq++, transaction));
+        await delay(200);
+      }
+      return;
+    }
     const body = buildCameraEnableBody(this.#options.channel, enabled ? 1 : 0, accountId);
     const acknowledgement = this.#waitForControlResult(1011);
     for (let index = 0; index < 3; index += 1) {
@@ -1291,6 +1408,38 @@ export class FirstPartyPpcsSession {
       if (index < 2) await delay(200);
     }
     await acknowledgement;
+  }
+
+  /** Send the native standalone audio setting; callers must confirm fresh inventory readback. */
+  async writeAudioRecording(enabled: boolean): Promise<void> {
+    if (this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId) {
+      throw new Error("Audio recording requires a connected account-owned control session");
+    }
+    if (this.#options.cameraModel !== "T8171" || this.#options.homeBaseAttached || this.#options.channel !== 0) {
+      throw new Error("Audio recording requires a standalone SoloCam channel-zero route");
+    }
+    await this.#waitForLevel2Key();
+    const transaction = Date.now();
+    for (let index = 0; index < 3; index += 1) {
+      this.#sendCommand(1700, buildSoloCamAudioRecordingPayload(enabled, this.#level2Key!, this.#level2Seq++, transaction));
+      await delay(200);
+    }
+  }
+
+  /** Send a native quality preference; fresh cloud confirmation remains the caller's responsibility. */
+  async writeStreamingQuality(quality: number): Promise<void> {
+    if (this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId) {
+      throw new Error("Streaming quality requires a connected account-owned control session");
+    }
+    if (this.#options.cameraModel !== "T8171" || this.#options.homeBaseAttached || this.#options.channel !== 0) {
+      throw new Error("Streaming quality requires a standalone SoloCam channel-zero route");
+    }
+    await this.#waitForLevel2Key();
+    const transaction = Date.now();
+    for (let index = 0; index < 3; index += 1) {
+      this.#sendCommand(1350, buildSoloCamStreamingQualityPayload(quality, this.#options.accountId, this.#level2Key!, this.#level2Seq++, transaction));
+      await delay(200);
+    }
   }
 
   /**
@@ -1320,19 +1469,35 @@ export class FirstPartyPpcsSession {
   }
 
   /**
-   * Send the verified HomeBase-attached night-vision mode command.
+   * Send the night-vision mode command using the provider-approved peer route.
    *
-   * Modes 0 through 2 are wrapped in command 1350 and sent three times through
-   * the negotiated level-two channel. This observed form has no awaited result
-   * frame, so resolution confirms transmission rather than device readback.
+   * Model-approved modes are wrapped in command 1350 and sent three times through
+   * the negotiated level-two channel for attached cameras. An eligible standalone
+   * E30 uses level one and drains its final transmission before closure. Neither
+   * form awaits a result frame, so resolution confirms transmission only.
    */
   async writeNightVision(mode: number): Promise<void> {
     if (this.#options.purpose !== "control") throw new Error("Night vision control requires a control session");
     if (!this.#remote) throw new Error("Night vision control session is not connected");
-    if (!this.#options.homeBaseAttached) throw new Error("Night vision control requires a HomeBase-attached camera");
+    const standalone = this.#options.homeBaseAttached === false
+      && this.#options.standaloneNightVisionSupported === true
+      && this.#options.cameraModel === "T8171" && this.#options.channel === 0;
+    if (!this.#options.homeBaseAttached && !standalone) throw new Error("Night vision control requires a HomeBase-attached camera");
     const accountId = this.#options.accountId;
     if (!accountId) throw new Error("Night vision control account identity is unavailable");
-    if (!Number.isSafeInteger(mode) || mode < 0 || mode > 2) throw new Error("Night vision mode must be 0, 1, or 2");
+    const maximumMode = this.#options.cameraModel === "T8171" ? 3 : 2;
+    if (!Number.isSafeInteger(mode) || mode < 0 || mode > maximumMode
+      || (this.#options.cameraModel === "T8171" && mode === 2)) {
+      throw new Error("Night vision mode is not supported for this camera model");
+    }
+    if (standalone) {
+      const body = encryptLevel1(buildNightVisionBody(0, mode, accountId), commandKey(this.#options.stationSerial, this.#options.p2pDid));
+      for (let index = 0; index < 3; index += 1) {
+        this.#sendCommand(1350, rawPayload(body, 0, 1, [1, 0], 0));
+        await delay(200);
+      }
+      return;
+    }
     await this.#waitForLevel2Key();
 
     // Replay this idempotent write so the HomeBase radio hop can tolerate a lost UDP frame.
@@ -1414,23 +1579,114 @@ export class FirstPartyPpcsSession {
    * contract was observed and does not imply that the camera has no presets.
    */
   async queryPresetPositions(): Promise<readonly CameraPresetPosition[]> {
-    const payload = await this.#queryControlPayload(6034, { value: 0 });
+    if (this.#options.cameraModel === "T8171" && this.#options.homeBaseAttached) await this.#wakeSoloCamPanMotor();
+    const payload = await this.#queryControlPayload(6034, this.#options.cameraModel === "T8171"
+      ? buildSoloCamPanControlData(6034) : { value: 0 });
     return parseCameraPresetPositions(payload);
   }
 
-  /** Move once to a stored T817L preset without retrying an ambiguous action. */
+  /**
+   * Move to a stored position using the model's native absolute command.
+   * The SoloCam requires decoded live video before travel. An owned control
+   * connection drains temporary video; an existing viewer retains its output.
+   */
   async selectPresetPosition(index: number): Promise<void> {
     if (!Number.isSafeInteger(index) || index < 0 || index > 9) {
       throw new Error("Camera preset index must be between 0 and 9");
     }
-    await this.#sendControlPayload(6035, { value: index });
+    const soloCam = this.#options.cameraModel === "T8171";
+    if (soloCam) await this.#wakeSoloCamPanMotor();
+    await this.#sendControlPayload(6035,
+      soloCam ? buildSoloCamPanControlData(6035, index) : { value: index });
+
+    // Battery-camera travel can outlast the request's transport drain.
+    await delay(soloCam ? 12_000 : 500);
+    if (this.#closed) throw new Error("Camera connection closed during preset movement");
+  }
+
+  /** Enable or disable AI tracking using this model's app-confirmed command shape. */
+  async writeAiTracking(enabled: boolean): Promise<void> {
+    await this.#sendControlPayload(6016, this.#usesSoloCamPanControl()
+      ? buildSoloCamPanControlData(6016, enabled ? 1 : 0) : buildAiTrackingControlData(enabled));
     await delay(500);
   }
 
-  /** Enable or disable T817L AI tracking using the app-confirmed command shape. */
-  async writeAiTracking(enabled: boolean): Promise<void> {
-    await this.#sendControlPayload(6016, buildAiTrackingControlData(enabled));
-    await delay(500);
+  /** Read completed SoloCam event clips through the provider-validated standalone or HomeBase route. */
+  async listStoredRecordings(date: string, signal?: AbortSignal): Promise<readonly CameraStoredRecord[]> {
+    const reader = this.#recordingReader();
+    await this.#waitForLevel2Key();
+    return await reader.list(date, signal);
+  }
+
+  /** Retrieve a provider-owned recording reference and verify all returned media tracks. */
+  async downloadStoredRecording(record: CameraStoredRecord, signal?: AbortSignal): Promise<Buffer> {
+    const reader = this.#recordingReader();
+    await this.#waitForLevel2Key();
+    return await reader.download(record, signal);
+  }
+
+  #recordingReader(): SoloCamRecordingReader | HomeBaseRecordingReader {
+    if (this.#options.homeBaseAttached) {
+      if (this.#options.cameraModel !== "T8171" || this.#options.stationModel !== "T8030" || this.#options.channel !== 1 ||
+        !this.#options.recordingCameraSerial || this.#options.purpose !== "control" || !this.#options.accountId) {
+        throw new Error("Stored recordings require the verified SoloCam HomeBase route");
+      }
+      this.#recordings ??= new HomeBaseRecordingReader({
+        serial: this.#options.recordingCameraSerial, stationSerial: this.#options.stationSerial, channel: this.#options.channel,
+        query: (transaction, date) => {
+          const value = { account_id: this.#options.accountId, cmd: 1306, mChannel: 255, mValue3: 0,
+            payload: { cmd: 10011, table: "history_record_info", transaction, payload: {
+              count: 100, start_date: date, end_date: date, start_id: 0, end_id: 1, flag: 0, need_ai: 1,
+              res_unzip: 1, update_time: "0", start_time: "0", alarm_id: "",
+            } } };
+          this.#sendCommand(1350, rawPayload(encryptLevel2(Buffer.from(JSON.stringify(value)), this.#level2Key!, this.#level2Seq++), 255, 8, [8, 0], 0));
+        },
+        download: (filepath, key) => {
+          const value = { account_id: this.#options.accountId, cmd: 1024, mChannel: this.#options.channel, mValue3: 1024, payload: { key, filepath } };
+          this.#sendCommand(1350, rawPayload(encryptLevel2(Buffer.from(JSON.stringify(value)), this.#level2Key!, this.#level2Seq++), this.#options.channel, 8, [8, 0], 25));
+        },
+        decodeReply: (payload, sign) => {
+          if (sign === 0) return payload;
+          if ((sign === 8 || sign === 2) && this.#level2Key) return decryptLevel2(payload, this.#level2Key, sign) ?? null;
+          if (sign === 1 && payload.length % 16 === 0) {
+            try { return decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); } catch { return null; }
+          }
+          return null;
+        },
+        decoder: (key) => {
+          const decoder = new PpcsVideoFrameDecoder(() => undefined);
+          decoder.setEccPrivateKey(key);
+          return { video: (payload, sign) => decoder.decode(payload, sign), audio: (payload) => decoder.decodeRecordingAudio(payload),
+            close: () => decoder.setEccPrivateKey("") };
+        },
+      });
+      return this.#recordings;
+    }
+    if (this.#options.cameraModel !== "T8171" || this.#options.homeBaseAttached ||
+      this.#options.channel !== 0 || this.#options.purpose !== "control" || !this.#options.accountId) {
+      throw new Error("Stored recordings require the verified standalone SoloCam route");
+    }
+    this.#recordings ??= new SoloCamRecordingReader({
+      serial: this.#options.stationSerial, p2pDid: this.#options.p2pDid,
+      query: (transaction, date) => {
+        const value = { account_id: this.#options.accountId, cmd: 1306, mChannel: 0, mValue3: 0,
+          payload: { cmd: 10017, table: "history_record_info", transaction, payload: {
+            count: 100, detection_type: 0, device_info: [{ device_sn: this.#options.stationSerial }],
+            start_date: date, end_date: date, start_time: "0", event_type: 0, flag: 0,
+            res_unzip: 1, storage_cloud: -1, ai_type: 0,
+          } } };
+        this.#sendCommand(1350, rawPayload(encryptLevel2(Buffer.from(JSON.stringify(value)), this.#level2Key!, this.#level2Seq++), 0, 8, [8, 0], 0));
+      },
+      download: (storagePath) => {
+        const body = Buffer.alloc(261);
+        Buffer.from(storagePath).copy(body, 5, 0, 127);
+        Buffer.from(this.#options.accountId!).copy(body, 133, 0, 127);
+        this.#sendCommand(1024, rawPayload(encryptLevel2(body, this.#level2Key!, this.#level2Seq++), 255, 8, [8, 0], 0));
+      },
+      decodeReply: (payload, sign) => sign === 0 ? payload : sign === 8 && this.#level2Key
+        ? decryptLevel2(payload, this.#level2Key, sign) ?? null : null,
+    });
+    return this.#recordings;
   }
 
   /** Enable or disable T817L automatic cruise using the app-confirmed action. */
@@ -1450,6 +1706,7 @@ export class FirstPartyPpcsSession {
     if (this.#closed) return;
     this.#closed = true;
     this.stats.closeReason = reason;
+    this.#recordings?.close();
     if (this.#maximumDurationTimer) clearTimeout(this.#maximumDurationTimer);
     if (this.#firstFrameTimer) clearTimeout(this.#firstFrameTimer);
     if (this.#heartbeat) clearInterval(this.#heartbeat);
@@ -1481,6 +1738,7 @@ export class FirstPartyPpcsSession {
     if (this.#lookupSockets) this.#lookupSockets.close();
     else this.#socket.close();
     this.output.end();
+    this.audioOutput.end();
   }
 
   /** Send LAN lookup to broadcast and known private targets, then query cloud rendezvous peers. */
@@ -1555,7 +1813,8 @@ export class FirstPartyPpcsSession {
       if (!this.stats.types.includes(type[1] ?? -1)) this.stats.types.push(type[1] ?? -1);
       this.#send(REQ.ack, Buffer.concat([type, u16(1), u16(seq)]), this.#remote);
       const dataType = type[1] ?? 0;
-      if (type.equals(DATA.video) || type.equals(DATA.data) || dataType === 2) this.#datagramOrder.push(message.subarray(8), seq, dataType);
+      if (type.equals(DATA.video) || type.equals(DATA.data) || dataType === 2 ||
+        (dataType === 3 && this.#recordings?.downloading)) this.#datagramOrder.push(message.subarray(8), seq, dataType);
     }
     return false;
   }
@@ -1643,6 +1902,7 @@ export class FirstPartyPpcsSession {
    * HomeBase peer, media is accepted only from the requested child channel.
    */
   #handleFrame(header: Buffer, payload: Buffer, type: number): void {
+    if (this.#recordings?.handleFrame(header, payload, type)) return;
     const command = header.readUInt16LE(4);
     const size = header.readUInt32LE(6);
     const frameChannel = ppcsFrameChannel(header);
@@ -1688,7 +1948,7 @@ export class FirstPartyPpcsSession {
       else if (signCode > 0 && payload.length % 16 === 0) {
         try { clear = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); } catch { clear = payload; }
       }
-      const decoded = parseJsonRecord(clear);
+      const decoded = parsePpcsControlRecord(clear);
       const responsePayload = decoded && decoded.cmd === this.#pendingControlQuery.command
         ? jsonRecord(decoded.payload)
         : undefined;
@@ -1715,6 +1975,13 @@ export class FirstPartyPpcsSession {
           this.#firstFrameTimer = null;
         }
       }
+    } else if (command === 1301 && signCode === 0
+      && acceptsSoloCamAudio(this.#options.cameraModel, this.#options.homeBaseAttached === true, this.#options.channel,
+        frameChannel ?? -1, this.#options.purpose)) {
+      const audio = decodePpcsAac(payload);
+
+      // Discard audio without consumers instead of retaining an unbounded stream.
+      if (audio && this.audioOutput.listenerCount("data") > 0) this.audioOutput.write(audio);
     } else if (command === 1300 && this.#options.homeBaseAttached) {
       this.stats.foreignVideoFrames++;
     }
@@ -1911,12 +2178,12 @@ export class FirstPartyPpcsSession {
     command: number,
     data: Readonly<Record<string, unknown>>,
   ): Promise<Record<string, unknown>> {
-    if (this.#options.purpose !== "control") throw new Error("Camera query requires a control session");
+    if (this.#options.purpose !== "control" && !this.#allowsSoloCamViewerControl()) throw new Error("Camera query requires a control session");
     if (!this.#remote) throw new Error("Camera control session is not connected");
     if (this.#pendingControlQuery || this.#pendingControl) {
       throw new Error("Camera already has a control operation in flight");
     }
-    if (this.#options.homeBaseAttached) await this.#waitForLevel2Key();
+    if (this.#options.homeBaseAttached || this.#usesSoloCamPanControl()) await this.#waitForLevel2Key();
     let pendingQuery: PendingControlQuery | undefined;
     const response = new Promise<Record<string, unknown>>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -1926,6 +2193,10 @@ export class FirstPartyPpcsSession {
       pendingQuery = { command, resolve, reject, timer };
       this.#pendingControlQuery = pendingQuery;
     });
+
+    // A peer can reject or close while the asynchronous send is still draining.
+    // Observe that early rejection now and propagate it through the awaited response.
+    void response.catch(() => undefined);
     try {
       await this.#sendControlPayload(command, data);
     } catch (error) {
@@ -1940,15 +2211,78 @@ export class FirstPartyPpcsSession {
     return response;
   }
 
-  /** Send one JSON control payload after the camera route is ready. */
+  /** Allow a decoded SoloCam viewer to retain ownership while its verified preset route is used. */
+  #allowsSoloCamViewerControl(): boolean {
+    return this.#options.cameraModel === "T8171" &&
+      (this.#options.homeBaseAttached ? this.#options.channel === 1 : this.#options.channel === 0);
+  }
+
+  /** Reject untested SoloCam topologies before selecting its native pan-control framing. */
+  #usesSoloCamPanControl(): boolean {
+    if (this.#options.cameraModel !== "T8171") return false;
+    if (this.#options.homeBaseAttached && this.#options.channel === 1) return false;
+    if (this.#options.homeBaseAttached || this.#options.channel !== 0) {
+      throw new Error("SoloCam pan control requires its verified standalone channel-zero route");
+    }
+    return true;
+  }
+
+  /** Require decoded native video before moving the standalone battery camera's motor. */
+  async #wakeSoloCamPanMotor(): Promise<void> {
+    if (!this.#remote || this.#closed) {
+      throw new Error("SoloCam preset wake requires a connected session");
+    }
+    await this.#waitForLevel2Key();
+    if (this.#options.purpose !== "control") {
+      if (this.stats.videoOutputFrames === 0) throw new Error("SoloCam viewer has not confirmed a live camera wake");
+      return;
+    }
+    this.output.resume();
+    if (this.#options.homeBaseAttached) this.#startAttachedMedia();
+    else this.#startOwnMedia();
+    const deadline = Date.now() + CONTROL_TIMEOUT_MILLISECONDS;
+    while (!this.#closed && this.stats.videoOutputFrames === 0 && Date.now() < deadline) {
+      await delay(50);
+    }
+    if (this.#closed || this.stats.videoOutputFrames === 0) {
+      throw new Error("SoloCam preset movement could not confirm a live camera wake");
+    }
+  }
+
+  /** Send one JSON control payload after the model's negotiated camera route is ready. */
   async #sendControlPayload(
     command: number,
     data: Readonly<Record<string, unknown>>,
   ): Promise<void> {
-    if (this.#options.purpose !== "control") throw new Error("Camera control requires a control session");
+    if (this.#options.purpose !== "control" && !this.#allowsSoloCamViewerControl()) throw new Error("Camera control requires a control session");
     if (!this.#remote) throw new Error("Camera control session is not connected");
-    if (this.#options.homeBaseAttached) await this.#waitForLevel2Key();
+    const soloCam = this.#usesSoloCamPanControl();
+    if (this.#options.homeBaseAttached || soloCam) await this.#waitForLevel2Key();
+    if (soloCam) {
+
+      // Native absolute writes tolerate retransmission. Drain the last packet
+      // before the owning control session closes, as with the verified motion switch.
+      for (let transmission = 0; transmission < 3; transmission += 1) {
+        this.#sendCommand(1700, buildSoloCamPanControlPayload(
+          command as 6034 | 6035 | 6016,
+          typeof data.value === "number" ? data.value : undefined,
+          this.#level2Key!, this.#level2Seq++, Number(data.transaction),
+        ));
+        await delay(200);
+      }
+      return;
+    }
     const value = buildCameraControlQueryValue(command, data);
+    if (this.#options.cameraModel === "T8171" && this.#options.homeBaseAttached && this.#options.channel === 1) {
+
+      // Native attached SoloCam envelopes carry the rounded cleartext size in byte 11.
+      const roundedLength = (Math.ceil(Buffer.byteLength(value) / 4) * 4) & 0xff;
+      for (let transmission = 0; transmission < 3; transmission += 1) {
+        this.#sendCommand(1700, rawPayload(encryptLevel2(Buffer.from(value), this.#level2Key!, this.#level2Seq++), this.#options.channel, 8, [8, roundedLength], 0));
+        await delay(200);
+      }
+      return;
+    }
     if (this.#options.homeBaseAttached) {
       const sequence = this.#level2Seq++;
       const encrypted = encryptLevel2(Buffer.from(value), this.#level2Key!, sequence);
@@ -2186,16 +2520,16 @@ export function buildCameraEnableBody(channel: number, value: number, accountId:
 }
 
 /**
- * Build the verified SET_PAYLOAD JSON for an attached-camera night-vision mode.
+ * Build SET_PAYLOAD JSON for the model-approved night-vision value.
  *
- * The outer command targets the HomeBase control channel, while the nested
- * `channel` selects the child camera. `night_sion` retains Eufy's observed
- * field spelling and must not be corrected as an English typo.
+ * The outer control channel and nested camera channel also serve direct channel
+ * zero. T8171 alone uses value 3 for forced infrared; the session enforces that
+ * model restriction. `night_sion` retains Eufy's observed field spelling.
  */
 export function buildNightVisionBody(channel: number, mode: number, accountId: string): Buffer {
   if (!accountId) throw new Error("Night vision control requires a non-empty account identity");
   if (!Number.isSafeInteger(channel) || channel < 0 || channel > 255) throw new Error("Night vision control requires a valid camera channel");
-  if (!Number.isSafeInteger(mode) || mode < 0 || mode > 2) throw new Error("Night vision mode must be 0, 1, or 2");
+  if (!Number.isSafeInteger(mode) || mode < 0 || mode > 3) throw new Error("Night vision mode must be an integer from 0 through 3");
   return Buffer.from(JSON.stringify({
     account_id: accountId,
     cmd: 1277,
@@ -2296,9 +2630,13 @@ function booleanFlag(value: unknown): boolean {
   return value === true || value === 1 || value === "1";
 }
 
-/** Parse a decrypted, NUL-padded PPCS body as one JSON object. */
-function parseJsonRecord(value: Buffer): Record<string, unknown> | undefined {
-  const text = value.toString("utf8").replace(/\0+$/g, "").trim();
+/** Parse one decrypted control reply, accepting only complete JSON with validated NUL or PKCS7 padding. */
+export function parsePpcsControlRecord(value: Buffer): Record<string, unknown> | undefined {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === 0) end--;
+  const padding = value[end - 1] ?? 0;
+  if (padding > 0 && padding <= 16 && padding <= end && value.subarray(end - padding, end).every((byte) => byte === padding)) end -= padding;
+  const text = value.subarray(0, end).toString("utf8").trim();
   if (!text.startsWith("{")) return undefined;
   try {
     const decoded: unknown = JSON.parse(text);

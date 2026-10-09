@@ -85,12 +85,20 @@ entity:
       state:
         alarm_sound_1: Alarm lyd 1
         alarm_sound_2: Alarm lyd 2
+    camera_streaming_quality:
+      name: Streamingkvalitet
+      state:
+        auto: Automatisk
+        hd: HD (720p)
+        full_hd: Full HD (1080p)
+        2k: 2K
     camera_night_vision:
       name: Night vision
       state:
         off: Fra
         colour: Farve
         infrared: Infrarød
+        infrared_on: Infrarød slået til
         spotlight: Spotlys
   sensor:
     last_recognized_person:
@@ -154,6 +162,8 @@ entity:
       name: Kamera tilsluttet
     camera_motion_detection:
       name: Bevægelses detektering
+    camera_audio_recording:
+      name: Lydoptagelse
     auto_night_vision:
       name: Auto night vision
   siren:

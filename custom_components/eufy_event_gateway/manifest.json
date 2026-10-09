@@ -2,15 +2,19 @@
   "domain": "eufy_event_gateway",
   "name": "Eufy Mega Security",
   "after_dependencies": [
-    "stream"
+    "stream",
+    "media_source"
   ],
   "codeowners": [
     "@mscodemonkey"
   ],
   "config_flow": true,
+  "dependencies": [
+    "http"
+  ],
   "documentation": "https://github.com/mscodemonkey/eufy-mega-security",
   "integration_type": "hub",
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/mscodemonkey/eufy-mega-security/issues",
-  "version": "0.1.123"
+  "version": "0.1.124"
 }

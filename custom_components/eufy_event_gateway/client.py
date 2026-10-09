@@ -10,6 +10,8 @@ PPCS packets, or camera media work inside the gateway process.
 from __future__ import annotations
 
 import json
+import re
+from urllib.parse import quote
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -86,6 +88,76 @@ class GatewayClient:
             for sensor in sensors
             if isinstance(sensor, dict) and isinstance(sensor.get("serial"), str)
         ]
+
+    async def stored_recordings(self, serial: str, date: str) -> list[dict[str, Any]]:
+        """List a day of camera-owned event clips using opaque gateway references."""
+        payload = await self._json(
+            f"/api/cameras/{quote(serial, safe='')}/recordings?date={quote(date, safe='')}",
+            timeout=60,
+        )
+        records = payload.get("records")
+        if not isinstance(records, list) or any(
+            not isinstance(record, dict)
+            or not isinstance(record.get("id"), str)
+            or not re.fullmatch(r"[a-f0-9]{64}", record["id"])
+            or not isinstance(record.get("startTime"), str)
+            for record in records
+        ):
+            raise GatewayClientError("Gateway returned invalid recordings")
+        return records
+
+    async def prepare_recording(self, serial: str, record_id: str) -> None:
+        """Wait for a bounded camera download and full media verification."""
+        result = await self._json(
+            f"/api/cameras/{quote(serial, safe='')}/recordings/{record_id}/prepare",
+            method="POST", timeout=120,
+        )
+        if result.get("ready") is not True:
+            raise GatewayClientError("Recording was not prepared")
+
+    async def recording_media(
+        self, serial: str, record_id: str, byte_range: str | None = None,
+        *, head: bool = False,
+    ) -> tuple[int, bytes, dict[str, str]]:
+        """Read only prepared MP4 bytes, retaining authentication inside HA.
+
+        A single browser range is forwarded for seeking. The gateway owns the
+        expiring cache and the client limits each response to 32 MiB.
+        """
+        headers = dict(self._headers)
+        if byte_range is not None:
+            if len(byte_range) > 64 or not re.fullmatch(r"bytes=\d*-\d*", byte_range):
+                raise GatewayClientError("Invalid recording byte range")
+            headers["Range"] = byte_range
+        path = f"/api/cameras/{quote(serial, safe='')}/recordings/{record_id}/video"
+        try:
+            async with self._session.request(
+                "HEAD" if head else "GET", self._url(path), headers=headers,
+                timeout=ClientTimeout(total=60),
+            ) as response:
+                if response.status not in (200, 206, 416, 404):
+                    self._raise_for_status(response)
+                    raise GatewayClientError("Unexpected recording response")
+                forwarded = {
+                    key: response.headers[key]
+                    for key in ("Content-Type", "Content-Range", "Content-Length", "Accept-Ranges")
+                    if key in response.headers
+                }
+                forwarded["Cache-Control"] = "no-store"
+                if response.status in (404, 416) or head:
+                    return response.status, b"", forwarded
+                if response.headers.get("Content-Type", "").split(";")[0] != "video/mp4":
+                    raise GatewayClientError("Gateway returned invalid recording media")
+                chunks = []
+                length = 0
+                async for chunk in response.content.iter_chunked(65536):
+                    length += len(chunk)
+                    if length > 32 * 1024 * 1024:
+                        raise GatewayClientError("Recording response exceeded its limit")
+                    chunks.append(chunk)
+                return response.status, b"".join(chunks), forwarded
+        except (ClientError, TimeoutError) as error:
+            raise GatewayClientError("Recording gateway request failed") from error
 
     async def catalogue_evidence(self) -> dict[str, Any]:
         """Fetch the gateway's privacy-safe device catalogue evidence."""
@@ -164,7 +236,7 @@ class GatewayClient:
             raise GatewayClientError(str(error)) from error
 
     async def stream_url(self, serial: str) -> str:
-        """Create a short-lived H.264 URL that does not expose the bearer token."""
+        """Create a short-lived video or audio/video URL without exposing the bearer token."""
         payload = await self._json(f"/api/cameras/{serial}/stream-token", method="POST")
         path = payload.get("path")
         if not isinstance(path, str) or not path.startswith("/"):
@@ -196,6 +268,32 @@ class GatewayClient:
             f"/api/cameras/{serial}/motion-detection",
             method="POST",
             payload={"enabled": enabled},
+        )
+        if not isinstance(camera.get("serial"), str):
+            raise GatewayClientError("Gateway returned an invalid camera response")
+        return camera
+
+    async def set_camera_audio_recording(
+        self, serial: str, enabled: bool
+    ) -> dict[str, Any]:
+        """Set recorded audio independently of the microphone and return confirmed gateway state."""
+        camera = await self._json(
+            f"/api/cameras/{serial}/audio-recording",
+            method="POST",
+            payload={"enabled": enabled},
+        )
+        if not isinstance(camera.get("serial"), str):
+            raise GatewayClientError("Gateway returned an invalid camera response")
+        return camera
+
+    async def set_camera_streaming_quality(
+        self, serial: str, quality: int
+    ) -> dict[str, Any]:
+        """Set live quality independently of recorded-video quality, returning confirmed state."""
+        camera = await self._json(
+            f"/api/cameras/{serial}/streaming-quality",
+            method="POST",
+            payload={"quality": quality},
         )
         if not isinstance(camera.get("serial"), str):
             raise GatewayClientError("Gateway returned an invalid camera response")
@@ -348,11 +446,12 @@ class GatewayClient:
         return station
 
     async def _json(
-        self, path: str, method: str = "GET", payload: dict[str, Any] | None = None
+        self, path: str, method: str = "GET", payload: dict[str, Any] | None = None,
+        *, timeout: int = 60,
     ) -> dict[str, Any]:
         """Send a JSON request and require an object-shaped response body."""
         try:
-            request_kwargs: dict[str, Any] = {"headers": self._headers}
+            request_kwargs: dict[str, Any] = {"headers": self._headers, "timeout": ClientTimeout(total=timeout)}
             if payload is not None:
                 request_kwargs["json"] = payload
             async with self._session.request(

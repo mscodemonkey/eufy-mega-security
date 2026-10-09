@@ -14,6 +14,7 @@ import { MegaPushReceiver } from "../src/mega/push.js";
 import { PushClient } from "../src/mega/android-push/push-client.js";
 import { EufyProvider } from "../src/provider/eufy-provider.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
+import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 import { LiveStreamManager } from "../src/stream/live-stream-manager.js";
 
 // Keep filesystem polling independent of the synthetic retry clock.
@@ -442,4 +443,483 @@ test("throwing stopped callback cannot interrupt provider timer cleanup", async 
     for (const call of intervals.mock.calls) assert.ok(clear.mock.calls.some(({ arguments: args }) => args[0] === call.result));
     assert.equal(f.network.mock.callCount(), 0);
   } finally { await f.provider.close(); }
+});
+
+/** Collect refresh publications while keeping all station transports offline. */
+function discoveryFixture(context: TestContext) {
+  const f = fixture(context);
+  const intervals = context.mock.method(globalThis, "setInterval");
+  const push = context.mock.method(MegaPushReceiver.prototype, "start", async () => undefined);
+  context.mock.method(EufyProvider.prototype, "refreshStation", async () => { throw new Error("Offline station"); });
+  const observations = { publications: 0, motion: [] as string[] };
+  const events = new Proxy({
+    camera: (row: Parameters<ProviderEvents["camera"]>[0]) => { ++observations.publications; f.state.registerCamera(row); },
+    sensor: (row: Parameters<ProviderEvents["sensor"]>[0]) => f.state.registerSensor(row),
+    station: (row: Parameters<ProviderEvents["station"]>[0]) => f.state.registerStation(row),
+    inventory: (rows: Parameters<ProviderEvents["inventory"]>[0]) => f.state.updateInventoryDiagnostics(rows),
+    cameraCapabilities: (rows: Parameters<ProviderEvents["cameraCapabilities"]>[0]) => f.state.updateCameraCapabilities(rows),
+    deviceCapabilities: (rows: Parameters<ProviderEvents["deviceCapabilities"]>[0]) => f.state.updateDeviceCapabilities(rows),
+    sensorMotion: (serial: string) => observations.motion.push(serial),
+  }, { get: (target, key) => Reflect.get(target, key) ?? Reflect.get(f.events, key) }) as unknown as ProviderEvents;
+  return { ...f, events, observations, intervals, push };
+}
+
+/** Drain asynchronous callbacks without advancing station transport timers. */
+async function settleDiscovery(): Promise<void> {
+  for (let index = 0; index < 20; ++index) await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+/** Exercise the second timer, which owns account inventory rather than PPCS reads. */
+function pollDiscovery(f: ReturnType<typeof discoveryFixture>): void {
+  assert.equal(f.intervals.mock.calls.length, 2);
+  const call = f.intervals.mock.calls[1]!;
+  assert.equal(call.arguments[1], 60_000);
+  (call.arguments[0] as () => void)();
+}
+
+for (const outcome of ["success", "start-failure", "write-failure", "readback-failure", "mismatch"] as const) {
+  test(`standalone night vision owns closure and fresh state on ${outcome}`, async (context) => {
+    const f = discoveryFixture(context);
+    let mode = 1;
+    let reads = 0;
+    let written = false;
+    const rows = () => ({ devices: [{ device_sn: "camera", device_model: "T8171", device_type: 88,
+      category: "eufy_security", device_channel: 0, p2p_did: "fixture-peer", p2p_conn: "fixture-route",
+      member: { admin_user_id: "fixture-account" }, params: [{ param_type: 1277, param_value: String(mode) }] }] });
+    context.mock.method(MegaClient.prototype, "inventory", async () => {
+      ++reads;
+      if (written && outcome === "readback-failure") throw new Error("Offline readback failed");
+      return rows();
+    });
+    context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ camera: { key: "fixture-key", expiresAt: null } }));
+    const stop = context.mock.method(f.provider, "stopStream", async () => undefined);
+    context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => {
+      assert.equal(stop.mock.callCount(), 1);
+      if (outcome === "start-failure") throw new Error("Offline start failed");
+    });
+    context.mock.method(FirstPartyPpcsSession.prototype, "writeNightVision", async (value: number) => {
+      written = true;
+      assert.equal(f.state.getCamera("camera").nightVisionMode, 1);
+      if (outcome === "write-failure") throw new Error("Offline write failed");
+      if (outcome !== "mismatch") mode = value;
+    });
+    const close = context.mock.method(FirstPartyPpcsSession.prototype, "close", () => undefined);
+    const schedule = globalThis.setTimeout;
+    context.mock.method(globalThis, "setTimeout", (callback: () => void, milliseconds?: number) =>
+      schedule(callback, milliseconds === 2_000 ? 0 : milliseconds));
+    try {
+      await f.provider.start(f.events);
+      assert.equal(f.state.getCamera("camera").nightVisionControlSupported, true);
+      if (outcome === "success") assert.equal((await f.provider.setCameraNightVision("camera", 3)).nightVisionMode, 3);
+      else await assert.rejects(f.provider.setCameraNightVision("camera", 3), /Offline|not confirmed/);
+      assert.equal(close.mock.callCount(), 1);
+      if (outcome === "mismatch") assert.equal(reads, 13);
+      await assert.rejects(f.provider.setCameraNightVision("camera", 2), /not supported/);
+      await assert.rejects(f.provider.setCameraNightVision("camera", 4), /integer from 0 through 3/);
+    } finally { await f.provider.close(); }
+  });
+}
+
+test("standalone night vision serializes writes and confirms all supported modes", async (context) => {
+  const f = discoveryFixture(context);
+  let mode = 1;
+  const writes: number[] = [];
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{
+    device_sn: "camera", device_model: "T8171", device_type: 88, category: "eufy_security",
+    device_channel: 0, p2p_did: "fixture-peer", p2p_conn: "fixture-route",
+    member: { admin_user_id: "fixture-account" }, params: [{ param_type: 1277, param_value: String(mode) }],
+  }] }));
+  context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ camera: { key: "fixture-key", expiresAt: null } }));
+  context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => undefined);
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => { finish = resolve; });
+  context.mock.method(FirstPartyPpcsSession.prototype, "writeNightVision", async (value: number) => {
+    writes.push(value);
+    if (writes.length === 1) await pending;
+    mode = value;
+  });
+  try {
+    await f.provider.start(f.events);
+    const first = f.provider.setCameraNightVision("camera", 0);
+    const second = f.provider.setCameraNightVision("camera", 3);
+    await settleDiscovery();
+    assert.deepEqual(writes, [0]);
+    finish();
+    assert.equal((await first).nightVisionMode, 0);
+    assert.equal((await second).nightVisionMode, 3);
+    assert.equal((await f.provider.setCameraNightVision("camera", 1)).nightVisionMode, 1);
+    assert.deepEqual(writes, [0, 3, 1]);
+  } finally { finish(); await f.provider.close(); }
+});
+
+for (const childFirst of [false, true]) {
+  test(`runtime discovery adds devices with complete routing, child first=${childFirst}`, async (context) => {
+    const f = discoveryFixture(context);
+    try {
+      await f.provider.start(f.events);
+      f.state.updateStream("camera", "streaming", 1);
+      const child = { device_sn: "child", device_model: "T8171", device_type: 88,
+        category: "eufy_security", parent_sn: "peer", device_channel: 1 };
+      const peer = { device_sn: "peer", device_model: "T8030", device_type: 18,
+        category: "eufy_security", p2p_did: "fixture-peer", p2p_conn: "fixture-route" };
+      context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [
+        ...(childFirst ? [child, peer] : [peer, child]),
+        { device_sn: "pir", device_model: "T8910", device_type: 10, category: "eufy_security",
+          params: [{ param_type: 1605, param_value: "1789500000" }] },
+        { device_sn: "unknown", device_model: "T9999", device_type: 999, category: "eufy_security" },
+      ] }));
+      const keys = context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ peer: { key: "fixture-key", expiresAt: null } }));
+      pollDiscovery(f);
+      await settleDiscovery();
+      assert.equal(f.state.getCamera("child").streamSupported, true);
+      assert.equal(f.state.listSensors().length, 1);
+      assert.equal(f.state.listStations().length, 1);
+      assert.equal(f.state.listInventoryDiagnostics().length, 5);
+      assert.equal(f.state.listCameraCapabilities().length, 5);
+      assert.ok(f.state.listCameraCapabilities().some(({ serial }) => serial === "unknown"));
+      assert.equal(f.state.hasCamera("unknown"), false);
+      assert.equal(f.state.getCamera("camera").stream.state, "streaming");
+      assert.deepEqual(f.observations.motion, []);
+      assert.equal(f.push.mock.callCount(), 1);
+      pollDiscovery(f);
+      await settleDiscovery();
+      assert.equal(f.state.listCameras().length, 2);
+      assert.equal(keys.mock.callCount(), 1);
+      assert.equal(f.state.listStations().length, 1);
+    } finally { await f.provider.close(); }
+  });
+}
+
+test("runtime discovery batches missing keys, throttles failures and restores readiness", async (context) => {
+  const f = discoveryFixture(context);
+  try {
+    await f.provider.start(f.events);
+    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [
+      { device_sn: "peer", device_model: "T8030", device_type: 18, category: "eufy_security", p2p_did: "fixture-peer", p2p_conn: "fixture-route" },
+      { device_sn: "child", device_model: "T8171", device_type: 88, category: "eufy_security", parent_sn: "peer", device_channel: 1 },
+      { device_sn: "rtc", device_model: "T8N00", device_type: 300, category: "eufy_security", p2p_did: "fixture-rtc", p2p_conn: "fixture-route" },
+    ] }));
+    let recover = false;
+    const keys = context.mock.method(MegaClient.prototype, "dskKeys", async (serials: readonly string[]) => {
+      assert.deepEqual(serials, ["peer"]);
+      if (!recover) throw new Error("Fixture key failure");
+      return { peer: { key: "fixture-key", expiresAt: null } };
+    });
+    const logs: string[] = [];
+    context.mock.method(process.stderr, "write", (chunk: unknown) => { logs.push(String(chunk)); return true; });
+    for (let index = 0; index < 16; ++index) { pollDiscovery(f); await settleDiscovery(); }
+    assert.equal(keys.mock.callCount(), 16);
+    assert.equal(logs.filter((line) => line.includes("inventory_dsk_unavailable")).length, 2);
+    assert.equal(f.state.getCamera("child").streamSupported, false);
+    assert.equal(f.state.listStations().find(({ serial }) => serial === "peer")?.cameraRouteReady, false);
+    recover = true;
+    pollDiscovery(f);
+    await settleDiscovery();
+    assert.equal(f.state.getCamera("child").streamSupported, true);
+    assert.equal(f.state.listStations().find(({ serial }) => serial === "peer")?.cameraRouteReady, true);
+    pollDiscovery(f);
+    await settleDiscovery();
+    assert.equal(keys.mock.callCount(), 17);
+  } finally { await f.provider.close(); }
+});
+
+test("runtime discovery preserves state on failed, malformed and empty inventory", async (context) => {
+  const f = discoveryFixture(context);
+  try {
+    await f.provider.start(f.events);
+    const diagnostics = f.state.listInventoryDiagnostics();
+    const manifests = f.state.listCameraCapabilities();
+    const deviceManifests = f.state.listDeviceCapabilities();
+    for (const response of [null, {}, { devices: [] }]) {
+      context.mock.method(MegaClient.prototype, "inventory", async () => response as never);
+      pollDiscovery(f);
+      await settleDiscovery();
+      assert.deepEqual(f.state.listInventoryDiagnostics(), diagnostics);
+      assert.deepEqual(f.state.listCameraCapabilities(), manifests);
+      assert.deepEqual(f.state.listDeviceCapabilities(), deviceManifests);
+    }
+    context.mock.method(MegaClient.prototype, "inventory", async () => { throw new Error("Fixture failure"); });
+    pollDiscovery(f);
+    await settleDiscovery();
+    assert.equal(f.observations.publications, 1);
+    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [
+      { device_sn: "new", device_model: "T8171", device_type: 88, category: "eufy_security" },
+    ] }));
+    pollDiscovery(f);
+    await settleDiscovery();
+    assert.equal(f.state.listCameras().length, 2);
+  } finally { await f.provider.close(); }
+});
+
+for (const stage of ["inventory", "keys"] as const) {
+  for (const replacement of [false, true]) {
+    test(`retired discovery ignores late ${stage}, replacement=${replacement}`, async (context) => {
+      const f = discoveryFixture(context);
+      try {
+        await f.provider.start(f.events);
+        let finish!: (value: never) => void;
+        const pending = new Promise<never>((resolve) => { finish = resolve; });
+        const rows = { devices: [{ device_sn: "late", device_model: "T8171", device_type: 88,
+          category: "eufy_security", device_channel: 0, p2p_did: "fixture-peer", p2p_conn: "fixture-route" }] };
+        context.mock.method(MegaClient.prototype, "inventory", async () => stage === "inventory" ? pending : rows);
+        context.mock.method(MegaClient.prototype, "dskKeys", async () => pending);
+        pollDiscovery(f);
+        await settleDiscovery();
+        const published = f.observations.publications;
+        if (replacement) {
+          context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [] }));
+          context.mock.method(MegaClient.prototype, "dskKeys", async () => ({}));
+          await f.provider.start(f.events);
+        } else await f.provider.close();
+        finish((stage === "inventory" ? rows : { late: { key: "fixture-key", expiresAt: null } }) as never);
+        await settleDiscovery();
+        assert.equal(f.observations.publications, published);
+        assert.equal(f.state.hasCamera("late"), false);
+      } finally { await f.provider.close(); }
+    });
+  }
+}
+
+test("runtime timer polls coalesce and subsequent polls retry", async (context) => {
+  const f = discoveryFixture(context);
+  try {
+    await f.provider.start(f.events);
+    let finish!: (value: { devices: [] }) => void;
+    const pending = new Promise<{ devices: [] }>((resolve) => { finish = resolve; });
+    const inventory = context.mock.method(MegaClient.prototype, "inventory", async () => pending);
+    pollDiscovery(f);
+    pollDiscovery(f);
+    await settleDiscovery();
+    assert.equal(inventory.mock.callCount(), 1);
+    finish({ devices: [] });
+    await settleDiscovery();
+    pollDiscovery(f);
+    await settleDiscovery();
+    assert.equal(inventory.mock.callCount(), 2);
+  } finally { await f.provider.close(); }
+});
+
+test("control readbacks share one fresh trailing refresh after a pending timer read", async (context) => {
+  const f = discoveryFixture(context);
+  const rows = (enabled: boolean) => ({ devices: ["camera", "second"].map((serial) => ({
+    device_sn: serial, device_model: "T8171", device_type: 88, category: "eufy_security",
+    device_channel: 0, p2p_did: "fixture-peer", p2p_conn: "fixture-route",
+    member: { admin_user_id: "fixture-account" }, params: [{ param_type: 1035, param_value: enabled ? "0" : "1" }],
+  })) });
+  try {
+    context.mock.method(MegaClient.prototype, "inventory", async () => rows(false));
+    context.mock.method(MegaClient.prototype, "dskKeys", async () => ({
+      camera: { key: "fixture-key", expiresAt: null }, second: { key: "fixture-key", expiresAt: null },
+    }));
+    context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => undefined);
+    const writes = context.mock.method(FirstPartyPpcsSession.prototype, "writeCameraEnabled", async () => undefined);
+    await f.provider.start(f.events);
+    let finish!: (value: ReturnType<typeof rows>) => void;
+    const pending = new Promise<ReturnType<typeof rows>>((resolve) => { finish = resolve; });
+    let reads = 0;
+    const inventory = context.mock.method(MegaClient.prototype, "inventory", async () =>
+      ++reads === 1 ? pending : rows(true));
+    pollDiscovery(f);
+    const first = f.provider.setCameraEnabled("camera", true);
+    const second = f.provider.setCameraEnabled("second", true);
+    await settleDiscovery();
+    assert.equal(writes.mock.callCount(), 2);
+    assert.equal(inventory.mock.callCount(), 1);
+    finish(rows(false));
+    assert.equal((await first).enabled, true);
+    assert.equal((await second).enabled, true);
+    assert.equal(inventory.mock.callCount(), 2);
+  } finally { await f.provider.close(); }
+});
+
+test("replacement startup gates old timer refresh until initial publication finishes", async (context) => {
+  const f = discoveryFixture(context);
+  try {
+    await f.provider.start(f.events);
+    let finish!: (value: { devices: [] }) => void;
+    const pending = new Promise<{ devices: [] }>((resolve) => { finish = resolve; });
+    const inventory = context.mock.method(MegaClient.prototype, "inventory", async () => pending);
+    const start = f.provider.start(f.events);
+    await settleDiscovery();
+    pollDiscovery(f);
+    await settleDiscovery();
+    assert.equal(inventory.mock.callCount(), 1);
+    assert.equal(f.observations.publications, 1);
+    finish({ devices: [] });
+    await start;
+  } finally { await f.provider.close(); }
+});
+
+test("new PIR inventory establishes a motion baseline then publishes newer motion", async (context) => {
+  const f = discoveryFixture(context);
+  try {
+    await f.provider.start(f.events);
+    let timestamp = 1_789_500_000;
+    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{
+      device_sn: "pir", device_model: "T8910", device_type: 10, category: "eufy_security",
+      params: [{ param_type: 1605, param_value: String(timestamp) }],
+    }] }));
+    pollDiscovery(f);
+    await settleDiscovery();
+    assert.deepEqual(f.observations.motion, []);
+    timestamp += 1;
+    pollDiscovery(f);
+    await settleDiscovery();
+    assert.deepEqual(f.observations.motion, ["pir"]);
+    pollDiscovery(f);
+    await settleDiscovery();
+    assert.deepEqual(f.observations.motion, ["pir"]);
+  } finally { await f.provider.close(); }
+});
+
+test("runtime standalone discovery preserves camera-owned live reads", async (context) => {
+  const f = discoveryFixture(context);
+  try {
+    await f.provider.start(f.events);
+    const row = { device_sn: "direct", device_model: "T8171", device_type: 88, category: "eufy_security",
+      device_channel: 0, p2p_did: "fixture-peer", p2p_conn: "fixture-route",
+      member: { admin_user_id: "fixture-account" }, params: [{ param_type: 1101, param_value: "40" }] };
+    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [row] }));
+    context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ direct: { key: "fixture-key", expiresAt: null } }));
+    context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => undefined);
+    context.mock.method(FirstPartyPpcsSession.prototype, "readCameraInfo", async () => [{ param_type: 1101, param_value: "85" }]);
+    pollDiscovery(f);
+    await settleDiscovery();
+    assert.equal(f.state.getCamera("direct").streamSupported, true);
+    await f.provider.refreshCameraCapabilities("direct");
+    const live = f.state.getCamera("direct").battery;
+    pollDiscovery(f);
+    await settleDiscovery();
+    assert.deepEqual(f.state.getCamera("direct").battery, live);
+    assert.equal(f.state.getCamera("direct").battery?.level, 85);
+  } finally { await f.provider.close(); }
+});
+
+test("SoloCam motion reads do not enable a route without ready session keys", async (context) => {
+  const f = discoveryFixture(context);
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{
+    device_sn: "camera", device_model: "T8171", device_type: 88, category: "eufy_security",
+    device_channel: 0, p2p_did: "fixture-peer", p2p_conn: "fixture-route",
+    member: { admin_user_id: "fixture-account" }, params: [{ param_type: 6040, param_value: "1" }],
+  }] }));
+  const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeMotionDetection", async () => undefined);
+  try {
+    await f.provider.start(f.events);
+    assert.equal(f.state.getCamera("camera").motionDetectionEnabled, true);
+    assert.equal(f.state.getCamera("camera").motionDetectionControlSupported, false);
+    await assert.rejects(f.provider.setCameraMotionDetection("camera", false), /unavailable/);
+    assert.equal(write.mock.callCount(), 0);
+  } finally { await f.provider.close(); }
+});
+
+for (const childFirst of [false, true]) {
+  test(`existing camera moves to HomeBase and back without restarting, child first=${childFirst}`, async (context) => {
+    const f = discoveryFixture(context);
+    const direct = { device_sn: "camera", device_name: "Direct camera", device_model: "T8171", device_type: 88,
+      category: "eufy_security", parent_sn: "camera", device_channel: 0, p2p_did: "direct-peer", p2p_conn: "direct-route",
+      member: { admin_user_id: "fixture-account" }, params: [{ param_type: 1277, param_value: "1" }] };
+    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [direct] }));
+    context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ camera: { key: "direct-key", expiresAt: null }, peer: { key: "station-key", expiresAt: null } }));
+    const starts = context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => undefined);
+    const closes = context.mock.method(FirstPartyPpcsSession.prototype, "close");
+    context.mock.method(FirstPartyPpcsSession.prototype, "readCameraInfo", async () => [{ param_type: 1277, param_value: "3" }]);
+    f.events.streamStopped = (serial) => f.state.updateStream(serial, "idle", 0);
+    try {
+      await f.provider.start(f.events);
+      await f.provider.refreshCameraCapabilities("camera");
+      assert.equal(f.state.getCamera("camera").nightVisionMode, 3);
+      assert.equal(f.state.getCamera("camera").storedRecordingsSupported, true);
+      assert.equal(f.state.getCamera("camera").liveAudioSupported, true);
+      await f.provider.startStream("camera");
+      f.state.updateStream("camera", "streaming", 1);
+      const closeCount = closes.mock.callCount();
+      context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{ ...direct, device_name: "Renamed direct" }] }));
+      pollDiscovery(f); await settleDiscovery();
+      assert.equal(f.state.getCamera("camera").name, "Renamed direct");
+      assert.equal(f.state.getCamera("camera").stream.viewers, 1);
+      assert.equal(f.state.getCamera("camera").nightVisionMode, 3);
+      assert.equal(closes.mock.callCount(), closeCount);
+      const peer = { device_sn: "peer", device_model: "T8030", device_type: 18, category: "eufy_security",
+        p2p_did: "station-peer", p2p_conn: "station-route", member: { admin_user_id: "fixture-account" } };
+      const child = { ...direct, device_name: "Attached camera", parent_sn: "peer", device_channel: 2,
+        p2p_did: "", p2p_conn: "", params: [{ param_type: 1277, param_value: "0" }] };
+      context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: childFirst ? [child, peer] : [peer, child] }));
+      pollDiscovery(f); await settleDiscovery();
+      const attached = f.state.getCamera("camera");
+      assert.equal(attached.name, "Attached camera"); assert.equal(attached.stationSerial, "peer");
+      assert.equal(attached.streamSupported, true); assert.equal(attached.storedRecordingsSupported, false);
+      assert.equal(attached.liveAudioSupported, true);
+      assert.equal(attached.audioRecordingControlSupported, false); assert.equal(attached.streamingQualityControlSupported, false);
+      assert.equal(attached.nightVisionMode, 0);
+      assert.equal(attached.stream.viewers, 0); assert.equal(attached.stream.state, "idle");
+      assert.equal(closes.mock.callCount(), closeCount + 1);
+      const startCount = starts.mock.callCount();
+      context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{ ...direct, device_name: "Renamed direct" }, peer] }));
+      pollDiscovery(f); await settleDiscovery();
+      const restored = f.state.getCamera("camera");
+      assert.equal(restored.name, "Renamed direct"); assert.equal(restored.stationSerial, "camera");
+      assert.equal(restored.streamSupported, true); assert.equal(restored.storedRecordingsSupported, true);
+      assert.equal(restored.liveAudioSupported, true);
+      assert.equal(restored.nightVisionMode, 1);
+      assert.equal(starts.mock.callCount(), startCount);
+      assert.equal(f.push.mock.callCount(), 1); assert.equal(f.connections.filter(({ state }) => state === "connected").length, 1);
+    } finally { await f.provider.close(); }
+  });
+}
+
+test("binding changes retire owned recording sessions and reject late old-route results", async (context) => {
+  const f = discoveryFixture(context);
+  const direct = { device_sn: "camera", device_model: "T8171", device_type: 88, category: "eufy_security",
+    parent_sn: "camera", device_channel: 0, p2p_did: "direct-peer", p2p_conn: "direct-route",
+    member: { admin_user_id: "fixture-account" } };
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [direct] }));
+  context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ camera: { key: "direct-key", expiresAt: null }, peer: { key: "station-key", expiresAt: null } }));
+  context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => undefined);
+  const closes = context.mock.method(FirstPartyPpcsSession.prototype, "close");
+  let finish!: (records: readonly never[]) => void;
+  const pending = new Promise<readonly never[]>((resolve) => { finish = resolve; });
+  context.mock.method(FirstPartyPpcsSession.prototype, "listStoredRecordings", () => pending);
+  try {
+    await f.provider.start(f.events);
+    const listing = f.provider.listStoredRecordings("camera", "2026-10-09");
+    const rejected = assert.rejects(listing, /connection changed/);
+    await settleDiscovery();
+    const closeCount = closes.mock.callCount();
+    const peer = { device_sn: "peer", device_model: "T8030", device_type: 18, category: "eufy_security",
+      p2p_did: "station-peer", p2p_conn: "station-route", member: { admin_user_id: "fixture-account" } };
+    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{ ...direct, parent_sn: "peer", device_channel: 1 }, peer] }));
+    pollDiscovery(f); await settleDiscovery();
+    assert.equal(closes.mock.callCount(), closeCount + 1);
+    finish([]); await rejected;
+    assert.equal(f.state.getCamera("camera").storedRecordingsSupported, true);
+  } finally { finish([]); await f.provider.close(); }
+});
+
+
+test("HomeBase recording ownership prevents sibling live and pan sessions until retrieval releases", async (context) => {
+  const f = discoveryFixture(context);
+  const peer = { device_sn: "peer", device_model: "T8030", device_type: 18, category: "eufy_security",
+    p2p_did: "station-peer", p2p_conn: "station-route", member: { admin_user_id: "fixture-account" } };
+  const child = { device_sn: "camera", device_model: "T8171", device_type: 88, category: "eufy_security",
+    parent_sn: "peer", device_channel: 1, member: { admin_user_id: "fixture-account" } };
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [peer, child,
+    { ...child, device_sn: "sibling", device_model: "T8214", device_type: 94, device_channel: 2 },
+    { ...child, device_sn: "pan-sibling", device_model: "T817L", device_type: 10031, device_channel: 3 }] }));
+  context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ peer: { key: "station-key", expiresAt: null } }));
+  const starts = context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => undefined);
+  let finish!: (records: readonly never[]) => void;
+  const pending = new Promise<readonly never[]>((resolve) => { finish = resolve; });
+  context.mock.method(FirstPartyPpcsSession.prototype, "listStoredRecordings", () => pending);
+  try {
+    await f.provider.start(f.events);
+    const listing = f.provider.listStoredRecordings("camera", "2026-10-09");
+    await settleDiscovery();
+    assert.equal(starts.mock.callCount(), 1);
+    await assert.rejects(f.provider.startStream("sibling"), /recording retrieval/);
+    await assert.rejects(f.provider.getCameraPresetPositions("pan-sibling"), /recording retrieval/);
+    assert.equal(starts.mock.callCount(), 1);
+    finish([]); await listing;
+    await assert.doesNotReject(f.provider.startStream("sibling"));
+    assert.equal(starts.mock.callCount(), 2);
+  } finally { finish([]); await f.provider.close(); }
 });

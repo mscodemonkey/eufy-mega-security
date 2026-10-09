@@ -202,7 +202,11 @@ class EufyCameraLightButton(EufyGatewayEntity, ButtonEntity):
 
 
 class EufyCameraPresetButton(EufyGatewayEntity, ButtonEntity):
-    """Move once to an enabled preset discovered directly from the camera."""
+    """Expose one enabled slot for the config entry's entity lifetime.
+
+    The gateway owns fresh occupancy checks and physical movement. This entity
+    retains only the slot identity and hides its action when routing changes.
+    """
 
     def __init__(
         self,
@@ -220,9 +224,18 @@ class EufyCameraPresetButton(EufyGatewayEntity, ButtonEntity):
             "camera_preset_default" if is_default else "camera_preset"
         )
         if not is_default:
-            self._attr_translation_placeholders = {"number": str(index)}
+            number = index + 1 if self.camera.get("model") == "T8171" else index
+            self._attr_translation_placeholders = {"number": str(number)}
         self._attr_icon = (
             "mdi:home-map-marker" if is_default else "mdi:camera-marker-outline"
+        )
+
+    @property
+    def available(self) -> bool:
+        """Withdraw the action when inventory no longer supplies a verified route."""
+        return (
+            super().available
+            and self.camera.get("presetPositionControlSupported") is True
         )
 
     async def async_press(self) -> None:
@@ -238,7 +251,11 @@ class EufyCameraPresetButton(EufyGatewayEntity, ButtonEntity):
 
 
 class EufyCameraAiTrackingButton(EufyGatewayEntity, ButtonEntity):
-    """Expose physically verified AI-tracking actions without claiming state."""
+    """Expose verified tracking actions for the config entry's entity lifetime.
+
+    The gateway owns model-specific writes. The entity retains an action value,
+    rather than treating command delivery as a durable tracking-state read.
+    """
 
     def __init__(
         self,
@@ -246,7 +263,7 @@ class EufyCameraAiTrackingButton(EufyGatewayEntity, ButtonEntity):
         serial: str,
         enabled: bool,
     ) -> None:
-        """Bind one enable or disable action to a verified T817L route."""
+        """Bind one enable or disable action to a provider-verified camera route."""
         EufyGatewayEntity.__init__(self, coordinator, serial)
         ButtonEntity.__init__(self)
         self._enabled = enabled
@@ -255,8 +272,16 @@ class EufyCameraAiTrackingButton(EufyGatewayEntity, ButtonEntity):
         self._attr_translation_key = f"camera_ai_tracking_{action}"
         self._attr_icon = "mdi:target-account" if enabled else "mdi:target"
 
+    @property
+    def available(self) -> bool:
+        """Withdraw tracking actions when inventory no longer supplies their route."""
+        return (
+            super().available
+            and self.camera.get("aiTrackingControlSupported") is True
+        )
+
     async def async_press(self) -> None:
-        """Send one physically verified AI-tracking action through the gateway."""
+        """Send the verified model-specific action through the owning gateway."""
         try:
             await self.coordinator.client.set_camera_ai_tracking(
                 self.serial, self._enabled

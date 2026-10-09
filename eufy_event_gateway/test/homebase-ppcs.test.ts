@@ -241,3 +241,21 @@ test("summarizes unknown HDD fields without retaining text values", () => {
   });
   assert.equal(JSON.stringify(result).includes("private"), false);
 });
+
+
+test("retains observed SoloCam child settings without admitting private or nested fields", () => {
+  const observed = [1020, 1045, 1207, 1230, 1240, 1241, 6012, 6020, 6040];
+  const state = parseHomeBaseState({ params: [
+    ...observed.map((type) => ({ dev_type: 1, param_type: type, param_value: "1" })),
+    { dev_type: 2, param_type: 1020, param_value: 3 },
+    { dev_type: 255, param_type: 1020, param_value: "2" },
+    { dev_type: 1, param_type: 6012, param_value: { enable: 1, private: "excluded" } },
+    { dev_type: 1, param_type: 9999, param_value: "excluded" },
+    { dev_type: 1, param_type: 6016, param_value: "1" },
+    { dev_type: 1, param_type: 2731, param_value: "excluded" },
+  ] }, null, false);
+  assert.deepEqual(state.childParams, [
+    ...observed.map((type) => ({ channel: 1, type, value: "1" })),
+    { channel: 2, type: 1020, value: 3 },
+  ]);
+});

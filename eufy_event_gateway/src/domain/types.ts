@@ -133,8 +133,17 @@ export interface CameraState {
   /** Last validated inventory signal measurement, not a connection-health assertion. */
   readonly rssi: number | null;
 
-  /** Validated inventory audio configuration, exposed without write controls. */
+  /** Validated inventory audio configuration, independent of control admission. */
   readonly audioSettings: CameraAudioSettings | null;
+
+  /** Whether the owned route and known recording baseline admit the verified audio write. */
+  readonly audioRecordingControlSupported?: boolean;
+
+  /** Whether the owned ready route and known baseline admit native streaming-quality writes. */
+  readonly streamingQualityControlSupported?: boolean;
+
+  /** Model-specific streaming choices, used only when control admission is true. */
+  readonly streamingQualityModes?: readonly CameraStreamingQualityMode[];
 
   /** Strictly validated camera-owned settings, with unknown values left absent. */
   readonly reportedSettings: CameraReportedSettings | null;
@@ -144,6 +153,12 @@ export interface CameraState {
   readonly catalogueStatus: "supported" | "ready_to_test" | "recognised" | null;
   readonly stationSerial: string;
   readonly streamSupported: boolean;
+
+  /** Whether the ready camera route supplies validated AAC for live MPEG-TS delivery. */
+  readonly liveAudioSupported?: boolean;
+
+  /** The direct route supports verified SD event retrieval; card presence is checked on access. */
+  readonly storedRecordingsSupported?: boolean;
   readonly doorbellSupported: boolean;
   readonly enabled: boolean | null;
   readonly enableControlSupported: boolean;
@@ -162,6 +177,9 @@ export interface CameraState {
   readonly cameraSirenControlSupported: boolean;
   readonly presetPositionControlSupported: boolean;
   readonly aiTrackingControlSupported: boolean;
+
+  /** Inventory-reported tracking preference, or null when the device supplies no verified value. */
+  readonly aiTrackingEnabled?: boolean | null;
   readonly autoCruiseControlSupported: boolean;
   readonly motionDetected: boolean;
   readonly personDetected: boolean;
@@ -190,7 +208,13 @@ export interface CameraState {
 /** One camera-specific label for a raw night-vision mode value. */
 export interface NightVisionMode {
   readonly value: number;
-  readonly name: "Off" | "Colour" | "Infrared" | "Spotlight";
+  readonly name: "Off" | "Colour" | "Infrared" | "Infrared on" | "Spotlight";
+}
+
+/** One exact model's app-confirmed streaming quality, independent of recorded-video quality. */
+export interface CameraStreamingQualityMode {
+  readonly value: number;
+  readonly name: "Auto" | "HD (720P)" | "Full HD (1080P)" | "2K";
 }
 
 /** Normalized battery reads exposed only when a device reports each field. */
@@ -293,6 +317,15 @@ export interface CameraIdentity {
   /** Cloud configuration only. A missing setting never implies it is disabled. */
   readonly audioSettings?: CameraAudioSettings | null;
 
+  /** Optional provider admission for the independently confirmed recorded-audio write. */
+  readonly audioRecordingControlSupported?: boolean;
+
+  /** Optional admission for fresh-state-confirmed streaming-quality writes. */
+  readonly streamingQualityControlSupported?: boolean;
+
+  /** Native choices for this model, separate from recorded-video resolution. */
+  readonly streamingQualityModes?: readonly CameraStreamingQualityMode[];
+
   /** Optional read-only configuration projection from fresh device inventory. */
   readonly reportedSettings?: CameraReportedSettings | null;
   readonly serial: string;
@@ -301,6 +334,12 @@ export interface CameraIdentity {
   readonly catalogueStatus?: "supported" | "ready_to_test" | "recognised" | null;
   readonly stationSerial: string;
   readonly streamSupported: boolean;
+
+  /** The provider owns validated SD event retrieval on this route, not card formatting or deletion. */
+  readonly storedRecordingsSupported?: boolean;
+
+  /** Optional provider admission for live AAC, independent of reported microphone settings. */
+  readonly liveAudioSupported?: boolean;
   readonly doorbellSupported: boolean;
   readonly enabled?: boolean | null;
   readonly enableControlSupported?: boolean;
@@ -319,6 +358,9 @@ export interface CameraIdentity {
   readonly cameraSirenControlSupported?: boolean;
   readonly presetPositionControlSupported?: boolean;
   readonly aiTrackingControlSupported?: boolean;
+
+  /** Model-qualified tracking state; null means the camera has not reported a valid enable bit. */
+  readonly aiTrackingEnabled?: boolean | null;
   readonly autoCruiseControlSupported?: boolean;
   readonly battery?: BatteryState | null;
 }

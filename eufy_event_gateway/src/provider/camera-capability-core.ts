@@ -68,7 +68,7 @@ export const CAMERA_CAPABILITY_CORE: readonly CoreCapabilityEntry[] = [
   { id: "camera.record", family: "camera", kind: "media", evidenceParamIds: [], gatewaySupport: "implemented", requiresRoute: true, note: "Clip retrieval still requires provider media evidence." },
   { id: "snapshot.capture", family: "snapshot", kind: "media", evidenceParamIds: [1004], gatewaySupport: "implemented", requiresRoute: true, note: "Live capture needs its own media route." },
   { id: "motion.motion_event", family: "motion", kind: "event", evidenceParamIds: [], gatewaySupport: "implemented", note: "Handled by the gateway's known motion push route." },
-  { id: "camera.night_vision", family: "camera", kind: "action", evidenceParamIds: [1277], gatewaySupport: "implemented", requiresRoute: true, note: "The current write path requires a HomeBase-attached camera and confirms the selected mode through cloud inventory." },
+  { id: "camera.night_vision", family: "camera", kind: "action", evidenceParamIds: [1277], gatewaySupport: "implemented", requiresRoute: true, note: "HomeBase-attached cameras and eligible standalone E30 cameras confirm the selected mode through cloud inventory." },
   { id: "person_detection.person_event", family: "person_detection", kind: "event", evidenceParamIds: [], gatewaySupport: "implemented", note: "Handled by the gateway's known person push route." },
   { id: "battery.level", family: "battery", kind: "read", evidenceParamIds: [1101], gatewaySupport: "implemented", note: "Refreshed from validated Mega inventory values." },
   { id: "battery.charging", family: "battery", kind: "read", evidenceParamIds: [2111], gatewaySupport: "implemented", note: "Decoded from the Mega battery-status bitfield." },

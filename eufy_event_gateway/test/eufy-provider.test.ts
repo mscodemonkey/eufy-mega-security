@@ -25,6 +25,13 @@ import {
   homeBaseStorageLogSummary,
   homeBaseReadLogSummary,
   supportsMotionDetectionControlRoute,
+  supportsStandaloneMotionDetection,
+  supportsStandaloneAudioRecording,
+  supportsStandaloneStreamingQuality,
+  supportsStandalonePanControl,
+  supportsSoloCamPresetControl,
+  supportsSoloCamStoredRecordings,
+  supportsStandaloneAiTracking,
   genericSecurityDetectionKinds,
   initialHomeBaseState,
   isDiscoveredHomeBase,
@@ -84,6 +91,15 @@ test("secondary firmware and update flags stay camera-owned and preserve unknown
     assert.equal(devices[2]?.firmwareSubVersion, null);
     assert.equal(devices[2]?.firmwareUpdateAvailable, null);
   }
+});
+
+test("tracking reads require the exact SoloCam model and a canonical enable bit", () => {
+  const params = [{ param_type: 6016, param_value: "1" }];
+  assert.equal(safeInventoryReads(params, 88, "T8171").aiTrackingEnabled, true);
+  assert.equal(safeInventoryReads([{ param_type: 6016, param_value: "0" }], 88, "T8171").aiTrackingEnabled, false);
+  assert.equal(safeInventoryReads(params, 88, "T817L").aiTrackingEnabled, undefined);
+  assert.equal(safeInventoryReads(params, 87, "T8171").aiTrackingEnabled, undefined);
+  assert.equal(safeInventoryReads([{ param_type: 6016, param_value: "2" }], 88, "T8171").aiTrackingEnabled, undefined);
 });
 
 test("inventory refresh updates firmware metadata without replacing live routing", () => {
@@ -190,6 +206,27 @@ test("recording quality follows the selected mode instead of guessing the first 
     { cur_mode: 0, mode_0: { quality: true } }, { cur_mode: 0, mode_0: { quality: 0 } },
     { cur_mode: 0, mode_0: { quality: 4 } }]) {
     assert.equal(read(invalid).recordingQualityTier, undefined);
+  }
+});
+
+test("SoloCam E30 recording quality decodes bounded canonical base64 JSON for its exact model", () => {
+  const read = (value: unknown, type = 88, model = "T8171") => safeInventoryReads([
+    { param_type: 2731, param_value: value },
+  ], type, model).recordingQualityTier;
+  const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64");
+  for (const quality of [1, 2, 3]) {
+    const encoded = encode({ cur_mode: 0, mode_0: { quality }, mode_1: { quality: 3 } });
+    assert.equal(read(encoded), quality);
+    assert.equal(read(encoded, 88, "T8170"), undefined);
+    assert.equal(read(encoded, 48), undefined);
+    assert.equal(read(`${encoded}\n`), undefined);
+  }
+  for (const invalid of ["!!!!", "A===", "e30", "A".repeat(4097), encode([]),
+    encode({ mode_0: { quality: 3 } }), encode({ cur_mode: "0", mode_0: { quality: 3 } }),
+    encode({ cur_mode: 1, mode_0: { quality: 3 } }),
+    encode({ cur_mode: 0, mode_0: { quality: 0 } }),
+    encode({ cur_mode: 0, mode_0: { quality: 4 } })]) {
+    assert.equal(read(invalid), undefined);
   }
 });
 
@@ -349,6 +386,8 @@ test("limits stored-position queries to the hardware-proven T817L family", () =>
   assert.equal(supportsPresetPositions({ model: "T817L" }), true);
   assert.equal(supportsPresetPositions({ model: "T817L121" }), true);
   assert.equal(supportsPresetPositions({ model: "T8171" }), false);
+  assert.equal(supportsPresetPositions({ model: "T8171", deviceType: 88 }), true);
+  assert.equal(supportsPresetPositions({ model: "T8171", deviceType: 10031 }), false);
   assert.equal(supportsPresetPositions({ model: "T8417" }), false);
 });
 
@@ -1465,4 +1504,124 @@ test("invalidates omitted effective mode only when the guard mode changes and pr
   assert.equal(mergeHomeBaseState(changed, { ...observed, promptVolume: null }).promptVolume, 0);
   assert.equal(homeBaseReadLogSummary("T8030", { ...observed, guardMode: null }), "HomeBase state read ready: model=T8030 guard_mode=missing effective_mode=missing");
   await assert.rejects(confirmStationWrite("guardMode", 0, async () => undefined, async () => ({ ...observed, guardMode: null })), /did not confirm guardMode/);
+});
+
+
+test("SoloCam motion eligibility rejects neighbouring models and unowned or unready routes", () => {
+  const device = { serial: "camera", model: "T8171", deviceType: 88, channel: 0,
+    adminUserId: "fixture-admin", reads: { motionDetectionEnabled: true } };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [{ device_sn: "camera", device_model: "T8171", device_type: 88 }] })[0]! };
+  assert.equal(supportsStandaloneMotionDetection(device, route, true), true);
+  assert.equal(supportsStandaloneMotionDetection(device, route, false), false);
+  assert.equal(supportsStandaloneMotionDetection(device, null, true), false);
+  for (const change of [{ model: "T8170" }, { deviceType: 48 }, { channel: 1 }, { adminUserId: null }, { reads: {} }]) {
+    assert.equal(supportsStandaloneMotionDetection({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsStandaloneMotionDetection(device, { ...route, homeBaseAttached: true }, true), false);
+  assert.equal(supportsStandaloneMotionDetection(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
+});
+
+test("SoloCam tracking eligibility requires exact hardware, known state and a ready owned route", () => {
+  const device = { serial: "camera", model: "T8171", deviceType: 88, channel: 0,
+    adminUserId: "fixture-admin", reads: { aiTrackingEnabled: true } };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [{ device_sn: "camera", device_model: "T8171", device_type: 88 }] })[0]! };
+  assert.equal(supportsStandaloneAiTracking(device, route, true), true);
+  assert.equal(supportsStandaloneAiTracking({ ...device, reads: { aiTrackingEnabled: false } }, route, true), true);
+  assert.equal(supportsStandaloneAiTracking(device, route, false), false);
+  assert.equal(supportsStandaloneAiTracking(device, null, true), false);
+  for (const change of [{ model: "T8170" }, { deviceType: 48 }, { channel: 1 }, { adminUserId: null }, { reads: {} }]) {
+    assert.equal(supportsStandaloneAiTracking({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsStandaloneAiTracking(device, { ...route, homeBaseAttached: true }, true), false);
+  assert.equal(supportsStandaloneAiTracking(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
+});
+
+test("SoloCam audio-recording eligibility rejects neighbouring models and unowned or unready routes", () => {
+  const device = { serial: "camera", model: "T8171", deviceType: 88, channel: 0,
+    adminUserId: "fixture-admin", reads: { audioRecordingEnabled: true } };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [{ device_sn: "camera", device_model: "T8171", device_type: 88 }] })[0]! };
+  assert.equal(supportsStandaloneAudioRecording(device, route, true), true);
+  assert.equal(supportsStandaloneAudioRecording(device, route, false), false);
+  assert.equal(supportsStandaloneAudioRecording(device, null, true), false);
+  for (const change of [{ model: "T8170" }, { deviceType: 48 }, { channel: 1 }, { adminUserId: null }, { reads: {} }]) {
+    assert.equal(supportsStandaloneAudioRecording({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsStandaloneAudioRecording(device, { ...route, homeBaseAttached: true }, true), false);
+  assert.equal(supportsStandaloneAudioRecording(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
+});
+
+test("SoloCam streaming-quality eligibility rejects neighbouring models and unowned or unready routes", () => {
+  const device = { serial: "camera", model: "T8171", deviceType: 88, channel: 0,
+    adminUserId: "fixture-admin", reads: { streamingQualityTier: 0 } };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [{ device_sn: "camera", device_model: "T8171", device_type: 88 }] })[0]! };
+  assert.equal(supportsStandaloneStreamingQuality(device, route, true), true);
+  assert.equal(supportsStandaloneStreamingQuality(device, route, false), false);
+  assert.equal(supportsStandaloneStreamingQuality(device, null, true), false);
+  for (const change of [{ model: "T8170" }, { deviceType: 48 }, { channel: 1 }, { adminUserId: null }, { reads: {} }, { reads: { streamingQualityTier: 4 } }, { reads: { streamingQualityTier: 1.5 } }]) {
+    assert.equal(supportsStandaloneStreamingQuality({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsStandaloneStreamingQuality(device, { ...route, homeBaseAttached: true }, true), false);
+  assert.equal(supportsStandaloneStreamingQuality(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
+});
+
+test("SoloCam pan eligibility admits only the tested model, type and owned standalone channel", () => {
+  const device = { serial: "camera", model: "T8171", deviceType: 88, channel: 0, adminUserId: "fixture-admin" };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [{ device_sn: "camera", device_model: "T8171", device_type: 88 }] })[0]! };
+  assert.equal(supportsStandalonePanControl(device, route, true), true);
+  assert.equal(supportsStandalonePanControl(device, route, false), false);
+  assert.equal(supportsStandalonePanControl(device, null, true), false);
+  for (const change of [{ model: "T817L" }, { model: "T8171X" }, { deviceType: 10031 }, { channel: 1 }, { adminUserId: null }]) {
+    assert.equal(supportsStandalonePanControl({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsStandalonePanControl(device, { ...route, homeBaseAttached: true }, true), false);
+  assert.equal(supportsStandalonePanControl(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
+});
+
+test("complete inventory rows replace renamed cameras and station/channel bindings", () => {
+  const initial = parseMegaInventory({ devices: [{ device_sn: "camera", device_model: "T8171", device_type: 88,
+    category: "eufy_security", parent_sn: "camera", device_channel: 0, device_name: "Before",
+    p2p_did: "direct-peer", p2p_conn: "direct-route", member: { admin_user_id: "old-owner" } }] })[0]!;
+  const attached = parseMegaInventory({ devices: [{ device_sn: "camera", device_model: "T8171", device_type: 88,
+    category: "eufy_security", parent_sn: "station", device_channel: 2, device_name: "After",
+    member: { admin_user_id: "new-owner" } }] })[0]!;
+  const merged = mergeInventoryMetadata(initial, attached);
+  assert.equal(merged.parentSerial, "station"); assert.equal(merged.channel, 2);
+  assert.equal(merged.name, "After"); assert.equal(merged.adminUserId, "new-owner");
+  assert.equal(merged.p2pDid, null); assert.equal(merged.p2pConnection, null);
+  assert.deepEqual(mergeInventoryMetadata(merged, initial), initial);
+  assert.throws(() => mergeInventoryMetadata(initial, { ...attached, serial: "other" }), /ownership/);
+});
+
+
+test("stored SoloCam media admits only tested direct and HomeBase3 child1 routes", () => {
+  const device = { serial: "camera", model: "T8171", deviceType: 88, channel: 1, adminUserId: "fixture-admin" };
+  const peer = parseMegaInventory({ devices: [{ device_sn: "station", device_model: "T8030", device_type: 18 }] })[0]!;
+  const route = { homeBaseAttached: true, peer };
+  assert.equal(supportsSoloCamStoredRecordings(device, route, true), true);
+  assert.equal(supportsSoloCamStoredRecordings(device, route, false), false);
+  assert.equal(supportsSoloCamStoredRecordings(device, null, true), false);
+  for (const change of [{ model: "T8170" }, { deviceType: 48 }, { channel: 0 }, { channel: 2 }, { adminUserId: null }]) {
+    assert.equal(supportsSoloCamStoredRecordings({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsSoloCamStoredRecordings(device, { ...route, peer: { ...peer, model: "T8010" } }, true), false);
+  assert.equal(supportsSoloCamStoredRecordings(device, { ...route, peer: { ...peer, serial: device.serial } }, true), false);
+  assert.equal(supportsSoloCamStoredRecordings({ ...device, channel: 0 }, { homeBaseAttached: false, peer: { ...peer, serial: device.serial } }, true), true);
+});
+
+
+test("SoloCam HomeBase preset eligibility does not grant tracking or neighbouring topology support", () => {
+  const device = { serial: "camera", model: "T8171", deviceType: 88, channel: 1,
+    adminUserId: "fixture-admin", reads: { aiTrackingEnabled: true } };
+  const route = { homeBaseAttached: true, peer: parseMegaInventory({ devices: [
+    { device_sn: "station", device_model: "T8030", device_type: 18 },
+  ] })[0]! };
+  assert.equal(supportsSoloCamPresetControl(device, route, true), true);
+  assert.equal(supportsStandaloneAiTracking(device, route, true), false);
+  assert.equal(supportsSoloCamPresetControl(device, route, false), false);
+  assert.equal(supportsSoloCamPresetControl(device, null, true), false);
+  for (const change of [{ model: "T8172" }, { deviceType: 10031 }, { channel: 0 }, { channel: 2 }, { adminUserId: null }]) {
+    assert.equal(supportsSoloCamPresetControl({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsSoloCamPresetControl(device, { ...route, peer: { ...route.peer, model: "T8010" } }, true), false);
+  assert.equal(supportsSoloCamPresetControl(device, { ...route, peer: { ...route.peer, serial: "camera" } }, true), false);
 });

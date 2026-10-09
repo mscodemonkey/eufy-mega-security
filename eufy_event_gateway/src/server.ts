@@ -18,6 +18,8 @@ import { createLogger } from "./logging.js";
 import { SimulatedProvider } from "./provider/simulated-provider.js";
 import type { CameraProvider, CaptchaProvider } from "./provider/provider.js";
 import { SnapshotStore } from "./storage/snapshot-store.js";
+import { RecordingCache, recordingByteRange } from "./storage/recording-cache.js";
+import { validateRecordingDate } from "./stream/stored-recordings.js";
 import { validateCloudHistoryQuery } from "./mega/cloud-history.js";
 import { waitingImage } from "./mega/waiting-image.js";
 import { LiveStreamManager } from "./stream/live-stream-manager.js";
@@ -36,6 +38,8 @@ const STREAM_TOKEN_MAX_FUTURE_SECONDS = STREAM_TOKEN_LIFETIME_SECONDS + 60;
  */
 export class GatewayServer {
   #server: Server | null = null;
+  readonly #recordings = new RecordingCache();
+  readonly #recordingJobs = new Map<string, { promise: Promise<Buffer | null>; controller: AbortController; users: Set<ServerResponse> }>();
 
   /** Assemble the server from shared state, storage, stream, and provider objects. */
   constructor(
@@ -60,6 +64,8 @@ export class GatewayServer {
 
   /** Stop accepting requests and wait for the HTTP server to close. */
   async close(): Promise<void> {
+    for (const job of this.#recordingJobs.values()) job.controller.abort();
+    this.#recordings.clear();
     if (!this.#server) return;
     await new Promise<void>((resolve, reject) => this.#server?.close((error) => error ? reject(error) : resolve()));
     this.#server = null;
@@ -80,7 +86,7 @@ export class GatewayServer {
         const streamAuthorized =
           request.method === "GET" &&
           segments[1] === "cameras" &&
-          segments[3] === "live.h264" &&
+          (segments[3] === "live.h264" || segments[3] === "live.ts") &&
           segments.length === 4 &&
           validateStreamToken(segments[2]!, url.searchParams.get("access_token"), this.config.apiToken);
         if (!streamAuthorized && !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) {
@@ -141,6 +147,9 @@ export class GatewayServer {
       if (request.method === "GET" && url.pathname === "/api/device-capabilities") {
         return json(response, 200, { devices: this.state.listDeviceCapabilities() });
       }
+      if (segments[0] === "api" && segments[1] === "cameras" && segments[3] === "recordings") {
+        return await this.#storedRecordings(request, response, segments, url);
+      }
       if (request.method === "GET" && segments[0] === "api" && segments[1] === "cameras" &&
         segments[3] === "cloud-history" && segments.length === 4) {
         if (!this.provider.cloudHistory) return json(response, 501, { error: "Cloud history is unavailable" });
@@ -171,6 +180,18 @@ export class GatewayServer {
         segments[0] === "api" && segments[1] === "cameras" && segments[3] === "motion-detection" && segments.length === 4
       ) {
         return await this.#cameraMotionDetection(request, segments[2]!, response);
+      }
+      if (
+        request.method === "POST" &&
+        segments[0] === "api" && segments[1] === "cameras" && segments[3] === "audio-recording" && segments.length === 4
+      ) {
+        return await this.#cameraAudioRecording(request, segments[2]!, response);
+      }
+      if (
+        request.method === "POST" &&
+        segments[0] === "api" && segments[1] === "cameras" && segments[3] === "streaming-quality" && segments.length === 4
+      ) {
+        return await this.#cameraStreamingQuality(request, segments[2]!, response);
       }
       if (
         request.method === "POST" &&
@@ -264,9 +285,10 @@ export class GatewayServer {
       }
       if (
         request.method === "GET" &&
-        segments[0] === "api" && segments[1] === "cameras" && segments[3] === "live.h264" && segments.length === 4
+        segments[0] === "api" && segments[1] === "cameras"
+        && (segments[3] === "live.h264" || segments[3] === "live.ts") && segments.length === 4
       ) {
-        return await this.#live(segments[2]!, response);
+        return await this.#live(segments[2]!, response, segments[3] === "live.ts");
       }
       if (request.method === "GET" && url.pathname === "/api/events") return this.#events(request, response);
       if (request.method === "POST" && url.pathname === "/api/simulate/detection" && this.simulatedProvider) {
@@ -337,6 +359,78 @@ export class GatewayServer {
     return json(response, 200, this.state.getCamera(serial));
   }
 
+  async #storedRecordings(request: IncomingMessage, response: ServerResponse, segments: string[], url: URL): Promise<void> {
+    const serial = segments[2]!;
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    if (this.state.getCamera(serial).storedRecordingsSupported !== true ||
+      !this.provider.listStoredRecordings || !this.provider.downloadStoredRecording) {
+      return json(response, 501, { error: "Stored recordings are not supported on this camera connection" });
+    }
+    if (request.method === "GET" && segments.length === 4) {
+      const date = url.searchParams.get("date") ?? "";
+      validateRecordingDate(date);
+      const controller = new AbortController();
+      const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+      response.once("close", abort);
+      try {
+        const records = await this.provider.listStoredRecordings(serial, date, controller.signal);
+        if (!response.destroyed) return json(response, 200, { records });
+      } finally { response.off("close", abort); }
+      return;
+    }
+    const id = segments[4] ?? "";
+    if (!/^[a-f0-9]{64}$/.test(id)) return json(response, 404, { error: "Recording not found" });
+    const key = `${serial}\0${id}`;
+    if (request.method === "POST" && segments.length === 6 && segments[5] === "prepare") {
+      const cached = this.#recordings.get(key);
+      if (cached) { this.#recordings.put(key, cached); return json(response, 200, { ready: true }); }
+      let job = this.#recordingJobs.get(key);
+      if (!job) {
+        if (this.#recordingJobs.size >= 2) return json(response, 409, { error: "Recording retrieval is busy. Please try again shortly" });
+        const controller = new AbortController();
+        const promise = this.provider.downloadStoredRecording(serial, id, controller.signal);
+        job = { promise, controller, users: new Set() };
+        this.#recordingJobs.set(key, job);
+        void promise.finally(() => this.#recordingJobs.delete(key)).catch(() => undefined);
+      }
+      const ownedJob = job;
+      ownedJob.users.add(response);
+      const detach = (): void => {
+        ownedJob.users.delete(response);
+        if (!ownedJob.users.size && !response.writableEnded) ownedJob.controller.abort();
+      };
+      response.once("close", detach);
+      try {
+        const media = await ownedJob.promise;
+        if (response.destroyed) return;
+        if (!media) return json(response, 404, { error: "Recording reference expired. Refresh the recording list" });
+        this.#recordings.put(key, media);
+        return json(response, 200, { ready: true });
+      } finally { response.off("close", detach); ownedJob.users.delete(response); }
+    }
+    if (["GET", "HEAD"].includes(request.method ?? "") && segments.length === 6 && segments[5] === "video") {
+      const media = this.#recordings.get(key);
+      if (!media) return json(response, 404, { error: "Prepared recording expired. Open the clip again" });
+      response.setHeader("Content-Type", "video/mp4");
+      response.setHeader("Cache-Control", "no-store");
+      response.setHeader("Accept-Ranges", "bytes");
+      const range = request.headers.range;
+      if (range) {
+        const bytes = recordingByteRange(range, media.length);
+        if (!bytes) { response.statusCode = 416; response.setHeader("Content-Range", `bytes */${media.length}`); response.end(); return; }
+        response.statusCode = 206;
+        response.setHeader("Content-Range", `bytes ${bytes.start}-${bytes.end}/${media.length}`);
+        response.setHeader("Content-Length", bytes.end - bytes.start + 1);
+        response.end(request.method === "HEAD" ? undefined : media.subarray(bytes.start, bytes.end + 1));
+      } else {
+        response.setHeader("Content-Length", media.length);
+        response.end(request.method === "HEAD" ? undefined : media);
+      }
+      return;
+    }
+    return json(response, 404, { error: "Not found" });
+  }
+
   async #cameraEnabled(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     const body = await readJson(request);
@@ -348,6 +442,25 @@ export class GatewayServer {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     const body = await readJson(request);
     const identity = await this.provider.setCameraMotionDetection(serial, requiredBoolean(body.enabled));
+    return json(response, 200, this.state.registerCamera(identity));
+  }
+
+  async #cameraAudioRecording(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    const body = await readJson(request);
+    const enabled = requiredBoolean(body.enabled);
+    if (!this.provider.setCameraAudioRecording) return json(response, 409, { error: "Audio recording control unavailable" });
+    const identity = await this.provider.setCameraAudioRecording(serial, enabled);
+    return json(response, 200, this.state.registerCamera(identity));
+  }
+
+  async #cameraStreamingQuality(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    const body = await readJson(request);
+    const quality = requiredInteger(body.quality);
+    if (quality < 0 || quality > 3) throw new SyntaxError("Unsupported streaming quality");
+    if (!this.provider.setCameraStreamingQuality) return json(response, 409, { error: "Streaming quality control unavailable" });
+    const identity = await this.provider.setCameraStreamingQuality(serial, quality);
     return json(response, 200, this.state.registerCamera(identity));
   }
 
@@ -479,13 +592,17 @@ export class GatewayServer {
     response.end(image);
   }
 
-  async #live(serial: string, response: ServerResponse): Promise<void> {
+  async #live(serial: string, response: ServerResponse, transport = false): Promise<void> {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     if (!this.state.getCamera(serial).streamSupported) {
       return json(response, 409, { error: "This camera was discovered through push events only; livestream control is unavailable" });
     }
+    if (transport && !this.state.getCamera(serial).liveAudioSupported) {
+      return json(response, 409, { error: "Live audio transport is unavailable for this camera" });
+    }
     logger.info("camera_media_request", `model=${safeCameraModel(this.state.getCamera(serial).model)} operation=live_view`);
-    await this.streams.addClient(serial, response);
+    if (transport) await this.streams.addTransportClient(serial, response);
+    else await this.streams.addClient(serial, response);
   }
 
   #streamToken(serial: string, response: ServerResponse): void {
@@ -497,7 +614,8 @@ export class GatewayServer {
     const token = this.config.apiToken
       ? createStreamToken(serial, expiresAt, this.config.apiToken)
       : null;
-    const path = `/api/cameras/${encodeURIComponent(serial)}/live.h264${token ? `?access_token=${encodeURIComponent(token)}` : ""}`;
+    const media = this.state.getCamera(serial).liveAudioSupported ? "live.ts" : "live.h264";
+    const path = `/api/cameras/${encodeURIComponent(serial)}/${media}${token ? `?access_token=${encodeURIComponent(token)}` : ""}`;
     return json(response, 200, { path, expiresAt });
   }
 

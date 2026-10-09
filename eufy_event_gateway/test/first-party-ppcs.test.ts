@@ -17,10 +17,16 @@ import {
   buildLegacyAttachedMediaStopPayload,
   buildNightVisionBody,
   acceptsAttachedCameraMedia,
+  acceptsSoloCamAudio,
   buildPpcsCloudLookup,
   buildStandaloneJsonControlPayload,
   buildStandaloneCameraLightBody,
   buildStandaloneLevel2LiveStartPayload,
+  buildSoloCamMotionDetectionPayload,
+  buildSoloCamAudioRecordingPayload,
+  buildSoloCamStreamingQualityPayload,
+  buildSoloCamPanControlData,
+  buildSoloCamPanControlPayload,
   buildStandaloneGuardModeValue,
   buildStandaloneLiveStartPayload,
   buildTimedCameraLightControlValue,
@@ -30,6 +36,7 @@ import {
   needsAttachedMediaReassert,
   needsStandaloneMediaReassert,
   parseCameraPresetPositions,
+  parsePpcsControlRecord,
   PpcsVideoFrameDecoder,
   PpcsVideoStreamNormalizer,
   ppcsCommandMagicOffset,
@@ -113,6 +120,35 @@ test("builds the app-confirmed T817L pan and tracking payloads", () => {
   assert.throws(() => buildAiTrackingControlData(true, -1), /non-negative whole number/);
 });
 
+test("keeps native SoloCam pan controls distinct from the attached T817L payloads", () => {
+  const transaction = 1_791_490_000_000;
+  assert.deepEqual(buildSoloCamPanControlData(6034, undefined, transaction), { transaction: `${transaction}` });
+  assert.deepEqual(JSON.parse(buildCameraControlQueryValue(6035, buildSoloCamPanControlData(6035, 1, transaction))), {
+    commandType: 6035, data: { value: 1, transaction: `${transaction}` },
+  });
+  for (const value of [0, 1]) {
+    assert.deepEqual(buildSoloCamPanControlData(6016, value, transaction), { value, transaction: `${transaction}` });
+  }
+  assert.throws(() => buildSoloCamPanControlData(6034, 0, transaction), /does not accept/);
+  for (const value of [-1, 10, 1.5, undefined]) assert.throws(() => buildSoloCamPanControlData(6035, value, transaction), /Invalid/);
+  assert.throws(() => buildSoloCamPanControlData(6016, 2, transaction), /Invalid/);
+  assert.throws(() => buildSoloCamPanControlData(6016, 1, 1791490000), /epoch milliseconds/);
+});
+
+test("authenticates native SoloCam preset movement on the control rather than media envelope", () => {
+  const key = Buffer.alloc(32, 7);
+  const payload = buildSoloCamPanControlPayload(6035, 1, key, 257, 1791490000000);
+  assert.deepEqual(payload.subarray(4, 10), Buffer.from([8, 0, 0, 8, 0, 0]));
+  const encrypted = payload.subarray(10);
+  const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(16, 28));
+  decipher.setAAD(Buffer.from("eufy security"));
+  decipher.setAuthTag(encrypted.subarray(0, 16));
+  const clear = Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
+  assert.deepEqual(JSON.parse(clear.toString("utf8")), {
+    commandType: 6035, data: { value: 1, transaction: "1791490000000" },
+  });
+});
+
 test("builds the direct standalone-camera guard-mode value", () => {
   assert.deepEqual(
     JSON.parse(buildStandaloneGuardModeValue("account-owner", "Home Assistant", 63)),
@@ -154,7 +190,8 @@ test("builds the verified night-vision SET_PAYLOAD body", () => {
     mValue3: 0,
     payload: { channel: 3, night_sion: 2 },
   });
-  assert.throws(() => buildNightVisionBody(3, 3, "account-owner"), /must be 0, 1, or 2/);
+  assert.equal(JSON.parse(buildNightVisionBody(0, 3, "account-owner").toString("utf8")).payload.night_sion, 3);
+  assert.throws(() => buildNightVisionBody(3, 4, "account-owner"), /integer from 0 through 3/);
 });
 
 test("reissues a standalone start during startup or after a media stall", () => {
@@ -216,6 +253,62 @@ test("labels a negotiated standalone live start as level-two frame type 10", () 
   decipher.setAuthTag(encrypted.subarray(0, 16));
   const clear = Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
   assert.equal(clear.toString("utf8"), value);
+});
+
+test("keeps the native SoloCam motion envelope separate from a live-start request", () => {
+  const key = Buffer.alloc(32, 7);
+  for (const enabled of [false, true]) {
+    const payload = buildSoloCamMotionDetectionPayload(enabled, key, 257, 1791464400000);
+    assert.deepEqual(payload.subarray(4, 10), Buffer.from([8, 0, 0, 8, 0, 0]));
+    const encrypted = payload.subarray(10);
+    const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(16, 28));
+    decipher.setAAD(Buffer.from("eufy security"));
+    decipher.setAuthTag(encrypted.subarray(0, 16));
+    const clear = Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
+    assert.deepEqual(JSON.parse(clear.toString("utf8")), {
+      commandType: 6040, data: { status: enabled ? 1 : 0, transaction: "1791464400000" },
+    });
+  }
+  assert.throws(() => buildSoloCamMotionDetectionPayload(true, key, 1, 1791464400), /epoch milliseconds/);
+});
+
+test("keeps the native SoloCam recorded-audio envelope separate from a live-start request", () => {
+  const key = Buffer.alloc(32, 7);
+  for (const enabled of [false, true]) {
+    const payload = buildSoloCamAudioRecordingPayload(enabled, key, 257, 1791464400000);
+    assert.deepEqual(payload.subarray(4, 10), Buffer.from([8, 0, 0, 8, 0, 0]));
+    const encrypted = payload.subarray(10);
+    const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(16, 28));
+    decipher.setAAD(Buffer.from("eufy security"));
+    decipher.setAuthTag(encrypted.subarray(0, 16));
+    const clear = Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
+    assert.deepEqual(JSON.parse(clear.toString("utf8")), {
+      commandType: 6012, data: { enable: enabled ? 1 : 0, transaction: "1791464400000" },
+    });
+  }
+  assert.throws(() => buildSoloCamAudioRecordingPayload(true, key, 1, 1791464400), /epoch milliseconds/);
+});
+
+test("matches every native SoloCam quality wrapper without changing recorded-video quality", () => {
+  const key = Buffer.alloc(32, 9);
+  for (const quality of [0, 1, 2, 3]) {
+    const payload = buildSoloCamStreamingQualityPayload(quality, "fixture-admin", key, 257, 1791464400000);
+    assert.deepEqual(payload.subarray(4, 10), Buffer.from([8, 0, 0, 8, 0, 0]));
+    const encrypted = payload.subarray(10);
+    const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(16, 28));
+    decipher.setAAD(Buffer.from("eufy security"));
+    decipher.setAuthTag(encrypted.subarray(0, 16));
+    const clear = Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
+    assert.deepEqual(JSON.parse(clear.toString("utf8")), {
+      account_id: "fixture-admin", cmd: 2730, mChannel: 0, mValue3: 0,
+      payload: { quality, mode: 0, primary_view: 0, channel: 0, transaction: "1791464400000" },
+    });
+  }
+  for (const invalid of [-1, 4, 1.5, Number.NaN]) {
+    assert.throws(() => buildSoloCamStreamingQualityPayload(invalid, "fixture-admin", key, 1, 1791464400000), /Unsupported/);
+  }
+  assert.throws(() => buildSoloCamStreamingQualityPayload(1, "", key, 1, 1791464400000), /administrator/);
+  assert.throws(() => buildSoloCamStreamingQualityPayload(1, "fixture-admin", key, 1, 1791464400), /epoch milliseconds/);
 });
 
 test("builds the wall-light control as a level-one command 1700 value", () => {
@@ -648,4 +741,50 @@ test("retains a split length prefix until the next PPCS video frame", () => {
     normalizer.push(Buffer.from([0, 3, 0x65, 0x88, 0x84])),
     Buffer.from([0, 0, 0, 1, 0x65, 0x88, 0x84]),
   );
+});
+
+test("H264 setup remains H264 when a delta slice resembles a HEVC VPS", () => {
+  const normalizer = new PpcsVideoStreamNormalizer();
+  normalizer.push(Buffer.from([0, 0, 0, 1, 0x67, 0x64, 0, 0, 1, 0x68, 0xee]), "h264");
+  assert.equal(normalizer.codec, "h264");
+  normalizer.push(Buffer.from([0, 0, 0, 1, 0x41, 0x9a]));
+  assert.equal(normalizer.codec, "h264");
+  assert.deepEqual(normalizer.nalTypes, [7, 8, 1]);
+  const partial = new PpcsVideoStreamNormalizer();
+  partial.push(Buffer.from([0, 0, 0, 1, 0x41, 0x9a]), "h264");
+  assert.equal(partial.codec, "h264");
+});
+
+test("genuine HEVC setup stays HEVC after EOS resembles a lone H264 PPS", () => {
+  const normalizer = new PpcsVideoStreamNormalizer();
+  normalizer.push(Buffer.from([0, 0, 0, 1, 0x40, 0x01, 0, 0, 1, 0x42, 0x01, 0, 0, 1, 0x44, 0x01]), "h264");
+  normalizer.push(Buffer.from([0, 0, 1, 0x48, 0x01]));
+  assert.equal(normalizer.codec, "h265");
+  assert.deepEqual(normalizer.nalTypes, [32, 33, 34, 36]);
+});
+
+test("SoloCam audio isolates attached children and excludes controls and unrelated models", () => {
+  assert.equal(acceptsSoloCamAudio("T8171", true, 1, 1, "live"), true);
+  assert.equal(acceptsSoloCamAudio("T8171", true, 1, 2, "live"), false);
+  assert.equal(acceptsSoloCamAudio("T8171", true, 1, 1, "control"), false);
+  assert.equal(acceptsSoloCamAudio("T8171", false, 0, 0, undefined), true);
+  assert.equal(acceptsSoloCamAudio("T8171", false, 1, 1, "live"), false);
+  assert.equal(acceptsSoloCamAudio("T817L", true, 1, 1, "live"), false);
+  assert.equal(acceptsSoloCamAudio("T8171", true, -1, -1, "live"), false);
+});
+
+
+test("control replies accept native PKCS7 padding and reject partial or trailing data", () => {
+  const body = Buffer.from(JSON.stringify({ cmd: 6034, payload: { points: [{ index: 1, enable: 1 }] } }));
+  const expected = JSON.parse(body.toString());
+  assert.deepEqual(parsePpcsControlRecord(body), expected);
+  assert.deepEqual(parsePpcsControlRecord(Buffer.concat([body, Buffer.alloc(8)])), expected);
+  for (let padding = 1; padding <= 16; padding++) {
+    assert.deepEqual(parsePpcsControlRecord(Buffer.concat([body, Buffer.alloc(padding, padding)])), expected);
+  }
+  for (const suffix of [Buffer.from([2]), Buffer.from([1, 2]), Buffer.alloc(17, 17), Buffer.from("garbage")]) {
+    assert.equal(parsePpcsControlRecord(Buffer.concat([body, suffix])), undefined);
+  }
+  assert.equal(parsePpcsControlRecord(Buffer.from("[]")), undefined);
+  assert.equal(parsePpcsControlRecord(body.subarray(0, -1)), undefined);
 });

@@ -118,9 +118,11 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         self._attr_unique_id = f"{serial}_camera"
         self._published_snapshot_revision = self._snapshot_revision
 
-        # The gateway serves live Annex-B video without container timestamps.
-        # Home Assistant needs arrival times so its stream worker can build HLS.
-        self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = True
+        # Raw Annex-B needs arrival timestamps. MPEG-TS already supplies a
+        # shared video/audio clock, which must survive Home Assistant's remux.
+        self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = (
+            self.camera.get("liveAudioSupported") is not True
+        )
 
     async def async_added_to_hass(self) -> None:
         """Start updates and refresh credentials on Home Assistant's cached stream."""

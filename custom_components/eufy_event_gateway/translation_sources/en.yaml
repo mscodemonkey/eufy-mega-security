@@ -85,12 +85,20 @@ entity:
       state:
         alarm_sound_1: Alarm sound 1
         alarm_sound_2: Alarm sound 2
+    camera_streaming_quality:
+      name: Streaming quality
+      state:
+        auto: Auto
+        hd: HD (720p)
+        full_hd: Full HD (1080p)
+        2k: 2K
     camera_night_vision:
       name: Night vision
       state:
         off: Off
         colour: Colour
         infrared: Infrared
+        infrared_on: Infrared on
         spotlight: Spotlight
   sensor:
     last_recognized_person:
@@ -154,6 +162,8 @@ entity:
       name: Camera enabled
     camera_motion_detection:
       name: Motion detection
+    camera_audio_recording:
+      name: Audio recording
     auto_night_vision:
       name: Auto night vision
   siren:
