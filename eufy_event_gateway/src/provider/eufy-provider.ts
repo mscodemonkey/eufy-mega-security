@@ -335,13 +335,14 @@ export function supportsSoloCamStoredRecordings(
       route?.homeBaseAttached === true && route.peer.model === "T8030" && route.peer.serial !== device.serial);
 }
 
-/** Admit SoloCam tracking only on its physically tested direct route with a known preference. */
+/** Admit tracking only on the exact tested standalone camera routes with a known preference. */
 export function supportsStandaloneAiTracking(
   device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId" | "reads">,
   route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
   routeReady: boolean,
 ): boolean {
-  return supportsStandalonePanControl(device, route, routeReady)
+  return (supportsStandalonePanControl(device, route, routeReady)
+    || supportsStandaloneC31Presets(device, route, routeReady))
     && typeof device.reads.aiTrackingEnabled === "boolean";
 }
 
@@ -1823,12 +1824,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     });
   }
 
-  /** Write verified tracking, requiring fresh cloud confirmation for standalone SoloCam preferences. */
+  /** Write verified tracking and require fresh cloud confirmation on admitted standalone routes. */
   setCameraAiTracking(serial: string, enabled: boolean): Promise<void> {
     return this.#queuePanControl(serial, "ai_tracking", async (session) => {
-      await session.writeAiTracking(enabled);
       const device = this.#devices.get(serial);
-      if (device?.model !== "T8171" || device.deviceType !== 88) return;
+      const confirmPreference = device
+        && supportsStandaloneAiTracking(device, ppcsStreamRoute(device, this.#devices), true);
+      await session.writeAiTracking(enabled);
+      if (!confirmPreference) return;
 
       // Pre-write device-info overrides must not satisfy a fresh cloud confirmation.
       const cached = this.#liveDeviceReads.get(serial);
@@ -1869,23 +1872,26 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (action === "auto_cruise" && !device.model.toUpperCase().startsWith("T817L")) {
         throw new Error("Automatic cruise has not been verified for this camera");
       }
-      if (action === "ai_tracking" && device.model === "T8171"
+      if (action === "ai_tracking" && (device.model === "T8171"
+        || ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === false)
         && !supportsStandaloneAiTracking(device, ppcsStreamRoute(device, this.#devices),
           isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys())))) {
-        throw new Error("SoloCam AI tracking requires a known preference and ready direct route");
+        throw new Error("Camera AI tracking requires a known preference and ready direct route");
       }
       const active = this.#ppcsStreams.get(serial);
       const route = ppcsStreamRoute(device, this.#devices);
       if (route?.homeBaseAttached === false && device.model === "T817L"
-        && action !== "preset_query" && action !== "preset_position" && action !== "auto_cruise") {
+        && action !== "preset_query" && action !== "preset_position" && action !== "auto_cruise" && action !== "ai_tracking") {
         throw new Error("This standalone camera action has not been verified");
       }
-      if (active && (supportsSoloCamPresetControl(device, route, true)
+      if (active && !(device.model === "T817L" && action === "ai_tracking")
+        && (supportsSoloCamPresetControl(device, route, true)
         || supportsStandaloneC31Presets(device, route, true))
         && active.stats.closeReason === "open" && active.stats.camId > 0
         && active.stats.videoOutputFrames > 0) {
 
-        // Native pan controls share the decoded viewer connection and its owner.
+        // Admitted pan controls share the decoded viewer connection and its owner.
+        // C31 tracking retains its separately verified owned control session.
         await operation(active);
         return;
       }
@@ -2433,7 +2439,8 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const recordMute = finiteNumber(params.get(1288));
   const soloE30 = deviceType === 88 && model === "T8171";
   const soloAudioRecording = soloE30 ? finiteNumber(params.get(6012)) : null;
-  const soloAiTracking = soloE30 ? finiteNumber(params.get(6016)) : null;
+  const soloAiTracking = soloE30 || (deviceType === 10_031 && model === "T817L")
+    ? finiteNumber(params.get(6016)) : null;
   const speakerVolume = percentage(1230);
 
   // These reads have model-specific evidence. Shared parameter IDs alone do not

@@ -79,6 +79,11 @@ capabilities:
         command: 1400
     ai_tracking:
       connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact T817L type 10031 firmware 2.1.0.3. Integration off stopped physical following and the actual Home Assistant on action restored it. Fresh cloud parameter 6016 confirmed both writes. Actions retain a separate owned control session and preserve the existing presets and cruise policy.
         T8030:
           status: tested
           tested_on: 2026-09-28

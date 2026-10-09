@@ -94,12 +94,18 @@ test("secondary firmware and update flags stay camera-owned and preserve unknown
   }
 });
 
-test("tracking reads require the exact SoloCam model and a canonical enable bit", () => {
+test("tracking reads require exact tested model types and an enable bit", () => {
   const params = [{ param_type: 6016, param_value: "1" }];
   assert.equal(safeInventoryReads(params, 88, "T8171").aiTrackingEnabled, true);
   assert.equal(safeInventoryReads([{ param_type: 6016, param_value: "0" }], 88, "T8171").aiTrackingEnabled, false);
   assert.equal(safeInventoryReads(params, 88, "T817L").aiTrackingEnabled, undefined);
   assert.equal(safeInventoryReads(params, 87, "T8171").aiTrackingEnabled, undefined);
+  assert.equal(safeInventoryReads(params, 10_031, "T817L").aiTrackingEnabled, true);
+  assert.equal(safeInventoryReads([{ param_type: 6016, param_value: "0" }], 10_031, "T817L").aiTrackingEnabled, false);
+  assert.equal(safeInventoryReads(params, 10_031, "T817L121").aiTrackingEnabled, undefined);
+  assert.equal(safeInventoryReads(params, 10_032, "T817L").aiTrackingEnabled, undefined);
+  assert.equal(safeInventoryReads([{ param_type: 6016, param_value: "2" }], 10_031, "T817L").aiTrackingEnabled, undefined);
+  assert.equal(safeInventoryReads([], 10_031, "T817L").aiTrackingEnabled, undefined);
   assert.equal(safeInventoryReads([{ param_type: 6016, param_value: "2" }], 88, "T8171").aiTrackingEnabled, undefined);
 });
 
@@ -1652,5 +1658,23 @@ test("C31 standalone presets require the exact type, owned channel and ready rou
   assert.equal(supportsStandaloneC31Presets(device, { ...route, homeBaseAttached: true }, true), false);
   assert.equal(supportsStandaloneC31Presets(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
   assert.equal(supportsSoloCamStoredRecordings(device, route, true), false);
-  assert.equal(supportsStandaloneAiTracking({ ...device, reads: { aiTrackingEnabled: true } }, route, true), false);
+  assert.equal(supportsStandaloneAiTracking({ ...device, reads: { aiTrackingEnabled: true } }, route, true), true);
+});
+
+
+test("standalone C31 tracking requires known state and its exact owned ready route", () => {
+  const device = { serial: "camera", model: "T817L", deviceType: 10_031, channel: 0,
+    adminUserId: "fixture-admin", reads: { aiTrackingEnabled: true } };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [
+    { device_sn: "camera", device_model: "T817L", device_type: 10_031 },
+  ] })[0]! };
+  assert.equal(supportsStandaloneAiTracking(device, route, true), true);
+  assert.equal(supportsStandaloneAiTracking({ ...device, reads: { aiTrackingEnabled: false } }, route, true), true);
+  assert.equal(supportsStandaloneAiTracking(device, route, false), false);
+  assert.equal(supportsStandaloneAiTracking(device, null, true), false);
+  for (const change of [{ model: "T817L121" }, { deviceType: 88 }, { channel: 1 }, { adminUserId: null }, { reads: {} }]) {
+    assert.equal(supportsStandaloneAiTracking({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsStandaloneAiTracking(device, { ...route, homeBaseAttached: true }, true), false);
+  assert.equal(supportsStandaloneAiTracking(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
 });
