@@ -1574,3 +1574,18 @@ test("SoloCam pan eligibility admits only the tested model, type and owned stand
   assert.equal(supportsStandalonePanControl(device, { ...route, homeBaseAttached: true }, true), false);
   assert.equal(supportsStandalonePanControl(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
 });
+
+test("complete inventory rows replace renamed cameras and station/channel bindings", () => {
+  const initial = parseMegaInventory({ devices: [{ device_sn: "camera", device_model: "T8171", device_type: 88,
+    category: "eufy_security", parent_sn: "camera", device_channel: 0, device_name: "Before",
+    p2p_did: "direct-peer", p2p_conn: "direct-route", member: { admin_user_id: "old-owner" } }] })[0]!;
+  const attached = parseMegaInventory({ devices: [{ device_sn: "camera", device_model: "T8171", device_type: 88,
+    category: "eufy_security", parent_sn: "station", device_channel: 2, device_name: "After",
+    member: { admin_user_id: "new-owner" } }] })[0]!;
+  const merged = mergeInventoryMetadata(initial, attached);
+  assert.equal(merged.parentSerial, "station"); assert.equal(merged.channel, 2);
+  assert.equal(merged.name, "After"); assert.equal(merged.adminUserId, "new-owner");
+  assert.equal(merged.p2pDid, null); assert.equal(merged.p2pConnection, null);
+  assert.deepEqual(mergeInventoryMetadata(merged, initial), initial);
+  assert.throws(() => mergeInventoryMetadata(initial, { ...attached, serial: "other" }), /ownership/);
+});

@@ -515,6 +515,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         try {
           await session.start();
           result = await operation(session);
+          const currentDevice = this.#devices.get(serial);
+          if (!currentDevice || inventoryBindingChanged(device, currentDevice)) {
+            throw new Error("Camera connection changed during recording retrieval");
+          }
         } finally {
           signal?.removeEventListener("abort", abort);
           session.close();
@@ -1400,10 +1404,24 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const previous = new Map(this.#devices);
     for (const device of refreshed) {
       const known = this.#devices.get(device.serial);
+      const refreshedDevice = known ? mergeInventoryMetadata(known, device) : device;
+      if (known && inventoryBindingChanged(known, refreshedDevice)) {
+        const stream = this.#ppcsStreams.get(device.serial);
+        if (stream) {
+          stream.close("replaced");
+          this.#finalizeStream(device.serial, stream, known, ppcsStreamRoute(known, previous));
+        }
+        this.#recordingSessions.get(device.serial)?.close();
+        for (const [id, reference] of this.#recordingReferences) {
+          if (reference.serial === device.serial) this.#recordingReferences.delete(id);
+        }
+        this.#liveDeviceReads.delete(device.serial);
+        this.#liveDeviceParamTypes.delete(device.serial);
+      }
       const liveReads = this.#liveDeviceReads.get(device.serial);
       const liveParamTypes = this.#liveDeviceParamTypes.get(device.serial) ?? [];
       this.#devices.set(device.serial, {
-        ...(known ? mergeInventoryMetadata(known, device) : device),
+        ...refreshedDevice,
         paramTypes: [...new Set([...device.paramTypes, ...liveParamTypes])].sort((left, right) => left - right),
         reads: liveReads ? { ...device.reads, ...liveReads } : device.reads,
       });
@@ -2251,15 +2269,28 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
     : { ...device, adminUserId: adminUserIds.get(device.parentSerial) ?? null });
 }
 
-/** Refresh camera-owned version metadata without replacing an active transport's routing identity. */
+/**
+ * Refresh complete cloud device rows, including renamed cameras and new station bindings.
+ * Clearly partial metadata rows retain their prior routing identity. The provider
+ * retires sessions and route-local overlays before publishing a changed binding.
+ */
 export function mergeInventoryMetadata(existing: MegaInventoryDevice, fresh: MegaInventoryDevice): MegaInventoryDevice {
+  if (existing.serial !== fresh.serial) throw new Error("Inventory metadata ownership changed");
+  const complete = fresh.model !== "Unknown Eufy device" && fresh.deviceType !== null && fresh.category !== null;
   return {
-    ...existing,
+    ...(complete ? fresh : existing),
     firmware: fresh.firmware,
     hardwareVersion: fresh.hardwareVersion ?? null,
     firmwareSubVersion: fresh.firmwareSubVersion ?? null,
     firmwareUpdateAvailable: fresh.firmwareUpdateAvailable ?? null,
   };
+}
+
+/** Identify changes that invalidate an already owned camera session or local parameter overlay. */
+function inventoryBindingChanged(existing: MegaInventoryDevice, fresh: MegaInventoryDevice): boolean {
+  return existing.parentSerial !== fresh.parentSerial || existing.channel !== fresh.channel
+    || existing.model !== fresh.model || existing.deviceType !== fresh.deviceType
+    || existing.category !== fresh.category || existing.adminUserId !== fresh.adminUserId;
 }
 
 function safeLastChargingDays(value: unknown): number | undefined {

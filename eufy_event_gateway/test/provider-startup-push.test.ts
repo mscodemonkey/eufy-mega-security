@@ -811,3 +811,83 @@ test("SoloCam motion reads do not enable a route without ready session keys", as
     assert.equal(write.mock.callCount(), 0);
   } finally { await f.provider.close(); }
 });
+
+for (const childFirst of [false, true]) {
+  test(`existing camera moves to HomeBase and back without restarting, child first=${childFirst}`, async (context) => {
+    const f = discoveryFixture(context);
+    const direct = { device_sn: "camera", device_name: "Direct camera", device_model: "T8171", device_type: 88,
+      category: "eufy_security", parent_sn: "camera", device_channel: 0, p2p_did: "direct-peer", p2p_conn: "direct-route",
+      member: { admin_user_id: "fixture-account" }, params: [{ param_type: 1277, param_value: "1" }] };
+    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [direct] }));
+    context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ camera: { key: "direct-key", expiresAt: null }, peer: { key: "station-key", expiresAt: null } }));
+    const starts = context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => undefined);
+    const closes = context.mock.method(FirstPartyPpcsSession.prototype, "close");
+    context.mock.method(FirstPartyPpcsSession.prototype, "readCameraInfo", async () => [{ param_type: 1277, param_value: "3" }]);
+    f.events.streamStopped = (serial) => f.state.updateStream(serial, "idle", 0);
+    try {
+      await f.provider.start(f.events);
+      await f.provider.refreshCameraCapabilities("camera");
+      assert.equal(f.state.getCamera("camera").nightVisionMode, 3);
+      assert.equal(f.state.getCamera("camera").storedRecordingsSupported, true);
+      await f.provider.startStream("camera");
+      f.state.updateStream("camera", "streaming", 1);
+      const closeCount = closes.mock.callCount();
+      context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{ ...direct, device_name: "Renamed direct" }] }));
+      pollDiscovery(f); await settleDiscovery();
+      assert.equal(f.state.getCamera("camera").name, "Renamed direct");
+      assert.equal(f.state.getCamera("camera").stream.viewers, 1);
+      assert.equal(f.state.getCamera("camera").nightVisionMode, 3);
+      assert.equal(closes.mock.callCount(), closeCount);
+      const peer = { device_sn: "peer", device_model: "T8030", device_type: 18, category: "eufy_security",
+        p2p_did: "station-peer", p2p_conn: "station-route", member: { admin_user_id: "fixture-account" } };
+      const child = { ...direct, device_name: "Attached camera", parent_sn: "peer", device_channel: 2,
+        p2p_did: "", p2p_conn: "", params: [{ param_type: 1277, param_value: "0" }] };
+      context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: childFirst ? [child, peer] : [peer, child] }));
+      pollDiscovery(f); await settleDiscovery();
+      const attached = f.state.getCamera("camera");
+      assert.equal(attached.name, "Attached camera"); assert.equal(attached.stationSerial, "peer");
+      assert.equal(attached.streamSupported, true); assert.equal(attached.storedRecordingsSupported, false);
+      assert.equal(attached.audioRecordingControlSupported, false); assert.equal(attached.streamingQualityControlSupported, false);
+      assert.equal(attached.nightVisionMode, 0);
+      assert.equal(attached.stream.viewers, 0); assert.equal(attached.stream.state, "idle");
+      assert.equal(closes.mock.callCount(), closeCount + 1);
+      const startCount = starts.mock.callCount();
+      context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{ ...direct, device_name: "Renamed direct" }, peer] }));
+      pollDiscovery(f); await settleDiscovery();
+      const restored = f.state.getCamera("camera");
+      assert.equal(restored.name, "Renamed direct"); assert.equal(restored.stationSerial, "camera");
+      assert.equal(restored.streamSupported, true); assert.equal(restored.storedRecordingsSupported, true);
+      assert.equal(restored.nightVisionMode, 1);
+      assert.equal(starts.mock.callCount(), startCount);
+      assert.equal(f.push.mock.callCount(), 1); assert.equal(f.connections.filter(({ state }) => state === "connected").length, 1);
+    } finally { await f.provider.close(); }
+  });
+}
+
+test("binding changes retire owned recording sessions and reject late old-route results", async (context) => {
+  const f = discoveryFixture(context);
+  const direct = { device_sn: "camera", device_model: "T8171", device_type: 88, category: "eufy_security",
+    parent_sn: "camera", device_channel: 0, p2p_did: "direct-peer", p2p_conn: "direct-route",
+    member: { admin_user_id: "fixture-account" } };
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [direct] }));
+  context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ camera: { key: "direct-key", expiresAt: null }, peer: { key: "station-key", expiresAt: null } }));
+  context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => undefined);
+  const closes = context.mock.method(FirstPartyPpcsSession.prototype, "close");
+  let finish!: (records: readonly never[]) => void;
+  const pending = new Promise<readonly never[]>((resolve) => { finish = resolve; });
+  context.mock.method(FirstPartyPpcsSession.prototype, "listStoredRecordings", () => pending);
+  try {
+    await f.provider.start(f.events);
+    const listing = f.provider.listStoredRecordings("camera", "2026-10-09");
+    const rejected = assert.rejects(listing, /connection changed/);
+    await settleDiscovery();
+    const closeCount = closes.mock.callCount();
+    const peer = { device_sn: "peer", device_model: "T8030", device_type: 18, category: "eufy_security",
+      p2p_did: "station-peer", p2p_conn: "station-route", member: { admin_user_id: "fixture-account" } };
+    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{ ...direct, parent_sn: "peer", device_channel: 1 }, peer] }));
+    pollDiscovery(f); await settleDiscovery();
+    assert.equal(closes.mock.callCount(), closeCount + 1);
+    finish([]); await rejected;
+    assert.equal(f.state.getCamera("camera").storedRecordingsSupported, false);
+  } finally { finish([]); await f.provider.close(); }
+});
