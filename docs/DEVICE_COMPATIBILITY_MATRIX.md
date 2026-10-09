@@ -30,7 +30,7 @@ serials, credentials, snapshots, and videos stay outside the repository.
 | Device | Eufy model and type | Discovery | Controls | Camera route | Evidence |
 | --- | --- | --- | --- | --- | --- |
 | HomeBase 2 | T8010, type 0 | `confirmed` | `unsupported` | `implemented` | Read-only configured and effective mode checks are implemented for reporter testing. Writes remain disabled. |
-| HomeBase 3 S380 | T8030, type 18 | `confirmed` | `partial` | `confirmed` | Developer, v0.1.63. Community confirmation for guard mode, alarm panel, and alarm tone. |
+| HomeBase 3 S380 | T8030, type 18 | `confirmed` | `partial` | `confirmed` | Developer and community tests. eMMC and HDD capacity, free space and healthy status, guard mode, alarm panel, alarm tone, prompt volume 1 to 26, and siren start and stop are confirmed. Alarm-volume readback and readable siren state remain unconfirmed. |
 | HomeBase Professional S1 | T9000, type 27 | `confirmed` | `unsupported` | `partial` | Community reports. Inventory works, but child-camera PPCS lookup remains unresolved across installations that receive no candidates or candidates that never answer. |
 
 ## Cameras

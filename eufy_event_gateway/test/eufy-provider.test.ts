@@ -1372,6 +1372,15 @@ test("reports routed motion-sensor pushes as handled", () => {
   assert.match(summary, /model=T8910 .*handling=sensor_motion/);
 });
 
+test("reports routed contact-sensor pushes as handled", () => {
+  const summary = safePushLogSummary({
+    eventType: 3, messageType: null, notificationStyle: null,
+    pictureUrl: null, alarmType: null,
+  }, { model: "T8900", category: "eufy_security", deviceType: 2 }, true, true);
+
+  assert.match(summary, /model=T8900 .*handling=sensor_contact/);
+});
+
 test("rejects arbitrary inventory labels and invalid push codes from copyable logs", () => {
   const summary = safePushLogSummary({
     eventType: -1, messageType: 999_999, notificationStyle: null,

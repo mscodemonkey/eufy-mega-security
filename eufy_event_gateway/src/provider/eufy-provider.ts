@@ -1124,7 +1124,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   async setPromptVolume(serial: string, value: number): Promise<HomeBaseState> {
-    if (!Number.isInteger(value) || value < 0 || value > 26) throw new Error("HomeBase prompt volume must be from 0 to 26");
+    if (!Number.isInteger(value) || value < 1 || value > 26) throw new Error("HomeBase prompt volume must be from 1 to 26");
     return this.#writeStationValue(serial, "promptVolume", value, (session) => session.setPromptVolume(value));
   }
 
@@ -3058,6 +3058,11 @@ export function safePushLogSummary(
   let handling = "unhandled";
   if (stationManaged && event.eventType === 9) handling = "station_guard";
   else if (stationManaged && event.eventType === 10 && event.alarmType !== null) handling = "station_alarm";
+  else if (
+    device !== null
+    && (device.deviceType === 2 || device.deviceType === 126)
+    && event.eventType === 3
+  ) handling = "sensor_contact";
   else if (
     device !== null
     && (device.deviceType === 10 || device.deviceType === 127)
