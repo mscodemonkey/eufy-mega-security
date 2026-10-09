@@ -845,9 +845,9 @@ test("control queries authenticate both level-two notification signatures withou
 });
 
 
-test("C31 viewer ownership admits preset commands without admitting unrelated writes", () => {
-  for (const command of [6034, 6035]) assert.equal(supportsViewerPanControl("T817L", false, 0, command), true);
-  for (const command of [undefined, 6016, 6031, 6040, 1277]) assert.equal(supportsViewerPanControl("T817L", false, 0, command), false);
+test("C31 viewer ownership admits preset and cruise commands without admitting unrelated writes", () => {
+  for (const command of [6034, 6035, 6031]) assert.equal(supportsViewerPanControl("T817L", false, 0, command), true);
+  for (const command of [undefined, 6016, 1400, 6040, 1277]) assert.equal(supportsViewerPanControl("T817L", false, 0, command), false);
   assert.equal(supportsViewerPanControl("T817L", true, 0, 6035), false);
   assert.equal(supportsViewerPanControl("T817L", false, 1, 6035), false);
   assert.equal(supportsViewerPanControl("T817L121", false, 0, 6035), false);

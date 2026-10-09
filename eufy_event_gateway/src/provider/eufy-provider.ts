@@ -1706,7 +1706,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       ),
       aiTrackingEnabled: device.reads.aiTrackingEnabled ?? null,
-      autoCruiseControlSupported: t817lControlsSupported,
+      autoCruiseControlSupported: t817lControlsSupported
+        || supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
       battery: batteryState(device),
     };
   }
@@ -1876,7 +1877,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const active = this.#ppcsStreams.get(serial);
       const route = ppcsStreamRoute(device, this.#devices);
       if (route?.homeBaseAttached === false && device.model === "T817L"
-        && action !== "preset_query" && action !== "preset_position") {
+        && action !== "preset_query" && action !== "preset_position" && action !== "auto_cruise") {
         throw new Error("This standalone camera action has not been verified");
       }
       if (active && (supportsSoloCamPresetControl(device, route, true)

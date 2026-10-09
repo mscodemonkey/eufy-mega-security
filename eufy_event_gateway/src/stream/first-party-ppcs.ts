@@ -2673,11 +2673,12 @@ function booleanFlag(value: unknown): boolean {
 /**
  * Allow model-specific controls to share a provider-owned decoded viewer.
  * The provider separately validates device type, account ownership and decoded video.
- * C31 viewers admit only preset queries and movement, never tracking or other writes.
+ * C31 viewers admit saved-position queries, movement and schedule-backed cruise actions.
+ * Tracking and unrelated writes require separate validation.
  */
 export function supportsViewerPanControl(model: string | undefined, attached: boolean, channel: number, command?: number): boolean {
   return (model === "T8171" && channel === (attached ? 1 : 0))
-    || (model === "T817L" && !attached && channel === 0 && (command === 6034 || command === 6035));
+    || (model === "T817L" && !attached && channel === 0 && (command === 6034 || command === 6035 || command === 6031));
 }
 
 /**

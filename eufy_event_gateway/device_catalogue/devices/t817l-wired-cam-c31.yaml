@@ -93,6 +93,11 @@ capabilities:
       notes: The official app and local hardware confirm the action. The local route exposes separate actions because equivalent persistent readback is unavailable.
     automatic_cruise:
       connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-09
+          tested_by: mscodemonkey
+          notes: Exact T817L type 10031 firmware 2.1.0.3. Gateway and actual Home Assistant actions stop and restart cycling through existing app schedules, with and without a separate viewer. No persistent cruise state or schedule editing is exposed.
         T8030:
           status: tested
           tested_on: 2026-09-28
