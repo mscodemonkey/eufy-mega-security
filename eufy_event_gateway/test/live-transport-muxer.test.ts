@@ -93,3 +93,19 @@ test("a disconnected viewer drops startup data before its audio wait expires", a
   assert.equal(response.headersSent, false);
   assert.equal(muxer.videoInput.destroyed, true);
 });
+
+
+test("oversized startup releases the viewer and reports one bounded failure code", () => {
+  const response = new Response();
+  const failures: string[] = [];
+  let closed = 0;
+  const muxer = new LiveTransportMuxer(response as unknown as ServerResponse, () => closed++, 12_000,
+    (reason) => failures.push(reason));
+  muxer.videoInput.write(Buffer.alloc(4 * 1024 * 1024 + 1));
+  assert.deepEqual(failures, ["startup_input_limit"]);
+  assert.equal(muxer.videoInput.destroyed, true);
+  assert.equal(response.writableEnded, true);
+  assert.equal(closed, 1);
+  muxer.close();
+  assert.equal(failures.length, 1);
+});

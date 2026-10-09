@@ -532,7 +532,8 @@ export class LiveStreamManager extends EventEmitter {
 
     // HomeBase 3 can deliver SoloCam AAC about eight seconds after its first video.
     const audioWait = camera.model === "T8171" && camera.stationSerial !== camera.serial ? 12_000 : 2_000;
-    const muxer = new LiveTransportMuxer(response, () => session.audioConsumers.delete(consumeAudio), audioWait);
+    const muxer = new LiveTransportMuxer(response, () => session.audioConsumers.delete(consumeAudio), audioWait,
+      (reason) => this.emit("warning", new Error(`Camera live transport stopped: reason=${reason}`)));
     session.audioConsumers.add(consumeAudio);
     await this.addClient(serial, muxer.videoInput);
   }

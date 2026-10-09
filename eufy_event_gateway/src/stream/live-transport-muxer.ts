@@ -51,11 +51,12 @@ export class LiveTransportMuxer {
   #starting = false;
   #audioReady = false;
 
-  /** Bind an HTTP viewer and notify the manager when its audio subscription must be removed. */
+  /** Bind a viewer, release its audio subscription on close, and report bounded failure codes without media or process output. */
   constructor(
     private readonly response: ServerResponse,
     private readonly onClose: () => void,
     private readonly audioWaitMilliseconds = AUDIO_START_WAIT_MILLISECONDS,
+    private readonly onFailure: (reason: string) => void = () => undefined,
   ) {
     this.videoInput.on("data", (chunk: Buffer) => this.#acceptVideo(chunk));
     this.videoInput.once("end", () => this.close());
@@ -76,12 +77,12 @@ export class LiveTransportMuxer {
     if (this.#process && !this.#audioReady) return;
     this.#audio.push(Buffer.from(chunk));
     this.#bufferedBytes += chunk.length;
-    if (this.#bufferedBytes > MAX_INPUT_BYTES) return this.close();
+    if (this.#bufferedBytes > MAX_INPUT_BYTES) return this.close("startup_input_limit");
     if (this.#video.length) this.#start(true);
   }
 
-  /** Idempotently terminate the process, release camera ownership and drop retained bytes. */
-  close(): void {
+  /** Idempotently release process and camera ownership, optionally reporting an internal failure code. */
+  close(reason?: string): void {
     if (this.#closed) return;
     this.#closed = true;
     if (this.#timer) clearTimeout(this.#timer);
@@ -96,6 +97,7 @@ export class LiveTransportMuxer {
     this.videoInput.destroy();
     if (!this.response.destroyed) this.response.end();
     this.onClose();
+    if (reason) this.onFailure(reason);
   }
 
   #acceptVideo(chunk: Buffer): void {
@@ -103,7 +105,7 @@ export class LiveTransportMuxer {
     if (this.#process?.stdin) return this.#write(this.#process.stdin, chunk);
     this.#video.push(Buffer.from(chunk));
     this.#bufferedBytes += chunk.length;
-    if (this.#bufferedBytes > MAX_INPUT_BYTES) return this.close();
+    if (this.#bufferedBytes > MAX_INPUT_BYTES) return this.close("startup_input_limit");
     if (this.#audio.length) return this.#start(true);
     if (!this.#timer) {
       this.#timer = setTimeout(() => { this.#start(false); }, this.audioWaitMilliseconds);
@@ -111,9 +113,9 @@ export class LiveTransportMuxer {
   }
 
   #write(input: Writable, chunk: Buffer): void {
-    if (!input.writable || input.destroyed) return this.close();
+    if (!input.writable || input.destroyed) return this.close("input_closed");
     input.write(chunk);
-    if (input.writableLength > MAX_INPUT_BYTES) this.close();
+    if (input.writableLength > MAX_INPUT_BYTES) this.close("input_backpressure_limit");
   }
 
   #start(withAudio: boolean): void {
@@ -133,16 +135,16 @@ export class LiveTransportMuxer {
     args.push("-c", "copy", "-flush_packets", "1", "-muxdelay", "0", "-muxpreload", "0", "-max_interleave_delta", "100000", "-f", "mpegts", "pipe:1");
     const child = spawn("ffmpeg", args, { stdio: ["pipe", "pipe", "pipe", withAudio ? "pipe" : "ignore"] });
     this.#process = child;
-    child.once("error", () => this.close());
-    child.once("exit", () => this.close());
+    child.once("error", () => this.close("process_error"));
+    child.once("exit", () => this.close("process_exit"));
     child.stderr?.resume();
-    child.stdin?.once("error", () => this.close());
+    child.stdin?.once("error", () => this.close("video_input_error"));
     const audioInput = child.stdio[3] as Writable | null;
-    audioInput?.once("error", () => this.close());
+    audioInput?.once("error", () => this.close("audio_input_error"));
     this.response.writeHead(200, { "Content-Type": "video/mp2t", "Cache-Control": "no-store" });
     const awaitOutput = (): void => {
       if (this.#outputTimer) clearTimeout(this.#outputTimer);
-      this.#outputTimer = setTimeout(() => this.close(), 10_000);
+      this.#outputTimer = setTimeout(() => this.close("output_timeout"), 10_000);
       this.#outputTimer.unref();
     };
     awaitOutput();
