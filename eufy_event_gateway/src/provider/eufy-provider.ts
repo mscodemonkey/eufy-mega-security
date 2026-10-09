@@ -301,6 +301,17 @@ export function supportsStandalonePanControl(
     && Boolean(device.adminUserId) && routeReady;
 }
 
+/** Admit C31 saved-position actions on its exact, authorized standalone route. */
+export function supportsStandaloneC31Presets(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return device.model === "T817L" && device.deviceType === 10_031 && device.channel === 0
+    && route?.homeBaseAttached === false && route.peer.serial === device.serial
+    && Boolean(device.adminUserId) && routeReady;
+}
+
 /** Admit preset movement only on the exact SoloCam direct or HomeBase route proven by saved target scenes. */
 export function supportsSoloCamPresetControl(
   device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">,
@@ -1685,7 +1696,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.channel !== null
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
-      presetPositionControlSupported: t817lControlsSupported || soloCamPanControlsSupported,
+      presetPositionControlSupported: t817lControlsSupported || soloCamPanControlsSupported
+        || supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
       storedRecordingsSupported: supportsSoloCamStoredRecordings(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
       aiTrackingControlSupported: t817lControlsSupported || supportsStandaloneAiTracking(
         device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials),
@@ -1829,7 +1841,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return this.#queuePanControl(serial, "auto_cruise", (session) => session.writeAutoCruise(enabled));
   }
 
-  /** Serialize verified pan actions and release any live session before taking control. */
+  /** Serialize pan actions on an existing decoded viewer or a newly owned control session. */
   #queuePanControl(
     serial: string,
     action: string,
@@ -1854,7 +1866,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       }
       const active = this.#ppcsStreams.get(serial);
       const route = ppcsStreamRoute(device, this.#devices);
-      if (active && supportsSoloCamPresetControl(device, route, true)
+      if (route?.homeBaseAttached === false && device.model === "T817L"
+        && action !== "preset_query" && action !== "preset_position") {
+        throw new Error("This standalone camera action has not been verified");
+      }
+      if (active && (supportsSoloCamPresetControl(device, route, true)
+        || supportsStandaloneC31Presets(device, route, true))
         && active.stats.closeReason === "open" && active.stats.camId > 0
         && active.stats.videoOutputFrames > 0) {
 
@@ -1889,7 +1906,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId
       || (route.homeBaseAttached
         ? !device.model.toUpperCase().startsWith("T817L") && !supportsSoloCamPresetControl(device, route, true)
-        : !supportsStandalonePanControl(device, route, true))) {
+        : !supportsStandalonePanControl(device, route, true) && !supportsStandaloneC31Presets(device, route, true))) {
       throw new Error("Camera pan controls require a verified ready route");
     }
     return new FirstPartyPpcsSession({

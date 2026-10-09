@@ -29,6 +29,7 @@ import {
   supportsStandaloneAudioRecording,
   supportsStandaloneStreamingQuality,
   supportsStandalonePanControl,
+  supportsStandaloneC31Presets,
   supportsSoloCamPresetControl,
   supportsSoloCamStoredRecordings,
   supportsStandaloneAiTracking,
@@ -1633,4 +1634,20 @@ test("SoloCam HomeBase preset eligibility does not grant tracking or neighbourin
   }
   assert.equal(supportsSoloCamPresetControl(device, { ...route, peer: { ...route.peer, model: "T8010" } }, true), false);
   assert.equal(supportsSoloCamPresetControl(device, { ...route, peer: { ...route.peer, serial: "camera" } }, true), false);
+});
+
+
+test("C31 standalone presets require the exact type, owned channel and ready route", () => {
+  const device = { serial: "camera", model: "T817L", deviceType: 10_031, channel: 0, adminUserId: "fixture-admin" };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [{ device_sn: "camera", device_model: "T817L", device_type: 10_031 }] })[0]! };
+  assert.equal(supportsStandaloneC31Presets(device, route, true), true);
+  assert.equal(supportsStandaloneC31Presets(device, route, false), false);
+  assert.equal(supportsStandaloneC31Presets(device, null, true), false);
+  for (const change of [{ model: "T8171" }, { model: "T817L121" }, { deviceType: 88 }, { channel: 1 }, { adminUserId: null }]) {
+    assert.equal(supportsStandaloneC31Presets({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsStandaloneC31Presets(device, { ...route, homeBaseAttached: true }, true), false);
+  assert.equal(supportsStandaloneC31Presets(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
+  assert.equal(supportsSoloCamStoredRecordings(device, route, true), false);
+  assert.equal(supportsStandaloneAiTracking({ ...device, reads: { aiTrackingEnabled: true } }, route, true), false);
 });

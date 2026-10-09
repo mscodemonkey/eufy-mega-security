@@ -564,6 +564,28 @@ export class LiveStreamManager extends EventEmitter {
     }
   }
 
+  /**
+   * Retain a decoded source while a camera operation shares its connection.
+   *
+   * A fresh live image establishes readiness before the callback runs. The lease
+   * prevents idle cleanup during the operation and is released on every exit,
+   * without cancelling other viewers or extending the source's maximum lifetime.
+   */
+  async withLiveSource<T>(serial: string, operation: () => Promise<T>): Promise<T> {
+    if (this.#closed) throw new Error("Gateway closed before camera operation started");
+    const session = this.#session(serial);
+    this.#cancelStop(session);
+    session.leases += 1;
+    this.#updateState(serial, session);
+    try {
+      await this.captureSnapshot(serial);
+      return await operation();
+    } finally {
+      session.leases -= 1;
+      this.#scheduleStopIfUnused(serial, session);
+    }
+  }
+
   /** Capture one startup image and release its unused source immediately. */
   async captureStartupSnapshot(
     serial: string,

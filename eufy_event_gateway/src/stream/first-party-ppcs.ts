@@ -1349,7 +1349,7 @@ export class FirstPartyPpcsSession {
 
   /** Read the camera parameter table without changing device state. */
   async readCameraInfo(): Promise<readonly PpcsCameraInfoParam[]> {
-    if (this.#options.purpose !== "control" && !this.#allowsSoloCamViewerControl()) {
+    if (this.#options.purpose !== "control" && !this.#allowsViewerPanControl()) {
       return Promise.reject(new Error("Camera-info refresh requires a control session"));
     }
     if (!this.#remote) return Promise.reject(new Error("Camera-info session is not connected"));
@@ -1579,7 +1579,7 @@ export class FirstPartyPpcsSession {
    * contract was observed and does not imply that the camera has no presets.
    */
   async queryPresetPositions(): Promise<readonly CameraPresetPosition[]> {
-    if (this.#options.cameraModel === "T8171" && this.#options.homeBaseAttached) await this.#wakeSoloCamPanMotor();
+    if (this.#options.cameraModel === "T8171" && this.#options.homeBaseAttached) await this.#preparePanMotorView();
     const payload = await this.#queryControlPayload(6034, this.#options.cameraModel === "T8171"
       ? buildSoloCamPanControlData(6034) : { value: 0 });
     return parseCameraPresetPositions(payload);
@@ -1587,7 +1587,7 @@ export class FirstPartyPpcsSession {
 
   /**
    * Move to a stored position using the model's native absolute command.
-   * The SoloCam requires decoded live video before travel. An owned control
+   * Direct C31 and SoloCam movement require decoded live video. An owned control
    * connection drains temporary video; an existing viewer retains its output.
    */
   async selectPresetPosition(index: number): Promise<void> {
@@ -1595,12 +1595,14 @@ export class FirstPartyPpcsSession {
       throw new Error("Camera preset index must be between 0 and 9");
     }
     const soloCam = this.#options.cameraModel === "T8171";
-    if (soloCam) await this.#wakeSoloCamPanMotor();
+    const standaloneC31 = this.#options.cameraModel === "T817L" && !this.#options.homeBaseAttached
+      && this.#options.channel === 0;
+    if (soloCam || standaloneC31) await this.#preparePanMotorView();
     await this.#sendControlPayload(6035,
       soloCam ? buildSoloCamPanControlData(6035, index) : { value: index });
 
-    // Battery-camera travel can outlast the request's transport drain.
-    await delay(soloCam ? 12_000 : 500);
+    // Keep standalone pan travel inside the connection that owns the command.
+    await delay(soloCam || standaloneC31 ? 12_000 : 500);
     if (this.#closed) throw new Error("Camera connection closed during preset movement");
   }
 
@@ -1943,12 +1945,8 @@ export class FirstPartyPpcsSession {
     }
 
     if (command === 1351 && this.#pendingControlQuery) {
-      let clear = payload;
-      if (signCode === 8 && this.#level2Key) clear = decryptLevel2(payload, this.#level2Key, signCode) ?? payload;
-      else if (signCode > 0 && payload.length % 16 === 0) {
-        try { clear = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); } catch { clear = payload; }
-      }
-      const decoded = parsePpcsControlRecord(clear);
+      const decoded = decodePpcsControlRecord(payload, signCode,
+        commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key);
       const responsePayload = decoded && decoded.cmd === this.#pendingControlQuery.command
         ? jsonRecord(decoded.payload)
         : undefined;
@@ -2178,12 +2176,13 @@ export class FirstPartyPpcsSession {
     command: number,
     data: Readonly<Record<string, unknown>>,
   ): Promise<Record<string, unknown>> {
-    if (this.#options.purpose !== "control" && !this.#allowsSoloCamViewerControl()) throw new Error("Camera query requires a control session");
+    if (this.#options.purpose !== "control" && !this.#allowsViewerPanControl(command)) throw new Error("Camera query requires a control session");
     if (!this.#remote) throw new Error("Camera control session is not connected");
     if (this.#pendingControlQuery || this.#pendingControl) {
       throw new Error("Camera already has a control operation in flight");
     }
-    if (this.#options.homeBaseAttached || this.#usesSoloCamPanControl()) await this.#waitForLevel2Key();
+    if (this.#options.homeBaseAttached || this.#usesSoloCamPanControl()
+      || (this.#options.cameraModel === "T817L" && this.#options.channel === 0)) await this.#waitForLevel2Key();
     let pendingQuery: PendingControlQuery | undefined;
     const response = new Promise<Record<string, unknown>>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -2211,10 +2210,9 @@ export class FirstPartyPpcsSession {
     return response;
   }
 
-  /** Allow a decoded SoloCam viewer to retain ownership while its verified preset route is used. */
-  #allowsSoloCamViewerControl(): boolean {
-    return this.#options.cameraModel === "T8171" &&
-      (this.#options.homeBaseAttached ? this.#options.channel === 1 : this.#options.channel === 0);
+  /** Preserve provider-validated viewer ownership only for the model's admitted commands. */
+  #allowsViewerPanControl(command?: number): boolean {
+    return supportsViewerPanControl(this.#options.cameraModel, Boolean(this.#options.homeBaseAttached), this.#options.channel, command);
   }
 
   /** Reject untested SoloCam topologies before selecting its native pan-control framing. */
@@ -2227,14 +2225,14 @@ export class FirstPartyPpcsSession {
     return true;
   }
 
-  /** Require decoded native video before moving the standalone battery camera's motor. */
-  async #wakeSoloCamPanMotor(): Promise<void> {
+  /** Establish decoded video on the owned connection before pan travel. */
+  async #preparePanMotorView(): Promise<void> {
     if (!this.#remote || this.#closed) {
-      throw new Error("SoloCam preset wake requires a connected session");
+      throw new Error("Camera preset wake requires a connected session");
     }
     await this.#waitForLevel2Key();
     if (this.#options.purpose !== "control") {
-      if (this.stats.videoOutputFrames === 0) throw new Error("SoloCam viewer has not confirmed a live camera wake");
+      if (this.stats.videoOutputFrames === 0) throw new Error("Camera viewer has not confirmed a live camera wake");
       return;
     }
     this.output.resume();
@@ -2245,7 +2243,7 @@ export class FirstPartyPpcsSession {
       await delay(50);
     }
     if (this.#closed || this.stats.videoOutputFrames === 0) {
-      throw new Error("SoloCam preset movement could not confirm a live camera wake");
+      throw new Error("Camera preset movement could not confirm a live camera wake");
     }
   }
 
@@ -2254,7 +2252,7 @@ export class FirstPartyPpcsSession {
     command: number,
     data: Readonly<Record<string, unknown>>,
   ): Promise<void> {
-    if (this.#options.purpose !== "control" && !this.#allowsSoloCamViewerControl()) throw new Error("Camera control requires a control session");
+    if (this.#options.purpose !== "control" && !this.#allowsViewerPanControl(command)) throw new Error("Camera control requires a control session");
     if (!this.#remote) throw new Error("Camera control session is not connected");
     const soloCam = this.#usesSoloCamPanControl();
     if (this.#options.homeBaseAttached || soloCam) await this.#waitForLevel2Key();
@@ -2628,6 +2626,39 @@ function integerValue(value: unknown): number | null {
 /** Interpret the camera's observed boolean flag forms without truthy coercion. */
 function booleanFlag(value: unknown): boolean {
   return value === true || value === 1 || value === "1";
+}
+
+/**
+ * Allow model-specific controls to share a provider-owned decoded viewer.
+ * The provider separately validates device type, account ownership and decoded video.
+ * C31 viewers admit only preset queries and movement, never tracking or other writes.
+ */
+export function supportsViewerPanControl(model: string | undefined, attached: boolean, channel: number, command?: number): boolean {
+  return (model === "T8171" && channel === (attached ? 1 : 0))
+    || (model === "T817L" && !attached && channel === 0 && (command === 6034 || command === 6035));
+}
+
+/**
+ * Decode a control notification using its declared protection before parsing JSON.
+ *
+ * Both observed level-two signatures require authenticated decryption. Missing
+ * keys, unknown signatures and authentication failures never fall back to
+ * treating ciphertext as a clear or level-one reply.
+ */
+export function decodePpcsControlRecord(
+  payload: Buffer,
+  signCode: number,
+  level1Key: Buffer,
+  level2Key: Buffer | null,
+): Record<string, unknown> | undefined {
+  let clear: Buffer | undefined;
+  if (signCode === 0) clear = payload;
+  else if (signCode === 2 || signCode === 8) {
+    if (level2Key) clear = decryptLevel2(payload, level2Key, signCode);
+  } else if (signCode === 1 && payload.length > 0 && payload.length % 16 === 0) {
+    try { clear = decryptEcb(payload, level1Key); } catch { return undefined; }
+  }
+  return clear ? parsePpcsControlRecord(clear) : undefined;
 }
 
 /** Parse one decrypted control reply, accepting only complete JSON with validated NUL or PKCS7 padding. */

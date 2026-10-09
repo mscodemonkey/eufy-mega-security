@@ -1202,3 +1202,57 @@ test("does not materialise source startup while an H.265 viewer waits on a runni
     await manager.close();
   }
 });
+
+
+test("retains a decoded source beyond idle grace until a camera operation finishes", async () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  let stops = 0;
+  const manager = new LiveStreamManager(state, {} as never, {
+    async startStream() {
+      setTimeout(() => state.updateSnapshot(camera.serial, {
+        capturedAt: new Date().toISOString(), contentType: "image/jpeg", source: "live", revision: 1,
+      }), 1);
+    },
+    async stopStream() { stops++; },
+  }, 5);
+  try {
+    const result = await manager.withLiveSource(camera.serial, async () => {
+      assert.equal(state.getCamera(camera.serial).snapshot?.revision, 1);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(stops, 0);
+      return "movement-complete";
+    });
+    assert.equal(result, "movement-complete");
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    assert.equal(stops, 1);
+  } finally { await manager.close(); }
+});
+
+test("releases the camera operation lease when movement or source startup fails", async () => {
+  for (const startupFails of [false, true]) {
+    const state = new GatewayState();
+    state.registerCamera(camera);
+    let stops = 0;
+    let called = false;
+    const manager = new LiveStreamManager(state, {} as never, {
+      async startStream() {
+        if (startupFails) throw new Error("source-unavailable");
+        setTimeout(() => state.updateSnapshot(camera.serial, {
+          capturedAt: new Date().toISOString(), contentType: "image/jpeg", source: "live", revision: 1,
+        }), 1);
+      },
+      async stopStream() { stops++; },
+    }, 5);
+    try {
+      await assert.rejects(manager.withLiveSource(camera.serial, async () => {
+        called = true;
+        throw new Error("movement-failed");
+      }), startupFails ? /source-unavailable/ : /movement-failed/);
+      assert.equal(called, !startupFails);
+      assert.equal(state.listenerCount("event"), 0);
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      if (!startupFails) assert.equal(stops, 1);
+    } finally { await manager.close(); }
+  }
+});

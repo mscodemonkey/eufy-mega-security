@@ -49,6 +49,11 @@ capabilities:
       notes: Write-only control with no reliable state readback.
     preset_positions:
       connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-09
+          tested_by: mscodemonkey
+          notes: Exact T817L type 10031 firmware 2.1.0.3. Three saved targets and default return passed through Home Assistant with and without a separate viewer. Movement retains decoded source ownership until travel completes.
         T8030:
           status: tested
           tested_on: 2026-09-28

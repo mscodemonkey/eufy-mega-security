@@ -510,7 +510,16 @@ export class GatewayServer {
   async #cameraPresetPosition(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     const body = await readJson(request);
-    await this.provider.selectCameraPresetPosition(serial, requiredInteger(body.index));
+    const index = requiredInteger(body.index);
+    if (index < 0 || index > 9) throw new SyntaxError("Camera preset index must be between 0 and 9");
+    const camera = this.state.getCamera(serial);
+    const move = () => this.provider.selectCameraPresetPosition(serial, index);
+    if (camera.model === "T817L" && camera.presetPositionControlSupported
+      && (!camera.stationSerial || camera.stationSerial === serial)) {
+      await this.streams.withLiveSource(serial, move);
+    } else {
+      await move();
+    }
     return json(response, 200, { ok: true });
   }
 
