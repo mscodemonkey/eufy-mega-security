@@ -49,6 +49,11 @@ capabilities:
       notes: Write-only control with no reliable state readback.
     preset_positions:
       connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-09
+          tested_by: mscodemonkey
+          notes: Exact T817L type 10031 firmware 2.1.0.3. Three saved targets and default return passed through Home Assistant with and without a separate viewer. Movement retains decoded source ownership until travel completes.
         T8030:
           status: tested
           tested_on: 2026-09-28
@@ -63,6 +68,15 @@ capabilities:
           minimum: 0
           maximum: 9
       notes: The camera reports enabled slots and its default. Movement is applied without a readable command acknowledgement.
+    light:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-09
+          tested_by: mscodemonkey
+          notes: Exact T817L type 10031 firmware 2.1.0.3. Authenticated native manual commands and fresh gateway images confirm on and off. Stateless actions preserve the existing motion-light policy. No automatic timeout is claimed.
+      write:
+        command: 1400
     ai_tracking:
       connections:
         T8030:
@@ -79,6 +93,11 @@ capabilities:
       notes: The official app and local hardware confirm the action. The local route exposes separate actions because equivalent persistent readback is unavailable.
     automatic_cruise:
       connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-09
+          tested_by: mscodemonkey
+          notes: Exact T817L type 10031 firmware 2.1.0.3. Gateway and actual Home Assistant actions stop and restart cycling through existing app schedules, with and without a separate viewer. No persistent cruise state or schedule editing is exposed.
         T8030:
           status: tested
           tested_on: 2026-09-28
