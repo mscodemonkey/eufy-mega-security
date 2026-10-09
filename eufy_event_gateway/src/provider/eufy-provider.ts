@@ -301,6 +301,17 @@ export function supportsStandalonePanControl(
     && Boolean(device.adminUserId) && routeReady;
 }
 
+/** Admit preset movement only on the exact SoloCam direct or HomeBase route proven by saved target scenes. */
+export function supportsSoloCamPresetControl(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return supportsStandalonePanControl(device, route, routeReady) ||
+    (device.model === "T8171" && device.deviceType === 88 && device.channel === 1 && Boolean(device.adminUserId) && routeReady &&
+      route?.homeBaseAttached === true && route.peer.model === "T8030" && route.peer.serial !== device.serial);
+}
+
 /** Admit stored media only for the exact tested SoloCam direct route or HomeBase 3 child channel. */
 export function supportsSoloCamStoredRecordings(
   device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">,
@@ -1559,7 +1570,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       && device.channel !== null
       && device.adminUserId !== null
       && isPpcsRouteReady(device, this.#devices, dskPeerSerials);
-    const soloCamPanControlsSupported = supportsStandalonePanControl(
+    const soloCamPanControlsSupported = supportsSoloCamPresetControl(
       device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials),
     );
     return {
@@ -1840,7 +1851,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       }
       const active = this.#ppcsStreams.get(serial);
       const route = ppcsStreamRoute(device, this.#devices);
-      if (active && supportsStandalonePanControl(device, route, true)
+      if (active && supportsSoloCamPresetControl(device, route, true)
         && active.stats.closeReason === "open" && active.stats.camId > 0
         && active.stats.videoOutputFrames > 0) {
 
@@ -1867,14 +1878,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return current;
   }
 
-  /** Build an attached T817L or self-owned standalone SoloCam control session. */
+  /** Build a control session for a hardware-verified pan route without broadening AI tracking eligibility. */
   async #panControlSession(device: MegaInventoryDevice): Promise<FirstPartyPpcsSession> {
     const route = ppcsStreamRoute(device, this.#devices);
     const peer = route?.peer;
     const dsk = peer ? await this.#dskKey(peer.serial) : null;
     if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId
       || (route.homeBaseAttached
-        ? !device.model.toUpperCase().startsWith("T817L")
+        ? !device.model.toUpperCase().startsWith("T817L") && !supportsSoloCamPresetControl(device, route, true)
         : !supportsStandalonePanControl(device, route, true))) {
       throw new Error("Camera pan controls require a verified ready route");
     }

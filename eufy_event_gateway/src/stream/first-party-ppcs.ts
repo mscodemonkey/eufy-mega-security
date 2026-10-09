@@ -1349,7 +1349,7 @@ export class FirstPartyPpcsSession {
 
   /** Read the camera parameter table without changing device state. */
   async readCameraInfo(): Promise<readonly PpcsCameraInfoParam[]> {
-    if (this.#options.purpose !== "control" && !this.#usesSoloCamPanControl()) {
+    if (this.#options.purpose !== "control" && !this.#allowsSoloCamViewerControl()) {
       return Promise.reject(new Error("Camera-info refresh requires a control session"));
     }
     if (!this.#remote) return Promise.reject(new Error("Camera-info session is not connected"));
@@ -1579,7 +1579,8 @@ export class FirstPartyPpcsSession {
    * contract was observed and does not imply that the camera has no presets.
    */
   async queryPresetPositions(): Promise<readonly CameraPresetPosition[]> {
-    const payload = await this.#queryControlPayload(6034, this.#usesSoloCamPanControl()
+    if (this.#options.cameraModel === "T8171" && this.#options.homeBaseAttached) await this.#wakeSoloCamPanMotor();
+    const payload = await this.#queryControlPayload(6034, this.#options.cameraModel === "T8171"
       ? buildSoloCamPanControlData(6034) : { value: 0 });
     return parseCameraPresetPositions(payload);
   }
@@ -1593,7 +1594,7 @@ export class FirstPartyPpcsSession {
     if (!Number.isSafeInteger(index) || index < 0 || index > 9) {
       throw new Error("Camera preset index must be between 0 and 9");
     }
-    const soloCam = this.#usesSoloCamPanControl();
+    const soloCam = this.#options.cameraModel === "T8171";
     if (soloCam) await this.#wakeSoloCamPanMotor();
     await this.#sendControlPayload(6035,
       soloCam ? buildSoloCamPanControlData(6035, index) : { value: index });
@@ -1947,7 +1948,7 @@ export class FirstPartyPpcsSession {
       else if (signCode > 0 && payload.length % 16 === 0) {
         try { clear = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); } catch { clear = payload; }
       }
-      const decoded = parseJsonRecord(clear);
+      const decoded = parsePpcsControlRecord(clear);
       const responsePayload = decoded && decoded.cmd === this.#pendingControlQuery.command
         ? jsonRecord(decoded.payload)
         : undefined;
@@ -2177,7 +2178,7 @@ export class FirstPartyPpcsSession {
     command: number,
     data: Readonly<Record<string, unknown>>,
   ): Promise<Record<string, unknown>> {
-    if (this.#options.purpose !== "control" && !this.#usesSoloCamPanControl()) throw new Error("Camera query requires a control session");
+    if (this.#options.purpose !== "control" && !this.#allowsSoloCamViewerControl()) throw new Error("Camera query requires a control session");
     if (!this.#remote) throw new Error("Camera control session is not connected");
     if (this.#pendingControlQuery || this.#pendingControl) {
       throw new Error("Camera already has a control operation in flight");
@@ -2210,9 +2211,16 @@ export class FirstPartyPpcsSession {
     return response;
   }
 
+  /** Allow a decoded SoloCam viewer to retain ownership while its verified preset route is used. */
+  #allowsSoloCamViewerControl(): boolean {
+    return this.#options.cameraModel === "T8171" &&
+      (this.#options.homeBaseAttached ? this.#options.channel === 1 : this.#options.channel === 0);
+  }
+
   /** Reject untested SoloCam topologies before selecting its native pan-control framing. */
   #usesSoloCamPanControl(): boolean {
     if (this.#options.cameraModel !== "T8171") return false;
+    if (this.#options.homeBaseAttached && this.#options.channel === 1) return false;
     if (this.#options.homeBaseAttached || this.#options.channel !== 0) {
       throw new Error("SoloCam pan control requires its verified standalone channel-zero route");
     }
@@ -2230,7 +2238,8 @@ export class FirstPartyPpcsSession {
       return;
     }
     this.output.resume();
-    this.#startOwnMedia();
+    if (this.#options.homeBaseAttached) this.#startAttachedMedia();
+    else this.#startOwnMedia();
     const deadline = Date.now() + CONTROL_TIMEOUT_MILLISECONDS;
     while (!this.#closed && this.stats.videoOutputFrames === 0 && Date.now() < deadline) {
       await delay(50);
@@ -2245,7 +2254,7 @@ export class FirstPartyPpcsSession {
     command: number,
     data: Readonly<Record<string, unknown>>,
   ): Promise<void> {
-    if (this.#options.purpose !== "control" && !this.#usesSoloCamPanControl()) throw new Error("Camera control requires a control session");
+    if (this.#options.purpose !== "control" && !this.#allowsSoloCamViewerControl()) throw new Error("Camera control requires a control session");
     if (!this.#remote) throw new Error("Camera control session is not connected");
     const soloCam = this.#usesSoloCamPanControl();
     if (this.#options.homeBaseAttached || soloCam) await this.#waitForLevel2Key();
@@ -2264,6 +2273,16 @@ export class FirstPartyPpcsSession {
       return;
     }
     const value = buildCameraControlQueryValue(command, data);
+    if (this.#options.cameraModel === "T8171" && this.#options.homeBaseAttached && this.#options.channel === 1) {
+
+      // Native attached SoloCam envelopes carry the rounded cleartext size in byte 11.
+      const roundedLength = (Math.ceil(Buffer.byteLength(value) / 4) * 4) & 0xff;
+      for (let transmission = 0; transmission < 3; transmission += 1) {
+        this.#sendCommand(1700, rawPayload(encryptLevel2(Buffer.from(value), this.#level2Key!, this.#level2Seq++), this.#options.channel, 8, [8, roundedLength], 0));
+        await delay(200);
+      }
+      return;
+    }
     if (this.#options.homeBaseAttached) {
       const sequence = this.#level2Seq++;
       const encrypted = encryptLevel2(Buffer.from(value), this.#level2Key!, sequence);
@@ -2611,9 +2630,13 @@ function booleanFlag(value: unknown): boolean {
   return value === true || value === 1 || value === "1";
 }
 
-/** Parse a decrypted, NUL-padded PPCS body as one JSON object. */
-function parseJsonRecord(value: Buffer): Record<string, unknown> | undefined {
-  const text = value.toString("utf8").replace(/\0+$/g, "").trim();
+/** Parse one decrypted control reply, accepting only complete JSON with validated NUL or PKCS7 padding. */
+export function parsePpcsControlRecord(value: Buffer): Record<string, unknown> | undefined {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === 0) end--;
+  const padding = value[end - 1] ?? 0;
+  if (padding > 0 && padding <= 16 && padding <= end && value.subarray(end - padding, end).every((byte) => byte === padding)) end -= padding;
+  const text = value.subarray(0, end).toString("utf8").trim();
   if (!text.startsWith("{")) return undefined;
   try {
     const decoded: unknown = JSON.parse(text);

@@ -36,6 +36,7 @@ import {
   needsAttachedMediaReassert,
   needsStandaloneMediaReassert,
   parseCameraPresetPositions,
+  parsePpcsControlRecord,
   PpcsVideoFrameDecoder,
   PpcsVideoStreamNormalizer,
   ppcsCommandMagicOffset,
@@ -770,4 +771,20 @@ test("SoloCam audio isolates attached children and excludes controls and unrelat
   assert.equal(acceptsSoloCamAudio("T8171", false, 1, 1, "live"), false);
   assert.equal(acceptsSoloCamAudio("T817L", true, 1, 1, "live"), false);
   assert.equal(acceptsSoloCamAudio("T8171", true, -1, -1, "live"), false);
+});
+
+
+test("control replies accept native PKCS7 padding and reject partial or trailing data", () => {
+  const body = Buffer.from(JSON.stringify({ cmd: 6034, payload: { points: [{ index: 1, enable: 1 }] } }));
+  const expected = JSON.parse(body.toString());
+  assert.deepEqual(parsePpcsControlRecord(body), expected);
+  assert.deepEqual(parsePpcsControlRecord(Buffer.concat([body, Buffer.alloc(8)])), expected);
+  for (let padding = 1; padding <= 16; padding++) {
+    assert.deepEqual(parsePpcsControlRecord(Buffer.concat([body, Buffer.alloc(padding, padding)])), expected);
+  }
+  for (const suffix of [Buffer.from([2]), Buffer.from([1, 2]), Buffer.alloc(17, 17), Buffer.from("garbage")]) {
+    assert.equal(parsePpcsControlRecord(Buffer.concat([body, suffix])), undefined);
+  }
+  assert.equal(parsePpcsControlRecord(Buffer.from("[]")), undefined);
+  assert.equal(parsePpcsControlRecord(body.subarray(0, -1)), undefined);
 });

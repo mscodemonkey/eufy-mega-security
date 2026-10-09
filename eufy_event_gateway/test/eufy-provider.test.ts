@@ -29,6 +29,7 @@ import {
   supportsStandaloneAudioRecording,
   supportsStandaloneStreamingQuality,
   supportsStandalonePanControl,
+  supportsSoloCamPresetControl,
   supportsSoloCamStoredRecordings,
   supportsStandaloneAiTracking,
   genericSecurityDetectionKinds,
@@ -1605,4 +1606,22 @@ test("stored SoloCam media admits only tested direct and HomeBase3 child1 routes
   assert.equal(supportsSoloCamStoredRecordings(device, { ...route, peer: { ...peer, model: "T8010" } }, true), false);
   assert.equal(supportsSoloCamStoredRecordings(device, { ...route, peer: { ...peer, serial: device.serial } }, true), false);
   assert.equal(supportsSoloCamStoredRecordings({ ...device, channel: 0 }, { homeBaseAttached: false, peer: { ...peer, serial: device.serial } }, true), true);
+});
+
+
+test("SoloCam HomeBase preset eligibility does not grant tracking or neighbouring topology support", () => {
+  const device = { serial: "camera", model: "T8171", deviceType: 88, channel: 1,
+    adminUserId: "fixture-admin", reads: { aiTrackingEnabled: true } };
+  const route = { homeBaseAttached: true, peer: parseMegaInventory({ devices: [
+    { device_sn: "station", device_model: "T8030", device_type: 18 },
+  ] })[0]! };
+  assert.equal(supportsSoloCamPresetControl(device, route, true), true);
+  assert.equal(supportsStandaloneAiTracking(device, route, true), false);
+  assert.equal(supportsSoloCamPresetControl(device, route, false), false);
+  assert.equal(supportsSoloCamPresetControl(device, null, true), false);
+  for (const change of [{ model: "T8172" }, { deviceType: 10031 }, { channel: 0 }, { channel: 2 }, { adminUserId: null }]) {
+    assert.equal(supportsSoloCamPresetControl({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsSoloCamPresetControl(device, { ...route, peer: { ...route.peer, model: "T8010" } }, true), false);
+  assert.equal(supportsSoloCamPresetControl(device, { ...route, peer: { ...route.peer, serial: "camera" } }, true), false);
 });
