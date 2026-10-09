@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.125
+
+- Add hardware-verified standalone C31 saved-position movement, manual light actions and schedule-backed cruise controls on the exact direct T817L route.
+- Keep C31 preset movement connected until travel finishes and authenticate the observed control replies without widening adjacent model or HomeBase routes.
+- Correct the HomeBase prompt-volume range to the hardware-confirmed 1 to 26 values and update the compatibility notes for verified storage, alarm tone, guard mode and siren behaviour.
+
 ## 0.1.124
 
 - Add SoloCam E30 (T8171) standalone discovery and refresh camera names and HomeBase bindings without restarting the gateway.
