@@ -9,6 +9,9 @@
     "@mscodemonkey"
   ],
   "config_flow": true,
+  "dependencies": [
+    "http"
+  ],
   "documentation": "https://github.com/mscodemonkey/eufy-mega-security",
   "integration_type": "hub",
   "iot_class": "cloud_push",
