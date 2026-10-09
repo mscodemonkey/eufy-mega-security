@@ -473,6 +473,7 @@ export class GatewayState extends EventEmitter {
       stationSerial: camera.identity.stationSerial,
       streamSupported: camera.identity.streamSupported,
       liveAudioSupported: camera.identity.liveAudioSupported ?? false,
+      storedRecordingsSupported: camera.identity.storedRecordingsSupported ?? false,
       doorbellSupported: camera.identity.doorbellSupported,
       enabled: camera.identity.enabled ?? null,
       enableControlSupported: camera.identity.enableControlSupported ?? false,

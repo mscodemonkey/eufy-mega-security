@@ -2,7 +2,8 @@
   "domain": "eufy_event_gateway",
   "name": "Eufy Mega Security",
   "after_dependencies": [
-    "stream"
+    "stream",
+    "media_source"
   ],
   "codeowners": [
     "@mscodemonkey"

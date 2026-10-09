@@ -13,6 +13,8 @@
  * newly added devices without replacing push receivers or active media sessions.
  */
 import { join } from "node:path";
+import { createHmac, randomBytes } from "node:crypto";
+import { validateRecordingDate, type CameraStoredRecord, type StoredRecordingSummary } from "../stream/stored-recordings.js";
 
 import type { BatteryState, CameraIdentity, CameraPresetPosition, DetectionKind, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
 import { createLogger } from "../logging.js";
@@ -354,6 +356,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #client: MegaClient;
   readonly #devices = new Map<string, MegaInventoryDevice>();
   readonly #ppcsStreams = new Map<string, FirstPartyPpcsSession>();
+
+  /** Private card references expire in memory and are never published as filesystem paths. */
+  readonly #recordingReferences = new Map<string, { serial: string; record: CameraStoredRecord; expiresAt: number }>();
+  readonly #recordingIdSecret = randomBytes(32);
+  #recordingClosing = false;
+  readonly #recordingReservations = new Set<string>();
+  readonly #recordingSessions = new Map<string, FirstPartyPpcsSession>();
   readonly #dskKeys = new Map<string, { readonly key: string; readonly expiresAt: number | null }>();
   readonly #dskRefreshes = new Map<string, Promise<{ readonly key: string; readonly expiresAt: number | null } | null>>();
   readonly #cipherKeys = new Map<number, string>();
@@ -453,8 +462,74 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return this.#client.cloudHistory(serial, query);
   }
 
+  /** List only validated, completed standalone SoloCam event clips for the requested day. */
+  async listStoredRecordings(serial: string, date: string, signal?: AbortSignal): Promise<readonly StoredRecordingSummary[]> {
+    validateRecordingDate(date);
+    return await this.#recordingOperation(serial, signal, async (session) => {
+      const records = await session.listStoredRecordings(date, signal);
+      for (const [id, reference] of this.#recordingReferences) {
+        if (reference.expiresAt <= Date.now()) this.#recordingReferences.delete(id);
+      }
+      return records.map((record) => {
+        const id = createHmac("sha256", this.#recordingIdSecret).update(`${serial}\0${record.storagePath}`).digest("hex");
+        this.#recordingReferences.delete(id);
+        this.#recordingReferences.set(id, { serial, record, expiresAt: Date.now() + 30 * 60_000 });
+        while (this.#recordingReferences.size > 1_000) this.#recordingReferences.delete(this.#recordingReferences.keys().next().value!);
+        return { id, startTime: record.startTime, endTime: record.endTime };
+      });
+    });
+  }
+
+  /** Resolve an opaque owned reference only while its verified standalone route remains available. */
+  async downloadStoredRecording(serial: string, id: string, signal?: AbortSignal): Promise<Buffer | null> {
+    const reference = this.#recordingReferences.get(id);
+    if (!reference || reference.serial !== serial || reference.expiresAt <= Date.now()) return null;
+    return await this.#recordingOperation(serial, signal,
+      async (session) => await session.downloadStoredRecording(reference.record, signal));
+  }
+
+  async #recordingOperation<T>(serial: string, signal: AbortSignal | undefined,
+    operation: (session: FirstPartyPpcsSession) => Promise<T>): Promise<T> {
+    const previous = this.#panControlOperations.get(serial) ?? Promise.resolve();
+    let result!: T;
+    const current = previous.catch(() => undefined).then(async () => {
+      const device = this.#devices.get(serial);
+      const route = device ? ppcsStreamRoute(device, this.#devices) : null;
+      if (this.#recordingClosing || !device || !supportsStandalonePanControl(device, route,
+        isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys()))) || signal?.aborted) {
+        throw new Error("Stored recordings require the verified ready standalone SoloCam route");
+      }
+      if (this.#ppcsStreams.has(serial)) throw new Error("Close live view before browsing camera recordings");
+      this.#recordingReservations.add(serial);
+      try {
+        const peer = route!.peer;
+        const dsk = await this.#dskKey(peer.serial);
+        if (!dsk || signal?.aborted || this.#recordingClosing || this.#ppcsStreams.has(serial)) throw new Error("Recording camera connection is unavailable");
+        const session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!,
+          appConnection: peer.p2pConnection!, localAddress: peer.localAddress, dskKey: dsk.key,
+          channel: 0, cameraModel: device.model, accountId: device.adminUserId!, homeBaseAttached: false,
+          purpose: "control", maxSeconds: 120, resolveCipherKey: (id) => this.#resolveCipherKey(id, peer) });
+        this.#recordingSessions.set(serial, session);
+        const abort = (): void => session.close();
+        signal?.addEventListener("abort", abort, { once: true });
+        try {
+          await session.start();
+          result = await operation(session);
+        } finally {
+          signal?.removeEventListener("abort", abort);
+          session.close();
+          this.#recordingSessions.delete(serial);
+        }
+      } finally { this.#recordingReservations.delete(serial); }
+    });
+    this.#panControlOperations.set(serial, current);
+    try { await current; return result; }
+    finally { if (this.#panControlOperations.get(serial) === current) this.#panControlOperations.delete(serial); }
+  }
+
   /** Authenticate and publish cameras independently of background push readiness. */
   async start(events: ProviderEvents): Promise<void> {
+    this.#recordingClosing = false;
     const generation = ++this.#startupGeneration;
     this.#retireInventoryRefresh();
     this.#events = events;
@@ -475,6 +550,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   async startStream(serial: string): Promise<void> {
+    if (this.#recordingReservations.has(serial)) throw new Error("Wait for recording retrieval before starting live view");
     const device = this.#devices.get(serial);
     if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
     const route = ppcsStreamRoute(device, this.#devices);
@@ -483,10 +559,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
     // The production path is deliberately first-party Mega/PPCS.
     if (route && peer?.p2pDid && peer.p2pConnection && dsk && device.channel !== null) {
+      if (this.#recordingReservations.has(serial)) throw new Error("Wait for recording retrieval before starting live view");
       this.#ppcsStreams.get(serial)?.close("replaced");
       const initialEccPrivateKey = !route.homeBaseAttached && device.cipherId !== null
         ? await this.#resolveCipherKey(device.cipherId, peer)
         : undefined;
+      if (this.#recordingReservations.has(serial)) throw new Error("Wait for recording retrieval before starting live view");
       const stream = new FirstPartyPpcsSession({
         stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
         localAddress: peer.localAddress,
@@ -1025,6 +1103,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Retire startup and push synchronously before cancelling shared cloud work. */
   async close(): Promise<void> {
+    this.#recordingClosing = true;
     ++this.#startupGeneration;
     this.#retireInventoryRefresh();
     const push = this.#push;
@@ -1039,6 +1118,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     await closingPush;
     for (const stream of this.#ppcsStreams.values()) stream.close();
     this.#ppcsStreams.clear();
+    for (const session of this.#recordingSessions.values()) session.close();
+    this.#recordingSessions.clear();
+    this.#recordingReferences.clear();
     await Promise.allSettled(this.#stationOperations.values());
     this.#stationOperations.clear();
     await Promise.allSettled(this.#cameraOperations.values());
@@ -1557,6 +1639,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       presetPositionControlSupported: t817lControlsSupported || soloCamPanControlsSupported,
+      storedRecordingsSupported: soloCamPanControlsSupported,
       aiTrackingControlSupported: t817lControlsSupported || supportsStandaloneAiTracking(
         device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       ),

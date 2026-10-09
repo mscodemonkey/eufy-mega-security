@@ -1309,8 +1309,8 @@ function spawnSnapshotExtractor(codec: VideoCodec): ChildProcessWithoutNullStrea
   ]);
 }
 
-/** Remux video and optional checked AAC through separate pipes without retaining files. */
-export async function remuxVideoToMp4(video: Buffer, codec: VideoCodec, audio?: Buffer): Promise<Buffer> {
+/** Remux video and optional checked AAC through separate pipes; aborting terminates the owned FFmpeg process. */
+export async function remuxVideoToMp4(video: Buffer, codec: VideoCodec, audio?: Buffer, signal?: AbortSignal): Promise<Buffer> {
   return await new Promise<Buffer>((resolve, reject) => {
     const process = spawn("ffmpeg", [
       "-hide_banner",
@@ -1330,7 +1330,7 @@ export async function remuxVideoToMp4(video: Buffer, codec: VideoCodec, audio?: 
       "-f",
       "mp4",
       "pipe:1",
-    ], { stdio: ["pipe", "pipe", "pipe", "pipe"] });
+    ], { stdio: ["pipe", "pipe", "pipe", "pipe"], signal });
     const output: Buffer[] = [];
     let stderr = "";
     let settled = false;

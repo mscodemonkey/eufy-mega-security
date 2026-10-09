@@ -13,6 +13,7 @@
 import { createCipheriv, createDecipheriv, createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes, timingSafeEqual } from "node:crypto";
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
+import { SoloCamRecordingReader, type CameraStoredRecord } from "./stored-recordings.js";
 import type { CameraPresetPosition, VideoCodec } from "../domain/types.js";
 import { PpcsAccessUnitAssembler } from "./ppcs-access-unit-assembler.js";
 import { decodePpcsAac } from "./ppcs-audio.js";
@@ -1161,6 +1162,9 @@ export class FirstPartyPpcsSession {
   #pendingControlQuery: PendingControlQuery | null = null;
   #pendingCameraInfo: PendingCameraInfo | null = null;
 
+  /** Own correlated card reads separately from live media and camera-setting requests. */
+  #recordings: SoloCamRecordingReader | null = null;
+
   /** Return the codec proven by emitted NAL headers, or frame metadata as a fallback. */
   get videoCodec(): VideoCodec | null {
     const codec = this.#videoNormalizer.codec;
@@ -1575,6 +1579,48 @@ export class FirstPartyPpcsSession {
     await delay(500);
   }
 
+  /** Read completed standalone SoloCam event clips without changing the card or recording policy. */
+  async listStoredRecordings(date: string, signal?: AbortSignal): Promise<readonly CameraStoredRecord[]> {
+    const reader = this.#recordingReader();
+    await this.#waitForLevel2Key();
+    return await reader.list(date, signal);
+  }
+
+  /** Retrieve a provider-owned recording reference and verify all returned media tracks. */
+  async downloadStoredRecording(record: CameraStoredRecord, signal?: AbortSignal): Promise<Buffer> {
+    const reader = this.#recordingReader();
+    await this.#waitForLevel2Key();
+    return await reader.download(record, signal);
+  }
+
+  #recordingReader(): SoloCamRecordingReader {
+    if (this.#options.cameraModel !== "T8171" || this.#options.homeBaseAttached ||
+      this.#options.channel !== 0 || this.#options.purpose !== "control" || !this.#options.accountId) {
+      throw new Error("Stored recordings require the verified standalone SoloCam route");
+    }
+    this.#recordings ??= new SoloCamRecordingReader({
+      serial: this.#options.stationSerial, p2pDid: this.#options.p2pDid,
+      query: (transaction, date) => {
+        const value = { account_id: this.#options.accountId, cmd: 1306, mChannel: 0, mValue3: 0,
+          payload: { cmd: 10017, table: "history_record_info", transaction, payload: {
+            count: 100, detection_type: 0, device_info: [{ device_sn: this.#options.stationSerial }],
+            start_date: date, end_date: date, start_time: "0", event_type: 0, flag: 0,
+            res_unzip: 1, storage_cloud: -1, ai_type: 0,
+          } } };
+        this.#sendCommand(1350, rawPayload(encryptLevel2(Buffer.from(JSON.stringify(value)), this.#level2Key!, this.#level2Seq++), 0, 8, [8, 0], 0));
+      },
+      download: (storagePath) => {
+        const body = Buffer.alloc(261);
+        Buffer.from(storagePath).copy(body, 5, 0, 127);
+        Buffer.from(this.#options.accountId!).copy(body, 133, 0, 127);
+        this.#sendCommand(1024, rawPayload(encryptLevel2(body, this.#level2Key!, this.#level2Seq++), 255, 8, [8, 0], 0));
+      },
+      decodeReply: (payload, sign) => sign === 0 ? payload : sign === 8 && this.#level2Key
+        ? decryptLevel2(payload, this.#level2Key, sign) ?? null : null,
+    });
+    return this.#recordings;
+  }
+
   /** Enable or disable T817L automatic cruise using the app-confirmed action. */
   async writeAutoCruise(enabled: boolean): Promise<void> {
     await this.#sendControlPayload(6031, { value: enabled ? 1 : 0 });
@@ -1592,6 +1638,7 @@ export class FirstPartyPpcsSession {
     if (this.#closed) return;
     this.#closed = true;
     this.stats.closeReason = reason;
+    this.#recordings?.close();
     if (this.#maximumDurationTimer) clearTimeout(this.#maximumDurationTimer);
     if (this.#firstFrameTimer) clearTimeout(this.#firstFrameTimer);
     if (this.#heartbeat) clearInterval(this.#heartbeat);
@@ -1698,7 +1745,8 @@ export class FirstPartyPpcsSession {
       if (!this.stats.types.includes(type[1] ?? -1)) this.stats.types.push(type[1] ?? -1);
       this.#send(REQ.ack, Buffer.concat([type, u16(1), u16(seq)]), this.#remote);
       const dataType = type[1] ?? 0;
-      if (type.equals(DATA.video) || type.equals(DATA.data) || dataType === 2) this.#datagramOrder.push(message.subarray(8), seq, dataType);
+      if (type.equals(DATA.video) || type.equals(DATA.data) || dataType === 2 ||
+        (dataType === 3 && this.#recordings?.downloading)) this.#datagramOrder.push(message.subarray(8), seq, dataType);
     }
     return false;
   }
@@ -1786,6 +1834,7 @@ export class FirstPartyPpcsSession {
    * HomeBase peer, media is accepted only from the requested child channel.
    */
   #handleFrame(header: Buffer, payload: Buffer, type: number): void {
+    if (this.#recordings?.handleFrame(header, payload, type)) return;
     const command = header.readUInt16LE(4);
     const size = header.readUInt32LE(6);
     const frameChannel = ppcsFrameChannel(header);
