@@ -164,11 +164,11 @@ Please describe anything that did not work and attach the Eufy Mega Security dia
 
 
 class EufyCameraLightButton(EufyGatewayEntity, ButtonEntity):
-    """Send one timed light action without presenting a persistent switch state.
+    """Send one manual light action without presenting a persistent switch state.
 
     One on and one off button live for the config entry's platform lifetime.
-    The camera decides when an activated light times out, so this entity never
-    guesses whether the physical light is still illuminated.
+    The camera owns any automatic timeout, which is not available on every model.
+    This entity never guesses whether the physical light is still illuminated.
     """
 
     def __init__(

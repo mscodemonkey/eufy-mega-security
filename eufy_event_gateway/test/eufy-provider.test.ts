@@ -340,6 +340,9 @@ test("selects the source-backed direct light protocol by camera family", () => {
   assert.equal(cameraLightControlProtocol({ deviceType: 151 }), "timed-json");
   assert.equal(cameraLightControlProtocol({ deviceType: 10005 }), "timed-json");
   assert.equal(cameraLightControlProtocol({ deviceType: 10031 }), null);
+  assert.equal(cameraLightControlProtocol({ deviceType: 10031, model: "T817L" }), "c31-json");
+  assert.equal(cameraLightControlProtocol({ deviceType: 10031, model: "T817L121" }), null);
+  assert.equal(cameraLightControlProtocol({ deviceType: 88, model: "T817L" }), null);
   assert.equal(cameraLightControlProtocol({ deviceType: null }), null);
 });
 

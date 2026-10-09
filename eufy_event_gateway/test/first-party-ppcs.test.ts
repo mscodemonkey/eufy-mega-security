@@ -27,6 +27,7 @@ import {
   buildSoloCamStreamingQualityPayload,
   buildSoloCamPanControlData,
   buildSoloCamPanControlPayload,
+  buildStandaloneC31ControlPayload,
   buildStandaloneGuardModeValue,
   buildStandaloneLiveStartPayload,
   buildTimedCameraLightControlValue,
@@ -149,6 +150,31 @@ test("authenticates native SoloCam preset movement on the control rather than me
   assert.deepEqual(JSON.parse(clear.toString("utf8")), {
     commandType: 6035, data: { value: 1, transaction: "1791490000000" },
   });
+});
+
+test("authenticates captured C31 boolean controls without the legacy tracking or timed-light fields", () => {
+  const key = Buffer.alloc(32, 11);
+  const transaction = 1791490000000;
+  for (const command of [6016, 6031, 1400] as const) {
+    for (const enabled of [false, true]) {
+      const payload = buildStandaloneC31ControlPayload(command, enabled, key, 257, transaction);
+      assert.deepEqual(payload.subarray(4, 10), Buffer.from([8, 0, 0, 8, 0, 0]));
+      const encrypted = payload.subarray(10);
+      const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(16, 28));
+      decipher.setAAD(Buffer.from("eufy security"));
+      decipher.setAuthTag(encrypted.subarray(0, 16));
+      const clear = Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
+      const value = enabled ? 1 : 0;
+      assert.deepEqual(JSON.parse(clear.toString("utf8")), {
+        commandType: command,
+        data: command === 1400
+          ? { value, open: value, type: 2, transaction: "1791490000000" }
+          : { value, transaction: "1791490000000" },
+      });
+    }
+  }
+  assert.throws(() => buildStandaloneC31ControlPayload(6016, true, key, 0, 1234), /epoch milliseconds/);
+  assert.throws(() => buildStandaloneC31ControlPayload(9999 as 6016, true, key, 0, transaction), /Unsupported/);
 });
 
 test("builds the direct standalone-camera guard-mode value", () => {

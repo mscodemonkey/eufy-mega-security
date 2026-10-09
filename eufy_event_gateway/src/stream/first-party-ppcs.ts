@@ -600,6 +600,23 @@ export function buildSoloCamPanControlPayload(
   return rawPayload(encryptLevel2(Buffer.from(body), key, sequence), 0, 8, [8, 0], 0);
 }
 
+/** Build the authenticated direct C31 control observed in native tracking, cruise and light captures. */
+export function buildStandaloneC31ControlPayload(
+  command: 6016 | 6031 | 1400,
+  enabled: boolean,
+  key: Buffer,
+  sequence: number,
+  transaction: number,
+): Buffer {
+  if (![6016, 6031, 1400].includes(command)) throw new Error("Unsupported standalone C31 control");
+  const preference = buildSoloCamPanControlData(6016, enabled ? 1 : 0, transaction);
+  const data = command === 1400
+    ? { value: preference.value, open: preference.value, type: 2, transaction: preference.transaction }
+    : preference;
+  const body = buildCameraControlQueryValue(command, data);
+  return rawPayload(encryptLevel2(Buffer.from(body), key, sequence), 0, 8, [8, 0], 0);
+}
+
 /**
  * Encrypt one standalone JSON control value in Eufy's level-one string envelope.
  *
@@ -1530,6 +1547,14 @@ export class FirstPartyPpcsSession {
     }
   }
 
+  /** Send the native manual light action on a provider-authorized standalone C31. */
+  async writeStandaloneC31Light(enabled: boolean): Promise<void> {
+    if (this.#options.cameraModel !== "T817L" || this.#options.homeBaseAttached || this.#options.channel !== 0) {
+      throw new Error("C31 manual light requires its direct channel-zero route");
+    }
+    await this.#sendControlPayload(1400, { value: enabled ? 1 : 0, transaction: `${Date.now()}` });
+  }
+
   /** Send the standalone wall-light family's momentary on or off command. */
   async writeTimedCameraLight(enabled: boolean): Promise<void> {
     if (this.#options.purpose !== "control") throw new Error("Camera light control requires a control session");
@@ -1608,7 +1633,8 @@ export class FirstPartyPpcsSession {
 
   /** Enable or disable AI tracking using this model's app-confirmed command shape. */
   async writeAiTracking(enabled: boolean): Promise<void> {
-    await this.#sendControlPayload(6016, this.#usesSoloCamPanControl()
+    await this.#sendControlPayload(6016, (this.#usesSoloCamPanControl()
+      || (this.#options.cameraModel === "T817L" && !this.#options.homeBaseAttached && this.#options.channel === 0))
       ? buildSoloCamPanControlData(6016, enabled ? 1 : 0) : buildAiTrackingControlData(enabled));
     await delay(500);
   }
@@ -1693,7 +1719,10 @@ export class FirstPartyPpcsSession {
 
   /** Enable or disable T817L automatic cruise using the app-confirmed action. */
   async writeAutoCruise(enabled: boolean): Promise<void> {
-    await this.#sendControlPayload(6031, { value: enabled ? 1 : 0 });
+    await this.#sendControlPayload(6031, { value: enabled ? 1 : 0,
+      ...(!this.#options.homeBaseAttached && this.#options.cameraModel === "T817L" && this.#options.channel === 0
+        ? { transaction: `${Date.now()}` } : {}),
+    });
     await delay(500);
   }
 
@@ -2255,7 +2284,20 @@ export class FirstPartyPpcsSession {
     if (this.#options.purpose !== "control" && !this.#allowsViewerPanControl(command)) throw new Error("Camera control requires a control session");
     if (!this.#remote) throw new Error("Camera control session is not connected");
     const soloCam = this.#usesSoloCamPanControl();
-    if (this.#options.homeBaseAttached || soloCam) await this.#waitForLevel2Key();
+    const standaloneC31Control = this.#options.cameraModel === "T817L"
+      && !this.#options.homeBaseAttached && this.#options.channel === 0 && [6016, 6031, 1400].includes(command);
+    if (this.#options.homeBaseAttached || soloCam || standaloneC31Control) await this.#waitForLevel2Key();
+    if (standaloneC31Control) {
+      if (data.value !== 0 && data.value !== 1) throw new Error("C31 control requires an absolute boolean value");
+      for (let transmission = 0; transmission < 3; transmission += 1) {
+        this.#sendCommand(1700, buildStandaloneC31ControlPayload(
+          command as 6016 | 6031 | 1400, data.value === 1,
+          this.#level2Key!, this.#level2Seq++, Number(data.transaction),
+        ));
+        await delay(200);
+      }
+      return;
+    }
     if (soloCam) {
 
       // Native absolute writes tolerate retransmission. Drain the last packet

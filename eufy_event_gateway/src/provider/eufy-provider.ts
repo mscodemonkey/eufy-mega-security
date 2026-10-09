@@ -168,10 +168,11 @@ export function supportsTimedCameraLight(
   return device.deviceType !== null && TIMED_LIGHT_JSON_DEVICE_TYPES.has(device.deviceType);
 }
 
-/** Select the source-backed direct-camera light wire format for this device family. */
+/** Select a direct-camera light wire format without broadening exact C31 model eligibility. */
 export function cameraLightControlProtocol(
-  device: Pick<MegaInventoryDevice, "deviceType">,
-): "timed-json" | "int-string" | null {
+  device: Pick<MegaInventoryDevice, "deviceType"> & Partial<Pick<MegaInventoryDevice, "model">>,
+): "timed-json" | "int-string" | "c31-json" | null {
+  if (device.model === "T817L" && device.deviceType === 10031) return "c31-json";
   if (device.deviceType === null) return null;
   if (TIMED_LIGHT_JSON_DEVICE_TYPES.has(device.deviceType)) return "timed-json";
   if (INT_STRING_LIGHT_DEVICE_TYPES.has(device.deviceType)) return "int-string";
@@ -1685,6 +1686,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === true
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       cameraLightControlSupported: cameraLightControlProtocol(device) !== null
+        && (cameraLightControlProtocol(device) !== "c31-json"
+          || supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)))
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === false
         && device.channel !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
@@ -1718,6 +1721,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         throw new Error("Camera light control is not supported for this camera");
       }
       const route = ppcsStreamRoute(device, this.#devices);
+      if (protocol === "c31-json" && !supportsStandaloneC31Presets(device, route, true)) {
+        throw new Error("C31 light control requires its authorized direct channel-zero route");
+      }
       const peer = route?.peer;
       const dsk = peer ? await this.#dskKey(peer.serial) : null;
       if (
@@ -1741,10 +1747,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         homeBaseAttached: false,
         purpose: "control",
         maxSeconds: 30,
+        ...(protocol === "c31-json"
+          ? { resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer) } : {}),
       });
       try {
         await session.start();
-        if (protocol === "int-string") await session.writeStandaloneCameraLight(enabled);
+        if (protocol === "c31-json") await session.writeStandaloneC31Light(enabled);
+        else if (protocol === "int-string") await session.writeStandaloneCameraLight(enabled);
         else await session.writeTimedCameraLight(enabled);
       } finally {
         session.close();
