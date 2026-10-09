@@ -33,18 +33,23 @@ function media(audio: boolean): Buffer {
   return result.stdout;
 }
 
-for (const audio of [true, false]) {
-  test(`live transport delivers decodable video ${audio ? "with AAC" : "when no audio arrives"}`, { timeout: 15_000 }, async () => {
+for (const [audio, delayed] of [[true, false], [false, false], [true, true]] as const) {
+  test(`live transport delivers decodable video ${audio ? (delayed ? "with delayed HomeBase AAC" : "with AAC") : "when no audio arrives"}`, { timeout: 15_000 }, async () => {
     const response = new Response();
     const chunks: Buffer[] = [];
     response.on("data", (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
     let closed = 0;
-    const muxer = new LiveTransportMuxer(response as unknown as ServerResponse, () => closed++, 20);
+    const muxer = new LiveTransportMuxer(response as unknown as ServerResponse, () => closed++, delayed ? 12_000 : 20);
     try {
       const video = media(false);
       const sound = audio ? media(true) : null;
-      if (sound) muxer.acceptAudio(sound);
+      if (sound && !delayed) muxer.acceptAudio(sound);
       muxer.videoInput.write(video);
+      if (sound && delayed) {
+        await delay(2_100);
+        assert.equal(response.headersSent, false);
+        muxer.acceptAudio(sound);
+      }
       if (sound) {
         for (let repeat = 0; repeat < 60; repeat++) {
           await delay(100);

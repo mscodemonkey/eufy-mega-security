@@ -17,6 +17,7 @@ import {
   buildLegacyAttachedMediaStopPayload,
   buildNightVisionBody,
   acceptsAttachedCameraMedia,
+  acceptsSoloCamAudio,
   buildPpcsCloudLookup,
   buildStandaloneJsonControlPayload,
   buildStandaloneCameraLightBody,
@@ -759,4 +760,14 @@ test("genuine HEVC setup stays HEVC after EOS resembles a lone H264 PPS", () => 
   normalizer.push(Buffer.from([0, 0, 1, 0x48, 0x01]));
   assert.equal(normalizer.codec, "h265");
   assert.deepEqual(normalizer.nalTypes, [32, 33, 34, 36]);
+});
+
+test("SoloCam audio isolates attached children and excludes controls and unrelated models", () => {
+  assert.equal(acceptsSoloCamAudio("T8171", true, 1, 1, "live"), true);
+  assert.equal(acceptsSoloCamAudio("T8171", true, 1, 2, "live"), false);
+  assert.equal(acceptsSoloCamAudio("T8171", true, 1, 1, "control"), false);
+  assert.equal(acceptsSoloCamAudio("T8171", false, 0, 0, undefined), true);
+  assert.equal(acceptsSoloCamAudio("T8171", false, 1, 1, "live"), false);
+  assert.equal(acceptsSoloCamAudio("T817L", true, 1, 1, "live"), false);
+  assert.equal(acceptsSoloCamAudio("T8171", true, -1, -1, "live"), false);
 });

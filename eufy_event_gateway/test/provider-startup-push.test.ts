@@ -829,6 +829,7 @@ for (const childFirst of [false, true]) {
       await f.provider.refreshCameraCapabilities("camera");
       assert.equal(f.state.getCamera("camera").nightVisionMode, 3);
       assert.equal(f.state.getCamera("camera").storedRecordingsSupported, true);
+      assert.equal(f.state.getCamera("camera").liveAudioSupported, true);
       await f.provider.startStream("camera");
       f.state.updateStream("camera", "streaming", 1);
       const closeCount = closes.mock.callCount();
@@ -847,6 +848,7 @@ for (const childFirst of [false, true]) {
       const attached = f.state.getCamera("camera");
       assert.equal(attached.name, "Attached camera"); assert.equal(attached.stationSerial, "peer");
       assert.equal(attached.streamSupported, true); assert.equal(attached.storedRecordingsSupported, false);
+      assert.equal(attached.liveAudioSupported, true);
       assert.equal(attached.audioRecordingControlSupported, false); assert.equal(attached.streamingQualityControlSupported, false);
       assert.equal(attached.nightVisionMode, 0);
       assert.equal(attached.stream.viewers, 0); assert.equal(attached.stream.state, "idle");
@@ -857,6 +859,7 @@ for (const childFirst of [false, true]) {
       const restored = f.state.getCamera("camera");
       assert.equal(restored.name, "Renamed direct"); assert.equal(restored.stationSerial, "camera");
       assert.equal(restored.streamSupported, true); assert.equal(restored.storedRecordingsSupported, true);
+      assert.equal(restored.liveAudioSupported, true);
       assert.equal(restored.nightVisionMode, 1);
       assert.equal(starts.mock.callCount(), startCount);
       assert.equal(f.push.mock.callCount(), 1); assert.equal(f.connections.filter(({ state }) => state === "connected").length, 1);

@@ -600,7 +600,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         if (this.#ppcsStreams.get(serial) === stream) this.#ppcsStreams.delete(serial);
         throw error;
       }
-      const audio = device.model === "T8171" && device.deviceType === 88 && !route.homeBaseAttached && device.channel === 0
+      const audio = device.model === "T8171" && device.deviceType === 88
+        && ((route.homeBaseAttached && route.peer.model === "T8030") || (!route.homeBaseAttached && device.channel === 0))
         ? stream.audioOutput : undefined;
       this.#events?.streamStarted(serial, stream.output, () => stream.videoCodec, audio);
       const finalize = () => this.#finalizeStream(serial, stream, device, route);
@@ -1591,8 +1592,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       stationSerial: device.parentSerial,
       doorbellSupported: isDoorbellDevice(device),
       streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials),
-      liveAudioSupported: device.model === "T8171" && device.deviceType === 88 && device.channel === 0
-        && route?.homeBaseAttached === false && route.peer.serial === device.serial
+      liveAudioSupported: device.model === "T8171" && device.deviceType === 88 && device.channel !== null
+        && Boolean(route && ((route.homeBaseAttached && route.peer.model === "T8030")
+          || (!route.homeBaseAttached && device.channel === 0 && route.peer.serial === device.serial)))
         && isPpcsStreamSupported(device, this.#devices, dskPeerSerials),
       enabled: device.reads.enabled ?? null,
       enableControlSupported: device.reads.enabled !== undefined

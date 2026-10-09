@@ -116,6 +116,17 @@ export function acceptsAttachedCameraMedia(command: number, frameChannel: number
 }
 
 /**
+ * Limit clear SoloCam AAC to its requested child channel and media lifecycle.
+ * Attached routes may use any assigned channel; direct T8171 routes use zero.
+ * Payload validation and protection checks remain with the owning session.
+ */
+export function acceptsSoloCamAudio(cameraModel: string, homeBaseAttached: boolean, requestedChannel: number,
+  frameChannel: number, purpose: string | undefined): boolean {
+  return cameraModel === "T8171" && Number.isSafeInteger(requestedChannel) && requestedChannel >= 0
+    && frameChannel === requestedChannel && (homeBaseAttached || requestedChannel === 0) && purpose !== "control";
+}
+
+/**
  * Build the JSON value encrypted inside a HomeBase media start or stop.
  *
  * Command 1003 starts a child camera and must advertise the session's RSA
@@ -1046,7 +1057,7 @@ export class CameraControlAcknowledgementTimeoutError extends Error {
  * eufy-security-client or the expiring Web Portal PIN.
  *
  * Media sessions emit Annex-B bytes on `output` and optional validated AAC on
- * `audioOutput` for standalone T8171 clip consumers. Control sessions suppress
+ * `audioOutput` for T8171 media consumers on direct or attached routes. Control sessions suppress
  * media startup and expose the small set of verified writes below. Some writes
  * wait for a result frame, while the observed fire-and-repeat forms return
  * after their bounded UDP transmissions.
@@ -1060,7 +1071,7 @@ export class FirstPartyPpcsSession {
   /** Ordered Annex-B video bytes; the session ends this stream when it closes. */
   readonly output = new PassThrough();
 
-  /** Optional checked AAC for standalone T8171 clips, ended with the video session. */
+  /** Optional checked AAC for T8171 media, ended with the video session. */
   readonly audioOutput = new PassThrough();
 
   /**
@@ -1911,9 +1922,9 @@ export class FirstPartyPpcsSession {
           this.#firstFrameTimer = null;
         }
       }
-    } else if (command === 1301 && signCode === 0 && frameChannel === this.#options.channel
-      && this.#options.cameraModel === "T8171" && !this.#options.homeBaseAttached
-      && this.#options.channel === 0 && this.#options.purpose !== "control") {
+    } else if (command === 1301 && signCode === 0
+      && acceptsSoloCamAudio(this.#options.cameraModel, this.#options.homeBaseAttached === true, this.#options.channel,
+        frameChannel ?? -1, this.#options.purpose)) {
       const audio = decodePpcsAac(payload);
 
       // Discard audio without consumers instead of retaining an unbounded stream.
