@@ -61,7 +61,7 @@ class EufyStationVolume(EufyStationEntity, NumberEntity):
     after the gateway confirms that the command succeeded.
     """
 
-    _attr_native_min_value = 0
+    _attr_native_min_value = 1
     _attr_native_max_value = 26
     _attr_native_step = 1
 
@@ -79,9 +79,6 @@ class EufyStationVolume(EufyStationEntity, NumberEntity):
             if kind == "alarm"
             else coordinator.client.set_station_prompt_volume
         )
-        if kind == "alarm":
-            self._attr_native_min_value = 1
-
     @property
     def native_value(self) -> float | None:
         """Return the confirmed raw Eufy volume level."""

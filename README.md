@@ -40,8 +40,8 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 
 ### HomeBase
 
-- ✅ HomeBase 3 S380 / T8030: confirmed as the parent of working camera setups. A community tester also confirmed alarm-panel state, guard-mode switching, and alarm-tone selection on real hardware.
-- 🟠 HomeBase 3 S380 / T8030 remaining controls: siren state, storage diagnostics, volume controls, storage units and status meanings, writable ranges, and siren stop codes still need focused real-device confirmation.
+- ✅ HomeBase 3 S380 / T8030: confirmed as the parent of working camera setups. Community hardware tests confirmed eMMC and HDD capacity, free space and healthy status, alarm-panel state, guard-mode switching, alarm-tone selection, prompt volume from 1 to 26, and siren start, timed stop and explicit stop.
+- 🟠 HomeBase 3 S380 / T8030 remaining controls: alarm-volume acknowledgement and readback, readable siren state, siren stop from the Eufy app, and Away and Schedule guard modes still need focused confirmation.
 - 🟠 HomeBase 2 T8010: discovered as a read-only HomeBase with firmware,
   inventory availability, and child-camera route readiness. HomeBase 3 alarm,
   guard-mode, storage, volume, and tone controls remain hidden until the T8010
@@ -100,7 +100,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 ### Standalone sensors
 
 - ✅ Entry Sensor T8900: discovery and open or closed state are confirmed on real hardware.
-- ✅ Motion Sensor T8910: discovery and motion events are confirmed through HomeBase 2 when notifications for the sensor are enabled in the active Eufy mode. The cloud last-seen value remains unconfirmed.
+- ✅ Motion Sensor T8910: discovery and motion events are confirmed through HomeBase 2 and HomeBase 3 when notifications for the sensor are enabled in the active Eufy mode. The cloud last-seen value remains unconfirmed.
 
 ### Recognised but not supported
 
@@ -181,7 +181,7 @@ On Home Assistant OS or Supervised, the app generates its own private API token 
 
 Create a separate Eufy guest account and share only the Home and cameras you want Home Assistant to access. Do not use the Eufy account currently signed into your everyday mobile app; simultaneous Eufy sessions can interfere with one another.
 
-Open the shared Home in the Eufy app while signed in as the guest account and confirm the shared devices are visible. Event delivery also depends on each device's Eufy push-notification setting. On tested HomeBase 3 hardware that setting applied to every account, and the gateway had no separate local event route when device notifications were disabled. T8910 motion sensors behind HomeBase 2 also require notifications to be enabled for the sensor in the active Eufy mode. That setting sends the push used by the gateway and may also show the same alert on the account owner's phone.
+Open the shared Home in the Eufy app while signed in as the guest account and confirm the shared devices are visible. Event delivery also depends on each device's Eufy push-notification setting. On tested HomeBase 3 hardware that setting applied to every account, and the gateway had no separate local event route when device notifications were disabled. T8910 motion sensors behind HomeBase 2 and HomeBase 3 also require notifications to be enabled for the sensor in the active Eufy mode. That setting sends the push used by the gateway and may also show the same alert on the account owner's phone.
 
 You will need:
 
