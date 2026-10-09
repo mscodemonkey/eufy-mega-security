@@ -47,7 +47,9 @@ capabilities:
     streaming_quality:
       connections:
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-10-09
+          tested_by: mscodemonkey
       read:
         parameter: 1020
       values:
@@ -74,7 +76,9 @@ capabilities:
     motion_detection:
       connections:
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-10-09
+          tested_by: mscodemonkey
         T8010:
           status: declared
         T8030:
@@ -89,11 +93,15 @@ capabilities:
     night_vision:
       connections:
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-10-09
+          tested_by: mscodemonkey
         T8010:
           status: declared
         T8030:
-          status: declared
+          status: tested
+          tested_on: 2026-10-09
+          tested_by: mscodemonkey
       read:
         parameter: 1277
       write:
@@ -106,28 +114,38 @@ capabilities:
     live_view:
       connections:
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-10-09
+          tested_by: mscodemonkey
         T8010:
           status: reported
           tested_on: 2026-09-24
           tested_by: unja4711
         T8030:
-          status: declared
+          status: tested
+          tested_on: 2026-10-09
+          tested_by: mscodemonkey
     snapshot:
       connections:
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-10-09
+          tested_by: mscodemonkey
         T8010:
           status: reported
           tested_on: 2026-09-24
           tested_by: unja4711
         T8030:
-          status: declared
+          status: tested
+          tested_on: 2026-10-09
+          tested_by: mscodemonkey
   events:
     motion:
       connections:
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-10-09
+          tested_by: mscodemonkey
         T8010:
           status: reported
           tested_on: 2026-09-24
@@ -137,7 +155,9 @@ capabilities:
     person:
       connections:
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-10-09
+          tested_by: mscodemonkey
         T8010:
           status: declared
         T8030:
