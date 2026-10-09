@@ -896,14 +896,15 @@ test("binding changes retire owned recording sessions and reject late old-route 
 });
 
 
-test("HomeBase recording ownership prevents a sibling live session until retrieval releases", async (context) => {
+test("HomeBase recording ownership prevents sibling live and pan sessions until retrieval releases", async (context) => {
   const f = discoveryFixture(context);
   const peer = { device_sn: "peer", device_model: "T8030", device_type: 18, category: "eufy_security",
     p2p_did: "station-peer", p2p_conn: "station-route", member: { admin_user_id: "fixture-account" } };
   const child = { device_sn: "camera", device_model: "T8171", device_type: 88, category: "eufy_security",
     parent_sn: "peer", device_channel: 1, member: { admin_user_id: "fixture-account" } };
   context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [peer, child,
-    { ...child, device_sn: "sibling", device_model: "T8214", device_type: 94, device_channel: 2 }] }));
+    { ...child, device_sn: "sibling", device_model: "T8214", device_type: 94, device_channel: 2 },
+    { ...child, device_sn: "pan-sibling", device_model: "T817L", device_type: 10031, device_channel: 3 }] }));
   context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ peer: { key: "station-key", expiresAt: null } }));
   const starts = context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => undefined);
   let finish!: (records: readonly never[]) => void;
@@ -915,6 +916,7 @@ test("HomeBase recording ownership prevents a sibling live session until retriev
     await settleDiscovery();
     assert.equal(starts.mock.callCount(), 1);
     await assert.rejects(f.provider.startStream("sibling"), /recording retrieval/);
+    await assert.rejects(f.provider.getCameraPresetPositions("pan-sibling"), /recording retrieval/);
     assert.equal(starts.mock.callCount(), 1);
     finish([]); await listing;
     await assert.doesNotReject(f.provider.startStream("sibling"));

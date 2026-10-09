@@ -1841,6 +1841,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (!device || !isSupportedMegaCamera(device) || !supportsPresetPositions(device)) {
         throw new Error("Pan and tracking controls are not supported for this camera");
       }
+      if (this.#recordingPeerReserved(serial)) {
+        throw new Error("Wait for this camera peer's recording retrieval before using pan controls");
+      }
       if (action === "auto_cruise" && !device.model.toUpperCase().startsWith("T817L")) {
         throw new Error("Automatic cruise has not been verified for this camera");
       }
