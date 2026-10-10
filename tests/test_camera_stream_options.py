@@ -38,7 +38,7 @@ class CameraStreamOptionsTest(unittest.TestCase):
             )
         ]
 
-        self.assertEqual(len(assignments), 1)
+        self.assertEqual(len(assignments), 2)
         expression = compile(ast.Expression(assignments[0].value), str(CAMERA_SOURCE), "eval")
         for camera, expected in [
             ({}, True),
@@ -227,6 +227,31 @@ class CameraStreamUrlActionTest(unittest.IsolatedAsyncioTestCase):
             await method(camera)
 
         namespace["async_request_stream"].assert_not_awaited()
+
+
+class CameraCurrentStreamClockTest(unittest.IsolatedAsyncioTestCase):
+    """Choose timestamps from current admission instead of startup inventory."""
+
+    async def test_capability_changes_before_opening_source(self):
+        """Preserve transport clocks after AAC admission and raw-video clocks after removal."""
+        tree = ast.parse(CAMERA_SOURCE.read_text())
+        method = next(node for node in ast.walk(tree)
+                      if isinstance(node, ast.AsyncFunctionDef) and node.name == "stream_source")
+        namespace = {"CONF_USE_WALLCLOCK_AS_TIMESTAMPS": "wallclock"}
+        exec(compile(ast.Module(body=[method], type_ignores=[]), str(CAMERA_SOURCE), "exec"), namespace)
+        client = SimpleNamespace(stream_url=AsyncMock(return_value="signed-source"))
+        entity = SimpleNamespace(camera={"streamSupported": True}, stream_options={"wallclock": True},
+                                 serial="synthetic", coordinator=SimpleNamespace(client=client))
+        entity.camera["liveAudioSupported"] = True
+        self.assertEqual(await namespace["stream_source"](entity), "signed-source")
+        self.assertIs(entity.stream_options["wallclock"], False)
+        entity.camera["liveAudioSupported"] = False
+        await namespace["stream_source"](entity)
+        self.assertIs(entity.stream_options["wallclock"], True)
+        entity.camera["streamSupported"] = False
+        client.stream_url.reset_mock()
+        self.assertIsNone(await namespace["stream_source"](entity))
+        client.stream_url.assert_not_awaited()
 
 
 if __name__ == "__main__":

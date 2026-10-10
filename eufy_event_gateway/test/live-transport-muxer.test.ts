@@ -69,6 +69,14 @@ for (const [audio, delayed] of [[true, false], [false, false], [true, true]] as 
       assert.equal(streams.some((row) => row.codec_type === "audio" && row.codec_name === "aac"), audio);
       if (audio) assert.ok(Number(streams.find((row) => row.codec_type === "audio")?.nb_read_packets) >= 50, `AAC must continue beyond its first packet: ${JSON.stringify(streams)}`);
       if (audio) {
+        const videoPackets = spawnSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_packets", "-show_entries", "packet=dts,duration", "-of", "json", "-i", "pipe:0"], { input: output });
+        assert.equal(videoPackets.status, 0, videoPackets.stderr.toString());
+        const opening = JSON.parse(videoPackets.stdout.toString()).packets as { dts: number; duration: number }[];
+        assert.ok(opening.length >= 2);
+
+        // HA rewrites its first video DTS this way before segmenting. Negative
+        // results shift the first segment's AAC differently from later ones.
+        assert.ok(opening[1]!.dts - (opening[1]!.duration || 1) >= 0);
         const packets = spawnSync("ffprobe", ["-v", "error", "-select_streams", "a:0", "-show_packets", "-show_entries", "packet=dts,duration", "-of", "json", "-i", "pipe:0"], { input: output });
         assert.equal(packets.status, 0, packets.stderr.toString());
         const rows = JSON.parse(packets.stdout.toString()).packets as { dts: number; duration: number }[];

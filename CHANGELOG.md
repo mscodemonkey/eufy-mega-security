@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.128
+
+- Fix Home Assistant recordings with live AAC audio failing at a segment boundary. Both tracks now start from the same positive transport timestamp, avoiding a first-segment shift that could make audio timestamps move backwards. A fresh standalone C31 recording was used for the reproduction and hardware validation.
+- Choose Home Assistant stream timing from the camera's current audio capability when opening a source, rather than only from its startup inventory.
+
 ## 0.1.127
 
 - Add Home Assistant switches for RTSP publication and continuous recording on the verified standalone Wired Cam C31 (T817L, device type 10031). Both switches were tested through Home Assistant with fresh camera readback. RTSP video and audio decoded successfully, and a controlled continuous recording played in the Eufy app. Gateway playback of continuous footage remains unavailable.

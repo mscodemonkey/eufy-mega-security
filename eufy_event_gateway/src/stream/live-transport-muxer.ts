@@ -136,7 +136,12 @@ export class LiveTransportMuxer {
     // Raw AAC startup can yield overlapping timestamps even when subsequent
     // packets are regular. Keep its sample clock continuous for HA's MP4 remux.
     if (withAudio) args.push("-bsf:a", "setts=ts='if(eq(N,0),0,PREV_OUTDTS+PREV_OUTDURATION)':duration='if(gt(DURATION,0),DURATION,1024/SR/TB)'");
-    args.push("-c", "copy", "-flush_packets", "1", "-muxdelay", "0", "-muxpreload", "0", "-max_interleave_delta", "100000", "-f", "mpegts", "pipe:1");
+
+    // HA back-calculates the first video DTS from the second packet. A burst
+    // of startup frames can make that negative, shifting only its first MP4
+    // segment and rounding AAC into an overlap at the next segment boundary.
+    // A shared positive epoch prevents that shift without buffering or changing cadence.
+    args.push("-c", "copy", "-output_ts_offset", "1", "-flush_packets", "1", "-muxdelay", "0", "-muxpreload", "0", "-max_interleave_delta", "100000", "-f", "mpegts", "pipe:1");
     const child = spawn("ffmpeg", args, { stdio: ["pipe", "pipe", "pipe", withAudio ? "pipe" : "ignore"] });
     this.#process = child;
     child.once("error", () => this.close("process_error"));
