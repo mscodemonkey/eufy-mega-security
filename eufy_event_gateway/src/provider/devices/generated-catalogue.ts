@@ -249,7 +249,7 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
       "T8220"
     ],
     "deviceType": 16,
-    "status": "ready_to_test",
+    "status": "supported",
     "handler": "camera"
   },
   {
