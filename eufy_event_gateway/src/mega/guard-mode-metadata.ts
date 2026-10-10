@@ -8,6 +8,70 @@ const KNOWN_FIELDS = new Set(["id", "mode", "mode_id", "mode_type", "name", "mod
 const ID_FIELDS = new Set(["id", "mode", "mode_id", "mode_type"]);
 
 /**
+ * Preserve nested mode evidence using document-local aliases instead of names.
+ * Only known mode IDs survive as values. Explicit cap markers distinguish
+ * incomplete evidence from an absent field; tokens cannot identify labels
+ * across documents and must never be used to choose a security mode.
+ */
+export function guardModeMetadataStructure(value: unknown): string {
+  if (value === undefined) return "missing";
+  if (typeof value !== "string") return "invalid";
+  if (value.length > 16_384) return "oversized";
+  let parsed: unknown;
+  try { parsed = JSON.parse(value); }
+  catch {
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 !== 0) return "invalid";
+    try { parsed = JSON.parse(Buffer.from(value, "base64").toString("utf8")); }
+    catch { return "invalid"; }
+  }
+  const fields = new Map<string, string>();
+  const texts = new Map<string, string>();
+  let visited = 0;
+  let exhausted = false;
+  const alias = (table: Map<string, string>, text: string, prefix: string): string => {
+    let token = table.get(text);
+    if (token === undefined) {
+      token = `${prefix}${table.size + 1}`;
+      table.set(text, token);
+    }
+    return token;
+  };
+  const inspect = (node: unknown, depth: number, key?: string): string => {
+    if (++visited > 128) {
+      exhausted = true;
+      return "capped:nodes";
+    }
+    if (node === null) return "null";
+    if (typeof node === "boolean") return "boolean";
+    if (typeof node === "number") {
+      return key !== undefined && ID_FIELDS.has(key) && Number.isInteger(node) && node >= 0 && node <= 5
+        ? `num:${node}` : "number";
+    }
+    if (typeof node === "string") {
+      return key !== undefined && ID_FIELDS.has(key) && /^\d{1,3}$/.test(node) && Number(node) <= 5
+        ? `str:${Number(node)}` : alias(texts, node, "text");
+    }
+    if (depth > 4) return "capped:depth";
+    const array = Array.isArray(node);
+    const entries = array ? node : Object.entries(node as Record<string, unknown>);
+    const children: string[] = [];
+    for (const entry of entries.slice(0, 16)) {
+      if (array) children.push(inspect(entry, depth + 1));
+      else {
+        const [field, child] = entry as [string, unknown];
+        const safeKey = KNOWN_FIELDS.has(field) ? field : alias(fields, field, "field");
+        children.push(`${safeKey}:${inspect(child, depth + 1, field)}`);
+      }
+      if (exhausted) break;
+    }
+    if (entries.length > 16) children.push("capped:entries");
+    return `${array ? "[" : "{"}${children.join(",")}${array ? "]" : "}"}`;
+  };
+  const structure = inspect(parsed, 0);
+  return structure.length > 2_048 ? "capped:length" : structure;
+}
+
+/**
  * Inspect bounded JSON or base64 JSON without exposing names or arbitrary keys.
  * Numeric/text ID lists contain distinct mode values 3 to 5, never counts.
  * Array counts distinguish entry types and indicate when traversal was capped.

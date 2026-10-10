@@ -1654,3 +1654,25 @@ test("C31 standalone presets require the exact type, owned channel and ready rou
   assert.equal(supportsSoloCamStoredRecordings(device, route, true), false);
   assert.equal(supportsStandaloneAiTracking({ ...device, reads: { aiTrackingEnabled: true } }, route, true), false);
 });
+
+
+test("inventory retains only pseudonymized guard-mode structure from the first metadata row", () => {
+  const [station, camera] = parseMegaInventory({ devices: [
+    { device_sn: "fixture-station", device_model: "T8030", device_type: 18, params: [
+      { param_type: 1256, param_value: '{"modes":[{"id":3,"name":"DO-NOT-RETAIN"}]}' },
+      { param_type: 1256, param_value: '{"id":5}' },
+    ] },
+    { device_sn: "fixture-camera", device_model: "T8144", device_type: 1 },
+  ] });
+  assert.equal(station?.guardModeMetadataStructure, "{modes:[{id:num:3,name:text1}]}");
+  assert.equal(camera?.guardModeMetadataStructure, undefined);
+  assert.doesNotMatch(JSON.stringify(station), /DO-NOT-RETAIN/);
+});
+
+test("stream failure summaries preserve optional sequence evidence before the error", () => {
+  const sequenceChannels = "t2:rx=500-102/4,ac=500-500/1,st=100-102/3,behind=398-400,run=3/3";
+  const summary = ppcsStreamLogSummary("T8144", null, {
+    camId: 0, dataDatagrams: 4, frameHeaders: 0, videoFrames: 0, sequenceChannels,
+  }, new Error("fixture failure"));
+  assert.ok(summary.includes(`battery_history=not-reported sequence_channels=${sequenceChannels} error=`));
+});
