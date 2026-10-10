@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.126
+
+- Add hardware-tested standalone Wired Cam C31 controls, SD event playback, live AAC audio and timed siren support for the exact T817L type 10031 channel-zero route.
+- Add a default-off, bounded private capture for failed event pictures so their original response can be diagnosed without exposing it through normal logs or Home Assistant diagnostics.
+- Add privacy-safe diagnostics for custom guard-mode metadata, failed stream sequence ranges and unknown numeric HTTP 463 application errors.
+- Record confirmed T8900 signal-strength readback through HomeBase 3 and the failed standalone T8172 live-view and snapshot route without changing camera admission.
+
 ## 0.1.125
 
 - Add hardware-verified standalone C31 saved-position movement, manual light actions and schedule-backed cruise controls on the exact direct T817L route.

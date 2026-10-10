@@ -67,7 +67,10 @@ capabilities:
     live_view:
       connections:
         direct:
-          status: declared
+          status: failing
+          tested_on: 2026-10-10
+          tested_by: gs1750254-tech
+          notes: Standalone inventory had no ready peer PPCS route, so live media could not start.
         T8030:
           status: tested
           tested_on: 2026-10-01
@@ -80,7 +83,10 @@ capabilities:
     snapshot:
       connections:
         direct:
-          status: declared
+          status: failing
+          tested_on: 2026-10-10
+          tested_by: gs1750254-tech
+          notes: Standalone inventory had no ready peer PPCS route, so an on-demand snapshot could not start.
         T8030:
           status: tested
           tested_on: 2026-10-01

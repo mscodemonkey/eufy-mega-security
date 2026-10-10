@@ -172,7 +172,12 @@ test("replaces and persists a stale Mega identity after HTTP 463 error 4406", as
 test("keeps unrelated and malformed HTTP 463 responses terminal", async () => {
   const host = "app-openapi-eu-pr.eufy.com";
   const sharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
-  for (const body of [JSON.stringify({ code: 9999, msg: "unrelated", data: {} }), "not-json"]) {
+  const cases = [
+    { body: JSON.stringify({ code: 9999, msg: "PRIVATE RESPONSE MESSAGE", data: {} }), error: "Mega request failed (HTTP 463 code 9999)" },
+    { body: JSON.stringify({ code: "9999", msg: "PRIVATE RESPONSE MESSAGE", data: {} }), error: "Mega request failed (HTTP 463)" },
+    { body: "not-json", error: "Mega request failed (HTTP 463)" },
+  ];
+  for (const { body, error } of cases) {
     const directory = await mkdtemp(join(tmpdir(), "mega-http463-terminal-"));
     const requests: string[] = [];
     try {
@@ -193,7 +198,7 @@ test("keeps unrelated and malformed HTTP 463 responses terminal", async () => {
       });
 
       assert.deepEqual(await client.connect(), { state: "authenticated" });
-      await assert.rejects(client.inventory(), /^Error: Mega request failed \(HTTP 463\)$/);
+      await assert.rejects(client.inventory(), new RegExp(`^Error: ${error.replace(/[()]/g, "\\$&")}$`));
       assert.deepEqual(requests, ["/app/house/get_devs_list"]);
     } finally {
       await rm(directory, { recursive: true, force: true });

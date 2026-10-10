@@ -624,14 +624,17 @@ export class MegaClient {
     signal.throwIfAborted();
     if (response.status !== 200) {
       if (response.status === 463) {
+        let applicationCode: number | undefined;
         try {
           const value: unknown = JSON.parse((await readBoundedResponse(response, 2 * 1024 * 1024, signal)).toString("utf8"));
-          if (isRecord(value) && Number.isInteger(value.code) && TRANSIENT_IDENTITY_ERRORS.has(value.code as number)) {
-            return value as unknown as MegaResult;
+          if (isRecord(value) && Number.isSafeInteger(value.code)) {
+            applicationCode = value.code as number;
+            if (TRANSIENT_IDENTITY_ERRORS.has(applicationCode)) return value as unknown as MegaResult;
           }
         } catch {
           signal.throwIfAborted();
         }
+        if (applicationCode !== undefined) throw new Error(`Mega request failed (HTTP 463 code ${applicationCode})`);
         throw new Error("Mega request failed (HTTP 463)");
       }
       await response.body?.cancel();
