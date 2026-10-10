@@ -255,7 +255,8 @@ class EufyCameraPreferenceSwitch(EufyGatewayEntity, SwitchEntity):
         SwitchEntity.__init__(self)
         self.preference = name
         self._attr_unique_id = f"{serial}_preference_{name}"
-        self._attr_translation_key = f"camera_{name}"
+        translation_name = {"imageFlipped": "image_flipped", "preRecording": "pre_recording", "soundDetection": "sound_detection"}.get(name, name)
+        self._attr_translation_key = f"camera_{translation_name}"
 
     @property
     def available(self) -> bool:

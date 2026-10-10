@@ -180,11 +180,11 @@ entity:
       name: Mikrofon
     camera_speaker:
       name: Højttaler
-    camera_imageFlipped:
+    camera_image_flipped:
       name: Rotér billede 180°
-    camera_preRecording:
+    camera_pre_recording:
       name: Foroptagelse
-    camera_soundDetection:
+    camera_sound_detection:
       name: Lyddetektion
   siren:
     camera_siren:
