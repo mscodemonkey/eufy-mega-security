@@ -1,11 +1,54 @@
 /**
- * Describes custom guard-mode metadata without retaining account labels.
- * Inventory owns parameter 1256. The provider consumes only this structural
- * diagnostic until an explicit label-to-mode contract has been established.
+ * Parses station-owned guard-mode metadata from inventory parameter 1256.
+ *
+ * Public logs consume only privacy-safe structural descriptions. The local
+ * station API may separately retain validated mode-to-title pairs for the
+ * account owner's Home Assistant interface.
  */
 
 const KNOWN_FIELDS = new Set(["id", "mode", "mode_id", "mode_type", "name", "mode_name", "custom_modes", "modes", "3", "4", "5"]);
 const ID_FIELDS = new Set(["id", "mode", "mode_id", "mode_type"]);
+
+function parseMetadata(value: unknown): unknown | undefined {
+  if (typeof value !== "string" || value.length > 16_384) return undefined;
+  try { return JSON.parse(value); }
+  catch {
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 !== 0) return undefined;
+    try { return JSON.parse(Buffer.from(value, "base64").toString("utf8")); }
+    catch { return undefined; }
+  }
+}
+
+/**
+ * Return private display names only for explicitly identified custom modes.
+ *
+ * The caller may expose this map inside the owner's local Home Assistant API,
+ * but must never write its values to logs or public diagnostics. Undefined
+ * distinguishes an absent or invalid document from a valid document with no
+ * custom names so later inventory refreshes can remove a deleted name.
+ */
+export function guardModeCustomNames(value: unknown): Readonly<Record<number, string>> | undefined {
+  const parsed = parseMetadata(value);
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+  const modes = (parsed as Record<string, unknown>).modes;
+  if (!Array.isArray(modes) || modes.length > 16) return undefined;
+  const names: Record<number, string> = {};
+  const ambiguous = new Set<number>();
+  for (const entry of modes) {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const { mode, title } = entry as Record<string, unknown>;
+    if (!Number.isInteger(mode) || (mode as number) < 3 || (mode as number) > 5) continue;
+    if (typeof title !== "string") continue;
+    const name = title.trim();
+    if (!name || name.length > 64 || /[\u0000-\u001f\u007f]/.test(name)) continue;
+    const id = mode as number;
+    if (Object.hasOwn(names, id)) {
+      ambiguous.add(id);
+      delete names[id];
+    } else if (!ambiguous.has(id)) names[id] = name;
+  }
+  return names;
+}
 
 /**
  * Preserve nested mode evidence using document-local aliases instead of names.

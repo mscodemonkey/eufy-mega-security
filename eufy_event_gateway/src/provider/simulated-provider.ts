@@ -30,6 +30,7 @@ function simulatedStation(overrides: Partial<HomeBaseState> = {}): HomeBaseState
     homeBaseSirenControlSupported: true,
     connected: true,
     guardMode: 63,
+    guardModeNames: { 3: "Simulated custom mode" },
     effectiveMode: 63,
     alarmActive: false,
     alarmVolume: 20,

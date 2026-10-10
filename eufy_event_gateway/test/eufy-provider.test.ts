@@ -837,6 +837,7 @@ test("enables only the proven T8010 guard-mode control on current firmware", () 
     homeBaseSirenControlSupported: true,
     connected: false,
     guardMode: null,
+    guardModeNames: {},
     effectiveMode: null,
     alarmActive: null,
     alarmVolume: null,
@@ -864,7 +865,10 @@ test("exposes NVR inventory guard mode without enabling HomeBase writes or refre
   const [station] = parseMegaInventory({ devices: [{
     device_sn: "nvr", device_name: "NVR S4", device_model: "T8N00",
     device_type: 300, category: "eufy_security",
-    params: [{ param_type: 1224, param_value: "1" }],
+    params: [
+      { param_type: 1224, param_value: "1" },
+      { param_type: 1256, param_value: '{"modes":[{"mode":3,"title":"Original"}]}' },
+    ],
   }] });
 
   assert.ok(station);
@@ -883,6 +887,7 @@ test("exposes NVR inventory guard mode without enabling HomeBase writes or refre
     homeBaseSirenControlSupported: false,
     connected: false,
     guardMode: 1,
+    guardModeNames: { 3: "Original" },
     effectiveMode: null,
     alarmActive: null,
     alarmVolume: null,
@@ -897,18 +902,25 @@ test("refreshes NVR guard mode from inventory without claiming a live station co
   const [initial] = parseMegaInventory({ devices: [{
     device_sn: "nvr", device_name: "NVR S4", device_model: "T8N00",
     device_type: 300, category: "eufy_security", main_sw_version: "1.0.0",
-    params: [{ param_type: 1224, param_value: "1" }],
+    params: [
+      { param_type: 1224, param_value: "1" },
+      { param_type: 1256, param_value: '{"modes":[{"mode":3,"title":"Original"}]}' },
+    ],
   }] });
   const [refreshed] = parseMegaInventory({ devices: [{
     device_sn: "nvr", device_name: "NVR S4", device_model: "T8N00",
     device_type: 300, category: "eufy_security", main_sw_version: "1.1.0",
-    params: [{ param_type: 1224, param_value: "3" }],
+    params: [
+      { param_type: 1224, param_value: "3" },
+      { param_type: 1256, param_value: '{"modes":[{"mode":3,"title":"Renamed"}]}' },
+    ],
   }] });
 
   assert.ok(initial);
   assert.ok(refreshed);
   const state = refreshInventoryStationState(initialHomeBaseState(initial, false), refreshed);
   assert.equal(state.guardMode, 3);
+  assert.deepEqual(state.guardModeNames, { 3: "Renamed" });
   assert.equal(state.firmware, "1.1.0");
   assert.equal(state.connected, false);
   assert.equal(state.guardModeControlSupported, false);
@@ -1801,15 +1813,16 @@ test("C31 recording audio prefers its native switch only for the verified standa
 });
 
 
-test("inventory retains only pseudonymized guard-mode structure from the first metadata row", () => {
+test("inventory separates private custom names from pseudonymized guard-mode diagnostics", () => {
   const [station, camera] = parseMegaInventory({ devices: [
     { device_sn: "fixture-station", device_model: "T8030", device_type: 18, params: [
-      { param_type: 1256, param_value: '{"modes":[{"id":3,"name":"DO-NOT-RETAIN"}]}' },
+      { param_type: 1256, param_value: '{"modes":[{"mode":3,"title":"Private mode","detail":"DO-NOT-RETAIN"}]}' },
       { param_type: 1256, param_value: '{"id":5}' },
     ] },
     { device_sn: "fixture-camera", device_model: "T8144", device_type: 1 },
   ] });
-  assert.equal(station?.guardModeMetadataStructure, "{modes:[{id:num:3,name:text1}]}");
+  assert.equal(station?.guardModeMetadataStructure, "{modes:[{mode:num:3,field1:text1,field2:text2}]}");
+  assert.deepEqual(station?.guardModeNames, { 3: "Private mode" });
   assert.equal(camera?.guardModeMetadataStructure, undefined);
   assert.doesNotMatch(JSON.stringify(station), /DO-NOT-RETAIN/);
 });

@@ -292,6 +292,9 @@ export interface HomeBaseState {
   readonly homeBaseSirenControlSupported: boolean;
   readonly connected: boolean;
   readonly guardMode: number | null;
+
+  /** Account-defined labels for explicitly reported custom modes 3 to 5. */
+  readonly guardModeNames: Readonly<Record<number, string>>;
   readonly effectiveMode: number | null;
   readonly alarmActive: boolean | null;
   readonly alarmVolume: number | null;

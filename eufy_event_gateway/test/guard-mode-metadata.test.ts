@@ -4,7 +4,29 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { guardModeMetadataShape, guardModeMetadataStructure } from "../src/mega/guard-mode-metadata.js";
+import { guardModeCustomNames, guardModeMetadataShape, guardModeMetadataStructure } from "../src/mega/guard-mode-metadata.js";
+
+test("retains only explicit custom-mode titles for the local station API", () => {
+  const data = JSON.stringify({ mode_id: 3, modes: [
+    { mode: 0, title: "Away", detail: "ignored" },
+    { mode: 3, title: "Garden", detail: "not the display name" },
+    { mode: 4, title: "  Night  " },
+    { mode: 5, title: "" },
+  ] });
+  assert.deepEqual(guardModeCustomNames(data), { 3: "Garden", 4: "Night" });
+  assert.deepEqual(guardModeCustomNames(Buffer.from(data).toString("base64")), { 3: "Garden", 4: "Night" });
+});
+
+test("rejects ambiguous or unsafe custom-mode titles", () => {
+  assert.deepEqual(guardModeCustomNames(JSON.stringify({ modes: [
+    { mode: 3, title: "First" }, { mode: 3, title: "Second" },
+    { mode: 4, title: "line\nbreak" }, { mode: 5, title: "x".repeat(65) },
+  ] })), {});
+  for (const value of [undefined, "invalid", "[]", JSON.stringify({ modes: Array(17).fill({ mode: 3, title: "Private" }) })]) {
+    assert.equal(guardModeCustomNames(value), undefined);
+  }
+  assert.deepEqual(guardModeCustomNames('{"modes":[]}'), {});
+});
 
 test("custom-mode diagnostics expose no account labels or arbitrary keys", () => {
   const data = JSON.stringify([{ id: 3, name: "private name", "private key": "private value" }, { mode_id: 5, name: "another private name" }]);

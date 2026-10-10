@@ -32,6 +32,34 @@ NIGHT_VISION_MODE_KEYS = {
 }
 
 
+def _guard_mode_options(station: dict[str, Any]) -> dict[int, str]:
+    """Map custom modes to private names without accepting ambiguous options."""
+    options = dict(GUARD_MODES)
+    names = station.get("guardModeNames")
+    if not isinstance(names, dict):
+        return options
+    candidates: dict[int, str] = {}
+    for mode in range(3, 6):
+        name = names.get(str(mode), names.get(mode))
+        if (
+            isinstance(name, str)
+            and 0 < len(name) <= 64
+            and name == name.strip()
+            and not any(ord(character) < 32 or ord(character) == 127 for character in name)
+        ):
+            candidates[mode] = name
+    for mode, name in candidates.items():
+        other_labels = {
+            label for other_mode, label in options.items() if other_mode != mode
+        }
+        other_labels.update(
+            label for other_mode, label in candidates.items() if other_mode != mode
+        )
+        if name not in other_labels:
+            options[mode] = name
+    return options
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: EufyGatewayConfigEntry,
@@ -259,8 +287,6 @@ class EufyGuardModeSelect(EufyStationEntity, SelectEntity):
     """
 
     _attr_translation_key = "eufy_guard_mode_select"
-    _attr_options: ClassVar[list[str]] = list(GUARD_MODES.values())
-
     def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
         """Create a configured guard-mode select for one HomeBase."""
         EufyStationEntity.__init__(self, coordinator, serial)
@@ -268,16 +294,24 @@ class EufyGuardModeSelect(EufyStationEntity, SelectEntity):
         self._attr_unique_id = f"{serial}_guard_mode"
 
     @property
+    def options(self) -> list[str]:
+        """Return built-in tokens plus confirmed account-defined custom names."""
+        return list(_guard_mode_options(self.station).values())
+
+    @property
     def current_option(self) -> str | None:
         """Return the configured policy, not the effective scheduled mode."""
         mode = self.station.get("guardMode")
-        return GUARD_MODES.get(mode) if isinstance(mode, int) else None
+        return _guard_mode_options(self.station).get(mode) if isinstance(mode, int) else None
 
     async def async_select_option(self, option: str) -> None:
         """Set a guard policy and publish it only after gateway confirmation."""
-        mode = next(
-            (value for value, label in GUARD_MODES.items() if label == option), None
-        )
+        labels = _guard_mode_options(self.station)
+        mode = next((value for value, label in labels.items() if label == option), None)
+        if mode is None:
+            mode = next(
+                (value for value, label in GUARD_MODES.items() if label == option), None
+            )
         if mode is None:
             raise HomeAssistantError(f"Unsupported HomeBase guard mode: {option}")
         try:

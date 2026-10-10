@@ -21,7 +21,7 @@ import { validateRecordingDate, type CameraStoredRecord, type StoredRecordingSum
 import type { BatteryState, CameraIdentity, CameraPresetPosition, DetectionKind, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
 import { createLogger } from "../logging.js";
 import type { CloudHistoryQuery, CloudHistoryRecord } from "../mega/cloud-history.js";
-import { guardModeMetadataShape, guardModeMetadataStructure } from "../mega/guard-mode-metadata.js";
+import { guardModeCustomNames, guardModeMetadataShape, guardModeMetadataStructure } from "../mega/guard-mode-metadata.js";
 import { MegaClient } from "../mega/client.js";
 import { decodeEventImage, isJpeg } from "../mega/image.js";
 import { MegaPushReceiver, type MegaPushEvent } from "../mega/push.js";
@@ -91,6 +91,9 @@ export interface MegaInventoryDevice {
 
   /** Document-local aliases preserve nesting without retaining private labels or keys. */
   readonly guardModeMetadataStructure?: string;
+
+  /** Private custom-mode labels retained only for the owner's local Home Assistant UI. */
+  readonly guardModeNames?: Readonly<Record<number, string>>;
   readonly paramTypes: readonly number[];
   readonly reads: MegaInventoryReads;
 }
@@ -2571,14 +2574,17 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
       firmwareSubVersion: safeValue(value.sec_sw_version, 100),
       firmwareUpdateAvailable: value.needUpdate === true || value.needUpdate === 1 || value.needUpdate === "1"
         ? true : value.needUpdate === false || value.needUpdate === 0 || value.needUpdate === "0" ? false : null,
-      ...(safeParamTypes(value.params).includes(1256) ? {
-        guardModeMetadataShape: guardModeMetadataShape(Array.isArray(value.params)
+      ...(safeParamTypes(value.params).includes(1256) ? (() => {
+        const metadata = Array.isArray(value.params)
           ? value.params.find((row: unknown) => isRecord(row) && integer(row.param_type) === 1256)?.param_value
-          : undefined),
-        guardModeMetadataStructure: guardModeMetadataStructure(Array.isArray(value.params)
-          ? value.params.find((row: unknown) => isRecord(row) && integer(row.param_type) === 1256)?.param_value
-          : undefined),
-      } : {}),
+          : undefined;
+        const guardModeNames = guardModeCustomNames(metadata);
+        return {
+          guardModeMetadataShape: guardModeMetadataShape(metadata),
+          guardModeMetadataStructure: guardModeMetadataStructure(metadata),
+          ...(guardModeNames === undefined ? {} : { guardModeNames }),
+        };
+      })() : {}),
       paramTypes: safeParamTypes(value.params),
       reads: lastChargingDays === undefined ? reads : { ...reads, lastChargingDays },
     });
@@ -3065,6 +3071,7 @@ export function initialHomeBaseState(device: MegaInventoryDevice, dskReady: bool
     homeBaseSirenControlSupported: isDiscoveredHomeBase(device),
     connected: false,
     guardMode: inventoryGuardMode,
+    guardModeNames: device.guardModeNames ?? {},
     effectiveMode: null,
     alarmActive: null,
     alarmVolume: null,
@@ -3091,6 +3098,7 @@ export function refreshInventoryStationState(
     ...existing,
     firmware: device.firmware ?? existing.firmware,
     guardMode: device.reads.guardMode ?? existing.guardMode,
+    guardModeNames: device.guardModeNames ?? existing.guardModeNames,
   };
 }
 
