@@ -174,8 +174,9 @@ test("keeps unrelated and malformed HTTP 463 responses terminal", async () => {
   const sharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
   const cases = [
     { body: JSON.stringify({ code: 9999, msg: "PRIVATE RESPONSE MESSAGE", data: {} }), error: "Mega request failed (HTTP 463 code 9999)" },
-    { body: JSON.stringify({ code: "9999", msg: "PRIVATE RESPONSE MESSAGE", data: {} }), error: "Mega request failed (HTTP 463)" },
-    { body: "not-json", error: "Mega request failed (HTTP 463)" },
+    { body: JSON.stringify({ code: "9999", msg: "PRIVATE RESPONSE MESSAGE", data: {} }), error: "Mega request failed (HTTP 463 response json_without_numeric_code)" },
+    { body: "not-json", error: "Mega request failed (HTTP 463 response non_json)" },
+    { body: "", error: "Mega request failed (HTTP 463 response empty_or_truncated)" },
   ];
   for (const { body, error } of cases) {
     const directory = await mkdtemp(join(tmpdir(), "mega-http463-terminal-"));

@@ -29,6 +29,15 @@ export type PushRegistrationStatus = "ready" | "activation-unconfirmed";
 
 const RETRY_DELAYS = [15_000, 30_000, 60_000, 120_000, 300_000] as const;
 
+function registrationFailureReason(error: unknown): "transport" | "http" | "response" | "timeout" | "unknown" {
+  if (!(error instanceof Error)) return "unknown";
+  if (error.name === "TimeoutError") return "timeout";
+  if (error.message === "Mega request failed (transport)") return "transport";
+  if (/^Mega request failed \(HTTP \d{3}(?: code -?\d+| response [a-z_]+)?\)$/.test(error.message)) return "http";
+  if (/^Mega response validation failed \([A-Z_]+\)$/.test(error.message)) return "response";
+  return "unknown";
+}
+
 /** Normalized subset of an Android FCM/Eufy notification used by the provider. */
 export interface MegaPushEvent {
   readonly cameraSerial: string;
@@ -199,9 +208,11 @@ export class MegaPushReceiver {
         ? /^(Mega push registration|Security push registration) failed \((-?\d{1,9})\)$/.exec(error.message)
         : null;
       const code = stage === "activation" ? activationCode : match ? Number(match[2]) : undefined;
+      const reason = stage === "registration" && code === undefined ? registrationFailureReason(error) : undefined;
       try { logger.warn("push_registration_degraded", [
         "Push registration unavailable.", `stage=${stage}`,
         ...(code !== undefined ? [`code=${code}`] : []),
+        ...(reason !== undefined ? [`reason=${reason}`] : []),
         `attempt=${this.#attempt}`, `max_retries=${RETRY_DELAYS.length}`,
         delay === undefined ? "exhausted=true" : `next_retry_seconds=${delay / 1_000}`,
       ].join(" ")); } catch {}

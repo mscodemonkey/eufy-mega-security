@@ -625,17 +625,24 @@ export class MegaClient {
     if (response.status !== 200) {
       if (response.status === 463) {
         let applicationCode: number | undefined;
+        let responseKind = "unavailable";
         try {
-          const value: unknown = JSON.parse((await readBoundedResponse(response, 2 * 1024 * 1024, signal)).toString("utf8"));
+          const body = await readBoundedResponse(response, 2 * 1024 * 1024, signal);
+          responseKind = body.length === 0 ? "empty" : "non_json";
+          const value: unknown = JSON.parse(body.toString("utf8"));
+          responseKind = "json_without_numeric_code";
           if (isRecord(value) && Number.isSafeInteger(value.code)) {
             applicationCode = value.code as number;
             if (TRANSIENT_IDENTITY_ERRORS.has(applicationCode)) return value as unknown as MegaResult;
           }
-        } catch {
+        } catch (error) {
           signal.throwIfAborted();
+          if (error instanceof Error && error.message === "Cloud response is empty or truncated") {
+            responseKind = "empty_or_truncated";
+          }
         }
         if (applicationCode !== undefined) throw new Error(`Mega request failed (HTTP 463 code ${applicationCode})`);
-        throw new Error("Mega request failed (HTTP 463)");
+        throw new Error(`Mega request failed (HTTP 463 response ${responseKind})`);
       }
       await response.body?.cancel();
       throw new Error(`Mega request failed (HTTP ${response.status})`);
