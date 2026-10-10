@@ -312,6 +312,11 @@ capabilities:
         command: 1250
     siren:
       connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. The owner confirmed an actual five-second Home Assistant sound-only alarm sounded and stopped. Native start is outer 1350 inner 1201 with a 30-second safety timeout, followed by both ordered binary early-stop commands. Direct pulses are limited to 30 seconds. Siren state is not readable. T817L121 and HomeBase routes are not covered by this test.
         T8030:
           status: tested
           tested_on: 2026-09-21
