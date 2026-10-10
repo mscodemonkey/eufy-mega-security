@@ -29,6 +29,7 @@ function header(command: number, channel = 1, sign = 0, stream = 25): Buffer {
 function transport(overrides: Partial<HomeBaseRecordingTransport> = {}): HomeBaseRecordingTransport {
   return { serial, stationSerial, channel: 1, query: () => {}, download: () => {}, decodeReply: (payload) => payload,
     decoder: (privateKey) => {
+      assert.match(privateKey, /^[0-9a-f]{64}$/, "recipient scalar retains leading zeroes");
       const decoder = new PpcsVideoFrameDecoder(() => undefined); decoder.setEccPrivateKey(privateKey);
       return { video: (payload, sign) => decoder.decode(payload, sign), audio: (payload) => decoder.decodeRecordingAudio(payload), close: () => decoder.setEccPrivateKey("") };
     }, ...overrides };
