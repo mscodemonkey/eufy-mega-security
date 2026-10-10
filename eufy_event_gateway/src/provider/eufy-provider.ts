@@ -13,7 +13,7 @@
  * newly added devices without replacing push receivers or active media sessions.
  */
 import { join } from "node:path";
-import { createHmac, randomBytes } from "node:crypto";
+import { createHmac, randomBytes, type KeyObject } from "node:crypto";
 import { validateRecordingDate, type CameraStoredRecord, type StoredRecordingSummary } from "../stream/stored-recordings.js";
 
 import type { BatteryState, CameraIdentity, CameraPresetPosition, DetectionKind, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
@@ -25,6 +25,8 @@ import { decodeEventImage, isJpeg } from "../mega/image.js";
 import { MegaPushReceiver, type MegaPushEvent } from "../mega/push.js";
 import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBaseChildParam, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
+import { homeBase2RecordingPath, parseCipherRsaKey } from "../stream/homebase2-event-frame.js";
+import { extractFirstJpeg } from "../stream/live-stream-manager.js";
 import type { SensorContactObservation } from "../stream/sensor-status-notification.js";
 import { cameraCapabilityLogSummaries, describeCameraCapabilities, isSupportedCameraType, describeDeviceCapabilities, deviceCapabilityLogSummaries } from "./device-capabilities-core.js";
 import { catalogueIntegrationStatus, hasMainsBatterySentinel } from "./camera-capability-core.js";
@@ -401,6 +403,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #dskRefreshes = new Map<string, Promise<{ readonly key: string; readonly expiresAt: number | null } | null>>();
   readonly #cipherKeys = new Map<number, string>();
   readonly #pushSnapshotQueues = new Map<string, Promise<void>>();
+  readonly #cipherRsaKeys = new Map<number, KeyObject>();
+  readonly #eventFrameJobs = new Map<string, AbortController>();
+  readonly #eventFrameQueues = new Map<string, Promise<void>>();
   readonly #pushDeduplicator = new PushEventDeduplicator();
   readonly #stationRefreshFailures = new Map<string, number>();
   readonly #stationReadConfirmed = new Set<string>();
@@ -1164,6 +1169,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#ppcsStreams.clear();
     for (const session of this.#recordingSessions.values()) session.close();
     this.#recordingSessions.clear();
+    for (const job of this.#eventFrameJobs.values()) job.abort();
+    this.#eventFrameJobs.clear();
     this.#recordingReferences.clear();
     await Promise.allSettled(this.#stationOperations.values());
     this.#stationOperations.clear();
@@ -2005,6 +2012,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (!device) return;
     const delivery = this.#pushDeduplicator.observe(event.cameraSerial, event.eventId, event.pictureUrl !== null);
     if (delivery.retainPicture && isSupportedMegaCamera(device)) this.#queuePushSnapshot(events, event);
+    if (delivery.handleState && isSupportedMegaCamera(device) && isCameraDetection(event.eventType)) {
+      this.#queueHomeBase2EventFrame(events, event, device);
+    }
     if (!delivery.handleState) return;
     if ((device.deviceType === 2 || device.deviceType === 126) && event.eventType === 3 && event.sensorOpen !== null) {
       events.sensorContact(event.cameraSerial, event.sensorOpen);
@@ -2217,6 +2227,125 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   async #stopStationMedia(stationSerial: string): Promise<void> {
     const serials = [...this.#ppcsStreams.keys()].filter((serial) => this.#devices.get(serial)?.parentSerial === stationSerial);
     await Promise.all(serials.map((serial) => this.stopStream(serial)));
+  }
+
+  /**
+   * Replace a HomeBase 2 event close-up with the first full frame of its clip.
+   *
+   * The clip is still being written when its push arrives, so attempts are
+   * spread over two minutes. One retrieval per camera runs at a time; a newer
+   * event during retrieval keeps the earlier clip's job. The published frame
+   * becomes the retained event picture, after the push picture it replaces.
+   */
+  #queueHomeBase2EventFrame(events: ProviderEvents, event: MegaPushEvent, device: MegaInventoryDevice): void {
+    const route = ppcsStreamRoute(device, this.#devices);
+    if (!route?.homeBaseAttached || route.peer.model !== "T8010" || device.channel === null) return;
+    const serial = event.cameraSerial;
+    const path = homeBase2RecordingPath(event.filePath, event.recordingChannel ?? device.channel);
+    const cipherId = event.cipherId ?? null;
+    if (!path || cipherId === null) {
+      logger.info("event_frame_unavailable",
+        `HomeBase 2 event frame skipped: model=${safeLogModel(device.model)} path_present=${path !== null} cipher_present=${cipherId !== null}`);
+      return;
+    }
+    if (this.#eventFrameJobs.has(serial) || this.#recordingClosing) return;
+    const job = new AbortController();
+    this.#eventFrameJobs.set(serial, job);
+    void (async () => {
+      for (const [index, wait] of EVENT_FRAME_ATTEMPT_DELAYS.entries()) {
+        await abortableDelay(wait, job.signal);
+        if (job.signal.aborted) return;
+        try {
+          const image = await this.#readHomeBase2EventFrame(serial, path, cipherId, job.signal);
+          if (job.signal.aborted) return;
+          events.snapshot(serial, image, "image/jpeg");
+          logger.info("event_frame_retained",
+            `HomeBase 2 event frame retained: model=${safeLogModel(device.model)} attempt=${index + 1} bytes=${image.length}`);
+          return;
+        } catch (error) {
+          if (job.signal.aborted) return;
+          logger.info("event_frame_attempt_failed",
+            `HomeBase 2 event frame attempt failed: model=${safeLogModel(device.model)} attempt=${index + 1} reason=${safeError(error)}`);
+        }
+      }
+    })().finally(() => {
+      if (this.#eventFrameJobs.get(serial) === job) this.#eventFrameJobs.delete(serial);
+    });
+  }
+
+  /**
+   * Read one HomeBase 2 clip's first frame through a short control session.
+   *
+   * Retrievals on one HomeBase run one at a time. Live view on the same
+   * station defers the attempt rather than being interrupted, and the camera
+   * is reserved while the clip is read so live view waits for the few seconds
+   * the transfer needs. The camera itself is not woken; the clip is on the SD card.
+   */
+  async #readHomeBase2EventFrame(serial: string, path: string, cipherId: number, signal: AbortSignal): Promise<Buffer> {
+    const device = this.#devices.get(serial);
+    const route = device ? ppcsStreamRoute(device, this.#devices) : null;
+    if (!device || !route?.homeBaseAttached || route.peer.model !== "T8010" || device.channel === null || !device.adminUserId) {
+      throw new Error("HomeBase 2 event frames require a HomeBase 2 camera route");
+    }
+    const peer = route.peer;
+    const previous = this.#eventFrameQueues.get(peer.serial) ?? Promise.resolve();
+    let image!: Buffer;
+    const current = previous.catch(() => undefined).then(async () => {
+      if (signal.aborted || this.#recordingClosing) throw new Error("HomeBase 2 event frame retrieval was cancelled");
+      if (this.#ppcsStreams.has(serial) || this.#stationHasActiveMedia(peer.serial) || this.#recordingPeerReserved(serial)) {
+        throw new Error("HomeBase 2 is busy with live view or another recording");
+      }
+      const key = await this.#resolveCipherRsaKey(cipherId, peer);
+      if (!key) throw new Error("Station cipher key is unavailable");
+      const dsk = await this.#dskKey(peer.serial);
+      if (!dsk || !peer.p2pDid || !peer.p2pConnection) throw new Error("HomeBase 2 connection details are unavailable");
+      this.#recordingReservations.add(serial);
+      const session = new FirstPartyPpcsSession({
+        stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
+        localAddress: peer.localAddress, dskKey: dsk.key, channel: device.channel!, cameraModel: device.model,
+        stationModel: peer.model, accountId: device.adminUserId, homeBaseAttached: true,
+        purpose: "control", maxSeconds: 45, resolveCipherKey: (id) => this.#resolveCipherKey(id, peer),
+      });
+      this.#recordingSessions.set(serial, session);
+      const abort = (): void => session.close();
+      signal.addEventListener("abort", abort, { once: true });
+      try {
+        await session.start();
+        const frames = await session.readHomeBase2EventFrames(path, key, signal);
+        image = await extractFirstJpeg(frames.video, frames.codec, signal);
+      } finally {
+        signal.removeEventListener("abort", abort);
+        session.close();
+        if (this.#recordingSessions.get(serial) === session) this.#recordingSessions.delete(serial);
+        this.#recordingReservations.delete(serial);
+      }
+    });
+    this.#eventFrameQueues.set(peer.serial, current);
+    try {
+      await current;
+      if (!isJpeg(image)) throw new Error("HomeBase 2 event frame was not a JPEG");
+      return image;
+    } finally {
+      if (this.#eventFrameQueues.get(peer.serial) === current) this.#eventFrameQueues.delete(peer.serial);
+    }
+  }
+
+  /** Resolve the RSA key that unwraps HomeBase 2 clip frames for one station cipher. */
+  async #resolveCipherRsaKey(cipherId: number, peer: MegaInventoryDevice): Promise<KeyObject | undefined> {
+    const cached = this.#cipherRsaKeys.get(cipherId);
+    if (cached) return cached;
+    if (!peer.adminUserId) return undefined;
+    try {
+      const ciphers = await this.#client.getCiphers([cipherId], peer.adminUserId, peer.serial);
+      for (const cipher of ciphers) {
+        const id = typeof cipher.cipher_id === "number" ? cipher.cipher_id : Number(cipher.cipher_id);
+        const key = parseCipherRsaKey(cipher.private_key);
+        if (Number.isInteger(id) && key) this.#cipherRsaKeys.set(id, key);
+      }
+    } catch (error) {
+      logger.warn("cipher_lookup_unavailable", `Mega cipher lookup unavailable: ${safeError(error)}`);
+    }
+    return this.#cipherRsaKeys.get(cipherId);
   }
 
   #queuePushSnapshot(events: ProviderEvents, event: MegaPushEvent): void {
@@ -3199,6 +3328,24 @@ export function isDoorbellDevice(device: Pick<MegaInventoryDevice, "deviceType" 
 
 function isGenericPersonLabel(value: string): boolean {
   return /^(someone|stranger|unknown|unknown person|person)$/i.test(value);
+}
+
+/** Wait before each HomeBase 2 clip read: the clip must exist before its frames can be read. */
+const EVENT_FRAME_ATTEMPT_DELAYS = [20_000, 40_000, 60_000] as const;
+
+/** Resolve after a delay, or immediately once the owning job is aborted. */
+async function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return;
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(done, milliseconds);
+    timer.unref?.();
+    function done(): void {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    }
+    signal.addEventListener("abort", done, { once: true });
+  });
 }
 
 function safeError(error: unknown): string {

@@ -42,6 +42,12 @@ export interface MegaPushEvent {
   readonly content: string | null;
   readonly pictureUrl: string | null;
   readonly filePath: string | null;
+
+  /** HomeBase 2 camera channel that names the clip folder when only a clip name is pushed. */
+  readonly recordingChannel?: number | null;
+
+  /** Station cipher that protects the stored clip, used only to retrieve its full frame. */
+  readonly cipherId?: number | null;
   readonly fetchId: number | null;
   readonly senseId: string | null;
   readonly guardMode: number | null;
@@ -390,6 +396,8 @@ export function parsePushEvent(data: unknown): MegaPushEvent | null {
     content: field("content"),
     pictureUrl: text(payload.pic_url),
     filePath: text(payload.file_path) ?? text(payload.p),
+    recordingChannel: integer(payload.channel) ?? integer(payload.c),
+    cipherId: integer(payload.cipher) ?? integer(payload.k),
     fetchId: integer(payload.fetch_id) ?? integer(payload.i),
     senseId: text(payload.sense_id) ?? text(payload.j),
     guardMode: integer(payload.station_guard_mode),

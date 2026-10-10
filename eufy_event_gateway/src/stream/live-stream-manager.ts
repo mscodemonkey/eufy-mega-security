@@ -1395,6 +1395,63 @@ export async function remuxVideoToMp4(video: Buffer, codec: VideoCodec, audio?: 
   });
 }
 
+/** Decode the first picture of a keyframe-led elementary stream to one JPEG. Aborting terminates the owned FFmpeg process. */
+export async function extractFirstJpeg(video: Buffer, codec: VideoCodec, signal?: AbortSignal): Promise<Buffer> {
+  return await new Promise<Buffer>((resolve, reject) => {
+    const process = spawn("ffmpeg", [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-f",
+      codec === "h265" ? "hevc" : "h264",
+      "-i",
+      "pipe:0",
+      "-frames:v",
+      "1",
+      "-q:v",
+      "2",
+      "-f",
+      "image2pipe",
+      "-vcodec",
+      "mjpeg",
+      "pipe:1",
+    ], { signal });
+    const output: Buffer[] = [];
+    let stderr = "";
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      process.kill("SIGKILL");
+      reject(new Error("Timed out while decoding the recorded event frame"));
+    }, 15_000);
+    process.stdout.on("data", (chunk: Buffer) => output.push(Buffer.from(chunk)));
+    process.stderr.on("data", (chunk: Buffer) => {
+      if (stderr.length < 8_192) stderr += chunk.toString("utf8");
+    });
+    process.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      reject(error);
+    });
+    process.once("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      const image = Buffer.concat(output);
+
+      // One requested frame yields exactly one JPEG, so its markers bound the whole output.
+      if (code === 0 && image.length > 4 && image[0] === 0xff && image[1] === 0xd8 && image.at(-2) === 0xff && image.at(-1) === 0xd9) {
+        resolve(image);
+      }
+      else reject(new Error(stderr.trim() || `FFmpeg exited with status ${code ?? "unknown"}`));
+    });
+    process.stdin.on("error", () => undefined);
+    process.stdin.end(video);
+  });
+}
+
 /** Preserve the public H.264 remux helper used by existing callers and tests. */
 export async function remuxH264ToMp4(h264: Buffer): Promise<Buffer> {
   return await remuxVideoToMp4(h264, "h264");

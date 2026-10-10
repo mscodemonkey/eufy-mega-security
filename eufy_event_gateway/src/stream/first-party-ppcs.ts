@@ -10,9 +10,13 @@
  * stream plus safe counters, so the rest of the gateway never handles PPCS
  * packet layout or camera encryption directly.
  */
-import { createCipheriv, createDecipheriv, createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes, timingSafeEqual } from "node:crypto";
+import { createCipheriv, createDecipheriv, createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes, timingSafeEqual, type KeyObject } from "node:crypto";
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
+import {
+  buildHomeBase2DownloadValue, HOMEBASE2_DOWNLOAD_CANCEL_COMMAND, HOMEBASE2_DOWNLOAD_COMMAND,
+  HomeBase2EventFrameReader, type RecordedEventFrames,
+} from "./homebase2-event-frame.js";
 import { HomeBaseRecordingReader } from "./homebase-recordings.js";
 import { SoloCamRecordingReader, type CameraStoredRecord } from "./stored-recordings.js";
 import type { CameraPresetPosition, VideoCodec } from "../domain/types.js";
@@ -1212,6 +1216,7 @@ export class FirstPartyPpcsSession {
 
   /** Own correlated card reads separately from live media and camera-setting requests. */
   #recordings: SoloCamRecordingReader | HomeBaseRecordingReader | null = null;
+  #eventFrames: HomeBase2EventFrameReader | null = null;
 
   /** Return the codec proven by emitted NAL headers, or frame metadata as a fallback. */
   get videoCodec(): VideoCodec | null {
@@ -1653,6 +1658,47 @@ export class FirstPartyPpcsSession {
     return await reader.download(record, signal);
   }
 
+  /**
+   * Read the opening frames of one HomeBase 2 clip for a full-scene event picture.
+   *
+   * The T8010 accepts the legacy fixed-width download command with level-one
+   * encryption, matching its direct media stop. Signed frames wrap their AES
+   * key with the station cipher's RSA key, which the provider resolves for
+   * this clip only. A fresh reader per call keeps that key out of later reads.
+   */
+  async readHomeBase2EventFrames(path: string, cipherPrivateKey: KeyObject, signal?: AbortSignal): Promise<RecordedEventFrames> {
+    if (!this.#options.homeBaseAttached || this.#options.stationModel !== "T8010" ||
+      this.#options.purpose !== "control" || !this.#options.accountId) {
+      throw new Error("HomeBase 2 event frames require a HomeBase 2 control session");
+    }
+    if (!this.#remote) throw new Error("HomeBase 2 session is not connected");
+    if (this.#recordings?.downloading || this.#eventFrames?.downloading) throw new Error("HomeBase 2 recording operation is already active");
+    await this.#waitForLevel2Key();
+    const key = commandKey(this.#options.stationSerial, this.#options.p2pDid);
+    const channel = this.#options.channel;
+    const accountId = this.#options.accountId;
+    this.#eventFrames = new HomeBase2EventFrameReader({
+      channel,
+      request: (filePath) => this.#sendCommand(HOMEBASE2_DOWNLOAD_COMMAND,
+        rawPayload(encryptLevel1(buildHomeBase2DownloadValue(filePath, accountId), key), channel, 1, [1, 0], 0)),
+      cancel: () => {
+        const value = Buffer.alloc(4);
+        value.writeUInt32LE(channel, 0);
+        this.#sendCommand(HOMEBASE2_DOWNLOAD_CANCEL_COMMAND, rawPayload(encryptLevel1(value, key), channel, 1, [1, 0], 0));
+      },
+      unwrapKey: (wrapped) => privateDecrypt({ key: cipherPrivateKey, padding: 1 }, wrapped),
+      decodeReply: (payload, sign) => {
+        if (sign === 0) return payload;
+        if ((sign === 8 || sign === 2) && this.#level2Key) return decryptLevel2(payload, this.#level2Key, sign) ?? null;
+        if (sign === 1 && payload.length % 16 === 0) {
+          try { return decryptEcb(payload, key); } catch { return null; }
+        }
+        return null;
+      },
+    });
+    return await this.#eventFrames.firstFrames(path, signal);
+  }
+
   #recordingReader(): SoloCamRecordingReader | HomeBaseRecordingReader {
     if (this.#options.homeBaseAttached) {
       if (this.#options.cameraModel !== "T8171" || this.#options.stationModel !== "T8030" || this.#options.channel !== 1 ||
@@ -1738,6 +1784,7 @@ export class FirstPartyPpcsSession {
     this.#closed = true;
     this.stats.closeReason = reason;
     this.#recordings?.close();
+    this.#eventFrames?.close();
     if (this.#maximumDurationTimer) clearTimeout(this.#maximumDurationTimer);
     if (this.#firstFrameTimer) clearTimeout(this.#firstFrameTimer);
     if (this.#heartbeat) clearInterval(this.#heartbeat);
@@ -1845,7 +1892,9 @@ export class FirstPartyPpcsSession {
       this.#send(REQ.ack, Buffer.concat([type, u16(1), u16(seq)]), this.#remote);
       const dataType = type[1] ?? 0;
       if (type.equals(DATA.video) || type.equals(DATA.data) || dataType === 2 ||
-        (dataType === 3 && this.#recordings?.downloading)) this.#datagramOrder.push(message.subarray(8), seq, dataType);
+        (dataType === 3 && (this.#recordings?.downloading || this.#eventFrames?.downloading))) {
+        this.#datagramOrder.push(message.subarray(8), seq, dataType);
+      }
     }
     return false;
   }
@@ -1934,6 +1983,7 @@ export class FirstPartyPpcsSession {
    */
   #handleFrame(header: Buffer, payload: Buffer, type: number): void {
     if (this.#recordings?.handleFrame(header, payload, type)) return;
+    if (this.#eventFrames?.handleFrame(header, payload, type)) return;
     const command = header.readUInt16LE(4);
     const size = header.readUInt32LE(6);
     const frameChannel = ppcsFrameChannel(header);
