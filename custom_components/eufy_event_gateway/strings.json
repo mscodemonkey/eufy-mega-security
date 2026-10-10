@@ -99,11 +99,23 @@
       }
     },
     "number": {
+      "camera_light_brightness": {
+        "name": "Light brightness"
+      },
+      "camera_notification_interval": {
+        "name": "Notification interval"
+      },
       "eufy_station_alarm_volume": {
         "name": "Alarm volume"
       },
       "eufy_station_prompt_volume": {
         "name": "Prompt volume"
+      },
+      "camera_sound_sensitivity": {
+        "name": "Sound sensitivity"
+      },
+      "camera_speaker_volume": {
+        "name": "Speaker volume"
       }
     },
     "select": {
@@ -133,7 +145,9 @@
           "auto": "Auto",
           "hd": "HD (720p)",
           "full_hd": "Full HD (1080p)",
-          "2k": "2K"
+          "2k": "2K",
+          "medium": "Medium",
+          "high": "High"
         }
       },
       "camera_night_vision": {
@@ -144,6 +158,28 @@
           "infrared": "Infrared",
           "infrared_on": "Infrared on",
           "spotlight": "Spotlight"
+        }
+      },
+      "camera_sound_type": {
+        "name": "Sound detection type",
+        "state": {
+          "all_sound": "All sound",
+          "crying": "Crying"
+        }
+      },
+      "camera_recording_quality": {
+        "name": "Recording quality",
+        "state": {
+          "medium": "Medium",
+          "high": "High"
+        }
+      },
+      "camera_watermark": {
+        "name": "Watermark",
+        "state": {
+          "off": "Off",
+          "timestamp": "Timestamp",
+          "timestamp_logo": "Timestamp and logo"
         }
       }
     },
@@ -221,6 +257,12 @@
       }
     },
     "switch": {
+      "camera_sound_round_look": {
+        "name": "Sound round-look"
+      },
+      "camera_enhance_lighting": {
+        "name": "Enhanced lighting"
+      },
       "camera_enabled": {
         "name": "Camera enabled"
       },
@@ -232,6 +274,24 @@
       },
       "auto_night_vision": {
         "name": "Auto night vision"
+      },
+      "camera_microphone": {
+        "name": "Microphone"
+      },
+      "camera_speaker": {
+        "name": "Speaker"
+      },
+      "camera_image_flipped": {
+        "name": "Rotate image 180°"
+      },
+      "camera_pre_recording": {
+        "name": "Pre-recording"
+      },
+      "camera_status_led": {
+        "name": "Status LED"
+      },
+      "camera_sound_detection": {
+        "name": "Sound detection"
       }
     },
     "siren": {

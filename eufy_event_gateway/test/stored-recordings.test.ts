@@ -43,6 +43,49 @@ test("history accepts only owned completed local event files and canonical dates
   }
 });
 
+test("C31 history retains its exact SD layout and rejects other models and path roots", () => {
+  const c31Path = path.replace("/media/mmcblk0p1", "/mnt/sdcard");
+  const c31Row = { ...row, device_type: 10_031, storage_path: c31Path };
+  const c31History = { ...history, data: [{ table_name: "history_record_info", payload: [c31Row] }] };
+  assert.equal(parseStoredRecordings(c31History, serial, 10_031)[0]?.storagePath, c31Path);
+  assert.throws(() => parseStoredRecordings(c31History, serial), /ownership/);
+  assert.throws(() => parseStoredRecordings(history, serial, 10_031), /ownership/);
+  assert.throws(() => parseStoredRecordings(c31History, "foreign", 10_031), /ownership/);
+  for (const storagePath of [path, c31Path.replace("Camera00", "Camera01"), c31Path.replace("/event/", "/continuous/"), c31Path.replace("/Camera00/", "/../Camera00/")]) {
+    const invalid = { ...c31History, data: [{ table_name: "history_record_info", payload: [{ ...c31Row, storage_path: storagePath }] }] };
+    assert.equal(parseStoredRecordings(invalid, serial, 10_031).length, 0);
+  }
+});
+
+test("C31's native empty-day reply is empty history only after a successful result", () => {
+  assert.deepEqual(parseStoredRecordings({ mIntRet: 0, data: "[]" }, serial, 10_031), []);
+  assert.throws(() => parseStoredRecordings({ mIntRet: 1, data: "[]" }, serial, 10_031), /accepted/);
+  assert.throws(() => parseStoredRecordings({ mIntRet: 0, data: "{}" }, serial, 10_031), /accepted/);
+  assert.throws(() => parseStoredRecordings({ mIntRet: 0, data: "[]" }, serial), /accepted/);
+});
+
+test("C31 saved-frame metadata is admitted only by its storage profile", async () => {
+  const c31Record = { ...record, storagePath: path.replace("/media/mmcblk0p1", "/mnt/sdcard") };
+  for (const deviceType of [88, 10_031] as const) {
+    const controller = new AbortController();
+    const reader = new SoloCamRecordingReader({ serial, p2pDid: did, deviceType, query: () => {}, download: () => {}, decodeReply: (bytes) => bytes });
+    const pending = reader.download(deviceType === 88 ? record : c31Record, controller.signal);
+    const payload = videoPayload(Buffer.alloc(200));
+    payload[10] = 128;
+    assert.equal(reader.handleFrame(header(1300, 101, 1), payload, 3), true);
+    if (deviceType === 88) {
+      await assert.rejects(pending, /framing/);
+    } else {
+      controller.abort();
+      await assert.rejects(pending, /cancelled/);
+    }
+    reader.close();
+  }
+  const reader = new SoloCamRecordingReader({ serial, p2pDid: did, deviceType: 10_031, query: () => {}, download: () => {}, decodeReply: (bytes) => bytes });
+  await assert.rejects(reader.download(record), /reference/);
+  reader.close();
+});
+
 test("a stale history transaction cannot complete a current query; shutdown rejects it", async () => {
   let transaction = "";
   const reader = new SoloCamRecordingReader({ serial, p2pDid: did, query: (id) => { transaction = id; }, download: () => {}, decodeReply: (bytes) => bytes });
@@ -89,11 +132,11 @@ test("owned stored downloads fully decode both audio and silent recordings", asy
     const video = await readFile(source), audio = await readFile(audioPath);
     const cipher = createCipheriv("aes-128-ecb", Buffer.from(imageKey(serial, did, timestamp), "ascii").subarray(0, 16), null); cipher.setAutoPadding(false);
     const encrypted = Buffer.concat([cipher.update(video.subarray(0, 128)), cipher.final(), video.subarray(128)]);
-    for (const hasAudio of [true, false]) {
-      const reader = new SoloCamRecordingReader({ serial, p2pDid: did, query: () => {}, decodeReply: (bytes) => bytes, download: () => {
+    for (const [deviceType, hasAudio] of [[88, true], [88, false], [10_031, true], [10_031, false]] as const) {
+      const reader = new SoloCamRecordingReader({ serial, p2pDid: did, deviceType, query: () => {}, decodeReply: (bytes) => bytes, download: () => {
         const reply = Buffer.alloc(36); reply.write(timestamp, 4, "ascii");
         reader.handleFrame(header(1024, 255, 8), reply, 0);
-        const payload = videoPayload(encrypted); payload[10] = 0;
+        const payload = videoPayload(encrypted); payload[10] = deviceType === 10_031 ? 128 : 0;
         reader.handleFrame(header(1300, 101, 1), payload, 3);
         if (hasAudio) {
           const metadata = Buffer.alloc(16); metadata.writeUInt32LE(audio.length); metadata[5] = 1;
@@ -101,8 +144,10 @@ test("owned stored downloads fully decode both audio and silent recordings", asy
         }
         reader.handleFrame(header(1304), Buffer.alloc(0), 3);
       } });
-      const mp4 = await reader.download(record);
-      const target = join(directory, `${hasAudio}.mp4`); await writeFile(target, mp4);
+      const selectedRecord = deviceType === 10_031
+        ? { ...record, storagePath: path.replace("/media/mmcblk0p1", "/mnt/sdcard") } : record;
+      const mp4 = await reader.download(selectedRecord);
+      const target = join(directory, `${deviceType}-${hasAudio}.mp4`); await writeFile(target, mp4);
       const probe = JSON.parse((await run("ffprobe", ["-v", "error", "-show_streams", "-show_format", "-of", "json", target])).stdout);
       assert.equal(probe.streams.some((track: { codec_type: string }) => track.codec_type === "audio"), hasAudio);
       assert.ok(Number(probe.format.duration) >= 2.9);

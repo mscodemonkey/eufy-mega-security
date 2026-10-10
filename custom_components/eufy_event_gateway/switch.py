@@ -16,6 +16,7 @@ from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity
+from .preferences import camera_preference_value
 
 
 async def async_setup_entry(
@@ -25,12 +26,19 @@ async def async_setup_entry(
 ) -> None:
     """Create reported camera switches as supported devices enter inventory."""
     coordinator = entry.runtime_data.coordinator
+    known_preferences: set[tuple[str, str]] = set()
     known_enabled: set[str] = set()
     known_motion: set[str] = set()
     known_audio_recording: set[str] = set()
     known_auto_night_vision: set[str] = set()
 
     def add_new() -> None:
+        for serial, camera in coordinator.cameras.items():
+            for name in ("microphone", "speaker", "imageFlipped", "preRecording", "soundDetection", "statusLed", "soundRoundLook", "enhanceLighting"):
+                key = (serial, name)
+                if key not in known_preferences and camera_preference_value(camera, name) is not None:
+                    known_preferences.add(key)
+                    async_add_entities([EufyCameraPreferenceSwitch(coordinator, serial, name)])
         serials = {
             serial
             for serial, camera in coordinator.cameras.items()
@@ -232,3 +240,46 @@ class EufyAutoNightVisionSwitch(EufyGatewayEntity, SwitchEntity):
             raise HomeAssistantError(
                 f"Could not change Auto night vision: {error}"
             ) from error
+
+
+class EufyCameraPreferenceSwitch(EufyGatewayEntity, SwitchEntity):
+    """Expose one admitted preference for this camera's coordinator lifetime.
+
+    The gateway owns validation and state confirmation. Instances keep only the
+    selected preference name and never publish optimistic state.
+    """
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, name: str) -> None:
+        """Bind one supported preference to its camera."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        SwitchEntity.__init__(self)
+        self.preference = name
+        self._attr_unique_id = f"{serial}_preference_{name}"
+        translation_name = {"imageFlipped": "image_flipped", "preRecording": "pre_recording", "soundDetection": "sound_detection", "statusLed": "status_led", "soundRoundLook": "sound_round_look", "enhanceLighting": "enhance_lighting"}.get(name, name)
+        self._attr_translation_key = f"camera_{translation_name}"
+
+    @property
+    def available(self) -> bool:
+        """Hide stale control admission when topology or reported state changes."""
+        return super().available and camera_preference_value(self.camera, self.preference) is not None
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return confirmed state, preserving unknown values."""
+        value = camera_preference_value(self.camera, self.preference)
+        return bool(value) if value is not None else None
+
+    async def async_turn_on(self, **kwargs: object) -> None:
+        """Enable the admitted preference and publish confirmed state."""
+        await self._async_set(1)
+
+    async def async_turn_off(self, **kwargs: object) -> None:
+        """Disable the admitted preference and publish confirmed state."""
+        await self._async_set(0)
+
+    async def _async_set(self, value: int) -> None:
+        try:
+            camera = await self.coordinator.client.set_camera_preference(self.serial, self.preference, value)
+            self.coordinator.async_set_camera(camera)
+        except GatewayClientError as error:
+            raise HomeAssistantError(f"Could not change camera preference: {error}") from error

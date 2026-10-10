@@ -64,10 +64,18 @@ entity:
     eufy_station_camera_route:
       name: Camera route
   number:
+    camera_light_brightness:
+      name: Light brightness
+    camera_notification_interval:
+      name: Notification interval
     eufy_station_alarm_volume:
       name: Alarm volume
     eufy_station_prompt_volume:
       name: Prompt volume
+    camera_sound_sensitivity:
+      name: Sound sensitivity
+    camera_speaker_volume:
+      name: Speaker volume
   select:
     eufy_guard_mode_select:
       name: Guard mode
@@ -92,6 +100,8 @@ entity:
         hd: HD (720p)
         full_hd: Full HD (1080p)
         2k: 2K
+        medium: Medium
+        high: High
     camera_night_vision:
       name: Night vision
       state:
@@ -100,6 +110,22 @@ entity:
         infrared: Infrared
         infrared_on: Infrared on
         spotlight: Spotlight
+    camera_sound_type:
+      name: Sound detection type
+      state:
+        all_sound: All sound
+        crying: Crying
+    camera_recording_quality:
+      name: Recording quality
+      state:
+        medium: Medium
+        high: High
+    camera_watermark:
+      name: Watermark
+      state:
+        off: Off
+        timestamp: Timestamp
+        timestamp_logo: Timestamp and logo
   sensor:
     last_recognized_person:
       name: Last recognized person
@@ -158,6 +184,10 @@ entity:
         mounting: Mounting
         reported: Reported
   switch:
+    camera_sound_round_look:
+      name: Sound round-look
+    camera_enhance_lighting:
+      name: Enhanced lighting
     camera_enabled:
       name: Camera enabled
     camera_motion_detection:
@@ -166,6 +196,18 @@ entity:
       name: Audio recording
     auto_night_vision:
       name: Auto night vision
+    camera_microphone:
+      name: Microphone
+    camera_speaker:
+      name: Speaker
+    camera_image_flipped:
+      name: Rotate image 180°
+    camera_pre_recording:
+      name: Pre-recording
+    camera_status_led:
+      name: Status LED
+    camera_sound_detection:
+      name: Sound detection
   siren:
     camera_siren:
       name: Siren
@@ -189,11 +231,13 @@ config:
         url: Gateway URL
         api_token: API token
       data_description:
-        url: For the local app, use the address supplied by Supervisor discovery. Manual installs usually use http://127.0.0.1:3218.
+        url: For the local app, use the address supplied by Supervisor discovery. Manual
+          installs usually use http://127.0.0.1:3218.
         api_token: Use the same token configured in the Eufy Mega Security app.
     hassio_confirm:
       title: Connect to the Eufy Mega Security app
-      description: Home Assistant discovered the local Eufy Mega Security app. Submit to create its camera and detection entities.
+      description: Home Assistant discovered the local Eufy Mega Security app. Submit
+        to create its camera and detection entities.
   error:
     cannot_connect: Could not connect to the gateway
     invalid_auth: The gateway rejected the API token

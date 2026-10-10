@@ -1,4 +1,4 @@
-"""HomeBase alarm and prompt volume controls for Eufy Mega Security.
+"""HomeBase volume and admitted camera number controls for Eufy Mega Security.
 
 The coordinator owns each HomeBase's normalized state, while these entities
 translate Home Assistant number writes into explicit gateway commands. Values
@@ -19,7 +19,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
 from .coordinator import EufyGatewayCoordinator
-from .entity import EufyStationEntity
+from .entity import EufyStationEntity, EufyGatewayEntity
+from .preferences import camera_preference_value
 
 
 async def async_setup_entry(
@@ -30,8 +31,15 @@ async def async_setup_entry(
     """Create alarm and prompt volume controls for every HomeBase."""
     coordinator = entry.runtime_data.coordinator
     known: set[str] = set()
+    known_cameras: set[tuple[str, str]] = set()
 
     def add_new() -> None:
+        for serial, camera in coordinator.cameras.items():
+            for name in ("speakerVolume", "soundSensitivity", "lightBrightness", "notificationInterval"):
+                key = (serial, name)
+                if key not in known_cameras and camera_preference_value(camera, name) is not None:
+                    known_cameras.add(key)
+                    async_add_entities([EufyCameraPreferenceNumber(coordinator, serial, name)])
         serials = {
             serial
             for serial, station in coordinator.stations.items()
@@ -94,3 +102,41 @@ class EufyStationVolume(EufyStationEntity, NumberEntity):
             raise HomeAssistantError(
                 f"Could not change HomeBase {self.kind} volume: {error}"
             ) from error
+
+
+class EufyCameraPreferenceNumber(EufyGatewayEntity, NumberEntity):
+    """Expose confirmed numeric preferences while the gateway admits the route."""
+    _attr_native_min_value = 1
+    _attr_native_max_value = 100
+    _attr_native_step = 1
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, name: str) -> None:
+        """Bind a reviewed numeric range to its owning camera."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        NumberEntity.__init__(self)
+        self.preference = name
+        self._attr_unique_id = f"{serial}_preference_{name}"
+        self._attr_native_min_value = 1 if name in ("speakerVolume", "soundSensitivity") else 0
+        self._attr_native_max_value = 100 if name in ("speakerVolume", "lightBrightness") else 5
+        self._attr_translation_key = {"speakerVolume": "camera_speaker_volume", "soundSensitivity": "camera_sound_sensitivity", "lightBrightness": "camera_light_brightness", "notificationInterval": "camera_notification_interval"}[name]
+        self._attr_native_unit_of_measurement = "min" if name == "notificationInterval" else "%" if name == "lightBrightness" else None
+
+    @property
+    def available(self) -> bool:
+        """Require current gateway admission, including a valid reported baseline."""
+        return super().available and self.native_value is not None
+
+    @property
+    def native_value(self) -> float | None:
+        """Return a confirmed preference without replacing unknown with zero."""
+        return camera_preference_value(self.camera, self.preference)
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Publish a numeric preference only after fresh camera confirmation."""
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value != int(value):
+            raise HomeAssistantError("Camera preference must be a whole number")
+        try:
+            camera = await self.coordinator.client.set_camera_preference(self.serial, self.preference, int(value))
+            self.coordinator.async_set_camera(camera)
+        except GatewayClientError as error:
+            raise HomeAssistantError(f"Could not change camera preference: {error}") from error

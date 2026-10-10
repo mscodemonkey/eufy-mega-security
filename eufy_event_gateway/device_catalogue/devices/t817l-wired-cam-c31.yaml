@@ -23,6 +23,11 @@ capabilities:
   controls:
     enabled:
       connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Native privacy switch 6250 uses zero for enabled. Home Assistant off/on actions matched fresh cloud readback and restored on. Attached enablement keeps its existing command and polarity.
         T8030:
           status: tested
           tested_on: 2026-09-20
@@ -79,6 +84,11 @@ capabilities:
         command: 1400
     ai_tracking:
       connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact T817L type 10031 firmware 2.1.0.3. Integration off stopped physical following and the actual Home Assistant on action restored it. Fresh cloud parameter 6016 confirmed both writes. Actions retain a separate owned control session and preserve the existing presets and cruise policy.
         T8030:
           status: tested
           tested_on: 2026-09-28
@@ -112,6 +122,11 @@ capabilities:
       notes: The official app and local hardware confirm the action. The local route exposes separate actions because equivalent persistent readback is unavailable.
     motion_detection:
       connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Native switch 6040 off/on actions passed through Home Assistant with fresh readback and restored on. This checks the preference, not a controlled detection event.
         T8030:
           status: tested
           tested_on: 2026-09-21
@@ -125,6 +140,11 @@ capabilities:
         "1": "On"
     night_vision:
       connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. All three native mode settings passed through Home Assistant with fresh cloud readback and restored PureColor. Fresh night images changed from colour to monochrome in infrared mode and returned to colour after restoring the original mode. Infrared illumination range was not measured.
         T8030:
           status: tested
           tested_on: 2026-09-21
@@ -137,8 +157,166 @@ capabilities:
         "0": "PureColor"
         "1": "Infrared"
         "2": "Spotlight"
+    microphone:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: A live microphone-off capture retained clean video and silent AAC samples. Ambient sound was not controlled, so physical mute effectiveness remains unconfirmed. Original microphone-on was restored and freshly queried. Exact standalone T817L type 10031 firmware 2.1.0.3. Actual Home Assistant actions matched a fresh camera parameter query. Off/on preference and restoration passed. Recorded audio content remains a separate test. T817L121 and attached routes are not covered.
+      read:
+        parameter: 1240
+      write:
+        command: 1240
+    speaker:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Actual Home Assistant actions matched a fresh camera parameter query. Off/on preference and restoration passed. Audible talkback remains a separate test. T817L121 and attached routes are not covered.
+      read:
+        parameter: 1241
+      write:
+        command: 1241
+    speaker_volume:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Actual Home Assistant actions matched a fresh camera parameter query. Volume 70 and original 80 passed. The native control range is 1 to 100. T817L121 and attached routes are not covered.
+      read:
+        parameter: 1230
+      write:
+        command: 1230
+    image_flipped:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Actual Home Assistant actions matched a fresh camera parameter query. Off/on preference passed. Fresh images visibly rotated 180 degrees and returned upright after restoration. T817L121 and attached routes are not covered.
+      read:
+        parameter: 1207
+      write:
+        command: 1207
+    watermark:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Actual Home Assistant actions matched a fresh camera parameter query. All three modes passed fresh readback and visibly removed the overlay, showed timestamp only, and restored timestamp plus logo. T817L121 and attached routes are not covered.
+      read:
+        parameter: 1214
+      write:
+        command: 1214
+    pre_recording:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Actual Home Assistant actions matched a fresh camera parameter query. Off/on preference and restoration passed. Clip pre-roll timing remains a separate test. T817L121 and attached routes are not covered.
+      read:
+        parameter: 6257
+      write:
+        command: 6257
+    sound_detection:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Actual Home Assistant actions matched a fresh camera parameter query. On/off preference and restoration passed. Sound classification and events remain a separate test. T817L121 and attached routes are not covered.
+      read:
+        parameter: 6043
+      write:
+        command: 6043
+    status_led:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Actual Home Assistant actions matched fresh camera parameter queries. Native LED command 6014 off/on passed, with original on restored. Physical LED observation is not claimed. T817L121 and HomeBase routes are not covered.
+      read:
+        parameter: 6014
+      write:
+        command: 6014
+    recording_quality:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Actual Home Assistant actions matched fresh camera parameter queries. Native medium 2 and high 3 passed, with original high restored. Recorded-medium resolution remains a separate media test. T817L121 and HomeBase routes are not covered.
+      read:
+        parameter: 2731
+      write:
+        command: 2731
+    sound_sensitivity:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Native sensitivity levels 1 through 5. Levels 2 and 3 passed Home Assistant writes and fresh query restoration. Sound detection remained off. This does not prove classification accuracy.
+      write:
+        command: 6044
+    sound_type:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Native values 128 for All sound and 256 for Crying differ from older camera families. Both passed Home Assistant writes with original All sound restored. No controlled crying event was tested.
+      write:
+        command: 6046
+    sound_round_look:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Native onoff preference passed Home Assistant changes and restoration with fresh query. Sound detection remained off, so no sound-triggered physical movement is claimed.
+      write:
+        command: 6208
+    enhance_lighting:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Native inverted mode 0 enables and 1 disables enhanced lighting. Home Assistant writes and fresh query restoration passed. Low-light effectiveness remains untested.
+      write:
+        command: 6484
+    light_brightness:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Native 0 through 100 preference. Values 60 and 80 passed Home Assistant writes and fresh query restoration. No measured lamp output is claimed.
+      write:
+        command: 1401
+    notification_interval:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Native UI 0 through 5 minutes maps to command seconds. Values 1 and 0 minutes passed Home Assistant writes and fresh query restoration. This is separate from other models recording intervals and does not prove notification timing.
+      write:
+        command: 1250
     siren:
       connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. The owner confirmed an actual five-second Home Assistant sound-only alarm sounded and stopped. Native start is outer 1350 inner 1201 with a 30-second safety timeout, followed by both ordered binary early-stop commands. Direct pulses are limited to 30 seconds. Siren state is not readable. T817L121 and HomeBase routes are not covered by this test.
         T8030:
           status: tested
           tested_on: 2026-09-21
@@ -153,6 +331,13 @@ capabilities:
           maximum: 900
       notes: A duration of 0 stops the siren.
   media:
+    stored_event_playback:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact T817L type 10031 firmware 2.1.0.3, self-owned channel zero. SD event listing and complete H.264/AAC playback passed through Home Assistant, including signed access, byte ranges and unsigned rejection. The C31 storage root and video metadata differ from the E30. Continuous footage, HomeBase playback and T817L121 are not covered.
     live_view:
       connections:
         T8030:
@@ -160,7 +345,10 @@ capabilities:
           tested_on: 2026-09-21
           tested_by: mscodemonkey
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Signed gateway live transport completed a 30-second request with full 1080p H.264 and 16 kHz mono AAC decoding. Actual Home Assistant recording also passed full decoding of both tracks after correcting overlapping AAC startup timestamps. Earlier clean 90-second video testing does not resolve intermittent corruption seen in a separate run. HomeBase C31 audio and T817L121 are not covered.
     snapshot:
       connections:
         T8030:
@@ -168,7 +356,10 @@ capabilities:
           tested_on: 2026-09-21
           tested_by: mscodemonkey
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Fresh gateway captures returned valid JPEGs with changed retained metadata. Native image rotation and watermark effects were independently visible and restored. T817L121 is not covered.
   events:
     motion:
       connections:

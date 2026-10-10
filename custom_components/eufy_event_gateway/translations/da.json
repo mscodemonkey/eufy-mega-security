@@ -99,11 +99,23 @@
       }
     },
     "number": {
+      "camera_light_brightness": {
+        "name": "Lysstyrke"
+      },
+      "camera_notification_interval": {
+        "name": "Notifikationsinterval"
+      },
       "eufy_station_alarm_volume": {
         "name": "Alarm lydstyrke"
       },
       "eufy_station_prompt_volume": {
         "name": "Instruks lydstyrke"
+      },
+      "camera_sound_sensitivity": {
+        "name": "Lydfølsomhed"
+      },
+      "camera_speaker_volume": {
+        "name": "Højttalerlydstyrke"
       }
     },
     "select": {
@@ -133,7 +145,9 @@
           "auto": "Automatisk",
           "hd": "HD (720p)",
           "full_hd": "Full HD (1080p)",
-          "2k": "2K"
+          "2k": "2K",
+          "medium": "Mellem",
+          "high": "Høj"
         }
       },
       "camera_night_vision": {
@@ -144,6 +158,28 @@
           "infrared": "Infrarød",
           "infrared_on": "Infrarød slået til",
           "spotlight": "Spotlys"
+        }
+      },
+      "camera_sound_type": {
+        "name": "Lyddetektionstype",
+        "state": {
+          "all_sound": "Al lyd",
+          "crying": "Gråd"
+        }
+      },
+      "camera_recording_quality": {
+        "name": "Optagekvalitet",
+        "state": {
+          "medium": "Mellem",
+          "high": "Høj"
+        }
+      },
+      "camera_watermark": {
+        "name": "Vandmærke",
+        "state": {
+          "off": "Fra",
+          "timestamp": "Tidsstempel",
+          "timestamp_logo": "Tidsstempel og logo"
         }
       }
     },
@@ -221,6 +257,12 @@
       }
     },
     "switch": {
+      "camera_sound_round_look": {
+        "name": "Lydrundkig"
+      },
+      "camera_enhance_lighting": {
+        "name": "Forbedret belysning"
+      },
       "camera_enabled": {
         "name": "Kamera tilsluttet"
       },
@@ -232,6 +274,24 @@
       },
       "auto_night_vision": {
         "name": "Auto night vision"
+      },
+      "camera_microphone": {
+        "name": "Mikrofon"
+      },
+      "camera_speaker": {
+        "name": "Højttaler"
+      },
+      "camera_image_flipped": {
+        "name": "Rotér billede 180°"
+      },
+      "camera_pre_recording": {
+        "name": "Foroptagelse"
+      },
+      "camera_status_led": {
+        "name": "Statuslys"
+      },
+      "camera_sound_detection": {
+        "name": "Lyddetektion"
       }
     },
     "siren": {

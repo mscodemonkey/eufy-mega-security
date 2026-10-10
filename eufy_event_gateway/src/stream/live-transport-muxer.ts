@@ -132,6 +132,10 @@ export class LiveTransportMuxer {
     if (withAudio) args.push("-probesize", "32", "-analyzeduration", "0", "-thread_queue_size", "512", "-f", "aac", "-i", "pipe:3");
     args.push("-map", "0:v:0");
     if (withAudio) args.push("-map", "1:a:0");
+
+    // Raw AAC startup can yield overlapping timestamps even when subsequent
+    // packets are regular. Keep its sample clock continuous for HA's MP4 remux.
+    if (withAudio) args.push("-bsf:a", "setts=ts='if(eq(N,0),0,PREV_OUTDTS+PREV_OUTDURATION)':duration='if(gt(DURATION,0),DURATION,1024/SR/TB)'");
     args.push("-c", "copy", "-flush_packets", "1", "-muxdelay", "0", "-muxpreload", "0", "-max_interleave_delta", "100000", "-f", "mpegts", "pipe:1");
     const child = spawn("ffmpeg", args, { stdio: ["pipe", "pipe", "pipe", withAudio ? "pipe" : "ignore"] });
     this.#process = child;

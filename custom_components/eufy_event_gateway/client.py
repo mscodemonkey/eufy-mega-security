@@ -273,6 +273,13 @@ class GatewayClient:
             raise GatewayClientError("Gateway returned an invalid camera response")
         return camera
 
+    async def set_camera_preference(self, serial: str, name: str, value: int) -> dict[str, Any]:
+        """Write an admitted preference and return the gateway's fresh confirmed state."""
+        camera = await self._json(f"/api/cameras/{serial}/preferences", method="POST", payload={"preference": name, "value": value}, timeout=120)
+        if not isinstance(camera.get("serial"), str):
+            raise GatewayClientError("Gateway returned an invalid camera response")
+        return camera
+
     async def set_camera_audio_recording(
         self, serial: str, enabled: bool
     ) -> dict[str, Any]:

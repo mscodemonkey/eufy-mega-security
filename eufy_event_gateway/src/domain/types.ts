@@ -77,10 +77,21 @@ export interface CameraAudioSettings {
 /** Inventory configuration only, not live image orientation, lamp output or sound events. */
 export interface CameraReportedSettings {
 
+  /** Exact standalone C31 pre-recording setting, not proof of a recording duration. */
+  readonly preRecordingEnabled?: boolean | null;
+
   /** Model-limited ringtone and sound configuration, not live audio or detection results. */
   readonly ringtoneVolume?: number | null;
   readonly soundDetectionSensitivity?: number | null;
   readonly soundDetectionType?: number | null;
+
+  /** Exact standalone C31 preferences, independent of detection or low-light results. */
+  readonly soundRoundLookEnabled?: boolean | null;
+  readonly enhanceLightingEnabled?: boolean | null;
+
+  /** Exact C31 light setting and notification spacing, unrelated to recording intervals. */
+  readonly lightBrightness?: number | null;
+  readonly notificationIntervalMinutes?: number | null;
 
   /** Reported quality ranks. They do not assert an observed resolution or codec. */
   readonly streamingQualityTier?: number | null;
@@ -141,6 +152,9 @@ export interface CameraState {
 
   /** Whether the owned ready route and known baseline admit native streaming-quality writes. */
   readonly streamingQualityControlSupported?: boolean;
+
+  /** Known preferences with an exact owned and ready control route. */
+  readonly preferenceControls?: readonly string[];
 
   /** Model-specific streaming choices, used only when control admission is true. */
   readonly streamingQualityModes?: readonly CameraStreamingQualityMode[];
@@ -214,7 +228,7 @@ export interface NightVisionMode {
 /** One exact model's app-confirmed streaming quality, independent of recorded-video quality. */
 export interface CameraStreamingQualityMode {
   readonly value: number;
-  readonly name: "Auto" | "HD (720P)" | "Full HD (1080P)" | "2K";
+  readonly name: "Auto" | "HD (720P)" | "Full HD (1080P)" | "2K" | "Medium" | "High";
 }
 
 /** Normalized battery reads exposed only when a device reports each field. */
@@ -322,6 +336,9 @@ export interface CameraIdentity {
 
   /** Optional admission for fresh-state-confirmed streaming-quality writes. */
   readonly streamingQualityControlSupported?: boolean;
+
+  /** Known preferences with an exact owned and ready control route. */
+  readonly preferenceControls?: readonly string[];
 
   /** Native choices for this model, separate from recorded-video resolution. */
   readonly streamingQualityModes?: readonly CameraStreamingQualityMode[];

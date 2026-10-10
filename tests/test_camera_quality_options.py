@@ -33,6 +33,11 @@ class StreamingQualityOptionsTest(unittest.TestCase):
         modes = [{'value': index, 'name': name} for index, name in enumerate(['Auto', 'HD (720P)', 'Full HD (1080P)', '2K'])]
         self.assertEqual(self.map_modes({'streamingQualityModes': modes}), {0: 'auto', 1: 'hd', 2: 'full_hd', 3: '2k'})
 
+    def test_c31_native_choices_preserve_distinct_labels(self) -> None:
+        """C31 quality values differ from the SoloCam resolution names."""
+        modes = [{'value': 0, 'name': 'Auto'}, {'value': 2, 'name': 'Medium'}, {'value': 3, 'name': 'High'}]
+        self.assertEqual(self.map_modes({'streamingQualityModes': modes}), {0: 'auto', 2: 'medium', 3: 'high'})
+
     def test_malformed_values_and_labels_are_rejected(self) -> None:
         """Reject booleans, arbitrary strings and unhashable labels safely."""
         for modes in [None, 'Auto', {}, [None], [{'value': 4, 'name': 'Auto'}], [{'value': True, 'name': 'Auto'}], [{'value': '0', 'name': 'Auto'}], [{'value': 0, 'name': []}], [{'value': 0, 'name': 'Unknown'}]]:

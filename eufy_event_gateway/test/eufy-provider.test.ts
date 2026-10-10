@@ -26,6 +26,7 @@ import {
   homeBaseReadLogSummary,
   supportsMotionDetectionControlRoute,
   supportsStandaloneMotionDetection,
+  supportsStandaloneNightVision,
   supportsStandaloneAudioRecording,
   supportsStandaloneStreamingQuality,
   supportsStandalonePanControl,
@@ -52,6 +53,8 @@ import {
   safeInventoryReads,
   supportsHomeBaseGuardMode,
   supportsCameraSiren,
+  supportsCameraLiveAudio,
+  type MegaInventoryDevice,
   supportsPrivacyParameterProbe,
   supportsPresetPositions,
   supportsStandaloneGuardMode,
@@ -94,12 +97,18 @@ test("secondary firmware and update flags stay camera-owned and preserve unknown
   }
 });
 
-test("tracking reads require the exact SoloCam model and a canonical enable bit", () => {
+test("tracking reads require exact tested model types and an enable bit", () => {
   const params = [{ param_type: 6016, param_value: "1" }];
   assert.equal(safeInventoryReads(params, 88, "T8171").aiTrackingEnabled, true);
   assert.equal(safeInventoryReads([{ param_type: 6016, param_value: "0" }], 88, "T8171").aiTrackingEnabled, false);
   assert.equal(safeInventoryReads(params, 88, "T817L").aiTrackingEnabled, undefined);
   assert.equal(safeInventoryReads(params, 87, "T8171").aiTrackingEnabled, undefined);
+  assert.equal(safeInventoryReads(params, 10_031, "T817L").aiTrackingEnabled, true);
+  assert.equal(safeInventoryReads([{ param_type: 6016, param_value: "0" }], 10_031, "T817L").aiTrackingEnabled, false);
+  assert.equal(safeInventoryReads(params, 10_031, "T817L121").aiTrackingEnabled, undefined);
+  assert.equal(safeInventoryReads(params, 10_032, "T817L").aiTrackingEnabled, undefined);
+  assert.equal(safeInventoryReads([{ param_type: 6016, param_value: "2" }], 10_031, "T817L").aiTrackingEnabled, undefined);
+  assert.equal(safeInventoryReads([], 10_031, "T817L").aiTrackingEnabled, undefined);
   assert.equal(safeInventoryReads([{ param_type: 6016, param_value: "2" }], 88, "T8171").aiTrackingEnabled, undefined);
 });
 
@@ -352,6 +361,34 @@ test("limits camera sirens by route and device evidence", () => {
   assert.equal(supportsCameraSiren({ paramTypes: [] }, { homeBaseAttached: true }), false);
   assert.equal(supportsCameraSiren({ paramTypes: [1015] }, { homeBaseAttached: false }), false);
   assert.equal(supportsCameraSiren({ paramTypes: [1015] }, null), false);
+  const device = { serial: "fixture-camera", model: "T817L", deviceType: 10031, channel: 0, adminUserId: "fixture-admin", paramTypes: [] };
+  const peer = { serial: device.serial } as MegaInventoryDevice;
+  const direct = { homeBaseAttached: false, peer };
+  assert.equal(supportsCameraSiren(device, direct), true);
+  for (const changed of [{ model: "T817L121" }, { model: "T8171" }, { deviceType: 88 }, { channel: 1 }, { adminUserId: null }]) {
+    assert.equal(supportsCameraSiren({ ...device, ...changed }, direct), false);
+  }
+  assert.equal(supportsCameraSiren(device, { ...direct, peer: { ...peer, serial: "other-camera" } }), false);
+  assert.equal(supportsCameraSiren(device, { homeBaseAttached: false }), false);
+});
+
+test("live audio retains E30 routes and isolates the exact standalone C31", () => {
+  const device = { serial: "fixture-camera", model: "T817L", deviceType: 10031, channel: 0, adminUserId: "fixture-admin" };
+  const peer = { serial: device.serial, model: "T817L" } as MegaInventoryDevice;
+  const direct = { homeBaseAttached: false, peer };
+  assert.equal(supportsCameraLiveAudio(device, direct, true), true);
+  assert.equal(supportsCameraLiveAudio(device, direct, false), false);
+  assert.equal(supportsCameraLiveAudio(device, null, true), false);
+  for (const changed of [{ model: "T817L121" }, { deviceType: 88 }, { channel: 1 }, { channel: null }, { adminUserId: null }]) {
+    assert.equal(supportsCameraLiveAudio({ ...device, ...changed }, direct, true), false);
+  }
+  assert.equal(supportsCameraLiveAudio(device, { ...direct, peer: { ...peer, serial: "foreign-camera" } }, true), false);
+  const attached = { homeBaseAttached: true, peer: { ...peer, serial: "fixture-base", model: "T8030" } };
+  assert.equal(supportsCameraLiveAudio(device, attached, true), false);
+  const e30 = { ...device, model: "T8171", deviceType: 88 };
+  assert.equal(supportsCameraLiveAudio(e30, direct, true), true);
+  assert.equal(supportsCameraLiveAudio({ ...e30, channel: 1 }, attached, true), true);
+  assert.equal(supportsCameraLiveAudio(e30, { ...attached, peer: { ...attached.peer, model: "T8010" } }, true), false);
 });
 
 test("limits privacy parameter diagnostics to T8416 and T8417", () => {
@@ -1651,6 +1688,114 @@ test("C31 standalone presets require the exact type, owned channel and ready rou
   }
   assert.equal(supportsStandaloneC31Presets(device, { ...route, homeBaseAttached: true }, true), false);
   assert.equal(supportsStandaloneC31Presets(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
-  assert.equal(supportsSoloCamStoredRecordings(device, route, true), false);
-  assert.equal(supportsStandaloneAiTracking({ ...device, reads: { aiTrackingEnabled: true } }, route, true), false);
+  assert.equal(supportsSoloCamStoredRecordings(device, route, true), true);
+  assert.equal(supportsStandaloneAiTracking({ ...device, reads: { aiTrackingEnabled: true } }, route, true), true);
+});
+
+
+test("C31 stored media requires the exact owned standalone ready route", () => {
+  const device = { serial: "camera", model: "T817L", deviceType: 10_031, channel: 0, adminUserId: "fixture-admin" };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [
+    { device_sn: "camera", device_model: "T817L", device_type: 10_031 },
+  ] })[0]! };
+  assert.equal(supportsSoloCamStoredRecordings(device, route, true), true);
+  assert.equal(supportsSoloCamStoredRecordings(device, route, false), false);
+  assert.equal(supportsSoloCamStoredRecordings(device, null, true), false);
+  for (const change of [{ model: "T817L1" }, { deviceType: 88 }, { channel: 1 }, { adminUserId: null }]) {
+    assert.equal(supportsSoloCamStoredRecordings({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsSoloCamStoredRecordings(device, { ...route, homeBaseAttached: true }, true), false);
+  assert.equal(supportsSoloCamStoredRecordings(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
+});
+
+
+test("standalone C31 tracking requires known state and its exact owned ready route", () => {
+  const device = { serial: "camera", model: "T817L", deviceType: 10_031, channel: 0,
+    adminUserId: "fixture-admin", reads: { aiTrackingEnabled: true } };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [
+    { device_sn: "camera", device_model: "T817L", device_type: 10_031 },
+  ] })[0]! };
+  assert.equal(supportsStandaloneAiTracking(device, route, true), true);
+  assert.equal(supportsStandaloneAiTracking({ ...device, reads: { aiTrackingEnabled: false } }, route, true), true);
+  assert.equal(supportsStandaloneAiTracking(device, route, false), false);
+  assert.equal(supportsStandaloneAiTracking(device, null, true), false);
+  for (const change of [{ model: "T817L121" }, { deviceType: 88 }, { channel: 1 }, { adminUserId: null }, { reads: {} }]) {
+    assert.equal(supportsStandaloneAiTracking({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsStandaloneAiTracking(device, { ...route, homeBaseAttached: true }, true), false);
+  assert.equal(supportsStandaloneAiTracking(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
+});
+
+
+test("C31 quality reads select its active composite mode without reusing numeric SoloCam reads", () => {
+  const config = (quality: unknown) => Buffer.from(JSON.stringify({ cur_mode: 0, mode_0: { quality }, mode_1: { quality: 3 } })).toString("base64");
+  const read = (value: unknown, type = 10_031, model = "T817L") => safeInventoryReads([
+    { param_type: 2730, param_value: value }, { param_type: 1020, param_value: "3" },
+  ], type, model, true).streamingQualityTier;
+  for (const quality of [0, 2, 3]) assert.equal(read(config(quality)), quality);
+  for (const value of [0, "0", "invalid", config(4), config(true), Buffer.from(JSON.stringify({ mode_0: { quality: 3 } })).toString("base64")]) {
+    assert.equal(read(value), undefined);
+  }
+  assert.equal(read(config(2), 121), undefined);
+  assert.equal(read(config(2), 10_031, "T817L-neighbor"), undefined);
+});
+
+test("C31 streaming quality admits only exact owned standalone known native choices", () => {
+  const device = { serial: "fixture-c31", model: "T817L", deviceType: 10_031, channel: 0,
+    adminUserId: "fixture-admin", reads: { streamingQualityTier: 0 } };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [{ device_sn: device.serial, device_model: "T817L", device_type: 10_031 }] })[0]! };
+  for (const quality of [0, 2, 3]) assert.equal(supportsStandaloneStreamingQuality({ ...device, reads: { streamingQualityTier: quality } }, route, true), true);
+  for (const change of [{ model: "T817L-neighbor" }, { deviceType: 121 }, { channel: 1 }, { adminUserId: null }, { reads: {} }, { reads: { streamingQualityTier: 1 } }]) {
+    assert.equal(supportsStandaloneStreamingQuality({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsStandaloneStreamingQuality(device, route, false), false);
+  assert.equal(supportsStandaloneStreamingQuality(device, null, true), false);
+  assert.equal(supportsStandaloneStreamingQuality(device, { ...route, homeBaseAttached: true }, true), false);
+  assert.equal(supportsStandaloneStreamingQuality(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
+});
+
+
+test("C31 motion reads and direct control eligibility preserve exact model and topology boundaries", () => {
+  const params = [{ param_type: 6040, param_value: "0" }, { param_type: 1011, param_value: "1" }];
+  assert.equal(safeInventoryReads(params, 10_031, "T817L", true).motionDetectionEnabled, false);
+  assert.equal(safeInventoryReads(params, 10_031, "T817L-neighbor").motionDetectionEnabled, true);
+  const device = { serial: "fixture-c31", model: "T817L", deviceType: 10_031, category: "eufy_security", channel: 0,
+    adminUserId: "fixture-admin", reads: { motionDetectionEnabled: true, nightVisionMode: 0 } };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [{ device_sn: device.serial, device_model: "T817L", device_type: 10_031 }] })[0]! };
+  for (const supports of [supportsStandaloneMotionDetection, supportsStandaloneNightVision]) {
+    assert.equal(supports(device, route, true), true);
+    assert.equal(supports(device, route, false), false);
+    for (const change of [{ model: "T817L-neighbor" }, { deviceType: 121 }, { channel: 1 }, { adminUserId: null }, { reads: {} }]) {
+      assert.equal(supports({ ...device, ...change }, route, true), false);
+    }
+    assert.equal(supports(device, { ...route, homeBaseAttached: true }, true), false);
+    assert.equal(supports(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
+  }
+});
+
+
+test("C31 standalone privacy switch cannot replace attached enablement or admit neighboring devices", () => {
+  const params = [{ param_type: 6250, param_value: "1" }, { param_type: 2001, param_value: "1" }];
+  assert.equal(safeInventoryReads(params, 10_031, "T817L", true).enabled, false);
+  assert.equal(safeInventoryReads(params, 10_031, "T817L").enabled, true);
+  assert.equal(safeInventoryReads(params, 121, "T817L", true).enabled, true);
+  assert.equal(safeInventoryReads(params, 10_031, "T817L121", true).enabled, true);
+  const device = (parent: string) => parseMegaInventory({ devices: [{ device_sn: "fixture-c31", device_model: "T817L", device_type: 10_031, device_channel: 0, station_sn: parent, params }] })[0]!;
+  assert.equal(device("fixture-c31").reads.enabled, false);
+  assert.equal(device("fixture-homebase").reads.enabled, true);
+});
+
+
+test("C31 recording audio prefers its native switch only for the verified standalone profile", () => {
+  const params = [{ param_type: 6012, param_value: "0" }, { param_type: 1288, param_value: "0" }];
+  assert.equal(safeInventoryReads(params, 10_031, "T817L", true).audioRecordingEnabled, false);
+  assert.equal(safeInventoryReads(params, 10_031, "T817L").audioRecordingEnabled, true);
+  const device = { serial: "fixture-c31", model: "T817L", deviceType: 10_031, channel: 0,
+    adminUserId: "fixture-admin", reads: { audioRecordingEnabled: true } };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [{ device_sn: device.serial, device_model: "T817L", device_type: 10_031 }] })[0]! };
+  assert.equal(supportsStandaloneAudioRecording(device, route, true), true);
+  assert.equal(supportsStandaloneAudioRecording(device, { ...route, homeBaseAttached: true }, true), false);
+  for (const change of [{ model: "T817L121" }, { deviceType: 121 }, { channel: 1 }, { adminUserId: null }, { reads: {} }]) {
+    assert.equal(supportsStandaloneAudioRecording({ ...device, ...change }, route, true), false);
+  }
 });
