@@ -198,7 +198,7 @@ test("keeps unrelated and malformed HTTP 463 responses terminal", async () => {
       });
 
       assert.deepEqual(await client.connect(), { state: "authenticated" });
-      await assert.rejects(client.inventory(), new RegExp(`^Error: ${error.replace(/[()]/g, "\\$&")}$`));
+      await assert.rejects(client.inventory(), (caught: unknown) => caught instanceof Error && caught.message === error);
       assert.deepEqual(requests, ["/app/house/get_devs_list"]);
     } finally {
       await rm(directory, { recursive: true, force: true });
