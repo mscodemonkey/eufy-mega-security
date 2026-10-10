@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.129
+
+- Show account-defined names for custom HomeBase guard modes instead of generic Custom 1, Custom 2 and Custom 3 labels.
+- Correct the read-only T8N00 NVR guard mode sensor so Geofencing is displayed correctly instead of Custom 1.
+- Distinguish cloud registration transport, HTTP, response and timeout failures in privacy-safe diagnostics.
+
 ## 0.1.128
 
 - Fix Home Assistant recordings with live AAC audio failing at a segment boundary. Both tracks now start from the same positive transport timestamp, avoiding a first-segment shift that could make audio timestamps move backwards. A fresh standalone C31 recording was used for the reproduction and hardware validation.

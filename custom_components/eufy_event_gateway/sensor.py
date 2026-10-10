@@ -365,24 +365,43 @@ class EufySensorSignalStrength(EufySecuritySensorEntity, SensorEntity):
 
 
 class EufyGuardModeSensor(EufyStationEntity, SensorEntity):
-    """Expose a read-only configured mode for a station without proven writes."""
+    """Expose inventory-owned mode state without sending security commands.
+
+    The coordinator owns updates for the entity's lifetime. NVR stations use
+    their own mode numbering, independently of HomeBase custom-mode slots.
+    """
 
     _attr_translation_key = "eufy_guard_mode_sensor"
     _attr_icon = "mdi:shield-home"
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options: ClassVar[list[str]] = list(GUARD_MODES.values())
 
     def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
-        """Create the configured-mode sensor for one read-only HomeBase."""
+        """Create the configured-mode sensor for one read-only station."""
         EufyStationEntity.__init__(self, coordinator, serial)
         SensorEntity.__init__(self)
         self._attr_unique_id = f"{serial}_guard_mode_read_only"
 
     @property
+    def _mode_labels(self) -> dict[int, str]:
+        """Keep NVR Geofencing separate from HomeBase custom mode one."""
+        model = self.station.get("model")
+        if isinstance(model, str) and model.startswith("T8N00"):
+            return {
+                0: "away", 1: "home", 2: "schedule",
+                3: "geofencing", 63: "disarmed",
+            }
+        return GUARD_MODES
+
+    @property
+    def options(self) -> list[str]:
+        """Return the configured-mode vocabulary for the current station."""
+        return list(self._mode_labels.values())
+
+    @property
     def native_value(self) -> str | None:
         """Return the configured Eufy mode reported by the station."""
         value = self.station.get("guardMode")
-        return GUARD_MODES.get(value) if isinstance(value, int) else None
+        return self._mode_labels.get(value) if type(value) is int else None
 
 
 class EufyEffectiveModeSensor(EufyStationEntity, SensorEntity):
