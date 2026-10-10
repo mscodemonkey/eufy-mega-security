@@ -287,6 +287,13 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         # pipeline consumes it without receiving the gateway bearer token.
         if not self.camera.get("streamSupported"):
             return None
+
+        # Inventory can admit AAC after entity construction. Home Assistant
+        # reads these options after obtaining this source, so choose its clock
+        # from the same current capability that selects the gateway transport.
+        self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = (
+            self.camera.get("liveAudioSupported") is not True
+        )
         return await self.coordinator.client.stream_url(self.serial)
 
     async def async_get_stream_url(self) -> dict[str, str]:
