@@ -23,6 +23,11 @@ capabilities:
   controls:
     enabled:
       connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Native privacy switch 6250 uses zero for enabled. Home Assistant off/on actions matched fresh cloud readback and restored on. Attached enablement keeps its existing command and polarity.
         T8030:
           status: tested
           tested_on: 2026-09-20
@@ -117,6 +122,11 @@ capabilities:
       notes: The official app and local hardware confirm the action. The local route exposes separate actions because equivalent persistent readback is unavailable.
     motion_detection:
       connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Native switch 6040 off/on actions passed through Home Assistant with fresh readback and restored on. This checks the preference, not a controlled detection event.
         T8030:
           status: tested
           tested_on: 2026-09-21
@@ -130,6 +140,11 @@ capabilities:
         "1": "On"
     night_vision:
       connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. All three native mode settings passed through Home Assistant with fresh cloud readback and restored PureColor. Physical infrared illumination in darkness remains untested.
         T8030:
           status: tested
           tested_on: 2026-09-21
@@ -158,6 +173,13 @@ capabilities:
           maximum: 900
       notes: A duration of 0 stops the siren.
   media:
+    stored_event_playback:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact T817L type 10031 firmware 2.1.0.3, self-owned channel zero. SD event listing and complete H.264/AAC playback passed through Home Assistant, including signed access, byte ranges and unsigned rejection. The C31 storage root and video metadata differ from the E30. Continuous footage, HomeBase playback and T817L121 are not covered.
     live_view:
       connections:
         T8030:

@@ -1,5 +1,5 @@
 /**
- * Reads standalone SoloCam event recordings inside an authenticated PPCS session.
+ * Reads verified standalone camera event recordings inside an authenticated PPCS session.
  * The session owns transport and command encryption. This reader owns correlated
  * history replies, bounded downloads and recorded-media decryption. Only the
  * provider may retain its private storage paths; HTTP consumers receive opaque IDs.
@@ -33,6 +33,9 @@ export interface StoredRecordingSummary {
 export interface StoredRecordingTransport {
   readonly serial: string;
   readonly p2pDid: string;
+
+  /** Select the verified direct-camera storage layout; omitted by existing E30 transports. */
+  readonly deviceType?: 88 | 10_031;
   query(transaction: string, date: string): void;
   download(storagePath: string): void;
   decodeReply(payload: Buffer, sign: number): Buffer | null;
@@ -66,8 +69,9 @@ export function validateRecordingDate(date: string): void {
   }
 }
 
-/** Project only completed, local event files belonging to the requested SoloCam. */
-export function parseStoredRecordings(value: unknown, serial: string): readonly CameraStoredRecord[] {
+/** Project completed local events, requiring both the requested camera and its verified storage layout. */
+export function parseStoredRecordings(value: unknown, serial: string, deviceType: 88 | 10_031 = 88): readonly CameraStoredRecord[] {
+  if (deviceType === 10_031 && object(value) && value.mIntRet === 0 && value.data === "[]") return [];
   if (!object(value) || value.mIntRet !== 0 || !Array.isArray(value.data)) {
     throw new Error("Camera recording history was not accepted");
   }
@@ -77,12 +81,11 @@ export function parseStoredRecordings(value: unknown, serial: string): readonly 
   }
   const records: CameraStoredRecord[] = [];
   for (const row of table.payload) {
-    if (!object(row) || row.device_sn !== serial || row.device_type !== 88) {
+    if (!object(row) || row.device_sn !== serial || row.device_type !== deviceType) {
       throw new Error("Camera recording history has unexpected ownership");
     }
     if (row.storage_type !== 1 || row.storage_cloud !== 0 || row.write_status !== 1) continue;
-    if (typeof row.storage_path !== "string" ||
-      !/^\/media\/mmcblk0p1\/Camera00\/event\/\d{6}\/\d{8}\/\d{14}\.zxvideo$/.test(row.storage_path)) continue;
+    if (typeof row.storage_path !== "string" || !ownedEventPath(row.storage_path, deviceType)) continue;
     const startTime = recordTime(row.start_time, row.time_zone);
     if (!startTime) continue;
     const endTime = recordTime(row.end_time, row.time_zone);
@@ -91,8 +94,13 @@ export function parseStoredRecordings(value: unknown, serial: string): readonly 
   return records.sort((a, b) => b.startTime.localeCompare(a.startTime));
 }
 
+function ownedEventPath(path: string, deviceType: 88 | 10_031): boolean {
+  const root = deviceType === 10_031 ? "/mnt/sdcard" : "/media/mmcblk0p1";
+  return path.startsWith(root) && /^\/Camera00\/event\/\d{6}\/\d{8}\/\d{14}\.zxvideo$/.test(path.slice(root.length));
+}
+
 /**
- * Own one history read or saved download for the lifetime of a SoloCam session.
+ * Own one history read or saved download for the lifetime of a direct-camera session.
  * Callers serialize operations. Closing or aborting rejects pending work and
  * clears private buffers; transfer data is admitted only while this reader owns it.
  */
@@ -121,7 +129,7 @@ export class SoloCamRecordingReader {
   /** Download one previously validated owned path, requiring EOF and complete media decoding. */
   async download(record: CameraStoredRecord, signal?: AbortSignal): Promise<Buffer> {
     this.#requireIdle(signal);
-    if (!/^\/media\/mmcblk0p1\/Camera00\/event\/\d{6}\/\d{8}\/\d{14}\.zxvideo$/.test(record.storagePath)) {
+    if (!ownedEventPath(record.storagePath, this.transport.deviceType ?? 88)) {
       throw new Error("Invalid camera recording reference");
     }
     let received!: DownloadRead;
@@ -161,7 +169,7 @@ export class SoloCamRecordingReader {
         const value: unknown = JSON.parse(clear.subarray(begin, end + 1).toString("utf8"));
         if (object(value) && value.cmd === 10017 && value.table === "history_record_info" &&
           String(value.transaction) === this.#query.transaction) {
-          this.#query.resolve(parseStoredRecordings(value, this.transport.serial));
+          this.#query.resolve(parseStoredRecordings(value, this.transport.serial, this.transport.deviceType));
         }
       } catch (error) {
         if (!(error instanceof SyntaxError)) this.#query.reject(new Error("Camera recording history was invalid"));
@@ -196,7 +204,8 @@ export class SoloCamRecordingReader {
     }
     if (command === 1300) {
       if (payload.length < 22 || payload.readUInt32LE(0) !== payload.length - 22 ||
-        payload[5] !== 1 || ![0, 3].includes(payload[10] ?? -1) || ![0, 1].includes(header[13] ?? 0)) {
+        payload[5] !== 1 || !(this.transport.deviceType === 10_031 ? [128] : [0, 3]).includes(payload[10] ?? -1) ||
+        ![0, 1].includes(header[13] ?? 0)) {
         transfer.reject(new Error("Camera recording video framing was unsupported"));
       } else {
         transfer.video.push({ frame: Buffer.from(payload), sign: header[13] ?? 0 });

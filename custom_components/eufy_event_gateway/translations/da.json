@@ -133,7 +133,9 @@
           "auto": "Automatisk",
           "hd": "HD (720p)",
           "full_hd": "Full HD (1080p)",
-          "2k": "2K"
+          "2k": "2K",
+          "medium": "Mellem",
+          "high": "Høj"
         }
       },
       "camera_night_vision": {

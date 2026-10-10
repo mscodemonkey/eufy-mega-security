@@ -588,6 +588,42 @@ export function buildSoloCamStreamingQualityPayload(
   return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
 }
 
+/** Encrypt the exact standalone C31 quality wrapper, preserving its automatic mode selection. */
+export function buildStandaloneC31StreamingQualityPayload(
+  quality: number, accountId: string, key: Buffer, sequence: number, now: number,
+): Buffer {
+  if (![0, 2, 3].includes(quality)) throw new Error("Unsupported C31 streaming quality");
+  if (!accountId) throw new Error("Streaming quality requires the camera administrator identity");
+  if (!Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) throw new Error("Streaming quality requires epoch milliseconds");
+  const value = JSON.stringify({ account_id: accountId, cmd: 2730, mChannel: 0, mValue3: 0,
+    payload: { quality, mode: -1, primary_view: -1, transaction: `${now}` } });
+  return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
+}
+
+/** Encrypt the C31 night mode on its native authenticated channel-zero settings wrapper. */
+export function buildStandaloneC31NightVisionPayload(
+  mode: number, accountId: string, key: Buffer, sequence: number, now: number,
+): Buffer {
+  if (![0, 1, 2].includes(mode)) throw new Error("Unsupported C31 night vision mode");
+  if (!accountId) throw new Error("Night vision requires the camera administrator identity");
+  if (!Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) throw new Error("Night vision requires epoch milliseconds");
+  const value = JSON.stringify({ account_id: accountId, cmd: 1277, mChannel: 0, mValue3: 0,
+    payload: { night_sion: mode, channel: 0, transaction: `${now}` } });
+  return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
+}
+
+/** Encrypt the native C31 privacy switch, where zero enables the standalone camera. */
+export function buildStandaloneC31EnabledPayload(
+  rawValue: number, accountId: string, key: Buffer, sequence: number, now: number,
+): Buffer {
+  if (rawValue !== 0 && rawValue !== 1) throw new Error("Unsupported C31 enablement value");
+  if (!accountId) throw new Error("Enablement requires the camera administrator identity");
+  if (!Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) throw new Error("Enablement requires epoch milliseconds");
+  const value = JSON.stringify({ account_id: accountId, cmd: 6250, mChannel: 0, mValue3: 0,
+    payload: { switch: rawValue, transaction: `${now}` } });
+  return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
+}
+
 /** Protect a native SoloCam preset or tracking request on its channel-zero control envelope. */
 export function buildSoloCamPanControlPayload(
   command: 6034 | 6035 | 6016,
@@ -1317,7 +1353,9 @@ export class FirstPartyPpcsSession {
    *
    * A missing result rejects with {@link CameraControlAcknowledgementTimeoutError}
    * because the UDP write may still have reached the camera. The provider can
-   * then perform a fresh readback instead of sending the command twice.
+   * then perform a fresh readback instead of sending the command twice. The
+   * standalone C31 uses its native privacy wrapper without a result frame and
+   * always requires the provider to confirm its state independently.
    */
   async writeCameraEnabled(rawValue: number): Promise<void> {
     if (this.#options.purpose !== "control") throw new Error("Camera control requires a control session");
@@ -1326,6 +1364,15 @@ export class FirstPartyPpcsSession {
     if (!accountId) throw new Error("Camera control account identity is unavailable");
     if (rawValue !== 0 && rawValue !== 1) throw new Error("Camera enablement value must be 0 or 1");
     if (this.#options.homeBaseAttached) await this.#waitForLevel2Key();
+    if (this.#options.cameraModel === "T817L" && this.#options.homeBaseAttached === false && this.#options.channel === 0) {
+      await this.#waitForLevel2Key();
+      const transaction = Date.now();
+      for (let index = 0; index < 3; index += 1) {
+        this.#sendCommand(1350, buildStandaloneC31EnabledPayload(rawValue, accountId, this.#level2Key!, this.#level2Seq++, transaction));
+        await delay(200);
+      }
+      return;
+    }
     const body = buildCameraEnableBody(this.#options.channel, rawValue, accountId);
     const acknowledgement = this.#waitForControlResult(1035);
     if (this.#options.homeBaseAttached) {
@@ -1390,7 +1437,7 @@ export class FirstPartyPpcsSession {
   /**
    * Send the verified command-1011 motion switch and await its result.
    *
-   * The standalone T8171 uses its native 6040 JSON status command. Its caller
+   * The standalone T8171 and T817L use their native 6040 JSON status command. Its caller
    * must confirm the setting through a fresh inventory read. Other routes use
    * the level-two binary form and await its acknowledgement.
    */
@@ -1400,7 +1447,8 @@ export class FirstPartyPpcsSession {
     const accountId = this.#options.accountId;
     if (!accountId) throw new Error("Motion control account identity is unavailable");
     await this.#waitForLevel2Key();
-    if (this.#options.cameraModel === "T8171") {
+    if (this.#options.cameraModel === "T8171"
+      || (this.#options.cameraModel === "T817L" && this.#options.homeBaseAttached === false)) {
       if (this.#options.homeBaseAttached || this.#options.channel !== 0) {
         throw new Error("SoloCam motion control requires a standalone channel-zero route");
       }
@@ -1432,7 +1480,7 @@ export class FirstPartyPpcsSession {
     if (this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId) {
       throw new Error("Audio recording requires a connected account-owned control session");
     }
-    if (this.#options.cameraModel !== "T8171" || this.#options.homeBaseAttached || this.#options.channel !== 0) {
+    if (!["T8171", "T817L"].includes(this.#options.cameraModel ?? "") || this.#options.homeBaseAttached || this.#options.channel !== 0) {
       throw new Error("Audio recording requires a standalone SoloCam channel-zero route");
     }
     await this.#waitForLevel2Key();
@@ -1448,13 +1496,18 @@ export class FirstPartyPpcsSession {
     if (this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId) {
       throw new Error("Streaming quality requires a connected account-owned control session");
     }
-    if (this.#options.cameraModel !== "T8171" || this.#options.homeBaseAttached || this.#options.channel !== 0) {
+    if (!["T8171", "T817L"].includes(this.#options.cameraModel ?? "") || this.#options.homeBaseAttached || this.#options.channel !== 0) {
       throw new Error("Streaming quality requires a standalone SoloCam channel-zero route");
     }
+    const builder = this.#options.cameraModel === "T817L"
+      ? buildStandaloneC31StreamingQualityPayload : buildSoloCamStreamingQualityPayload;
+
+    // Reject invalid preferences before opening authenticated command state.
+    if (this.#options.cameraModel === "T817L" && ![0, 2, 3].includes(quality)) throw new Error("Unsupported C31 streaming quality");
     await this.#waitForLevel2Key();
     const transaction = Date.now();
     for (let index = 0; index < 3; index += 1) {
-      this.#sendCommand(1350, buildSoloCamStreamingQualityPayload(quality, this.#options.accountId, this.#level2Key!, this.#level2Seq++, transaction));
+      this.#sendCommand(1350, builder(quality, this.#options.accountId, this.#level2Key!, this.#level2Seq++, transaction));
       await delay(200);
     }
   }
@@ -1490,15 +1543,16 @@ export class FirstPartyPpcsSession {
    *
    * Model-approved modes are wrapped in command 1350 and sent three times through
    * the negotiated level-two channel for attached cameras. An eligible standalone
-   * E30 uses level one and drains its final transmission before closure. Neither
-   * form awaits a result frame, so resolution confirms transmission only.
+   * C31 uses its authenticated native wrapper. The E30 uses level one and drains
+   * its final transmission before closure. These paths do not await a result
+   * frame, so the provider must confirm each preference through fresh readback.
    */
   async writeNightVision(mode: number): Promise<void> {
     if (this.#options.purpose !== "control") throw new Error("Night vision control requires a control session");
     if (!this.#remote) throw new Error("Night vision control session is not connected");
     const standalone = this.#options.homeBaseAttached === false
       && this.#options.standaloneNightVisionSupported === true
-      && this.#options.cameraModel === "T8171" && this.#options.channel === 0;
+      && ["T8171", "T817L"].includes(this.#options.cameraModel ?? "") && this.#options.channel === 0;
     if (!this.#options.homeBaseAttached && !standalone) throw new Error("Night vision control requires a HomeBase-attached camera");
     const accountId = this.#options.accountId;
     if (!accountId) throw new Error("Night vision control account identity is unavailable");
@@ -1506,6 +1560,16 @@ export class FirstPartyPpcsSession {
     if (!Number.isSafeInteger(mode) || mode < 0 || mode > maximumMode
       || (this.#options.cameraModel === "T8171" && mode === 2)) {
       throw new Error("Night vision mode is not supported for this camera model");
+    }
+    if (standalone && this.#options.cameraModel === "T817L") {
+      if (![0, 1, 2].includes(mode)) throw new Error("Unsupported C31 night vision mode");
+      await this.#waitForLevel2Key();
+      const transaction = Date.now();
+      for (let index = 0; index < 3; index += 1) {
+        this.#sendCommand(1350, buildStandaloneC31NightVisionPayload(mode, accountId, this.#level2Key!, this.#level2Seq++, transaction));
+        await delay(200);
+      }
+      return;
     }
     if (standalone) {
       const body = encryptLevel1(buildNightVisionBody(0, mode, accountId), commandKey(this.#options.stationSerial, this.#options.p2pDid));
@@ -1690,12 +1754,13 @@ export class FirstPartyPpcsSession {
       });
       return this.#recordings;
     }
-    if (this.#options.cameraModel !== "T8171" || this.#options.homeBaseAttached ||
+    if (!["T8171", "T817L"].includes(this.#options.cameraModel ?? "") || this.#options.homeBaseAttached ||
       this.#options.channel !== 0 || this.#options.purpose !== "control" || !this.#options.accountId) {
       throw new Error("Stored recordings require the verified standalone SoloCam route");
     }
     this.#recordings ??= new SoloCamRecordingReader({
       serial: this.#options.stationSerial, p2pDid: this.#options.p2pDid,
+      deviceType: this.#options.cameraModel === "T817L" ? 10_031 : 88,
       query: (transaction, date) => {
         const value = { account_id: this.#options.accountId, cmd: 1306, mChannel: 0, mValue3: 0,
           payload: { cmd: 10017, table: "history_record_info", transaction, payload: {

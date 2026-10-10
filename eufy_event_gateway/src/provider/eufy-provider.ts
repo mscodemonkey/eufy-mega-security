@@ -246,49 +246,50 @@ export function nightVisionModes(
   ];
 }
 
-/** Require the E30's own ready peer and reported mode before offering its direct write. */
+/** Require a verified camera profile, owned ready peer and known mode before offering a direct write. */
 export function supportsStandaloneNightVision(
   device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "category" | "channel" | "adminUserId" | "reads">,
   route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
   routeReady: boolean,
 ): boolean {
-  return device.model === "T8171" && device.deviceType === 88 && device.channel === 0
+  return ((device.model === "T8171" && device.deviceType === 88) || (device.model === "T817L" && device.deviceType === 10_031)) && device.channel === 0
     && route?.homeBaseAttached === false && route.peer.serial === device.serial
     && device.reads.nightVisionMode !== undefined && Boolean(device.adminUserId)
     && routeReady && !isDoorbellDevice(device);
 }
 
-/** Admit the hardware-tested SoloCam motion write only with an owned, ready direct route and known state. */
+/** Admit verified standalone motion writes only with an owned, ready direct route and known state. */
 export function supportsStandaloneMotionDetection(
   device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId" | "reads">,
   route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
   routeReady: boolean,
 ): boolean {
-  return device.model === "T8171" && device.deviceType === 88 && device.channel === 0
+  return ((device.model === "T8171" && device.deviceType === 88) || (device.model === "T817L" && device.deviceType === 10_031)) && device.channel === 0
     && route?.homeBaseAttached === false && route.peer.serial === device.serial
     && device.reads.motionDetectionEnabled !== undefined && Boolean(device.adminUserId) && routeReady;
 }
 
-/** Admit the hardware-tested SoloCam audio-recording write only with an owned, ready direct route and known state. */
+/** Admit verified recording-audio switches only with an owned, ready standalone route and known state. */
 export function supportsStandaloneAudioRecording(
   device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId" | "reads">,
   route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
   routeReady: boolean,
 ): boolean {
-  return device.model === "T8171" && device.deviceType === 88 && device.channel === 0
+  return ((device.model === "T8171" && device.deviceType === 88) || (device.model === "T817L" && device.deviceType === 10_031)) && device.channel === 0
     && route?.homeBaseAttached === false && route.peer.serial === device.serial
     && device.reads.audioRecordingEnabled !== undefined && Boolean(device.adminUserId) && routeReady;
 }
 
-/** Admit the hardware-tested SoloCam streaming-quality write only with an owned, ready direct route and known state. */
+/** Admit exact hardware-tested quality profiles only on an owned, ready standalone route. */
 export function supportsStandaloneStreamingQuality(
   device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId" | "reads">,
   route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
   routeReady: boolean,
 ): boolean {
-  return device.model === "T8171" && device.deviceType === 88 && device.channel === 0
-    && route?.homeBaseAttached === false && route.peer.serial === device.serial
-    && [0, 1, 2, 3].includes(device.reads.streamingQualityTier ?? -1) && Boolean(device.adminUserId) && routeReady;
+  const choices = device.model === "T8171" && device.deviceType === 88 ? [0, 1, 2, 3]
+    : device.model === "T817L" && device.deviceType === 10_031 ? [0, 2, 3] : [];
+  return device.channel === 0 && route?.homeBaseAttached === false && route.peer.serial === device.serial
+    && choices.includes(device.reads.streamingQualityTier ?? -1) && Boolean(device.adminUserId) && routeReady;
 }
 
 /** Admit the SoloCam's pan actions only through its hardware-tested, self-owned direct route. */
@@ -324,13 +325,14 @@ export function supportsSoloCamPresetControl(
       route?.homeBaseAttached === true && route.peer.model === "T8030" && route.peer.serial !== device.serial);
 }
 
-/** Admit stored media only for the exact tested SoloCam direct route or HomeBase 3 child channel. */
+/** Admit stored media on verified direct E30/C31 routes or the tested E30 HomeBase 3 child channel. */
 export function supportsSoloCamStoredRecordings(
   device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">,
   route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
   routeReady: boolean,
 ): boolean {
   return supportsStandalonePanControl(device, route, routeReady) ||
+    supportsStandaloneC31Presets(device, route, routeReady) ||
     (device.model === "T8171" && device.deviceType === 88 && device.channel === 1 && Boolean(device.adminUserId) && routeReady &&
       route?.homeBaseAttached === true && route.peer.model === "T8030" && route.peer.serial !== device.serial);
 }
@@ -673,6 +675,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
         throw new Error("Camera enablement control is unavailable for this camera");
       }
+      if (device.model === "T817L" && !route.homeBaseAttached
+        && (!supportsStandaloneC31Presets(device, route, true)
+          || ![0, 1].includes(device.reads.privacy6250Value ?? -1))) {
+        throw new Error("C31 enablement requires a known owned standalone channel-zero privacy setting");
+      }
       await this.stopStream(serial);
       const session = new FirstPartyPpcsSession({
         stationSerial: peer.serial,
@@ -686,7 +693,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         homeBaseAttached: route.homeBaseAttached,
         purpose: "control",
         maxSeconds: 40,
-        ...(route.homeBaseAttached ? {
+        ...((route.homeBaseAttached || supportsStandaloneC31Presets(device, route, true)) ? {
           resolveCipherKey: async (cipherId: number) => {
             const cached = this.#cipherKeys.get(cipherId);
             if (cached) return cached;
@@ -742,8 +749,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const current = previous.catch(() => this.#requireCameraIdentity(serial)).then(async () => {
       const device = this.#devices.get(serial);
       if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
-      const soloCam = device.deviceType === 88 && device.model === "T8171";
       const route = ppcsStreamRoute(device, this.#devices);
+      const soloCam = (device.deviceType === 88 && device.model === "T8171")
+        || (device.deviceType === 10_031 && device.model === "T817L" && route?.homeBaseAttached === false);
       const peer = route?.peer;
       const dsk = peer ? await this.#dskKey(peer.serial) : null;
       if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
@@ -797,7 +805,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const current = previous.catch(() => this.#requireCameraIdentity(serial)).then(async () => {
       const device = this.#devices.get(serial);
       if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
-      if (device.deviceType !== 88 || device.model !== "T8171") throw new Error("Audio recording control is unavailable for this camera");
+      if (!((device.deviceType === 88 && device.model === "T8171") || (device.deviceType === 10_031 && device.model === "T817L"))) throw new Error("Audio recording control is unavailable for this camera");
       const route = ppcsStreamRoute(device, this.#devices);
       const peer = route?.peer;
       const dsk = peer ? await this.#dskKey(peer.serial) : null;
@@ -852,15 +860,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const current = previous.catch(() => this.#requireCameraIdentity(serial)).then(async () => {
       const device = this.#devices.get(serial);
       if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
-      if (device.deviceType !== 88 || device.model !== "T8171") throw new Error("Streaming quality control is unavailable for this camera");
+      const c31 = device.deviceType === 10_031 && device.model === "T817L";
+      if (!(device.deviceType === 88 && device.model === "T8171") && !c31) throw new Error("Streaming quality control is unavailable for this camera");
+      if (c31 && ![0, 2, 3].includes(quality)) throw new Error("Unsupported C31 streaming quality");
       const route = ppcsStreamRoute(device, this.#devices);
       const peer = route?.peer;
       const dsk = peer ? await this.#dskKey(peer.serial) : null;
       if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
         throw new Error("Camera streaming quality control is unavailable for this camera");
       }
-      if (route.homeBaseAttached || peer.serial !== device.serial || device.channel !== 0
-        || ![0, 1, 2, 3].includes(device.reads.streamingQualityTier ?? -1)) {
+      if (!supportsStandaloneStreamingQuality(device, route, true)) {
         throw new Error("SoloCam streaming quality control requires a known standalone channel-zero setting");
       }
       await this.stopStream(serial);
@@ -1046,8 +1055,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         localAddress: peer.localAddress,
         dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
         accountId: device.adminUserId, homeBaseAttached: route!.homeBaseAttached, purpose: "control", maxSeconds: 40,
-        ...(standaloneNightVisionSupported ? { standaloneNightVisionSupported: true }
-          : { resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer) }),
+        ...(standaloneNightVisionSupported ? { standaloneNightVisionSupported: true } : {}),
+        resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
       });
       let acknowledgementTimedOut = false;
       try {
@@ -1561,7 +1570,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     device: MegaInventoryDevice,
     params: readonly { readonly param_type: number; readonly param_value: string | number | boolean }[],
   ): MegaInventoryDevice {
-    const reads = safeInventoryReads(params, device.deviceType, device.model);
+    const reads = safeInventoryReads(params, device.deviceType, device.model,
+      (!device.parentSerial || device.parentSerial === device.serial) && device.channel === 0);
     const paramTypes = [...new Set(params.map(({ param_type }) => param_type))]
       .sort((left, right) => left - right);
     const merged = {
@@ -1642,14 +1652,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.adminUserId !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       streamingQualityControlSupported: supportsStandaloneStreamingQuality(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
-      streamingQualityModes: supportsStandaloneStreamingQuality(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)) ? [
+      streamingQualityModes: supportsStandaloneStreamingQuality(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)) ? device.model === "T817L" ? [
+        { value: 0, name: "Auto" }, { value: 2, name: "Medium" }, { value: 3, name: "High" },
+      ] : [
         { value: 0, name: "Auto" }, { value: 1, name: "HD (720P)" },
         { value: 2, name: "Full HD (1080P)" }, { value: 3, name: "2K" },
       ] : [],
       audioRecordingControlSupported: supportsStandaloneAudioRecording(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
       motionDetectionEnabled: device.reads.motionDetectionEnabled ?? null,
       motionDetectionControlSupported: device.reads.motionDetectionEnabled !== undefined
-        && (device.deviceType === 88 && device.model === "T8171"
+        && ((device.deviceType === 88 && device.model === "T8171") || (device.deviceType === 10_031 && device.model === "T817L" && route?.homeBaseAttached === false)
           ? supportsStandaloneMotionDetection(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials))
           : supportsMotionDetectionControlRoute(route))
         && device.channel !== null
@@ -2309,16 +2321,18 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
     seen.add(serial);
     const model = safeValue(value.device_model, 100) ?? "Unknown Eufy device";
     const deviceType = integer(value.device_type);
-    const reads = safeInventoryReads(value.params, deviceType, model);
+    const parentSerial = safeValue(value.parent_sn, 128) ?? safeValue(value.station_sn, 128) ?? "";
+    const channel = integer(value.device_channel) ?? integer(value.channel);
+    const reads = safeInventoryReads(value.params, deviceType, model, (!parentSerial || parentSerial === serial) && channel === 0);
     const lastChargingDays = safeLastChargingDays(value.charging_days);
     devices.push({
       serial,
       name: safeValue(value.device_name, 100) ?? model,
       model,
-      parentSerial: safeValue(value.parent_sn, 128) ?? safeValue(value.station_sn, 128) ?? "",
+      parentSerial,
       deviceType,
       category: safeValue(value.category, 100),
-      channel: integer(value.device_channel) ?? integer(value.channel),
+      channel,
       p2pDid: safeValue(value.p2p_did, 128),
       p2pConnection: safeValue(value.p2p_conn, 512) ?? safeValue(value.app_conn, 512),
       localAddress: freshestLanAddress(value),
@@ -2407,8 +2421,13 @@ function isPrivateIpv4(value: string): boolean {
     || (octets[0] === 192 && octets[1] === 168);
 }
 
-/** Decode only capability-backed numeric inventory reads; arbitrary values are discarded. */
-export function safeInventoryReads(value: unknown, deviceType: number | null = null, model?: string): MegaInventoryReads {
+/**
+ * Decode only capability-backed inventory reads; arbitrary values are discarded.
+ *
+ * The caller explicitly identifies standalone channel-zero inventory before
+ * C31-specific fields can override legacy HomeBase meanings.
+ */
+export function safeInventoryReads(value: unknown, deviceType: number | null = null, model?: string, standaloneChannelZero = false): MegaInventoryReads {
   if (!Array.isArray(value)) return {};
   const params = new Map<number, unknown>();
   for (const row of value) {
@@ -2438,7 +2457,8 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const speaker = finiteNumber(params.get(1241));
   const recordMute = finiteNumber(params.get(1288));
   const soloE30 = deviceType === 88 && model === "T8171";
-  const soloAudioRecording = soloE30 ? finiteNumber(params.get(6012)) : null;
+  const c31 = standaloneChannelZero && deviceType === 10_031 && model === "T817L";
+  const soloAudioRecording = soloE30 || c31 ? finiteNumber(params.get(6012)) : null;
   const soloAiTracking = soloE30 || (deviceType === 10_031 && model === "T817L")
     ? finiteNumber(params.get(6016)) : null;
   const speakerVolume = percentage(1230);
@@ -2457,7 +2477,8 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const qualityFamily = deviceType === 48 && /^T8170(?:$|[A-Z0-9-])/.test(model ?? "");
   const t8171 = deviceType === 88 && /^T8171(?:$|[A-Z0-9-])/.test(model ?? "");
   const t8425 = deviceType === 47 && /^T8425(?:$|[A-Z0-9-])/.test(model ?? "");
-  const streamingQuality = qualityFamily || t8171 ? finiteNumber(params.get(1020)) : null;
+  const streamingQuality = c31 ? activeRecordingQuality(params.get(2730), 0) ?? null
+    : qualityFamily || t8171 ? finiteNumber(params.get(1020)) : null;
   const recordingQuality = qualityFamily || soloE30 ? activeRecordingQuality(params.get(2731)) : undefined;
   const solarIntensity = qualityFamily ? finiteNumber(params.get(1309)) : null;
   const solarConnected = qualityFamily ? finiteNumber(params.get(6482)) : null;
@@ -2484,14 +2505,16 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const openDevice = finiteNumber(params.get(2001));
   const cameraSwitch = finiteNumber(params.get(1035));
 
-  // SoloCam T8171 reports its detection switch through the indoor/solo field.
+  // The verified standalone cameras report detection through their native switch.
   // A conflicting legacy bit must not override that model-specific read.
-  const motionSwitch = finiteNumber(params.get(soloE30 ? 6040 : 1011));
+  const motionSwitch = finiteNumber(params.get(soloE30 || c31 ? 6040 : 1011));
   const guardMode = finiteNumber(params.get(1224));
   const autoNightVision = finiteNumber(params.get(1013));
   const nightVisionMode = finiteNumber(params.get(1277));
   const privacy6250 = finiteNumber(params.get(6250));
-  const enabled = openDevice === 0 || openDevice === 1
+  const enabled = c31
+    ? privacy6250 === 0 || privacy6250 === 1 ? privacy6250 === 0 : undefined
+    : openDevice === 0 || openDevice === 1
     ? openDevice === 1
     : cameraSwitch === 0 || cameraSwitch === 1
       ? cameraSwitch === cameraEnableRawValue(deviceType, true)
@@ -2533,9 +2556,9 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
     ...(microphone === 0 || microphone === 1 ? { microphoneEnabled: microphone === 1 } : {}),
     ...(speaker === 0 || speaker === 1 ? { speakerEnabled: speaker === 1 } : {}),
 
-    // SoloCam T8171 reports an enable bit. Other models retain the inverted mute
-    // field, and a missing SoloCam read must not fall back to that unrelated bit.
-    ...(soloE30
+    // Verified standalone profiles report an enable bit. Other models retain
+    // the inverted mute field. Missing native state cannot use the legacy bit.
+    ...(soloE30 || c31
       ? soloAudioRecording === 0 || soloAudioRecording === 1 ? { audioRecordingEnabled: soloAudioRecording === 1 } : {}
       : recordMute === 0 || recordMute === 1 ? { audioRecordingEnabled: recordMute === 0 } : {}),
     ...(speakerVolume !== undefined ? { speakerVolume } : {}),
@@ -2561,7 +2584,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
 }
 
 /** Decode plain or canonical base64 JSON and require an explicitly selected recording mode. */
-function activeRecordingQuality(value: unknown): number | undefined {
+function activeRecordingQuality(value: unknown, minimum = 1): number | undefined {
   let parsed: unknown = value;
   if (typeof value === "string") {
     if (value.length > 4096) return undefined;
@@ -2578,7 +2601,7 @@ function activeRecordingQuality(value: unknown): number | undefined {
   const selected = parsed[`mode_${mode}`];
   if (!isRecord(selected)) return undefined;
   const tier = selected.quality;
-  return typeof tier === "number" && Number.isInteger(tier) && tier >= 1 && tier <= 3 ? tier : undefined;
+  return typeof tier === "number" && Number.isInteger(tier) && tier >= minimum && tier <= 3 ? tier : undefined;
 }
 
 /**

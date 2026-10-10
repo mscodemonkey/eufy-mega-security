@@ -216,6 +216,7 @@ def _streaming_quality_modes(camera: dict[str, Any]) -> dict[int, str]:
     names = {
         "Auto": "auto", "HD (720P)": "hd",
         "Full HD (1080P)": "full_hd", "2K": "2k",
+        "Medium": "medium", "High": "high",
     }
     raw_modes = camera.get("streamingQualityModes")
     if not isinstance(raw_modes, list):

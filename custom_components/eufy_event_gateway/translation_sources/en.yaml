@@ -92,6 +92,8 @@ entity:
         hd: HD (720p)
         full_hd: Full HD (1080p)
         2k: 2K
+        medium: Medium
+        high: High
     camera_night_vision:
       name: Night vision
       state:

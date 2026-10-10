@@ -25,6 +25,9 @@ import {
   buildSoloCamMotionDetectionPayload,
   buildSoloCamAudioRecordingPayload,
   buildSoloCamStreamingQualityPayload,
+  buildStandaloneC31StreamingQualityPayload,
+  buildStandaloneC31NightVisionPayload,
+  buildStandaloneC31EnabledPayload,
   buildSoloCamPanControlData,
   buildSoloCamPanControlPayload,
   buildStandaloneC31ControlPayload,
@@ -337,6 +340,28 @@ test("matches every native SoloCam quality wrapper without changing recorded-vid
   }
   assert.throws(() => buildSoloCamStreamingQualityPayload(1, "", key, 1, 1791464400000), /administrator/);
   assert.throws(() => buildSoloCamStreamingQualityPayload(1, "fixture-admin", key, 1, 1791464400), /epoch milliseconds/);
+});
+
+test("matches the authenticated C31 quality wrapper and rejects the SoloCam-only tier", () => {
+  const key = Buffer.alloc(32, 9);
+  for (const quality of [0, 2, 3]) {
+    const payload = buildStandaloneC31StreamingQualityPayload(quality, "fixture-admin", key, 257, 1791464400000);
+    assert.deepEqual(payload.subarray(4, 10), Buffer.from([8, 0, 0, 8, 0, 0]));
+    const encrypted = payload.subarray(10);
+    const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(16, 28));
+    decipher.setAAD(Buffer.from("eufy security"));
+    decipher.setAuthTag(encrypted.subarray(0, 16));
+    const clear = Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
+    assert.deepEqual(JSON.parse(clear.toString("utf8")), {
+      account_id: "fixture-admin", cmd: 2730, mChannel: 0, mValue3: 0,
+      payload: { quality, mode: -1, primary_view: -1, transaction: "1791464400000" },
+    });
+  }
+  for (const invalid of [-1, 1, 4, 2.5, Number.NaN]) {
+    assert.throws(() => buildStandaloneC31StreamingQualityPayload(invalid, "fixture-admin", key, 1, 1791464400000), /Unsupported/);
+  }
+  assert.throws(() => buildStandaloneC31StreamingQualityPayload(0, "", key, 1, 1791464400000000), /administrator/);
+  assert.throws(() => buildStandaloneC31StreamingQualityPayload(0, "fixture-admin", key, 1, 1791464400), /epoch milliseconds/);
 });
 
 test("builds the wall-light control as a level-one command 1700 value", () => {
@@ -854,4 +879,44 @@ test("C31 viewer ownership admits preset and cruise commands without admitting u
   assert.equal(supportsViewerPanControl("T8171", false, 0), true);
   assert.equal(supportsViewerPanControl("T8171", true, 1), true);
   assert.equal(supportsViewerPanControl("T8171", true, 0), false);
+});
+
+
+test("C31 night vision uses its authenticated native wrapper rather than the E30 envelope", () => {
+  const key = Buffer.alloc(32, 7);
+  for (const mode of [0, 1, 2]) {
+    const payload = buildStandaloneC31NightVisionPayload(mode, "fixture-admin", key, 257, 1791464400000);
+    const encrypted = payload.subarray(10);
+    const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(16, 28));
+    decipher.setAAD(Buffer.from("eufy security"));
+    decipher.setAuthTag(encrypted.subarray(0, 16));
+    const clear = Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
+    assert.deepEqual(JSON.parse(clear.toString("utf8")), {
+      account_id: "fixture-admin", cmd: 1277, mChannel: 0, mValue3: 0,
+      payload: { night_sion: mode, channel: 0, transaction: "1791464400000" },
+    });
+  }
+  for (const invalid of [-1, 3, 1.5, Number.NaN]) assert.throws(() => buildStandaloneC31NightVisionPayload(invalid, "fixture-admin", key, 1, 1791464400000), /Unsupported/);
+  assert.throws(() => buildStandaloneC31NightVisionPayload(0, "", key, 1, 1791464400000), /administrator/);
+  assert.throws(() => buildStandaloneC31NightVisionPayload(0, "fixture-admin", key, 1, 1791464400), /epoch milliseconds/);
+});
+
+
+test("C31 enablement protects its native privacy bit and validates identity and transaction", () => {
+  const key = Buffer.alloc(32, 7);
+  for (const rawValue of [0, 1]) {
+    const payload = buildStandaloneC31EnabledPayload(rawValue, "fixture-admin", key, 1, 1791464400000);
+    const encrypted = payload.subarray(10);
+    const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(16, 28));
+    decipher.setAAD(Buffer.from("eufy security"));
+    decipher.setAuthTag(encrypted.subarray(0, 16));
+    const clear = Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
+    assert.deepEqual(JSON.parse(clear.toString("utf8")), {
+      account_id: "fixture-admin", cmd: 6250, mChannel: 0, mValue3: 0,
+      payload: { switch: rawValue, transaction: "1791464400000" },
+    });
+  }
+  for (const invalid of [-1, 2, 0.5, Number.NaN]) assert.throws(() => buildStandaloneC31EnabledPayload(invalid, "fixture-admin", key, 1, 1791464400000), /Unsupported/);
+  assert.throws(() => buildStandaloneC31EnabledPayload(0, "", key, 1, 1791464400000), /administrator/);
+  assert.throws(() => buildStandaloneC31EnabledPayload(0, "fixture-admin", key, 1, 1791464400), /epoch milliseconds/);
 });
