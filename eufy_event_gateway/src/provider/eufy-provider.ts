@@ -108,6 +108,10 @@ export interface MegaInventoryReads {
   /** Exact C31 light setting and notification spacing, unrelated to recording intervals. */
   readonly lightBrightness?: number;
   readonly notificationIntervalMinutes?: number;
+
+  /** Exact C31 publication and continuous recording switches, independent of active consumers. */
+  readonly rtspPublicationEnabled?: boolean;
+  readonly continuousRecordingEnabled?: boolean;
   readonly streamingQualityTier?: number;
   readonly recordingQualityTier?: number;
   readonly solarIntensity?: number;
@@ -699,6 +703,22 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const route = ppcsStreamRoute(device, this.#devices);
     stream.close("client_stop");
     this.#finalizeStream(serial, stream, device, route);
+  }
+
+  /** Borrow the server-leased media source for one exact C31 speaker operation. */
+  async playCameraAudio(serial: string, audio: Buffer, signal?: AbortSignal): Promise<void> {
+    const previous = this.#panControlOperations.get(serial) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(async () => {
+      const device = this.#devices.get(serial);
+      const route = device ? ppcsStreamRoute(device, this.#devices) : null;
+      const session = this.#ppcsStreams.get(serial);
+      if (!device || !session || this.#recordingClosing || !supportsStandaloneC31Presets(device, route, true)
+        || device.reads.speakerEnabled !== true) throw new Error("Speaker playback requires an enabled speaker on the owned standalone C31");
+      await session.playC31Audio(audio, signal);
+    });
+    this.#panControlOperations.set(serial, current);
+    try { await current; }
+    finally { if (this.#panControlOperations.get(serial) === current) this.#panControlOperations.delete(serial); }
   }
 
   /** Write camera enablement once and publish only cloud-confirmed state. */
@@ -1738,6 +1758,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         recordingEnabled: device.reads.audioRecordingEnabled ?? null,
         speakerVolume: device.reads.speakerVolume ?? null,
       },
+      talkbackSupported: supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
       preferenceControls: supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials))
         ? c31PreferenceNames.filter((name) => c31PreferenceValue(device.reads, name) !== undefined) : [],
       reportedSettings: {
@@ -1749,6 +1770,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         enhanceLightingEnabled: device.reads.enhanceLightingEnabled ?? null,
         lightBrightness: device.reads.lightBrightness ?? null,
         notificationIntervalMinutes: device.reads.notificationIntervalMinutes ?? null,
+        rtspPublicationEnabled: device.reads.rtspPublicationEnabled ?? null,
+        continuousRecordingEnabled: device.reads.continuousRecordingEnabled ?? null,
         streamingQualityTier: device.reads.streamingQualityTier ?? null,
         recordingQualityTier: device.reads.recordingQualityTier ?? null,
         solarIntensity: device.reads.solarIntensity ?? null,
@@ -2685,6 +2708,8 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const soundRoundLook = c31 ? finiteNumber(params.get(6208)) : null;
   const lightBrightness = c31 ? percentage(1401) : undefined;
   const notificationInterval = c31 ? finiteNumber(params.get(1250)) : null;
+  const rtspPublication = c31 ? finiteNumber(params.get(1145)) : null;
+  const continuousRecording = c31 ? finiteNumber(params.get(6010)) : null;
   const enhanceLighting = c31 ? finiteNumber(params.get(6484)) : null;
   const qualityFamily = deviceType === 48 && /^T8170(?:$|[A-Z0-9-])/.test(model ?? "");
   const t8171 = deviceType === 88 && /^T8171(?:$|[A-Z0-9-])/.test(model ?? "");
@@ -2738,6 +2763,8 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
       ? { soundDetectionSensitivity: soundSensitivity } : {}),
     ...((c31 ? soundType === 128 || soundType === 256 : soundType === 1 || soundType === 2) ? { soundDetectionType: soundType! } : {}),
     ...(lightBrightness !== undefined && Number.isInteger(lightBrightness) ? { lightBrightness } : {}),
+    ...(rtspPublication === 0 || rtspPublication === 1 ? { rtspPublicationEnabled: rtspPublication === 1 } : {}),
+    ...(continuousRecording === 0 || continuousRecording === 1 ? { continuousRecordingEnabled: continuousRecording === 1 } : {}),
     ...(notificationInterval !== null && Number.isInteger(notificationInterval) && notificationInterval >= 0 && notificationInterval <= 300 && notificationInterval % 60 === 0 ? { notificationIntervalMinutes: notificationInterval / 60 } : {}),
     ...(soundRoundLook === 0 || soundRoundLook === 1 ? { soundRoundLookEnabled: soundRoundLook === 1 } : {}),
     ...(enhanceLighting === 0 || enhanceLighting === 1 ? { enhanceLightingEnabled: enhanceLighting === 0 } : {}),

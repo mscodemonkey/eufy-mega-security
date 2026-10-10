@@ -257,6 +257,12 @@
       }
     },
     "switch": {
+      "camera_continuous_recording": {
+        "name": "Continuous recording"
+      },
+      "camera_rtsp_publication": {
+        "name": "RTSP publication"
+      },
       "camera_sound_round_look": {
         "name": "Sound round-look"
       },

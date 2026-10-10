@@ -67,3 +67,13 @@ class CameraPreferencesTest(unittest.TestCase):
         self.assertEqual(module.camera_preference_value(camera, "notificationInterval"), 0)
         camera["reportedSettings"]["notificationIntervalMinutes"] = 60
         self.assertIsNone(module.camera_preference_value(camera, "notificationInterval"))
+
+
+    def test_publication_and_continuous_recording_require_admission(self):
+        """Keep publication and SD recording separate and preserve disabled baselines."""
+        camera = {"preferenceControls": ["rtspPublication", "continuousRecording"], "reportedSettings": {"rtspPublicationEnabled": False, "continuousRecordingEnabled": True}}
+        self.assertEqual(module.camera_preference_value(camera, "rtspPublication"), 0)
+        self.assertEqual(module.camera_preference_value(camera, "continuousRecording"), 1)
+        camera["preferenceControls"] = []
+        self.assertIsNone(module.camera_preference_value(camera, "rtspPublication"))
+        self.assertIsNone(module.camera_preference_value(camera, "continuousRecording"))

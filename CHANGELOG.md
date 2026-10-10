@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.127
+
+- Add Home Assistant switches for RTSP publication and continuous recording on the verified standalone Wired Cam C31 (T817L, device type 10031). Both switches were tested through Home Assistant with fresh camera readback. RTSP video and audio decoded successfully, and a controlled continuous recording played in the Eufy app. Gateway playback of continuous footage remains unavailable.
+- Add the `eufy_event_gateway.play_audio` camera action for short AAC-LC 16 kHz mono ADTS files on the verified standalone C31. Playback is limited to 20 seconds and Home Assistant allowlisted paths. Audible playback was confirmed on the camera. Interactive microphone talkback is not included.
+- Fix a gateway crash when an encryption-key lookup finishes after its camera connection has closed. Add regression coverage for shutdown, speaker packet handling, HTTP admission and Home Assistant file access.
+
 ## 0.1.126
 
 - Add hardware-tested standalone Wired Cam C31 controls, SD event playback, live AAC audio and timed siren support for the exact T817L type 10031 channel-zero route.

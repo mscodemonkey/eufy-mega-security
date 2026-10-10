@@ -257,6 +257,12 @@
       }
     },
     "switch": {
+      "camera_continuous_recording": {
+        "name": "Kontinuerlig optagelse"
+      },
+      "camera_rtsp_publication": {
+        "name": "RTSP-publicering"
+      },
       "camera_sound_round_look": {
         "name": "Lydrundkig"
       },

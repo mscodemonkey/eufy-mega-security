@@ -48,3 +48,19 @@ get_stream_url:
     entity:
       integration: eufy_event_gateway
       domain: camera
+
+play_audio:
+  name: Play camera speaker audio
+  description: Play an AAC-LC 16 kHz mono file, up to 20 seconds long, through a supported camera speaker.
+  target:
+    entity:
+      integration: eufy_event_gateway
+      domain: camera
+  fields:
+    filename:
+      name: Filename
+      description: Home Assistant allowlisted path to the AAC file.
+      required: true
+      example: /media/eufy/announcement.aac
+      selector:
+        text:

@@ -18,6 +18,7 @@ import { HomeBaseRecordingReader } from "./homebase-recordings.js";
 import { SoloCamRecordingReader, type CameraStoredRecord } from "./stored-recordings.js";
 import type { CameraPresetPosition, VideoCodec } from "../domain/types.js";
 import { PpcsAccessUnitAssembler } from "./ppcs-access-unit-assembler.js";
+import { C31TalkbackSender, c31TalkbackBody } from "./c31-talkback.js";
 import { decodePpcsAac } from "./ppcs-audio.js";
 import { ppcsCandidatePorts, ppcsLocalLookupTargets } from "./ppcs-lookup.js";
 import { PpcsLookupSocketPool } from "./ppcs-lookup-sockets.js";
@@ -747,7 +748,13 @@ export function buildC31PreferencePayload(name: C31Preference, value: number, ac
   const commands = { microphone: 1240, speaker: 1241, speakerVolume: 1230, imageFlipped: 1207, watermark: 1214, lightBrightness: 1401 };
   let command: number;
   let clear: Buffer;
-  if (name === "notificationInterval") {
+  if (name === "rtspPublication") {
+    command = 1145;
+    clear = buildCameraEnableBody(0, value, accountId);
+  } else if (name === "continuousRecording") {
+    command = 1700;
+    clear = Buffer.from(JSON.stringify({ commandType: 6010, data: { enable: value, transaction: `${now}` } }));
+  } else if (name === "notificationInterval") {
     command = 1250;
     clear = buildCameraEnableBody(0, value * 60, accountId).subarray(4);
   } else if (name === "preRecording") {
@@ -1367,6 +1374,8 @@ export class FirstPartyPpcsSession {
   // later command and heartbeat traffic stays pinned to that responding peer.
   #remote: { host: string; port: number } | null = null;
   #seq = 0;
+  #speakerSequence = 0;
+  #speaker: C31TalkbackSender | null = null;
   #closed = false;
   #closedSequenceChannels: string | null = null;
   #maximumDurationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1803,6 +1812,31 @@ export class FirstPartyPpcsSession {
     }
   }
 
+  /** Play admitted AAC on this existing C31 media session and always close its speaker path. */
+  async playC31Audio(audio: Buffer, signal?: AbortSignal): Promise<void> {
+    if (this.#closed || !this.#remote || this.#speaker || this.#options.purpose === "control"
+      || this.#options.cameraModel !== "T817L" || this.#options.homeBaseAttached || this.#options.channel !== 0) {
+      throw new Error("Speaker playback requires an idle owned standalone C31 media session");
+    }
+    await this.#waitForLevel2Key();
+    const control = (commandType: 1001 | 1002): void => {
+      const value = JSON.stringify({ commandType, data: { transaction: `${Date.now()}` } });
+      this.#sendCommand(1700, rawPayload(encryptLevel2(Buffer.from(value), this.#level2Key!, this.#level2Seq++), 0, 8, [8, 0], 0));
+    };
+    const sender = new C31TalkbackSender({ start: () => control(1001), stop: () => control(1002),
+      send: (frame, retrySequence) => {
+        if (this.#closed || !this.#remote) throw new Error("Speaker connection closed");
+        const sequence = retrySequence ?? (this.#speakerSequence++ & 0xffff);
+        const packet = Buffer.concat([DATA.video, u16(sequence), MAGIC, u16le(1301), rawPayload(c31TalkbackBody(frame), 0, 0, [1, 0], 0)]);
+        this.#send(REQ.data, packet, this.#remote);
+        return sequence;
+      } });
+    this.#speaker = sender;
+    try { await sender.play(audio, signal); }
+    catch (error) { this.close("client_stop"); throw error; }
+    finally { sender.close(); if (this.#speaker === sender) this.#speaker = null; }
+  }
+
   /** Transmit a native C31 alarm action; the provider owns pulse timing, cancellation and stop. */
   async writeStandaloneC31Siren(enabled: boolean): Promise<void> {
     if (this.#options.purpose !== "control" || !this.#remote
@@ -2016,6 +2050,7 @@ export class FirstPartyPpcsSession {
    */
   close(reason: PpcsStreamCloseReason = "client_stop"): void {
     if (this.#closed) return;
+    this.#speaker?.close();
     this.#closed = true;
     this.stats.closeReason = reason;
     this.#recordings?.close();
@@ -2119,6 +2154,14 @@ export class FirstPartyPpcsSession {
       return true;
     }
     if (has(message, RESP.pong)) return false;
+    if (has(message, REQ.ack) && this.#remote?.host === info.address && this.#remote.port === info.port
+      && message.length >= 8 && message.subarray(4, 6).equals(DATA.video)) {
+      const count = message.readUInt16BE(6);
+      if (count <= 64 && message.length === 8 + count * 2) {
+        for (let index = 0; index < count; index += 1) this.#speaker?.acknowledge(message.readUInt16BE(8 + index * 2));
+      }
+      return false;
+    }
     if (has(message, RESP.data) && this.#remote) {
       this.stats.dataDatagrams++;
       if (!this.stats.firstDataHex) this.stats.firstDataHex = message.subarray(0, Math.min(message.length, 48)).toString("hex");
@@ -2429,6 +2472,7 @@ export class FirstPartyPpcsSession {
    * duplicate asynchronous key resolution and competing media starts.
    */
   async #handleGatewayInfo(payload: Buffer): Promise<void> {
+    if (this.#closed) return;
     if (this.#gatewayPromise) return this.#gatewayPromise;
     if (this.#level2Key || !this.#options.resolveCipherKey || payload.length < 133) return;
     this.#gatewayPromise = this.#deriveLevel2(payload);
@@ -2452,6 +2496,9 @@ export class FirstPartyPpcsSession {
     this.stats.cipherId = cipherId;
     let eccPrivateKey: string | undefined;
     try { eccPrivateKey = await this.#options.resolveCipherKey!(cipherId); } catch (error) { this.stats.level2Error = error instanceof Error ? error.message : String(error); return; }
+
+    // Key resolution can outlive the media lease and its UDP socket.
+    if (this.#closed) return;
     if (!eccPrivateKey) { this.stats.level2Error = "no ECC private key"; return; }
     this.#videoDecoder.setEccPrivateKey(eccPrivateKey);
     const plain = unwrapGatewayInfo(plainPayload.subarray(4, 133), eccPrivateKey);
@@ -2467,9 +2514,10 @@ export class FirstPartyPpcsSession {
   /** Wait for in-progress gateway negotiation before a level-two control write. */
   async #waitForLevel2Key(): Promise<void> {
     const deadline = Date.now() + CONTROL_TIMEOUT_MILLISECONDS;
-    while (!this.#level2Key && !this.stats.level2Error && Date.now() < deadline) {
+    while (!this.#closed && !this.#level2Key && !this.stats.level2Error && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
+    if (this.#closed) throw new Error("Camera session closed during key negotiation");
     if (!this.#level2Key) {
       throw new Error(this.stats.level2Error || "Camera level-two control key timed out");
     }
@@ -2699,6 +2747,7 @@ export class FirstPartyPpcsSession {
 
   /** Send START_LIVE using the strongest protection negotiated with a standalone peer. */
   #startOwnMedia(): void {
+    if (this.#closed || !this.#remote) return;
     this.stats.mediaStartAttempts++;
     const key = publicModulus(this.#rsa.publicKey);
     const now = Date.now();

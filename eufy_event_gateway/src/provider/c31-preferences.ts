@@ -5,7 +5,7 @@
  */
 
 /** Native C31 preference names accepted at the authenticated control boundary. */
-export const c31PreferenceNames = ["microphone", "speaker", "speakerVolume", "imageFlipped", "watermark", "preRecording", "soundDetection", "statusLed", "recordingQuality", "soundSensitivity", "soundType", "soundRoundLook", "enhanceLighting", "lightBrightness", "notificationInterval"] as const;
+export const c31PreferenceNames = ["microphone", "speaker", "speakerVolume", "imageFlipped", "watermark", "preRecording", "soundDetection", "statusLed", "recordingQuality", "soundSensitivity", "soundType", "soundRoundLook", "enhanceLighting", "lightBrightness", "notificationInterval", "continuousRecording", "rtspPublication"] as const;
 
 /** A reviewed native preference, independent of support on any particular route. */
 export type C31Preference = typeof c31PreferenceNames[number];
@@ -21,7 +21,7 @@ export function validateC31Preference(name: unknown, value: unknown): C31Prefere
 
 /** Map a reviewed preference to the single inventory field invalidated after a write. */
 export function c31PreferenceReadField(name: C31Preference) {
-  const fields = { microphone: "microphoneEnabled", speaker: "speakerEnabled", speakerVolume: "speakerVolume", imageFlipped: "imageFlipped", watermark: "watermarkMode", preRecording: "preRecordingEnabled", soundDetection: "soundDetectionEnabled", statusLed: "statusLedEnabled", recordingQuality: "recordingQualityTier", soundSensitivity: "soundDetectionSensitivity", soundType: "soundDetectionType", soundRoundLook: "soundRoundLookEnabled", enhanceLighting: "enhanceLightingEnabled", lightBrightness: "lightBrightness", notificationInterval: "notificationIntervalMinutes" } as const;
+  const fields = { microphone: "microphoneEnabled", speaker: "speakerEnabled", speakerVolume: "speakerVolume", imageFlipped: "imageFlipped", watermark: "watermarkMode", preRecording: "preRecordingEnabled", soundDetection: "soundDetectionEnabled", statusLed: "statusLedEnabled", recordingQuality: "recordingQualityTier", soundSensitivity: "soundDetectionSensitivity", soundType: "soundDetectionType", soundRoundLook: "soundRoundLookEnabled", enhanceLighting: "enhanceLightingEnabled", lightBrightness: "lightBrightness", notificationInterval: "notificationIntervalMinutes", continuousRecording: "continuousRecordingEnabled", rtspPublication: "rtspPublicationEnabled" } as const;
   return fields[name];
 }
 

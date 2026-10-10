@@ -173,3 +173,34 @@ test("C31 brightness and notification spacing keep distinct binary layouts", () 
   assert.equal(safeInventoryReads(params, 48, "T8170", true).recordingIntervalSeconds, 60);
   for (const value of [-1, 6, 60, true]) assert.throws(() => validateC31Preference("notificationInterval", value));
 });
+
+
+test("C31 publication and continuous recording retain distinct native framing and route limits", () => {
+  for (const value of [0, 1]) {
+    const rtsp = decode("rtspPublication", value);
+    assert.equal(rtsp.command, 1145);
+    assert.equal(rtsp.clear.length, 136);
+    assert.equal(rtsp.clear.readUInt32LE(0), 0);
+    assert.equal(rtsp.clear.readUInt32LE(4), value);
+    assert.equal(rtsp.clear.subarray(8, 23).toString(), "synthetic-owner");
+    assert.ok(rtsp.clear.subarray(23).every((byte) => byte === 0));
+    const continuous = decode("continuousRecording", value);
+    assert.equal(continuous.command, 1700);
+    assert.deepEqual(JSON.parse(continuous.clear.toString()), {
+      commandType: 6010, data: { enable: value, transaction: "1791464400000" },
+    });
+  }
+  const params = [{ param_type: 1145, param_value: "0" }, { param_type: 6010, param_value: "1" }];
+  const reads = safeInventoryReads(params, 10031, "T817L", true);
+  assert.equal(reads.rtspPublicationEnabled, false);
+  assert.equal(reads.continuousRecordingEnabled, true);
+  for (const [type, model, standalone] of [[10031, "T817L121", true], [88, "T817L", true], [10031, "T817L", false]] as const) {
+    const excluded = safeInventoryReads(params, type, model, standalone);
+    assert.equal(excluded.rtspPublicationEnabled, undefined);
+    assert.equal(excluded.continuousRecordingEnabled, undefined);
+  }
+  for (const value of [2, true, "1", -1]) {
+    assert.throws(() => validateC31Preference("rtspPublication", value));
+    assert.throws(() => validateC31Preference("continuousRecording", value));
+  }
+});
