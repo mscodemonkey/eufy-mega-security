@@ -21,6 +21,28 @@ capabilities:
       read:
         field: last_recognized_person
   controls:
+    rtsp_publication:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3, owned channel zero. Actual Home Assistant switch on/off matched fresh camera readback. The enabled RTSP stream supplied 1080p video and mono AAC that fully decoded with timestamp normalization. Both source tracks can have backward timestamps. After restoring off, a new connection was refused. Original RTSP credentials were restored. This publication switch does not add an RTSP input transport to the gateway or cover T817L121 or HomeBase routes.
+      read:
+        parameter: 1145
+      write:
+        command: 1145
+    continuous_recording:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3, owned channel zero. Actual Home Assistant switch on/off matched fresh camera parameter readback and restored off. A controlled one-hundred-second enabled window appeared as a new continuous segment in the native SD timeline and played with the matching camera timestamp. Gateway continuous-footage playback remains unimplemented and the gateway currently serves event clips only. T817L121 and HomeBase routes are not covered.
+      read:
+        parameter: 6010
+      write:
+        command: 6010
     enabled:
       connections:
         direct:
@@ -174,7 +196,7 @@ capabilities:
           status: tested
           tested_on: 2026-10-10
           tested_by: mscodemonkey
-          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Actual Home Assistant actions matched a fresh camera parameter query. Off/on preference and restoration passed. Audible talkback remains a separate test. T817L121 and attached routes are not covered.
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Actual Home Assistant actions matched a fresh camera parameter query. Off/on preference and restoration passed. A four-second AAC tone through the separate Home Assistant speaker-file service was physically confirmed. Live microphone talkback, T817L121 and attached routes are not covered.
       read:
         parameter: 1241
       write:
@@ -331,6 +353,13 @@ capabilities:
           maximum: 900
       notes: A duration of 0 stops the siren.
   media:
+    speaker_file_playback:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3, owned channel zero. Home Assistant play_audio delivered a four-second AAC-LC 16 kHz mono tone and the owner confirmed hearing it. Playback uses the existing live session, paces complete ADTS frames, requires transport acknowledgements and explicitly stops on completion or cancellation. Only prepared files up to twenty seconds are admitted. Live microphone talkback, T817L121 and HomeBase routes are not covered.
     stored_event_playback:
       connections:
         direct:

@@ -22,6 +22,7 @@ import { SimulatedProvider } from "./provider/simulated-provider.js";
 import type { CameraProvider, CaptchaProvider } from "./provider/provider.js";
 import { SnapshotStore } from "./storage/snapshot-store.js";
 import { RecordingCache, recordingByteRange } from "./storage/recording-cache.js";
+import { c31TalkbackFrames } from "./stream/c31-talkback.js";
 import { validateRecordingDate } from "./stream/stored-recordings.js";
 import { validateCloudHistoryQuery } from "./mega/cloud-history.js";
 import { waitingImage } from "./mega/waiting-image.js";
@@ -42,6 +43,7 @@ const STREAM_TOKEN_MAX_FUTURE_SECONDS = STREAM_TOKEN_LIFETIME_SECONDS + 60;
 export class GatewayServer {
   #server: Server | null = null;
   readonly #recordings = new RecordingCache();
+  readonly #speakerJobs = new Map<string, AbortController>();
   readonly #recordingJobs = new Map<string, { promise: Promise<Buffer | null>; controller: AbortController; users: Set<ServerResponse> }>();
 
   /**
@@ -71,6 +73,7 @@ export class GatewayServer {
 
   /** Stop accepting requests and wait for the HTTP server to close. */
   async close(): Promise<void> {
+    for (const controller of this.#speakerJobs.values()) controller.abort();
     for (const job of this.#recordingJobs.values()) job.controller.abort();
     this.#recordings.clear();
     if (!this.#server) return;
@@ -186,6 +189,45 @@ export class GatewayServer {
       }
       if (request.method === "GET" && url.pathname === "/api/device-capabilities") {
         return json(response, 200, { devices: this.state.listDeviceCapabilities() });
+      }
+      if (request.method === "POST" && segments.length === 4 && segments[0] === "api"
+        && segments[1] === "cameras" && segments[3] === "speaker-audio") {
+        const serial = segments[2]!;
+        if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+        if (!this.state.getCamera(serial).talkbackSupported || !this.provider.playCameraAudio) return json(response, 409, { error: "Speaker playback unavailable" });
+        if (this.#speakerJobs.has(serial)) return json(response, 409, { error: "Camera speaker is busy" });
+        if (request.headers["content-type"]?.split(";", 1)[0] !== "audio/aac") throw new SyntaxError("Speaker audio requires audio/aac");
+        const controller = new AbortController();
+        this.#speakerJobs.set(serial, controller);
+        const cancel = (): void => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", cancel);
+        const cancelUpload = (): void => { request.destroy(); };
+        controller.signal.addEventListener("abort", cancelUpload, { once: true });
+        const uploadTimeout = setTimeout(() => controller.abort(), 30_000);
+        try {
+          const chunks: Buffer[] = [];
+          let length = 0;
+          for await (const chunk of request) {
+            const bytes = Buffer.from(chunk);
+            length += bytes.length;
+            if (length > 320_000) throw new SyntaxError("Speaker audio exceeds its size limit");
+            chunks.push(bytes);
+          }
+          clearTimeout(uploadTimeout);
+          controller.signal.removeEventListener("abort", cancelUpload);
+          const audio = Buffer.concat(chunks);
+          c31TalkbackFrames(audio);
+          await this.streams.withLiveSource(serial, async () => {
+            await this.provider.playCameraAudio!(serial, audio, controller.signal);
+          });
+          return json(response, 200, { ok: true });
+        } finally {
+          clearTimeout(uploadTimeout);
+          controller.signal.removeEventListener("abort", cancelUpload);
+          response.off("close", cancel);
+          controller.abort();
+          this.#speakerJobs.delete(serial);
+        }
       }
       if (segments[0] === "api" && segments[1] === "cameras" && segments[3] === "recordings") {
         return await this.#storedRecordings(request, response, segments, url);

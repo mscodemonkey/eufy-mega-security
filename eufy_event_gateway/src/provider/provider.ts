@@ -54,6 +54,9 @@ export interface CameraProvider {
   startStream(serial: string): Promise<void>;
   stopStream(serial: string): Promise<void>;
 
+  /** Play bounded native AAC on the leased live source, stopping on cancellation or failure. */
+  playCameraAudio?(serial: string, audio: Buffer, signal?: AbortSignal): Promise<void>;
+
   /** Write camera enablement and return only state confirmed by fresh readback. */
   setCameraEnabled(serial: string, enabled: boolean): Promise<CameraIdentity>;
 

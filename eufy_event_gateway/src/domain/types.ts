@@ -93,6 +93,10 @@ export interface CameraReportedSettings {
   readonly lightBrightness?: number | null;
   readonly notificationIntervalMinutes?: number | null;
 
+  /** Exact C31 publication and continuous recording switches, independent of active consumers. */
+  readonly rtspPublicationEnabled?: boolean | null;
+  readonly continuousRecordingEnabled?: boolean | null;
+
   /** Reported quality ranks. They do not assert an observed resolution or codec. */
   readonly streamingQualityTier?: number | null;
   readonly recordingQualityTier?: number | null;
@@ -170,6 +174,9 @@ export interface CameraState {
 
   /** Whether the ready camera route supplies validated AAC for live MPEG-TS delivery. */
   readonly liveAudioSupported?: boolean;
+
+  /** Exact route support for bounded speaker audio, independent of microphone streaming. */
+  readonly talkbackSupported?: boolean;
 
   /** The direct route supports verified SD event retrieval; card presence is checked on access. */
   readonly storedRecordingsSupported?: boolean;
@@ -357,6 +364,9 @@ export interface CameraIdentity {
 
   /** Optional provider admission for live AAC, independent of reported microphone settings. */
   readonly liveAudioSupported?: boolean;
+
+  /** Exact route support for bounded speaker audio, independent of microphone streaming. */
+  readonly talkbackSupported?: boolean;
   readonly doorbellSupported: boolean;
   readonly enabled?: boolean | null;
   readonly enableControlSupported?: boolean;

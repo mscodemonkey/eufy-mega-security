@@ -395,6 +395,24 @@ class GatewayClient:
             payload={"enabled": enabled},
         )
 
+    async def play_audio(self, serial: str, data: bytes) -> None:
+        """Submit a bounded AAC clip without sending local filenames to the gateway."""
+        if not data or len(data) > 320_000:
+            raise GatewayClientError("Speaker audio exceeds its size limit")
+        try:
+            async with self._session.post(
+                self._url(f"/api/cameras/{serial}/speaker-audio"),
+                headers={**self._headers, "Content-Type": "audio/aac"},
+                data=data,
+                timeout=ClientTimeout(total=70),
+            ) as response:
+                self._raise_for_status(response)
+                result = await response.json(content_type=None)
+                if not isinstance(result, dict) or result.get("ok") is not True:
+                    raise GatewayClientError("Gateway did not complete speaker playback")
+        except (ClientError, TimeoutError, ValueError) as error:
+            raise GatewayClientError("Speaker playback failed") from error
+
     async def record_clip(self, serial: str, duration: int) -> bytes:
         """Request a bounded MP4 and reject a response that is not an MP4 file."""
         try:
