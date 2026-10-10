@@ -219,11 +219,16 @@ test("authenticates only the Eufy leg of an allowlisted media redirect", async (
           status: 302,
           headers: { location: "https://zhixin-security-au.s3.ap-southeast-2.amazonaws.com/private-image" },
         });
-        return new Response(Buffer.from([0xff, 0xd8, 0xff, 0xd9]), { status: 200 });
+        return new Response(Buffer.from([0xff, 0xd8, 0xff, 0xd9]), { status: 200, headers: {
+          "content-type": "application/octet-stream; private=not-retained", "content-length": "4", "x-private": "not-retained",
+        } });
       },
     });
     assert.deepEqual(await client.connect(), { state: "authenticated" });
-    assert.equal((await client.download("https://security-app-eu.eufylife.com/image")).length, 4);
+    assert.deepEqual(await client.downloadWithMetadata("https://security-app-eu.eufylife.com/image"), {
+      data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]), status: 200, contentType: "application/octet-stream",
+      contentEncoding: "identity", declaredLength: 4, bodyRepresentation: "fetch-body",
+    });
     assert.equal(requests.length, 2);
     assert.equal(requests[0]?.get("x-auth-token"), "media-token");
     assert.match(requests[0]?.get("user-agent") ?? "", /^Dalvik\/2\.1\.0/);

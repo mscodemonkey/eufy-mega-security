@@ -12,6 +12,7 @@ export EUFY_USERNAME="$(option username)"
 export EUFY_PASSWORD="$(option password)"
 export EUFY_COUNTRY="$(option country)"
 export EUFY_VERIFY_CODE="$(jq -r '.verification_code // empty' "$options")"
+export EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES="$(jq -r '.capture_failed_event_images // false' "$options")"
 if [ ! -s "$token_file" ]; then
   umask 077
   token_tmp="${token_file}.tmp"

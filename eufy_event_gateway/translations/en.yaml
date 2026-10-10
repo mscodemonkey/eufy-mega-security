@@ -1,4 +1,7 @@
 configuration:
+  capture_failed_event_images:
+    name: Capture failed event images
+    description: Private diagnostic capture for 30 minutes after startup. Export within 60 minutes. May contain household images and identifiers. Disable after collecting evidence.
   username:
     name: Eufy username
     description: Dedicated guest Eufy account shared with the required cameras.

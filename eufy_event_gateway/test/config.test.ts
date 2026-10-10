@@ -40,3 +40,13 @@ test("passes through a temporary Eufy email verification code", () => {
   });
   assert.equal(config.eufy.verifyCode, "123456");
 });
+
+test("private image capture defaults off and accepts only explicit booleans with a token", () => {
+  assert.equal(loadConfig({}).captureFailedEventImages, false);
+  for (const value of ["true", " TRUE "]) {
+    assert.throws(() => loadConfig({ EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES: value }), /requires EUFY_GATEWAY_API_TOKEN/);
+    assert.equal(loadConfig({ EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES: value, EUFY_GATEWAY_API_TOKEN: "x".repeat(32) }).captureFailedEventImages, true);
+  }
+  for (const value of ["", "false", " FALSE "]) assert.equal(loadConfig({ EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES: value }).captureFailedEventImages, false);
+  for (const value of ["1", "yes", "invalid"]) assert.throws(() => loadConfig({ EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES: value }), /must be true or false/);
+});

@@ -304,6 +304,10 @@ Recordings are assembled by the gateway with a hard stream-start timeout and dur
 
 ## Standalone gateway
 
+For a failing event picture, the opt-in [private evidence capture](docs/EVENT_IMAGE_EVIDENCE.md)
+can preserve a bounded response sample for a maintainer. It is separate from
+ordinary Home Assistant diagnostics and must be included in your installed build.
+
 ### Gateway-only stream proof
 
 Before enabling Home Assistant live entities, run `npm run poc:ppcs` from `eufy_event_gateway` with the gateway's existing data directory and credentials available as environment variables. The probe prints one safe JSON result per discovered camera and writes raw `.h264` plus first-frame `.jpg` files to `EUFY_PPCS_OUTPUT_DIR` (default `./poc-output`). A camera only counts as working when both byte counts are non-zero.

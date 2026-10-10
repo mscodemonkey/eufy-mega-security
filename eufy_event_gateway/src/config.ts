@@ -19,6 +19,9 @@ export interface GatewayConfig {
   readonly streamGraceMilliseconds: number;
   readonly maxStreamSeconds: number;
   readonly apiToken: string | null;
+
+  /** Opt-in private evidence session; requires bearer authentication even on loopback. */
+  readonly captureFailedEventImages: boolean;
   readonly eufy: {
     readonly username: string | null;
     readonly password: string | null;
@@ -41,6 +44,10 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
   const verifyCode = nonEmpty(environment.EUFY_VERIFY_CODE);
   const host = environment.EUFY_GATEWAY_HOST ?? "127.0.0.1";
   const apiToken = nonEmpty(environment.EUFY_GATEWAY_API_TOKEN);
+  const captureFailedEventImages = captureBoolean(environment.EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES);
+  if (captureFailedEventImages && !apiToken) {
+    throw new Error("Failed event-image capture requires EUFY_GATEWAY_API_TOKEN");
+  }
   if (!isLoopbackHost(host) && !apiToken) {
     throw new Error("EUFY_GATEWAY_API_TOKEN is required when the gateway is not bound to loopback");
   }
@@ -55,6 +62,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
     streamGraceMilliseconds: positiveInteger(environment.EUFY_GATEWAY_STREAM_GRACE_SECONDS, 10) * 1_000,
     maxStreamSeconds: positiveInteger(environment.EUFY_GATEWAY_MAX_STREAM_SECONDS, 120),
     apiToken,
+    captureFailedEventImages,
     eufy: {
       username: nonEmpty(environment.EUFY_USERNAME),
       password: nonEmpty(environment.EUFY_PASSWORD),
@@ -62,6 +70,13 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
       ...(verifyCode ? { verifyCode } : {}),
     },
   };
+}
+
+function captureBoolean(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || normalized === "false") return false;
+  if (normalized === "true") return true;
+  throw new Error("EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES must be true or false");
 }
 
 /** Returns whether a listener is restricted to the local machine. */

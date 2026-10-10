@@ -26,8 +26,10 @@ options:
   password: ""
   country: AU
   verification_code: ""
+  capture_failed_event_images: false
 schema:
   username: str
   password: password
   country: str
   verification_code: str
+  capture_failed_event_images: bool

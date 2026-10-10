@@ -14,6 +14,7 @@
  */
 import { join } from "node:path";
 import { createHmac, randomBytes } from "node:crypto";
+import type { EventImageCapture, EventImageContext } from "../diagnostics/event-image-capture.js";
 import { validateRecordingDate, type CameraStoredRecord, type StoredRecordingSummary } from "../stream/stored-recordings.js";
 
 import type { BatteryState, CameraIdentity, CameraPresetPosition, DetectionKind, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
@@ -51,6 +52,9 @@ export interface EufyProviderConfig {
   readonly persistentDirectory: string;
   readonly verifyCode?: string;
   readonly maxStreamSeconds: number;
+
+  /** Optional process-owned evidence collector, closed by the composition root. */
+  readonly eventImageCapture?: EventImageCapture;
 }
 
 /** Normalized Mega inventory row used to decide camera support and routing. */
@@ -2222,7 +2226,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #queuePushSnapshot(events: ProviderEvents, event: MegaPushEvent): void {
     const previous = this.#pushSnapshotQueues.get(event.cameraSerial) ?? Promise.resolve();
     const current = previous.then(async () => {
-      const picture = await downloadPushSnapshot(this.#client, event, this.#devices);
+      const camera = this.#devices.get(event.cameraSerial);
+      const context: EventImageContext = camera ? {
+        model: camera.model,
+        ...(camera.deviceType !== null ? { deviceType: camera.deviceType } : {}),
+        ...(camera.parentSerial ? { topology: camera.parentSerial !== camera.serial ? "attached" : "direct" } : {}),
+      } : {};
+      const picture = await downloadPushSnapshot(this.#client, event, this.#devices, this.config.eventImageCapture, context);
       if (picture) {
         events.snapshot(event.cameraSerial, picture.data, "image/jpeg");
       }
@@ -2236,24 +2246,46 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 }
 
-/** Download and decode the image referenced by one normalized push event. */
+/**
+ * Download and decode the image referenced by one normalized push event.
+ * An opt-in process-owned collector can retain original failed decode inputs.
+ * Download errors and last-good image ownership stay with their existing boundaries.
+ */
 export async function downloadPushSnapshot(
-  client: Pick<MegaClient, "download">,
+  client: Pick<MegaClient, "download"> & Partial<Pick<MegaClient, "downloadWithMetadata">>,
   event: Pick<MegaPushEvent, "pictureUrl" | "stationSerial">,
   devices: ReadonlyMap<string, Pick<MegaInventoryDevice, "p2pDid">>,
+  capture?: EventImageCapture,
+  context: EventImageContext = {},
 ): Promise<{ data: Buffer } | null> {
   if (!event.pictureUrl) return null;
-  const encoded = await client.download(event.pictureUrl);
+  const response = capture && client.downloadWithMetadata ? await client.downloadWithMetadata(event.pictureUrl) : null;
+  const encoded = response?.data ?? await client.download(event.pictureUrl);
   if (isJpeg(encoded)) return { data: encoded };
-  const p2pDid = devices.get(event.stationSerial)?.p2pDid;
-  if (!p2pDid && eventImageFormat(encoded) === "legacy") throw new Error("event image cannot be decoded without its HomeBase identity");
-  const decoded = decodeEventImage(encoded, p2pDid ?? "");
-  if (!isJpeg(decoded)) {
-    throw new Error(
-      `event image decode failed: format=${eventImageFormat(encoded)} size=${eventImageSize(encoded)} result=${jpegBoundaryResult(decoded)}`,
-    );
+  let original: Buffer | null = null;
+  try { original = capture?.prepare(encoded) ?? null; } catch {
+    logger.warn("event_image_capture_unavailable", "Failed event-image evidence could not be captured");
   }
-  return { data: decoded };
+  try {
+    const p2pDid = devices.get(event.stationSerial)?.p2pDid;
+    if (!p2pDid && eventImageFormat(encoded) === "legacy") throw new Error("event image cannot be decoded without its HomeBase identity");
+    const decoded = decodeEventImage(encoded, p2pDid ?? "");
+    if (!isJpeg(decoded)) {
+      throw new Error(
+        `event image decode failed: format=${eventImageFormat(encoded)} size=${eventImageSize(encoded)} result=${jpegBoundaryResult(decoded)}`,
+      );
+    }
+    return { data: decoded };
+  } catch (error) {
+    try {
+      capture?.capture(original ?? encoded, context, response ?? undefined);
+    } catch {
+      logger.warn("event_image_capture_unavailable", "Failed event-image evidence could not be captured");
+    }
+    throw error;
+  } finally {
+    original?.fill(0);
+  }
 }
 
 /** Classify an event-image body without retaining its contents or identity. */

@@ -13,6 +13,7 @@ import { timingSafeEqual } from "node:crypto";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
+import { eventImageResponseMetadata, type EventImageResponseMetadata } from "../diagnostics/event-image-capture.js";
 import {
   beginKeyExchange,
   decryptEnvelope,
@@ -384,6 +385,11 @@ export class MegaClient {
 
   /** Download authenticated temporary media through Eufy's allowlisted object-store redirect. */
   async download(url: string, maximumBytes = 20 * 1024 * 1024): Promise<Buffer> {
+    return (await this.downloadWithMetadata(url, maximumBytes)).data;
+  }
+
+  /** Preserve safe final-response metadata without changing media integrity or redirect rules. */
+  async downloadWithMetadata(url: string, maximumBytes = 20 * 1024 * 1024): Promise<{ data: Buffer } & EventImageResponseMetadata> {
     const parsed = allowedMediaUrl(url, MEDIA_HOST);
     const signal = AbortSignal.any([this.#requestLifetime.signal, AbortSignal.timeout(30_000)]);
     let response: Response | null = null;
@@ -396,7 +402,8 @@ export class MegaClient {
     }
     if (!response) throw new Error("Mega media download failed");
     if (!response.ok) throw new Error(`Mega media download failed (HTTP ${response.status})`);
-    return readBoundedResponse(response, maximumBytes, signal);
+    const data = await readBoundedResponse(response, maximumBytes, signal);
+    return { data, ...eventImageResponseMetadata(response) };
   }
 
   /** Perform one authenticated media lookup and its optional credential-free object-store redirect. */
