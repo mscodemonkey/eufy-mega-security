@@ -151,6 +151,13 @@
           "spotlight": "Spotlys"
         }
       },
+      "camera_recording_quality": {
+        "name": "Optagekvalitet",
+        "state": {
+          "medium": "Mellem",
+          "high": "Høj"
+        }
+      },
       "camera_watermark": {
         "name": "Vandmærke",
         "state": {
@@ -257,6 +264,9 @@
       },
       "camera_pre_recording": {
         "name": "Foroptagelse"
+      },
+      "camera_status_led": {
+        "name": "Statuslys"
       },
       "camera_sound_detection": {
         "name": "Lyddetektion"

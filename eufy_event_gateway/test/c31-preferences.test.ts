@@ -85,3 +85,24 @@ test("camera-info JSON ends at the protocol NUL before encrypted block padding",
   assert.equal(cameraInfoDocumentText(Buffer.from(document)), document);
   assert.throws(() => JSON.parse(cameraInfoDocumentText(Buffer.from(document + "invalid"))));
 });
+
+
+test("C31 LED and recording-quality commands retain their native JSON contracts", () => {
+  for (const value of [0, 1]) {
+    const led = decode("statusLed", value);
+    assert.equal(led.command, 1700);
+    assert.deepEqual(JSON.parse(led.clear.toString()), { commandType: 6014, data: { value, transaction: "1791464400000" } });
+  }
+  for (const value of [2, 3]) {
+    const quality = decode("recordingQuality", value);
+    assert.equal(quality.command, 1350);
+    assert.deepEqual(JSON.parse(quality.clear.toString()), { account_id: "synthetic-owner", cmd: 2731, mChannel: 0, mValue3: 0, payload: { quality: value, mode: -1, primary_view: -1, transaction: "1791464400000" } });
+  }
+  for (const value of [0, 1, 4, true]) assert.throws(() => validateC31Preference("recordingQuality", value));
+  const params = [{ param_type: 6014, param_value: "0" }, { param_type: 1045, param_value: "1" }, { param_type: 2731, param_value: JSON.stringify({ cur_mode: 0, mode_0: { quality: 2 } }) }];
+  const direct = safeInventoryReads(params, 10031, "T817L", true);
+  assert.equal(direct.statusLedEnabled, false);
+  assert.equal(direct.recordingQualityTier, 2);
+  assert.equal(safeInventoryReads(params, 10031, "T817L121", true).recordingQualityTier, undefined);
+  assert.equal(safeInventoryReads(params, 10031, "T817L", false).recordingQualityTier, undefined);
+});

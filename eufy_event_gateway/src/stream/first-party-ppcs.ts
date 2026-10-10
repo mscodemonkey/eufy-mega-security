@@ -636,6 +636,12 @@ export function buildC31PreferencePayload(name: C31Preference, value: number, ac
   if (name === "preRecording") {
     command = 1350;
     clear = Buffer.from(JSON.stringify({ account_id: accountId, cmd: 6257, mChannel: 0, mValue3: 0, payload: { value, transaction: `${now}` } }));
+  } else if (name === "recordingQuality") {
+    command = 1350;
+    clear = Buffer.from(JSON.stringify({ account_id: accountId, cmd: 2731, mChannel: 0, mValue3: 0, payload: { quality: value, mode: -1, primary_view: -1, transaction: `${now}` } }));
+  } else if (name === "statusLed") {
+    command = 1700;
+    clear = Buffer.from(JSON.stringify({ commandType: 6014, data: { value, transaction: `${now}` } }));
   } else if (name === "soundDetection") {
     command = 1700;
     clear = Buffer.from(JSON.stringify({ commandType: 6043, data: { status: value, transaction: `${now}` } }));

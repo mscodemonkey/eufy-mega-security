@@ -234,6 +234,28 @@ capabilities:
         parameter: 6043
       write:
         command: 6043
+    status_led:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Actual Home Assistant actions matched fresh camera parameter queries. Native LED command 6014 off/on passed, with original on restored. Physical LED observation is not claimed. T817L121 and HomeBase routes are not covered.
+      read:
+        parameter: 6014
+      write:
+        command: 6014
+    recording_quality:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Actual Home Assistant actions matched fresh camera parameter queries. Native medium 2 and high 3 passed, with original high restored. Recorded-medium resolution remains a separate media test. T817L121 and HomeBase routes are not covered.
+      read:
+        parameter: 2731
+      write:
+        command: 2731
     siren:
       connections:
         T8030:

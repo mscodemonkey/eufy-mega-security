@@ -104,6 +104,11 @@ entity:
         infrared: Infrarød
         infrared_on: Infrarød slået til
         spotlight: Spotlys
+    camera_recording_quality:
+      name: Optagekvalitet
+      state:
+        medium: Mellem
+        high: Høj
     camera_watermark:
       name: Vandmærke
       state:
@@ -184,6 +189,8 @@ entity:
       name: Rotér billede 180°
     camera_pre_recording:
       name: Foroptagelse
+    camera_status_led:
+      name: Statuslys
     camera_sound_detection:
       name: Lyddetektion
   siren:

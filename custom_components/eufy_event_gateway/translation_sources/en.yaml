@@ -104,6 +104,11 @@ entity:
         infrared: Infrared
         infrared_on: Infrared on
         spotlight: Spotlight
+    camera_recording_quality:
+      name: Recording quality
+      state:
+        medium: Medium
+        high: High
     camera_watermark:
       name: Watermark
       state:
@@ -184,6 +189,8 @@ entity:
       name: Rotate image 180°
     camera_pre_recording:
       name: Pre-recording
+    camera_status_led:
+      name: Status LED
     camera_sound_detection:
       name: Sound detection
   siren:

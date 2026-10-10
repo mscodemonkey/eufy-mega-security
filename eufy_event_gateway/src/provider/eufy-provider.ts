@@ -2541,13 +2541,13 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const batteryLevel = percentage(1101);
   const imageFlipped = finiteNumber(params.get(1207));
   const doorbell = isDoorbellDevice({ deviceType, category: "eufy_security" });
-  const statusLed = finiteNumber(params.get(doorbell ? 1716 : 1045));
   const soundDetection = finiteNumber(params.get(6043));
   const microphone = finiteNumber(params.get(1240));
   const speaker = finiteNumber(params.get(1241));
   const recordMute = finiteNumber(params.get(1288));
   const soloE30 = deviceType === 88 && model === "T8171";
   const c31 = standaloneChannelZero && deviceType === 10_031 && model === "T817L";
+  const statusLed = finiteNumber(params.get(c31 ? 6014 : doorbell ? 1716 : 1045));
   const preRecording = c31 ? finiteNumber(params.get(6257)) : null;
   const soloAudioRecording = soloE30 || c31 ? finiteNumber(params.get(6012)) : null;
   const soloAiTracking = soloE30 || (deviceType === 10_031 && model === "T817L")
@@ -2570,7 +2570,8 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const t8425 = deviceType === 47 && /^T8425(?:$|[A-Z0-9-])/.test(model ?? "");
   const streamingQuality = c31 ? activeRecordingQuality(params.get(2730), 0) ?? null
     : qualityFamily || t8171 ? finiteNumber(params.get(1020)) : null;
-  const recordingQuality = qualityFamily || soloE30 ? activeRecordingQuality(params.get(2731)) : undefined;
+  const recordingQuality = c31 ? activeRecordingQuality(params.get(2731), 2)
+    : qualityFamily || soloE30 ? activeRecordingQuality(params.get(2731)) : undefined;
   const solarIntensity = qualityFamily ? finiteNumber(params.get(1309)) : null;
   const solarConnected = qualityFamily ? finiteNumber(params.get(6482)) : null;
   const notificationStyle = t8171 ? finiteNumber(params.get(6020)) : null;
