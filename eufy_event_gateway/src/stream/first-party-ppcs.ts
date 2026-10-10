@@ -626,15 +626,25 @@ export function buildStandaloneC31EnabledPayload(
   return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
 }
 
-/** Build the authenticated C31 station-channel alarm action; the provider owns timed stopping. */
-export function buildStandaloneC31SirenPayload(
-  enabled: boolean, key: Buffer, sequence: number,
-): { command: 1201 | 1202; payload: Buffer } {
-  if (typeof enabled !== "boolean") throw new Error("C31 siren requires an absolute boolean action");
+/** Build the native C31 sound-only start with its captured 30-second safety timeout. */
+export function buildStandaloneC31SirenStartPayload(
+  accountId: string, key: Buffer, sequence: number, now: number,
+): Buffer {
+  if (!accountId) throw new Error("C31 siren requires its owning administrator identity");
+  if (!Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) throw new Error("C31 siren requires epoch milliseconds");
+  const clear = Buffer.from(JSON.stringify({ account_id: accountId, cmd: 1201, mChannel: 0, mValue3: 0,
+    payload: { channel: 0, type: 10, time_out: 30, user_name: "", transaction: `${now}` } }));
+  return rawPayload(encryptLevel2(clear, key, sequence), 0, 8, [8, 0], 0);
+}
+
+/** Build either ordered native early-stop step; neither binary command starts the siren. */
+export function buildStandaloneC31SirenStopPayload(
+  command: 1201 | 1202, key: Buffer, sequence: number,
+): Buffer {
+  if (command !== 1201 && command !== 1202) throw new Error("Unsupported C31 siren stop command");
   const clear = Buffer.alloc(8);
-  clear.writeUInt32LE(enabled ? 10 : 255, 0);
-  return { command: enabled ? 1201 : 1202,
-    payload: rawPayload(encryptLevel2(clear, key, sequence), 255, 8, [8, 0], 0) };
+  clear.writeUInt32LE(command === 1201 ? 10 : 255, 0);
+  return rawPayload(encryptLevel2(clear, key, sequence), 255, 8, [8, 0], 0);
 }
 
 /** Build a reviewed C31 preference with native binary or JSON framing and authenticated protection. */
@@ -1701,10 +1711,18 @@ export class FirstPartyPpcsSession {
     const accountId = this.#options.accountId;
     if (!accountId) throw new Error("C31 siren requires its owning administrator identity");
     await this.#waitForLevel2Key();
-    for (let index = 0; index < 3; index += 1) {
-      const frame = buildStandaloneC31SirenPayload(enabled, this.#level2Key!, this.#level2Seq++);
-      this.#sendCommand(frame.command, frame.payload);
-      if (index < 2) await delay(200);
+    if (typeof enabled !== "boolean") throw new Error("C31 siren requires an absolute boolean action");
+    const now = Date.now();
+    const commands = enabled ? [1350] : [1201, 1202];
+    for (const command of commands) {
+      for (let index = 0; index < 3; index += 1) {
+        const payload = enabled
+          ? buildStandaloneC31SirenStartPayload(accountId, this.#level2Key!, this.#level2Seq++, now)
+          : buildStandaloneC31SirenStopPayload(command as 1201 | 1202, this.#level2Key!, this.#level2Seq++);
+        this.#sendCommand(command, payload);
+        if (index < 2) await delay(200);
+      }
+      if (command === 1201) await delay(200);
     }
   }
 

@@ -28,7 +28,8 @@ import {
   buildStandaloneC31StreamingQualityPayload,
   buildStandaloneC31NightVisionPayload,
   buildStandaloneC31EnabledPayload,
-  buildStandaloneC31SirenPayload,
+  buildStandaloneC31SirenStartPayload,
+  buildStandaloneC31SirenStopPayload,
   buildSoloCamPanControlData,
   buildSoloCamPanControlPayload,
   buildStandaloneC31ControlPayload,
@@ -928,21 +929,31 @@ test("C31 enablement protects its native privacy bit and validates identity and 
 });
 
 
-test("C31 siren authenticates distinct native broadcast start and stop commands", () => {
+test("C31 siren authenticates its timed JSON start and both ordered binary stop steps", () => {
   const key = Buffer.alloc(32, 7);
-  for (const enabled of [true, false]) {
-    const frame = buildStandaloneC31SirenPayload(enabled, key, 1);
-    const encrypted = frame.payload.subarray(10);
+  const decode = (payload: Buffer): Buffer => {
+    const encrypted = payload.subarray(10);
     const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(16, 28));
     decipher.setAAD(Buffer.from("eufy security"));
     decipher.setAuthTag(encrypted.subarray(0, 16));
-    const clear = Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
-    assert.equal(frame.command, enabled ? 1201 : 1202);
+    assert.equal(payload[7], 8);
+    return Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
+  };
+  const start = buildStandaloneC31SirenStartPayload("fixture-admin", key, 1, 1791619200000);
+  assert.equal(start[6], 0);
+  assert.deepEqual(JSON.parse(decode(start).toString()), {
+    account_id: "fixture-admin", cmd: 1201, mChannel: 0, mValue3: 0,
+    payload: { channel: 0, type: 10, time_out: 30, user_name: "", transaction: "1791619200000" },
+  });
+  for (const command of [1201, 1202] as const) {
+    const stop = buildStandaloneC31SirenStopPayload(command, key, command);
+    const clear = decode(stop);
     assert.equal(clear.length, 8);
-    assert.equal(clear.readUInt32LE(0), enabled ? 10 : 255);
+    assert.equal(clear.readUInt32LE(0), command === 1201 ? 10 : 255);
     assert.equal(clear.readUInt32LE(4), 0);
-    assert.equal(frame.payload[6], 255);
-    assert.equal(frame.payload[7], 8);
+    assert.equal(stop[6], 255);
   }
-  assert.throws(() => buildStandaloneC31SirenPayload(1 as unknown as boolean, key, 1), /boolean action/);
+  assert.throws(() => buildStandaloneC31SirenStartPayload("", key, 1, 1791619200000), /administrator/);
+  assert.throws(() => buildStandaloneC31SirenStartPayload("fixture-admin", key, 1, 0), /epoch/);
+  assert.throws(() => buildStandaloneC31SirenStopPayload(0 as 1201, key, 1), /stop command/);
 });

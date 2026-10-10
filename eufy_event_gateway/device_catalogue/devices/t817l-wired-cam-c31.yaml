@@ -144,7 +144,7 @@ capabilities:
           status: tested
           tested_on: 2026-10-10
           tested_by: mscodemonkey
-          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. All three native mode settings passed through Home Assistant with fresh cloud readback and restored PureColor. Physical infrared illumination in darkness remains untested.
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. All three native mode settings passed through Home Assistant with fresh cloud readback and restored PureColor. Fresh night images changed from colour to monochrome in infrared mode and returned to colour after restoring the original mode. Infrared illumination range was not measured.
         T8030:
           status: tested
           tested_on: 2026-09-21
@@ -163,7 +163,7 @@ capabilities:
           status: tested
           tested_on: 2026-10-10
           tested_by: mscodemonkey
-          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Actual Home Assistant actions matched a fresh camera parameter query. Off/on preference and restoration passed. Recorded audio content remains a separate test. T817L121 and attached routes are not covered.
+          notes: A live microphone-off capture retained clean video and silent AAC samples. Ambient sound was not controlled, so physical mute effectiveness remains unconfirmed. Original microphone-on was restored and freshly queried. Exact standalone T817L type 10031 firmware 2.1.0.3. Actual Home Assistant actions matched a fresh camera parameter query. Off/on preference and restoration passed. Recorded audio content remains a separate test. T817L121 and attached routes are not covered.
       read:
         parameter: 1240
       write:
