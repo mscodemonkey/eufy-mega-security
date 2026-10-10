@@ -10,6 +10,8 @@
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { EventImageCapture } from "./diagnostics/event-image-capture.js";
+import { safeCameraModel } from "./domain/safe-camera-model.js";
 
 import type { GatewayConfig } from "./config.js";
 import { GatewayState } from "./domain/gateway-state.js";
@@ -42,7 +44,10 @@ export class GatewayServer {
   readonly #recordings = new RecordingCache();
   readonly #recordingJobs = new Map<string, { promise: Promise<Buffer | null>; controller: AbortController; users: Set<ServerResponse> }>();
 
-  /** Assemble the server from shared state, storage, stream, and provider objects. */
+  /**
+   * Assemble shared dependencies without opening sockets or starting capture.
+   * The optional private capture is owned and closed by the composition root.
+   */
   constructor(
     private readonly config: GatewayConfig,
     private readonly state: GatewayState,
@@ -51,6 +56,7 @@ export class GatewayServer {
     private readonly provider: CameraProvider,
     private readonly simulatedProvider: SimulatedProvider | null,
     private readonly captchaProvider: CaptchaProvider | null = null,
+    private readonly eventImageCapture: EventImageCapture | null = null,
   ) {}
 
   /** Bind the configured host and port and begin accepting requests. */
@@ -81,6 +87,39 @@ export class GatewayServer {
   async #route(request: IncomingMessage, response: ServerResponse): Promise<void> {
     try {
       const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+      const capturePath = url.pathname === "/api/diagnostics/event-images" || url.pathname === "/api/diagnostics/event-images/export";
+      if (capturePath) {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) {
+          return json(response, 401, { error: "Unauthorized" });
+        }
+        if (!this.config.captureFailedEventImages || !this.eventImageCapture) return json(response, 404, { error: "Not found" });
+        if (url.pathname.endsWith("/export")) {
+          if (request.method !== "POST") {
+            response.setHeader("allow", "POST");
+            return json(response, 405, { error: "Method not allowed" });
+          }
+          try { await readBody(request); } catch {
+            return json(response, 413, { error: "Request body too large" });
+          }
+          const archive = this.eventImageCapture.archive();
+          if (!archive) {
+            const status = this.eventImageCapture.status();
+            return json(response, status.state === "active" ? 409 : 410, { error: status.state === "active" ? "No failed image samples captured" : "Capture session ended" });
+          }
+          const body = JSON.stringify(archive);
+          response.setHeader("content-disposition", 'attachment; filename="eufy-event-image-evidence.json"');
+          response.writeHead(200, { "content-type": "application/json", "content-length": Buffer.byteLength(body) });
+          response.end(body);
+          return;
+        }
+        if (request.method === "DELETE") this.eventImageCapture.close();
+        else if (request.method !== "GET") {
+          response.setHeader("allow", "GET, DELETE");
+          return json(response, 405, { error: "Method not allowed" });
+        }
+        return json(response, 200, this.eventImageCapture.status());
+      }
       const segments = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
 
       if (segments[0] === "api" && this.config.apiToken) {
@@ -768,10 +807,6 @@ function requiredInteger(value: unknown): number {
 function requiredBoolean(value: unknown): boolean {
   if (typeof value !== "boolean") throw new SyntaxError("Expected a boolean value");
   return value;
-}
-
-function safeCameraModel(value: string): string {
-  return /^T[0-9A-Z-]{3,12}$/.test(value) ? value : "unknown";
 }
 
 /** Validate a bearer header without leaking token material in an error path. */

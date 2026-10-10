@@ -9,6 +9,7 @@
  * it belongs in the neighbouring boundary module instead.
  */
 import { join } from "node:path";
+import { EventImageCapture } from "./diagnostics/event-image-capture.js";
 
 import { loadConfig } from "./config.js";
 import { GatewayState } from "./domain/gateway-state.js";
@@ -43,6 +44,10 @@ process.once("unhandledRejection", (error) => fatal("unhandled_rejection", error
 logger.info("gateway_start", `Eufy Mega Security starting with Node.js ${process.version}`);
 
 const config = loadConfig();
+const eventImageCapture = config.captureFailedEventImages ? new EventImageCapture() : null;
+if (eventImageCapture) {
+  logger.warn("event_image_capture_enabled", "Private failed event-image capture is on for 30 minutes, with export for 60 minutes. Restarting reopens capture while the option remains enabled.");
+}
 const state = new GatewayState();
 const snapshots = new SnapshotStore(config.dataDirectory);
 await snapshots.initialize();
@@ -63,6 +68,7 @@ if (config.provider === "simulated") {
     country: config.eufy.country,
     persistentDirectory: join(config.dataDirectory, "eufy-client"),
     maxStreamSeconds: config.maxStreamSeconds,
+    ...(eventImageCapture ? { eventImageCapture } : {}),
     ...(config.eufy.verifyCode ? { verifyCode: config.eufy.verifyCode } : {}),
   });
   provider = eufyProvider;
@@ -244,7 +250,7 @@ const providerEvents: ProviderEvents = {
   },
 };
 
-const server = new GatewayServer(config, state, snapshots, streams, provider, simulatedProvider, captchaProvider);
+const server = new GatewayServer(config, state, snapshots, streams, provider, simulatedProvider, captchaProvider, eventImageCapture);
 await server.listen();
 logger.info(
   "gateway_listening",
@@ -264,6 +270,7 @@ async function shutdown(reason: string): Promise<void> {
   logger.info("gateway_stop", `Eufy gateway stopping: ${reason}`);
   startupSnapshots.stop();
   state.close();
+  eventImageCapture?.close();
   await server.close();
   await streams.close();
   await provider.close();
