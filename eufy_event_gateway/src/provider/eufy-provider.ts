@@ -32,6 +32,8 @@ import type { CameraProvider, CaptchaChallenge, CaptchaProvider, ProviderEvents 
 import { PushEventDeduplicator } from "./push-event-deduplicator.js";
 import { resolveDeviceRoute } from "./device-routing.js";
 
+import { c31PreferenceNames, c31PreferenceValue, c31PreferenceReadField, validateC31Preference } from "./c31-preferences.js";
+
 const logger = createLogger("provider");
 const DSK_REFRESH_SKEW_MILLISECONDS = 60_000;
 
@@ -109,6 +111,10 @@ export interface MegaInventoryReads {
   readonly chimeVolume?: number;
   readonly doorbellVideoQuality?: number;
   readonly highCompressionEncoding?: boolean;
+
+  /** Native standalone C31 pre-recording preference, independent of clip contents. */
+  readonly preRecordingEnabled?: boolean;
+
   readonly imageFlipped?: boolean;
   readonly statusLedEnabled?: boolean;
   readonly soundDetectionEnabled?: boolean;
@@ -720,6 +726,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       } finally {
         session.close();
       }
+      if (supportsStandaloneC31Presets(device, route, true)) {
+        this.#invalidateLiveReads(serial, ["enabled", "privacy6250Value"]);
+      }
       for (let attempt = 0; attempt < 12; attempt += 1) {
         await this.#refreshInventoryReads();
         const refreshed = this.#devices.get(serial);
@@ -735,6 +744,66 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }).catch((error: unknown) => {
       logger.warn("camera_enablement_failed", `Camera enablement command failed: error=${safeError(error)}`);
       throw error;
+    });
+    this.#cameraOperations.set(serial, current);
+    void current.finally(() => {
+      if (this.#cameraOperations.get(serial) === current) this.#cameraOperations.delete(serial);
+    }).catch(() => undefined);
+    return current;
+  }
+
+  /** Write a known standalone C31 preference and publish only fresh camera confirmation. */
+  setCameraPreference(serial: string, name: string, value: number): Promise<CameraIdentity> {
+    const preference = validateC31Preference(name, value);
+    const previous = this.#cameraOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
+    const current = previous.catch(() => this.#requireCameraIdentity(serial)).then(async () => {
+      const device = this.#devices.get(serial);
+      const route = device ? ppcsStreamRoute(device, this.#devices) : null;
+      const peer = route?.peer;
+      const dsk = peer ? await this.#dskKey(peer.serial) : null;
+      if (!device || !route || !peer?.p2pDid || !peer.p2pConnection || !dsk
+        || !supportsStandaloneC31Presets(device, route, true) || c31PreferenceValue(device.reads, preference) === undefined) {
+        throw new Error("Camera preference requires a known owned standalone C31 setting");
+      }
+      await this.stopStream(serial);
+      const session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid,
+        appConnection: peer.p2pConnection, localAddress: peer.localAddress, dskKey: dsk.key,
+        channel: 0, cameraModel: device.model, accountId: device.adminUserId!, homeBaseAttached: false,
+        purpose: "control", maxSeconds: 40, resolveCipherKey: (id) => this.#resolveCipherKey(id, peer) });
+      try {
+        await session.start();
+        await session.writeC31Preference(preference, value);
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          await delay(500);
+          try {
+            const params = await session.readCameraInfo();
+            const freshReads = safeInventoryReads(params, device.deviceType, device.model, true);
+            if (c31PreferenceValue(freshReads, preference) === value) {
+              return this.#cameraIdentity(this.#mergeCameraInfo(device, params));
+            }
+          } catch {
+
+            // Retry a missed read without resending the write, then fall back to fresh cloud state.
+            continue;
+          }
+        }
+      } finally { session.close(); }
+
+      // A previous direct parameter query must not shadow this fresh cloud read.
+      const retained = this.#liveDeviceReads.get(serial);
+      if (retained) {
+        const remaining = { ...retained };
+        delete remaining[c31PreferenceReadField(preference)];
+        this.#liveDeviceReads.set(serial, remaining);
+      }
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        await this.#refreshInventoryReads();
+        const refreshed = this.#devices.get(serial);
+        if (refreshed && supportsStandaloneC31Presets(refreshed, ppcsStreamRoute(refreshed, this.#devices), true)
+          && c31PreferenceValue(refreshed.reads, preference) === value) return this.#cameraIdentity(refreshed);
+        await delay(2_000);
+      }
+      throw new Error("Camera preference write was not confirmed by fresh readback");
     });
     this.#cameraOperations.set(serial, current);
     void current.finally(() => {
@@ -779,6 +848,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           // A failed send can still have changed the setting. Read it before retrying.
         } finally {
           session.close();
+        }
+        if (supportsStandaloneC31Presets(device, route, true)) {
+          this.#invalidateLiveReads(serial, ["motionDetectionEnabled"]);
         }
         for (let attempt = 0; attempt < 12; attempt += 1) {
           await this.#refreshInventoryReads();
@@ -833,6 +905,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           // A failed send can still have changed the setting. Read it before retrying.
         } finally {
           session.close();
+        }
+        if (supportsStandaloneC31Presets(device, route, true)) {
+          this.#invalidateLiveReads(serial, ["audioRecordingEnabled"]);
         }
         for (let attempt = 0; attempt < 12; attempt += 1) {
           await this.#refreshInventoryReads();
@@ -1070,6 +1145,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         }
       } finally {
         session.close();
+      }
+      if (supportsStandaloneC31Presets(device, route, true)) {
+        this.#invalidateLiveReads(serial, ["nightVisionMode", "autoNightVisionEnabled"]);
       }
       for (let attempt = 0; attempt < 12; attempt += 1) {
         if (autoNightVision) await this.refreshStation(peer.serial);
@@ -1566,6 +1644,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return this.#cameraIdentity(device);
   }
 
+  /** Drop only pre-write local values so an owned control must obtain fresh confirmation. */
+  #invalidateLiveReads(serial: string, fields: readonly (keyof MegaInventoryReads)[]): void {
+    const cached = this.#liveDeviceReads.get(serial);
+    if (!cached) return;
+    const remaining = { ...cached };
+    for (const field of fields) delete remaining[field];
+    this.#liveDeviceReads.set(serial, remaining);
+  }
+
   #mergeCameraInfo(
     device: MegaInventoryDevice,
     params: readonly { readonly param_type: number; readonly param_value: string | number | boolean }[],
@@ -1612,7 +1699,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         recordingEnabled: device.reads.audioRecordingEnabled ?? null,
         speakerVolume: device.reads.speakerVolume ?? null,
       },
+      preferenceControls: supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials))
+        ? c31PreferenceNames.filter((name) => c31PreferenceValue(device.reads, name) !== undefined) : [],
       reportedSettings: {
+        preRecordingEnabled: device.reads.preRecordingEnabled ?? null,
         ringtoneVolume: device.reads.ringtoneVolume ?? null,
         soundDetectionSensitivity: device.reads.soundDetectionSensitivity ?? null,
         soundDetectionType: device.reads.soundDetectionType ?? null,
@@ -2458,6 +2548,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const recordMute = finiteNumber(params.get(1288));
   const soloE30 = deviceType === 88 && model === "T8171";
   const c31 = standaloneChannelZero && deviceType === 10_031 && model === "T817L";
+  const preRecording = c31 ? finiteNumber(params.get(6257)) : null;
   const soloAudioRecording = soloE30 || c31 ? finiteNumber(params.get(6012)) : null;
   const soloAiTracking = soloE30 || (deviceType === 10_031 && model === "T817L")
     ? finiteNumber(params.get(6016)) : null;
@@ -2483,7 +2574,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const solarIntensity = qualityFamily ? finiteNumber(params.get(1309)) : null;
   const solarConnected = qualityFamily ? finiteNumber(params.get(6482)) : null;
   const notificationStyle = t8171 ? finiteNumber(params.get(6020)) : null;
-  const watermark = t8425 ? finiteNumber(params.get(1214)) : null;
+  const watermark = t8425 || c31 ? finiteNumber(params.get(1214)) : null;
   const antiTheft = t8425 ? finiteNumber(params.get(1015)) : null;
   const spotlight = qualityFamily ? finiteNumber(params.get(1403)) : null;
   const sensitivity = qualityFamily ? finiteNumber(params.get(1276)) : null;
@@ -2550,6 +2641,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
       doorbellVideoQuality: compositeQuality! % 5,
       highCompressionEncoding: compositeQuality! >= 5,
     } : {}),
+    ...(preRecording === 0 || preRecording === 1 ? { preRecordingEnabled: preRecording === 1 } : {}),
     ...(imageFlipped === 0 || imageFlipped === 1 ? { imageFlipped: imageFlipped === 1 } : {}),
     ...(statusLed === 0 || statusLed === 1 ? { statusLedEnabled: statusLed === 1 } : {}),
     ...(soundDetection === 0 || soundDetection === 1 ? { soundDetectionEnabled: soundDetection === 1 } : {}),

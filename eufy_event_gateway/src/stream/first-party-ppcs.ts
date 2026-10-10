@@ -11,6 +11,7 @@
  * packet layout or camera encryption directly.
  */
 import { createCipheriv, createDecipheriv, createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes, timingSafeEqual } from "node:crypto";
+import { validateC31Preference, type C31Preference } from "../provider/c31-preferences.js";
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
 import { HomeBaseRecordingReader } from "./homebase-recordings.js";
@@ -624,6 +625,27 @@ export function buildStandaloneC31EnabledPayload(
   return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
 }
 
+/** Build a reviewed C31 preference with native binary or JSON framing and authenticated protection. */
+export function buildC31PreferencePayload(name: C31Preference, value: number, accountId: string, key: Buffer, sequence: number, now: number): { command: number; payload: Buffer } {
+  validateC31Preference(name, value);
+  if (!accountId) throw new Error("Camera preference requires an owning account");
+  if (!Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) throw new Error("Camera preference requires epoch milliseconds");
+  const commands = { microphone: 1240, speaker: 1241, speakerVolume: 1230, imageFlipped: 1207, watermark: 1214 };
+  let command: number;
+  let clear: Buffer;
+  if (name === "preRecording") {
+    command = 1350;
+    clear = Buffer.from(JSON.stringify({ account_id: accountId, cmd: 6257, mChannel: 0, mValue3: 0, payload: { value, transaction: `${now}` } }));
+  } else if (name === "soundDetection") {
+    command = 1700;
+    clear = Buffer.from(JSON.stringify({ commandType: 6043, data: { status: value, transaction: `${now}` } }));
+  } else {
+    command = commands[name];
+    clear = buildCameraEnableBody(0, value, accountId);
+  }
+  return { command, payload: rawPayload(encryptLevel2(clear, key, sequence), 0, 8, [8, 0], 0) };
+}
+
 /** Protect a native SoloCam preset or tracking request on its channel-zero control envelope. */
 export function buildSoloCamPanControlPayload(
   command: 6034 | 6035 | 6016,
@@ -1167,6 +1189,11 @@ export class FirstPartyPpcsSession {
     foreignVideoFrames: 0,
     batteryHistory: "not-reported",
     cameraInfoParamTypes: [] as number[],
+    cameraInfoFrames: 0,
+    cameraInfoParseStage: "none",
+    cameraInfoSign: -1,
+    cameraInfoJsonOffset: -1,
+    cameraInfoDecoded: false,
     standaloneGuardMode: null as number | null,
     firstDataHex: "",
     cipherId: 0,
@@ -1411,7 +1438,13 @@ export class FirstPartyPpcsSession {
     this.#sendCommand(1350, rawPayload(encrypted, 0, 1, [1, 0], 0));
   }
 
-  /** Read the camera parameter table without changing device state. */
+  /**
+   * Read camera-owned settings without changing preferences or stored media.
+   *
+   * Exact standalone C31 sessions use the SDK integer query on station channel
+   * 255. Other routes retain their direct camera-channel query. Decoded replies
+   * must satisfy the parameter-table schema and belong to this owned session.
+   */
   async readCameraInfo(): Promise<readonly PpcsCameraInfoParam[]> {
     if (this.#options.purpose !== "control" && !this.#allowsViewerPanControl()) {
       return Promise.reject(new Error("Camera-info refresh requires a control session"));
@@ -1423,14 +1456,17 @@ export class FirstPartyPpcsSession {
     if (this.#pendingCameraInfo) {
       return Promise.reject(new Error("Camera-info refresh is already in progress"));
     }
-    if (this.#options.cameraModel === "T8171") await this.#waitForLevel2Key();
+    if (this.#options.cameraModel === "T8171"
+      || (this.#options.cameraModel === "T817L" && this.#options.channel === 0)) await this.#waitForLevel2Key();
     return new Promise<readonly PpcsCameraInfoParam[]>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#pendingCameraInfo = null;
-        reject(new Error("Camera-info refresh timed out"));
+        reject(new Error(`Camera-info refresh timed out: frames=${this.stats.cameraInfoFrames} sign=${this.stats.cameraInfoSign} decoded=${this.stats.cameraInfoDecoded} json_offset=${this.stats.cameraInfoJsonOffset} parse=${this.stats.cameraInfoParseStage}`));
       }, CONTROL_TIMEOUT_MILLISECONDS);
       this.#pendingCameraInfo = { resolve, reject, timer };
-      this.#sendCommand(1103, voidPayload(this.#options.channel));
+      if (this.#options.cameraModel === "T817L" && this.#options.channel === 0) {
+        this.#sendCommand(1103, buildC31CameraInfoQueryPayload());
+      } else this.#sendCommand(1103, voidPayload(this.#options.channel));
     });
   }
 
@@ -1473,6 +1509,22 @@ export class FirstPartyPpcsSession {
       if (index < 2) await delay(200);
     }
     await acknowledgement;
+  }
+
+  /** Send only reviewed exact-C31 preferences; the provider must independently confirm inventory. */
+  async writeC31Preference(name: C31Preference, value: number): Promise<void> {
+    validateC31Preference(name, value);
+    if (this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
+      || this.#options.cameraModel !== "T817L" || this.#options.homeBaseAttached !== false || this.#options.channel !== 0) {
+      throw new Error("Camera preference requires an owned standalone C31 control session");
+    }
+    await this.#waitForLevel2Key();
+    const now = Date.now();
+    for (let index = 0; index < 3; index += 1) {
+      const frame = buildC31PreferencePayload(name, value, this.#options.accountId, this.#level2Key!, this.#level2Seq++, now);
+      this.#sendCommand(frame.command, frame.payload);
+      await delay(200);
+    }
   }
 
   /** Send the native standalone audio setting; callers must confirm fresh inventory readback. */
@@ -2146,17 +2198,29 @@ export class FirstPartyPpcsSession {
    * schema of parameter 3100 are recorded. Other values never enter diagnostics.
    */
   #inspectCameraInfo(payload: Buffer, signCode: number): void {
+    this.stats.cameraInfoFrames++;
+    this.stats.cameraInfoSign = signCode;
+    this.stats.cameraInfoDecoded = false;
+    this.stats.cameraInfoJsonOffset = -1;
     let clear = payload;
-    if ((signCode === 2 || signCode === 8) && this.#level2Key) {
-      clear = decryptLevel2(payload, this.#level2Key, signCode) ?? payload;
-    } else if (signCode > 0 && payload.length > 0 && payload.length % 16 === 0) {
+    if (signCode === 2 || signCode === 8) {
+      if (!this.#level2Key) return;
+      const authenticated = decryptLevel2(payload, this.#level2Key, signCode);
+      if (!authenticated) return;
+      clear = authenticated;
+    } else if (signCode === 1 && payload.length > 0 && payload.length % 16 === 0) {
       try { clear = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); } catch { return; }
-    }
-    const text = clear.toString("utf8").replace(/\0+$/g, "").trim();
+    } else if (signCode !== 0) return;
+    this.stats.cameraInfoDecoded = signCode === 0 || clear !== payload;
+    this.stats.cameraInfoJsonOffset = clear.indexOf(0x7b);
+    const text = cameraInfoDocumentText(clear);
+    this.stats.cameraInfoParseStage = "invalid_json";
     if (!text.startsWith("{")) return;
     try {
       const decoded: unknown = JSON.parse(text);
+      this.stats.cameraInfoParseStage = "invalid_schema";
       if (!isRecord(decoded) || !Array.isArray(decoded.params)) return;
+      this.stats.cameraInfoParseStage = "parsed";
       const params = decoded.params.flatMap((candidate): PpcsCameraInfoParam[] => (
         isRecord(candidate)
         && Number.isSafeInteger(candidate.param_type)
@@ -2520,6 +2584,28 @@ function ppcsVideoCodec(streamType: number): VideoCodec | null {
   if (streamType === 1) return "h264";
   if (streamType === 2) return "h265";
   return null;
+}
+
+/**
+ * Read a camera-info JSON document up to its protocol NUL terminator.
+ * Legacy encrypted frames may contain unspecified padding after that boundary.
+ * Callers must validate protection before invoking this text-only helper.
+ */
+export function cameraInfoDocumentText(clear: Buffer): string {
+  const end = clear.indexOf(0);
+  return clear.subarray(0, end < 0 ? clear.length : end).toString("utf8").trim();
+}
+
+/**
+ * Build the SDK station-wide integer camera-info query for direct C31 sessions.
+ * The 32-byte negotiated key does not meet the SDK's legacy 16-byte integer
+ * encryption condition, so the read-only request carries a clear integer 255.
+ * Response protection is negotiated independently and must still be verified.
+ */
+export function buildC31CameraInfoQueryPayload(): Buffer {
+  const value = Buffer.alloc(4);
+  value.writeUInt32LE(255);
+  return rawPayload(value, 255, 0, [1, 0], 0);
 }
 
 /** Build the minimal unencrypted body used by commands without a value payload. */

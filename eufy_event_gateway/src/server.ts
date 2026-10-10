@@ -15,6 +15,7 @@ import type { GatewayConfig } from "./config.js";
 import { GatewayState } from "./domain/gateway-state.js";
 import type { GatewayEvent } from "./domain/types.js";
 import { createLogger } from "./logging.js";
+import { validateC31Preference } from "./provider/c31-preferences.js";
 import { SimulatedProvider } from "./provider/simulated-provider.js";
 import type { CameraProvider, CaptchaProvider } from "./provider/provider.js";
 import { SnapshotStore } from "./storage/snapshot-store.js";
@@ -180,6 +181,17 @@ export class GatewayServer {
         segments[0] === "api" && segments[1] === "cameras" && segments[3] === "motion-detection" && segments.length === 4
       ) {
         return await this.#cameraMotionDetection(request, segments[2]!, response);
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras"
+        && segments[3] === "preferences" && segments.length === 4) {
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
+        const body = await readJson(request);
+        if (typeof body.preference !== "string") throw new SyntaxError("Missing camera preference");
+        const value = requiredInteger(body.value);
+        validateC31Preference(body.preference, value);
+        if (!this.provider.setCameraPreference) return json(response, 409, { error: "Camera preference unavailable" });
+        const identity = await this.provider.setCameraPreference(segments[2]!, body.preference, value);
+        return json(response, 200, this.state.registerCamera(identity));
       }
       if (
         request.method === "POST" &&

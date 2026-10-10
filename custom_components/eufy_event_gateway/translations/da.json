@@ -104,6 +104,9 @@
       },
       "eufy_station_prompt_volume": {
         "name": "Instruks lydstyrke"
+      },
+      "camera_speaker_volume": {
+        "name": "Højttalerlydstyrke"
       }
     },
     "select": {
@@ -146,6 +149,14 @@
           "infrared": "Infrarød",
           "infrared_on": "Infrarød slået til",
           "spotlight": "Spotlys"
+        }
+      },
+      "camera_watermark": {
+        "name": "Vandmærke",
+        "state": {
+          "off": "Fra",
+          "timestamp": "Tidsstempel",
+          "timestamp_logo": "Tidsstempel og logo"
         }
       }
     },
@@ -234,6 +245,21 @@
       },
       "auto_night_vision": {
         "name": "Auto night vision"
+      },
+      "camera_microphone": {
+        "name": "Mikrofon"
+      },
+      "camera_speaker": {
+        "name": "Højttaler"
+      },
+      "camera_imageFlipped": {
+        "name": "Rotér billede 180°"
+      },
+      "camera_preRecording": {
+        "name": "Foroptagelse"
+      },
+      "camera_soundDetection": {
+        "name": "Lyddetektion"
       }
     },
     "siren": {

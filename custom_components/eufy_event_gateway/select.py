@@ -19,6 +19,7 @@ from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
 from .const import ALARM_TONES, DOMAIN, GUARD_MODES
 from .coordinator import EufyGatewayCoordinator
+from .preferences import camera_preference_value
 from .entity import EufyGatewayEntity, EufyStationEntity
 
 
@@ -38,6 +39,16 @@ async def async_setup_entry(
 ) -> None:
     """Create reported night-vision and managed HomeBase selects."""
     coordinator = entry.runtime_data.coordinator
+    known_watermark: set[str] = set()
+
+    def add_watermark() -> None:
+        for serial, camera in coordinator.cameras.items():
+            if serial not in known_watermark and camera_preference_value(camera, "watermark") is not None:
+                known_watermark.add(serial)
+                async_add_entities([EufyCameraWatermark(coordinator, serial)])
+
+    add_watermark()
+    entry.async_on_unload(coordinator.async_add_listener(add_watermark))
     registry = er.async_get(hass)
     known_stations: set[str] = set()
     known_night_vision: set[str] = set()
@@ -314,3 +325,37 @@ class EufyAlarmToneSelect(EufyStationEntity, SelectEntity):
             raise HomeAssistantError(
                 f"Could not change HomeBase alarm tone: {error}"
             ) from error
+
+
+class EufyCameraWatermark(EufyGatewayEntity, SelectEntity):
+    """Expose the native overlay choices with state owned by the gateway."""
+
+    _attr_translation_key = "camera_watermark"
+    _attr_options = ["off", "timestamp", "timestamp_logo"]
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Bind watermark preferences to one admitted camera."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        SelectEntity.__init__(self)
+        self._attr_unique_id = f"{serial}_preference_watermark"
+
+    @property
+    def available(self) -> bool:
+        """Require a current gateway preference route and readable state."""
+        return super().available and self.current_option is not None
+
+    @property
+    def current_option(self) -> str | None:
+        """Map only known native overlay values."""
+        value = camera_preference_value(self.camera, "watermark")
+        return self._attr_options[value] if value is not None else None
+
+    async def async_select_option(self, option: str) -> None:
+        """Publish a new overlay choice only after camera confirmation."""
+        if option not in self._attr_options:
+            raise HomeAssistantError("Unknown watermark option")
+        try:
+            camera = await self.coordinator.client.set_camera_preference(self.serial, "watermark", self._attr_options.index(option))
+            self.coordinator.async_set_camera(camera)
+        except GatewayClientError as error:
+            raise HomeAssistantError(f"Could not change watermark: {error}") from error

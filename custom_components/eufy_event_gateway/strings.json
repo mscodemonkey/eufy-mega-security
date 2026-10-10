@@ -104,6 +104,9 @@
       },
       "eufy_station_prompt_volume": {
         "name": "Prompt volume"
+      },
+      "camera_speaker_volume": {
+        "name": "Speaker volume"
       }
     },
     "select": {
@@ -146,6 +149,14 @@
           "infrared": "Infrared",
           "infrared_on": "Infrared on",
           "spotlight": "Spotlight"
+        }
+      },
+      "camera_watermark": {
+        "name": "Watermark",
+        "state": {
+          "off": "Off",
+          "timestamp": "Timestamp",
+          "timestamp_logo": "Timestamp and logo"
         }
       }
     },
@@ -234,6 +245,21 @@
       },
       "auto_night_vision": {
         "name": "Auto night vision"
+      },
+      "camera_microphone": {
+        "name": "Microphone"
+      },
+      "camera_speaker": {
+        "name": "Speaker"
+      },
+      "camera_imageFlipped": {
+        "name": "Rotate image 180°"
+      },
+      "camera_preRecording": {
+        "name": "Pre-recording"
+      },
+      "camera_soundDetection": {
+        "name": "Sound detection"
       }
     },
     "siren": {

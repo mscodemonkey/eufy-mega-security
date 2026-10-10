@@ -19,7 +19,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
 from .coordinator import EufyGatewayCoordinator
-from .entity import EufyStationEntity
+from .entity import EufyStationEntity, EufyGatewayEntity
+from .preferences import camera_preference_value
 
 
 async def async_setup_entry(
@@ -30,8 +31,13 @@ async def async_setup_entry(
     """Create alarm and prompt volume controls for every HomeBase."""
     coordinator = entry.runtime_data.coordinator
     known: set[str] = set()
+    known_cameras: set[str] = set()
 
     def add_new() -> None:
+        for serial, camera in coordinator.cameras.items():
+            if serial not in known_cameras and camera_preference_value(camera, "speakerVolume") is not None:
+                known_cameras.add(serial)
+                async_add_entities([EufyCameraSpeakerVolume(coordinator, serial)])
         serials = {
             serial
             for serial, station in coordinator.stations.items()
@@ -94,3 +100,38 @@ class EufyStationVolume(EufyStationEntity, NumberEntity):
             raise HomeAssistantError(
                 f"Could not change HomeBase {self.kind} volume: {error}"
             ) from error
+
+
+class EufyCameraSpeakerVolume(EufyGatewayEntity, NumberEntity):
+    """Expose confirmed speaker volume while the gateway admits this camera route."""
+
+    _attr_translation_key = "camera_speaker_volume"
+    _attr_native_min_value = 1
+    _attr_native_max_value = 100
+    _attr_native_step = 1
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Bind native volume to its owning camera."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        NumberEntity.__init__(self)
+        self._attr_unique_id = f"{serial}_preference_speakerVolume"
+
+    @property
+    def available(self) -> bool:
+        """Require current gateway admission, including a valid reported baseline."""
+        return super().available and self.native_value is not None
+
+    @property
+    def native_value(self) -> float | None:
+        """Return confirmed volume without replacing unknown with zero."""
+        return camera_preference_value(self.camera, "speakerVolume")
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Publish volume only after the gateway confirms fresh readback."""
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value != int(value):
+            raise HomeAssistantError("Volume must be a whole number")
+        try:
+            camera = await self.coordinator.client.set_camera_preference(self.serial, "speakerVolume", int(value))
+            self.coordinator.async_set_camera(camera)
+        except GatewayClientError as error:
+            raise HomeAssistantError(f"Could not change speaker volume: {error}") from error

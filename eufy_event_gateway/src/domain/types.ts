@@ -77,6 +77,9 @@ export interface CameraAudioSettings {
 /** Inventory configuration only, not live image orientation, lamp output or sound events. */
 export interface CameraReportedSettings {
 
+  /** Exact standalone C31 pre-recording setting, not proof of a recording duration. */
+  readonly preRecordingEnabled?: boolean | null;
+
   /** Model-limited ringtone and sound configuration, not live audio or detection results. */
   readonly ringtoneVolume?: number | null;
   readonly soundDetectionSensitivity?: number | null;
@@ -141,6 +144,9 @@ export interface CameraState {
 
   /** Whether the owned ready route and known baseline admit native streaming-quality writes. */
   readonly streamingQualityControlSupported?: boolean;
+
+  /** Known preferences with an exact owned and ready control route. */
+  readonly preferenceControls?: readonly string[];
 
   /** Model-specific streaming choices, used only when control admission is true. */
   readonly streamingQualityModes?: readonly CameraStreamingQualityMode[];
@@ -322,6 +328,9 @@ export interface CameraIdentity {
 
   /** Optional admission for fresh-state-confirmed streaming-quality writes. */
   readonly streamingQualityControlSupported?: boolean;
+
+  /** Known preferences with an exact owned and ready control route. */
+  readonly preferenceControls?: readonly string[];
 
   /** Native choices for this model, separate from recorded-video resolution. */
   readonly streamingQualityModes?: readonly CameraStreamingQualityMode[];

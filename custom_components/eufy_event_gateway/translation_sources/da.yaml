@@ -68,6 +68,8 @@ entity:
       name: Alarm lydstyrke
     eufy_station_prompt_volume:
       name: Instruks lydstyrke
+    camera_speaker_volume:
+      name: Højttalerlydstyrke
   select:
     eufy_guard_mode_select:
       name: beskyttelsestilstand
@@ -102,6 +104,12 @@ entity:
         infrared: Infrarød
         infrared_on: Infrarød slået til
         spotlight: Spotlys
+    camera_watermark:
+      name: Vandmærke
+      state:
+        off: Fra
+        timestamp: Tidsstempel
+        timestamp_logo: Tidsstempel og logo
   sensor:
     last_recognized_person:
       name: Sidste genkendte person
@@ -168,6 +176,16 @@ entity:
       name: Lydoptagelse
     auto_night_vision:
       name: Auto night vision
+    camera_microphone:
+      name: Mikrofon
+    camera_speaker:
+      name: Højttaler
+    camera_imageFlipped:
+      name: Rotér billede 180°
+    camera_preRecording:
+      name: Foroptagelse
+    camera_soundDetection:
+      name: Lyddetektion
   siren:
     camera_siren:
       name: Sirene
@@ -177,7 +195,8 @@ config:
   step:
     user:
       title: Forbind til Eufy Mega Security
-      description: Indtast addressen Home Assistant bruger til at forbinde til lokal gateway.
+      description: Indtast addressen Home Assistant bruger til at forbinde til lokal
+        gateway.
       data:
         url: Gateway URL
         api_token: API nøgle
@@ -191,11 +210,13 @@ config:
         url: Gateway URL
         api_token: API nøgle
       data_description:
-        url: For den lokale app, brug adressen leveret af Supervisor discovery. Manuelle installationer bruger normalt http://127.0.0.1:3218.
+        url: For den lokale app, brug adressen leveret af Supervisor discovery. Manuelle
+          installationer bruger normalt http://127.0.0.1:3218.
         api_token: Brug den samme nøgle som er konfigureteret i Eufy Mega Security appen.
     hassio_confirm:
       title: Forbind til Eufy Mega Security appen
-      description: Home Assistant fandt den lokale Eufy Mega Security app. Tilføj for at oprette kamera og detektions entiteter.
+      description: Home Assistant fandt den lokale Eufy Mega Security app. Tilføj for
+        at oprette kamera og detektions entiteter.
   error:
     cannot_connect: Kunne ikke forbinde til gateway
     invalid_auth: Gatewayen afviste API nøglen

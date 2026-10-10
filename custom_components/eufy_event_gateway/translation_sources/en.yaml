@@ -68,6 +68,8 @@ entity:
       name: Alarm volume
     eufy_station_prompt_volume:
       name: Prompt volume
+    camera_speaker_volume:
+      name: Speaker volume
   select:
     eufy_guard_mode_select:
       name: Guard mode
@@ -102,6 +104,12 @@ entity:
         infrared: Infrared
         infrared_on: Infrared on
         spotlight: Spotlight
+    camera_watermark:
+      name: Watermark
+      state:
+        off: Off
+        timestamp: Timestamp
+        timestamp_logo: Timestamp and logo
   sensor:
     last_recognized_person:
       name: Last recognized person
@@ -168,6 +176,16 @@ entity:
       name: Audio recording
     auto_night_vision:
       name: Auto night vision
+    camera_microphone:
+      name: Microphone
+    camera_speaker:
+      name: Speaker
+    camera_imageFlipped:
+      name: Rotate image 180°
+    camera_preRecording:
+      name: Pre-recording
+    camera_soundDetection:
+      name: Sound detection
   siren:
     camera_siren:
       name: Siren
@@ -191,11 +209,13 @@ config:
         url: Gateway URL
         api_token: API token
       data_description:
-        url: For the local app, use the address supplied by Supervisor discovery. Manual installs usually use http://127.0.0.1:3218.
+        url: For the local app, use the address supplied by Supervisor discovery. Manual
+          installs usually use http://127.0.0.1:3218.
         api_token: Use the same token configured in the Eufy Mega Security app.
     hassio_confirm:
       title: Connect to the Eufy Mega Security app
-      description: Home Assistant discovered the local Eufy Mega Security app. Submit to create its camera and detection entities.
+      description: Home Assistant discovered the local Eufy Mega Security app. Submit
+        to create its camera and detection entities.
   error:
     cannot_connect: Could not connect to the gateway
     invalid_auth: The gateway rejected the API token
