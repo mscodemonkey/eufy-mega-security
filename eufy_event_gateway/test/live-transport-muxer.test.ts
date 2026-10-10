@@ -68,6 +68,16 @@ for (const [audio, delayed] of [[true, false], [false, false], [true, true]] as 
       assert.ok(streams.some((row) => row.codec_type === "video" && row.codec_name === "h264"));
       assert.equal(streams.some((row) => row.codec_type === "audio" && row.codec_name === "aac"), audio);
       if (audio) assert.ok(Number(streams.find((row) => row.codec_type === "audio")?.nb_read_packets) >= 50, `AAC must continue beyond its first packet: ${JSON.stringify(streams)}`);
+      if (audio) {
+        const packets = spawnSync("ffprobe", ["-v", "error", "-select_streams", "a:0", "-show_packets", "-show_entries", "packet=dts,duration", "-of", "json", "-i", "pipe:0"], { input: output });
+        assert.equal(packets.status, 0, packets.stderr.toString());
+        const rows = JSON.parse(packets.stdout.toString()).packets as { dts: number; duration: number }[];
+        for (let index = 1; index < rows.length; index++) {
+          const previous = rows[index - 1]!;
+          assert.ok(rows[index]!.dts >= previous.dts + previous.duration,
+            `Audio packet ${index} overlaps its predecessor: ${JSON.stringify(rows.slice(0, 4))}`);
+        }
+      }
       const decoded = spawnSync("ffmpeg", ["-v", "error", "-i", "pipe:0", "-map", "0", "-f", "null", "-"], { input: output });
       assert.equal(decoded.status, 0, decoded.stderr.toString());
       response.destroy();

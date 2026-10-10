@@ -118,13 +118,14 @@ export function acceptsAttachedCameraMedia(command: number, frameChannel: number
 }
 
 /**
- * Limit clear SoloCam AAC to its requested child channel and media lifecycle.
- * Attached routes may use any assigned channel; direct T8171 routes use zero.
+ * Limit clear E30/C31 AAC to its requested channel and media lifecycle.
+ * Attached E30 routes may use assigned channels; direct E30/C31 routes use zero.
  * Payload validation and protection checks remain with the owning session.
  */
 export function acceptsSoloCamAudio(cameraModel: string, homeBaseAttached: boolean, requestedChannel: number,
   frameChannel: number, purpose: string | undefined): boolean {
-  return cameraModel === "T8171" && Number.isSafeInteger(requestedChannel) && requestedChannel >= 0
+  return (cameraModel === "T8171" || (cameraModel === "T817L" && !homeBaseAttached))
+    && Number.isSafeInteger(requestedChannel) && requestedChannel >= 0
     && frameChannel === requestedChannel && (homeBaseAttached || requestedChannel === 0) && purpose !== "control";
 }
 
@@ -623,6 +624,17 @@ export function buildStandaloneC31EnabledPayload(
   const value = JSON.stringify({ account_id: accountId, cmd: 6250, mChannel: 0, mValue3: 0,
     payload: { switch: rawValue, transaction: `${now}` } });
   return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
+}
+
+/** Build the authenticated C31 station-channel alarm action; the provider owns timed stopping. */
+export function buildStandaloneC31SirenPayload(
+  enabled: boolean, key: Buffer, sequence: number,
+): { command: 1201 | 1202; payload: Buffer } {
+  if (typeof enabled !== "boolean") throw new Error("C31 siren requires an absolute boolean action");
+  const clear = Buffer.alloc(8);
+  clear.writeUInt32LE(enabled ? 10 : 255, 0);
+  return { command: enabled ? 1201 : 1202,
+    payload: rawPayload(encryptLevel2(clear, key, sequence), 255, 8, [8, 0], 0) };
 }
 
 /** Build a reviewed C31 preference with native binary or JSON framing and authenticated protection. */
@@ -1165,7 +1177,7 @@ export class CameraControlAcknowledgementTimeoutError extends Error {
  * eufy-security-client or the expiring Web Portal PIN.
  *
  * Media sessions emit Annex-B bytes on `output` and optional validated AAC on
- * `audioOutput` for T8171 media consumers on direct or attached routes. Control sessions suppress
+ * `audioOutput` for T8171 media consumers and direct T817L consumers. Control sessions suppress
  * media startup and expose the small set of verified writes below. Some writes
  * wait for a result frame, while the observed fire-and-repeat forms return
  * after their bounded UDP transmissions.
@@ -1179,7 +1191,7 @@ export class FirstPartyPpcsSession {
   /** Ordered Annex-B video bytes; the session ends this stream when it closes. */
   readonly output = new PassThrough();
 
-  /** Optional checked AAC for T8171 media, ended with the video session. */
+  /** Optional checked AAC for admitted E30/C31 media, ended with the video session. */
   readonly audioOutput = new PassThrough();
 
   /**
@@ -1676,6 +1688,22 @@ export class FirstPartyPpcsSession {
     const body = buildIntStringCommandBody(durationSeconds, this.#options.channel, accountId, commandKey(this.#options.stationSerial, this.#options.p2pDid));
     for (let index = 0; index < 3; index += 1) {
       this.#sendCommand(1202, body);
+      if (index < 2) await delay(200);
+    }
+  }
+
+  /** Transmit a native C31 alarm action; the provider owns pulse timing, cancellation and stop. */
+  async writeStandaloneC31Siren(enabled: boolean): Promise<void> {
+    if (this.#options.purpose !== "control" || !this.#remote
+      || this.#options.cameraModel !== "T817L" || this.#options.homeBaseAttached || this.#options.channel !== 0) {
+      throw new Error("C31 siren requires its connected direct channel-zero control session");
+    }
+    const accountId = this.#options.accountId;
+    if (!accountId) throw new Error("C31 siren requires its owning administrator identity");
+    await this.#waitForLevel2Key();
+    for (let index = 0; index < 3; index += 1) {
+      const frame = buildStandaloneC31SirenPayload(enabled, this.#level2Key!, this.#level2Seq++);
+      this.#sendCommand(frame.command, frame.payload);
       if (index < 2) await delay(200);
     }
   }

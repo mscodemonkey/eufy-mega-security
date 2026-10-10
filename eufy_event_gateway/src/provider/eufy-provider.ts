@@ -13,6 +13,7 @@
  * newly added devices without replacing push receivers or active media sessions.
  */
 import { join } from "node:path";
+import { setTimeout as cancellableDelay } from "node:timers/promises";
 import { createHmac, randomBytes } from "node:crypto";
 import { validateRecordingDate, type CameraStoredRecord, type StoredRecordingSummary } from "../stream/stored-recordings.js";
 
@@ -193,12 +194,14 @@ export function cameraLightControlProtocol(
   return null;
 }
 
-/** Limit siren writes to HomeBase cameras that advertise the attached-camera command. */
+/** Admit attached sirens by command evidence and the exact owned standalone C31 by native validation. */
 export function supportsCameraSiren(
-  device: Pick<MegaInventoryDevice, "paramTypes">,
-  route: Pick<PpcsStreamRoute, "homeBaseAttached"> | null,
+  device: Pick<MegaInventoryDevice, "paramTypes"> & Partial<Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">>,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached"> & Partial<Pick<PpcsStreamRoute, "peer">> | null,
 ): boolean {
-  return route?.homeBaseAttached === true && device.paramTypes.includes(1015);
+  if (route?.homeBaseAttached === true) return device.paramTypes.includes(1015);
+  return route?.homeBaseAttached === false && device.model === "T817L" && device.deviceType === 10_031
+    && device.channel === 0 && Boolean(device.serial) && route.peer?.serial === device.serial && Boolean(device.adminUserId);
 }
 
 /** Return whether SDK evidence identifies this model as a standalone security endpoint. */
@@ -328,6 +331,19 @@ export function supportsStandaloneC31Presets(
     && Boolean(device.adminUserId) && routeReady;
 }
 
+/** Admit checked live AAC only on exact E30 routes and the owned standalone C31 route. */
+export function supportsCameraLiveAudio(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  if (!routeReady || !route || device.channel === null) return false;
+  if (supportsStandaloneC31Presets(device, route, routeReady)) return true;
+  return device.model === "T8171" && device.deviceType === 88
+    && ((route.homeBaseAttached && route.peer.model === "T8030")
+      || (!route.homeBaseAttached && device.channel === 0 && route.peer.serial === device.serial));
+}
+
 /** Admit preset movement only on the exact SoloCam direct or HomeBase route proven by saved target scenes. */
 export function supportsSoloCamPresetControl(
   device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">,
@@ -432,6 +448,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #guardModeOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #nightVisionOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #lightOperations = new Map<string, Promise<void>>();
+  readonly #cameraSirenOperations = new Map<string, Promise<void>>();
+  readonly #cameraSirenAborters = new Map<string, AbortController>();
   readonly #panControlOperations = new Map<string, Promise<void>>();
   readonly #pendingSensorMotionCloudConfirmations = new Set<string>();
   readonly #liveDeviceReads = new Map<string, MegaInventoryReads>();
@@ -656,8 +674,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         if (this.#ppcsStreams.get(serial) === stream) this.#ppcsStreams.delete(serial);
         throw error;
       }
-      const audio = device.model === "T8171" && device.deviceType === 88
-        && ((route.homeBaseAttached && route.peer.model === "T8030") || (!route.homeBaseAttached && device.channel === 0))
+      const audio = supportsCameraLiveAudio(device, route, true)
         ? stream.audioOutput : undefined;
       this.#events?.streamStarted(serial, stream.output, () => stream.videoCodec, audio);
       const finalize = () => this.#finalizeStream(serial, stream, device, route);
@@ -1263,6 +1280,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#recordingReferences.clear();
     await Promise.allSettled(this.#stationOperations.values());
     this.#stationOperations.clear();
+    for (const controller of this.#cameraSirenAborters.values()) controller.abort();
+    await Promise.allSettled(this.#cameraSirenOperations.values());
+    this.#cameraSirenOperations.clear();
+    this.#cameraSirenAborters.clear();
     await Promise.allSettled(this.#cameraOperations.values());
     this.#cameraOperations.clear();
     await Promise.allSettled(this.#lightOperations.values());
@@ -1744,10 +1765,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       stationSerial: device.parentSerial,
       doorbellSupported: isDoorbellDevice(device),
       streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials),
-      liveAudioSupported: device.model === "T8171" && device.deviceType === 88 && device.channel !== null
-        && Boolean(route && ((route.homeBaseAttached && route.peer.model === "T8030")
-          || (!route.homeBaseAttached && device.channel === 0 && route.peer.serial === device.serial)))
-        && isPpcsStreamSupported(device, this.#devices, dskPeerSerials),
+      liveAudioSupported: supportsCameraLiveAudio(device, route, isPpcsStreamSupported(device, this.#devices, dskPeerSerials)),
       enabled: device.reads.enabled ?? null,
       enableControlSupported: device.reads.enabled !== undefined
         && device.channel === 0
@@ -1885,8 +1903,40 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return current;
   }
 
-  /** Trigger or stop a camera siren only on a proven route and device family. */
-  async setCameraSiren(serial: string, durationSeconds: number): Promise<void> {
+  /**
+   * Trigger or stop a proven camera siren, interrupting an earlier owned C31 pulse.
+   *
+   * C31 pulses retain their connection until an explicit stop is sent, including
+   * cancellation and shutdown. Their promise covers the pulse and stop attempt,
+   * not readable alarm state. Attached cameras retain their native duration path.
+   */
+  setCameraSiren(serial: string, durationSeconds: number): Promise<void> {
+    if (!Number.isSafeInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 900) {
+      return Promise.reject(new Error("Camera siren duration must be a whole number from 0 to 900 seconds"));
+    }
+    if (this.#recordingClosing) return Promise.reject(new Error("Camera provider is closing"));
+    const device = this.#devices.get(serial);
+    const route = device ? ppcsStreamRoute(device, this.#devices) : null;
+    if (device && supportsStandaloneC31Presets(device, route, true) && durationSeconds > 30) {
+      return Promise.reject(new Error("Standalone C31 siren pulses support at most 30 seconds"));
+    }
+    this.#cameraSirenAborters.get(serial)?.abort();
+    const controller = new AbortController();
+    this.#cameraSirenAborters.set(serial, controller);
+    const previous = this.#cameraSirenOperations.get(serial) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(async () => {
+      if (!controller.signal.aborted) await this.#writeCameraSiren(serial, durationSeconds, controller.signal);
+    });
+    this.#cameraSirenOperations.set(serial, current);
+    void current.finally(() => {
+      if (this.#cameraSirenOperations.get(serial) === current) this.#cameraSirenOperations.delete(serial);
+      if (this.#cameraSirenAborters.get(serial) === controller) this.#cameraSirenAborters.delete(serial);
+    }).catch(() => undefined);
+    return current;
+  }
+
+  /** Own one siren transport and ensure every attempted C31 start has an explicit stop. */
+  async #writeCameraSiren(serial: string, durationSeconds: number, signal: AbortSignal): Promise<void> {
     if (!Number.isSafeInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 900) {
       throw new Error("Camera siren duration must be a whole number from 0 to 900 seconds");
     }
@@ -1904,14 +1954,28 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
       localAddress: peer.localAddress,
       dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
-      accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 30,
+      accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 50,
       resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
     });
+    const c31 = supportsStandaloneC31Presets(device, route, true);
+    if (c31 && durationSeconds > 30) throw new Error("Standalone C31 siren pulses support at most 30 seconds");
+    let stopNeeded = false;
     try {
       await session.start();
-      await session.writeCameraSiren(durationSeconds);
+      if (c31) {
+        if (signal.aborted) return;
+        stopNeeded = durationSeconds > 0;
+        await session.writeStandaloneC31Siren(durationSeconds > 0);
+        if (durationSeconds > 0) {
+          try { await cancellableDelay(durationSeconds * 1_000, undefined, { signal }); }
+          catch (error) { if (!signal.aborted) throw error; }
+        }
+      } else {
+        await session.writeCameraSiren(durationSeconds);
+      }
     } finally {
-      session.close();
+      try { if (stopNeeded) await session.writeStandaloneC31Siren(false); }
+      finally { session.close(); }
     }
   }
 

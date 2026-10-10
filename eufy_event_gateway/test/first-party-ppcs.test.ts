@@ -28,6 +28,7 @@ import {
   buildStandaloneC31StreamingQualityPayload,
   buildStandaloneC31NightVisionPayload,
   buildStandaloneC31EnabledPayload,
+  buildStandaloneC31SirenPayload,
   buildSoloCamPanControlData,
   buildSoloCamPanControlPayload,
   buildStandaloneC31ControlPayload,
@@ -823,6 +824,11 @@ test("SoloCam audio isolates attached children and excludes controls and unrelat
   assert.equal(acceptsSoloCamAudio("T8171", false, 0, 0, undefined), true);
   assert.equal(acceptsSoloCamAudio("T8171", false, 1, 1, "live"), false);
   assert.equal(acceptsSoloCamAudio("T817L", true, 1, 1, "live"), false);
+  assert.equal(acceptsSoloCamAudio("T817L", false, 0, 0, "live"), true);
+  assert.equal(acceptsSoloCamAudio("T817L", false, 1, 1, "live"), false);
+  assert.equal(acceptsSoloCamAudio("T817L", false, 0, 1, "live"), false);
+  assert.equal(acceptsSoloCamAudio("T817L", false, 0, 0, "control"), false);
+  assert.equal(acceptsSoloCamAudio("T817L121", false, 0, 0, "live"), false);
   assert.equal(acceptsSoloCamAudio("T8171", true, -1, -1, "live"), false);
 });
 
@@ -919,4 +925,24 @@ test("C31 enablement protects its native privacy bit and validates identity and 
   for (const invalid of [-1, 2, 0.5, Number.NaN]) assert.throws(() => buildStandaloneC31EnabledPayload(invalid, "fixture-admin", key, 1, 1791464400000), /Unsupported/);
   assert.throws(() => buildStandaloneC31EnabledPayload(0, "", key, 1, 1791464400000), /administrator/);
   assert.throws(() => buildStandaloneC31EnabledPayload(0, "fixture-admin", key, 1, 1791464400), /epoch milliseconds/);
+});
+
+
+test("C31 siren authenticates distinct native broadcast start and stop commands", () => {
+  const key = Buffer.alloc(32, 7);
+  for (const enabled of [true, false]) {
+    const frame = buildStandaloneC31SirenPayload(enabled, key, 1);
+    const encrypted = frame.payload.subarray(10);
+    const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(16, 28));
+    decipher.setAAD(Buffer.from("eufy security"));
+    decipher.setAuthTag(encrypted.subarray(0, 16));
+    const clear = Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
+    assert.equal(frame.command, enabled ? 1201 : 1202);
+    assert.equal(clear.length, 8);
+    assert.equal(clear.readUInt32LE(0), enabled ? 10 : 255);
+    assert.equal(clear.readUInt32LE(4), 0);
+    assert.equal(frame.payload[6], 255);
+    assert.equal(frame.payload[7], 8);
+  }
+  assert.throws(() => buildStandaloneC31SirenPayload(1 as unknown as boolean, key, 1), /boolean action/);
 });

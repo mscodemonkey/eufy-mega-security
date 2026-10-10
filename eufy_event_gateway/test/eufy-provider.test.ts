@@ -53,6 +53,8 @@ import {
   safeInventoryReads,
   supportsHomeBaseGuardMode,
   supportsCameraSiren,
+  supportsCameraLiveAudio,
+  type MegaInventoryDevice,
   supportsPrivacyParameterProbe,
   supportsPresetPositions,
   supportsStandaloneGuardMode,
@@ -359,6 +361,34 @@ test("limits camera sirens by route and device evidence", () => {
   assert.equal(supportsCameraSiren({ paramTypes: [] }, { homeBaseAttached: true }), false);
   assert.equal(supportsCameraSiren({ paramTypes: [1015] }, { homeBaseAttached: false }), false);
   assert.equal(supportsCameraSiren({ paramTypes: [1015] }, null), false);
+  const device = { serial: "fixture-camera", model: "T817L", deviceType: 10031, channel: 0, adminUserId: "fixture-admin", paramTypes: [] };
+  const peer = { serial: device.serial } as MegaInventoryDevice;
+  const direct = { homeBaseAttached: false, peer };
+  assert.equal(supportsCameraSiren(device, direct), true);
+  for (const changed of [{ model: "T817L121" }, { model: "T8171" }, { deviceType: 88 }, { channel: 1 }, { adminUserId: null }]) {
+    assert.equal(supportsCameraSiren({ ...device, ...changed }, direct), false);
+  }
+  assert.equal(supportsCameraSiren(device, { ...direct, peer: { ...peer, serial: "other-camera" } }), false);
+  assert.equal(supportsCameraSiren(device, { homeBaseAttached: false }), false);
+});
+
+test("live audio retains E30 routes and isolates the exact standalone C31", () => {
+  const device = { serial: "fixture-camera", model: "T817L", deviceType: 10031, channel: 0, adminUserId: "fixture-admin" };
+  const peer = { serial: device.serial, model: "T817L" } as MegaInventoryDevice;
+  const direct = { homeBaseAttached: false, peer };
+  assert.equal(supportsCameraLiveAudio(device, direct, true), true);
+  assert.equal(supportsCameraLiveAudio(device, direct, false), false);
+  assert.equal(supportsCameraLiveAudio(device, null, true), false);
+  for (const changed of [{ model: "T817L121" }, { deviceType: 88 }, { channel: 1 }, { channel: null }, { adminUserId: null }]) {
+    assert.equal(supportsCameraLiveAudio({ ...device, ...changed }, direct, true), false);
+  }
+  assert.equal(supportsCameraLiveAudio(device, { ...direct, peer: { ...peer, serial: "foreign-camera" } }, true), false);
+  const attached = { homeBaseAttached: true, peer: { ...peer, serial: "fixture-base", model: "T8030" } };
+  assert.equal(supportsCameraLiveAudio(device, attached, true), false);
+  const e30 = { ...device, model: "T8171", deviceType: 88 };
+  assert.equal(supportsCameraLiveAudio(e30, direct, true), true);
+  assert.equal(supportsCameraLiveAudio({ ...e30, channel: 1 }, attached, true), true);
+  assert.equal(supportsCameraLiveAudio(e30, { ...attached, peer: { ...attached.peer, model: "T8010" } }, true), false);
 });
 
 test("limits privacy parameter diagnostics to T8416 and T8417", () => {

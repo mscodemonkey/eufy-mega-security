@@ -340,7 +340,10 @@ capabilities:
           tested_on: 2026-09-21
           tested_by: mscodemonkey
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Signed gateway live transport completed a 30-second request with full 1080p H.264 and 16 kHz mono AAC decoding. Actual Home Assistant recording also passed full decoding of both tracks after correcting overlapping AAC startup timestamps. Earlier clean 90-second video testing does not resolve intermittent corruption seen in a separate run. HomeBase C31 audio and T817L121 are not covered.
     snapshot:
       connections:
         T8030:
@@ -348,7 +351,10 @@ capabilities:
           tested_on: 2026-09-21
           tested_by: mscodemonkey
         direct:
-          status: declared
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Fresh gateway captures returned valid JPEGs with changed retained metadata. Native image rotation and watermark effects were independently visible and restored. T817L121 is not covered.
   events:
     motion:
       connections:
