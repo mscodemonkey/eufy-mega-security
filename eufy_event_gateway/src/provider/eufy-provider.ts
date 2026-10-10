@@ -21,7 +21,7 @@ import { validateRecordingDate, type CameraStoredRecord, type StoredRecordingSum
 import type { BatteryState, CameraIdentity, CameraPresetPosition, DetectionKind, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
 import { createLogger } from "../logging.js";
 import type { CloudHistoryQuery, CloudHistoryRecord } from "../mega/cloud-history.js";
-import { guardModeMetadataShape } from "../mega/guard-mode-metadata.js";
+import { guardModeMetadataShape, guardModeMetadataStructure } from "../mega/guard-mode-metadata.js";
 import { MegaClient } from "../mega/client.js";
 import { decodeEventImage, isJpeg } from "../mega/image.js";
 import { MegaPushReceiver, type MegaPushEvent } from "../mega/push.js";
@@ -88,6 +88,9 @@ export interface MegaInventoryDevice {
 
   /** Privacy-safe shape of custom-mode metadata, never the account labels. */
   readonly guardModeMetadataShape?: string;
+
+  /** Document-local aliases preserve nesting without retaining private labels or keys. */
+  readonly guardModeMetadataStructure?: string;
   readonly paramTypes: readonly number[];
   readonly reads: MegaInventoryReads;
 }
@@ -1433,6 +1436,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#stations.set(device.serial, station);
       events.station(station);
       logger.info("guard_mode_names_observed", `Guard mode names observed: model=${safeLogModel(device.model)} ${device.guardModeMetadataShape ?? "missing"}`);
+      if (device.guardModeMetadataStructure !== undefined) {
+        logger.info("guard_mode_metadata_observed", `model=${safeLogModel(device.model)} structure=${device.guardModeMetadataStructure}`);
+      }
     }
     const diagnostics = inventoryDiagnostics(devices);
     const summaries = inventoryLogSummaries(devices, new Set(this.#dskKeys.keys()));
@@ -2546,6 +2552,9 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
         guardModeMetadataShape: guardModeMetadataShape(Array.isArray(value.params)
           ? value.params.find((row: unknown) => isRecord(row) && integer(row.param_type) === 1256)?.param_value
           : undefined),
+        guardModeMetadataStructure: guardModeMetadataStructure(Array.isArray(value.params)
+          ? value.params.find((row: unknown) => isRecord(row) && integer(row.param_type) === 1256)?.param_value
+          : undefined),
       } : {}),
       paramTypes: safeParamTypes(value.params),
       reads: lastChargingDays === undefined ? reads : { ...reads, lastChargingDays },
@@ -3251,7 +3260,7 @@ export function isPpcsRouteReady(
 export function ppcsStreamLogSummary(
   model: string,
   route: PpcsStreamRoute | null,
-  stats: Pick<FirstPartyPpcsSession["stats"], "camId" | "dataDatagrams" | "frameHeaders" | "videoFrames"> & Partial<Pick<FirstPartyPpcsSession["stats"], "alternateLookupCandidates" | "batteryHistory" | "closeReason" | "commands" | "directLookupCandidates" | "duplicateDatagrams" | "foreignVideoFrames" | "frameShapes" | "incompleteAccessUnitBytes" | "incompleteAccessUnits" | "localLookupCandidates" | "mediaStartAttempts" | "mediaStartProtocols" | "mediaStopAttempts" | "mediaStopProtocol" | "parserBlocked" | "parserResyncs" | "pendingBytes" | "sequenceGaps" | "sequenceRestarts" | "staleDatagrams" | "types" | "videoCodec" | "videoNalTypes" | "videoOutputFrames" | "videoResults">>,
+  stats: Pick<FirstPartyPpcsSession["stats"], "camId" | "dataDatagrams" | "frameHeaders" | "videoFrames"> & Partial<Pick<FirstPartyPpcsSession["stats"], "alternateLookupCandidates" | "batteryHistory" | "closeReason" | "commands" | "directLookupCandidates" | "duplicateDatagrams" | "foreignVideoFrames" | "frameShapes" | "incompleteAccessUnitBytes" | "incompleteAccessUnits" | "localLookupCandidates" | "mediaStartAttempts" | "mediaStartProtocols" | "mediaStopAttempts" | "mediaStopProtocol" | "parserBlocked" | "parserResyncs" | "pendingBytes" | "sequenceGaps" | "sequenceRestarts" | "sequenceChannels" | "staleDatagrams" | "types" | "videoCodec" | "videoNalTypes" | "videoOutputFrames" | "videoResults">>,
   error?: unknown,
 ): string {
   const stage = stats.camId === 0 ? "lookup" : stats.videoFrames === 0 ? "first_frame" : "media";
@@ -3302,6 +3311,7 @@ export function ppcsStreamLogSummary(
     `media_stop_protocol=${stats.mediaStopProtocol ?? "none"}`,
     `close_reason=${stats.closeReason ?? "unknown"}`,
     `battery_history=${stats.batteryHistory ?? "not-reported"}`,
+    ...(stats.sequenceChannels === undefined ? [] : [`sequence_channels=${stats.sequenceChannels}`]),
     ...(error === undefined ? [] : [`error=${safeError(error)}`]),
   ].join(" ");
 }

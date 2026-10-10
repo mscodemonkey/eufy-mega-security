@@ -216,6 +216,26 @@ interface PpcsReorderChannel {
   timer?: ReturnType<typeof setTimeout> | undefined;
 }
 
+/** Session-local numeric evidence; no packet bodies or peer identities are retained. */
+interface PpcsSequenceEvidence {
+  receivedFirst: number;
+  receivedLast: number;
+  receivedCount: number;
+  acceptedFirst: number | null;
+  acceptedLast: number | null;
+  acceptedCount: number;
+  staleFirst: number | null;
+  staleLast: number | null;
+  staleCount: number;
+  staleBehindMin: number | null;
+  staleBehindMax: number | null;
+  previousBehind: number | null;
+  advancingRun: number;
+  contiguousRun: number;
+  maxAdvancingRun: number;
+  maxContiguousRun: number;
+}
+
 /**
  * Delivers PPCS datagrams in channel sequence order before command reassembly.
  *
@@ -227,6 +247,7 @@ interface PpcsReorderChannel {
  */
 export class PpcsDatagramReorderBuffer {
   readonly #channels = new Map<number, PpcsReorderChannel>();
+  readonly #evidence = new Map<number, PpcsSequenceEvidence>();
   #closed = false;
 
   constructor(
@@ -239,10 +260,11 @@ export class PpcsDatagramReorderBuffer {
   push(data: Buffer, sequence: number, type: number): void {
     if (this.#closed) return;
     let channel = this.#channels.get(type);
+    this.#recordArrival(type, sequence, channel?.last ?? null);
     if (!channel) {
       channel = { last: sequence, held: new Map(), bytes: 0 };
       this.#channels.set(type, channel);
-      this.deliver(data, type);
+      this.#deliver(data, sequence, type);
       return;
     }
     const disposition = ppcsSequenceDisposition(channel.last, sequence);
@@ -256,12 +278,12 @@ export class PpcsDatagramReorderBuffer {
       channel.bytes = 0;
       this.onSkip(type, "restart");
       channel.last = sequence;
-      this.deliver(data, type);
+      this.#deliver(data, sequence, type);
       return;
     }
     if (disposition === "next") {
       channel.last = sequence;
-      this.deliver(data, type);
+      this.#deliver(data, sequence, type);
       this.#drain(type, channel);
       return;
     }
@@ -283,6 +305,76 @@ export class PpcsDatagramReorderBuffer {
     this.#closed = true;
     for (const channel of this.#channels.values()) this.#clearTimer(channel);
     this.#channels.clear();
+    this.#evidence.clear();
+  }
+
+  /**
+   * Return at most eight sorted channels of arrival and delivery evidence.
+   * Stale runs describe possible numbering resets, not proof of a reset.
+   * Shutdown releases this evidence; the owning session freezes its last copy.
+   */
+  diagnostics(): string {
+    const channels = [...this.#evidence.entries()].sort(([a], [b]) => a - b);
+    const summaries = channels.slice(0, 8).map(([type, value]) => (
+      `t${type}:rx=${value.receivedFirst}-${value.receivedLast}/${value.receivedCount}`
+      + `,ac=${value.acceptedFirst ?? "-"}-${value.acceptedLast ?? "-"}/${value.acceptedCount}`
+      + `,st=${value.staleFirst ?? "-"}-${value.staleLast ?? "-"}/${value.staleCount}`
+      + `,behind=${value.staleBehindMin ?? "-"}-${value.staleBehindMax ?? "-"}`
+      + `,run=${value.maxAdvancingRun}/${value.maxContiguousRun}`
+    ));
+    if (channels.length > 8) summaries.push(`omitted=${channels.length - 8}`);
+    return summaries.join("|") || "none";
+  }
+
+  #validSequence(type: number, sequence: number): boolean {
+    return Number.isInteger(type) && type >= 0 && type <= 255
+      && Number.isInteger(sequence) && sequence >= 0 && sequence <= 65535;
+  }
+
+  #recordArrival(type: number, sequence: number, previous: number | null): void {
+    if (!this.#validSequence(type, sequence)) return;
+    let evidence = this.#evidence.get(type);
+    if (!evidence) {
+      evidence = {
+        receivedFirst: sequence, receivedLast: sequence, receivedCount: 0,
+        acceptedFirst: null, acceptedLast: null, acceptedCount: 0,
+        staleFirst: null, staleLast: null, staleCount: 0,
+        staleBehindMin: null, staleBehindMax: null, previousBehind: null,
+        advancingRun: 0, contiguousRun: 0, maxAdvancingRun: 0, maxContiguousRun: 0,
+      };
+      this.#evidence.set(type, evidence);
+    }
+    evidence.receivedLast = sequence;
+    evidence.receivedCount++;
+    if (previous === null || !this.#validSequence(type, previous)
+      || ppcsSequenceDisposition(previous, sequence) !== "stale") {
+      evidence.previousBehind = null;
+      evidence.advancingRun = evidence.contiguousRun = 0;
+      return;
+    }
+    const behind = (previous - sequence) & 0xffff;
+    evidence.staleFirst ??= sequence;
+    evidence.staleLast = sequence;
+    evidence.staleCount++;
+    evidence.staleBehindMin = Math.min(evidence.staleBehindMin ?? behind, behind);
+    evidence.staleBehindMax = Math.max(evidence.staleBehindMax ?? behind, behind);
+    evidence.advancingRun = evidence.previousBehind !== null && behind < evidence.previousBehind
+      ? evidence.advancingRun + 1 : 1;
+    evidence.contiguousRun = evidence.previousBehind !== null && behind === evidence.previousBehind - 1
+      ? evidence.contiguousRun + 1 : 1;
+    evidence.maxAdvancingRun = Math.max(evidence.maxAdvancingRun, evidence.advancingRun);
+    evidence.maxContiguousRun = Math.max(evidence.maxContiguousRun, evidence.contiguousRun);
+    evidence.previousBehind = behind;
+  }
+
+  #deliver(data: Buffer, sequence: number, type: number): void {
+    const evidence = this.#validSequence(type, sequence) ? this.#evidence.get(type) : undefined;
+    if (evidence) {
+      evidence.acceptedFirst ??= sequence;
+      evidence.acceptedLast = sequence;
+      evidence.acceptedCount++;
+    }
+    this.deliver(data, type);
   }
 
   #clearTimer(channel: PpcsReorderChannel): void {
@@ -308,7 +400,7 @@ export class PpcsDatagramReorderBuffer {
       channel.held.delete(next);
       channel.bytes -= data.length;
       channel.last = next;
-      this.deliver(data, type);
+      this.#deliver(data, next, type);
     }
     if (!this.#closed) this.#arm(type, channel);
   }
@@ -1244,6 +1336,7 @@ export class FirstPartyPpcsSession {
     sequenceRestarts: 0,
     duplicateDatagrams: 0,
     staleDatagrams: 0,
+    sequenceChannels: "none",
     parserResyncs: 0,
     parserBlocked: false,
     pendingBytes: 0,
@@ -1275,6 +1368,7 @@ export class FirstPartyPpcsSession {
   #remote: { host: string; port: number } | null = null;
   #seq = 0;
   #closed = false;
+  #closedSequenceChannels: string | null = null;
   #maximumDurationTimer: ReturnType<typeof setTimeout> | null = null;
   #firstFrameTimer: ReturnType<typeof setTimeout> | null = null;
   #pendingByType = new Map<number, PendingPpcsFrame>();
@@ -1324,6 +1418,13 @@ export class FirstPartyPpcsSession {
   /** Create a session; no socket is bound until {@link start} runs. */
   constructor(options: PpcsCameraOptions) {
     this.#options = options;
+
+    // Capture the session rather than the stats object's receiver. Failure
+    // logs read this before close, while close logs need the frozen copy.
+    Object.defineProperty(this.stats, "sequenceChannels", {
+      enumerable: true,
+      get: () => this.#closedSequenceChannels ?? this.#datagramOrder.diagnostics(),
+    });
     if (options.cipherId !== undefined && options.cipherId !== null) this.stats.cipherId = options.cipherId;
     if (options.initialEccPrivateKey) this.#videoDecoder.setEccPrivateKey(options.initialEccPrivateKey);
   }
@@ -1939,6 +2040,7 @@ export class FirstPartyPpcsSession {
       this.#pendingCameraInfo = null;
     }
     this.#videoAssembler.reset();
+    this.#closedSequenceChannels = this.#datagramOrder.diagnostics();
     this.#datagramOrder.close();
     this.#pendingByType.clear();
     this.#updatePendingBytes();
