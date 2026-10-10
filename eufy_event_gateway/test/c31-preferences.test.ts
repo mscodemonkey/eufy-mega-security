@@ -106,3 +106,70 @@ test("C31 LED and recording-quality commands retain their native JSON contracts"
   assert.equal(safeInventoryReads(params, 10031, "T817L121", true).recordingQualityTier, undefined);
   assert.equal(safeInventoryReads(params, 10031, "T817L", false).recordingQualityTier, undefined);
 });
+
+
+test("C31 sound preferences preserve model-specific enums and native wrappers", () => {
+  for (const value of [1, 2, 3, 4, 5]) {
+    const sound = decode("soundSensitivity", value);
+    assert.equal(sound.command, 1700);
+    assert.deepEqual(JSON.parse(sound.clear.toString()), { commandType: 6044, data: { index: value, transaction: "1791464400000" } });
+  }
+  for (const value of [128, 256]) {
+    const sound = decode("soundType", value);
+    assert.equal(sound.command, 1700);
+    assert.deepEqual(JSON.parse(sound.clear.toString()), { commandType: 6046, data: { type: value, transaction: "1791464400000" } });
+  }
+  for (const value of [0, 1]) {
+    const roundLook = decode("soundRoundLook", value), lighting = decode("enhanceLighting", value);
+    assert.equal(roundLook.command, 1350);
+    assert.equal(lighting.command, 1350);
+    assert.deepEqual(JSON.parse(roundLook.clear.toString()), { account_id: "synthetic-owner", cmd: 6208, mChannel: 0, mValue3: 0, payload: { onoff: value, transaction: "1791464400000" } });
+    assert.deepEqual(JSON.parse(lighting.clear.toString()), { account_id: "synthetic-owner", cmd: 6484, mChannel: 0, mValue3: 0, payload: { mode: 1 - value, transaction: "1791464400000" } });
+  }
+  for (const value of [0, 1, 2, 127, 129, 255, 257, true]) assert.throws(() => validateC31Preference("soundType", value));
+  for (const value of [0, 6, true, 2.5]) assert.throws(() => validateC31Preference("soundSensitivity", value));
+  const params = [{ param_type: 6044, param_value: "2" }, { param_type: 6046, param_value: "128" }, { param_type: 6208, param_value: "0" }, { param_type: 6484, param_value: "1" }];
+  const reads = safeInventoryReads(params, 10031, "T817L", true);
+  assert.equal(reads.soundDetectionSensitivity, 2);
+  assert.equal(reads.soundDetectionType, 128);
+  assert.equal(reads.soundRoundLookEnabled, false);
+  assert.equal(reads.enhanceLightingEnabled, false);
+  for (const [type, model, direct] of [[10031, "T817L121", true], [10031, "T817L", false], [88, "T8171", true]] as const) {
+    const other = safeInventoryReads(params, type, model, direct);
+    assert.equal(other.soundDetectionType, undefined);
+    assert.equal(other.soundDetectionSensitivity, undefined);
+    assert.equal(other.soundRoundLookEnabled, undefined);
+    assert.equal(other.enhanceLightingEnabled, undefined);
+  }
+  const older = safeInventoryReads([{ param_type: 6044, param_value: "3" }, { param_type: 6046, param_value: "1" }], 31, "T8410", true);
+  assert.equal(older.soundDetectionType, 1);
+  assert.equal(older.soundDetectionSensitivity, 3);
+});
+
+
+test("C31 brightness and notification spacing keep distinct binary layouts", () => {
+  const light = decode("lightBrightness", 60);
+  assert.equal(light.command, 1401);
+  assert.equal(light.clear.length, 136);
+  assert.equal(light.clear.readUInt32LE(0), 0);
+  assert.equal(light.clear.readUInt32LE(4), 60);
+  assert.equal(light.clear.subarray(8, 23).toString(), "synthetic-owner");
+  for (const value of [0, 1, 5]) {
+    const interval = decode("notificationInterval", value);
+    assert.equal(interval.command, 1250);
+    assert.equal(interval.clear.length, 132);
+    assert.equal(interval.clear.readUInt32LE(0), value * 60);
+    assert.equal(interval.clear.subarray(4, 19).toString(), "synthetic-owner");
+  }
+  const params = [{ param_type: 1401, param_value: "80" }, { param_type: 1250, param_value: "60" }];
+  assert.equal(safeInventoryReads(params, 10031, "T817L", true).lightBrightness, 80);
+  assert.equal(safeInventoryReads(params, 10031, "T817L", true).notificationIntervalMinutes, 1);
+  assert.equal(safeInventoryReads([{ param_type: 1250, param_value: "61" }], 10031, "T817L", true).notificationIntervalMinutes, undefined);
+  for (const [type, model, direct] of [[10031, "T817L121", true], [10031, "T817L", false], [48, "T8170", true]] as const) {
+    const other = safeInventoryReads(params, type, model, direct);
+    assert.equal(other.lightBrightness, undefined);
+    assert.equal(other.notificationIntervalMinutes, undefined);
+  }
+  assert.equal(safeInventoryReads(params, 48, "T8170", true).recordingIntervalSeconds, 60);
+  for (const value of [-1, 6, 60, true]) assert.throws(() => validateC31Preference("notificationInterval", value));
+});

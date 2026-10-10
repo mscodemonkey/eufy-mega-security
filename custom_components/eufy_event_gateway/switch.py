@@ -34,7 +34,7 @@ async def async_setup_entry(
 
     def add_new() -> None:
         for serial, camera in coordinator.cameras.items():
-            for name in ("microphone", "speaker", "imageFlipped", "preRecording", "soundDetection", "statusLed"):
+            for name in ("microphone", "speaker", "imageFlipped", "preRecording", "soundDetection", "statusLed", "soundRoundLook", "enhanceLighting"):
                 key = (serial, name)
                 if key not in known_preferences and camera_preference_value(camera, name) is not None:
                     known_preferences.add(key)
@@ -255,7 +255,7 @@ class EufyCameraPreferenceSwitch(EufyGatewayEntity, SwitchEntity):
         SwitchEntity.__init__(self)
         self.preference = name
         self._attr_unique_id = f"{serial}_preference_{name}"
-        translation_name = {"imageFlipped": "image_flipped", "preRecording": "pre_recording", "soundDetection": "sound_detection", "statusLed": "status_led"}.get(name, name)
+        translation_name = {"imageFlipped": "image_flipped", "preRecording": "pre_recording", "soundDetection": "sound_detection", "statusLed": "status_led", "soundRoundLook": "sound_round_look", "enhanceLighting": "enhance_lighting"}.get(name, name)
         self._attr_translation_key = f"camera_{translation_name}"
 
     @property

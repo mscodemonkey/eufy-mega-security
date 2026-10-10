@@ -43,7 +43,7 @@ async def async_setup_entry(
 
     def add_preferences() -> None:
         for serial, camera in coordinator.cameras.items():
-            for name in ("watermark", "recordingQuality"):
+            for name in ("watermark", "recordingQuality", "soundType"):
                 key = (serial, name)
                 if key not in known_preferences and camera_preference_value(camera, name) is not None:
                     known_preferences.add(key)
@@ -338,9 +338,12 @@ class EufyCameraPreferenceSelect(EufyGatewayEntity, SelectEntity):
         SelectEntity.__init__(self)
         self.preference = name
         self._attr_unique_id = f"{serial}_preference_{name}"
-        self._values = [0, 1, 2] if name == "watermark" else [2, 3]
-        self._attr_options = ["off", "timestamp", "timestamp_logo"] if name == "watermark" else ["medium", "high"]
-        self._attr_translation_key = "camera_watermark" if name == "watermark" else "camera_recording_quality"
+        choices = {
+            "watermark": ([0, 1, 2], ["off", "timestamp", "timestamp_logo"], "camera_watermark"),
+            "recordingQuality": ([2, 3], ["medium", "high"], "camera_recording_quality"),
+            "soundType": ([128, 256], ["all_sound", "crying"], "camera_sound_type"),
+        }
+        self._values, self._attr_options, self._attr_translation_key = choices[name]
 
     @property
     def available(self) -> bool:

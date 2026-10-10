@@ -99,11 +99,20 @@
       }
     },
     "number": {
+      "camera_light_brightness": {
+        "name": "Light brightness"
+      },
+      "camera_notification_interval": {
+        "name": "Notification interval"
+      },
       "eufy_station_alarm_volume": {
         "name": "Alarm volume"
       },
       "eufy_station_prompt_volume": {
         "name": "Prompt volume"
+      },
+      "camera_sound_sensitivity": {
+        "name": "Sound sensitivity"
       },
       "camera_speaker_volume": {
         "name": "Speaker volume"
@@ -149,6 +158,13 @@
           "infrared": "Infrared",
           "infrared_on": "Infrared on",
           "spotlight": "Spotlight"
+        }
+      },
+      "camera_sound_type": {
+        "name": "Sound detection type",
+        "state": {
+          "all_sound": "All sound",
+          "crying": "Crying"
         }
       },
       "camera_recording_quality": {
@@ -241,6 +257,12 @@
       }
     },
     "switch": {
+      "camera_sound_round_look": {
+        "name": "Sound round-look"
+      },
+      "camera_enhance_lighting": {
+        "name": "Enhanced lighting"
+      },
       "camera_enabled": {
         "name": "Camera enabled"
       },

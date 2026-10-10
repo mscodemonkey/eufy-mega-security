@@ -45,3 +45,25 @@ class CameraPreferencesTest(unittest.TestCase):
         for value in [0, 1, 4, True, None]:
             camera["reportedSettings"]["recordingQualityTier"] = value
             self.assertIsNone(module.camera_preference_value(camera, "recordingQuality"))
+
+    def test_model_specific_sound_values(self):
+        """Reject older SDK enums and malformed sound ranges on admitted controls."""
+        camera = {"preferenceControls": ["soundType", "soundSensitivity", "soundRoundLook", "enhanceLighting"], "reportedSettings": {"soundDetectionType": 128, "soundDetectionSensitivity": 3, "soundRoundLookEnabled": False, "enhanceLightingEnabled": False}}
+        self.assertEqual(module.camera_preference_value(camera, "soundType"), 128)
+        self.assertEqual(module.camera_preference_value(camera, "soundSensitivity"), 3)
+        self.assertEqual(module.camera_preference_value(camera, "soundRoundLook"), 0)
+        self.assertEqual(module.camera_preference_value(camera, "enhanceLighting"), 0)
+        for value in [1, 2, 129, 255, True, None]:
+            camera["reportedSettings"]["soundDetectionType"] = value
+            self.assertIsNone(module.camera_preference_value(camera, "soundType"))
+        for value in [0, 6, True, "3", 3.5]:
+            camera["reportedSettings"]["soundDetectionSensitivity"] = value
+            self.assertIsNone(module.camera_preference_value(camera, "soundSensitivity"))
+
+    def test_brightness_and_notification_spacing(self):
+        """Preserve zero brightness and minutes without admitting raw seconds."""
+        camera = {"preferenceControls": ["lightBrightness", "notificationInterval"], "reportedSettings": {"lightBrightness": 0, "notificationIntervalMinutes": 0}}
+        self.assertEqual(module.camera_preference_value(camera, "lightBrightness"), 0)
+        self.assertEqual(module.camera_preference_value(camera, "notificationInterval"), 0)
+        camera["reportedSettings"]["notificationIntervalMinutes"] = 60
+        self.assertIsNone(module.camera_preference_value(camera, "notificationInterval"))

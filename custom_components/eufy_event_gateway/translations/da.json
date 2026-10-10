@@ -99,11 +99,20 @@
       }
     },
     "number": {
+      "camera_light_brightness": {
+        "name": "Lysstyrke"
+      },
+      "camera_notification_interval": {
+        "name": "Notifikationsinterval"
+      },
       "eufy_station_alarm_volume": {
         "name": "Alarm lydstyrke"
       },
       "eufy_station_prompt_volume": {
         "name": "Instruks lydstyrke"
+      },
+      "camera_sound_sensitivity": {
+        "name": "Lydfølsomhed"
       },
       "camera_speaker_volume": {
         "name": "Højttalerlydstyrke"
@@ -149,6 +158,13 @@
           "infrared": "Infrarød",
           "infrared_on": "Infrarød slået til",
           "spotlight": "Spotlys"
+        }
+      },
+      "camera_sound_type": {
+        "name": "Lyddetektionstype",
+        "state": {
+          "all_sound": "Al lyd",
+          "crying": "Gråd"
         }
       },
       "camera_recording_quality": {
@@ -241,6 +257,12 @@
       }
     },
     "switch": {
+      "camera_sound_round_look": {
+        "name": "Lydrundkig"
+      },
+      "camera_enhance_lighting": {
+        "name": "Forbedret belysning"
+      },
       "camera_enabled": {
         "name": "Kamera tilsluttet"
       },

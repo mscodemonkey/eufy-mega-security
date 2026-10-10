@@ -630,10 +630,13 @@ export function buildC31PreferencePayload(name: C31Preference, value: number, ac
   validateC31Preference(name, value);
   if (!accountId) throw new Error("Camera preference requires an owning account");
   if (!Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) throw new Error("Camera preference requires epoch milliseconds");
-  const commands = { microphone: 1240, speaker: 1241, speakerVolume: 1230, imageFlipped: 1207, watermark: 1214 };
+  const commands = { microphone: 1240, speaker: 1241, speakerVolume: 1230, imageFlipped: 1207, watermark: 1214, lightBrightness: 1401 };
   let command: number;
   let clear: Buffer;
-  if (name === "preRecording") {
+  if (name === "notificationInterval") {
+    command = 1250;
+    clear = buildCameraEnableBody(0, value * 60, accountId).subarray(4);
+  } else if (name === "preRecording") {
     command = 1350;
     clear = Buffer.from(JSON.stringify({ account_id: accountId, cmd: 6257, mChannel: 0, mValue3: 0, payload: { value, transaction: `${now}` } }));
   } else if (name === "recordingQuality") {
@@ -642,6 +645,14 @@ export function buildC31PreferencePayload(name: C31Preference, value: number, ac
   } else if (name === "statusLed") {
     command = 1700;
     clear = Buffer.from(JSON.stringify({ commandType: 6014, data: { value, transaction: `${now}` } }));
+  } else if (name === "soundRoundLook" || name === "enhanceLighting") {
+    command = 1350;
+    const payload = name === "soundRoundLook" ? { onoff: value, transaction: `${now}` } : { mode: 1 - value, transaction: `${now}` };
+    clear = Buffer.from(JSON.stringify({ account_id: accountId, cmd: name === "soundRoundLook" ? 6208 : 6484, mChannel: 0, mValue3: 0, payload }));
+  } else if (name === "soundSensitivity" || name === "soundType") {
+    command = 1700;
+    const data = name === "soundSensitivity" ? { index: value, transaction: `${now}` } : { type: value, transaction: `${now}` };
+    clear = Buffer.from(JSON.stringify({ commandType: name === "soundSensitivity" ? 6044 : 6046, data }));
   } else if (name === "soundDetection") {
     command = 1700;
     clear = Buffer.from(JSON.stringify({ commandType: 6043, data: { status: value, transaction: `${now}` } }));

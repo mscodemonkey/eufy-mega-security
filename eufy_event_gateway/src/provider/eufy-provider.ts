@@ -92,6 +92,14 @@ export interface MegaInventoryReads {
   readonly ringtoneVolume?: number;
   readonly soundDetectionSensitivity?: number;
   readonly soundDetectionType?: number;
+
+  /** Exact standalone C31 preferences, independent of detection or low-light results. */
+  readonly soundRoundLookEnabled?: boolean;
+  readonly enhanceLightingEnabled?: boolean;
+
+  /** Exact C31 light setting and notification spacing, unrelated to recording intervals. */
+  readonly lightBrightness?: number;
+  readonly notificationIntervalMinutes?: number;
   readonly streamingQualityTier?: number;
   readonly recordingQualityTier?: number;
   readonly solarIntensity?: number;
@@ -1706,6 +1714,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         ringtoneVolume: device.reads.ringtoneVolume ?? null,
         soundDetectionSensitivity: device.reads.soundDetectionSensitivity ?? null,
         soundDetectionType: device.reads.soundDetectionType ?? null,
+        soundRoundLookEnabled: device.reads.soundRoundLookEnabled ?? null,
+        enhanceLightingEnabled: device.reads.enhanceLightingEnabled ?? null,
+        lightBrightness: device.reads.lightBrightness ?? null,
+        notificationIntervalMinutes: device.reads.notificationIntervalMinutes ?? null,
         streamingQualityTier: device.reads.streamingQualityTier ?? null,
         recordingQualityTier: device.reads.recordingQualityTier ?? null,
         solarIntensity: device.reads.solarIntensity ?? null,
@@ -2563,8 +2575,12 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const chimeVolume = verifiedDoorbell ? percentage(1717) : undefined;
   const ringtoneVolume = deviceType === 94 ? percentage(1708) : undefined;
   const soundFamily = deviceType === 31 && /^T8410(?:$|[A-Z0-9-])/.test(model ?? "");
-  const soundSensitivity = soundFamily ? finiteNumber(params.get(6044)) : null;
-  const soundType = soundFamily ? finiteNumber(params.get(6046)) : null;
+  const soundSensitivity = soundFamily || c31 ? finiteNumber(params.get(6044)) : null;
+  const soundType = soundFamily || c31 ? finiteNumber(params.get(6046)) : null;
+  const soundRoundLook = c31 ? finiteNumber(params.get(6208)) : null;
+  const lightBrightness = c31 ? percentage(1401) : undefined;
+  const notificationInterval = c31 ? finiteNumber(params.get(1250)) : null;
+  const enhanceLighting = c31 ? finiteNumber(params.get(6484)) : null;
   const qualityFamily = deviceType === 48 && /^T8170(?:$|[A-Z0-9-])/.test(model ?? "");
   const t8171 = deviceType === 88 && /^T8171(?:$|[A-Z0-9-])/.test(model ?? "");
   const t8425 = deviceType === 47 && /^T8425(?:$|[A-Z0-9-])/.test(model ?? "");
@@ -2613,9 +2629,13 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
       : undefined;
   return {
     ...(ringtoneVolume !== undefined && Number.isInteger(ringtoneVolume) ? { ringtoneVolume } : {}),
-    ...(soundSensitivity !== null && [1, 3, 5].includes(soundSensitivity)
+    ...(soundSensitivity !== null && Number.isInteger(soundSensitivity) && (c31 ? soundSensitivity >= 1 && soundSensitivity <= 5 : [1, 3, 5].includes(soundSensitivity))
       ? { soundDetectionSensitivity: soundSensitivity } : {}),
-    ...(soundType === 1 || soundType === 2 ? { soundDetectionType: soundType } : {}),
+    ...((c31 ? soundType === 128 || soundType === 256 : soundType === 1 || soundType === 2) ? { soundDetectionType: soundType! } : {}),
+    ...(lightBrightness !== undefined && Number.isInteger(lightBrightness) ? { lightBrightness } : {}),
+    ...(notificationInterval !== null && Number.isInteger(notificationInterval) && notificationInterval >= 0 && notificationInterval <= 300 && notificationInterval % 60 === 0 ? { notificationIntervalMinutes: notificationInterval / 60 } : {}),
+    ...(soundRoundLook === 0 || soundRoundLook === 1 ? { soundRoundLookEnabled: soundRoundLook === 1 } : {}),
+    ...(enhanceLighting === 0 || enhanceLighting === 1 ? { enhanceLightingEnabled: enhanceLighting === 0 } : {}),
     ...(streamingQuality !== null && Number.isInteger(streamingQuality) && streamingQuality >= 0 && streamingQuality <= 3
       ? { streamingQualityTier: streamingQuality } : {}),
     ...(recordingQuality !== undefined ? { recordingQualityTier: recordingQuality } : {}),

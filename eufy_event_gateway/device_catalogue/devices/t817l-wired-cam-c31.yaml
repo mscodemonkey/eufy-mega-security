@@ -256,6 +256,60 @@ capabilities:
         parameter: 2731
       write:
         command: 2731
+    sound_sensitivity:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Native sensitivity levels 1 through 5. Levels 2 and 3 passed Home Assistant writes and fresh query restoration. Sound detection remained off. This does not prove classification accuracy.
+      write:
+        command: 6044
+    sound_type:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Native values 128 for All sound and 256 for Crying differ from older camera families. Both passed Home Assistant writes with original All sound restored. No controlled crying event was tested.
+      write:
+        command: 6046
+    sound_round_look:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Native onoff preference passed Home Assistant changes and restoration with fresh query. Sound detection remained off, so no sound-triggered physical movement is claimed.
+      write:
+        command: 6208
+    enhance_lighting:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Native inverted mode 0 enables and 1 disables enhanced lighting. Home Assistant writes and fresh query restoration passed. Low-light effectiveness remains untested.
+      write:
+        command: 6484
+    light_brightness:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Native 0 through 100 preference. Values 60 and 80 passed Home Assistant writes and fresh query restoration. No measured lamp output is claimed.
+      write:
+        command: 1401
+    notification_interval:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3. Native UI 0 through 5 minutes maps to command seconds. Values 1 and 0 minutes passed Home Assistant writes and fresh query restoration. This is separate from other models recording intervals and does not prove notification timing.
+      write:
+        command: 1250
     siren:
       connections:
         T8030:

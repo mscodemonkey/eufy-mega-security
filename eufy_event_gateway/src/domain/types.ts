@@ -85,6 +85,14 @@ export interface CameraReportedSettings {
   readonly soundDetectionSensitivity?: number | null;
   readonly soundDetectionType?: number | null;
 
+  /** Exact standalone C31 preferences, independent of detection or low-light results. */
+  readonly soundRoundLookEnabled?: boolean | null;
+  readonly enhanceLightingEnabled?: boolean | null;
+
+  /** Exact C31 light setting and notification spacing, unrelated to recording intervals. */
+  readonly lightBrightness?: number | null;
+  readonly notificationIntervalMinutes?: number | null;
+
   /** Reported quality ranks. They do not assert an observed resolution or codec. */
   readonly streamingQualityTier?: number | null;
   readonly recordingQualityTier?: number | null;
