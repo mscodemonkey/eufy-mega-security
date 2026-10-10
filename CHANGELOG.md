@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.130
+
+- Add opt-in private NVR research captures with incoming and outgoing packets, reassembled frames, connection states, timestamps and a 64 MiB limit.
+- Add offline bundle integrity checks and audio/video, fragment-repeat, reordering and incomplete-group diagnostics, plus import of existing research captures.
+- Publish standard consent, setup and private delivery instructions, including email attachments and recipient-restricted cloud links. NVR live video in the gateway remains unavailable.
+
 ## 0.1.129
 
 - Show account-defined names for custom HomeBase guard modes instead of generic Custom 1, Custom 2 and Custom 3 labels.

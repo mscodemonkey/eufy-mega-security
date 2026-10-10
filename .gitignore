@@ -12,6 +12,11 @@ __pycache__/
 *.apks
 *.xapk
 captures/
+*ptcs-capture.bin
+*oracle-frames.bin
+*stream-records.bin
+*nvr-private*.zip
+.eufy-private-capture-*.ts
 decompiled/
 eufy_event_gateway/src/provider/camera-capability-advanced.local.txt
 eufy_event_gateway/src/provider/sensor-capability-advanced.local.txt
