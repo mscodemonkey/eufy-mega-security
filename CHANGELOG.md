@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.138
+
+- Fix live video startup when a camera's initial codec hint differs from its actual H.264 or H.265 video. The shared stream cache can now correct the provisional format before decoder headers are complete, while preserving established streams.
+
 ## 0.1.137
 
 - Keep a previously confirmed HomeBase connection through up to three consecutive background refresh failures, avoiding transient connection-entity flicker while preserving startup and explicit-operation failure handling.
