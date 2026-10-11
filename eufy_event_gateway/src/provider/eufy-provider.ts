@@ -641,6 +641,22 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     await this.#completeStartup(events, generation);
   }
 
+  /** Return numeric evidence from an existing source, excluding wire prefixes and identities. */
+  streamDiagnostic(serial: string) {
+    const stats = this.#ppcsStreams.get(serial)?.stats;
+    if (!stats) return null;
+    return {
+      stage: stats.camId === 0 ? "lookup" as const : stats.videoFrames === 0 ? "first-frame" as const : "media" as const,
+      counters: {
+        dataDatagrams: stats.dataDatagrams, frameHeaders: stats.frameHeaders, videoFrames: stats.videoFrames,
+        videoOutputFrames: stats.videoOutputFrames, sequenceGaps: stats.sequenceGaps, sequenceRestarts: stats.sequenceRestarts,
+        duplicateDatagrams: stats.duplicateDatagrams, staleDatagrams: stats.staleDatagrams, parserResyncs: stats.parserResyncs,
+        pendingBytes: stats.pendingBytes, incompleteAccessUnits: stats.incompleteAccessUnits,
+        incompleteAccessUnitBytes: stats.incompleteAccessUnitBytes,
+      },
+    };
+  }
+
   async startStream(serial: string): Promise<void> {
     if (this.#recordingPeerReserved(serial)) throw new Error("Wait for recording retrieval before starting live view");
     const device = this.#devices.get(serial);

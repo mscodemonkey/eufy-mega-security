@@ -10,13 +10,15 @@
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { BundleCapture, diagnosticTargets, type DiagnosticMedia } from "./diagnostics/bundle-capture.js";
+import { diagnosticsPage } from "./diagnostics/page.js";
 import type { EventImageCapture } from "./diagnostics/event-image-capture.js";
 import { safeCameraModel } from "./domain/safe-camera-model.js";
 
 import type { GatewayConfig } from "./config.js";
 import { GatewayState } from "./domain/gateway-state.js";
 import type { GatewayEvent } from "./domain/types.js";
-import { createLogger } from "./logging.js";
+import { createLogger, observeLogEvents } from "./logging.js";
 import { validateC31Preference } from "./provider/c31-preferences.js";
 import { SimulatedProvider } from "./provider/simulated-provider.js";
 import type { CameraProvider, CaptchaProvider } from "./provider/provider.js";
@@ -42,6 +44,9 @@ const STREAM_TOKEN_MAX_FUTURE_SECONDS = STREAM_TOKEN_LIFETIME_SECONDS + 60;
  */
 export class GatewayServer {
   #server: Server | null = null;
+  #bundle: BundleCapture | null = null;
+  #bundleCleanup: (() => void) | null = null;
+  #sampleBundleTransport: (() => void) | null = null;
   readonly #recordings = new RecordingCache();
   readonly #speakerJobs = new Map<string, AbortController>();
   readonly #recordingJobs = new Map<string, { promise: Promise<Buffer | null>; controller: AbortController; users: Set<ServerResponse> }>();
@@ -73,6 +78,7 @@ export class GatewayServer {
 
   /** Stop accepting requests and wait for the HTTP server to close. */
   async close(): Promise<void> {
+    this.#clearBundle();
     for (const controller of this.#speakerJobs.values()) controller.abort();
     for (const job of this.#recordingJobs.values()) job.controller.abort();
     this.#recordings.clear();
@@ -87,9 +93,142 @@ export class GatewayServer {
     return address && typeof address !== "string" ? address.port : null;
   }
 
+  #clearBundle(): void {
+    this.#bundleCleanup?.();
+    this.#bundleCleanup = null;
+    this.#sampleBundleTransport = null;
+    this.#bundle?.clear();
+    this.#bundle = null;
+  }
+
+  async #diagnosticBundle(request: IncomingMessage, response: ServerResponse, path: string): Promise<void> {
+    if (path === "/api/diagnostics/bundle/targets" && request.method === "GET") {
+      return json(response, 200, { devices: diagnosticTargets(this.state) });
+    }
+    if (path === "/api/diagnostics/summary" && request.method === "GET") {
+      const projection = new BundleCapture({ target: null, seconds: 30, media: false });
+      try { return json(response, 200, projection.summary(this.state)); }
+      finally { projection.clear(); }
+    }
+    if (path === "/api/diagnostics/bundle" && request.method === "POST") {
+      const body: unknown = JSON.parse(await readBody(request));
+      if (!body || typeof body !== "object" || Array.isArray(body)) throw new SyntaxError("Invalid diagnostic selection");
+      const value = body as Record<string, unknown>;
+      if (Object.keys(value).some((key) => !["target", "seconds", "media", "consentPrivateMedia"].includes(key))) throw new SyntaxError("Unknown diagnostic option");
+      if (value.seconds !== 30 && value.seconds !== 60) throw new SyntaxError("Choose 30 or 60 seconds");
+      if (typeof value.media !== "boolean") throw new SyntaxError("Choose whether to include media");
+      if (value.media && value.consentPrivateMedia !== true) throw new SyntaxError("Private media consent required");
+      if (value.target !== null && typeof value.target !== "string") throw new SyntaxError("Choose a device or all devices");
+      const target = value.target as string | null;
+      if (target !== null && !diagnosticTargets(this.state).some((row) => row.serial === target)) return json(response, 404, { error: "Device not found" });
+      if (this.#bundle?.status().state === "active") return json(response, 409, { error: "A diagnostic session is already active" });
+      this.#clearBundle();
+      const capture = new BundleCapture({ target, seconds: value.seconds, media: value.media });
+      this.#bundle = capture;
+      if (target !== null) {
+        capture.select(target);
+        const selectedCamera = this.state.listCameras().find((camera) => camera.serial === target);
+        if (selectedCamera?.stationSerial) capture.select(selectedCamera.stationSerial);
+        for (const camera of this.state.listCameras()) if (camera.stationSerial === target) capture.select(camera.serial);
+      }
+      capture.summary(this.state);
+      const images = async (serial: string): Promise<void> => {
+        if (!capture.options.media || !capture.includes(serial) || capture.status().state !== "active") return;
+        for (const kind of ["snapshot", "event-image"] as const) {
+          try {
+            const sample = kind === "snapshot" ? await this.snapshots.read(serial) : await this.snapshots.readEvent(serial);
+            if (sample?.info.contentType === "image/jpeg") capture.media({ serial, kind, codec: "jpeg", data: sample.data });
+          } catch { capture.record("retained-image-unavailable", serial); }
+        }
+      };
+      const events = (event: GatewayEvent): void => {
+        capture.event(event);
+        if (event.type === "snapshot-updated" || event.type === "event-image-updated") void images(event.cameraSerial);
+      };
+      const media = (sample: DiagnosticMedia): void => capture.media(sample);
+      this.state.on("event", events);
+      if (value.media) this.streams.on("diagnostic-media", media);
+      const unsubscribe = observeLogEvents((component, event, level) => capture.record(`log:${component}:${event}`, undefined, level));
+      const transport = (): void => {
+        if (!this.provider.streamDiagnostic || capture.status().state !== "active") return;
+        for (const camera of this.state.listCameras()) {
+          if (!capture.includes(camera.serial)) continue;
+          const diagnostic = this.provider.streamDiagnostic(camera.serial);
+          if (diagnostic) capture.transport(camera.serial, diagnostic);
+        }
+      };
+      this.#sampleBundleTransport = transport;
+      transport();
+      const transportTimer = setInterval(() => {
+        if (capture.status().state !== "active") {
+          this.#bundleCleanup?.();
+          this.#bundleCleanup = null;
+          this.#sampleBundleTransport = null;
+          return;
+        }
+        transport();
+      }, 1000);
+      transportTimer.unref();
+      this.#bundleCleanup = () => {
+        clearInterval(transportTimer);
+        this.state.off("event", events);
+        if (value.media) this.streams.off("diagnostic-media", media);
+        unsubscribe();
+      };
+      for (const camera of this.state.listCameras()) void images(camera.serial);
+      return json(response, 201, capture.status());
+    }
+    if (path === "/api/diagnostics/bundle" && request.method === "GET") {
+      return json(response, 200, this.#bundle?.status() ?? { state: "absent" });
+    }
+    if (path === "/api/diagnostics/bundle" && request.method === "DELETE") {
+      this.#clearBundle();
+      return json(response, 200, { state: "cleared" });
+    }
+    if (path === "/api/diagnostics/bundle/stop" && request.method === "POST") {
+      this.#sampleBundleTransport?.();
+      this.#bundle?.stop();
+      this.#bundleCleanup?.();
+      this.#bundleCleanup = null;
+      return json(response, 200, this.#bundle?.status() ?? { state: "absent" });
+    }
+    if (path === "/api/diagnostics/bundle/export" && request.method === "POST") {
+      this.#sampleBundleTransport?.();
+      const data = this.#bundle?.archive(this.state);
+      this.#bundleCleanup?.();
+      this.#bundleCleanup = null;
+      if (!data) return json(response, 410, { error: "No diagnostic session remains" });
+      response.writeHead(200, { "content-type": "application/gzip", "content-length": data.length,
+        "content-disposition": 'attachment; filename="eufy-diagnostics.json.gz"',
+        "x-eufy-share-method": data.length > 20_000_000 ? "private-cloud-link" : "email-or-private-cloud-link" });
+      response.end(data);
+      return;
+    }
+    return json(response, 404, { error: "Not found" });
+  }
+
   async #route(request: IncomingMessage, response: ServerResponse): Promise<void> {
     try {
       const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+      if (url.pathname === "/diagnostics" && request.method === "GET") {
+        return html(response, 200, diagnosticsPage());
+      }
+      if (url.pathname.startsWith("/api/diagnostics/bundle") || url.pathname === "/api/diagnostics/summary") {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) {
+          return json(response, 401, { error: "Unauthorized" });
+        }
+        return await this.#diagnosticBundle(request, response, url.pathname);
+      }
+      response.once("finish", () => {
+        const parts = url.pathname.split("/").filter(Boolean);
+        if (parts[0] !== "api" || parts[1] === "diagnostics") return;
+        const serial = parts[1] === "cameras" || parts[1] === "stations" || parts[1] === "sensors" ? parts[2] : undefined;
+
+        // Never retain URLs, opaque recording IDs, body values or error text.
+        const operation = parts[1] === "cameras" ? "camera-request" : parts[1] === "stations" ? "station-request" : "gateway-request";
+        this.#bundle?.record(operation, serial, response.statusCode);
+      });
       const capturePath = url.pathname === "/api/diagnostics/event-images" || url.pathname === "/api/diagnostics/event-images/export";
       if (capturePath) {
         response.setHeader("cache-control", "no-store");
@@ -406,7 +545,7 @@ export class GatewayServer {
       : connection.state === "connected"
         ? `<p><strong>Connected to Eufy.</strong></p><p>The gateway is ready. Return to Home Assistant to review your cameras and entities.</p><a class="button" href="/config/integrations/integration/eufy_event_gateway" target="_top">View Eufy integration</a>`
         : `<p>No authentication challenge is waiting.</p><p>Current connection: <strong>${escapeHtml(connection.state)}</strong>${connection.detail ? `; ${escapeHtml(connection.detail)}` : ""}.</p>`;
-    return html(response, 200, `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Eufy Mega Security</title><style>body{font:16px system-ui,sans-serif;max-width:34rem;margin:4rem auto;padding:0 1.25rem;color:#202124}main{border:1px solid #ddd;border-radius:12px;padding:1.5rem}img{display:block;max-width:100%;margin:1rem 0;border:1px solid #ddd}label,input,button{display:block;width:100%;box-sizing:border-box}input,button,.button{font:inherit;padding:.75rem;margin:.4rem 0 1rem}.button{display:inline-block;width:auto;border-radius:999px;background:#03a9f4;color:#fff;text-decoration:none}button{cursor:pointer}</style><main><h1>Eufy Mega Security</h1>${message ? `<p role="status">${escapeHtml(message)}</p>` : ""}${content}</main></html>`);
+    return html(response, 200, `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Eufy Mega Security</title><style>body{font:16px system-ui,sans-serif;max-width:34rem;margin:4rem auto;padding:0 1.25rem;color:#202124}main{border:1px solid #ddd;border-radius:12px;padding:1.5rem}img{display:block;max-width:100%;margin:1rem 0;border:1px solid #ddd}label,input,button{display:block;width:100%;box-sizing:border-box}input,button,.button{font:inherit;padding:.75rem;margin:.4rem 0 1rem}.button{display:inline-block;width:auto;border-radius:999px;background:#03a9f4;color:#fff;text-decoration:none}button{cursor:pointer}</style><main><h1>Eufy Mega Security</h1>${message ? `<p role="status">${escapeHtml(message)}</p>` : ""}${content}<p><a href="diagnostics">Create a diagnostic bundle</a></p></main></html>`);
   }
 
   async #submitCaptcha(request: IncomingMessage, response: ServerResponse): Promise<void> {

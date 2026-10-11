@@ -39,3 +39,6 @@ A short backward run may be a numbering reset or delayed data. These counters
 provide evidence to distinguish hypotheses but do not prove either one. Packet
 acceptance and recovery thresholds remain unchanged until hardware evidence
 supports a specific correction.
+
+Private diagnostic bundles for all discovered device families are described in
+[the private diagnostics guide](PRIVATE_DIAGNOSTICS.md). Media requires explicit consent and private sharing.

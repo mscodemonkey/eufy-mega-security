@@ -38,4 +38,12 @@ async def async_get_config_entry_diagnostics(
             "available": False,
             "reason": "gateway_endpoint_unavailable",
         }
-    return {"catalogue_evidence": evidence, "event_delivery": event_delivery}
+    try:
+        summary = await entry.runtime_data.coordinator.client.diagnostic_summary()
+    except GatewayClientError:
+        summary = {"available": False, "reason": "gateway_endpoint_unavailable"}
+    return {
+        "catalogue_evidence": evidence,
+        "event_delivery": event_delivery,
+        "gateway_summary": summary,
+    }

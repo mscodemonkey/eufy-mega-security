@@ -13,7 +13,7 @@ import type { CloudHistoryQuery, CloudHistoryRecord } from "../mega/cloud-histor
 import type { Readable } from "node:stream";
 import type { StoredRecordingSummary } from "../stream/stored-recordings.js";
 
-import type { CameraCapabilityManifest, CameraIdentity, CameraPresetPosition, DetectionKind, DeviceCapabilityManifest, EventReceiverState, HomeBaseState, InventoryDiagnostic, PushDiagnostic, SecuritySensorState, VideoCodec } from "../domain/types.js";
+import type { CameraCapabilityManifest, CameraIdentity, CameraPresetPosition, DetectionKind, DeviceCapabilityManifest, EventReceiverState, HomeBaseState, InventoryDiagnostic, PushDiagnostic, SecuritySensorState, StreamDiagnostic, VideoCodec } from "../domain/types.js";
 
 /** Callbacks through which a provider reports normalized observations. */
 export interface ProviderEvents {
@@ -42,6 +42,9 @@ export interface ProviderEvents {
 
 /** Lifecycle and stream operations required by the gateway server. */
 export interface CameraProvider {
+
+  /** Project active source counters synchronously, without opening a connection. */
+  streamDiagnostic?(serial: string): StreamDiagnostic | null;
 
   /** Read local completed event clips without exposing card paths or recording keys. */
   listStoredRecordings?(serial: string, date: string, signal?: AbortSignal): Promise<readonly StoredRecordingSummary[]>;

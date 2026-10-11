@@ -13,6 +13,8 @@ import { EventEmitter } from "node:events";
 import type { ServerResponse } from "node:http";
 import { type Readable, type Writable } from "node:stream";
 
+import type { DiagnosticMedia } from "../diagnostics/bundle-capture.js";
+
 import { GatewayState } from "../domain/gateway-state.js";
 import type { GatewayEvent, SnapshotInfo, VideoCodec } from "../domain/types.js";
 import { SnapshotStore } from "../storage/snapshot-store.js";
@@ -640,6 +642,9 @@ export class LiveStreamManager extends EventEmitter {
     session.audioSource = audio ?? null;
     audio?.on("data", (chunk: Buffer) => {
       if (session.generation !== generation || chunk.length === 0) return;
+      if (this.listenerCount("diagnostic-media")) {
+        this.emit("diagnostic-media", { serial, kind: "audio", codec: "aac", data: chunk } satisfies DiagnosticMedia);
+      }
       for (const consume of session.audioConsumers) consume(chunk);
       for (const recording of [...session.recordings]) {
         if (!recording.started) continue;
@@ -684,6 +689,9 @@ export class LiveStreamManager extends EventEmitter {
     source.on("data", (chunk: Buffer) => {
       if (session.generation !== generation) return;
       if (chunk.length === 0) return;
+      if (this.listenerCount("diagnostic-media")) {
+        this.emit("diagnostic-media", { serial, kind: "video", codec: codecHint() ?? "unknown", data: chunk } satisfies DiagnosticMedia);
+      }
       if (session.sourceQuietTimer) clearTimeout(session.sourceQuietTimer);
       session.sourceQuietTimer = setTimeout(() => {
         if (session.generation !== generation || this.#closed) return;

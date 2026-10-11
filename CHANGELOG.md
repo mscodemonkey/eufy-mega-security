@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.131
+
+- Add gateway-owned diagnostic bundles for HomeBases, standalone cameras, sensors, NVR inventory and other discovered devices. Metadata is the default, with explicit consent for native video, audio and retained pictures.
+- Include relative lifecycle/request evidence, capability availability and safe active-source transport counters, with memory, time and size limits and authenticated export/clear actions.
+- Add a diagnostics page, a utility using Home Assistant's saved gateway connection, offline integrity checking and standard private email/cloud-sharing instructions. No external research harness is required.
+- v0.1.130 was withdrawn. NVR RTC media remains unavailable and is stated explicitly in the bundle manifest and documentation.
+
 ## 0.1.129
 
 - Show account-defined names for custom HomeBase guard modes instead of generic Custom 1, Custom 2 and Custom 3 labels.

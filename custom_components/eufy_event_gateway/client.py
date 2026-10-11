@@ -159,6 +159,10 @@ class GatewayClient:
         except (ClientError, TimeoutError) as error:
             raise GatewayClientError("Recording gateway request failed") from error
 
+    async def diagnostic_summary(self) -> dict[str, Any]:
+        """Fetch the gateway's projected cross-device metadata without private media."""
+        return await self._json("/api/diagnostics/summary")
+
     async def catalogue_evidence(self) -> dict[str, Any]:
         """Fetch the gateway's privacy-safe device catalogue evidence."""
         return await self._json("/api/diagnostics/catalogue-evidence")

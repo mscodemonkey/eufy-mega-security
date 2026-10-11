@@ -13,3 +13,6 @@ Keep Eufy credentials in environment variables or Home Assistant's private app c
 ## Supported versions
 
 The latest tagged release receives security fixes. Older versions may continue to work with Eufy's services, but they are not a supported place to report a security issue. Upgrade to the latest release before investigating a suspected fix unless upgrading would destroy evidence needed for the report.
+
+Private diagnostic bundles for all discovered device families are described in
+[the private diagnostics guide](docs/PRIVATE_DIAGNOSTICS.md). Media requires explicit consent and private sharing.

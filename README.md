@@ -416,3 +416,6 @@ docker build -t eufy-mega-security:test .
 ## Licence
 
 [MIT](LICENSE)
+
+Private diagnostic bundles for all discovered device families are described in
+[the private diagnostics guide](docs/PRIVATE_DIAGNOSTICS.md). Media requires explicit consent and private sharing.

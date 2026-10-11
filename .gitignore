@@ -21,3 +21,6 @@ docs/capability-workflow.local.md
 docs/TODO.md
 /AGENTS.md
 /.plans/
+
+# Private diagnostic exports.
+*diagnostics*.json.gz

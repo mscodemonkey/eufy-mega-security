@@ -525,3 +525,11 @@ export interface CatalogueEventEvidence {
   readonly hasFetchId: boolean;
   readonly hasSenseId: boolean;
 }
+
+/** Numeric source-transport evidence without peer addresses, keys or payload bytes. */
+export interface StreamDiagnostic {
+  readonly stage: "lookup" | "first-frame" | "media";
+  readonly counters: Readonly<Record<"dataDatagrams" | "frameHeaders" | "videoFrames" | "videoOutputFrames"
+    | "sequenceGaps" | "sequenceRestarts" | "duplicateDatagrams" | "staleDatagrams"
+    | "parserResyncs" | "pendingBytes" | "incompleteAccessUnits" | "incompleteAccessUnitBytes", number>>;
+}
