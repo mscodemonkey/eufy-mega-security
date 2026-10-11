@@ -8,6 +8,7 @@ import { createCipheriv, createECDH, createHmac } from "node:crypto";
 import { encode, decode } from "jpeg-js";
 import { parseV8EventImage, decodeV8EventImage } from "../src/mega/v8-image.js";
 import { downloadPushSnapshot } from "../src/provider/eufy-provider.js";
+import { EventImageCapture } from "../src/diagnostics/event-image-capture.js";
 
 const station = "SYNTHETIC0000001";
 const recipient = createECDH("prime256v1");
@@ -103,4 +104,32 @@ test("V8 rejects a key response after its inventory owner changes", async () => 
       return [{ cipher_id: 10, ecc_private_key: recipient.getPrivateKey().toString("hex") }];
     },
   }, { pictureUrl: "https://example.invalid/private", stationSerial: station }, devices), /owner_changed/);
+});
+
+test("V8 retains only failed originals in the opt-in private capture", async () => {
+  const capture = new EventImageCapture();
+  const devices = new Map([[station, { p2pDid: null, adminUserId: "synthetic-owner" }]]);
+  const body = fixture();
+  const client = {
+    download: async () => body,
+    getCiphers: async () => [{ cipher_id: 10, ecc_private_key: recipient.getPrivateKey().toString("hex") }],
+  };
+  try {
+    await downloadPushSnapshot(client, { pictureUrl: "https://example.invalid/private", stationSerial: station }, devices, capture);
+    assert.equal(capture.status().sampleCount, 0);
+    body[175] = body[175]! ^ 1;
+    const original = Buffer.from(body);
+    await assert.rejects(downloadPushSnapshot(client,
+      { pictureUrl: "https://example.invalid/private", stationSerial: station }, devices, capture), /image_authentication_failed/);
+    assert.deepEqual(Buffer.from(capture.archive()!.samples[0]!.bodyBase64, "base64"), original);
+    assert.deepEqual(body, original);
+  } finally { capture.close(); }
+});
+
+test("V8 fails closed on ambiguous responses and invalid private scalars", async () => {
+  const row = { cipher_id: 10, ecc_private_key: recipient.getPrivateKey().toString("hex") };
+  await assert.rejects(download(fixture(), { rows: [row, row] }), /key_unavailable/);
+  for (const key of ["0".repeat(64), "f".repeat(64)]) {
+    await assert.rejects(download(fixture(), { rows: [{ cipher_id: 10, ecc_private_key: key }] }), /key_authentication_failed/);
+  }
 });
