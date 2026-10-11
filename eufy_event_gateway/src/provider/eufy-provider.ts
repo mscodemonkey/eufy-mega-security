@@ -2677,7 +2677,8 @@ function isPrivateIpv4(value: string): boolean {
  * Decode only capability-backed inventory reads; arbitrary values are discarded.
  *
  * The caller explicitly identifies standalone channel-zero inventory before
- * C31-specific fields can override legacy HomeBase meanings.
+ * model-specific fields can override legacy HomeBase meanings. Reported state
+ * does not authorize a write or establish the physical effect of a control.
  */
 export function safeInventoryReads(value: unknown, deviceType: number | null = null, model?: string, standaloneChannelZero = false): MegaInventoryReads {
   if (!Array.isArray(value)) return {};
@@ -2745,7 +2746,10 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const notificationStyle = t8171 ? finiteNumber(params.get(6020)) : null;
   const watermark = t8425 || c31 ? finiteNumber(params.get(1214)) : null;
   const antiTheft = t8425 ? finiteNumber(params.get(1015)) : null;
-  const spotlight = qualityFamily ? finiteNumber(params.get(1403)) : null;
+  const nativeLightProfile = (deviceType === 38 && model === "T8423")
+    || (deviceType === 105 && model === "T8417")
+    || (deviceType === 151 && model === "T84A1");
+  const spotlight = qualityFamily || nativeLightProfile ? finiteNumber(params.get(1403)) : null;
   const sensitivity = qualityFamily ? finiteNumber(params.get(1276)) : null;
   const compositeQuality = deviceType === 5 ? finiteNumber(params.get(1705)) : null;
   const validComposite = compositeQuality !== null && Number.isInteger(compositeQuality)
@@ -2765,9 +2769,10 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const openDevice = finiteNumber(params.get(2001));
   const cameraSwitch = finiteNumber(params.get(1035));
 
-  // The verified standalone cameras report detection through their native switch.
+  // The selected standalone profiles report detection through their native switch.
   // A conflicting legacy bit must not override that model-specific read.
-  const motionSwitch = finiteNumber(params.get(soloE30 || c31 ? 6040 : 1011));
+  const nativeLightMotion = standaloneChannelZero && nativeLightProfile;
+  const motionSwitch = finiteNumber(params.get(soloE30 || c31 || nativeLightMotion ? 6040 : 1011));
   const guardMode = finiteNumber(params.get(1224));
   const autoNightVision = finiteNumber(params.get(1013));
   const nightVisionMode = finiteNumber(params.get(1277));

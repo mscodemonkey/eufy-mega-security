@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.132
+
+- Correct reported motion-detection state for standalone Wall Light Cam S100 (T84A1), Indoor Cam E30 (T8417), and Floodlight Cam 2 Pro (T8423). The native state now takes precedence over conflicting legacy values, and missing or invalid native state stays unknown.
+- Surface the reported master spotlight setting for those exact models in Home Assistant camera attributes. This setting is separate from the momentary manual light and does not indicate whether the light is currently illuminated.
+- Keep motion, spotlight, privacy, PTZ and siren control eligibility unchanged. These state corrections do not establish new hardware control support.
+
 ## 0.1.131
 
 - Add gateway-owned diagnostic bundles for HomeBases, standalone cameras, sensors, NVR inventory and other discovered devices. Metadata is the default, with explicit consent for native video, audio and retained pictures.

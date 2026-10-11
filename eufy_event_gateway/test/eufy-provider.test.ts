@@ -795,6 +795,64 @@ test("uses camera-specific labels for the three night modes", () => {
   }), []);
 });
 
+test("reads exact light-camera motion from the native standalone parameter without stale fallback", () => {
+  for (const [model, type] of [["T84A1", 151], ["T8417", 105], ["T8423", 38]] as const) {
+    for (const enabled of [false, true]) {
+      const params = [
+        { param_type: 6040, param_value: enabled ? "1" : "0" },
+        { param_type: 1011, param_value: enabled ? "0" : "1" },
+      ];
+      assert.equal(safeInventoryReads(params, type, model, true).motionDetectionEnabled, enabled);
+      assert.equal(safeInventoryReads(params, type, model, false).motionDetectionEnabled, !enabled);
+      assert.equal(safeInventoryReads(params, type + 1, model, true).motionDetectionEnabled, !enabled);
+      assert.equal(safeInventoryReads(params, type, `${model}X`, true).motionDetectionEnabled, !enabled);
+    }
+    for (const invalid of [undefined, null, "", "true", "2", "-1", "0.5", {}, false]) {
+      assert.equal(safeInventoryReads([
+        { param_type: 6040, param_value: invalid },
+        { param_type: 1011, param_value: "1" },
+      ], type, model, true).motionDetectionEnabled, undefined);
+    }
+    assert.equal(safeInventoryReads([{ param_type: 1011, param_value: "1" }], type, model, true)
+      .motionDetectionEnabled, undefined);
+  }
+});
+
+test("surfaces exact light-camera master spotlight state without inferring the manual light", () => {
+  for (const [model, type] of [["T84A1", 151], ["T8417", 105], ["T8423", 38]] as const) {
+    for (const direct of [false, true]) {
+      for (const enabled of [false, true]) {
+        const params = [
+          { param_type: 1403, param_value: enabled ? "1" : "0" },
+          { param_type: 1400, param_value: enabled ? "0" : "1" },
+        ];
+        assert.equal(safeInventoryReads(params, type, model, direct).spotlightEnabled, enabled);
+        assert.equal(safeInventoryReads(params, type + 1, model, direct).spotlightEnabled, undefined);
+        assert.equal(safeInventoryReads(params, type, `${model}X`, direct).spotlightEnabled, undefined);
+      }
+    }
+    for (const invalid of [undefined, null, "", "true", "2", "-1", "0.5", {}, false]) {
+      assert.equal(safeInventoryReads([{ param_type: 1403, param_value: invalid }], type, model)
+        .spotlightEnabled, undefined);
+    }
+    assert.equal(safeInventoryReads([{ param_type: 1400, param_value: "1" }], type, model)
+      .spotlightEnabled, undefined);
+  }
+});
+
+test("detects standalone light-camera inventory routes before selecting motion state", () => {
+  for (const [model, type] of [["T84A1", 151], ["T8417", 105], ["T8423", 38]] as const) {
+    for (const parent of [undefined, "camera", "station"]) {
+      const [camera] = parseMegaInventory({ devices: [{
+        device_sn: "camera", parent_sn: parent, device_model: model,
+        device_type: type, device_channel: 0,
+        params: [{ param_type: 6040, param_value: "0" }, { param_type: 1011, param_value: "1" }],
+      }] });
+      assert.equal(camera?.reads.motionDetectionEnabled, parent === "station");
+    }
+  }
+});
+
 test("writes battery and indoor camera enablement with the matching polarity", () => {
   assert.equal(cameraEnableRawValue(88, true), 0);
   assert.equal(cameraEnableRawValue(88, false), 1);

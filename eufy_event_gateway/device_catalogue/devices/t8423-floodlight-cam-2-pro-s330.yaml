@@ -25,6 +25,30 @@ capabilities:
       values:
         "0": "Off"
         "1": "On"
+    motion_detection:
+      connections:
+        direct:
+          status: declared
+      read:
+        parameter: 6040
+      write:
+        action: unavailable_until_direct_motion_control_is_verified
+      values:
+        "0": "Off"
+        "1": "On"
+      notes: Exact T8423 standalone state uses 6040. Attached state retains 1011. Reading the state does not enable a motion control or establish physical detection.
+    spotlight_master:
+      connections:
+        direct:
+          status: declared
+      read:
+        parameter: 1403
+      write:
+        action: unavailable_until_spotlight_control_is_verified
+      values:
+        "0": "Off"
+        "1": "On"
+      notes: Exact T8423 reports the master spotlight setting separately from the momentary manual light. This is reported state only, not a new light control or proof that the light is illuminated.
   media:
     live_view:
       connections:
