@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.135
+
+- Decode authenticated V8 event pictures through the matching station owner's account key, allowing this encrypted picture format to update Home Assistant event images.
+- Preserve retained images on key or authentication failure and discard delayed push-picture results after a gateway restart.
+
 ## 0.1.134
 
 - Improve standalone T8423 live-start compatibility by omitting an optional startup field that this model does not request. Reporter confirmation of intermittent first-start behaviour is still pending.

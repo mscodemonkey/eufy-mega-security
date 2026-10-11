@@ -25,6 +25,7 @@ import type { CloudHistoryQuery, CloudHistoryRecord } from "../mega/cloud-histor
 import { guardModeCustomNames, guardModeMetadataShape, guardModeMetadataStructure } from "../mega/guard-mode-metadata.js";
 import { MegaClient } from "../mega/client.js";
 import { decodeEventImage, isJpeg } from "../mega/image.js";
+import { parseV8EventImage, decodeV8EventImage } from "../mega/v8-image.js";
 import { MegaPushReceiver, type MegaPushEvent } from "../mega/push.js";
 import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBaseChildParam, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
@@ -2570,8 +2571,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   #queuePushSnapshot(events: ProviderEvents, event: MegaPushEvent): void {
+    const generation = this.#startupGeneration;
     const previous = this.#pushSnapshotQueues.get(event.cameraSerial) ?? Promise.resolve();
     const current = previous.then(async () => {
+      if (generation !== this.#startupGeneration) return;
       const camera = this.#devices.get(event.cameraSerial);
       const context: EventImageContext = camera ? {
         model: camera.model,
@@ -2580,6 +2583,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       } : {};
       const picture = await downloadPushSnapshot(this.#client, event, this.#devices, this.config.eventImageCapture, context);
       if (picture) {
+        if (generation !== this.#startupGeneration) {
+          picture.data.fill(0);
+          return;
+        }
         events.snapshot(event.cameraSerial, picture.data, "image/jpeg");
       }
     }).catch((error: unknown) => {
@@ -2598,9 +2605,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
  * Download errors and last-good image ownership stay with their existing boundaries.
  */
 export async function downloadPushSnapshot(
-  client: Pick<MegaClient, "download"> & Partial<Pick<MegaClient, "downloadWithMetadata">>,
+  client: Pick<MegaClient, "download"> & Partial<Pick<MegaClient, "downloadWithMetadata" | "getCiphers">>,
   event: Pick<MegaPushEvent, "pictureUrl" | "stationSerial">,
-  devices: ReadonlyMap<string, Pick<MegaInventoryDevice, "p2pDid">>,
+  devices: ReadonlyMap<string, Pick<MegaInventoryDevice, "p2pDid"> & Partial<Pick<MegaInventoryDevice, "adminUserId">>>,
   capture?: EventImageCapture,
   context: EventImageContext = {},
 ): Promise<{ data: Buffer } | null> {
@@ -2613,6 +2620,36 @@ export async function downloadPushSnapshot(
     logger.warn("event_image_capture_unavailable", "Failed event-image evidence could not be captured");
   }
   try {
+    const v8 = parseV8EventImage(encoded);
+    if (v8) {
+      if (v8.stationSerial !== event.stationSerial) {
+        throw new Error("event image decode failed: format=v8 result=station_mismatch");
+      }
+      const owner = devices.get(event.stationSerial)?.adminUserId;
+      if (!owner || !client.getCiphers) {
+        throw new Error("event image decode failed: format=v8 result=key_unavailable");
+      }
+      let ciphers: readonly Record<string, unknown>[];
+      try {
+        ciphers = await client.getCiphers([v8.cipherId], owner, event.stationSerial);
+      } catch {
+        throw new Error("event image decode failed: format=v8 result=key_lookup_failed");
+      }
+      if (devices.get(event.stationSerial)?.adminUserId !== owner) {
+        throw new Error("event image decode failed: format=v8 result=owner_changed");
+      }
+      const matching = ciphers.filter((cipher) => Number(cipher.cipher_id) === v8.cipherId);
+      const value = matching.length === 1 ? matching[0]!.ecc_private_key : undefined;
+      if (typeof value !== "string" || !/^[a-fA-F0-9]{64}$/.test(value)) {
+        throw new Error("event image decode failed: format=v8 result=key_unavailable");
+      }
+      const privateKey = Buffer.from(value, "hex");
+      try {
+        return { data: decodeV8EventImage(v8, privateKey) };
+      } finally {
+        privateKey.fill(0);
+      }
+    }
     const p2pDid = devices.get(event.stationSerial)?.p2pDid;
     if (!p2pDid && eventImageFormat(encoded) === "legacy") throw new Error("event image cannot be decoded without its HomeBase identity");
     const decoded = decodeEventImage(encoded, p2pDid ?? "");
@@ -2635,10 +2672,11 @@ export async function downloadPushSnapshot(
 }
 
 /** Classify an event-image body without retaining its contents or identity. */
-function eventImageFormat(data: Buffer): "binary" | "empty" | "gzip" | "html" | "jpeg" | "json" | "legacy" | "png" | "v2" | "webp" {
+function eventImageFormat(data: Buffer): "binary" | "empty" | "gzip" | "html" | "jpeg" | "json" | "legacy" | "png" | "v2" | "v8" | "webp" {
   if (data.length === 0) return "empty";
   if (data.length >= 2 && data[0] === 0xff && data[1] === 0xd8) return "jpeg";
   if (data.subarray(0, 16).toString("latin1") === "v2_eufysecurity:") return "v2";
+  if (data.subarray(0, 16).toString("latin1") === "v8_eufysecurity:") return "v8";
   if (data.subarray(0, 12).toString("latin1") === "eufysecurity") return "legacy";
   if (data.length >= 8 && data.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "png";
   if (data.length >= 12 && data.subarray(0, 4).toString("latin1") === "RIFF" && data.subarray(8, 12).toString("latin1") === "WEBP") return "webp";
