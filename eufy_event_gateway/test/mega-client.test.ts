@@ -108,77 +108,83 @@ test("completes encrypted push registration and activation using one restored re
   }
 });
 
-test("replaces and persists a stale Mega identity after HTTP 463 error 4406", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "mega-identity-recovery-"));
-  const sessionPath = join(directory, "mega-session.json");
-  const host = "app-openapi-eu-pr.eufy.com";
-  const staleSharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
-  let refreshedSharedKey = "";
-  const requests: Array<{ readonly path: string; readonly keyIdent: string | null }> = [];
-  try {
-    await writeFile(sessionPath, JSON.stringify({
-      version: 2, country: "au", openUdid: "device",
-      credentialVerifier: credentialVerifier("device", "user@example.invalid", "password"),
-      authToken: "token", tokenExpiresAt: 2_000_000_000, userId: "user",
-      megaDomain: "mega-eu-pr.eufy.com", domains: {},
-      identities: { [host]: { keyIdent: "stale-identity", sharedKey: staleSharedKey, clientPublicKey: "public" } },
-    }));
-    const fakeFetch: typeof fetch = async (input, init) => {
-      const path = new URL(String(input)).pathname;
-      const headers = new Headers(init?.headers);
-      requests.push({ path, keyIdent: headers.get("x-key-ident") });
-      if (path === "/app/house/get_devs_list" && requests.length === 1) {
-        return new Response(JSON.stringify({ code: 4406, msg: "get identity error", data: {} }), { status: 463 });
-      }
-      if (path === "/openapi/oauth/key/exchange") {
-        const body = JSON.parse(String(init?.body ?? "{}")) as { client_public_key?: string };
-        const clientPublicKey = decryptEnvelope(body.client_public_key ?? "", presetKey());
-        const server = createECDH("prime256v1");
-        server.generateKeys();
-        refreshedSharedKey = server.computeSecret(Buffer.from(clientPublicKey, "hex")).toString("hex");
-        return new Response(JSON.stringify({
-          code: 0,
-          data: { server_public_key: encryptEnvelope(server.getPublicKey("hex"), presetKey(), Buffer.alloc(16, 2)) },
+test("replaces and persists only classified stale identities", async () => {
+  for (const code of [4404, 4406, 100030]) {
+    for (const status of [200, 463]) {
+      const directory = await mkdtemp(join(tmpdir(), "mega-identity-recovery-"));
+      const sessionPath = join(directory, "mega-session.json");
+      const host = "app-openapi-eu-pr.eufy.com";
+      const staleSharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
+      let refreshedSharedKey = "";
+      const requests: Array<{ readonly path: string; readonly keyIdent: string | null }> = [];
+      try {
+        await writeFile(sessionPath, JSON.stringify({
+          version: 2, country: "au", openUdid: "device",
+          credentialVerifier: credentialVerifier("device", "user@example.invalid", "password"),
+          authToken: "token", tokenExpiresAt: 2_000_000_000, userId: "user",
+          megaDomain: "mega-eu-pr.eufy.com", domains: {},
+          identities: { [host]: { keyIdent: "stale-identity", sharedKey: staleSharedKey, clientPublicKey: "public" } },
         }));
-      }
-      const responseValue = path === "/app/house/get_devs_list" ? { devices: [], groups: [] } : [];
-      const data = encryptEnvelope(JSON.stringify(responseValue), sharedAesKey(refreshedSharedKey), Buffer.alloc(16, 3));
-      return new Response(JSON.stringify({ code: 0, data }));
-    };
-    const client = new MegaClient({
-      email: "user@example.invalid", password: "password", country: "AU", persistentDirectory: directory,
-      minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000, fetch: fakeFetch,
-    });
+        const fakeFetch: typeof fetch = async (input, init) => {
+          const path = new URL(String(input)).pathname;
+          const headers = new Headers(init?.headers);
+          requests.push({ path, keyIdent: headers.get("x-key-ident") });
+          if (path === "/app/house/get_devs_list" && requests.length === 1) {
+            return new Response(JSON.stringify({ code, msg: "get identity error", data: {} }), { status });
+          }
+          if (path === "/openapi/oauth/key/exchange") {
+            const body = JSON.parse(String(init?.body ?? "{}")) as { client_public_key?: string };
+            const clientPublicKey = decryptEnvelope(body.client_public_key ?? "", presetKey());
+            const server = createECDH("prime256v1");
+            server.generateKeys();
+            refreshedSharedKey = server.computeSecret(Buffer.from(clientPublicKey, "hex")).toString("hex");
+            return new Response(JSON.stringify({
+              code: 0,
+              data: { server_public_key: encryptEnvelope(server.getPublicKey("hex"), presetKey(), Buffer.alloc(16, 2)) },
+            }));
+          }
+          const responseValue = path === "/app/house/get_devs_list" ? { devices: [], groups: [] } : [];
+          const data = encryptEnvelope(JSON.stringify(responseValue), sharedAesKey(refreshedSharedKey), Buffer.alloc(16, 3));
+          return new Response(JSON.stringify({ code: 0, data }));
+        };
+        const client = new MegaClient({
+          email: "user@example.invalid", password: "password", country: "AU", persistentDirectory: directory,
+          minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000, fetch: fakeFetch,
+        });
 
-    assert.equal(client.isSessionInvalidError(new Error("Mega request failed (4404: get identity error)")), true);
-    assert.deepEqual(await client.connect(), { state: "authenticated" });
-    assert.deepEqual(await client.inventory(), { devices: [], groups: [] });
-    assert.deepEqual(requests.map((request) => request.path), [
-      "/app/house/get_devs_list",
-      "/openapi/oauth/key/exchange",
-      "/app/house/get_devs_list",
-      "/v2/house/device_list",
-    ]);
-    const saved = JSON.parse(await readFile(sessionPath, "utf8")) as {
-      identities: Record<string, { keyIdent: string }>;
-    };
-    assert.notEqual(saved.identities[host]?.keyIdent, "stale-identity");
-    assert.equal(saved.identities[host]?.keyIdent, requests[1]?.keyIdent);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
+        assert.equal(client.isSessionInvalidError(new Error("Mega request failed (4404: get identity error)")), true);
+        assert.deepEqual(await client.connect(), { state: "authenticated" });
+        assert.deepEqual(await client.inventory(), { devices: [], groups: [] });
+        assert.deepEqual(requests.map((request) => request.path), [
+          "/app/house/get_devs_list",
+          "/openapi/oauth/key/exchange",
+          "/app/house/get_devs_list",
+          "/v2/house/device_list",
+        ]);
+        const saved = JSON.parse(await readFile(sessionPath, "utf8")) as {
+          identities: Record<string, { keyIdent: string }>;
+        };
+        assert.notEqual(saved.identities[host]?.keyIdent, "stale-identity");
+        assert.equal(saved.identities[host]?.keyIdent, requests[1]?.keyIdent);
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    }
   }
 });
 
-test("keeps unrelated and malformed HTTP 463 responses terminal", async () => {
+test("keeps login limits and unrelated responses terminal", async () => {
   const host = "app-openapi-eu-pr.eufy.com";
   const sharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
   const cases = [
+    { status: 200, body: JSON.stringify({ code: 100028, msg: "PRIVATE RESPONSE MESSAGE", data: {} }), error: "Mega request failed (100028: application error)" },
+    { status: 463, body: JSON.stringify({ code: 100028, msg: "PRIVATE RESPONSE MESSAGE", data: {} }), error: "Mega request failed (HTTP 463 code 100028)" },
     { body: JSON.stringify({ code: 9999, msg: "PRIVATE RESPONSE MESSAGE", data: {} }), error: "Mega request failed (HTTP 463 code 9999)" },
     { body: JSON.stringify({ code: "9999", msg: "PRIVATE RESPONSE MESSAGE", data: {} }), error: "Mega request failed (HTTP 463 response json_without_numeric_code)" },
     { body: "not-json", error: "Mega request failed (HTTP 463 response non_json)" },
     { body: "", error: "Mega request failed (HTTP 463 response empty_or_truncated)" },
   ];
-  for (const { body, error } of cases) {
+  for (const { body, error, status = 463 } of cases) {
     const directory = await mkdtemp(join(tmpdir(), "mega-http463-terminal-"));
     const requests: string[] = [];
     try {
@@ -194,12 +200,15 @@ test("keeps unrelated and malformed HTTP 463 responses terminal", async () => {
         minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000,
         fetch: async (input) => {
           requests.push(new URL(String(input)).pathname);
-          return new Response(body, { status: 463 });
+          return new Response(body, { status });
         },
       });
 
       assert.deepEqual(await client.connect(), { state: "authenticated" });
+      const savedBefore = await readFile(join(directory, "mega-session.json"), "utf8");
       await assert.rejects(client.inventory(), (caught: unknown) => caught instanceof Error && caught.message === error);
+      assert.equal(await readFile(join(directory, "mega-session.json"), "utf8"), savedBefore);
+      assert.equal(client.isSessionInvalidError(new Error(error)), false);
       assert.deepEqual(requests, ["/app/house/get_devs_list"]);
     } finally {
       await rm(directory, { recursive: true, force: true });
