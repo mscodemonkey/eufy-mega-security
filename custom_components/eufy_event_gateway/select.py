@@ -19,6 +19,7 @@ from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
 from .const import ALARM_TONES, DOMAIN, GUARD_MODES
 from .coordinator import EufyGatewayCoordinator
+from .guard_mode_options import guard_mode_label, guard_mode_options
 from .preferences import camera_preference_value
 from .entity import EufyGatewayEntity, EufyStationEntity
 
@@ -30,34 +31,6 @@ NIGHT_VISION_MODE_KEYS = {
     "Infrared on": "infrared_on",
     "Spotlight": "spotlight",
 }
-
-
-def _guard_mode_options(station: dict[str, Any]) -> dict[int, str]:
-    """Map custom modes to private names without accepting ambiguous options."""
-    options = dict(GUARD_MODES)
-    names = station.get("guardModeNames")
-    if not isinstance(names, dict):
-        return options
-    candidates: dict[int, str] = {}
-    for mode in range(3, 6):
-        name = names.get(str(mode), names.get(mode))
-        if (
-            isinstance(name, str)
-            and 0 < len(name) <= 64
-            and name == name.strip()
-            and not any(ord(character) < 32 or ord(character) == 127 for character in name)
-        ):
-            candidates[mode] = name
-    for mode, name in candidates.items():
-        other_labels = {
-            label for other_mode, label in options.items() if other_mode != mode
-        }
-        other_labels.update(
-            label for other_mode, label in candidates.items() if other_mode != mode
-        )
-        if name not in other_labels:
-            options[mode] = name
-    return options
 
 
 async def async_setup_entry(
@@ -296,17 +269,17 @@ class EufyGuardModeSelect(EufyStationEntity, SelectEntity):
     @property
     def options(self) -> list[str]:
         """Return built-in tokens plus confirmed account-defined custom names."""
-        return list(_guard_mode_options(self.station).values())
+        return list(guard_mode_options(self.station).values())
 
     @property
     def current_option(self) -> str | None:
         """Return the configured policy, not the effective scheduled mode."""
         mode = self.station.get("guardMode")
-        return _guard_mode_options(self.station).get(mode) if isinstance(mode, int) else None
+        return guard_mode_label(self.station, mode)
 
     async def async_select_option(self, option: str) -> None:
         """Set a guard policy and publish it only after gateway confirmation."""
-        labels = _guard_mode_options(self.station)
+        labels = guard_mode_options(self.station)
         mode = next((value for value, label in labels.items() if label == option), None)
         if mode is None:
             mode = next(

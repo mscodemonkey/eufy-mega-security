@@ -34,6 +34,7 @@ from . import EufyGatewayConfigEntry
 from .const import DOMAIN, GUARD_MODES
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity, EufySecuritySensorEntity, EufyStationEntity
+from .guard_mode_options import guard_mode_label, guard_mode_options
 
 
 async def async_setup_entry(
@@ -367,8 +368,8 @@ class EufySensorSignalStrength(EufySecuritySensorEntity, SensorEntity):
 class EufyGuardModeSensor(EufyStationEntity, SensorEntity):
     """Expose inventory-owned mode state without sending security commands.
 
-    The coordinator owns updates for the entity's lifetime. NVR stations use
-    their own mode numbering, independently of HomeBase custom-mode slots.
+    The coordinator owns updates for the entity's lifetime. Account-defined
+    custom titles use the same validated mapping as writable HomeBase selects.
     """
 
     _attr_translation_key = "eufy_guard_mode_sensor"
@@ -382,26 +383,15 @@ class EufyGuardModeSensor(EufyStationEntity, SensorEntity):
         self._attr_unique_id = f"{serial}_guard_mode_read_only"
 
     @property
-    def _mode_labels(self) -> dict[int, str]:
-        """Keep NVR Geofencing separate from HomeBase custom mode one."""
-        model = self.station.get("model")
-        if isinstance(model, str) and model.startswith("T8N00"):
-            return {
-                0: "away", 1: "home", 2: "schedule",
-                3: "geofencing", 63: "disarmed",
-            }
-        return GUARD_MODES
-
-    @property
     def options(self) -> list[str]:
         """Return the configured-mode vocabulary for the current station."""
-        return list(self._mode_labels.values())
+        return list(guard_mode_options(self.station).values())
 
     @property
     def native_value(self) -> str | None:
         """Return the configured Eufy mode reported by the station."""
         value = self.station.get("guardMode")
-        return self._mode_labels.get(value) if type(value) is int else None
+        return guard_mode_label(self.station, value)
 
 
 class EufyEffectiveModeSensor(EufyStationEntity, SensorEntity):

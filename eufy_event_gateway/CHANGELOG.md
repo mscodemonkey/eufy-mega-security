@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.137
+
+- Keep a previously confirmed HomeBase connection through up to three consecutive background refresh failures, avoiding transient connection-entity flicker while preserving startup and explicit-operation failure handling.
+- Correct the read-only T8N00 NVR guard-mode sensor so mode 3 uses its validated account-defined custom title and catalogue mode 47 maps to Geofencing. NVR guard-mode writes remain unavailable.
+
 ## 0.1.136
 
 - Correct account-owned encrypted event-picture key lookup while preserving the last valid image when a key is unavailable.
