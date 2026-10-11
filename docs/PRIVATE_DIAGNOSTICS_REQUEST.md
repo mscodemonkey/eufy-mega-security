@@ -1,19 +1,18 @@
 # Private diagnostic request
 
-Use only when the reporter agrees and a bundle can answer a specific unresolved
-question. Replace placeholders and choose metadata or private media explicitly.
-Check the current published version and the exact device's supported capture
-stages before sending. Never recommend the withdrawn v0.1.130 helper.
+Choose a specific unresolved question and the smallest capture that answers it.
+Check the published app version and the device's capture support first. Use the
+current walkthrough on `main` so documentation improvements reach reporters,
+while its tool downloads stay pinned to a tested release. Replace placeholders
+and choose one consent sentence. Never recommend the withdrawn v0.1.130 helper.
 
 > Hey {name},
 >
-> Would you mind trying a short diagnostic capture so I can investigate {specific problem}? Please use the gateway's private diagnostics guide at {link to PRIVATE_DIAGNOSTICS.md in the current release}. It uses your existing integration connection and works with HomeBases, standalone cameras and other discovered devices.
+> Would you mind trying a {30/60}-second capture for {specific problem}? Update the app and integration to {current version, qualified as current at the time of writing}, then follow this [short guide](https://github.com/mscodemonkey/eufy-mega-security/blob/main/docs/PRIVATE_DIAGNOSTICS.md). Choose {device/all devices}, start capture and {smallest reproduction action}.
 >
-> {Choose one: A 30-second metadata capture is enough. / This needs the optional private media capture, which can include pictures, conversations and video. Only enable that if you're comfortable sharing it privately.} Start the capture, then {smallest reproduction action}. The guide explains how to download the bundle.
+> {Choose one: Leave private media off. / This needs optional private media, which may include pictures, video and conversations. Only enable it if you're comfortable sharing those privately.} Send the file to mscm.projects@gmail.com with #{issue} and what happened. Above 20 MB, a private cloud link granting that address download access is fine. Keep files and private links out of this public issue, and don't send credentials or configuration files.
 >
-> Please could you send it to mscm.projects@gmail.com with this issue number and what happened? If it's over 20 MB, a private cloud link granting that address download access is fine. Keep the bundle and any private links out of this public issue. You don't need to send passwords or configuration files.
->
-> Thanks again for helping me investigate this.
+> Thanks again for helping investigate this.
 >
 > Cheers,
 > Mart

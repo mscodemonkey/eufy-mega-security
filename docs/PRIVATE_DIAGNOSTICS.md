@@ -1,55 +1,25 @@
-# Private diagnostic bundles
+# Send a diagnostic bundle
 
-The gateway can create the same diagnostic bundle for HomeBases, standalone
-cameras, sensors, NVRs and other discovered devices. No external research tool,
-Android device, packet sniffer or alternate Eufy login is required. Start with a
-30-second metadata session and reproduce the problem while it runs.
+A bundle helps us investigate a problem with your Eufy devices. It works with
+HomeBases, standalone cameras and other discovered devices. Nothing uploads
+automatically, and capturing diagnostics doesn't change your camera settings.
 
-Only collect private media when a maintainer has explained what it will help
-investigate and you agree. Video, audio and pictures can reveal people,
-conversations and your surroundings. Keep bundles and their download links out
-of public GitHub issues. Nothing uploads automatically.
+You'll need app and integration v0.1.131 or newer. Follow the short request in
+your GitHub issue for which device to choose and what to try.
 
-## What is captured
+## 1. Open the capture tool
 
-Every session includes the gateway version, model/type/topology and reported
-firmware, capability availability, event-delivery counters, relative lifecycle
-timing, request outcomes, log event codes and numeric counters from active
-gateway stream transports. These counters include parser progress, sequence
-gaps and duplicate/stale datagrams without wire prefixes or peer addresses. Device identifiers become
-session-local labels such as `device-1`. Names, account details, credentials,
-signed URLs, detection identities, arbitrary log/error messages and settings
-files are excluded. Global connection and log event codes are marked by the
-absence of a device label, even when one device is selected.
+In the Eufy Mega Security app's Web UI, click **Create a diagnostic bundle**.
+Enter your gateway API token and click **Load devices**. This is the gateway's
+token, not your Eufy password. Keep it private.
 
-With explicit consent, the same session can retain original H.264/H.265 video
-and validated AAC audio from the gateway's existing source, before viewer
-conversion or container muxing. Retained JPEG snapshots and event images can
-also be included. Those images may predate the session. The bundle retains chunk
-timing, codec labels, lengths and SHA-256 hashes. It is diagnostic evidence,
-not a guaranteed playable recording. Starting during an existing stream may
-miss decoder initialization and the time/size limit can stop mid-picture.
+**Don't know your token?** Home Assistant users can use the terminal method
+below instead. It uses your saved connection automatically.
 
-Selecting a HomeBase includes its inventoried child cameras. Selecting a camera
-includes its parent station's metadata and lifecycle events. Selecting all
-devices is useful for discovery or account-wide problems. Capture itself does
-not change camera settings or open a stream. Optional live viewing uses the
-existing supported gateway route and releases that viewer afterwards.
+<details>
+<summary>Home Assistant terminal method</summary>
 
-The manifest states which stages are available. Raw network packets, arbitrary
-vendor responses and NVR RTC media are **not captured by this version**. NVR
-metadata, discovery and gateway event evidence use the same workflow, but this
-does not implement NVR live video. Failed-image response capture remains a
-separate opt-in tool documented in [issue diagnostics](ISSUE_EVIDENCE_DIAGNOSTICS.md).
-
-## Home Assistant app installs
-
-The support utility reads the integration's saved gateway connection locally.
-Do not send your `.storage` directory, app options or credentials to anyone.
-
-Run these commands in the Home Assistant Terminal & SSH app. They download
-our two support scripts from the same published release. The scripts use Python's
-standard library. Keep them outside `/config/www`.
+Open the **Terminal & SSH** app in Home Assistant. Copy and run this block once:
 
 ```sh
 mkdir -p /config/eufy-diagnostics-tools
@@ -58,97 +28,66 @@ curl -fL https://raw.githubusercontent.com/mscodemonkey/eufy-mega-security/v0.1.
 python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py list
 ```
 
-The list shows device indexes, models and gateway stream availability. These
-indexes select the current inventory, so check the list again after adding or
-moving devices. If there are multiple integration entries, supply `--entry-id`
-before the subcommand. Do not share the entry ID or saved configuration.
-
-For discovery, event delivery, controls or other problems, capture all devices:
+For a normal capture, run:
 
 ```sh
 python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py capture --output /config/eufy-diagnostics.json.gz
 ```
 
-Reproduce the problem during those 30 seconds. To focus on one device, add
-`--target-index 1`, replacing `1` with its current index. A HomeBase selection
-also observes child cameras. Use a new output filename for each attempt.
+Then reproduce the problem during the next 30 seconds.
 
-For a stream problem, when you agree to include private media, choose a camera
-with `streamSupported` and run:
+If we've asked for private video and you're comfortable sharing it, use this
+command instead. Replace `1` with your camera's index from the list:
 
 ```sh
-python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py capture --target-index 1 --media --consent-private-media --open-live --output /config/eufy-stream-diagnostics.json.gz
+python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py capture --target-index 1 --media --consent-private-media --output /config/eufy-stream-diagnostics.json.gz
 ```
 
-Add `--seconds 60` only when a longer reproduction is useful. Existing live
-viewers may share the source. The utility releases only its own viewer. Do not
-open the official app's live viewer at the same time if it preempts the session.
-For retained pictures without opening live view, omit `--open-live`.
+Open the camera's live view in Home Assistant while capture runs. Add
+`--seconds 60` only if we've asked for a longer capture.
 
-The utility saves a new private file with mode `0600`, validates its media
-checksums and prints counts plus the recommended sharing method. Existing
-files and public output folders are refused. Export stops acquisition and
-preserves retryable evidence for up to ten minutes from capture start. A failed
-transfer can be retried using a new output filename:
+Retrieve the saved file from `/config` using your usual private file access,
+such as Samba. Don't move it into `/config/www`. Then go to step 4.
+If you don't have terminal or file access, tell us in the issue and we'll help.
 
-```sh
-python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py status
-python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py export --output /config/eufy-retry.json.gz
-python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py clear
-```
+</details>
 
-Use your normal private file transfer method to retrieve the file. Do not move
-it into `/config/www` to create a download link. Delete local copies after the
-investigation when you no longer need them.
+## 2. Choose what to capture
 
-## Gateway page and ordinary diagnostics
+Choose the device we've asked about, or **All devices** if we haven't specified
+one. Leave the duration at **30 seconds** unless we've asked for 60.
 
-The app's Web UI links to **Create a diagnostic bundle**. Direct gateway users
-can visit `/diagnostics` on their existing gateway address. The page requires
-the gateway API token, keeps it only in page memory and uses authenticated
-requests. App users who do not have that token should use the utility above.
+Leave **Include private pictures, audio and video** unchecked unless we've
+requested media and you agree. It may include people, conversations and saved
+pictures from before the capture.
 
-Choose a device or all devices, choose the duration and start capture. Reproduce
-the problem, then download the bundle. Private-media consent is unchecked by
-default. Opening the selected camera's live stream requires both consent and an
-existing supported stream route. Stop releases the page's viewer. Clear erases
-the session. Leaving the page releases its viewer, while the gateway still
-applies its capture deadline. Capture expiry or restarting the gateway erases
-retained evidence.
+Leave **Open the selected camera's live stream during capture** unchecked
+unless we've specifically asked you to use it.
 
-Home Assistant's normal **Download diagnostics** remains metadata-only. It
-includes the new cross-device summary alongside catalogue/event evidence and
-never implicitly starts a private capture or includes media.
+## 3. Reproduce the problem
 
-## Limits and sharing
+Click **Start capture**, then try the action from your issue, such as opening
+live view in Home Assistant. After the capture finishes, click **Download bundle**.
+Download within ten minutes and before restarting the gateway.
 
-One capture can run at a time. Capture lasts 30 or 60 seconds and stops early at
-64 MiB of native media or 20,000 combined events/media chunks. Evidence expires
-after ten minutes. The compressed download is usually small for metadata, but
-video dominates the size. At 4 Mb/s, 60 seconds of video is roughly 30 MB before
-compression. At 8 Mb/s it is roughly 60 MB. Already compressed video may barely
-shrink. Check the actual downloaded size and capture outcome.
+## 4. Send the file privately
 
-Email the bundle to **mscm.projects@gmail.com** with the issue number, model,
-firmware, standalone/HomeBase/NVR topology, the action you tried and what
-happened. You can attach a small file. Above 20 MB, use a private cloud link
-granting that address viewer and download access. Keep the file recipient-only,
-confirm downloads are enabled and revoke access after the investigation. Do not
-post private links, tokens or footage in the public issue. A bundle is private
-evidence even when it contains only metadata.
+Email it to **mscm.projects@gmail.com** with your issue number and what happened.
+If it's over **20 MB**, send a private cloud link granting that email address
+download access instead.
 
-## Maintainer inspection
+Keep the file and link out of public GitHub issues. Don't send passwords,
+tokens or configuration files. After we've finished investigating, revoke any
+cloud access and delete copies you no longer need. On the capture page,
+**Clear evidence** removes the gateway's temporary copy.
 
-Keep received bundles in private ignored storage. Inspect them without
-extracting or executing any contents:
+## Need help?
 
-```sh
-python3 eufy_event_gateway/scripts/diagnostic-bundle.py inspect --input /private/path/eufy-diagnostics.json.gz
-```
+If something fails, tell us which step stopped you. For another terminal capture,
+use a new output filename so you don't overwrite the first file.
 
-The inspector limits compressed and expanded sizes, checks the schema and
-record/timing limits, and verifies every media length and SHA-256 hash. It prints
-only counts and a sharing recommendation. Inspection success proves archive
-integrity, not correct playback or a hardware fix. Compare evidence with the
-exact model and topology before changing support claims. Never execute a
-reporter's attachment or add private media to source-controlled test fixtures.
+This tool doesn't capture NVR live video. Failed event-picture downloads may
+need the [separate image capture guide](EVENT_IMAGE_EVIDENCE.md).
+Home Assistant's ordinary **Download diagnostics** is a different, information-only download.
+
+[Technical details and troubleshooting](PRIVATE_DIAGNOSTICS_REFERENCE.md)
