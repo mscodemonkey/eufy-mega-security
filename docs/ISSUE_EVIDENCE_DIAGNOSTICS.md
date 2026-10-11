@@ -1,7 +1,5 @@
 # Evidence diagnostics for custom modes and stream startup
 
-For consented raw media evidence, use the [private diagnostic bundle procedure](PRIVATE_DIAGNOSTICS.md). It describes supported NVR research captures, offline inspection, size limits and private delivery. Ordinary diagnostics below remain free of packet payloads and private footage.
-
 These diagnostics help investigate issues #288 and #204. They do not change
 security-mode selection, command routing, packet acceptance, or stream recovery.
 They require an app build containing this change. They are not a hardware fix.

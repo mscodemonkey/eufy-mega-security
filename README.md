@@ -115,8 +115,6 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 
 If a tested device behaves differently for you, [open an issue](https://github.com/mscodemonkey/eufy-mega-security/issues) with its model number and what happened. Do not post serial numbers, credentials, or verification codes.
 
-If the maintainer asks for private media evidence, follow the [private diagnostic bundle instructions](docs/PRIVATE_DIAGNOSTICS.md). Short, consented NVR research captures can be sent by email or a recipient-restricted cloud link. These developer tools do not enable NVR live video in the gateway.
-
 ## What it provides
 
 For every discovered camera, the integration creates:
