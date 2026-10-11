@@ -99,6 +99,9 @@ export interface HomeBasePpcsState {
   readonly guardMode: number | null;
   readonly effectiveMode: number | null;
   readonly alarmVolume: number | null;
+
+  /** Why the station-channel alarm-volume parameter did or did not normalize. */
+  readonly alarmVolumeObservation: "missing" | "invalid" | "out_of_range" | "valid";
   readonly promptVolume: number | null;
   readonly alarmTone: number | null;
   readonly storage: {
@@ -557,11 +560,17 @@ export function buildHomeBaseGuardModeValue(
 export function parseHomeBaseState(cameraInfo: unknown, storage: unknown, storageObserved = true): HomeBasePpcsState {
   const info = isRecord(cameraInfo) ? cameraInfo : {};
   const values = new Map<number, number>();
+  let alarmVolumeObservation: HomeBasePpcsState["alarmVolumeObservation"] = "missing";
   if (Array.isArray(info.params)) {
     for (const raw of info.params) {
       if (!isRecord(raw) || Number(raw.dev_type) !== STATION_CHANNEL) continue;
       const type = safeInteger(raw.param_type);
       const value = safeInteger(raw.param_value);
+      if (type === CMD_SET_HUB_SPEAKER_VOLUME) {
+        alarmVolumeObservation = value === null
+          ? "invalid"
+          : value < 1 || value > 26 ? "out_of_range" : "valid";
+      }
       if (type !== null && value !== null) values.set(type, value);
     }
   }
@@ -570,6 +579,7 @@ export function parseHomeBaseState(cameraInfo: unknown, storage: unknown, storag
     guardMode: allowedMode(values.get(CMD_SET_ARMING)),
     effectiveMode: allowedMode(values.get(CMD_GET_ALARM_MODE)),
     alarmVolume: bounded(values.get(CMD_SET_HUB_SPEAKER_VOLUME), 1, 26),
+    alarmVolumeObservation,
     promptVolume: bounded(values.get(CMD_SET_PROMPT_VOLUME), 0, 26),
     alarmTone: bounded(values.get(CMD_HUB_ALARM_TONE), 1, 2),
     storage: storageObserved ? parseStorage(storage) : null,

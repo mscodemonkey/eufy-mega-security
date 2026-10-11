@@ -301,6 +301,7 @@ const stationState = (alarmVolume: number | null): HomeBasePpcsState => ({
   guardMode: null,
   effectiveMode: null,
   alarmVolume,
+  alarmVolumeObservation: alarmVolume === null ? "missing" : "valid",
   promptVolume: null,
   alarmTone: null,
   storage: null,
@@ -1012,6 +1013,7 @@ test("keeps a known guard mode when a local station read omits it", () => {
     guardMode: null,
     effectiveMode: null,
     alarmVolume: null,
+    alarmVolumeObservation: "missing",
     promptVolume: 5,
     alarmTone: null,
     storage: null,
@@ -1635,7 +1637,10 @@ test("invalidates omitted effective mode only when the guard mode changes and pr
   assert.equal(changed.promptVolume, 0);
   assert.equal(mergeHomeBaseState(known, { ...observed, guardMode: 63 }).effectiveMode, 63);
   assert.equal(mergeHomeBaseState(changed, { ...observed, promptVolume: null }).promptVolume, 0);
-  assert.equal(homeBaseReadLogSummary("T8030", { ...observed, guardMode: null }), "HomeBase state read ready: model=T8030 guard_mode=missing effective_mode=missing");
+  assert.equal(
+    homeBaseReadLogSummary("T8030", { ...observed, guardMode: null }),
+    "HomeBase state read ready: model=T8030 guard_mode=missing effective_mode=missing alarm_volume=valid",
+  );
   await assert.rejects(confirmStationWrite("guardMode", 0, async () => undefined, async () => ({ ...observed, guardMode: null })), /did not confirm guardMode/);
 });
 

@@ -3325,7 +3325,7 @@ export function mergeHomeBaseState(existing: HomeBaseState, observed: HomeBasePp
 
 /** Describe mode availability in a raw local read, independently of preserved inventory values. */
 export function homeBaseReadLogSummary(model: string, observed: HomeBasePpcsState): string {
-  return `HomeBase state read ready: model=${model} guard_mode=${observed.guardMode === null ? "missing" : "present"} effective_mode=${observed.effectiveMode === null ? "missing" : "present"}`;
+  return `HomeBase state read ready: model=${model} guard_mode=${observed.guardMode === null ? "missing" : "present"} effective_mode=${observed.effectiveMode === null ? "missing" : "present"} alarm_volume=${observed.alarmVolumeObservation}`;
 }
 
 /** Format one bounded station-storage field inventory without exposing raw text values. */
