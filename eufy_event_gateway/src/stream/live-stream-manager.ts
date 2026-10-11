@@ -224,6 +224,10 @@ export const SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS = 30_000;
  * existing session starts from the current group of pictures rather than the
  * first one the session ever saw. The buffer starts at the first slice of that
  * picture, which keeps multi-slice keyframes whole.
+ * Provider hints may correct a provisional codec until complete decoder headers
+ * are retained. A late correction waits for repeated headers if earlier sets
+ * were consumed under the wrong codec. Encoding changes after bootstrap require
+ * a new source session.
  */
 export class VideoParameterSetCache {
   #pending = Buffer.alloc(0);
@@ -290,10 +294,24 @@ export class VideoParameterSetCache {
       : null;
   }
 
-  /** Inspect ordered bytes using provider metadata when it identifies the codec. */
+  /** Inspect ordered bytes, allowing provider metadata to correct an unbootstrapped codec. */
   push(chunk: Buffer, declaredCodec?: VideoCodec | null): void {
     const previousCodec = this.#codec;
-    if (declaredCodec && this.#codec === null) this.#codec = declaredCodec;
+    if (declaredCodec && declaredCodec !== this.#codec && this.bootstrap === null) {
+      this.#codec = declaredCodec;
+      this.#vps = null;
+      this.#sps = null;
+      this.#pps = null;
+      this.#pictureHeaders = null;
+      this.#pictureHeadersPayloadOffset = -1;
+      this.#openingChunks = [];
+      this.#openingBytes = 0;
+      this.#openingHeaders = null;
+      this.#openingCurrent = false;
+      this.#randomAccessPictures = 0;
+      this.#keyframeContinuationNals = 0;
+      this.#startupGroupOverflows = 0;
+    }
     this.#scanParameterSets(chunk);
     const tail = this.#scanTail;
     const window = Buffer.concat([tail, chunk]);
