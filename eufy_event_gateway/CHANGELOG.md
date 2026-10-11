@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.133
+
+- Add default-off experimental controls in the diagnostics page: standalone T84A1, T8417 and T8423 motion detection, T8423 spotlight enablement and pan/tilt, and T8410 pan/tilt through HomeBase 3.
+- Use exact official Android model contracts, submit commands once and require fresh device readback for changed settings. Movement acknowledgements remain separate from physical confirmation. Hardware behaviour still needs testing on each model.
+- Keep trials authenticated and separate from normal Home Assistant capabilities. Refuse busy device connections, reject changed routes and clean up sessions on failure or shutdown. Enable experimental_model_controls in the app settings to try them.
+
 ## 0.1.132
 
 - Correct reported motion-detection state for standalone Wall Light Cam S100 (T84A1), Indoor Cam E30 (T8417), and Floodlight Cam 2 Pro (T8423). The native state now takes precedence over conflicting legacy values, and missing or invalid native state stays unknown.

@@ -9,6 +9,7 @@
  * tests; the production provider is the only implementation allowed to know
  * Mega and PPCS details.
  */
+import type { ModelControlTrial, ModelControlTrialResult } from "./model-control-trials.js";
 import type { CloudHistoryQuery, CloudHistoryRecord } from "../mega/cloud-history.js";
 import type { Readable } from "node:stream";
 import type { StoredRecordingSummary } from "../stream/stored-recordings.js";
@@ -42,6 +43,12 @@ export interface ProviderEvents {
 
 /** Lifecycle and stream operations required by the gateway server. */
 export interface CameraProvider {
+
+  /** List default-off exact-model trials, independently of verified capabilities. */
+  modelControlTrials?(serial: string): readonly ModelControlTrial["action"][];
+
+  /** Submit one experimental command with fresh state confirmation for settings. */
+  performModelControlTrial?(serial: string, request: ModelControlTrial): Promise<ModelControlTrialResult>;
 
   /** Project active source counters synchronously, without opening a connection. */
   streamDiagnostic?(serial: string): StreamDiagnostic | null;

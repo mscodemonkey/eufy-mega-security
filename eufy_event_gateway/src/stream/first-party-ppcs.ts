@@ -11,6 +11,7 @@
  * packet layout or camera encryption directly.
  */
 import { createCipheriv, createDecipheriv, createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes, timingSafeEqual } from "node:crypto";
+import { modelControlTrialCommand, type ModelControlRoute, type ModelControlTrial } from "../provider/model-control-trials.js";
 import { validateC31Preference, type C31Preference } from "../provider/c31-preferences.js";
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
@@ -653,6 +654,39 @@ export function buildStandaloneLevel2LiveStartPayload(
   return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), channel, 8, [8, 0], 10);
 }
 
+/** Seal an admitted trial using its native JSON or binary payload family, with no key fallback. */
+export function buildModelControlTrialPayload(
+  request: ModelControlTrial, route: ModelControlRoute, accountId: string, legacyKey: Buffer,
+  level2Key: Buffer | null, sequence: number, transaction: number,
+): { readonly command: number; readonly payload: Buffer } {
+  const frame = modelControlTrialCommand(request, route, accountId, transaction);
+  if (frame.command === 1403 || frame.command === 1350 || route.homeBaseAttached) {
+    if (!level2Key || level2Key.length !== 32) throw new Error("Model control trial requires negotiated level-two encryption");
+    const plain = typeof frame.value === "boolean" ? buildCameraEnableBody(route.channel!, frame.value ? 1 : 0, accountId) : Buffer.from(frame.value);
+    return { command: frame.command, payload: rawPayload(encryptLevel2(plain, level2Key, sequence), route.channel!, 8, [8, 0], 0) };
+  }
+  return { command: frame.command, payload: buildStandaloneJsonControlPayload(String(frame.value), route.channel!, legacyKey) };
+}
+
+/** Correlate a result frame by command and channel before interpreting its scalar. */
+export function decodeModelControlTrialAcknowledgement(
+  header: Buffer, payload: Buffer, command: number, channel: number, key: Buffer, level2Key: Buffer | null,
+): number | null {
+  if (ppcsFrameChannel(header) !== channel || header[14] !== 1 || header.readUInt16LE(4) !== command) return null;
+  return decodeModelControlTrialResult(payload, header[13] ?? -1, key, level2Key);
+}
+
+/** Decode a scalar trial result without treating unsupported ciphertext as clear success. */
+export function decodeModelControlTrialResult(payload: Buffer, signCode: number, key: Buffer, level2Key: Buffer | null): number | null {
+  let clear: Buffer | undefined;
+  if (signCode === 0 && payload.length === 4) clear = payload;
+  else if ((signCode === 8 || signCode === 2) && level2Key) clear = decryptLevel2(payload, level2Key, signCode);
+  else if (signCode === 1 && payload.length > 0 && payload.length % 16 === 0) {
+    try { clear = decryptEcb(payload, key); } catch { return null; }
+  }
+  return clear && clear.length >= 4 ? clear.readInt32LE(0) : null;
+}
+
 /** Build the app-observed SoloCam motion status envelope, distinct from live-start frame type 10. */
 export function buildSoloCamMotionDetectionPayload(enabled: boolean, key: Buffer, sequence: number, now: number): Buffer {
   if (!Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) {
@@ -1162,6 +1196,9 @@ export interface PpcsCameraOptions {
   /** Limit the session to one control write instead of starting camera media. */
   readonly purpose?: "media" | "control";
 
+  /** Require direct parameter replies on the exact experimental trial channel. */
+  readonly modelControlTrial?: boolean;
+
   /** Passive child-contact observations while an already requested HomeBase session is open. */
   readonly onSensorContact?: (observation: SensorContactObservation) => void;
 }
@@ -1169,6 +1206,7 @@ export interface PpcsCameraOptions {
 /** One in-flight control command and the promise settled by its result frame. */
 interface PendingControl {
   readonly command: number;
+  readonly strictChannel?: number;
   readonly resolve: () => void;
   readonly reject: (error: Error) => void;
   readonly timer: ReturnType<typeof setTimeout>;
@@ -1657,6 +1695,20 @@ export class FirstPartyPpcsSession {
       );
       if (index < 2) await delay(200);
     }
+    await acknowledgement;
+  }
+
+  /** Submit one exact-model experimental command, with no application-level replay. */
+  async writeModelControlTrial(request: ModelControlTrial, route: ModelControlRoute): Promise<void> {
+    if (this.#closed || this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
+      || this.#options.cameraModel !== route.model || this.#options.channel !== route.channel
+      || this.#options.homeBaseAttached !== route.homeBaseAttached) throw new Error("Invalid model trial session");
+    if (request.action === "spotlight" || request.action === "ptz" || route.homeBaseAttached) await this.#waitForLevel2Key();
+    const frame = buildModelControlTrialPayload(request, route, this.#options.accountId,
+      commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key, this.#level2Seq++, Date.now());
+    const acknowledgement = this.#waitForControlResult(frame.command, this.#options.channel);
+    try { this.#sendCommand(frame.command, frame.payload); }
+    catch (error) { void acknowledgement.catch(() => undefined); throw error; }
     await acknowledgement;
   }
 
@@ -2270,6 +2322,16 @@ export class FirstPartyPpcsSession {
     }
 
     if (header[14] === 1 && this.#pendingControl?.command === command) {
+      if (this.#pendingControl.strictChannel !== undefined) {
+        const result = decodeModelControlTrialAcknowledgement(header, payload, this.#pendingControl.command, this.#pendingControl.strictChannel,
+          commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key);
+        if (result === null) return;
+        const pending = this.#pendingControl;
+        this.#pendingControl = null;
+        clearTimeout(pending.timer);
+        result === 0 ? pending.resolve() : pending.reject(new Error(`Camera rejected model control trial (${result})`));
+        return;
+      }
       let clear = payload;
       if (signCode === 8 && this.#level2Key) clear = decryptLevel2(payload, this.#level2Key, signCode) ?? payload;
       else if (signCode > 0 && payload.length % 16 === 0) {
@@ -2316,7 +2378,9 @@ export class FirstPartyPpcsSession {
     // 1100 carries the encrypted HomeBase gateway details. 1300 carries
     // media frames after the level-2 request has been accepted.
     if (command === 1100 && signCode === 1) { this.stats.gatewayInfo++; void this.#handleGatewayInfo(payload); }
-    else if (command === 1103) this.#inspectCameraInfo(payload, signCode);
+    else if (command === 1103 && (!this.#options.modelControlTrial || frameChannel === this.#options.channel)) {
+      this.#inspectCameraInfo(payload, signCode);
+    }
     else if (command === 1300 && (!this.#options.homeBaseAttached || acceptsAttachedCameraMedia(command, frameChannel ?? -1, this.#options.channel))) {
       this.stats.videoFrames++;
       if (this.#writeVideo(payload, signCode)) {
@@ -2531,14 +2595,14 @@ export class FirstPartyPpcsSession {
    * error lets the provider choose a readback rather than blindly retrying a
    * potentially non-idempotent operation.
    */
-  #waitForControlResult(command: number): Promise<void> {
+  #waitForControlResult(command: number, strictChannel?: number): Promise<void> {
     if (this.#pendingControl) return Promise.reject(new Error("Camera already has a control command in flight"));
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#pendingControl = null;
         reject(new CameraControlAcknowledgementTimeoutError());
       }, CONTROL_TIMEOUT_MILLISECONDS);
-      this.#pendingControl = { command, resolve, reject, timer };
+      this.#pendingControl = { command, resolve, reject, timer, ...(strictChannel === undefined ? {} : { strictChannel }) };
     });
   }
 

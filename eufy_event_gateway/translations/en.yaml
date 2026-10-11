@@ -1,4 +1,7 @@
 configuration:
+  experimental_model_controls:
+    name: Experimental model controls
+    description: Enable exact-model control trials in the diagnostics page. Requires manual observation and restoration. Hardware support is unconfirmed. Off by default.
   capture_failed_event_images:
     name: Capture failed event images
     description: Private diagnostic capture for 30 minutes after startup. Export within 60 minutes. May contain household images and identifiers. Disable after collecting evidence.

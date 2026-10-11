@@ -22,6 +22,9 @@ export interface GatewayConfig {
 
   /** Opt-in private evidence session; requires bearer authentication even on loopback. */
   readonly captureFailedEventImages: boolean;
+
+  /** Default-off official-model control trials, requiring bearer authentication. */
+  readonly experimentalModelControls: boolean;
   readonly eufy: {
     readonly username: string | null;
     readonly password: string | null;
@@ -45,6 +48,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
   const host = environment.EUFY_GATEWAY_HOST ?? "127.0.0.1";
   const apiToken = nonEmpty(environment.EUFY_GATEWAY_API_TOKEN);
   const captureFailedEventImages = captureBoolean(environment.EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES);
+  const experimentalModelControls = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS, "EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS");
+  if (experimentalModelControls && !apiToken) throw new Error("Experimental model controls require EUFY_GATEWAY_API_TOKEN");
   if (captureFailedEventImages && !apiToken) {
     throw new Error("Failed event-image capture requires EUFY_GATEWAY_API_TOKEN");
   }
@@ -63,6 +68,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
     maxStreamSeconds: positiveInteger(environment.EUFY_GATEWAY_MAX_STREAM_SECONDS, 120),
     apiToken,
     captureFailedEventImages,
+    experimentalModelControls,
     eufy: {
       username: nonEmpty(environment.EUFY_USERNAME),
       password: nonEmpty(environment.EUFY_PASSWORD),
@@ -72,11 +78,11 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
   };
 }
 
-function captureBoolean(value: string | undefined): boolean {
+function captureBoolean(value: string | undefined, name = "EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES"): boolean {
   const normalized = value?.trim().toLowerCase();
   if (!normalized || normalized === "false") return false;
   if (normalized === "true") return true;
-  throw new Error("EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES must be true or false");
+  throw new Error(`${name} must be true or false`);
 }
 
 /** Returns whether a listener is restricted to the local machine. */

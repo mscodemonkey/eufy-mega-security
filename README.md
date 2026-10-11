@@ -419,3 +419,34 @@ docker build -t eufy-mega-security:test .
 
 Private diagnostic bundles for all discovered device families are described in
 [the private diagnostics guide](docs/PRIVATE_DIAGNOSTICS.md). Media requires explicit consent and private sharing.
+
+
+### Experimental model controls
+
+The app option `experimental_model_controls` is off by default. When enabled,
+open `/diagnostics`, enter your gateway token, select one camera and expand
+**Experimental model controls**. Choose **Check available controls**, select
+one operation and its value, confirm you can observe the camera, then **Try once**.
+Stop live views first. Record the original setting and restore it after testing.
+
+The initial exact-model trials are standalone T84A1 (type 151), T8417 (type 105)
+and T8423 (type 38) motion detection, standalone T8423 spotlight enablement and
+pan/tilt, and T8410 (type 31) pan/tilt through a T8030 HomeBase 3. Other models,
+channels and topologies remain unavailable. These trials come from official
+Android model handlers. Their physical behaviour in this gateway still needs
+confirmation on each model. Normal Home Assistant capability flags are unchanged.
+
+Boolean settings require a fresh device-reported original value and matching
+readback after the command. A movement acknowledgement does not prove movement.
+A timeout can mean the command took effect but the reply was lost. Check the
+camera in the Eufy app before retrying. Trials never automatically replay a
+movement command. They refuse a peer already used by live viewing, recording
+retrieval or another control operation.
+
+For standalone installs, set `EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS=true`
+and configure `EUFY_GATEWAY_API_TOKEN`. The authenticated
+`GET /api/cameras/{camera}/model-control-trial` lists admitted actions.
+`POST` accepts exactly `{"action":"motion","enabled":true}`,
+`{"action":"spotlight","enabled":false}`, or
+`{"action":"ptz","direction":"left"}` (also right, up and down).
+Do not include camera identifiers or private diagnostics in public issue comments.

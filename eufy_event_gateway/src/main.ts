@@ -68,6 +68,7 @@ if (config.provider === "simulated") {
     country: config.eufy.country,
     persistentDirectory: join(config.dataDirectory, "eufy-client"),
     maxStreamSeconds: config.maxStreamSeconds,
+    experimentalModelControls: config.experimentalModelControls,
     ...(eventImageCapture ? { eventImageCapture } : {}),
     ...(config.eufy.verifyCode ? { verifyCode: config.eufy.verifyCode } : {}),
   });

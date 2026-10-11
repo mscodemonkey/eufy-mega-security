@@ -17,6 +17,14 @@ export function diagnosticsPage(): string {
 <label>Gateway API token <input id="token" type="password" autocomplete="off" spellcheck="false"></label>
 <button id="load">Load devices</button>
 <label>Device <select id="device"><option value="">All devices</option></select></label>
+<details id="trials"><summary>Experimental model controls</summary>
+<p>Enable experimental model controls in the app settings, then select a camera. These controls need testing on your hardware. Stop live view first. Remember the original setting and restore it after testing.</p>
+<button id="trial-load">Check available controls</button>
+<label>Control <select id="trial-action"></select></label>
+<label>Value <select id="trial-value"><option value="true">On</option><option value="false">Off</option><option value="left">Left</option><option value="right">Right</option><option value="up">Up</option><option value="down">Down</option></select></label>
+<label><input id="trial-consent" type="checkbox"> I am ready to observe the camera and restore its setting.</label>
+<button id="trial-send">Try once</button>
+<pre id="trial-status" role="status">No control trial started.</pre></details>
 <label>Capture duration <select id="seconds"><option value="30">30 seconds</option><option value="60">60 seconds</option></select></label>
 <label><input id="media" type="checkbox"> Include private pictures, audio and video. I agree to capture and share this evidence privately.
 <small>Leave this unchecked for discovery, controls or event delivery problems. Media can reveal people, conversations and your surroundings.</small></label>
@@ -49,6 +57,35 @@ action('load', async () => {
   el('device').replaceChildren(new Option('All devices', ''));
   for(const target of targets) el('device').add(new Option(target.name + ' (' + target.model + ')', target.serial));
   await status();
+});
+async function trialApi(method, body) {
+  const serial = el('device').value;
+  if(!serial) throw Error('Select one camera first.');
+  const result = await fetch('api/cameras/' + encodeURIComponent(serial) + '/model-control-trial', {
+    method, headers: { Authorization: 'Bearer ' + el('token').value, 'Content-Type': 'application/json' },
+    cache: 'no-store', ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  const value = await result.json();
+  if(!result.ok) throw Error(value.error || 'Control trial failed. Check the camera before retrying.');
+  return value;
+}
+action('trial-load', async () => {
+  const value = await trialApi('GET');
+  el('trial-action').replaceChildren();
+  for(const name of value.actions) el('trial-action').add(new Option(name, name));
+  el('trial-status').textContent = value.actions.length ? 'Choose one control and observe the camera.' : 'No exact model control trials available.';
+});
+action('trial-send', async () => {
+  if(!el('trial-consent').checked) throw Error('Confirm you are ready to observe and restore the camera.');
+  const action = el('trial-action').value, value = el('trial-value').value;
+  if(action === 'ptz' ? !['left','right','up','down'].includes(value) : !['true','false'].includes(value)) throw Error('Choose a value matching the control.');
+  el('trial-send').disabled = true;
+  el('trial-status').textContent = 'Trying once. Do not retry until the result is known.';
+  try {
+    const result = await trialApi('POST', action === 'ptz' ? { action, direction: value } : { action, enabled: value === 'true' });
+    el('trial-status').textContent = result.outcome === 'acknowledged' ? 'Command acknowledged. Check whether the camera moved.'
+      : result.outcome === 'unchanged' ? 'Camera already reports this setting. No command sent.' : 'Camera reports the requested setting. Check its behaviour and restore the original setting when finished.';
+  } catch(error) { el('trial-status').textContent = error.message + ' Check the camera before retrying.'; }
+  finally { el('trial-send').disabled = false; }
 });
 action('start', async () => {
   const target = el('device').value || null;

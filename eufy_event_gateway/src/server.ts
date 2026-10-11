@@ -19,6 +19,7 @@ import type { GatewayConfig } from "./config.js";
 import { GatewayState } from "./domain/gateway-state.js";
 import type { GatewayEvent } from "./domain/types.js";
 import { createLogger, observeLogEvents } from "./logging.js";
+import { parseModelControlTrial } from "./provider/model-control-trials.js";
 import { validateC31Preference } from "./provider/c31-preferences.js";
 import { SimulatedProvider } from "./provider/simulated-provider.js";
 import type { CameraProvider, CaptchaProvider } from "./provider/provider.js";
@@ -401,6 +402,18 @@ export class GatewayServer {
         segments[0] === "api" && segments[1] === "cameras" && segments[3] === "motion-detection" && segments.length === 4
       ) {
         return await this.#cameraMotionDetection(request, segments[2]!, response);
+      }
+      if ((request.method === "GET" || request.method === "POST") && segments[0] === "api"
+        && segments[1] === "cameras" && segments[3] === "model-control-trial" && segments.length === 4) {
+        if (!this.config.apiToken || !this.config.experimentalModelControls) return json(response, 409, { error: "Experimental model controls are disabled" });
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
+        response.setHeader("cache-control", "no-store");
+        const actions = this.provider.modelControlTrials?.(segments[2]!) ?? [];
+        if (request.method === "GET") return json(response, 200, { actions, experimental: true });
+        const trial = parseModelControlTrial(await readJson(request));
+        if (!actions.includes(trial.action) || !this.provider.performModelControlTrial) return json(response, 409, { error: "Model control trial unavailable" });
+        const result = await this.provider.performModelControlTrial(segments[2]!, trial);
+        return json(response, 200, result);
       }
       if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras"
         && segments[3] === "preferences" && segments.length === 4) {
