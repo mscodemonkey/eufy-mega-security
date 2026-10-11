@@ -2605,7 +2605,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
  * Download errors and last-good image ownership stay with their existing boundaries.
  */
 export async function downloadPushSnapshot(
-  client: Pick<MegaClient, "download"> & Partial<Pick<MegaClient, "downloadWithMetadata" | "getCiphers">>,
+  client: Pick<MegaClient, "download"> & Partial<Pick<MegaClient, "downloadWithMetadata" | "getEventImageKey">>,
   event: Pick<MegaPushEvent, "pictureUrl" | "stationSerial">,
   devices: ReadonlyMap<string, Pick<MegaInventoryDevice, "p2pDid"> & Partial<Pick<MegaInventoryDevice, "adminUserId">>>,
   capture?: EventImageCapture,
@@ -2626,25 +2626,22 @@ export async function downloadPushSnapshot(
         throw new Error("event image decode failed: format=v8 result=station_mismatch");
       }
       const owner = devices.get(event.stationSerial)?.adminUserId;
-      if (!owner || !client.getCiphers) {
+      if (!owner || !client.getEventImageKey) {
         throw new Error("event image decode failed: format=v8 result=key_unavailable");
       }
-      let ciphers: readonly Record<string, unknown>[];
+      let privateKey: Buffer;
       try {
-        ciphers = await client.getCiphers([v8.cipherId], owner, event.stationSerial);
-      } catch {
-        throw new Error("event image decode failed: format=v8 result=key_lookup_failed");
+        privateKey = await client.getEventImageKey(v8.keyId, owner);
+      } catch (error) {
+        const result = error instanceof Error && error.message === "Event picture key unavailable"
+          ? "key_unavailable" : error instanceof Error && error.message === "Event picture key session changed"
+            ? "owner_changed" : "key_lookup_failed";
+        throw new Error(`event image decode failed: format=v8 result=${result}`);
       }
-      if (devices.get(event.stationSerial)?.adminUserId !== owner) {
-        throw new Error("event image decode failed: format=v8 result=owner_changed");
-      }
-      const matching = ciphers.filter((cipher) => Number(cipher.cipher_id) === v8.cipherId);
-      const value = matching.length === 1 ? matching[0]!.ecc_private_key : undefined;
-      if (typeof value !== "string" || !/^[a-fA-F0-9]{64}$/.test(value)) {
-        throw new Error("event image decode failed: format=v8 result=key_unavailable");
-      }
-      const privateKey = Buffer.from(value, "hex");
       try {
+        if (devices.get(event.stationSerial)?.adminUserId !== owner) {
+          throw new Error("event image decode failed: format=v8 result=owner_changed");
+        }
         return { data: decodeV8EventImage(v8, privateKey) };
       } finally {
         privateKey.fill(0);

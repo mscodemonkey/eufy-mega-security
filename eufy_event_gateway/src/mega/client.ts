@@ -332,6 +332,47 @@ export class MegaClient {
   }
 
   /**
+   * Resolve an owned event-picture key from account encryption metadata.
+   * Picture key identifiers are separate from live transport cipher identifiers.
+   * Shared-owner and protected keys fail closed. The returned buffer belongs to
+   * the caller, which must clear it after use. This method never caches or
+   * persists keys; response strings remain subject to JavaScript heap cleanup.
+   */
+  async getEventImageKey(keyId: number, ownerId: string): Promise<Buffer> {
+    if (!this.isAuthenticated || !Number.isInteger(keyId) || keyId < 2 || keyId > 255 ||
+      !ownerId || ownerId !== this.#session!.userId) {
+      throw new Error("Event picture key unavailable");
+    }
+    const token = this.#session!.authToken;
+    const signal = this.#requestLifetime.signal;
+    let decoded: unknown;
+    try {
+      const result = await this.#call("security", "/v2/commerce/get_current_subscription", {
+        new_etoe_version: 1, service_code: "all.service", is_new_version: 1,
+        has_eufy_protection_pro: 2, transaction: `${this.#now()}`,
+      }, false);
+      decoded = this.#decodeResult(result);
+    } catch {
+      throw new Error("Event picture key lookup failed");
+    }
+    if (signal.aborted) throw new Error("Event picture key lookup failed");
+    if (signal !== this.#requestLifetime.signal || this.#session?.authToken !== token ||
+      this.#session.userId !== ownerId) {
+      throw new Error("Event picture key session changed");
+    }
+    if (!isRecord(decoded) || !Array.isArray(decoded.simple_security_keys) || decoded.simple_security_keys.length > 256) {
+      throw new Error("Event picture key unavailable");
+    }
+    const matches = decoded.simple_security_keys.filter((entry: unknown) =>
+      isRecord(entry) && Number.isInteger(entry.pincode_id) && entry.pincode_id === keyId);
+    const value: unknown = matches.length === 1 ? matches[0].private_key : undefined;
+    if (typeof value !== "string" || !/^[a-fA-F0-9]{64}$/.test(value)) {
+      throw new Error("Event picture key unavailable");
+    }
+    return Buffer.from(value, "hex");
+  }
+
+  /**
    * Register one Firebase identity with both account notification backends.
    *
    * Security delivery requires its registration and activation check even when

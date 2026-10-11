@@ -12,8 +12,8 @@ export interface V8EventImage {
   /** Private header identity that the provider must bind to its inventory. */
   readonly stationSerial: string;
 
-  /** Native one-byte selector used for owner-scoped cipher lookup. */
-  readonly cipherId: number;
+  /** Native one-byte identifier in the account picture-key namespace. */
+  readonly keyId: number;
   readonly wrappedKey: Buffer;
   readonly nonce: Buffer;
   readonly tag: Buffer;
@@ -34,12 +34,12 @@ export function parseV8EventImage(data: Buffer): V8EventImage | null {
   if (!/^[A-Za-z0-9]{16}$/.test(stationSerial)) {
     throw new Error("event image decode failed: format=v8 result=invalid_header");
   }
-  const cipherId = data[33]!;
-  if (cipherId === 1) throw new Error("event image decode failed: format=v8 result=unsupported_key_scheme");
-  if (cipherId === 0 || (data[34] !== 2 && data[34] !== 3)) {
+  const keyId = data[33]!;
+  if (keyId === 1) throw new Error("event image decode failed: format=v8 result=unsupported_key_scheme");
+  if (keyId === 0 || (data[34] !== 2 && data[34] !== 3)) {
     throw new Error("event image decode failed: format=v8 result=invalid_header");
   }
-  return { stationSerial, cipherId, wrappedKey: data.subarray(34, 163),
+  return { stationSerial, keyId, wrappedKey: data.subarray(34, 163),
     nonce: data.subarray(163, 175), tag: data.subarray(175, 191), ciphertext: data.subarray(191) };
 }
 
