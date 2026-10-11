@@ -35,6 +35,7 @@ import {
   buildStandaloneC31ControlPayload,
   buildStandaloneGuardModeValue,
   buildStandaloneLiveStartPayload,
+  buildStandaloneLiveStartValue,
   buildTimedCameraLightControlValue,
   decodePpcsVideoFrame,
   decodePpcsControlRecord,
@@ -258,9 +259,27 @@ test("adds the HomeBase inventory address to local PPCS lookup", () => {
   ]);
 });
 
+test("omits the optional extension only from the exact standalone T8423 request", () => {
+  const timestamp = 1_791_644_400_000;
+  const expected = {
+    commandType: 1000, data: {
+      cmd: 1000, account_id: "test-account", accountId: "test-account",
+      mValueStrSub: "test-account", mChannel: 4, mValue3: 0, mValue5: 0,
+      msg_id: 1, camera_type: 0, entrytype: 0, ivalue: 1, restore: 0,
+      streamtype: 2, video_type: 12, timestamp, transaction: String(timestamp), encryptkey: "test-modulus",
+    },
+  };
+  assert.deepEqual(JSON.parse(buildStandaloneLiveStartValue("T8423", 4, "test-account", "test-modulus", timestamp)), expected);
+  for (const model of ["T817L", "T8171", "T8410", "T8423X", ""]) {
+    assert.deepEqual(JSON.parse(buildStandaloneLiveStartValue(model, 4, "test-account", "test-modulus", timestamp)), {
+      ...expected, data: { ...expected.data, extValue: 1000 },
+    });
+  }
+});
+
 test("labels a standalone live start as level-one frame type 11", () => {
   const key = Buffer.from("0123456789abcdef", "utf8");
-  const value = JSON.stringify({ commandType: 1000, data: { cmd: 1000 } });
+  const value = buildStandaloneLiveStartValue("T8423", 4, "test-account", "test-modulus", 1_791_644_400_000);
   const payload = buildStandaloneLiveStartPayload(value, 4, key);
 
   assert.equal(payload.readUInt16LE(0), payload.length - 10);
@@ -274,7 +293,7 @@ test("labels a standalone live start as level-one frame type 11", () => {
 
 test("labels a negotiated standalone live start as level-two frame type 10", () => {
   const key = Buffer.alloc(32, 7);
-  const value = JSON.stringify({ commandType: 1000, data: { cmd: 1000 } });
+  const value = buildStandaloneLiveStartValue("T8423", 4, "test-account", "test-modulus", 1_791_644_400_000);
   const payload = buildStandaloneLevel2LiveStartPayload(value, 4, key, 257);
 
   assert.equal(payload.readUInt16LE(0), payload.length - 10);

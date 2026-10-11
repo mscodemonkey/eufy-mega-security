@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.134
+
+- Improve standalone T8423 live-start compatibility by omitting an optional startup field that this model does not request. Reporter confirmation of intermittent first-start behaviour is still pending.
+- Preserve startup behaviour for other standalone cameras and HomeBase-attached cameras.
+
 ## 0.1.133
 
 - Add default-off experimental controls in the diagnostics page: standalone T84A1, T8417 and T8423 motion detection, T8423 spotlight enablement and pan/tilt, and T8410 pan/tilt through HomeBase 3.

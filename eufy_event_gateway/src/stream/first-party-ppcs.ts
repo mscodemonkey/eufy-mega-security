@@ -628,6 +628,25 @@ function unwrapAuthenticatedMediaKey(envelope: Buffer, privateKey: Buffer): Buff
 }
 
 /**
+ * Serialize a standalone live request before the session applies encryption.
+ *
+ * The standalone T8423 startup contract omits the optional extension value.
+ * Other models retain the existing extension until their own contract is
+ * established. Attached-camera lifecycle commands use a separate builder.
+ */
+export function buildStandaloneLiveStartValue(
+  model: string, channel: number, accountId: string, publicKey: string, timestamp: number,
+): string {
+  return JSON.stringify({ commandType: 1000, data: {
+    cmd: 1000, account_id: accountId, accountId,
+    mValueStrSub: accountId, mChannel: channel, mValue3: 0, mValue5: 0,
+    msg_id: 1, camera_type: 0, entrytype: 0, extValue: model === "T8423" ? undefined : 1000,
+    ivalue: 1, restore: 0, streamtype: 2, video_type: 12,
+    timestamp, transaction: `${timestamp}`, encryptkey: publicKey,
+  } });
+}
+
+/**
  * Build the level-one control payload that starts a standalone camera stream.
  *
  * The encrypted JSON is labelled with sign code 1 and frame type 11 so the
@@ -2813,14 +2832,13 @@ export class FirstPartyPpcsSession {
   #startOwnMedia(): void {
     if (this.#closed || !this.#remote) return;
     this.stats.mediaStartAttempts++;
-    const key = publicModulus(this.#rsa.publicKey);
-    const now = Date.now();
-    const value = JSON.stringify({ commandType: 1000, data: {
-      cmd: 1000, account_id: this.#options.accountId ?? "", accountId: this.#options.accountId ?? "",
-      mValueStrSub: this.#options.accountId ?? "", mChannel: this.#options.channel, mValue3: 0, mValue5: 0,
-      msg_id: 1, camera_type: 0, entrytype: 0, extValue: 1000, ivalue: 1, restore: 0, streamtype: 2,
-      video_type: 12, timestamp: now, transaction: `${now}`, encryptkey: key,
-    } });
+    const value = buildStandaloneLiveStartValue(
+      this.#options.cameraModel,
+      this.#options.channel,
+      this.#options.accountId ?? "",
+      publicModulus(this.#rsa.publicKey),
+      Date.now(),
+    );
     if (this.#level2Key) {
       if (!this.stats.mediaStartProtocols.includes("level2")) this.stats.mediaStartProtocols.push("level2");
       this.#sendCommand(1700, buildStandaloneLevel2LiveStartPayload(
