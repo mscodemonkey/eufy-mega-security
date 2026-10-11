@@ -134,6 +134,9 @@ copies already downloaded for the investigation.
 
 ## Maintainer procedure
 
+The [standard request template](PRIVATE_DIAGNOSTICS_REQUEST.md) gives a short
+starting point for a reporter reply. Adapt it to the exact question and setup.
+
 Before requesting a capture, explain the question it will answer and ask whether
 the reporter is comfortable sharing private media. Use one exact device and
 topology. Prefer an existing capture over asking someone to repeat a test. For

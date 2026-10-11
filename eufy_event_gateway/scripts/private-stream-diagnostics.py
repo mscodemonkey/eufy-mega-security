@@ -54,11 +54,15 @@ def private_path(path: Path) -> Path:
 
 def read_private(path: Path, maximum: int = MAX_BYTES) -> bytes:
     """Read a regular non-symlink input within its explicit size limit."""
-    if any(parent.is_symlink() for parent in path.absolute().parents):
+    if path.is_symlink() or any(parent.is_symlink() for parent in path.absolute().parents):
         raise DiagnosticError("Evidence paths must not contain symlinks.")
-    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as stream:
+    original = path.lstat()
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    with os.fdopen(os.open(path, flags), "rb") as stream:
         info = os.fstat(stream.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_size > maximum:
+        if (not stat.S_ISREG(original.st_mode) or not stat.S_ISREG(info.st_mode)
+                or (original.st_dev, original.st_ino) != (info.st_dev, info.st_ino)
+                or info.st_size > maximum):
             raise DiagnosticError("Evidence input is not a regular file within the size limit.")
         body = stream.read(maximum + 1)
     if len(body) > maximum:
@@ -167,7 +171,7 @@ def write_bundle(target: Path, files: dict[str, bytes], details: dict) -> dict:
                 "files": [{"name": name, "length": len(data),
                            "sha256": hashlib.sha256(data).hexdigest()}
                           for name, data in files.items()], "summary": summaries}
-    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
     try:
         with os.fdopen(fd, "wb") as stream:
             with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
