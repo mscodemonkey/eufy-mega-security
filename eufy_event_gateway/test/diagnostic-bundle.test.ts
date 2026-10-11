@@ -150,7 +150,7 @@ test("unconfigured credentials refuse diagnostics and page script parses without
     assert.equal((await fetch(`http://127.0.0.1:${server.port}/api/diagnostics/summary`)).status, 401);
     assert.equal((await fetch(`http://127.0.0.1:${server.port}/diagnostics`)).status, 200);
     const page = diagnosticsPage();
-    assert.doesNotThrow(() => new Function(page.match(/<script>([\s\S]*)<\/script>/)![1]!));
+    assert.doesNotThrow(() => new Function(page.slice(page.indexOf("<script>") + 8, page.lastIndexOf("</script>"))));
     assert.doesNotMatch(page, /localStorage|sessionStorage|access_token/);
   } finally { await server.close(); }
 });
