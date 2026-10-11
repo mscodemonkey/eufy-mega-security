@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.136
+
+- Correct account-owned encrypted event-picture key lookup while preserving the last valid image when a key is unavailable.
+- Stop automatic identity retries when Eufy reports an account login limit.
+
 ## 0.1.135
 
 - Decode authenticated V8 event pictures through the matching station owner's account key, allowing this encrypted picture format to update Home Assistant event images.
