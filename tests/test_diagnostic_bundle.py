@@ -101,6 +101,23 @@ class DiagnosticBundleTests(unittest.TestCase):
                     TOOL.save_archive(config, folder / "bundle.gz", body)
                 self.assertFalse((folder / "bundle.gz").exists())
 
+    def test_home_assistant_config_alias_is_supported_without_following_nested_links(self):
+        """Allow the standard /config alias while keeping descendant links refused."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            real = root / "real"
+            real.mkdir()
+            alias = root / "config"
+            alias.symlink_to(real, target_is_directory=True)
+            config = alias / ".storage/core.config_entries"
+            TOOL.save_archive(config, alias / "bundle.gz", encoded(evidence()))
+            self.assertTrue((real / "bundle.gz").is_file())
+            (real / "nested").symlink_to(root, target_is_directory=True)
+            with self.assertRaises(TOOL.DiagnosticError):
+                TOOL.private_output_path(config, alias / "nested/private.gz")
+            with self.assertRaises(Exception):
+                TOOL.private_output_path(config, alias / "www/private.gz")
+
 
 if __name__ == "__main__":
     unittest.main()

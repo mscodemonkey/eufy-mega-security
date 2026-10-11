@@ -119,12 +119,31 @@ def read_archive(path: Path) -> bytes:
     return body
 
 
+
+def private_output_path(config: Path, output: Path) -> Path:
+    """Allow HA's trusted config mount alias, rejecting symlinks beneath that root."""
+    target = Path(os.path.abspath(output))
+    root = Path(os.path.abspath(config)).parent.parent
+    try:
+        relative = target.relative_to(root)
+    except ValueError:
+        pass
+    else:
+        current = root
+        for part in relative.parts:
+            current = current / part
+            if current.is_symlink():
+                raise DiagnosticError("Choose a non-symlink private output path.")
+        target = root.resolve() / relative
+    target = HELPERS.output_path(config, target)
+    if any(part.lower() in {"www", "public", "static"} for part in target.parts):
+        raise DiagnosticError("Choose a private output folder.")
+    return target
+
 def save_archive(config: Path, output: Path, body: bytes) -> dict:
     """Validate before creating a private file, refusing overwrite and public paths."""
     report = inspect_archive(body)
-    target = HELPERS.output_path(config, output)
-    if any(part.lower() in {"www", "public", "static"} for part in target.parts):
-        raise DiagnosticError("Choose a private output folder.")
+    target = private_output_path(config, output)
     descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     identity = os.fstat(descriptor)
     try:
@@ -168,7 +187,7 @@ def run(options) -> dict:
         return save_archive(options.config, options.output, request(endpoint + "/export", token, "POST"))
     if options.media and not options.consent_private_media:
         raise DiagnosticError("Private media capture requires explicit consent.")
-    HELPERS.output_path(options.config, options.output)
+    private_output_path(options.config, options.output)
     target = None
     devices = json.loads(request(endpoint + "/targets", token))["devices"]
     if options.target_index is not None:
