@@ -60,6 +60,7 @@ one. Leave the duration at **30 seconds** unless we've asked for 60.
 Leave **Include private pictures, audio and video** unchecked unless we've
 requested media and you agree. It may include people, conversations and saved
 pictures from before the capture.
+And don't worry, I'm definitely not interested in watching your home videos 😂
 
 Leave **Open the selected camera's live stream during capture** unchecked
 unless we've specifically asked you to use it.
