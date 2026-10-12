@@ -10,6 +10,8 @@
  * stream plus safe counters, so the rest of the gateway never handles PPCS
  * packet layout or camera encryption directly.
  */
+import { buildS100SirenCommand } from "./s100-siren-command.js";
+import { S100SirenTrialError, type S100SirenTrialTransport, type S100SirenFailureStage } from "../provider/s100-siren-trial.js";
 import { createCipheriv, createDecipheriv, createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes } from "node:crypto";
 import { unwrapAuthenticatedMediaKey } from "../crypto/media-key.js";
 import { modelControlTrialCommand, type ModelControlRoute, type ModelControlTrial } from "../provider/model-control-trials.js";
@@ -653,6 +655,48 @@ export function buildModelControlTrialPayload(
     return { command: frame.command, payload: rawPayload(encryptLevel2(plain, level2Key, sequence), route.channel!, 8, [8, 0], 0) };
   }
   return { command: frame.command, payload: buildStandaloneJsonControlPayload(String(frame.value), route.channel!, legacyKey) };
+}
+
+/** Encrypted, ephemeral command built only for the exact standalone S100 trial. */
+export interface S100SirenTrialFrame {
+  readonly command: 1201 | 1202;
+  readonly wireChannel: 0 | 255;
+  readonly stage: "start" | "primary_stop" | "secondary_stop";
+  readonly payload: Buffer;
+}
+
+/**
+ * Preflight and seal every frame before a send. Start reserves three distinct
+ * low-byte counters, stop reserves two. This intentionally retains the existing
+ * negotiated envelope and does not claim full native counter initialization parity.
+ */
+export function buildS100SirenTrialFrames(
+  route: ModelControlRoute, enabled: boolean, key: Buffer | null, sequence: number,
+): readonly S100SirenTrialFrame[] {
+  const primary = buildS100SirenCommand(route, enabled);
+  if (!key || key.length !== 32) throw new S100SirenTrialError(["session"]);
+  if (!Number.isInteger(sequence) || sequence < 0 || sequence > (enabled ? 253 : 254)) {
+    throw new S100SirenTrialError(["session"]);
+  }
+  const seal = (command: 1201 | 1202, wireChannel: 0 | 255, stage: S100SirenTrialFrame["stage"], body: Uint8Array): S100SirenTrialFrame =>
+    ({ command, wireChannel, stage, payload: rawPayload(encryptLevel2(Buffer.from(body), key, sequence++), wireChannel, 8, [8, 0], 0) });
+  return [
+    ...(enabled ? [seal(1201, 255, "start", primary.body)] : []),
+    seal(1201, 255, "primary_stop", buildS100SirenCommand(route, false).body),
+    seal(1202, 0, "secondary_stop", Buffer.alloc(8)),
+  ];
+}
+
+/** Attempt both stop stages in order, preserving fixed failures without replaying either. */
+export async function dispatchS100SirenStops(
+  frames: readonly S100SirenTrialFrame[], send: (frame: S100SirenTrialFrame) => Promise<void>,
+): Promise<void> {
+  const failures: S100SirenFailureStage[] = [];
+  for (const frame of frames) {
+    try { await send(frame); }
+    catch { failures.push(frame.stage); }
+  }
+  if (failures.length) throw new S100SirenTrialError(failures);
 }
 
 /** Correlate a result frame by command and channel before interpreting its scalar. */
@@ -1685,6 +1729,61 @@ export class FirstPartyPpcsSession {
     await acknowledgement;
   }
 
+  /**
+   * Prepare one owned S100 pulse and its stop pair before any command is sent.
+   * Cleanup is idempotent, waits for an in-flight start and remains available on
+   * this original session after provider cancellation or inventory replacement.
+   */
+  async prepareS100SirenTrial(route: ModelControlRoute, enabled: boolean): Promise<S100SirenTrialTransport> {
+    if (this.#closed || this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
+      || this.#pendingControl || this.#pendingControlQuery
+      || !this.#options.modelControlTrial || this.#options.cameraModel !== route.model
+      || this.#options.channel !== route.channel || this.#options.homeBaseAttached !== route.homeBaseAttached) {
+      throw new S100SirenTrialError(["session"]);
+    }
+    try { await this.#waitForLevel2Key(); }
+    catch { throw new S100SirenTrialError(["session"]); }
+    if (this.#closed) throw new S100SirenTrialError(["session"]);
+    const frames = buildS100SirenTrialFrames(route, enabled, this.#level2Key, this.#level2Seq);
+    this.#level2Seq += frames.length;
+    let attempted = false, cancelled = false, ambiguous = false;
+    let starting: Promise<void> | null = null, stopping: Promise<void> | null = null;
+    const send = async (frame: S100SirenTrialFrame): Promise<void> => {
+      if (this.#closed || !this.#remote || this.#pendingControl) throw new S100SirenTrialError([frame.stage]);
+      if (frame.stage === "primary_stop" && ambiguous) {
+        this.#sendCommand(frame.command, frame.payload);
+        throw new S100SirenTrialError(["primary_stop"]);
+      }
+      const acknowledgement = this.#waitForControlResult(frame.command, frame.wireChannel, 2000);
+      try {
+        if (frame.stage === "start") attempted = true;
+        this.#sendCommand(frame.command, frame.payload);
+      }
+      catch (error) {
+        const pending = this.#pendingControl as PendingControl | null;
+        if (pending) { clearTimeout(pending.timer); this.#pendingControl = null; pending.reject(new S100SirenTrialError([frame.stage])); }
+      }
+      try { await acknowledgement; }
+      catch { throw new S100SirenTrialError([frame.stage]); }
+    };
+    return {
+      start: () => {
+        if (!enabled || cancelled || starting) return Promise.reject(new S100SirenTrialError(["start"]));
+        starting = send(frames[0]!).catch(() => { ambiguous = true; throw new S100SirenTrialError(["start"]); });
+        return starting;
+      },
+      stop: () => {
+        cancelled = true;
+        stopping ??= (async () => {
+          if (starting) await starting.catch(() => undefined);
+          if (enabled && !attempted) return;
+          await dispatchS100SirenStops(frames.filter(frame => frame.stage !== "start"), send);
+        })();
+        return stopping;
+      },
+    };
+  }
+
   /** Submit one exact-model experimental command, with no application-level replay. */
   async writeModelControlTrial(request: ModelControlTrial, route: ModelControlRoute): Promise<void> {
     if (this.#closed || this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
@@ -2582,13 +2681,13 @@ export class FirstPartyPpcsSession {
    * error lets the provider choose a readback rather than blindly retrying a
    * potentially non-idempotent operation.
    */
-  #waitForControlResult(command: number, strictChannel?: number): Promise<void> {
+  #waitForControlResult(command: number, strictChannel?: number, timeoutMilliseconds = CONTROL_TIMEOUT_MILLISECONDS): Promise<void> {
     if (this.#pendingControl) return Promise.reject(new Error("Camera already has a control command in flight"));
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#pendingControl = null;
         reject(new CameraControlAcknowledgementTimeoutError());
-      }, CONTROL_TIMEOUT_MILLISECONDS);
+      }, timeoutMilliseconds);
       this.#pendingControl = { command, resolve, reject, timer, ...(strictChannel === undefined ? {} : { strictChannel }) };
     });
   }

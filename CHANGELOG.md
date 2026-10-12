@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.139
+
+- Added an opt-in S100 T84A1 siren test in Diagnostics, with a five-second pulse, an explicit stop button and ordered stop attempts on cleanup. Sound and stop behaviour still need confirmation on S100 hardware. Normal Home Assistant siren support remains disabled.
+- Added the previously merged opt-in E30 T8417 pan/tilt trial so owners can test directional movement. Physical movement remains unconfirmed.
+- Clarified diagnostic bundle privacy, including optional media and identifying metadata. Bundles are not guaranteed anonymous.
+- Included offline NVR reassembly groundwork. This release does not enable NVR live video.
+
 ## 0.1.138
 
 - Fix live video startup when a camera's initial codec hint differs from its actual H.264 or H.265 video. The shared stream cache can now correct the provisional format before decoder headers are complete, while preserving established streams.

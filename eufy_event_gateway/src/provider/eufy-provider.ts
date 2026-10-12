@@ -12,6 +12,7 @@
  * forwarding private event fields into the logger. Periodic cloud refreshes admit
  * newly added devices without replacing push receivers or active media sessions.
  */
+import { runS100SirenTrial, S100SirenTrialError } from "./s100-siren-trial.js";
 import { modelControlTrialActions, parseModelControlTrial, runModelControlTrial, type ModelControlRoute, type ModelControlTrial, type ModelControlTrialResult } from "./model-control-trials.js";
 import { join } from "node:path";
 import { setTimeout as cancellableDelay } from "node:timers/promises";
@@ -465,6 +466,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #recordingReservations = new Set<string>();
   readonly #trialPeers = new Set<string>();
   readonly #trialSessions = new Map<string, FirstPartyPpcsSession>();
+  readonly #trialSirenStops = new Map<string, { readonly cameraId: string; readonly stop: () => Promise<void>; readonly finished: Promise<void> }>();
   readonly #recordingSessions = new Map<string, FirstPartyPpcsSession>();
   readonly #dskKeys = new Map<string, { readonly key: string; readonly expiresAt: number | null }>();
   readonly #dskRefreshes = new Map<string, Promise<{ readonly key: string; readonly expiresAt: number | null } | null>>();
@@ -923,6 +925,18 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const device = this.#devices.get(serial)!;
     const route = ppcsStreamRoute(device, this.#devices)!;
     const peer = route.peer;
+    const activeSiren = this.#trialSirenStops.get(peer.serial);
+    if (request.action === "siren" && !request.enabled && activeSiren?.cameraId === serial) {
+      try {
+        await activeSiren.stop().finally(() => activeSiren.finished);
+        logger.info("model_control_trial_result", `Model control trial: model=${safeLogModel(device.model)} action=siren outcome=acknowledged physical_confirmation_required=true`);
+        return { outcome: "acknowledged", physicalConfirmationRequired: true, stoppedEarly: true };
+      } catch (error) {
+        const failure = error instanceof S100SirenTrialError ? error : new S100SirenTrialError(["session"]);
+        logger.warn("model_control_trial_failed", `Model control trial failed: model=${safeLogModel(device.model)} action=siren stages=${failure.stages.join(",")}`);
+        throw failure;
+      }
+    }
     const controlMaps = [this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations,
       this.#audioRecordingOperations, this.#motionOperations, this.#nightVisionOperations, this.#guardModeOperations,
       this.#lightOperations, this.#panControlOperations, this.#cameraSirenOperations];
@@ -932,6 +946,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         || controlMaps.some(map => map.has(row.serial)))) throw new Error("Stop live view and wait for other device operations before a control trial");
     this.#trialPeers.add(peer.serial);
     let session: FirstPartyPpcsSession | null = null;
+    let finishSiren: (() => void) | undefined;
     const checkOwnership = () => {
       const current = this.#devices.get(serial);
       const currentPeer = this.#devices.get(peer.serial);
@@ -955,15 +970,26 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       checkOwnership();
       const owned = session;
       const profile = this.#modelTrialRoute(device, route);
-      const result = await runModelControlTrial({
-        read: async () => {
-          const params = await owned.readCameraInfo();
-          checkOwnership();
-          return safeInventoryReads(params, device.deviceType, device.model, !route.homeBaseAttached && device.channel === 0);
-        },
-        write: async value => { checkOwnership(); await owned.writeModelControlTrial(value, profile); },
-      }, request, checkOwnership, error => error instanceof CameraControlAcknowledgementTimeoutError);
-      if (request.action !== "ptz") {
+      let result: ModelControlTrialResult;
+      if (request.action === "siren") {
+        const transport = await owned.prepareS100SirenTrial(profile, request.enabled);
+        checkOwnership();
+        const controller = new AbortController();
+        const stop = () => { controller.abort(); return transport.stop(); };
+        const finished = new Promise<void>(resolve => { finishSiren = resolve; });
+        this.#trialSirenStops.set(peer.serial, { cameraId: serial, stop, finished });
+        result = await runS100SirenTrial(transport, request.enabled, controller.signal, checkOwnership);
+      } else {
+        result = await runModelControlTrial({
+          read: async () => {
+            const params = await owned.readCameraInfo();
+            checkOwnership();
+            return safeInventoryReads(params, device.deviceType, device.model, !route.homeBaseAttached && device.channel === 0);
+          },
+          write: async value => { checkOwnership(); await owned.writeModelControlTrial(value, profile); },
+        }, request, checkOwnership, error => error instanceof CameraControlAcknowledgementTimeoutError);
+      }
+      if (request.action === "motion" || request.action === "spotlight") {
         const field = request.action === "motion" ? "motionDetectionEnabled" : "spotlightEnabled";
         this.#liveDeviceReads.set(serial, { ...this.#liveDeviceReads.get(serial), [field]: request.enabled });
         const current = this.#devices.get(serial)!;
@@ -974,12 +1000,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       logger.info("model_control_trial_result", `Model control trial: model=${safeLogModel(device.model)} action=${request.action} outcome=${result.outcome} physical_confirmation_required=true`);
       return result;
     } catch (error) {
-      logger.warn("model_control_trial_failed", `Model control trial failed: model=${safeLogModel(device.model)} action=${request.action}`);
-      throw error;
+      logger.warn("model_control_trial_failed", `Model control trial failed: model=${safeLogModel(device.model)} action=${request.action}${request.action === "siren" ? ` stages=${error instanceof S100SirenTrialError ? error.stages.join(",") : "session"}` : ""}`);
+      throw request.action === "siren" && !(error instanceof S100SirenTrialError) ? new S100SirenTrialError(["session"]) : error;
     } finally {
       session?.close();
+      this.#trialSirenStops.delete(peer.serial);
       this.#trialSessions.delete(peer.serial);
       this.#trialPeers.delete(peer.serial);
+      finishSiren?.();
     }
   }
 
@@ -1427,7 +1455,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   /** Retire startup and push synchronously before cancelling shared cloud work. */
   async close(): Promise<void> {
     this.#recordingClosing = true;
-    for (const session of this.#trialSessions.values()) session.close();
+    for (const [peer, session] of this.#trialSessions) {
+      if (!this.#trialSirenStops.has(peer)) session.close();
+    }
     ++this.#startupGeneration;
     this.#retireInventoryRefresh();
     const push = this.#push;
@@ -1439,6 +1469,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#stationRefreshTimer = null;
     if (this.#inventoryRefreshTimer) clearInterval(this.#inventoryRefreshTimer);
     this.#inventoryRefreshTimer = null;
+    let sirenDeadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.allSettled([...this.#trialSirenStops.values()].map(trial => trial.stop().finally(() => trial.finished))),
+        new Promise<void>(resolve => { sirenDeadline = setTimeout(resolve, 7000); }),
+      ]);
+    } finally { if (sirenDeadline) clearTimeout(sirenDeadline); }
+    for (const session of this.#trialSessions.values()) session.close();
     await closingPush;
     for (const stream of this.#ppcsStreams.values()) stream.close();
     this.#ppcsStreams.clear();

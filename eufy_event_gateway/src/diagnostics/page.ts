@@ -22,8 +22,9 @@ export function diagnosticsPage(): string {
 <button id="trial-load">Check available controls</button>
 <label>Control <select id="trial-action"></select></label>
 <label>Value <select id="trial-value"><option value="true">On</option><option value="false">Off</option><option value="left">Left</option><option value="right">Right</option><option value="up">Up</option><option value="down">Down</option></select></label>
-<label><input id="trial-consent" type="checkbox"> I am ready to observe the camera and restore its setting.</label>
-<button id="trial-send">Try once</button>
+<label><input id="trial-consent" type="checkbox"> I am ready to observe the camera, stop the siren if needed and restore changed settings.</label>
+<button id="trial-send">Try once</button><button id="trial-siren-stop" hidden>Stop siren</button>
+<p id="trial-help"></p>
 <pre id="trial-status" role="status">No control trial started.</pre></details>
 <label>Capture duration <select id="seconds"><option value="30">30 seconds</option><option value="60">60 seconds</option></select></label>
 <label><input id="media" type="checkbox"> Include private pictures, audio and video. I agree to capture and share this evidence privately.
@@ -36,7 +37,7 @@ export function diagnosticsPage(): string {
 <p>Evidence is held in gateway memory for up to 10 minutes. Download stops capture. Clear evidence erases the session. A gateway restart also erases it.</p>
 <script>
 const el = id => document.getElementById(id);
-let targets = [], stream = null, poll = null;
+let targets = [], stream = null, poll = null, activeTrialSerial = null;
 const show = value => { el('status').textContent = value; };
 const abortStream = () => { if(stream) stream.abort(); stream = null; };
 async function api(path, method = 'GET', body) {
@@ -58,8 +59,7 @@ action('load', async () => {
   for(const target of targets) el('device').add(new Option(target.name + ' (' + target.model + ')', target.serial));
   await status();
 });
-async function trialApi(method, body) {
-  const serial = el('device').value;
+async function trialApi(method, body, serial = el('device').value) {
   if(!serial) throw Error('Select one camera first.');
   const result = await fetch('api/cameras/' + encodeURIComponent(serial) + '/model-control-trial', {
     method, headers: { Authorization: 'Bearer ' + el('token').value, 'Content-Type': 'application/json' },
@@ -68,10 +68,25 @@ async function trialApi(method, body) {
   if(!result.ok) throw Error(value.error || 'Control trial failed. Check the camera before retrying.');
   return value;
 }
+function trialValues() {
+  const action = el('trial-action').value;
+  el('trial-value').replaceChildren();
+  const values = action === 'ptz' ? [['left','Left'],['right','Right'],['up','Up'],['down','Down']]
+    : action === 'siren' ? [['true','Five-second sound test'],['false','Stop siren']] : [['true','On'],['false','Off']];
+  for(const pair of values) el('trial-value').add(new Option(pair[1], pair[0]));
+  el('trial-siren-stop').hidden = action !== 'siren';
+  el('trial-help').textContent = action === 'siren' ? 'Listen and be ready to stop the siren. The start command requests a 30-second limit, but device enforcement is unverified. If it keeps sounding, stop it in the Eufy app.' : '';
+}
+el('trial-action').onchange = trialValues;
+action('trial-siren-stop', async () => {
+  await trialApi('POST', { action: 'siren', enabled: false }, activeTrialSerial || el('device').value);
+  el('trial-status').textContent = 'Stop commands acknowledged. Check that the siren is silent.';
+});
 action('trial-load', async () => {
   const value = await trialApi('GET');
   el('trial-action').replaceChildren();
   for(const name of value.actions) el('trial-action').add(new Option(name, name));
+  trialValues();
   el('trial-status').textContent = value.actions.length ? 'Choose one control and observe the camera.' : 'No exact model control trials available.';
 });
 action('trial-send', async () => {
@@ -79,13 +94,18 @@ action('trial-send', async () => {
   const action = el('trial-action').value, value = el('trial-value').value;
   if(action === 'ptz' ? !['left','right','up','down'].includes(value) : !['true','false'].includes(value)) throw Error('Choose a value matching the control.');
   el('trial-send').disabled = true;
+  activeTrialSerial = el('device').value;
+  el('device').disabled = true;
+  el('trial-action').disabled = true;
+  el('trial-load').disabled = true;
+  el('trial-value').disabled = true;
   el('trial-status').textContent = 'Trying once. Do not retry until the result is known.';
   try {
     const result = await trialApi('POST', action === 'ptz' ? { action, direction: value } : { action, enabled: value === 'true' });
-    el('trial-status').textContent = result.outcome === 'acknowledged' ? 'Command acknowledged. Check whether the camera moved.'
+    el('trial-status').textContent = action === 'siren' ? 'Commands acknowledged. Did the siren sound and stop? This result does not confirm audible behaviour.' : result.outcome === 'acknowledged' ? 'Command acknowledged. Check whether the camera moved.'
       : result.outcome === 'unchanged' ? 'Camera already reports this setting. No command sent.' : 'Camera reports the requested setting. Check its behaviour and restore the original setting when finished.';
-  } catch(error) { el('trial-status').textContent = error.message + ' Check the camera before retrying.'; }
-  finally { el('trial-send').disabled = false; }
+  } catch(error) { el('trial-status').textContent = error.message + ' Check the camera before retrying. If it keeps sounding, stop it in the Eufy app. Send the model_control_trial_failed log line if the test failed.'; }
+  finally { el('trial-send').disabled = false; el('device').disabled = false; el('trial-action').disabled = false; el('trial-load').disabled = false; el('trial-value').disabled = false; activeTrialSerial = null; }
 });
 action('start', async () => {
   const target = el('device').value || null;

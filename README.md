@@ -450,10 +450,32 @@ The T8417 pan/tilt trial sends one directional click. Observe the camera and
 manually restore its original view after testing. Stop and continuous movement
 controls are unavailable, and physical movement and restoration remain unverified.
 
+The standalone S100 T84A1 (type 151) also has an experimental **siren** trial.
+Confirm you can observe the camera and stop it if needed, then choose
+**Five-second sound test** and listen for sound and early stop. You can
+use **Stop siren** while the test runs. The gateway attempts both stop commands
+before closing its session, including after a lost start reply or graceful
+shutdown. The start command requests a 30-second limit, but enforcement by this
+device is unverified. If it keeps sounding, stop it in the Eufy app. Keep the
+camera within reach of somebody who can observe the test.
+
+S100 sound and stop behaviour still needs confirmation on reporter hardware.
+Acknowledgements do not prove sound or silence. A failed trial can mean a reply
+was lost, even if the command worked. Report whether it sounded and stopped,
+plus the `model_control_trial_failed` log line on failure. A `start` failure means
+start acknowledgement was not established. `primary_stop` or `secondary_stop`
+means the corresponding stop was not confirmed. A late start reply cannot turn
+an ambiguous start into a successful trial. Any failed start, including an
+explicit rejection, sends the primary stop without waiting for its reply. The
+expected failure stages are then `start,primary_stop`. A stop requested while
+the connection is still being prepared is refused because no pulse has started. The normal Home Assistant siren
+capability remains unavailable. This release does not enable NVR live video.
+
 For standalone installs, set `EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS=true`
 and configure `EUFY_GATEWAY_API_TOKEN`. The authenticated
 `GET /api/cameras/{camera}/model-control-trial` lists admitted actions.
 `POST` accepts exactly `{"action":"motion","enabled":true}`,
-`{"action":"spotlight","enabled":false}`, or
+`{"action":"spotlight","enabled":false}`,
+`{"action":"siren","enabled":true}` (five-second test, false to stop), or
 `{"action":"ptz","direction":"left"}` (also right, up and down).
 Do not include camera identifiers or private diagnostics in public issue comments.

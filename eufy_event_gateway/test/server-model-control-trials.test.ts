@@ -13,6 +13,7 @@ import type { CameraProvider } from "../src/provider/provider.js";
 import { GatewayServer } from "../src/server.js";
 import { SnapshotStore } from "../src/storage/snapshot-store.js";
 import type { LiveStreamManager } from "../src/stream/live-stream-manager.js";
+import { runS100SirenTrial } from "../src/provider/s100-siren-trial.js";
 import { diagnosticsPage } from "../src/diagnostics/page.js";
 
 for (const enabled of [false, true]) {
@@ -64,5 +65,38 @@ test("trial form is opt-in, explicit, single-submit and syntactically valid", ()
   assert.match(page, /Stop live view first/);
   assert.match(page, /trial-send'\).disabled = true/);
   assert.match(page, /model-control-trial/);
+  assert.match(page, /Five-second sound test/);
+  assert.match(page, /Stop siren/);
+  assert.match(page, /device enforcement is unverified/);
   new Function(page.split("<script>")[1]!.split("</script>")[0]!);
+});
+
+
+test("S100 HTTP client disconnect leaves provider-owned stop cleanup running", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "eufy-s100-http-"));
+  const state = new GatewayState();
+  state.registerCamera({ serial: "test", name: "Synthetic", model: "T84A1", stationSerial: "test", streamSupported: false, doorbellSupported: false });
+  const pulse = new AbortController(), client = new AbortController();
+  let started!: () => void, completed!: () => void, stops = 0;
+  const entered = new Promise<void>(resolve => { started = resolve; });
+  const finished = new Promise<void>(resolve => { completed = resolve; });
+  const provider = { modelControlTrials: () => ["siren"], performModelControlTrial: async () => {
+    try {
+      return await runS100SirenTrial({ start: async () => { started(); }, stop: async () => { stops++; } }, true, pulse.signal, () => {});
+    } finally { completed(); }
+  } } as unknown as CameraProvider;
+  const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "fixture", experimentalModelControls: true },
+    state, new SnapshotStore(directory), {} as LiveStreamManager, provider, null);
+  try {
+    await server.listen();
+    const url = `http://127.0.0.1:${server.port}/api/cameras/test/model-control-trial`;
+    const headers = { authorization: "Bearer fixture", "content-type": "application/json" };
+    assert.equal((await fetch(url, { method: "POST", headers, body: '{"action":"siren","enabled":true,"duration":900}' })).status, 400);
+    const request = fetch(url, { method: "POST", headers, body: '{"action":"siren","enabled":true}', signal: client.signal });
+    await entered;
+    client.abort(); await assert.rejects(request, /abort/i);
+    assert.equal(stops, 0);
+    pulse.abort(); await finished;
+    assert.equal(stops, 1);
+  } finally { pulse.abort(); await server.close(); await rm(directory, { recursive: true, force: true }); }
 });

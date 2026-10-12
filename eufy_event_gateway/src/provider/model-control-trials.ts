@@ -11,12 +11,16 @@ import { setTimeout as delay } from "node:timers/promises";
 export type ModelControlTrial =
   | { readonly action: "motion"; readonly enabled: boolean }
   | { readonly action: "spotlight"; readonly enabled: boolean }
+  | { readonly action: "siren"; readonly enabled: boolean }
   | { readonly action: "ptz"; readonly direction: "left" | "right" | "up" | "down" };
 
 /** Report acknowledgement separately from fresh reported state and physical movement. */
 export interface ModelControlTrialResult {
   readonly outcome: "confirmed" | "acknowledged" | "unchanged";
   readonly physicalConfirmationRequired: boolean;
+
+  /** A concurrent explicit stop shortened the siren pulse. */
+  readonly stoppedEarly?: boolean;
 
   /** Present for changed settings, separating readback proof from a lost result frame. */
   readonly acknowledgementReceived?: boolean;
@@ -37,7 +41,7 @@ export function parseModelControlTrial(value: unknown): ModelControlTrial {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new SyntaxError("Invalid model control trial");
   const row = value as Record<string, unknown>;
   if (Object.keys(row).length !== 2) throw new SyntaxError("Model control trial requires exactly two fields");
-  if ((row.action === "motion" || row.action === "spotlight") && typeof row.enabled === "boolean") {
+  if ((row.action === "motion" || row.action === "spotlight" || row.action === "siren") && typeof row.enabled === "boolean") {
     return { action: row.action, enabled: row.enabled };
   }
   if (row.action === "ptz" && ["left", "right", "up", "down"].includes(String(row.direction))) {
@@ -59,7 +63,9 @@ export function modelControlTrialActions(route: ModelControlRoute): readonly Mod
   if (route.model === "T8417" && route.deviceType === 105) {
     return route.peerModel === "T8417" ? ["motion", "ptz"] : ["motion"];
   }
-  if (route.model === "T84A1" && route.deviceType === 151) return ["motion"];
+  if (route.model === "T84A1" && route.deviceType === 151) {
+    return route.peerModel === "T84A1" ? ["motion", "siren"] : ["motion"];
+  }
   return [];
 }
 
@@ -67,6 +73,7 @@ export function modelControlTrialActions(route: ModelControlRoute): readonly Mod
 export function modelControlTrialCommand(
   request: ModelControlTrial, route: ModelControlRoute, accountId: string, transaction: number,
 ): { readonly command: number; readonly value: string | boolean } {
+  if (request.action === "siren") throw new Error("S100 siren requires its dedicated encrypted trial session");
   if (!accountId || !modelControlTrialActions(route).includes(request.action)) throw new Error("Model control trial route unavailable");
   if (!Number.isSafeInteger(transaction) || transaction < 1_000_000_000_000) throw new Error("Invalid control transaction");
   if (request.action === "spotlight") return { command: 1403, value: request.enabled };
@@ -93,6 +100,7 @@ export async function runModelControlTrial(
   isAcknowledgementTimeout: (error: unknown) => boolean = () => false,
 ): Promise<ModelControlTrialResult> {
   checkOwnership();
+  if (request.action === "siren") throw new Error("S100 siren requires its dedicated pulse runner");
   if (request.action === "ptz") {
     await session.write(request);
     checkOwnership();
