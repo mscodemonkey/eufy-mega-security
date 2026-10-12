@@ -25,6 +25,36 @@ signed URLs, detection identities, arbitrary log/error messages and settings
 files are excluded. Global connection and log event codes are marked by the
 absence of a device label, even when one device is selected.
 
+### Privacy boundaries
+
+The technical projection excludes Eufy account details and email addresses,
+passwords, gateway API tokens, encryption keys, device and room names, serial
+numbers, IP addresses, private URLs and full log or error messages. Device names
+and original identifiers are used for local selection and replaced with
+capture-local aliases in the export. The gateway token authenticates requests
+to your own gateway and is not included in the archive.
+
+This is filtered diagnostic data, not a guarantee of anonymity. Models,
+firmware, topology, capabilities and event categories can still distinguish a
+setup. Detection categories are included, but recognised people's identities
+are excluded from the technical projection.
+
+Optional media is copied without anonymising, blurring or scrubbing its contents
+or embedded metadata. It can reveal faces, voices, surroundings, camera overlays
+or other identifying information. The technical exclusions above do not remove
+information visible, audible or embedded in that media. Private-media consent
+is off by default.
+
+Sending a bundle also reveals information outside the archive, such as your
+email address, cloud-sharing account or chosen filename. Maintainers retain a
+private copy for investigation, with no automatic deletion date promised.
+Gateway expiry, clearing or restart removes its temporary in-memory capture,
+not downloads, sent files or copies in backups and synced folders. Home
+Assistant's `/config` output may be included in Home Assistant backups. Delete
+copies you no longer need and revoke shared access after the investigation.
+
+### Optional media and device selection
+
 With explicit consent, the same session can retain original H.264/H.265 video
 and validated AAC audio from the gateway's existing source, before viewer
 conversion or container muxing. Retained JPEG snapshots and event images can
@@ -151,7 +181,8 @@ python3 eufy_event_gateway/scripts/diagnostic-bundle.py inspect --input /private
 
 The inspector limits compressed and expanded sizes, checks the schema and
 record/timing limits, and verifies every media length and SHA-256 hash. It prints
-only counts and a sharing recommendation. Inspection success proves archive
+only counts and a sharing recommendation. It does not check that archive
+contents are anonymous or scan media for personal information. Inspection success proves archive
 integrity, not correct playback or a hardware fix. Compare evidence with the
 exact model and topology before changing support claims. Never execute a
 reporter's attachment or add private media to source-controlled test fixtures.

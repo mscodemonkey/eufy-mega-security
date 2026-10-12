@@ -7,6 +7,38 @@ automatically, and capturing diagnostics doesn't change your camera settings.
 You'll need app and integration v0.1.131 or newer. Follow the short request in
 your GitHub issue for which device to choose and what to try.
 
+## Your privacy
+
+The bundle's technical data excludes Eufy account details, email addresses,
+passwords, API tokens, encryption keys, camera or room names, device serial
+numbers, IP addresses, private URLs and full log or error messages. Your gateway
+token authenticates requests to your own gateway. It is not put in the bundle.
+Device names on the capture page help you choose a device and aren't exported.
+
+The technical data includes gateway version, device models, firmware, supported
+features, connection and stream status, event categories, relative timing and
+diagnostic counts. Devices get labels such as `device-1` that apply only to that
+capture. These details can still distinguish your setup, so we don't promise
+complete anonymity.
+
+**Optional media is different.** Pictures, audio and video are off by default
+and require your agreement. If enabled, they are included without anonymising,
+blurring or removing embedded information. People, voices, your home, camera
+overlays and media metadata may identify you or someone else. We can't promise
+a bundle containing media has no personal information. Leave media off unless
+we've explained why it is needed and you're comfortable sharing it privately.
+
+Nothing uploads automatically. You choose whether to download and send the
+file. Your email address or cloud-sharing account can identify you separately
+from the bundle. We retain a private copy for investigation, with no automatic
+deletion date promised.
+
+The gateway's temporary capture stays in memory and is removed ten minutes
+after capture starts, when you clear it, or when the gateway restarts. That
+doesn't delete downloaded or sent files. Copies may remain in Home Assistant
+backups, browser downloads, synced folders, email or cloud storage. Delete copies
+you no longer need and revoke shared access after the investigation.
+
 ## 1. Open the capture tool
 
 In the Eufy Mega Security app's Web UI, click **Create a diagnostic bundle**.
@@ -60,7 +92,6 @@ one. Leave the duration at **30 seconds** unless we've asked for 60.
 Leave **Include private pictures, audio and video** unchecked unless we've
 requested media and you agree. It may include people, conversations and saved
 pictures from before the capture.
-And don't worry, I'm definitely not interested in watching your home videos 😂
 
 Leave **Open the selected camera's live stream during capture** unchecked
 unless we've specifically asked you to use it.
