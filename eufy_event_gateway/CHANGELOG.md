@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.142
+
+- Expand the default-off NVR live-view trial to exact T8140/T8140-Z, T8113-V, T8172, T8162, T8170, T81A0 and T8425 camera types behind T8N00 or T9000 parents. Additional cameras use their first lens. Fresh discovery must match the selected camera, channel and type before video starts. Hardware playback remains unconfirmed.
+- Add a separate read-only NVR settings test in Diagnostics. It requests station and selected-camera state without starting video or changing settings, and shows unknown values honestly. Guard-mode and camera-power controls remain unavailable pending physical confirmation.
+- Add an optional 60-second Home Assistant HLS idle timeout under the integration's Configure menu. It is off by default, follows viewer requests, preserves recording timeouts and preload behaviour, and can be disabled to restore HA defaults. Battery savings require reporter testing.
+
 ## 0.1.141
 
 - Add a default-off, private NVR video trial for T8E00/type301 cameras attached to exact T8N00/type300 or T9000/type27 parents. Enable `experimental_nvr_live`, select the camera in Diagnostics and explicitly request one ten-second clip. This is a test candidate, with physical NVR behaviour still unconfirmed.

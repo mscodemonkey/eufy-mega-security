@@ -251,3 +251,12 @@ config:
     reconfigure_successful: Gateway forbindelsen er opdateret
     hassio_connected: Integrationen er nu forbundet med den lokale Eufy Mega Security app
     invalid_discovery: Appen leverede ugyldige forbindelses detaljer
+options:
+  step:
+    init:
+      title: Testindstillinger for afspilning
+      description: Eksperimentelle indstillinger gælder for denne integration. Når du gemmer, genindlæses kameraerne.
+      data:
+        experimental_short_hls_idle: Prøv en HLS-inaktivitetstimeout på 60 sekunder
+      data_description:
+        experimental_short_hls_idle: Slået fra som standard. Afslutter ubrugt livevisning i HA tidligere baseret på seerforespørgsler. Slå kameraets forudindlæsning fra under testen. Optagelser beholder deres egen timeout. Ved meget langsom opstart kan det være nødvendigt at slå indstillingen fra igen.
