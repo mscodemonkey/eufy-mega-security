@@ -4,6 +4,7 @@
 
 - Prevent queued Firebase notifications from replaying stale motion, person and doorbell events when the app restarts. Deliveries from the current startup remain available, and suppressed messages are still acknowledged so they do not return on the next connection.
 - Accept the standards-valid NVR data-channel offer observed on T8N00 hardware when its media line includes the optional SCTP port token. NVR video and read-state results still need reporter confirmation.
+- Let complete H.264 decoder headers override a repeated incorrect H.265 provider hint, fixing the no-output path observed on T8160 while preserving later confirmed streams.
 
 ## 0.1.144
 

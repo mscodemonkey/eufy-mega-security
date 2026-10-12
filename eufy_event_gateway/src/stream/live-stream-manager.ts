@@ -234,6 +234,10 @@ export const SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS = 30_000;
 export class VideoParameterSetCache {
   #pending = Buffer.alloc(0);
   #codec: VideoCodec | null = null;
+  #observedCodec: VideoCodec | null = null;
+  #alternateVps: Buffer | null = null;
+  #alternateSps: Buffer | null = null;
+  #alternatePps: Buffer | null = null;
   #openingChunks: Buffer[] = [];
   #openingBytes = 0;
   #openingHeaders: Buffer | null = null;
@@ -299,20 +303,8 @@ export class VideoParameterSetCache {
   /** Inspect ordered bytes, allowing provider metadata to correct an unbootstrapped codec. */
   push(chunk: Buffer, declaredCodec?: VideoCodec | null): void {
     const previousCodec = this.#codec;
-    if (declaredCodec && declaredCodec !== this.#codec && this.bootstrap === null) {
-      this.#codec = declaredCodec;
-      this.#vps = null;
-      this.#sps = null;
-      this.#pps = null;
-      this.#pictureHeaders = null;
-      this.#pictureHeadersPayloadOffset = -1;
-      this.#openingChunks = [];
-      this.#openingBytes = 0;
-      this.#openingHeaders = null;
-      this.#openingCurrent = false;
-      this.#randomAccessPictures = 0;
-      this.#keyframeContinuationNals = 0;
-      this.#startupGroupOverflows = 0;
+    if (declaredCodec && declaredCodec !== this.#codec && this.bootstrap === null && this.#observedCodec === null) {
+      this.#selectCodec(declaredCodec);
     }
     this.#scanParameterSets(chunk);
     const tail = this.#scanTail;
@@ -416,10 +408,34 @@ export class VideoParameterSetCache {
       if (this.#codec === "h264" && (h264Type === 7 || h264Type === 8)) {
         if (h264Type === 7) this.#sps = nal;
         else this.#pps = nal;
+        if (this.#sps && this.#pps) this.#observedCodec = "h264";
       } else if (this.#codec === "h265" && (h265Type === 32 || h265Type === 33 || h265Type === 34)) {
         if (h265Type === 32) this.#vps = nal;
         else if (h265Type === 33) this.#sps = nal;
         else this.#pps = nal;
+        if (this.#vps && this.#sps && this.#pps) this.#observedCodec = "h265";
+      } else if (this.#codec === "h265" && (h264Type === 7 || h264Type === 8)) {
+        if (h264Type === 7) this.#alternateSps = nal;
+        else this.#alternatePps = nal;
+        if (this.#alternateSps && this.#alternatePps) {
+          const sps = this.#alternateSps, pps = this.#alternatePps;
+          this.#selectCodec("h264");
+          this.#sps = sps;
+          this.#pps = pps;
+          this.#observedCodec = "h264";
+        }
+      } else if (this.#codec === "h264" && (header & 0x01) === 0 && (h265Type === 32 || h265Type === 33 || h265Type === 34)) {
+        if (h265Type === 32) this.#alternateVps = nal;
+        else if (h265Type === 33) this.#alternateSps = nal;
+        else this.#alternatePps = nal;
+        if (this.#alternateVps && this.#alternateSps && this.#alternatePps) {
+          const vps = this.#alternateVps, sps = this.#alternateSps, pps = this.#alternatePps;
+          this.#selectCodec("h265");
+          this.#vps = vps;
+          this.#sps = sps;
+          this.#pps = pps;
+          this.#observedCodec = "h265";
+        }
       } else if (this.#codec === null && (header & 0x01) === 0 && (h265Type === 32 || h265Type === 33 || h265Type === 34)) {
         this.#codec = "h265";
         this.#vps = h265Type === 32 ? nal : null;
@@ -434,6 +450,27 @@ export class VideoParameterSetCache {
     }
     this.#capturePictureHeaders(data, starts.at(-1)!, baseOffset);
     this.#pending = Buffer.from(data.subarray(starts.at(-1)!.offset));
+  }
+
+  /** Replace only provisional codec state while retaining transport diagnostics. */
+  #selectCodec(codec: VideoCodec): void {
+    this.#codec = codec;
+    this.#observedCodec = null;
+    this.#vps = null;
+    this.#sps = null;
+    this.#pps = null;
+    this.#alternateVps = null;
+    this.#alternateSps = null;
+    this.#alternatePps = null;
+    this.#pictureHeaders = null;
+    this.#pictureHeadersPayloadOffset = -1;
+    this.#openingChunks = [];
+    this.#openingBytes = 0;
+    this.#openingHeaders = null;
+    this.#openingCurrent = false;
+    this.#randomAccessPictures = 0;
+    this.#keyframeContinuationNals = 0;
+    this.#startupGroupOverflows = 0;
   }
 }
 
