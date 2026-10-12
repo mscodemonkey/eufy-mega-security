@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.140
+
+- Reconnect HomeBase-attached camera live view after decoded media stalls. The gateway now makes one bounded restart attempt, then closes the silent source so the viewer can establish a fresh camera session instead of remaining blank indefinitely.
+- Preserve the existing startup retry limits and standalone-camera behaviour.
+
 ## 0.1.139
 
 - Added an opt-in S100 T84A1 siren test in Diagnostics, with a five-second pulse, an explicit stop button and ordered stop attempts on cleanup. Sound and stop behaviour still need confirmation on S100 hardware. Normal Home Assistant siren support remains disabled.
