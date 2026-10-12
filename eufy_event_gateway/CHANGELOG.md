@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.143
+
+- Add a separate read-only backup AA battery sensor for exact T85V0/type203 locks when authenticated inventory reports that measurement. Missing, invalid, ambiguous and unavailable values stay unknown, and the primary battery is never substituted. A reading arriving later can create the sensor without restarting Home Assistant. Physical accuracy still needs reporter confirmation.
+
 ## 0.1.142
 
 - Expand the default-off NVR live-view trial to exact T8140/T8140-Z, T8113-V, T8172, T8162, T8170, T81A0 and T8425 camera types behind T8N00 or T9000 parents. Additional cameras use their first lens. Fresh discovery must match the selected camera, channel and type before video starts. Hardware playback remains unconfirmed.
