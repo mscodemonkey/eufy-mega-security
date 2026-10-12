@@ -12,6 +12,7 @@ import { buildModelControlTrialPayload, decodeModelControlTrialAcknowledgement, 
 
 const direct: ModelControlRoute = { model: "T8423", deviceType: 38, channel: 0,
   homeBaseAttached: false, peerModel: "T8423", selfPeer: true };
+const e30: ModelControlRoute = { ...direct, model: "T8417", deviceType: 105, peerModel: "T8417" };
 const transaction = 1_800_000_000_000;
 
 test("model trials default off and require an authenticated explicit opt-in", () => {
@@ -43,6 +44,45 @@ test("trial requests reject arbitrary commands, unknown fields and implicit valu
     assert.throws(() => parseModelControlTrial(value), SyntaxError);
   }
   assert.deepEqual(parseModelControlTrial({ action: "motion", enabled: false }), { action: "motion", enabled: false });
+});
+
+test("E30 directional trials require its exact standalone peer without changing motion admission", () => {
+  assert.deepEqual(modelControlTrialActions(e30), ["motion", "ptz"]);
+  for (const patch of [{ model: "T8417X" }, { deviceType: 38 }, { channel: 1 }, { channel: null },
+    { selfPeer: false }, { homeBaseAttached: true }, { peerModel: "T8423" }, { peerModel: "" }]) {
+    const route = { ...e30, ...patch };
+    assert.equal(modelControlTrialActions(route).includes("ptz"), false);
+    assert.throws(() => modelControlTrialCommand({ action: "ptz", direction: "left" }, route, "synthetic", transaction), /route unavailable/);
+  }
+  assert.deepEqual(modelControlTrialActions({ ...e30, peerModel: "T8423" }), ["motion"]);
+});
+
+test("E30 directional wire contracts retain standalone 1700 and single-click semantics", () => {
+  const legacyKey = Buffer.alloc(16, 7);
+  for (const [direction, rotate_type] of [["left", 1], ["right", 2], ["up", 3], ["down", 4]] as const) {
+    const request: ModelControlTrial = { action: "ptz", direction };
+    const expected = { commandType: 6030, data: { cmd_type: 1, rotate_type, zoom: 1, ivalue: -1, transaction: `${transaction}` } };
+    const semantic = modelControlTrialCommand(request, e30, "synthetic", transaction);
+    assert.equal(semantic.command, 1700);
+    assert.deepEqual(JSON.parse(String(semantic.value)), expected);
+    const frame = buildModelControlTrialPayload(request, e30, "synthetic", legacyKey, null, 5, transaction);
+    assert.equal(frame.command, 1700);
+    assert.equal(frame.payload[6], 0);
+    assert.equal(frame.payload[7], 1);
+    assert.equal(frame.payload[8], 0);
+    const decipher = createDecipheriv("aes-128-ecb", legacyKey, null);
+    decipher.setAutoPadding(false);
+    const plain = Buffer.concat([decipher.update(frame.payload.subarray(10)), decipher.final()]).toString().replace(/\0+$/, "");
+    assert.deepEqual(JSON.parse(plain), expected);
+    assert.throws(() => buildModelControlTrialPayload(request, e30, "synthetic", Buffer.alloc(0), null, 5, transaction));
+  }
+  const header = Buffer.alloc(16);
+  header.write("XZYH"); header.writeUInt16LE(1700, 4); header[14] = 1;
+  assert.equal(decodeModelControlTrialAcknowledgement(header, Buffer.alloc(4), 1700, 0, legacyKey, null), 0);
+  assert.equal(decodeModelControlTrialAcknowledgement(header, Buffer.alloc(4), 1350, 0, legacyKey, null), null);
+  assert.equal(decodeModelControlTrialAcknowledgement(header, Buffer.alloc(4), 1700, 3, legacyKey, null), null);
+  header[14] = 0;
+  assert.equal(decodeModelControlTrialAcknowledgement(header, Buffer.alloc(4), 1700, 0, legacyKey, null), null);
 });
 
 test("official command variants retain their distinct envelopes and spotlight master", () => {

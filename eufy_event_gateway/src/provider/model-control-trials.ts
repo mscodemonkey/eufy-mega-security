@@ -56,8 +56,10 @@ export function modelControlTrialActions(route: ModelControlRoute): readonly Mod
   }
   if (!route.selfPeer || route.channel !== 0) return [];
   if (route.model === "T8423" && route.deviceType === 38) return ["motion", "spotlight", "ptz"];
-  if ((route.model === "T84A1" && route.deviceType === 151)
-    || (route.model === "T8417" && route.deviceType === 105)) return ["motion"];
+  if (route.model === "T8417" && route.deviceType === 105) {
+    return route.peerModel === "T8417" ? ["motion", "ptz"] : ["motion"];
+  }
+  if (route.model === "T84A1" && route.deviceType === 151) return ["motion"];
   return [];
 }
 
@@ -70,7 +72,7 @@ export function modelControlTrialCommand(
   if (request.action === "spotlight") return { command: 1403, value: request.enabled };
   const data = request.action === "motion" ? { status: request.enabled ? 1 : 0, transaction: `${transaction}` }
     : { cmd_type: 1, rotate_type: { left: 1, right: 2, up: 3, down: 4 }[request.direction],
-      ...(route.model === "T8423" ? { zoom: 1, ivalue: -1 } : {}), transaction: `${transaction}` };
+      ...(["T8423", "T8417"].includes(route.model) ? { zoom: 1, ivalue: -1 } : {}), transaction: `${transaction}` };
   const command = request.action === "motion" ? 6040 : 6030;
   if (request.action === "ptz" && route.model === "T8423") {
     return { command: 1350, value: JSON.stringify({ account_id: accountId, cmd: command,

@@ -14,14 +14,14 @@ import type { ProviderEvents } from "../src/provider/provider.js";
 import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 import { GatewayState } from "../src/domain/gateway-state.js";
 
-for (const mode of ["disabled", "enabled", "missing-key"]) {
+for (const mode of ["disabled", "enabled", "missing-key", "e30"]) {
   const enabled = mode !== "disabled";
   test(`provider trial mode=${mode} owns its peer, confirms fresh state and releases on failure`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "eufy-trial-provider-"));
     const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
     context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
-    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{ device_sn: "camera", device_model: "T8423",
-      device_type: 38, category: "eufy_security", device_channel: 0, p2p_did: "synthetic-peer", p2p_conn: "synthetic-route",
+    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{ device_sn: "camera", device_model: mode === "e30" ? "T8417" : "T8423",
+      device_type: mode === "e30" ? 105 : 38, category: "eufy_security", device_channel: 0, p2p_did: "synthetic-peer", p2p_conn: "synthetic-route",
       member: { admin_user_id: "synthetic-account" }, params: [{ param_type: 6040, param_value: "1" }] }] }));
     context.mock.method(MegaClient.prototype, "dskKeys", async () => mode === "missing-key" ? {} : ({ camera: { key: "synthetic-key", expiresAt: null } }));
     context.mock.method(MegaPushReceiver.prototype, "start", async () => undefined);
@@ -46,7 +46,7 @@ for (const mode of ["disabled", "enabled", "missing-key"]) {
         assert.equal(starts.mock.callCount(), 0);
         return;
       }
-      assert.deepEqual(provider.modelControlTrials("camera"), ["motion", "spotlight", "ptz"]);
+      assert.deepEqual(provider.modelControlTrials("camera"), mode === "e30" ? ["motion", "ptz"] : ["motion", "spotlight", "ptz"]);
       if (mode === "missing-key") {
         await assert.rejects(provider.performModelControlTrial("camera", { action: "motion", enabled: false }), /keys unavailable/);
         assert.equal(starts.mock.callCount(), 0);

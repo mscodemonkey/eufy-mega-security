@@ -433,9 +433,9 @@ one operation and its value, confirm you can observe the camera, then **Try once
 Stop live views first. Record the original setting and restore it after testing.
 
 The initial exact-model trials are standalone T84A1 (type 151), T8417 (type 105)
-and T8423 (type 38) motion detection, standalone T8423 spotlight enablement and
-pan/tilt, and T8410 (type 31) pan/tilt through a T8030 HomeBase 3. Other models,
-channels and topologies remain unavailable. These trials come from official
+and T8423 (type 38) motion detection, standalone T8423 spotlight enablement,
+standalone T8417 and T8423 pan/tilt, and T8410 (type 31) pan/tilt through a T8030
+HomeBase 3. Other models, channels and topologies remain unavailable. These trials come from official
 Android model handlers. Their physical behaviour in this gateway still needs
 confirmation on each model. Normal Home Assistant capability flags are unchanged.
 
@@ -445,6 +445,10 @@ A timeout can mean the command took effect but the reply was lost. Check the
 camera in the Eufy app before retrying. Trials never automatically replay a
 movement command. They refuse a peer already used by live viewing, recording
 retrieval or another control operation.
+
+The T8417 pan/tilt trial sends one directional click. Observe the camera and
+manually restore its original view after testing. Stop and continuous movement
+controls are unavailable, and physical movement and restoration remain unverified.
 
 For standalone installs, set `EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS=true`
 and configure `EUFY_GATEWAY_API_TOKEN`. The authenticated
