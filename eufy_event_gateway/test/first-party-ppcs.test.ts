@@ -18,6 +18,7 @@ import {
   buildNightVisionBody,
   acceptsAttachedCameraMedia,
   acceptsSoloCamAudio,
+  attachedMediaStallRecoveryAction,
   buildPpcsCloudLookup,
   buildStandaloneJsonControlPayload,
   buildStandaloneCameraLightBody,
@@ -423,6 +424,15 @@ test("reasserts attached media during startup or after a stall", () => {
   assert.equal(needsAttachedMediaReassert(null, 1_000), true);
   assert.equal(needsAttachedMediaReassert(1_000, 6_000), false);
   assert.equal(needsAttachedMediaReassert(1_000, 11_000), true);
+});
+
+test("ends an attached source after one failed post-output reassert", () => {
+  assert.equal(attachedMediaStallRecoveryAction(null, null, 5_000), "reassert");
+  assert.equal(attachedMediaStallRecoveryAction(1_000, null, 11_000), "reassert");
+  assert.equal(attachedMediaStallRecoveryAction(1_000, 11_250, 16_250), "wait");
+  assert.equal(attachedMediaStallRecoveryAction(1_000, 11_250, 21_250), "close");
+  assert.equal(attachedMediaStallRecoveryAction(12_000, 11_250, 20_000), null);
+  assert.equal(attachedMediaStallRecoveryAction(12_000, 11_250, 22_000), "reassert");
 });
 
 test("builds distinct HomeBase start and stop media envelopes", () => {

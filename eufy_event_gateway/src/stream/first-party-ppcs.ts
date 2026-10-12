@@ -71,7 +71,7 @@ const ANNEX_B_START_CODE = Buffer.from([0, 0, 0, 1]);
 const MAX_NAL_UNIT_BYTES = 16 * 1024 * 1024;
 
 /** Stable terminal states retained for stream-close diagnostics. */
-type PpcsStreamCloseReason = "client_stop" | "first_frame_timeout" | "max_duration" | "replaced" | "start_failed";
+type PpcsStreamCloseReason = "client_stop" | "first_frame_timeout" | "media_stall" | "max_duration" | "replaced" | "start_failed";
 
 /**
  * Decide whether a HomeBase-attached camera needs its full media start sent again.
@@ -85,6 +85,25 @@ export function needsAttachedMediaReassert(
   now: number,
 ): boolean {
   return lastDeliveredFrameAt === null || now - lastDeliveredFrameAt >= ATTACHED_MEDIA_STALL_MILLISECONDS;
+}
+
+/**
+ * Choose one bounded recovery action after an attached stream has delivered media.
+ *
+ * Startup keeps its existing retries until the first-frame timeout owns the
+ * failure. After real output, one stop/start reassert gets a full stall window
+ * to recover. A second silent window ends the source so its viewer can decide
+ * whether to open a fresh session.
+ */
+export function attachedMediaStallRecoveryAction(
+  lastDeliveredFrameAt: number | null,
+  lastReassertAt: number | null,
+  now: number,
+): "reassert" | "wait" | "close" | null {
+  if (!needsAttachedMediaReassert(lastDeliveredFrameAt, now)) return null;
+  if (lastDeliveredFrameAt === null) return "reassert";
+  if (lastReassertAt === null || lastDeliveredFrameAt >= lastReassertAt) return "reassert";
+  return now - lastReassertAt >= ATTACHED_MEDIA_STALL_MILLISECONDS ? "close" : "wait";
 }
 
 /** Return whether cumulative codec evidence includes configuration and an IDR. */
@@ -1476,6 +1495,7 @@ export class FirstPartyPpcsSession {
     this.#recordVideoResult("incomplete-access-unit-dropped");
   });
   #lastDeliveredMediaFrameAt: number | null = null;
+  #lastAttachedMediaReassertAt: number | null = null;
   #heartbeat: ReturnType<typeof setInterval> | null = null;
   #attachedMediaRestartTimer: ReturnType<typeof setTimeout> | null = null;
   #lookupTimer: ReturnType<typeof setInterval> | null = null;
@@ -1574,12 +1594,17 @@ export class FirstPartyPpcsSession {
       if (!this.#remote) return;
       this.#send(REQ.ping, Buffer.alloc(0), this.#remote);
       if (this.#options.purpose === "control" && this.stats.mediaStartAttempts === 0) return;
-      if (
-        this.#options.homeBaseAttached
-        && this.#level2Key
-        && needsAttachedMediaReassert(this.#lastDeliveredMediaFrameAt, Date.now())
-      ) {
-        this.#startAttachedMedia();
+      if (this.#options.homeBaseAttached && this.#level2Key) {
+        const recovery = attachedMediaStallRecoveryAction(
+          this.#lastDeliveredMediaFrameAt,
+          this.#lastAttachedMediaReassertAt,
+          Date.now(),
+        );
+        if (recovery === "close") {
+          this.close("media_stall");
+          return;
+        }
+        if (recovery === "reassert") this.#startAttachedMedia();
       }
       else if (needsStandaloneMediaReassert(
         Boolean(this.#options.homeBaseAttached),
@@ -2849,7 +2874,10 @@ export class FirstPartyPpcsSession {
     this.#stopAttachedMedia();
     this.#attachedMediaRestartTimer = setTimeout(() => {
       this.#attachedMediaRestartTimer = null;
-      if (!this.#closed) this.#sendAttachedMediaControl(1003);
+      if (!this.#closed) {
+        this.#lastAttachedMediaReassertAt = Date.now();
+        this.#sendAttachedMediaControl(1003);
+      }
     }, ATTACHED_MEDIA_RESTART_DELAY_MILLISECONDS);
     this.#attachedMediaRestartTimer.unref?.();
   }
