@@ -783,12 +783,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     try {
       const session = await this.#nvrTrialSession(serial);
       session.output.once("error", error => logger.warn("nvr_live_trial_failed",
-        `stage=${error instanceof NvrTrialError ? error.stage : "video"} ${nvrTrialCounters(session)}`));
+        `stage=${error instanceof NvrTrialError ? error.stage : "video"} reason=${error instanceof NvrTrialError ? error.reason : "unspecified"} ${nvrTrialCounters(session)}`));
       await session.start();
     }
     catch (error) {
       const failure = error instanceof NvrTrialError ? error : new NvrTrialError("sign");
-      logger.warn("nvr_live_trial_failed", `stage=${failure.stage}${entry.session ? " " + nvrTrialCounters(entry.session) : ""}`);
+      logger.warn("nvr_live_trial_failed", `stage=${failure.stage} reason=${failure.reason}${entry.session ? " " + nvrTrialCounters(entry.session) : ""}`);
       await entry.release(); throw failure;
     }
   }
@@ -801,7 +801,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       return await (await this.#nvrTrialSession(serial)).readState();
     } catch (error) {
       const failure = error instanceof NvrTrialError ? error : new NvrTrialError("state");
-      logger.warn("nvr_state_trial_failed", `stage=${failure.stage}`);
+      logger.warn("nvr_state_trial_failed", `stage=${failure.stage} reason=${failure.reason}`);
       throw failure;
     } finally {
       try { await release?.(); }

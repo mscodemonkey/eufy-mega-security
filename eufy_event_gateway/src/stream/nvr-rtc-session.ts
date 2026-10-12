@@ -13,7 +13,7 @@ import { NvrPtcsReassembler } from "./nvr-ptcs-reassembly.js";
 import { VideoParameterSetCache } from "./live-stream-manager.js";
 import { installNvrIceTiming } from "./nvr-ice-timing.js";
 import { NvrTrialError, nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrJson,
-  nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrRecord, nvrVideo, nvrStateSummary, type NvrStateSummary, type NvrTrialStage } from "./nvr-protocol.js";
+  nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrRecord, nvrVideo, nvrStateSummary, type NvrStateSummary, type NvrTrialStage, type NvrTrialReason } from "./nvr-protocol.js";
 
 /** Private join credentials are short-lived and must never enter diagnostics. */
 export interface NvrSignallingContext {
@@ -183,13 +183,14 @@ export class NvrRtcSession {
         try { this.#send({ code: 200, action: 1, data: this.options.context.sign, sn: this.options.station,
           source: "WEB", ts: Math.floor(Date.now() / 1000) }, true); } catch { this.#fail("join"); }
       });
-      this.#socket.on("error", () => this.#fail(this.#stage));
-      this.#socket.on("close", () => { if (!this.#retired) this.#fail(this.#stage); });
+      this.#socket.on("error", () => this.#fail(this.#stage, "signalling_error"));
+      this.#socket.on("close", () => { if (!this.#retired) this.#fail(this.#stage, "signalling_closed"); });
       this.#socket.on("message", data => {
         if (this.#retired) return;
-        if (++this.#operations > 32) { this.#fail("negotiation"); return; }
+        if (++this.#operations > 32) { this.#fail("negotiation", "signalling_queue_limit"); return; }
         this.#chain = this.#chain.then(async () => { if (!this.#retired) await this.#message(data.toString()); })
-          .catch(error => this.#fail(error instanceof NvrTrialError ? error.stage : "negotiation"))
+          .catch(error => this.#fail(error instanceof NvrTrialError ? error.stage : "negotiation",
+            error instanceof NvrTrialError ? error.reason : "unexpected_negotiation_error"))
           .finally(() => { this.#operations--; });
       });
       await ready;
@@ -249,10 +250,10 @@ export class NvrRtcSession {
     if (this.#retired || this.options.signal.aborted || !this.options.current()) throw new NvrTrialError("cancelled");
   }
 
-  #fail(stage: NvrTrialStage): void {
+  #fail(stage: NvrTrialStage, reason: NvrTrialReason = "unspecified"): void {
     if (this.#retired) return;
     this.#stage = stage;
-    const error = new NvrTrialError(stage);
+    const error = new NvrTrialError(stage, reason);
     this.#readyReject?.(error);
     this.#pending?.reject(error);
     this.output.destroy(error);
@@ -281,21 +282,23 @@ export class NvrRtcSession {
       this.#authenticated = true; this.#stage = "call"; this.#action("call", {}); return;
     }
     if (!this.#authenticated || inner.action !== 3) throw new NvrTrialError("call");
-    if (inner.sessionId !== this.options.context.sign || inner.sn !== this.options.station || inner.channelId !== 0) throw new NvrTrialError("negotiation");
+    if (inner.sessionId !== this.options.context.sign) throw new NvrTrialError("negotiation", "session_mismatch");
+    if (inner.sn !== this.options.station) throw new NvrTrialError("negotiation", "station_mismatch");
+    if (inner.channelId !== 0) throw new NvrTrialError("negotiation", "channel_mismatch");
     const data = nvrJson(inner.data);
     if (inner.dataType === "call") {
       if (data.status === 486) throw new NvrTrialError("busy");
       if (data.status === 408) throw new NvrTrialError("call");
       if (data.status === 100) {
         const rows = Array.isArray(data.turn) ? data.turn : [data.turn];
-        if (rows.length > 4 || this.#turn.length) throw new NvrTrialError("negotiation");
+        if (rows.length > 4 || this.#turn.length) throw new NvrTrialError("negotiation", "relay_count");
         for (const row of rows) {
-          if (!nvrRecord(row)) throw new NvrTrialError("negotiation");
+          if (!nvrRecord(row)) throw new NvrTrialError("negotiation", "relay_shape");
           const host = row.turn_addr ?? row.addr ?? row.host ?? row.ip, port = row.turn_port ?? row.port ?? 3478;
           const username = row.turn_user ?? row.user ?? row.username, credential = row.turn_password ?? row.password ?? row.credential;
           if (typeof host !== "string" || !nvrNetworkHost(host) || !Number.isInteger(port) || (port as number) < 1 || (port as number) > 65535
             || typeof username !== "string" || !username.length || username.length > 512
-            || typeof credential !== "string" || !credential.length || credential.length > 512) throw new NvrTrialError("negotiation");
+            || typeof credential !== "string" || !credential.length || credential.length > 512) throw new NvrTrialError("negotiation", "relay_fields");
           this.#turn.push({ urls: `turn:${host}:${port}?transport=udp`, username, credential });
         }
       } else if (data.status === 200 && !this.#accepted) { this.#accepted = true; this.#action("ack", {}); }
@@ -304,30 +307,43 @@ export class NvrRtcSession {
     if (inner.dataType !== "info") return;
     if (data.format === "CANDIDATE") {
       const candidate = nvrCandidate(data.value);
-      if (++this.#candidateCount > 64 || (this.#candidateBytes += Buffer.byteLength(candidate)) > 65536) throw new NvrTrialError("negotiation");
+      if (++this.#candidateCount > 64 || (this.#candidateBytes += Buffer.byteLength(candidate)) > 65536) throw new NvrTrialError("negotiation", "candidate_limit");
       if (!this.#offerApplied) this.#pendingCandidates.push(candidate);
       else await this.#candidate(candidate);
     } else if (data.format === "SDP") {
-      if (!this.#accepted || this.#peer) throw new NvrTrialError("negotiation");
+      if (!this.#accepted || this.#peer) throw new NvrTrialError("negotiation", "offer_order");
       const offer = nvrOffer(data.value); this.#mid = offer.mid; this.#stage = "negotiation";
-      const peer = this.#peer = this.dependencies.peer(this.#turn);
-      peer.connectionStateChange.subscribe(state => { if (state === "failed" || state === "disconnected") this.#fail("negotiation"); });
+      let peer: RTCPeerConnection;
+      try { peer = this.#peer = this.dependencies.peer(this.#turn); }
+      catch { throw new NvrTrialError("negotiation", "peer_setup"); }
+      peer.connectionStateChange.subscribe(state => { if (state === "failed" || state === "disconnected") this.#fail("negotiation", state === "failed" ? "peer_failed" : "peer_disconnected"); });
       peer.onIceCandidate.subscribe(candidate => {
         if (!candidate?.candidate || this.#retired) return;
-        if (this.#localCandidates.size + this.#sentCandidates.size >= 64) { this.#fail("negotiation"); return; }
+        if (this.#localCandidates.size + this.#sentCandidates.size >= 64) { this.#fail("negotiation", "local_candidate_limit"); return; }
         if (this.#sentCandidates.has(candidate.candidate) || this.#localCandidates.has(candidate.candidate)) return;
-        if (Buffer.byteLength(candidate.candidate) > 8192 || (this.#localCandidateBytes += Buffer.byteLength(candidate.candidate)) > 65536) { this.#fail("negotiation"); return; }
+        if (Buffer.byteLength(candidate.candidate) > 8192 || (this.#localCandidateBytes += Buffer.byteLength(candidate.candidate)) > 65536) { this.#fail("negotiation", "local_candidate_limit"); return; }
         this.#localCandidates.add(candidate.candidate);
         if (this.#answerSent) this.#flushLocal();
       });
       peer.onDataChannel.subscribe(channel => this.#attach(channel));
-      for (const label of ["WebrtcDataChannel", "audio", "idr", "video", "notify", "download"]) this.#attach(peer.createDataChannel(label));
-      installNvrIceTiming(peer, this.#negotiation.signal);
-      await peer.setRemoteDescription(new RTCSessionDescription(offer.sdp, "offer")); this.#guard();
+      await this.#step("peer_setup", () => {
+        for (const label of ["WebrtcDataChannel", "audio", "idr", "video", "notify", "download"]) this.#attach(peer.createDataChannel(label));
+        installNvrIceTiming(peer, this.#negotiation.signal);
+      });
+      await this.#step("remote_description", () => peer.setRemoteDescription(new RTCSessionDescription(offer.sdp, "offer"))); this.#guard();
       this.#offerApplied = true;
       for (const candidate of this.#pendingCandidates.splice(0)) await this.#candidate(candidate);
-      const answer = await peer.createAnswer(); this.#guard(); await peer.setLocalDescription(answer); this.#guard();
-      this.#action("info", { sdp: peer.localDescription!.sdp }); this.#answerSent = true; this.#flushLocal();
+      const answer = await this.#step("create_answer", () => peer.createAnswer()); this.#guard();
+      await this.#step("local_description", () => peer.setLocalDescription(answer)); this.#guard();
+      await this.#step("send_answer", () => { this.#action("info", { sdp: peer.localDescription!.sdp }); this.#answerSent = true; this.#flushLocal(); });
+    }
+  }
+
+  async #step<T>(reason: NvrTrialReason, operation: () => T | Promise<T>): Promise<T> {
+    try { return await operation(); }
+    catch (error) {
+      if (error instanceof NvrTrialError) throw error;
+      throw new NvrTrialError("negotiation", reason);
     }
   }
 
@@ -337,7 +353,7 @@ export class NvrRtcSession {
   }
 
   async #candidate(candidate: string): Promise<void> {
-    await this.#peer!.addIceCandidate(new RTCIceCandidate({ candidate, sdpMid: this.#mid, sdpMLineIndex: 0 })); this.#guard();
+    await this.#step("remote_candidate", () => this.#peer!.addIceCandidate(new RTCIceCandidate({ candidate, sdpMid: this.#mid, sdpMLineIndex: 0 }))); this.#guard();
   }
 
   #attach(channel: RTCDataChannel): void {

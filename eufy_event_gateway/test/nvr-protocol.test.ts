@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { NvrPtcsReassembler } from "../src/stream/nvr-ptcs-reassembly.js";
-import { nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrVideo, nvrTrialSensor, nvrStateSummary } from "../src/stream/nvr-protocol.js";
+import { nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrVideo, nvrTrialSensor, nvrStateSummary, NvrTrialError } from "../src/stream/nvr-protocol.js";
 import { loadConfig } from "../src/config.js";
 
 function offer(): string {
@@ -152,4 +152,28 @@ test('NVR state rejects malformed, oversized, duplicate and conflicting scoped r
     { params: Array(1025).fill(row) }, { params: [row, row] },
     { params: [{ ...row, channel: 1 }] }, { params: [{ ...row, channel: '0' }] },
     { params: [{ ...row, param_value: '0'.repeat(257) }] }]) assert.throws(() => nvrStateSummary(response, 0), /state/);
+});
+
+
+test('NVR setup reasons identify rejected fields without echoing their values', () => {
+  const cases = [
+    [offer() + 'm=video 9 UDP/TLS/RTP/SAVPF 96\r\n', 'offer_media'],
+    [offer().replace('sha-256', 'sha-1'), 'offer_fingerprint'],
+    [offer().replace('a=mid:2', 'a=mid:'), 'offer_mid'],
+    [offer().replace('a=ice-pwd:syntheticPasswordAtLeast22', 'a=ice-pwd:private'), 'offer_ice'],
+    [offer().replace('actpass', 'active'), 'offer_setup'],
+    [offer().replace('a=sctp-port:5000', 'a=sctp-port:0'), 'offer_sctp'],
+    [offer().replace('262144', '1'), 'offer_message_size'],
+    [offer() + 'a=ice-ufrag:private-value\r\n', 'offer_duplicate'],
+    [offer() + Array(65).fill('a=candidate:1 1 UDP 123 192.0.2.1 1234 typ host\r\n').join(''), 'candidate_limit'],
+  ] as const;
+  for (const [input, reason] of cases) assert.throws(() => nvrOffer(input), error => {
+    assert.ok(error instanceof NvrTrialError); assert.equal(error.stage, 'negotiation');
+    assert.equal(error.reason, reason); assert.equal(error.message.includes('private'), false); return true;
+  });
+  assert.throws(() => nvrCandidate('private-candidate'), error => {
+    assert.ok(error instanceof NvrTrialError); assert.equal(error.reason, 'candidate_syntax'); return true;
+  });
+  const unsafe = new NvrTrialError('negotiation', 'private-value' as never);
+  assert.equal(unsafe.reason, 'unspecified'); assert.equal(unsafe.message.includes('private-value'), false);
 });

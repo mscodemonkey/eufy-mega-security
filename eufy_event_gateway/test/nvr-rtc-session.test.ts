@@ -12,7 +12,7 @@ import { LiveStreamManager } from '../src/stream/live-stream-manager.js';
 import WebSocket, { WebSocketServer } from 'ws';
 import { RTCPeerConnection, RTCSessionDescription } from 'werift';
 import { NvrRtcSession } from '../src/stream/nvr-rtc-session.js';
-import { nvrApplication, nvrPackets } from '../src/stream/nvr-protocol.js';
+import { nvrApplication, nvrPackets, NvrTrialError } from '../src/stream/nvr-protocol.js';
 import { NvrPtcsReassembler } from '../src/stream/nvr-ptcs-reassembly.js';
 
 function application(command: number, segment: number, body: Buffer): Buffer {
@@ -142,3 +142,63 @@ for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'stat
     if (sendVideo) clearInterval(sendVideo); await session.close(); await manager.close(); socket?.terminate(); await peer.close(); await new Promise<void>(resolve => server.close(() => resolve()));
   }
 });
+
+
+for (const reason of ['session_mismatch', 'station_mismatch', 'channel_mismatch', 'relay_shape', 'relay_fields', 'offer_order', 'peer_setup', 'remote_description'] as const) {
+  test(`early NVR negotiation preserves ${reason} and retires the socket`, { timeout: 5000 }, async context => {
+    const server = new WebSocketServer({ port: 0 });
+    await once(server, 'listening');
+    const address = server.address() as { port: number };
+    let socket: WebSocket | undefined, peer: RTCPeerConnection | undefined;
+    const sdp = ['v=0', 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel', 'a=mid:0',
+      'a=ice-ufrag:synthetic', 'a=ice-pwd:syntheticPasswordAtLeast22', 'a=setup:actpass',
+      'a=fingerprint:sha-256 ' + Array(32).fill('AA').join(':'), 'a=sctp-port:5000', 'a=max-message-size:262144', ''].join('\r\n');
+    server.on('connection', connection => {
+      socket = connection;
+      const send = (value: Record<string, unknown>): void => { connection.send(JSON.stringify({ data: JSON.stringify(value) })); };
+      const response = (dataType: string, data: Record<string, unknown>): void => send({ action: 3,
+        sessionId: reason === 'session_mismatch' ? 'private-other-session' : 'synthetic-sign',
+        sn: reason === 'station_mismatch' ? 'private-other-station' : 'synthetic-station',
+        channelId: reason === 'channel_mismatch' ? 1 : 0, dataType, data: JSON.stringify(data) });
+      connection.on('message', raw => {
+        const message = JSON.parse(JSON.parse(raw.toString()).data);
+        if (message.action === 1) send({ action: 1, code: 200 });
+        else if (message.dataType === 'call') {
+          if (reason === 'relay_shape') response('call', { status: 100, turn: 'private-relay' });
+          else if (reason === 'relay_fields') response('call', { status: 100, turn: { host: 'private.local', username: 'private-user', credential: 'private-password' } });
+          else {
+            if (reason !== 'offer_order') response('call', { status: 200 });
+            response('info', { format: 'SDP', value: sdp });
+          }
+        }
+      });
+    });
+    const controller = new AbortController();
+    const session = new NvrRtcSession({ station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
+      administrator: 'synthetic-owner', context: { host: 'security-smart-eu.eufylife.com', region: 'EU',
+        authToken: 'synthetic-token', gtoken: 'synthetic-gtoken', sign: 'synthetic-sign' },
+      signal: controller.signal, current: () => true, ready: () => assert.fail('Must not start media') }, {
+      socket: (_url, protocols, options) => new WebSocket(`ws://127.0.0.1:${address.port}`, protocols, options),
+      peer: () => {
+        if (reason === 'peer_setup') throw new Error('private-library-error');
+        peer = new RTCPeerConnection({ iceServers: [], iceUseIpv6: false });
+        context.mock.method(peer, 'setRemoteDescription', async () => { throw new Error('private-library-error'); });
+        return peer;
+      },
+    });
+    let outputError: unknown;
+    session.output.once('error', error => { outputError = error; });
+    try {
+      await assert.rejects(session.start(), error => {
+        assert.ok(error instanceof NvrTrialError); assert.equal(error.stage, 'negotiation'); assert.equal(error.reason, reason);
+        assert.equal(error.message.includes('private'), false); assert.equal(error.cause, undefined); return true;
+      });
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.ok(outputError instanceof NvrTrialError); assert.equal(outputError.reason, reason);
+      assert.equal(session.stats.packets, 0); assert.equal(session.stats.video, 0);
+    } finally {
+      await session.close(); socket?.terminate(); await peer?.close();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+}

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.144
+
+- Add privacy-safe failure reasons to experimental NVR video and read-state tests, distinguishing negotiation checks and failed connection steps without logging private connection data.
+
 ## 0.1.143
 
 - Add a separate read-only backup AA battery sensor for exact T85V0/type203 locks when authenticated inventory reports that measurement. Missing, invalid, ambiguous and unavailable values stay unknown, and the primary battery is never substituted. A reading arriving later can create the sensor without restarting Home Assistant. Physical accuracy still needs reporter confirmation.

@@ -11,12 +11,32 @@ export type NvrTrialStage = "admission" | "region_or_authorization_rejected" | "
   | "negotiation" | "offer_compact" | "channel" | "inventory" | "identity_field_missing" | "identity_unmatched"
   | "start" | "video" | "stop" | "cancelled" | "deadline" | "framing" | "timing" | "state";
 
-/** Errors crossing the HTTP boundary contain only a stable stage. */
+const nvrTrialReasons = [
+  "unspecified", "signalling_queue_limit", "signalling_closed", "signalling_error", "session_mismatch",
+  "station_mismatch", "channel_mismatch", "relay_count", "relay_shape", "relay_fields", "candidate_limit",
+  "candidate_syntax", "offer_order", "offer_media", "offer_fingerprint", "offer_mid", "offer_ice",
+  "offer_setup", "offer_sctp", "offer_message_size", "offer_duplicate", "peer_setup", "peer_failed",
+  "peer_disconnected", "local_candidate_limit", "remote_description", "remote_candidate", "create_answer",
+  "local_description", "send_answer", "unexpected_negotiation_error",
+] as const;
+
+/** Fixed failure reasons distinguish setup failures without retaining received values. */
+export type NvrTrialReason = typeof nvrTrialReasons[number];
+
+/**
+ * Carries only fixed diagnostic labels from a trial to provider logs and HTTP errors.
+ * The originating session owns cleanup. Vendor messages and causes are excluded.
+ */
 export class NvrTrialError extends Error {
-  constructor(readonly stage: NvrTrialStage) {
+
+  /** Fixed reason safe to include in a reporter's single failure line. */
+  readonly reason: NvrTrialReason;
+
+  constructor(readonly stage: NvrTrialStage, reason: NvrTrialReason = "unspecified") {
     super(stage === "region_or_authorization_rejected"
       ? "NVR region or authorization rejected. Check the experimental NVR service region, including ie for GB-style accounts."
       : `NVR video test failed at ${stage}`);
+    this.reason = nvrTrialReasons.includes(reason) ? reason : "unspecified";
   }
 }
 
@@ -227,20 +247,18 @@ export function nvrOffer(value: unknown): { sdp: string; mid: string } {
   const fingerprints = lines.filter(line => line.startsWith("a=fingerprint:"));
   const mids = lines.filter(line => line.startsWith("a=mid:"));
   if (Buffer.byteLength(value) > 65536 || media.length !== 1
-    || !/^m=application \d+ UDP\/DTLS\/SCTP webrtc-datachannel$/.test(media[0]!)
-    || fingerprints.length !== 1 || !/^a=fingerprint:sha-256 (?:[0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2}$/.test(fingerprints[0]!)
-    || mids.length !== 1 || !/^a=mid:[A-Za-z0-9_-]{1,32}$/.test(mids[0]!)
-    || !lines.some(line => /^a=ice-ufrag:[A-Za-z0-9+/]{4,256}$/.test(line))
-    || !lines.some(line => /^a=ice-pwd:[A-Za-z0-9+/]{22,256}$/.test(line))
-    || !lines.some(line => /^a=setup:(actpass|passive)$/.test(line))
-    || !lines.some(line => /^a=sctp-port:5000$/.test(line))
-    || !lines.some(line => /^a=max-message-size:\d+$/.test(line) && Number(line.slice(19)) >= 1028 && Number(line.slice(19)) <= 4 * 1024 * 1024)) {
-    throw new NvrTrialError("negotiation");
-  }
+    || !/^m=application \d+ UDP\/DTLS\/SCTP webrtc-datachannel$/.test(media[0]!)) throw new NvrTrialError("negotiation", "offer_media");
+  if (fingerprints.length !== 1 || !/^a=fingerprint:sha-256 (?:[0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2}$/.test(fingerprints[0]!)) throw new NvrTrialError("negotiation", "offer_fingerprint");
+  if (mids.length !== 1 || !/^a=mid:[A-Za-z0-9_-]{1,32}$/.test(mids[0]!)) throw new NvrTrialError("negotiation", "offer_mid");
+  if (!lines.some(line => /^a=ice-ufrag:[A-Za-z0-9+/]{4,256}$/.test(line))
+    || !lines.some(line => /^a=ice-pwd:[A-Za-z0-9+/]{22,256}$/.test(line))) throw new NvrTrialError("negotiation", "offer_ice");
+  if (!lines.some(line => /^a=setup:(actpass|passive)$/.test(line))) throw new NvrTrialError("negotiation", "offer_setup");
+  if (!lines.some(line => /^a=sctp-port:5000$/.test(line))) throw new NvrTrialError("negotiation", "offer_sctp");
+  if (!lines.some(line => /^a=max-message-size:\d+$/.test(line) && Number(line.slice(19)) >= 1028 && Number(line.slice(19)) <= 4 * 1024 * 1024)) throw new NvrTrialError("negotiation", "offer_message_size");
   const candidates = lines.filter(line => line.startsWith("a=candidate:"));
-  if (candidates.length > 64) throw new NvrTrialError("negotiation");
+  if (candidates.length > 64) throw new NvrTrialError("negotiation", "candidate_limit");
   for (const key of ["ice-ufrag", "ice-pwd", "setup", "sctp-port", "max-message-size"]) {
-    if (lines.filter(line => line.startsWith(`a=${key}:`)).length !== 1) throw new NvrTrialError("negotiation");
+    if (lines.filter(line => line.startsWith(`a=${key}:`)).length !== 1) throw new NvrTrialError("negotiation", "offer_duplicate");
   }
   for (const line of candidates) nvrCandidate(line);
   return { sdp: value, mid: mids[0]!.slice(6) };
@@ -248,15 +266,15 @@ export function nvrOffer(value: unknown): { sdp: string; mid: string } {
 
 /** Validate candidate syntax and addresses before passing it to the ICE library. */
 export function nvrCandidate(value: unknown): string {
-  if (typeof value !== "string" || Buffer.byteLength(value) > 8192 || /[\r\n]/.test(value)) throw new NvrTrialError("negotiation");
+  if (typeof value !== "string" || Buffer.byteLength(value) > 8192 || /[\r\n]/.test(value)) throw new NvrTrialError("negotiation", "candidate_syntax");
   const text = value.replace(/^a=/, ""), parts = text.trim().split(/\s+/);
   if (!/^candidate:[A-Za-z0-9+/._-]+$/.test(parts[0] ?? "") || parts[1] !== "1" || parts[2]?.toLowerCase() !== "udp"
     || !/^\d+$/.test(parts[3] ?? "") || Number(parts[3]) > 0xffffffff || !nvrNetworkHost(parts[4] ?? "")
     || !/^\d+$/.test(parts[5] ?? "") || Number(parts[5]) < 1 || Number(parts[5]) > 65535
-    || parts.length % 2 !== 0 || parts[6] !== "typ" || !["host", "srflx", "relay", "prflx"].includes(parts[7] ?? "")) throw new NvrTrialError("negotiation");
+    || parts.length % 2 !== 0 || parts[6] !== "typ" || !["host", "srflx", "relay", "prflx"].includes(parts[7] ?? "")) throw new NvrTrialError("negotiation", "candidate_syntax");
   for (let i = 8; i < parts.length; i += 2) {
-    if (parts[i] === "rport" && (!/^\d+$/.test(parts[i + 1] ?? "") || Number(parts[i + 1]) < 1 || Number(parts[i + 1]) > 65535)) throw new NvrTrialError("negotiation");
-    if (parts[i] === "raddr" && !nvrNetworkHost(parts[i + 1] ?? "")) throw new NvrTrialError("negotiation");
+    if (parts[i] === "rport" && (!/^\d+$/.test(parts[i + 1] ?? "") || Number(parts[i + 1]) < 1 || Number(parts[i + 1]) > 65535)) throw new NvrTrialError("negotiation", "candidate_syntax");
+    if (parts[i] === "raddr" && !nvrNetworkHost(parts[i + 1] ?? "")) throw new NvrTrialError("negotiation", "candidate_syntax");
   }
   return text;
 }
