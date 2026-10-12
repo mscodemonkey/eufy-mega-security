@@ -507,8 +507,9 @@ test("registration warnings contain only fixed fields, codes and failure reasons
   context.mock.method(process.stderr, "write", (chunk: unknown) => { logs.push(String(chunk)); return true; });
   for (const message of ["Mega push registration failed (-1)", "Security push registration failed (10003)",
     "Mega request failed (transport)", "Mega request failed (HTTP 463 response empty_or_truncated)",
+    "Mega request failed (HTTP 463 code 100028)",
     "Mega response validation failed (JSON)", "private-secret https://private.invalid/token",
-    "Security push activation failed (10000000000)"]) {
+    "Mega request failed (HTTP 463 response private_secret)", "Security push activation failed (10000000000)"]) {
     const fixture = await receiverFixture(async () => { throw new Error(message); });
     try { await fixture.receiver.start(); }
     finally { await fixture.cleanup(); }
@@ -521,18 +522,20 @@ test("registration warnings contain only fixed fields, codes and failure reasons
   try { await timeout.receiver.start(); }
   finally { await timeout.cleanup(); }
   const failures = logs.filter((line) => line.includes("event=push_registration_degraded"));
-  assert.equal(failures.length, 8);
+  assert.equal(failures.length, 10);
   assert.match(failures[0]!, /stage=registration code=-1/);
   assert.match(failures[1]!, /stage=registration code=10003/);
   assert.match(failures[2]!, /stage=registration reason=transport/);
-  assert.match(failures[3]!, /stage=registration reason=http/);
-  assert.match(failures[4]!, /stage=registration reason=response/);
-  assert.match(failures[5]!, /stage=registration reason=unknown/);
+  assert.match(failures[3]!, /stage=registration reason=http http_status=463 response_class=empty_or_truncated/);
+  assert.match(failures[4]!, /stage=registration reason=http http_status=463 response_code=100028/);
+  assert.match(failures[5]!, /stage=registration reason=response/);
   assert.match(failures[6]!, /stage=registration reason=unknown/);
-  assert.match(failures[7]!, /stage=registration reason=timeout/);
+  assert.match(failures[7]!, /stage=registration reason=unknown/);
+  assert.match(failures[8]!, /stage=registration reason=unknown/);
+  assert.match(failures[9]!, /stage=registration reason=timeout/);
   for (const line of failures.slice(2)) {
     assert.match(line, /stage=registration .*attempt=1/);
-    assert.equal(line.includes("code="), false);
+    assert.equal(line.includes(" code="), false);
     assert.equal(line.includes("private"), false);
     assert.equal(line.includes("synthetic"), false);
   }

@@ -29,13 +29,26 @@ export type PushRegistrationStatus = "ready" | "activation-unconfirmed";
 
 const RETRY_DELAYS = [15_000, 30_000, 60_000, 120_000, 300_000] as const;
 
-function registrationFailureReason(error: unknown): "transport" | "http" | "response" | "timeout" | "unknown" {
-  if (!(error instanceof Error)) return "unknown";
-  if (error.name === "TimeoutError") return "timeout";
-  if (error.message === "Mega request failed (transport)") return "transport";
-  if (/^Mega request failed \(HTTP \d{3}(?: code -?\d+| response [a-z_]+)?\)$/.test(error.message)) return "http";
-  if (/^Mega response validation failed \([A-Z_]+\)$/.test(error.message)) return "response";
-  return "unknown";
+function registrationFailureDiagnostic(error: unknown): {
+  reason: "transport" | "http" | "response" | "timeout" | "unknown";
+  httpStatus?: number;
+  responseCode?: number;
+  responseClass?: "empty" | "empty_or_truncated" | "json_without_numeric_code" | "non_json" | "unavailable";
+} {
+  if (!(error instanceof Error)) return { reason: "unknown" };
+  if (error.name === "TimeoutError") return { reason: "timeout" };
+  if (error.message === "Mega request failed (transport)") return { reason: "transport" };
+  const http = /^Mega request failed \(HTTP (\d{3})(?: code (-?\d{1,9})| response (empty|empty_or_truncated|json_without_numeric_code|non_json|unavailable))?\)$/.exec(error.message);
+  if (http) {
+    return {
+      reason: "http",
+      httpStatus: Number(http[1]),
+      ...(http[2] === undefined ? {} : { responseCode: Number(http[2]) }),
+      ...(http[3] === undefined ? {} : { responseClass: http[3] as "empty" | "empty_or_truncated" | "json_without_numeric_code" | "non_json" | "unavailable" }),
+    };
+  }
+  if (/^Mega response validation failed \([A-Z_]+\)$/.test(error.message)) return { reason: "response" };
+  return { reason: "unknown" };
 }
 
 /** Normalized subset of an Android FCM/Eufy notification used by the provider. */
@@ -208,11 +221,16 @@ export class MegaPushReceiver {
         ? /^(Mega push registration|Security push registration) failed \((-?\d{1,9})\)$/.exec(error.message)
         : null;
       const code = stage === "activation" ? activationCode : match ? Number(match[2]) : undefined;
-      const reason = stage === "registration" && code === undefined ? registrationFailureReason(error) : undefined;
+      const diagnostic = stage === "registration" && code === undefined
+        ? registrationFailureDiagnostic(error)
+        : undefined;
       try { logger.warn("push_registration_degraded", [
         "Push registration unavailable.", `stage=${stage}`,
         ...(code !== undefined ? [`code=${code}`] : []),
-        ...(reason !== undefined ? [`reason=${reason}`] : []),
+        ...(diagnostic === undefined ? [] : [`reason=${diagnostic.reason}`]),
+        ...(diagnostic?.httpStatus === undefined ? [] : [`http_status=${diagnostic.httpStatus}`]),
+        ...(diagnostic?.responseCode === undefined ? [] : [`response_code=${diagnostic.responseCode}`]),
+        ...(diagnostic?.responseClass === undefined ? [] : [`response_class=${diagnostic.responseClass}`]),
         `attempt=${this.#attempt}`, `max_retries=${RETRY_DELAYS.length}`,
         delay === undefined ? "exhausted=true" : `next_retry_seconds=${delay / 1_000}`,
       ].join(" ")); } catch {}
