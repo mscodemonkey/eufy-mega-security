@@ -4,12 +4,15 @@ The project is maintained as an open-source gateway and Home Assistant integrati
 
 [![My Home Assistant](https://img.shields.io/badge/Home%20Assistant-%2341BDF5.svg?style=flat&logo=home-assistant&label=My)](https://my.home-assistant.io/redirect/hacs_repository/?owner=mscodemonkey&repository=eufy-mega-security&category=integration)
 [![MIT licence](https://img.shields.io/badge/licence-MIT-blue.svg)](https://github.com/mscodemonkey/eufy-mega-security/blob/main/LICENSE)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-F16061?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/mscodemonkey)
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/mscodemonkey/eufy-mega-security/main/custom_components/eufy_event_gateway/brand/icon.png" width="128" height="128" alt="Eufy Mega Security icon">
 </p>
 
 Reliable, event-first Home Assistant support for Eufy cameras that do not provide a permanent RTSP stream.
+
+If you use Eufy Mega Security and fancy buying me a beer, you can support the project on [Ko-fi](https://ko-fi.com/mscodemonkey).
 
 Motion, person, pet, vehicle, dog, crying, sound, stranger, and stranded-package detections arrive as distinct Home Assistant entities. Supported doorbells also expose a press sensor. HomeBase 3 familiar-person names appear when Eufy supplies one. Each camera keeps its last good still, while a separate **Last event image** entity retains the latest picture supplied with an event.
 
