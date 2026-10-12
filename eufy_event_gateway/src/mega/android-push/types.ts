@@ -33,7 +33,9 @@ export interface RawPushMessage {
   category?: string;
   persistentId?: string;
   ttl?: number;
-  sent?: string;
+
+  /** Protobuf-decoded MCS send time, validated by the receiver before use. */
+  sent?: unknown;
   /** The decoded eufy payload (the `payload` app_data entry, JSON-parsed). */
   payload: EufyPushMessage;
 }

@@ -177,3 +177,12 @@ test('NVR setup reasons identify rejected fields without echoing their values', 
   const unsafe = new NvrTrialError('negotiation', 'private-value' as never);
   assert.equal(unsafe.reason, 'unspecified'); assert.equal(unsafe.message.includes('private-value'), false);
 });
+
+test('NVR offer accepts one optional numeric SCTP token without widening the media shape', () => {
+  assert.equal(nvrOffer(offer().replace('webrtc-datachannel', 'webrtc-datachannel 1024')).mid, '2');
+  for (const suffix of [' private', ' 1024 extra', ' 1024 2048', ' -1']) {
+    assert.throws(() => nvrOffer(offer().replace('webrtc-datachannel', `webrtc-datachannel${suffix}`)), error => {
+      assert.ok(error instanceof NvrTrialError); assert.equal(error.reason, 'offer_media'); return true;
+    });
+  }
+});

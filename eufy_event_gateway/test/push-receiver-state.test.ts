@@ -8,7 +8,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { beforeEach, afterEach, type TestContext } from "node:test";
-import { MegaPushReceiver } from "../src/mega/push.js";
+import { isFreshStartupDelivery, MegaPushReceiver } from "../src/mega/push.js";
 import { FcmRegistrar } from "../src/mega/android-push/fcm.js";
 import type { PushClient } from "../src/mega/android-push/push-client.js";
 
@@ -76,9 +76,19 @@ test("publishes registration once, restores connected after reconnect and leaves
   }
 });
 
+test("validates protobuf send times against the current startup without rounding", () => {
+  const started = 1_800_000_000_000;
+  assert.equal(isFreshStartupDelivery(String(started), started, started + 1_000), true);
+  assert.equal(isFreshStartupDelivery({ low: started >>> 0, high: Math.floor(started / 2 ** 32) }, started, started + 1_000), true);
+  assert.equal(isFreshStartupDelivery(started - 5_001, started, started + 1_000), false);
+  assert.equal(isFreshStartupDelivery(started + 61_001, started, started + 1_000), false);
+  assert.equal(isFreshStartupDelivery(undefined, started, started + 1_000), false);
+  assert.equal(isFreshStartupDelivery("private", started, started + 1_000), false);
+});
+
 /** Provide a stored synthetic identity and a fresh transport per start without network calls. */
 async function receiverFixture(register: () => Promise<void | { activated: boolean; code: number | null }>, automaticLogin = true, storedCredentials = true,
-  onState: (state: string) => void = () => undefined) {
+  onState: (state: string) => void = () => undefined, now: () => number = () => 1_800_000_000_000) {
   const directory = await mkdtemp(join(tmpdir(), "eufy-push-race-"));
   const path = join(directory, "state.json");
   await writeFile(path, JSON.stringify({ version: 2, persistentIds: [], ...(storedCredentials ? { credentials: {
@@ -100,7 +110,7 @@ async function receiverFixture(register: () => Promise<void | { activated: boole
       });
       transports.push(transport);
       return transport as unknown as PushClient;
-    });
+    }, now);
   return { receiver, client, transports, states, events, ready, path, async cleanup() { await receiver.close(); await rm(directory, { recursive: true, force: true }); } };
 }
 
@@ -185,7 +195,7 @@ for (const code of [-1, 10003]) {
     const fixture = await receiverFixture(async () => { ++calls; return { activated: false, code }; });
     try {
       await assert.doesNotReject(fixture.receiver.start());
-      fixture.transports[0]!.emit("message", { payload: { device_sn: "camera", a: 3102 } });
+      fixture.transports[0]!.emit("message", { sent: "1800000000000", payload: { device_sn: "camera", a: 3102 } });
       assert.equal(fixture.events.length, 1);
       assert.equal(fixture.states.at(-1), "degraded");
       for (const delay of [15_000, 30_000, 60_000, 120_000, 300_000]) {
@@ -218,6 +228,28 @@ for (const code of [-1, 10003]) {
     } finally { await fixture.cleanup(); }
   });
 }
+
+test("suppresses queued startup events while retaining fresh and post-registration delivery", async () => {
+  let finish!: () => void;
+  const registration = new Promise<void>((resolve) => { finish = resolve; });
+  let now = 1_800_000_000_000;
+  const fixture = await receiverFixture(() => registration, true, true, () => undefined, () => now);
+  try {
+    const starting = fixture.receiver.start();
+    await fixture.ready;
+    fixture.transports[0]!.emit("message", { persistentId: "stale", sent: String(now - 60_000), payload: { device_sn: "camera", a: 3102 } });
+    fixture.transports[0]!.emit("message", { persistentId: "missing", payload: { device_sn: "camera", a: 3103 } });
+    fixture.transports[0]!.emit("message", { persistentId: "fresh", sent: String(now), payload: { device_sn: "camera", a: 3102 } });
+    assert.equal(fixture.events.length, 1);
+    finish();
+    await starting;
+    now += 120_000;
+    fixture.transports[0]!.emit("message", { persistentId: "ready", sent: String(now - 60_000), payload: { device_sn: "camera", a: 3103 } });
+    assert.equal(fixture.events.length, 2);
+    await fixture.receiver.close();
+    assert.deepEqual(JSON.parse(await readFile(fixture.path, "utf8")).persistentIds, ["stale", "missing", "fresh", "ready"]);
+  } finally { await fixture.cleanup(); }
+});
 
 for (const failedSecurityStage of ["registration", "activation"] as const) {
   test(`restored Mega registration leaves ${failedSecurityStage} failure stably degraded without retries`, async (context) => {

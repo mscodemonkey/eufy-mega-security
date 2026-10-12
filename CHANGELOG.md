@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.145
+
+- Prevent queued Firebase notifications from replaying stale motion, person and doorbell events when the app restarts. Deliveries from the current startup remain available, and suppressed messages are still acknowledged so they do not return on the next connection.
+- Accept the standards-valid NVR data-channel offer observed on T8N00 hardware when its media line includes the optional SCTP port token. NVR video and read-state results still need reporter confirmation.
+
 ## 0.1.144
 
 - Add privacy-safe failure reasons to experimental NVR video and read-state tests, distinguishing negotiation checks and failed connection steps without logging private connection data.

@@ -21,6 +21,12 @@ import type { MegaClient, PushActivationResult } from "./client.js";
 
 const logger = createLogger("push");
 
+/** Clock tolerance for a notification created at the current startup boundary. */
+const STARTUP_DELIVERY_TOLERANCE_MILLISECONDS = 5_000;
+
+/** Reject transport clocks far enough ahead that freshness cannot be trusted. */
+const MAXIMUM_DELIVERY_FUTURE_SKEW_MILLISECONDS = 60_000;
+
 /** AI meanings that structured push evidence can establish without notification text. */
 export type MegaPushDetectionEvidence = "person" | "vehicle" | "pet" | "dog" | "crying" | "sound";
 
@@ -103,11 +109,13 @@ export class MegaPushReceiver {
   #failed = false;
   #loaded = false;
   #credentialRequest: Promise<FcmCredentials> | null = null;
+  #startedAtMilliseconds = 0;
 
   /**
    * Create a receiver using the account client and private state directory.
    *
    * @param createReceiver Supplies a fresh transport for each start, owned and closed by this receiver.
+   * @param now Supplies the local clock used only to reject queued startup deliveries.
    */
   constructor(
     private readonly client: MegaClient,
@@ -116,6 +124,7 @@ export class MegaPushReceiver {
     private readonly onReceiverState: (state: EventReceiverState) => void = () => undefined,
     private readonly onDelivery: (outcome: "parsed" | "empty" | "unparsed") => void = () => undefined,
     private readonly createReceiver: (credentials: FcmCredentials) => PushClient = (credentials) => new PushClient(credentials),
+    private readonly now: () => number = Date.now,
   ) {}
 
   /**
@@ -135,6 +144,7 @@ export class MegaPushReceiver {
     this.#connected = false;
     this.#connectRequested = false;
     this.#disconnected = false;
+    this.#startedAtMilliseconds = this.now();
     this.#publish("starting");
     await this.#runAttempt(lifetime, true).catch(() => undefined);
   }
@@ -266,9 +276,12 @@ export class MegaPushReceiver {
       const outcome = event
         ? "parsed"
         : !isRecord(message.payload) || Object.keys(message.payload).length === 0 ? "empty" : "unparsed";
+      const suppressStartupReplay = event !== null && !this.#registered
+        && !isFreshStartupDelivery(message.sent, this.#startedAtMilliseconds, this.now());
       this.onDelivery(outcome);
-      logger.info("push_received", `persistent_id_present=${Boolean(message.persistentId)} new_id=${newPersistentId} payload_record=${isRecord(message.payload)} parsed=${event !== null}`);
-      if (event) this.onEvent(event);
+      logger.info("push_received", `persistent_id_present=${Boolean(message.persistentId)} new_id=${newPersistentId} payload_record=${isRecord(message.payload)} parsed=${event !== null} startup_replay_suppressed=${suppressStartupReplay}`);
+      if (event && !suppressStartupReplay) this.onEvent(event);
+      else if (suppressStartupReplay) logger.info("push_startup_replay_suppressed", "Queued Android notification was acknowledged without publishing a device event");
       else if (!isRecord(message.payload) || Object.keys(message.payload).length === 0) logger.info("push_empty", "Android FCM notification had no Eufy data fields");
       else logger.info("push_unparsed", `Android FCM notification lacked a usable Eufy device identity: ${safeUnparsedShape(message.payload)}`);
     });
@@ -313,6 +326,35 @@ export class MegaPushReceiver {
     this.#state.persistentIds = [...this.#state.persistentIds.slice(-99), persistentId];
     this.#persistState();
   }
+}
+
+/**
+ * Decide whether an MCS delivery can be attributed to the current startup.
+ *
+ * Protobuf.js represents int64 fields as number, bigint, decimal string or a
+ * Long-like low/high pair depending on its runtime. Only safe positive epoch
+ * milliseconds are accepted, and the transport value is never logged.
+ */
+export function isFreshStartupDelivery(value: unknown, startedAtMilliseconds: number, nowMilliseconds: number): boolean {
+  const sent = mcsTimestampMilliseconds(value);
+  if (sent === null || !Number.isSafeInteger(startedAtMilliseconds) || !Number.isSafeInteger(nowMilliseconds)) return false;
+  if (sent < Date.UTC(2000, 0, 1) || sent > nowMilliseconds + MAXIMUM_DELIVERY_FUTURE_SKEW_MILLISECONDS) return false;
+  return sent >= startedAtMilliseconds - STARTUP_DELIVERY_TOLERANCE_MILLISECONDS;
+}
+
+/** Convert supported protobuf int64 representations without rounding private wire data. */
+function mcsTimestampMilliseconds(value: unknown): number | null {
+  let parsed: bigint;
+  if (typeof value === "bigint") parsed = value;
+  else if (typeof value === "number") {
+    if (!Number.isSafeInteger(value)) return null;
+    return value;
+  } else if (typeof value === "string" && /^\d{10,16}$/.test(value)) parsed = BigInt(value);
+  else if (isRecord(value) && Number.isInteger(value.low) && Number.isInteger(value.high)
+    && (value.high as number) >= 0 && (value.high as number) <= 0x7fffffff) {
+    parsed = (BigInt(value.high as number) << 32n) | BigInt((value.low as number) >>> 0);
+  } else return null;
+  return parsed <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(parsed) : null;
 }
 
 /** Minimal receiver lifecycle used to order Firebase login before cloud activation. */

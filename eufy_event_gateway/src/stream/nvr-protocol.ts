@@ -247,7 +247,7 @@ export function nvrOffer(value: unknown): { sdp: string; mid: string } {
   const fingerprints = lines.filter(line => line.startsWith("a=fingerprint:"));
   const mids = lines.filter(line => line.startsWith("a=mid:"));
   if (Buffer.byteLength(value) > 65536 || media.length !== 1
-    || !/^m=application \d+ UDP\/DTLS\/SCTP webrtc-datachannel$/.test(media[0]!)) throw new NvrTrialError("negotiation", "offer_media");
+    || !/^m=application \d+ UDP\/DTLS\/SCTP webrtc-datachannel(?: \d+)?$/.test(media[0]!)) throw new NvrTrialError("negotiation", "offer_media");
   if (fingerprints.length !== 1 || !/^a=fingerprint:sha-256 (?:[0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2}$/.test(fingerprints[0]!)) throw new NvrTrialError("negotiation", "offer_fingerprint");
   if (mids.length !== 1 || !/^a=mid:[A-Za-z0-9_-]{1,32}$/.test(mids[0]!)) throw new NvrTrialError("negotiation", "offer_mid");
   if (!lines.some(line => /^a=ice-ufrag:[A-Za-z0-9+/]{4,256}$/.test(line))
