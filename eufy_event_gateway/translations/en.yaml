@@ -1,4 +1,10 @@
 configuration:
+  experimental_nvr_live:
+    name: Experimental NVR video test
+    description: Enable a consented ten-second private video test in Diagnostics for T8E00 cameras through T8N00 or T9000. Hardware behaviour is unconfirmed. Off by default.
+  experimental_nvr_region:
+    name: Experimental NVR service region
+    description: Select auto, us, eu or ie. GB-style accounts may require ie even when auto selects eu. This is a service region, not the account country.
   experimental_model_controls:
     name: Experimental model controls
     description: Enable exact-model control trials in the diagnostics page. Requires manual observation and restoration. Hardware support is unconfirmed. Off by default.

@@ -31,10 +31,13 @@
   "dependencies": {
     "jpeg-js": "0.4.4",
     "protobufjs": "^7.6.6",
+    "werift": "0.24.4",
+    "ws": "8.22.0",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",
+    "@types/ws": "8.18.1",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   }

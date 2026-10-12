@@ -8,7 +8,7 @@
  * knows media lifecycle and process management, but not Mega login or PPCS
  * packet construction.
  */
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import type { ServerResponse } from "node:http";
 import { type Readable, type Writable } from "node:stream";
@@ -180,6 +180,8 @@ interface Session {
   sourceQuietTimer: NodeJS.Timeout | null;
   owned: boolean;
   leases: number;
+  privateTrial: boolean;
+  suppressSnapshots: boolean;
   generation: number;
 }
 
@@ -196,7 +198,7 @@ interface Recording {
   reject: (error: Error) => void;
 }
 
-type ClipRemuxer = (video: Buffer, codec: VideoCodec, audio?: Buffer) => Promise<Buffer>;
+type ClipRemuxer = (video: Buffer, codec: VideoCodec, audio?: Buffer, signal?: AbortSignal) => Promise<Buffer>;
 type ViewerTranscoderFactory = () => ChildProcessWithoutNullStreams;
 type SnapshotExtractorFactory = (codec: VideoCodec) => ChildProcessWithoutNullStreams;
 
@@ -494,6 +496,7 @@ export class LiveStreamManager extends EventEmitter {
   /** Attach an HTTP viewer, starting the shared provider source if needed. */
   async addClient(serial: string, response: VideoViewerResponse): Promise<void> {
     const session = this.#session(serial);
+    this.#assertShareable(session);
     this.#cancelStop(session);
     session.clients.add(response);
     session.clientDeliveries.set(response, {
@@ -547,6 +550,7 @@ export class LiveStreamManager extends EventEmitter {
   /** Share a normal video viewer with a bounded MPEG-TS muxer and validated camera audio. */
   async addTransportClient(serial: string, response: ServerResponse): Promise<void> {
     const session = this.#session(serial);
+    this.#assertShareable(session);
     const consumeAudio = (chunk: Buffer): void => muxer.acceptAudio(chunk);
     const camera = this.state.getCamera(serial);
 
@@ -565,6 +569,7 @@ export class LiveStreamManager extends EventEmitter {
   ): Promise<SnapshotInfo> {
     if (this.#closed) throw new Error("Gateway closed before snapshot capture started");
     const session = this.#session(serial);
+    this.#assertShareable(session);
     const previousRevision = this.state.getCamera(serial).snapshot?.revision ?? 0;
     this.#cancelStop(session);
     session.leases += 1;
@@ -594,6 +599,7 @@ export class LiveStreamManager extends EventEmitter {
   async withLiveSource<T>(serial: string, operation: () => Promise<T>): Promise<T> {
     if (this.#closed) throw new Error("Gateway closed before camera operation started");
     const session = this.#session(serial);
+    this.#assertShareable(session);
     this.#cancelStop(session);
     session.leases += 1;
     this.#updateState(serial, session);
@@ -611,6 +617,7 @@ export class LiveStreamManager extends EventEmitter {
     serial: string,
     timeoutMilliseconds = SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS,
   ): Promise<SnapshotInfo> {
+    this.#assertShareable(this.#session(serial));
     try {
       return await this.captureSnapshot(serial, timeoutMilliseconds);
     } finally {
@@ -618,36 +625,80 @@ export class LiveStreamManager extends EventEmitter {
     }
   }
 
-  /** Record a bounded H.264 segment and package it as fragmented MP4. */
+  /** Whether existing viewers, leases or a source prevent an exclusive diagnostic trial. */
+  hasActiveSession(serial: string): boolean {
+    const session = this.#sessions.get(serial);
+    return !!session && (session.owned || session.leases > 0 || session.clients.size > 0 || session.source !== null);
+  }
+
+  /**
+   * Record a bounded H.264 or H.265 segment and package it as fragmented MP4.
+   * Private trials require an exclusive idle source, suppress retained snapshots
+   * and diagnostic capture, and await source retirement before returning.
+   */
   async recordClip(
     serial: string,
     durationSeconds: number,
     startTimeoutMilliseconds = 20_000,
+    privateTrial = false,
+    signal?: AbortSignal,
   ): Promise<Buffer> {
     if (!Number.isInteger(durationSeconds) || durationSeconds < 1 || durationSeconds > 120) {
       throw new Error("Recording duration must be between 1 and 120 seconds");
     }
+    if (signal?.aborted) throw mediaAbortError();
     const session = this.#session(serial);
-    this.#cancelStop(session);
-    session.leases += 1;
-    this.#updateState(serial, session);
-    const recording = this.#collectRecording(
-      session,
-      durationSeconds * 1_000,
-      startTimeoutMilliseconds,
-    );
-
-    // Video can time out before PPCS startup returns; keep that rejection
-    // handled until the recording operation awaits it.
-    void recording.promise.catch(() => undefined);
+    this.#assertShareable(session);
+    if (privateTrial && (session.source || session.owned || !["idle", "error"].includes(session.state)
+      || session.clients.size || session.pendingClients.size || session.audioConsumers.size || session.recordings.size || session.leases)) {
+      throw new Error("Stop other video activity before this private test");
+    }
+    if (privateTrial) session.privateTrial = true;
+    let leased = false, startSettled = true, abandoned = false;
+    let recording: { promise: Promise<{ video: Buffer; audio: Buffer }>; cancel: () => void } | undefined;
+    let rejectAbort!: (error: Error) => void;
+    const aborted = new Promise<never>((_, reject) => { rejectAbort = reject; });
+    void aborted.catch(() => {});
+    const abort = (): void => { recording?.cancel(); rejectAbort(mediaAbortError()); };
+    signal?.addEventListener("abort", abort, { once: true });
+    const retireLate = async (): Promise<void> => {
+      try { await this.controller.stopStream(serial); }
+      finally { try { this.markStopped(serial); } finally { session.privateTrial = false; } }
+    };
     try {
-      await this.#ensureStarted(serial, session);
-      const recorded = await recording.promise;
-      return await this.remuxClip(recorded.video, session.parameterSets.codec ?? "h264", recorded.audio);
+      this.#cancelStop(session);
+      session.leases += 1; leased = true;
+      this.#updateState(serial, session);
+      recording = this.#collectRecording(session, durationSeconds * 1_000, startTimeoutMilliseconds);
+      void recording.promise.catch(() => undefined);
+      startSettled = false;
+      const startup = this.#ensureStarted(serial, session);
+      void startup.then(() => {
+        startSettled = true;
+        if (abandoned) void retireLate().catch(() => {});
+      }, () => {
+        startSettled = true;
+        if (abandoned) { try { this.markStopped(serial); } finally { session.privateTrial = false; } }
+      }).catch(() => {});
+      if (signal?.aborted) abort();
+      await Promise.race([startup, aborted]);
+      if (signal?.aborted) throw mediaAbortError();
+      const recorded = await Promise.race([recording.promise, aborted]);
+      if (signal?.aborted) throw mediaAbortError();
+      const codec = session.parameterSets.codec ?? "h264";
+      const clip = signal ? await this.remuxClip(recorded.video, codec, recorded.audio, signal)
+        : await this.remuxClip(recorded.video, codec, recorded.audio);
+      if (signal?.aborted) throw mediaAbortError();
+      return clip;
     } finally {
-      recording.cancel();
-      session.leases -= 1;
-      this.#scheduleStopIfUnused(serial, session);
+      signal?.removeEventListener("abort", abort);
+      recording?.cancel();
+      if (leased) session.leases -= 1;
+      if (privateTrial) {
+        if (!startSettled) abandoned = true;
+        else session.privateTrial = false;
+        await this.#stopNowIfUnused(serial, session);
+      } else this.#scheduleStopIfUnused(serial, session);
     }
   }
 
@@ -655,12 +706,13 @@ export class LiveStreamManager extends EventEmitter {
   attachSource(serial: string, source: Readable, codecHint: () => VideoCodec | null = () => null, audio?: Readable): void {
     const session = this.#session(serial);
     this.#cleanupSource(session);
+    session.suppressSnapshots = session.privateTrial;
     const generation = session.generation;
     session.source = source;
     session.audioSource = audio ?? null;
     audio?.on("data", (chunk: Buffer) => {
       if (session.generation !== generation || chunk.length === 0) return;
-      if (this.listenerCount("diagnostic-media")) {
+      if (!session.privateTrial && !session.suppressSnapshots && this.listenerCount("diagnostic-media")) {
         this.emit("diagnostic-media", { serial, kind: "audio", codec: "aac", data: chunk } satisfies DiagnosticMedia);
       }
       for (const consume of session.audioConsumers) consume(chunk);
@@ -707,7 +759,7 @@ export class LiveStreamManager extends EventEmitter {
     source.on("data", (chunk: Buffer) => {
       if (session.generation !== generation) return;
       if (chunk.length === 0) return;
-      if (this.listenerCount("diagnostic-media")) {
+      if (!session.privateTrial && !session.suppressSnapshots && this.listenerCount("diagnostic-media")) {
         this.emit("diagnostic-media", { serial, kind: "video", codec: codecHint() ?? "unknown", data: chunk } satisfies DiagnosticMedia);
       }
       if (session.sourceQuietTimer) clearTimeout(session.sourceQuietTimer);
@@ -730,13 +782,13 @@ export class LiveStreamManager extends EventEmitter {
       session.parameterSets.push(chunk, codecHint());
       const bootstrap = session.parameterSets.bootstrap;
       const codec = session.parameterSets.codec;
-      const needsStartup = !session.ffmpeg || (session.pendingClients.size > 0 && !(codec === "h265" && session.viewerFfmpeg))
+      const needsStartup = (!session.suppressSnapshots && !session.ffmpeg) || (session.pendingClients.size > 0 && !(codec === "h265" && session.viewerFfmpeg))
         || (codec === "h265" && session.clients.size > 0 && (!session.viewerFfmpeg
           || this.#shouldRestartSilentTranscoder(session)));
       const startup = needsStartup ? session.parameterSets.startup : null;
       if (bootstrap && codec) {
         let snapshotStarted = false;
-        if (!session.ffmpeg && startup) {
+        if (!session.suppressSnapshots && !session.ffmpeg && startup) {
           session.ffmpeg = this.#startSnapshotExtractor(serial, codec);
           snapshotStarted = session.parameterSets.startupIncludesLatest;
           if (session.ffmpeg.stdin.writable) session.ffmpeg.stdin.write(startup);
@@ -1146,6 +1198,7 @@ export class LiveStreamManager extends EventEmitter {
   }
 
   #cleanupSource(session: Session): void {
+    session.suppressSnapshots = false;
     if (session.sourceQuietTimer) clearTimeout(session.sourceQuietTimer);
     session.sourceQuietTimer = null;
     if (session.source) this.#emitViewerDeliverySummary(session);
@@ -1236,6 +1289,10 @@ export class LiveStreamManager extends EventEmitter {
     this.emit("viewer-client-stopped", summary);
   }
 
+  #assertShareable(session: Session): void {
+    if (session.privateTrial || session.suppressSnapshots && session.source !== null) throw new Error("Wait for the private video test to finish");
+  }
+
   #session(serial: string): Session {
     let session = this.#sessions.get(serial);
     if (!session) {
@@ -1275,6 +1332,8 @@ export class LiveStreamManager extends EventEmitter {
         sourceQuietTimer: null,
         owned: false,
         leases: 0,
+        privateTrial: false,
+        suppressSnapshots: false,
         generation: 0,
       };
       this.#sessions.set(serial, session);
@@ -1295,10 +1354,10 @@ export class LiveStreamManager extends EventEmitter {
  * reaped. The grace override exists for focused lifecycle tests.
  */
 export function terminateMediaProcess(
-  process: ChildProcessWithoutNullStreams,
+  process: Pick<ChildProcess, "kill" | "exitCode" | "signalCode" | "once"> & { stdin?: Pick<Writable, "writable" | "end"> | null },
   forceAfterMilliseconds = MEDIA_PROCESS_TERMINATION_GRACE_MILLISECONDS,
 ): void {
-  if (process.stdin.writable) process.stdin.end();
+  if (process.stdin?.writable) process.stdin.end();
   if (process.exitCode !== null || process.signalCode !== null) return;
   let forceTimer: NodeJS.Timeout | null = null;
   const closed = () => {
@@ -1365,6 +1424,7 @@ function spawnSnapshotExtractor(codec: VideoCodec): ChildProcessWithoutNullStrea
 /** Remux checked elementary streams, optionally retaining recorded frame timing. Aborting terminates the owned FFmpeg process. */
 export async function remuxVideoToMp4(video: Buffer, codec: VideoCodec, audio?: Buffer, signal?: AbortSignal, frameRate?: number): Promise<Buffer> {
   if (frameRate !== undefined && (!Number.isFinite(frameRate) || frameRate < 1 || frameRate > 60)) throw new Error("Invalid recorded frame rate");
+  if (signal?.aborted) throw mediaAbortError();
   return await new Promise<Buffer>((resolve, reject) => {
     const process = spawn("ffmpeg", [
       "-hide_banner",
@@ -1385,13 +1445,22 @@ export async function remuxVideoToMp4(video: Buffer, codec: VideoCodec, audio?: 
       "-f",
       "mp4",
       "pipe:1",
-    ], { stdio: ["pipe", "pipe", "pipe", "pipe"], signal });
+    ], { stdio: ["pipe", "pipe", "pipe", "pipe"] });
     const output: Buffer[] = [];
     let stderr = "";
-    let settled = false;
+    let settled = false, aborting = false;
+    let backstop: NodeJS.Timeout | undefined;
+    const cleanup = (): void => { clearTimeout(timeout); if (backstop) clearTimeout(backstop); signal?.removeEventListener("abort", abort); };
+    const finishAbort = (): void => { if (settled) return; settled = true; cleanup(); reject(mediaAbortError()); };
+    const abort = (): void => {
+      if (settled || aborting) return;
+      aborting = true; clearTimeout(timeout); signal?.removeEventListener("abort", abort);
+      terminateMediaProcess(process);
+      backstop = setTimeout(finishAbort, 3000);
+    };
     const timeout = setTimeout(() => {
-      if (settled) return;
-      settled = true;
+      if (settled || aborting) return;
+      settled = true; cleanup();
       process.kill("SIGKILL");
       reject(new Error("Timed out while packaging the camera recording"));
     }, 30_000);
@@ -1400,15 +1469,17 @@ export async function remuxVideoToMp4(video: Buffer, codec: VideoCodec, audio?: 
       if (stderr.length < 8_192) stderr += chunk.toString("utf8");
     });
     process.once("error", (error) => {
+      if (aborting) return;
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
+      cleanup();
       reject(error);
     });
     process.once("close", (code) => {
+      if (aborting) { finishAbort(); return; }
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
+      cleanup();
       const data = Buffer.concat(output);
       if (code === 0 && data.length > 0) resolve(data);
       else reject(new Error(stderr.trim() || `FFmpeg exited with status ${code ?? "unknown"}`));
@@ -1416,6 +1487,8 @@ export async function remuxVideoToMp4(video: Buffer, codec: VideoCodec, audio?: 
     process.stdin!.on("error", () => undefined);
     const audioPipe = process.stdio[3] as Writable;
     audioPipe.on("error", () => undefined);
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
     process.stdin!.end(video);
     audioPipe.end(audio ?? Buffer.alloc(0));
   });
@@ -1428,4 +1501,9 @@ export async function remuxH264ToMp4(h264: Buffer): Promise<Buffer> {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown stream error";
+}
+
+/** Keep private cancellation independent of caller-supplied reasons and process output. */
+function mediaAbortError(): Error & { code: string } {
+  return Object.assign(new Error("Media operation cancelled"), { name: "AbortError", code: "ABORT_ERR" });
 }

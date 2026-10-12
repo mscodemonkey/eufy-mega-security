@@ -44,6 +44,9 @@ export interface ProviderEvents {
 /** Lifecycle and stream operations required by the gateway server. */
 export interface CameraProvider {
 
+  /** Reserve one explicit NVR video trial until its awaited cleanup completes. */
+  reserveNvrLiveTrial?(serial: string, signal: AbortSignal): () => Promise<void>;
+
   /** List default-off exact-model trials, independently of verified capabilities. */
   modelControlTrials?(serial: string): readonly ModelControlTrial["action"][];
 

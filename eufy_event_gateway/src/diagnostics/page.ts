@@ -26,6 +26,14 @@ export function diagnosticsPage(): string {
 <button id="trial-send">Try once</button><button id="trial-siren-stop" hidden>Stop siren</button>
 <p id="trial-help"></p>
 <pre id="trial-status" role="status">No control trial started.</pre></details>
+<details><summary>Experimental NVR video test</summary>
+<p>Enable experimental NVR live video in the app options. This test is for T8E00 cameras through T8N00 or T9000, and hardware behaviour is unconfirmed. Stop other live viewers first. For GB-style accounts the service region may need to be ie.</p>
+<label><input id="nvr-consent" type="checkbox"> I agree to request a ten-second private video clip from the selected camera.</label>
+<button id="nvr-test">Try NVR video once</button><button id="nvr-stop">Cancel NVR test</button>
+<pre id="nvr-status" role="status">No NVR video test started.</pre>
+<video id="nvr-video" controls hidden style="max-width:100%"></video>
+<a id="nvr-download" hidden download="eufy-nvr-test.mp4">Download private test clip</a>
+<p>The clip stays in this browser and is never uploaded automatically. HEVC may require a compatible player. If the picture does not play, keep the clip private and share only the nvr_live_trial_failed log line publicly.</p></details>
 <label>Capture duration <select id="seconds"><option value="30">30 seconds</option><option value="60">60 seconds</option></select></label>
 <label><input id="media" type="checkbox"> Include private pictures, audio and video. I agree to capture and share this evidence privately.
 <small>Leave this unchecked for discovery, controls or event delivery problems. Media can reveal people, conversations and your surroundings.</small></label>
@@ -37,7 +45,7 @@ export function diagnosticsPage(): string {
 <p>Evidence is held in gateway memory for up to 10 minutes. Download stops capture. Clear evidence erases the session. A gateway restart also erases it.</p>
 <script>
 const el = id => document.getElementById(id);
-let targets = [], stream = null, poll = null, activeTrialSerial = null;
+let targets = [], stream = null, poll = null, activeTrialSerial = null, nvrJob = null, nvrClip = null;
 const show = value => { el('status').textContent = value; };
 const abortStream = () => { if(stream) stream.abort(); stream = null; };
 async function api(path, method = 'GET', body) {
@@ -140,6 +148,29 @@ action('download', async () => {
   await status();
   show('Downloaded ' + (blob.size / 1000000).toFixed(1) + ' MB. ' + (blob.size > 20000000 ? 'Use a private cloud link.' : 'Email attachment or a private cloud link is fine.'));
 });
-window.addEventListener('pagehide', abortStream);
+action('nvr-stop', async () => { if(nvrJob) nvrJob.abort(); });
+action('nvr-test', async () => {
+  const selected = el('device').value;
+  if(!selected || !el('nvr-consent').checked) throw Error('Select one camera and confirm private video consent.');
+  if(nvrJob) return;
+  const job = nvrJob = new AbortController();
+  el('nvr-test').disabled = true; el('device').disabled = true;
+  el('nvr-status').textContent = 'Connecting and requesting a ten-second clip. This may take up to 90 seconds.';
+  try {
+    const result = await fetch('api/cameras/' + encodeURIComponent(selected) + '/nvr-live-trial', {
+      method: 'POST', signal: job.signal, cache: 'no-store',
+      headers: { Authorization: 'Bearer ' + el('token').value, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ consentPrivateMedia: true }) });
+    if(!result.ok) { const value = await result.json(); throw Error(value.error || 'NVR video test failed.'); }
+    const clip = await result.blob();
+    if(nvrClip) URL.revokeObjectURL(nvrClip);
+    nvrClip = URL.createObjectURL(clip);
+    el('nvr-video').src = nvrClip; el('nvr-video').hidden = false;
+    el('nvr-download').href = nvrClip; el('nvr-download').hidden = false;
+    el('nvr-status').textContent = 'Clip received. Does the picture play and show the selected camera? You can also download it to a compatible player. Keep it private.';
+  } catch(error) { el('nvr-status').textContent = job.signal.aborted ? 'NVR test cancelled.' : error.message + ' Please send only the nvr_live_trial_failed log line if it failed.'; }
+  finally { nvrJob = null; el('nvr-test').disabled = false; el('device').disabled = false; }
+});
+window.addEventListener('pagehide', () => { abortStream(); if(nvrJob) nvrJob.abort(); if(nvrClip) URL.revokeObjectURL(nvrClip); });
 </script></html>`;
 }

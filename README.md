@@ -479,3 +479,49 @@ and configure `EUFY_GATEWAY_API_TOKEN`. The authenticated
 `{"action":"siren","enabled":true}` (five-second test, false to stop), or
 `{"action":"ptz","direction":"left"}` (also right, up and down).
 Do not include camera identifiers or private diagnostics in public issue comments.
+
+### Experimental NVR video test
+
+`experimental_nvr_live` is off by default. Enabling it adds a consented,
+ten-second private video test to Diagnostics for exact T8E00/type 301 cameras
+through T8N00/type 300 or T9000. It does not enable normal Home Assistant live
+view, snapshots, events, arming, or camera settings. Hardware playback remains
+unconfirmed.
+
+Update the app and integration, enable the option, open Diagnostics, enter the
+gateway API token locally and load devices. Select one supported camera, expand
+Experimental NVR video test, confirm private video consent and choose Try NVR
+video once. Close other live viewers first. You can cancel the test, and the
+connection has a hard time limit. Turn the option off after testing if you no
+longer need it.
+
+The service region option accepts `auto`, `us`, `eu` or `ie`. GB-style accounts
+may need `ie` even when automatic domain metadata selects `eu`. The account
+country remains unchanged. Only IE has independent hardware evidence for the
+join region. There is no automatic retry across regions or second login.
+
+Check whether the clip plays and shows the selected camera. HEVC playback may
+require downloading it to a compatible player. A connection or command result
+alone does not confirm playback. If the test fails, share only the
+`nvr_live_trial_failed` log line publicly. Keep the token and clip private.
+Nothing is uploaded automatically.
+
+This first trial does not implement FEC or retransmission recovery. NVR receive
+framing, response segment echo, discovery identity fields, video command
+selection, compact offers, and stop behaviour still need hardware confirmation.
+Unsupported or inconsistent data fails the test instead of being treated as
+working camera support.
+
+The trial admits exact T8E00/type301 cameras only through exact T8N00/type300
+or T9000/type27 parents. Enabling it can add an experimental inventory camera
+entry to the gateway and Home Assistant, with normal streaming and controls
+unavailable. Turning the option off and restarting removes it from the gateway.
+Home Assistant may retain an unavailable registry entry. An entry left after an
+inventory change remains a read-only placeholder and cannot start a trial if its
+binding no longer matches.
+
+The trial aborts after 82 seconds, reserving time within its 90-second safety
+budget for closing the connection and reaping a cancelled media process. This
+implementation limit may cancel an unusually slow connection before it can
+return a full clip. It is not a measured hardware performance guarantee.
+Trial footage is excluded from retained snapshots and diagnostic media capture.

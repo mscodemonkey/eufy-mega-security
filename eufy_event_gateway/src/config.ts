@@ -25,6 +25,12 @@ export interface GatewayConfig {
 
   /** Default-off official-model control trials, requiring bearer authentication. */
   readonly experimentalModelControls: boolean;
+
+  /** Default-off, consented NVR video trials. Normal capabilities remain unchanged. */
+  readonly experimentalNvrLive: boolean;
+
+  /** Fixed regional service selection, never an arbitrary credential target. */
+  readonly experimentalNvrRegion: "auto" | "us" | "eu" | "ie";
   readonly eufy: {
     readonly username: string | null;
     readonly password: string | null;
@@ -49,6 +55,10 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
   const apiToken = nonEmpty(environment.EUFY_GATEWAY_API_TOKEN);
   const captureFailedEventImages = captureBoolean(environment.EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES);
   const experimentalModelControls = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS, "EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS");
+  const experimentalNvrLive = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_NVR_LIVE, "EUFY_GATEWAY_EXPERIMENTAL_NVR_LIVE");
+  const experimentalNvrRegion = environment.EUFY_GATEWAY_EXPERIMENTAL_NVR_REGION ?? "auto";
+  if (!["auto", "us", "eu", "ie"].includes(experimentalNvrRegion)) throw new Error("Choose auto, us, eu or ie for the experimental NVR service region");
+  if (experimentalNvrLive && !apiToken) throw new Error("Experimental NVR live video requires EUFY_GATEWAY_API_TOKEN");
   if (experimentalModelControls && !apiToken) throw new Error("Experimental model controls require EUFY_GATEWAY_API_TOKEN");
   if (captureFailedEventImages && !apiToken) {
     throw new Error("Failed event-image capture requires EUFY_GATEWAY_API_TOKEN");
@@ -69,6 +79,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
     apiToken,
     captureFailedEventImages,
     experimentalModelControls,
+    experimentalNvrLive,
+    experimentalNvrRegion: experimentalNvrRegion as "auto" | "us" | "eu" | "ie",
     eufy: {
       username: nonEmpty(environment.EUFY_USERNAME),
       password: nonEmpty(environment.EUFY_PASSWORD),

@@ -25,6 +25,7 @@ import { SimulatedProvider } from "./provider/simulated-provider.js";
 import type { CameraProvider, CaptchaProvider } from "./provider/provider.js";
 import { SnapshotStore } from "./storage/snapshot-store.js";
 import { RecordingCache, recordingByteRange } from "./storage/recording-cache.js";
+import { NvrTrialError } from "./stream/nvr-protocol.js";
 import { c31TalkbackFrames } from "./stream/c31-talkback.js";
 import { validateRecordingDate } from "./stream/stored-recordings.js";
 import { validateCloudHistoryQuery } from "./mega/cloud-history.js";
@@ -49,6 +50,7 @@ export class GatewayServer {
   #bundleCleanup: (() => void) | null = null;
   #sampleBundleTransport: (() => void) | null = null;
   readonly #recordings = new RecordingCache();
+  readonly #nvrTrialJobs = new Set<AbortController>();
   readonly #speakerJobs = new Map<string, AbortController>();
   readonly #recordingJobs = new Map<string, { promise: Promise<Buffer | null>; controller: AbortController; users: Set<ServerResponse> }>();
 
@@ -65,6 +67,7 @@ export class GatewayServer {
     private readonly simulatedProvider: SimulatedProvider | null,
     private readonly captchaProvider: CaptchaProvider | null = null,
     private readonly eventImageCapture: EventImageCapture | null = null,
+    private readonly nvrTrialDeadlineMilliseconds = 82_000,
   ) {}
 
   /** Bind the configured host and port and begin accepting requests. */
@@ -79,6 +82,7 @@ export class GatewayServer {
 
   /** Stop accepting requests and wait for the HTTP server to close. */
   async close(): Promise<void> {
+    for (const controller of this.#nvrTrialJobs) controller.abort();
     this.#clearBundle();
     for (const controller of this.#speakerJobs.values()) controller.abort();
     for (const job of this.#recordingJobs.values()) job.controller.abort();
@@ -402,6 +406,37 @@ export class GatewayServer {
         segments[0] === "api" && segments[1] === "cameras" && segments[3] === "motion-detection" && segments.length === 4
       ) {
         return await this.#cameraMotionDetection(request, segments[2]!, response);
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras"
+        && segments[3] === "nvr-live-trial" && segments.length === 4) {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !this.config.experimentalNvrLive || !this.provider.reserveNvrLiveTrial) return json(response, 409, { error: "Experimental NVR video tests are disabled" });
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
+        if ((request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase() !== "application/json") return json(response, 400, { error: "JSON private-media consent is required" });
+        const body = await readJson(request);
+        if (Object.keys(body).length !== 1 || body.consentPrivateMedia !== true) throw new SyntaxError("Confirm private-media consent without other options");
+        if (this.#nvrTrialJobs.size || this.streams.hasActiveSession(segments[2]!)) return json(response, 409, { error: "Stop other video activity before this test" });
+        const controller = new AbortController(); this.#nvrTrialJobs.add(controller);
+        const deadline = setTimeout(() => controller.abort(), this.nvrTrialDeadlineMilliseconds);
+        const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", abort); request.once("aborted", abort);
+        let release: (() => Promise<void>) | undefined;
+        try {
+          release = this.provider.reserveNvrLiveTrial(segments[2]!, controller.signal);
+          const clip = await this.streams.recordClip(segments[2]!, 10, 75_000, true, controller.signal);
+          controller.signal.throwIfAborted();
+          response.writeHead(200, { "Content-Type": "video/mp4", "Content-Length": clip.length, "Cache-Control": "no-store" }); response.end(clip);
+        } catch (error) {
+          const failure = error instanceof NvrTrialError ? error : new NvrTrialError(controller.signal.aborted ? "cancelled" : "video");
+          logger.warn("nvr_live_trial_failed", `stage=${failure.stage}`);
+          if (!response.destroyed) json(response, 409, { error: failure.message, stage: failure.stage });
+        } finally {
+          controller.abort(); clearTimeout(deadline);
+          try { await release?.(); }
+          catch { logger.warn("nvr_live_trial_failed", "stage=stop"); }
+          finally { response.removeListener("close", abort); request.removeListener("aborted", abort); this.#nvrTrialJobs.delete(controller); }
+        }
+        return;
       }
       if ((request.method === "GET" || request.method === "POST") && segments[0] === "api"
         && segments[1] === "cameras" && segments[3] === "model-control-trial" && segments.length === 4) {

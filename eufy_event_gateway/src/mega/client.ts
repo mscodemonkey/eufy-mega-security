@@ -9,6 +9,8 @@
  * SSE, or the PPCS packet stream. Keeping those concerns out of this class is
  * what makes the Mega layer reusable by a probe or another application.
  */
+import type { NvrSignallingContext } from "../stream/nvr-rtc-session.js";
+import { NvrTrialError } from "../stream/nvr-protocol.js";
 import { timingSafeEqual } from "node:crypto";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -459,6 +461,49 @@ export class MegaClient {
       response = await this.#fetch(target, { redirect: "manual", signal });
     }
     return response;
+  }
+
+  /** Obtain a transient, private NVR join context without another login or session bypass. */
+  async nvrSignallingContext(station: string, region: "auto" | "us" | "eu" | "ie", cancellation: AbortSignal): Promise<NvrSignallingContext> {
+    this.#requireAuthentication();
+    const session = this.#session!;
+    let selected = region;
+    if (selected === "auto") {
+      const domain = session.domains.eufy_security;
+      if (domain === "security-app-ie.eufylife.com") selected = "ie";
+      else if (domain === "security-app-eu.eufylife.com") selected = "eu";
+      else if (domain === "security-app.eufylife.com") selected = session.megaDomain.includes("-us-") ? "us" : "eu";
+      else throw new NvrTrialError("region_or_authorization_rejected");
+    }
+    const host = selected === "us" ? "security-smart.eufylife.com" : `security-smart-${selected}.eufylife.com`;
+    const deadline = AbortSignal.any([cancellation, AbortSignal.timeout(10_000)]);
+    const pending = this.#enqueue(async lifetime => {
+      const signal = AbortSignal.any([lifetime, deadline]); signal.throwIfAborted();
+      try {
+        const response = await this.#fetch(`https://${host}/v1/smart/nvr/ws/sign?station_sn=${encodeURIComponent(station)}`, {
+          headers: { "app-name": "eufy_mega", "model-type": "WEB", "web-country": this.#country.toUpperCase(),
+            gtoken: megaUserToken(session.userId), "x-auth-token": session.authToken, authorization: session.authToken },
+          redirect: "manual", signal,
+        });
+        if (!response.ok) { await response.body?.cancel(); throw new NvrTrialError("region_or_authorization_rejected"); }
+        const value: unknown = JSON.parse((await readBoundedResponse(response, 65536, signal)).toString("utf8"));
+        if (!isRecord(value) || value.code !== 0 || typeof value.data !== "string" || !value.data.length || value.data.length > 8192) {
+          throw new NvrTrialError("region_or_authorization_rejected");
+        }
+        if (this.#session !== session) throw new NvrTrialError("cancelled");
+        return { host, region: selected.toUpperCase() as "US" | "EU" | "IE", authToken: session.authToken,
+          gtoken: megaUserToken(session.userId), sign: value.data };
+      } catch (error) {
+        throw error instanceof NvrTrialError ? error : new NvrTrialError(cancellation.aborted ? "cancelled" : "sign");
+      }
+    });
+    return await new Promise<NvrSignallingContext>((resolve, reject) => {
+      const abort = (): void => { deadline.removeEventListener("abort", abort);
+        reject(new NvrTrialError(cancellation.aborted ? "cancelled" : "sign")); };
+      deadline.addEventListener("abort", abort, { once: true });
+      void pending.then(resolve, reject).finally(() => deadline.removeEventListener("abort", abort));
+      if (deadline.aborted) abort();
+    });
   }
 
   #mediaHeaders(): Record<string, string> {

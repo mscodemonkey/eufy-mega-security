@@ -14,6 +14,8 @@ export EUFY_COUNTRY="$(option country)"
 export EUFY_VERIFY_CODE="$(jq -r '.verification_code // empty' "$options")"
 export EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES="$(jq -r '.capture_failed_event_images // false' "$options")"
 export EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS="$(jq -r '.experimental_model_controls // false' "$options")"
+export EUFY_GATEWAY_EXPERIMENTAL_NVR_LIVE="$(jq -r '.experimental_nvr_live // false' "$options")"
+export EUFY_GATEWAY_EXPERIMENTAL_NVR_REGION="$(jq -r '.experimental_nvr_region // "auto"' "$options")"
 if [ ! -s "$token_file" ]; then
   umask 077
   token_tmp="${token_file}.tmp"

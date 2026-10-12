@@ -28,6 +28,8 @@ options:
   verification_code: ""
   capture_failed_event_images: false
   experimental_model_controls: false
+  experimental_nvr_live: false
+  experimental_nvr_region: auto
 schema:
   username: str
   password: password
@@ -35,3 +37,5 @@ schema:
   verification_code: str
   capture_failed_event_images: bool
   experimental_model_controls: bool
+  experimental_nvr_live: bool
+  experimental_nvr_region: list(auto|us|eu|ie)

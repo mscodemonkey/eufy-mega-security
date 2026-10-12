@@ -69,6 +69,8 @@ if (config.provider === "simulated") {
     persistentDirectory: join(config.dataDirectory, "eufy-client"),
     maxStreamSeconds: config.maxStreamSeconds,
     experimentalModelControls: config.experimentalModelControls,
+    experimentalNvrLive: config.experimentalNvrLive,
+    experimentalNvrRegion: config.experimentalNvrRegion,
     ...(eventImageCapture ? { eventImageCapture } : {}),
     ...(config.eufy.verifyCode ? { verifyCode: config.eufy.verifyCode } : {}),
   });
