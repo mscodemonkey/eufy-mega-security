@@ -408,6 +408,33 @@ export class GatewayServer {
         return await this.#cameraMotionDetection(request, segments[2]!, response);
       }
       if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras"
+        && segments[3] === "nvr-state-trial" && segments.length === 4) {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !this.config.experimentalNvrLive || !this.provider.readNvrStateTrial) return json(response, 409, { error: "Experimental NVR state tests are disabled" });
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
+        if ((request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase() !== "application/json") return json(response, 400, { error: "JSON read-state consent is required" });
+        const body = await readJson(request);
+        if (Object.keys(body).length !== 1 || body.consentReadState !== true) throw new SyntaxError("Confirm read-state consent without other options");
+        if (this.#nvrTrialJobs.size || this.streams.hasActiveSession(segments[2]!)) return json(response, 409, { error: "Stop other video activity before this test" });
+        const controller = new AbortController(); this.#nvrTrialJobs.add(controller);
+        const deadline = setTimeout(() => controller.abort(), Math.min(45_000, this.nvrTrialDeadlineMilliseconds));
+        const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", abort); request.once("aborted", abort);
+        try {
+          const result = await this.provider.readNvrStateTrial(segments[2]!, controller.signal);
+          controller.signal.throwIfAborted();
+          json(response, 200, result);
+        } catch (error) {
+          const failure = error instanceof NvrTrialError ? error : new NvrTrialError(controller.signal.aborted ? "cancelled" : "state");
+          logger.warn("nvr_state_trial_failed", `stage=${failure.stage}`);
+          if (!response.destroyed) json(response, 409, { error: "NVR state test failed", stage: failure.stage });
+        } finally {
+          controller.abort(); clearTimeout(deadline);
+          response.removeListener("close", abort); request.removeListener("aborted", abort); this.#nvrTrialJobs.delete(controller);
+        }
+        return;
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras"
         && segments[3] === "nvr-live-trial" && segments.length === 4) {
         response.setHeader("cache-control", "no-store");
         if (!this.config.apiToken || !this.config.experimentalNvrLive || !this.provider.reserveNvrLiveTrial) return json(response, 409, { error: "Experimental NVR video tests are disabled" });

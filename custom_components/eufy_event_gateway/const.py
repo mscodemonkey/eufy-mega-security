@@ -47,3 +47,7 @@ ALARM_TONES = {
     1: "alarm_sound_1",
     2: "alarm_sound_2",
 }
+
+
+# Entry-wide opt-in, consumed only when Home Assistant creates an HLS provider.
+CONF_SHORT_HLS_IDLE = "experimental_short_hls_idle"

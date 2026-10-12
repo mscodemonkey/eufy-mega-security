@@ -22,7 +22,7 @@ function application(command: number, segment: number, body: Buffer): Buffer {
   return frame;
 }
 
-for (const scenario of ['h264', 'h265', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async () => {
+for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'state-cancel', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async () => {
   const codec = scenario === 'h265' ? 'h265' : 'h264';
   const server = new WebSocketServer({ port: 0 });
   await once(server, 'listening');
@@ -42,12 +42,30 @@ for (const scenario of ['h264', 'h265', 'identity', 'wrong-channel', 'wrong-type
       if (assembled.status !== 'complete') return;
       const request = nvrApplication(assembled.frame), body = JSON.parse(request.payload.toString());
       commands.push(body.cmd);
+      if (body.cmd === 1103) {
+        assert.deepEqual(body.payload.channel_info, { array_size: 2, channel_array: [255, 3] });
+        const ack = application(1350, request.segment, Buffer.alloc(4));
+        for (const packet of nvrPackets(ack, sequence++, 1)) channel.send(packet);
+        const wrong = application(1351, request.segment, Buffer.from(JSON.stringify({ cmd: 9100, params: [] })));
+        for (const packet of nvrPackets(wrong, sequence++, 1)) channel.send(packet);
+        if (scenario === 'state-cancel') { controller.abort(); return; }
+        setTimeout(() => {
+          const data = application(1351, request.segment, Buffer.from(JSON.stringify({ cmd: 1103, params: [
+            { dev_type: 255, param_type: 1224, param_value: '2' }, { channel: 255, param_type: 1151, param_value: 1 },
+            { channel: 3, param_type: 6250, param_value: 'MA==' },
+          ] })));
+          for (const packet of nvrPackets(data, sequence++, 1)) channel.send(packet);
+        }, 20);
+        return;
+      }
       const response = body.cmd === 9100
         ? application(1351, request.segment, Buffer.from(JSON.stringify({ cmd: 9100,
-          payload: { dev_list: [{ sn: scenario === 'identity' ? 'synthetic-other' : 'synthetic-camera', ch: scenario === 'wrong-channel' ? 4 : 3, dev_type: scenario === 'wrong-type' ? 302 : 301 }] } })))
+          payload: { dev_list: [{ sn: scenario === 'identity' ? 'synthetic-other' : 'synthetic-camera', ch: scenario === 'wrong-channel' ? 4 : 3, dev_type: scenario === 'legacy-first-lens' ? 14 : scenario === 'wrong-type' ? 302 : 301 }] } })))
         : application(1350, request.segment, Buffer.alloc(4));
       for (const packet of nvrPackets(response, sequence++, 1)) channel.send(packet);
-      if (body.cmd === 1003) sendVideo = setInterval(() => {
+      if (body.cmd === 1003) {
+        assert.equal(body.payload.chn_list[0].sensor, scenario === 'legacy-first-lens' ? 0 : 1);
+        sendVideo = setInterval(() => {
         const media = Buffer.alloc(22 + generated.stdout.length); media.writeUInt32LE(generated.stdout.length, 0);
         media[4] = 1; media[5] = codec === 'h264' ? 0 : 1; media.writeUInt16LE(videoSequence, 6);
         media[8] = 10; media.writeUInt16LE(320, 10); media.writeUInt16LE(180, 12); media.writeBigUInt64LE(BigInt(videoSequence) * 2000n, 14);
@@ -55,6 +73,7 @@ for (const scenario of ['h264', 'h265', 'identity', 'wrong-channel', 'wrong-type
         const frame = application(1300, 0, media); frame[12] = 3; frame[14] = 1;
         for (const packet of nvrPackets(frame, videoSequence++, 1, 1)) channel.send(packet);
       }, 100);
+      }
       if (body.cmd === 1004 && sendVideo) clearInterval(sendVideo);
     };
   });
@@ -84,6 +103,7 @@ for (const scenario of ['h264', 'h265', 'identity', 'wrong-channel', 'wrong-type
   manager.on("diagnostic-media", () => diagnosticMedia++);
   manager.on('warning', () => {});
   const session = new NvrRtcSession({ station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
+    cameraType: scenario === 'legacy-first-lens' ? 14 : 301, sensor: scenario === 'legacy-first-lens' ? 0 : 1,
     administrator: 'synthetic-administrator', context: { host: 'security-smart-ie.eufylife.com', region: 'IE',
       authToken: 'synthetic-token', gtoken: 'synthetic-gtoken', sign: 'synthetic-sign' },
     signal: controller.signal, current: () => true, ready: (output, hint) => { attached++; manager.attachSource('synthetic-camera', output, hint); } }, {
@@ -100,6 +120,18 @@ for (const scenario of ['h264', 'h265', 'identity', 'wrong-channel', 'wrong-type
         assert.equal((error as { stage: string }).stage, ['identity', 'wrong-channel', 'wrong-type'].includes(scenario) ? 'identity_unmatched' : scenario === 'unknown-channel' ? 'channel' : scenario === 'cancel-start' ? 'cancelled' : 'negotiation'); return true;
       }); } finally { clearTimeout(deadline); }
       assert.equal(commands.includes(1003), false); return;
+    }
+    if (scenario === 'state-read' || scenario === 'state-cancel') {
+      if (scenario === 'state-cancel') await assert.rejects(session.readState(), error => {
+        assert.equal((error as { stage: string }).stage, 'cancelled'); return true;
+      });
+      else {
+        const result = await session.readState();
+        assert.equal(result.configuredGuardMode, 2); assert.equal(result.effectiveGuardMode, 1); assert.equal(result.cameraPower, 'on');
+        assert.equal(session.stats.staleReplies, 1);
+      }
+      assert.deepEqual(commands, [9100, 1103]); assert.equal(attached, 0); assert.equal(snapshots, 0); assert.equal(diagnosticMedia, 0);
+      await session.close(); return;
     }
     const clip = await manager.recordClip('synthetic-camera', 10, 75000, true);
     const decoded = spawnSync('ffmpeg', ['-v', 'error', '-xerror', '-i', 'pipe:0', '-f', 'null', '-'], { input: clip });

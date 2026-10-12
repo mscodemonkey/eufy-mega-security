@@ -13,7 +13,7 @@ import { NvrPtcsReassembler } from "./nvr-ptcs-reassembly.js";
 import { VideoParameterSetCache } from "./live-stream-manager.js";
 import { installNvrIceTiming } from "./nvr-ice-timing.js";
 import { NvrTrialError, nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrJson,
-  nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrRecord, nvrVideo, type NvrTrialStage } from "./nvr-protocol.js";
+  nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrRecord, nvrVideo, nvrStateSummary, type NvrStateSummary, type NvrTrialStage } from "./nvr-protocol.js";
 
 /** Private join credentials are short-lived and must never enter diagnostics. */
 export interface NvrSignallingContext {
@@ -35,6 +35,12 @@ export interface NvrRtcOptions {
   readonly station: string;
   readonly camera: string;
   readonly channel: number;
+
+  /** Expected cloud inventory type, checked against fresh station discovery. */
+  readonly cameraType?: number;
+
+  /** Provider-selected lens. Omission preserves the original T8E00 trial. */
+  readonly sensor?: 0 | 1;
   readonly administrator: string;
   readonly context: NvrSignallingContext;
   readonly signal: AbortSignal;
@@ -43,7 +49,7 @@ export interface NvrRtcOptions {
 }
 
 interface PendingRequest {
-  readonly command: 9100 | 1003 | 1004;
+  readonly command: 9100 | 1003 | 1004 | 1103;
   readonly segment: number;
   readonly resolve: (value: Record<string, unknown>) => void;
   readonly reject: (error: Error) => void;
@@ -141,6 +147,26 @@ export class NvrRtcSession {
 
   /** Negotiate, correlate fresh discovery, attach the sink, and request video once. */
   async start(): Promise<void> {
+    await this.#connectAndDiscover();
+    this.options.ready(this.output, () => this.#codec);
+    this.#stage = "start";
+    await this.#request(1003, 5000);
+    this.#stage = "video";
+    if (!this.#bootstrapped) this.#firstFrame = setTimeout(() => this.#fail("video"), 20_000);
+  }
+
+  /** Query one scoped parameter response without starting media or changing settings. */
+  async readState(): Promise<NvrStateSummary> {
+    try {
+      await this.#connectAndDiscover();
+      this.#stage = "state";
+      const response = await this.#request(1103, 5000);
+      this.#guard();
+      return nvrStateSummary(response, this.options.channel);
+    } finally { await this.close(); }
+  }
+
+  async #connectAndDiscover(): Promise<void> {
     if (this.#started || this.options.signal.aborted) throw new NvrTrialError("cancelled");
     this.#started = true;
     this.#deadline = setTimeout(() => this.#fail("deadline"), 75_000);
@@ -173,13 +199,8 @@ export class NvrRtcSession {
     } finally { clearTimeout(timer); }
     this.#stage = "inventory";
     const discovery = await this.#request(9100, 5000);
-    nvrMatchCamera(discovery, this.options.camera, this.options.channel);
+    nvrMatchCamera(discovery, this.options.camera, this.options.channel, this.options.cameraType ?? 301);
     this.#guard();
-    this.options.ready(this.output, () => this.#codec);
-    this.#stage = "start";
-    await this.#request(1003, 5000);
-    this.#stage = "video";
-    if (!this.#bootstrapped) this.#firstFrame = setTimeout(() => this.#fail("video"), 20_000);
   }
 
   /** Attempt stream stop and deterministically retire the original connection. */
@@ -412,7 +433,7 @@ export class NvrRtcSession {
     if (frame.segment === 0) this.stats.segmentNotEchoed++;
     if (frame.command === 1350 && frame.payload.length === 4) {
       if (frame.payload.readInt32LE(0) !== 0) { pending.reject(new NvrTrialError(this.#stage)); clearTimeout(pending.timer); this.#pending = null; }
-      else if (pending.command !== 9100) { pending.resolve({}); clearTimeout(pending.timer); this.#pending = null; }
+      else if (pending.command === 1003 || pending.command === 1004) { pending.resolve({}); clearTimeout(pending.timer); this.#pending = null; }
       return;
     }
     if (frame.command !== 1351) { this.stats.staleReplies++; return; }
@@ -423,7 +444,7 @@ export class NvrRtcSession {
     clearTimeout(pending.timer); this.#pending = null;
   }
 
-  #request(command: 9100 | 1003 | 1004, timeout: number, closing = false): Promise<Record<string, unknown>> {
+  #request(command: 9100 | 1003 | 1004 | 1103, timeout: number, closing = false): Promise<Record<string, unknown>> {
     if (!closing) this.#guard();
     if (this.#pending || this.#segment >= 254) return Promise.reject(new NvrTrialError(this.#stage));
     const channel = this.#channels.get("WebrtcDataChannel");
@@ -434,7 +455,7 @@ export class NvrRtcSession {
       this.#pending = { command, segment, resolve, reject, timer };
       if (command === 1003) this.#startSent = true;
       try {
-        for (const packet of nvrPackets(nvrCommand(this.options.administrator, command, segment, this.options.channel), this.#outSequence++ % 65536, Date.now())) channel.send(packet);
+        for (const packet of nvrPackets(nvrCommand(this.options.administrator, command, segment, this.options.channel, this.options.sensor ?? 1), this.#outSequence++ % 65536, Date.now())) channel.send(packet);
       } catch { clearTimeout(timer); this.#pending = null; reject(new NvrTrialError(this.#stage)); }
     });
   }

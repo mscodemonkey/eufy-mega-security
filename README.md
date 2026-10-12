@@ -483,8 +483,11 @@ Do not include camera identifiers or private diagnostics in public issue comment
 ### Experimental NVR video test
 
 `experimental_nvr_live` is off by default. Enabling it adds a consented,
-ten-second private video test to Diagnostics for exact T8E00/type 301 cameras
-through T8N00/type 300 or T9000. It does not enable normal Home Assistant live
+ten-second private video test to Diagnostics through exact T8N00/type 300 or
+T9000/type 27 parents. The exact camera/model pairs are T8E00/type 301,
+T8140/type 14, T8140-Z/type 14, T8113-V/type 8, T8172/type 89, T8162/type 26,
+T8170/type 48, T81A0/type 10005 and T8425/type 47. Additional models request only
+their first lens. It does not enable normal Home Assistant live
 view, snapshots, events, arming, or camera settings. Hardware playback remains
 unconfirmed.
 
@@ -494,6 +497,20 @@ Experimental NVR video test, confirm private video consent and choose Try NVR
 video once. Close other live viewers first. You can cancel the test, and the
 connection has a hard time limit. Turn the option off after testing if you no
 longer need it.
+
+The same option also enables **Read NVR state once** in Diagnostics. Select a
+camera, confirm the separate read-state consent and use that button to query
+station guard settings and the selected camera's power setting. It starts no
+video and changes no settings. Compare the displayed values with the Eufy app.
+Missing or unrecognised values stay unknown. The query time records gateway
+receipt, not proof that the appliance refreshed its own cache. Arming and
+camera controls remain unavailable. If it fails, share only the
+`nvr_state_trial_failed` line, keeping all private diagnostics private.
+
+The authenticated `POST /api/cameras/{camera}/nvr-state-trial` accepts exactly
+`{"consentReadState":true}`. It returns only interpreted settings, a parameter
+count and query time, never raw device parameters, account information or keys.
+It shares the video trial's exclusive connection and cancellation button.
 
 The service region option accepts `auto`, `us`, `eu` or `ie`. GB-style accounts
 may need `ie` even when automatic domain metadata selects `eu`. The account
@@ -512,8 +529,7 @@ selection, compact offers, and stop behaviour still need hardware confirmation.
 Unsupported or inconsistent data fails the test instead of being treated as
 working camera support.
 
-The trial admits exact T8E00/type301 cameras only through exact T8N00/type300
-or T9000/type27 parents. Enabling it can add an experimental inventory camera
+The trial admits only the exact camera/model pairs and parents listed above. Enabling it can add an experimental inventory camera
 entry to the gateway and Home Assistant, with normal streaming and controls
 unavailable. Turning the option off and restarting removes it from the gateway.
 Home Assistant may retain an unavailable registry entry. An entry left after an
@@ -525,3 +541,21 @@ budget for closing the connection and reaping a cancelled media process. This
 implementation limit may cancel an unusually slow connection before it can
 return a full clip. It is not a measured hardware performance guarantee.
 Trial footage is excluded from retained snapshots and diagnostic media capture.
+
+### Optional shorter Home Assistant live-view idle timeout
+
+In **Settings → Devices & services → Eufy Mega Security → Configure**, enable
+**Try a 60-second HLS idle timeout** to test earlier release of unused HA live
+views. This option is off by default and saving reloads the integration. Turn
+camera **Preload stream** off for this test. Active HLS requests keep the viewer
+output alive. Closing all viewers should let it expire after about 60 seconds
+plus any in-flight requests and worker cleanup, instead of HA's usual five
+minutes. Other HLS clients, including casts, can still keep it active.
+
+The option applies to this integration's HA live views. Recordings retain their
+own timeout, and gateway URLs or Eufy app sessions are separate. It also limits
+initial HLS startup to 60 seconds. If a slow camera fails to start or active
+playback suffers, disable the option to restore HA defaults. Shorter camera
+wake time and battery savings remain unconfirmed until tested on the affected
+hardware. Report whether playback stays healthy while open and whether
+reconnections stop sooner after all viewers close.

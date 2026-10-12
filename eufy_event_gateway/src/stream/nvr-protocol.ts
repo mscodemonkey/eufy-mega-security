@@ -9,7 +9,7 @@ import type { VideoCodec } from "../domain/types.js";
 /** Fixed diagnostic stages contain no vendor messages or private connection data. */
 export type NvrTrialStage = "admission" | "region_or_authorization_rejected" | "sign" | "join" | "call" | "busy"
   | "negotiation" | "offer_compact" | "channel" | "inventory" | "identity_field_missing" | "identity_unmatched"
-  | "start" | "video" | "stop" | "cancelled" | "deadline" | "framing" | "timing";
+  | "start" | "video" | "stop" | "cancelled" | "deadline" | "framing" | "timing" | "state";
 
 /** Errors crossing the HTTP boundary contain only a stable stage. */
 export class NvrTrialError extends Error {
@@ -35,18 +35,89 @@ export function nvrJson(value: unknown): Record<string, unknown> {
   return value;
 }
 
-/** Encode only the discovery, start and stop operations used by this trial. */
-export function nvrCommand(account: string, command: 9100 | 1003 | 1004, segment: number, channel: number): Buffer {
+/**
+ * Select an exact reported camera profile for the opt-in trial only.
+ * Additional legacy cameras use their first lens. T8E00 retains the original
+ * trial's sensor selection. This does not establish hardware playback support.
+ */
+export function nvrTrialSensor(model: string, deviceType: number | null): 0 | 1 | null {
+  const cameras = [["T8140", 14], ["T8140-Z", 14], ["T8113-V", 8], ["T8172", 89],
+    ["T8162", 26], ["T8170", 48], ["T81A0", 10005], ["T8425", 47]] as const;
+  if (model === "T8E00" && deviceType === 301) return 1;
+  return cameras.some(([name, type]) => name === model && type === deviceType) ? 0 : null;
+}
+
+/** Encode only fixed trial operations, keeping the chosen lens separate from its channel. */
+export function nvrCommand(account: string, command: 9100 | 1003 | 1004 | 1103, segment: number, channel: number, sensor: 0 | 1 = 1): Buffer {
+  if (![9100, 1003, 1004, 1103].includes(command)) throw new NvrTrialError("framing");
   if (!Number.isInteger(segment) || segment < 1 || segment > 254 || !Number.isInteger(channel) || channel < 0 || channel > 254) {
     throw new NvrTrialError("framing");
   }
+  if (sensor !== 0 && sensor !== 1) throw new NvrTrialError("framing");
   const payload = command === 1003 ? { ClientOS: "WEB", entrytype: 1, camera_type: 0, streamtype: 2,
-    key: "", msg_id: "", audio_chn: -1, stitch_mode: 1, chn_list: [{ index: 0, chn: channel, sensor: 1 }] } : {};
+    key: "", msg_id: "", audio_chn: -1, stitch_mode: 1, chn_list: [{ index: 0, chn: channel, sensor }] }
+    : command === 1103 ? { channel_info: { array_size: 2, channel_array: [255, channel] } } : {};
   const body = Buffer.from(JSON.stringify({ account_id: account, cmd: command, payload }));
   const header = Buffer.alloc(16);
   header.write("XZYH"); header.writeUInt16LE(1350, 4); header.writeUInt32LE(body.length, 6);
   header[11] = segment; header[12] = 255; header[14] = command === 1003 ? 1 : 0; header[15] = 2;
   return Buffer.concat([header, body]);
+}
+
+/**
+ * A single explicit query result, separate from inventory or confirmed controls.
+ * Missing or unsupported settings stay unknown. No identity or received text
+ * escapes the private session through this projection.
+ */
+export interface NvrStateSummary {
+  readonly configuredGuardMode: number | null;
+  readonly effectiveGuardMode: number | null;
+  readonly cameraPower: "on" | "off" | null;
+  readonly parameterCount: number;
+
+  /** Gateway receipt time, not proof that the appliance refreshed its own cache. */
+  readonly queriedAt: string;
+}
+
+/** Project only explicitly scoped state, rejecting ambiguous parameter ownership. */
+export function nvrStateSummary(response: Record<string, unknown>, channel: number): NvrStateSummary {
+  if (!Number.isInteger(channel) || channel < 0 || channel > 254) throw new NvrTrialError("state");
+  const payload = nvrRecord(response.payload) ? response.payload : response;
+  if (!Array.isArray(payload.params) || payload.params.length > 1024
+    || payload.db_bypass_str !== undefined && (!Array.isArray(payload.db_bypass_str) || payload.db_bypass_str.length > 1024)) {
+    throw new NvrTrialError("state");
+  }
+  const rows: unknown[] = [...payload.params, ...(Array.isArray(payload.db_bypass_str) ? payload.db_bypass_str : [])];
+  if (rows.length > 1024) throw new NvrTrialError("state");
+  const read = (scope: number, parameter: number, encoded = false): number | null => {
+    const matches = rows.filter(row => nvrRecord(row) && row.param_type === parameter
+      && (row.dev_type === scope || row.channel === scope));
+    if (matches.length > 1) throw new NvrTrialError("state");
+    const row = matches[0];
+    if (!nvrRecord(row)) return null;
+    if (row.dev_type !== undefined && !Number.isInteger(row.dev_type)
+      || row.channel !== undefined && !Number.isInteger(row.channel)
+      || row.dev_type !== undefined && row.channel !== undefined && row.dev_type !== row.channel) throw new NvrTrialError("state");
+    let value = row.param_value;
+    if (typeof value === "string") {
+      if (value.length > 256) throw new NvrTrialError("state");
+      if (encoded && !/^(0|[1-9]\d*)$/.test(value) && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+        const bytes = Buffer.from(value, "base64");
+        if (bytes.toString("base64") === value) value = bytes.toString("utf8");
+      }
+      if (typeof value !== "string" || !/^(0|[1-9]\d*)$/.test(value)) return null;
+      value = Number(value);
+    }
+    return typeof value === "number" && Number.isSafeInteger(value) ? value : null;
+  };
+  const guard = (parameter: number): number | null => {
+    const value = read(255, parameter);
+    return value !== null && [0, 1, 2, 3, 63].includes(value) ? value : null;
+  };
+  const power = read(channel, 6250, true);
+  return { configuredGuardMode: guard(1224), effectiveGuardMode: guard(1151),
+    cameraPower: power === 0 ? "on" : power === 1 ? "off" : null,
+    parameterCount: rows.length, queriedAt: new Date().toISOString() };
 }
 
 /** Encode a caller-owned application frame using the independent sender layout. */
@@ -115,16 +186,22 @@ export function nvrVideo(frame: NvrApplicationFrame, channel: number): NvrVideoF
 }
 
 /** Fresh discovery must bind the selected serial, channel and exact camera type. */
-export function nvrMatchCamera(response: Record<string, unknown>, serial: string, channel: number): void {
+export function nvrMatchCamera(response: Record<string, unknown>, serial: string, channel: number, deviceType = 301): void {
   const payload = nvrRecord(response.payload) ? response.payload : null;
   if (!payload || !Array.isArray(payload.dev_list) || payload.dev_list.length > 256) throw new NvrTrialError("identity_field_missing");
   let fields = false;
   const matches = payload.dev_list.filter(row => {
     if (!nvrRecord(row) || typeof row.sn !== "string" || !Number.isInteger(row.ch)) return false;
     fields = true;
-    return row.sn === serial && row.ch === channel && (row.dev_type === 301 || row.type === 301);
+    return row.sn === serial || row.ch === channel;
   });
   if (matches.length !== 1) throw new NvrTrialError(fields ? "identity_unmatched" : "identity_field_missing");
+  const row = matches[0]!;
+  if (!nvrRecord(row) || row.sn !== serial || row.ch !== channel || !Number.isInteger(deviceType)
+    || (row.dev_type ?? row.type) !== deviceType
+    || row.dev_type !== undefined && row.type !== undefined && row.dev_type !== row.type) {
+    throw new NvrTrialError("identity_unmatched");
+  }
 }
 
 /** Reject local-only or non-unicast endpoints supplied by signalling. */

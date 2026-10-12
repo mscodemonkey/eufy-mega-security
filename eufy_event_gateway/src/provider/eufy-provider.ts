@@ -14,7 +14,7 @@
  */
 import { runS100SirenTrial, S100SirenTrialError } from "./s100-siren-trial.js";
 import { NvrRtcSession } from "../stream/nvr-rtc-session.js";
-import { NvrTrialError } from "../stream/nvr-protocol.js";
+import { NvrTrialError, nvrTrialSensor, type NvrStateSummary } from "../stream/nvr-protocol.js";
 import { modelControlTrialActions, parseModelControlTrial, runModelControlTrial, type ModelControlRoute, type ModelControlTrial, type ModelControlTrialResult } from "./model-control-trials.js";
 import { join } from "node:path";
 import { setTimeout as cancellableDelay } from "node:timers/promises";
@@ -465,7 +465,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #devices = new Map<string, MegaInventoryDevice>();
   readonly #ppcsStreams = new Map<string, FirstPartyPpcsSession>();
   readonly #nvrTrials = new Map<string, { controller: AbortController; device: MegaInventoryDevice;
-    station: MegaInventoryDevice; session: NvrRtcSession | null; release: () => Promise<void> }>();
+    station: MegaInventoryDevice; stateOnly: boolean; connecting: boolean;
+    session: NvrRtcSession | null; release: () => Promise<void> }>();
 
   /** Private card references expire in memory and are never published as filesystem paths. */
   readonly #recordingReferences = new Map<string, { serial: string; record: CameraStoredRecord; expiresAt: number }>();
@@ -693,7 +694,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const parents = [["T8N00", 300], ["T9000", 27]] as const;
     return !!this.config.experimentalNvrLive && !!device && !!station
       && device.category === "eufy_security" && station.category === "eufy_security"
-      && device.model === "T8E00" && device.deviceType === 301 && device.channel !== null
+      && nvrTrialSensor(device.model, device.deviceType) !== null && device.channel !== null
       && Number.isInteger(device.channel) && device.channel >= 0 && device.channel <= 254
       && parents.some(([model, type]) => station.model === model && station.deviceType === type)
       && !!station.adminUserId && (device.adminUserId === null || device.adminUserId === station.adminUserId);
@@ -719,13 +720,17 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Reserve an explicit diagnostic lease before credentials or sockets are requested. */
   reserveNvrLiveTrial(serial: string, signal: AbortSignal): () => Promise<void> {
+    return this.#reserveNvrTrial(serial, signal, false);
+  }
+
+  #reserveNvrTrial(serial: string, signal: AbortSignal, stateOnly: boolean): () => Promise<void> {
     const device = this.#devices.get(serial), station = device ? this.#devices.get(device.parentSerial) : undefined;
     if (!this.config.experimentalNvrLive || this.#recordingClosing || signal.aborted || !this.#client.isAuthenticated
       || this.#nvrTrials.size || !device || !station || !this.#nvrBinding(device, station) || this.#recordingPeerReserved(serial) || this.#stationHasActiveMedia(station.serial)) throw new NvrTrialError("admission");
     const controller = new AbortController();
     let closed: Promise<void> | null = null;
     const deadline = setTimeout(() => { controller.abort(); void entry.session?.close().catch(() => {}); }, 85_000);
-    const entry = { controller, device, station, session: null as NvrRtcSession | null, release: (): Promise<void> => {
+    const entry = { controller, device, station, stateOnly, connecting: false, session: null as NvrRtcSession | null, release: (): Promise<void> => {
       if (closed) return closed;
       controller.abort();
       closed = (async () => {
@@ -745,9 +750,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return entry.release;
   }
 
-  async #startNvrTrial(serial: string): Promise<void> {
+  async #nvrTrialSession(serial: string): Promise<NvrRtcSession> {
     const entry = this.#nvrTrials.get(serial)!;
-    if (entry.session || entry.controller.signal.aborted) throw new NvrTrialError("cancelled");
+    if (entry.connecting || entry.session || entry.controller.signal.aborted) throw new NvrTrialError("cancelled");
+    entry.connecting = true;
     const current = (): boolean => {
       const device = this.#devices.get(serial), station = this.#devices.get(entry.station.serial);
       return this.#nvrTrials.get(serial) === entry && !this.#recordingClosing && !entry.controller.signal.aborted
@@ -763,21 +769,49 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       ]);
       if (!current()) throw new NvrTrialError("cancelled");
       const session = new NvrRtcSession({ station: entry.station.serial, camera: serial, channel: entry.device.channel!,
+        cameraType: entry.device.deviceType!, sensor: nvrTrialSensor(entry.device.model, entry.device.deviceType)!,
         administrator: entry.station.adminUserId!, context, signal: entry.controller.signal, current,
         ready: (output, codec) => this.#events?.streamStarted(serial, output, codec) });
       entry.session = session;
-      session.output.once("error", error => logger.warn("nvr_live_trial_failed",
-        `stage=${error instanceof NvrTrialError ? error.stage : "video"} ${nvrTrialCounters(session)}`));
-      await session.start();
-    } catch (error) {
-      const failure = error instanceof NvrTrialError ? error : new NvrTrialError("sign");
-      logger.warn("nvr_live_trial_failed", `stage=${failure.stage}${entry.session ? " " + nvrTrialCounters(entry.session) : ""}`);
-      await entry.release(); throw failure;
+      return session;
     } finally { if (phaseAbort) entry.controller.signal.removeEventListener("abort", phaseAbort); }
   }
 
+  async #startNvrTrial(serial: string): Promise<void> {
+    const entry = this.#nvrTrials.get(serial)!;
+    try {
+      const session = await this.#nvrTrialSession(serial);
+      session.output.once("error", error => logger.warn("nvr_live_trial_failed",
+        `stage=${error instanceof NvrTrialError ? error.stage : "video"} ${nvrTrialCounters(session)}`));
+      await session.start();
+    }
+    catch (error) {
+      const failure = error instanceof NvrTrialError ? error : new NvrTrialError("sign");
+      logger.warn("nvr_live_trial_failed", `stage=${failure.stage}${entry.session ? " " + nvrTrialCounters(entry.session) : ""}`);
+      await entry.release(); throw failure;
+    }
+  }
+
+  /** Query selected NVR settings under an exclusive lease, without media or writes. */
+  async readNvrStateTrial(serial: string, signal: AbortSignal): Promise<NvrStateSummary> {
+    let release: (() => Promise<void>) | undefined;
+    try {
+      release = this.#reserveNvrTrial(serial, signal, true);
+      return await (await this.#nvrTrialSession(serial)).readState();
+    } catch (error) {
+      const failure = error instanceof NvrTrialError ? error : new NvrTrialError("state");
+      logger.warn("nvr_state_trial_failed", `stage=${failure.stage}`);
+      throw failure;
+    } finally {
+      try { await release?.(); }
+      catch { throw new NvrTrialError("state"); }
+    }
+  }
+
   async startStream(serial: string): Promise<void> {
-    if (this.#nvrTrials.has(serial)) return this.#startNvrTrial(serial);
+    const nvrTrial = this.#nvrTrials.get(serial);
+    if (nvrTrial?.stateOnly) throw new NvrTrialError("admission");
+    if (nvrTrial) return this.#startNvrTrial(serial);
     if (this.#recordingPeerReserved(serial)) throw new Error("Wait for recording retrieval before starting live view");
     const device = this.#devices.get(serial);
     if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);

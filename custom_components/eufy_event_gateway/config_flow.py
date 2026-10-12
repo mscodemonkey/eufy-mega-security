@@ -15,6 +15,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.const import CONF_URL
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     TextSelector,
@@ -24,7 +25,7 @@ from homeassistant.helpers.selector import (
 from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 
 from .client import GatewayAuthenticationError, GatewayClient, GatewayClientError
-from .const import CONF_API_TOKEN, DOMAIN
+from .const import CONF_API_TOKEN, CONF_SHORT_HLS_IDLE, DOMAIN
 
 
 class EufyGatewayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -37,6 +38,14 @@ class EufyGatewayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
     _discovered_data: dict[str, Any] | None = None
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> EufyGatewayOptionsFlow:
+        """Create entry options without copying private connection settings."""
+        return EufyGatewayOptionsFlow()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -164,3 +173,29 @@ def _schema(defaults: dict[str, Any] | None) -> vol.Schema:
             ): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
         }
     )
+
+
+class EufyGatewayOptionsFlow(config_entries.OptionsFlowWithReload):
+    """Own opt-in playback options and reload cameras when they change.
+
+    Home Assistant supplies the entry and persists options separately from
+    private connection data. Reloading releases the old camera streams.
+    """
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Offer a reversible, default-off shorter HLS idle timeout."""
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data={**self.config_entry.options, **user_input}
+            )
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema({
+                vol.Optional(
+                    CONF_SHORT_HLS_IDLE,
+                    default=self.config_entry.options.get(CONF_SHORT_HLS_IDLE, False),
+                ): bool,
+            }),
+        )

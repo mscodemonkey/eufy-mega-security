@@ -27,9 +27,12 @@ export function diagnosticsPage(): string {
 <p id="trial-help"></p>
 <pre id="trial-status" role="status">No control trial started.</pre></details>
 <details><summary>Experimental NVR video test</summary>
-<p>Enable experimental NVR live video in the app options. This test is for T8E00 cameras through T8N00 or T9000, and hardware behaviour is unconfirmed. Stop other live viewers first. For GB-style accounts the service region may need to be ie.</p>
+<p>Enable experimental NVR live video in the app options. This test is for T8E00, T8140, T8140-Z, T8113-V, T8172, T8162, T8170, T81A0 and T8425 cameras through T8N00 or T9000. Additional models use their first lens, and hardware behaviour is unconfirmed. Stop other live viewers first. For GB-style accounts the service region may need to be ie.</p>
 <label><input id="nvr-consent" type="checkbox"> I agree to request a ten-second private video clip from the selected camera.</label>
 <button id="nvr-test">Try NVR video once</button><button id="nvr-stop">Cancel NVR test</button>
+<label><input id="nvr-state-consent" type="checkbox"> I agree to connect once and read the selected camera and NVR settings without changing them.</label>
+<button id="nvr-state-test">Read NVR state once</button>
+<p>Compare the displayed settings with the Eufy app. Unknown values stay unknown. This test does not enable arming or camera controls.</p>
 <pre id="nvr-status" role="status">No NVR video test started.</pre>
 <video id="nvr-video" controls hidden style="max-width:100%"></video>
 <a id="nvr-download" hidden download="eufy-nvr-test.mp4">Download private test clip</a>
@@ -154,7 +157,7 @@ action('nvr-test', async () => {
   if(!selected || !el('nvr-consent').checked) throw Error('Select one camera and confirm private video consent.');
   if(nvrJob) return;
   const job = nvrJob = new AbortController();
-  el('nvr-test').disabled = true; el('device').disabled = true;
+  el('nvr-test').disabled = true; el('nvr-state-test').disabled = true; el('device').disabled = true;
   el('nvr-status').textContent = 'Connecting and requesting a ten-second clip. This may take up to 90 seconds.';
   try {
     const result = await fetch('api/cameras/' + encodeURIComponent(selected) + '/nvr-live-trial', {
@@ -169,7 +172,29 @@ action('nvr-test', async () => {
     el('nvr-download').href = nvrClip; el('nvr-download').hidden = false;
     el('nvr-status').textContent = 'Clip received. Does the picture play and show the selected camera? You can also download it to a compatible player. Keep it private.';
   } catch(error) { el('nvr-status').textContent = job.signal.aborted ? 'NVR test cancelled.' : error.message + ' Please send only the nvr_live_trial_failed log line if it failed.'; }
-  finally { nvrJob = null; el('nvr-test').disabled = false; el('device').disabled = false; }
+  finally { nvrJob = null; el('nvr-test').disabled = false; el('nvr-state-test').disabled = false; el('device').disabled = false; }
+});
+action('nvr-state-test', async () => {
+  const selected = el('device').value;
+  if(!selected || !el('nvr-state-consent').checked) throw Error('Select one camera and confirm read-state consent.');
+  if(nvrJob) return;
+  const job = nvrJob = new AbortController();
+  el('nvr-test').disabled = true; el('nvr-state-test').disabled = true; el('device').disabled = true;
+  el('nvr-status').textContent = 'Connecting and reading settings. This may take up to 45 seconds, followed by connection cleanup.';
+  try {
+    const result = await fetch('api/cameras/' + encodeURIComponent(selected) + '/nvr-state-trial', {
+      method: 'POST', signal: job.signal, cache: 'no-store',
+      headers: { Authorization: 'Bearer ' + el('token').value, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ consentReadState: true }) });
+    const value = await result.json();
+    if(!result.ok) throw Error(value.error || 'NVR state test failed.');
+    const modes = { 0: 'Away', 1: 'Home', 2: 'Schedule', 3: 'Geofence', 63: 'Disarmed' };
+    el('nvr-status').textContent = 'Configured guard mode: ' + (modes[value.configuredGuardMode] || 'Unknown') +
+      '\\nCurrent guard mode: ' + (modes[value.effectiveGuardMode] || 'Unknown') +
+      '\\nCamera power: ' + (value.cameraPower || 'Unknown') +
+      '\\nCompare these readings with the Eufy app. No settings were changed.';
+  } catch(error) { el('nvr-status').textContent = job.signal.aborted ? 'NVR test cancelled.' : error.message + ' Please send only the nvr_state_trial_failed log line if it failed.'; }
+  finally { nvrJob = null; el('nvr-test').disabled = false; el('nvr-state-test').disabled = false; el('device').disabled = false; }
 });
 window.addEventListener('pagehide', () => { abortStream(); if(nvrJob) nvrJob.abort(); if(nvrClip) URL.revokeObjectURL(nvrClip); });
 </script></html>`;

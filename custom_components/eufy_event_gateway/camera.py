@@ -14,7 +14,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
 from homeassistant.components.camera import (
@@ -39,7 +39,11 @@ from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity
-from .const import DOMAIN
+from .const import CONF_SHORT_HLS_IDLE, DOMAIN
+
+if TYPE_CHECKING:
+    from homeassistant.components.stream import Stream
+    from homeassistant.components.stream.core import StreamOutput
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,7 +65,13 @@ async def async_setup_entry(
         serials = set(coordinator.cameras) - known
         if serials:
             known.update(serials)
-            entities = [EufyGatewayCamera(coordinator, serial) for serial in sorted(serials)]
+            entities = [
+                EufyGatewayCamera(
+                    coordinator, serial,
+                    short_hls_idle=entry.options.get(CONF_SHORT_HLS_IDLE) is True,
+                )
+                for serial in sorted(serials)
+            ]
             for serial in sorted(serials):
                 legacy_id = registry.async_get_entity_id("camera", DOMAIN, f"{serial}_event_image")
                 if legacy_id is None:
@@ -116,18 +126,46 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
     _attr_name = None
     _attr_content_type = "image/jpeg"
 
-    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
-        """Create the entity with a stable serial-derived unique ID."""
+    def __init__(
+        self, coordinator: EufyGatewayCoordinator, serial: str,
+        *, short_hls_idle: bool = False,
+    ) -> None:
+        """Create an entity, optionally shortening only its HA HLS idle timer."""
         EufyGatewayEntity.__init__(self, coordinator, serial)
         Camera.__init__(self)
         self._attr_unique_id = f"{serial}_camera"
         self._published_snapshot_revision = self._snapshot_revision
+        self._short_hls_idle = short_hls_idle
+        self._hls_idle_stream: Stream | None = None
 
         # Raw Annex-B needs arrival timestamps. MPEG-TS already supplies a
         # shared video/audio clock, which must survive Home Assistant's remux.
         self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = (
             self.camera.get("liveAudioSupported") is not True
         )
+
+    async def async_create_stream(self) -> Stream | None:
+        """Apply the opt-in timeout to this camera's future HLS providers.
+
+        HA owns the stream, viewer traffic, timers and output cleanup. Wrapping
+        this instance's public provider factory avoids creating an unwanted HLS
+        output for a recording. Recorders, explicit timeouts and preload keep
+        HA's own behaviour. The entry reload replaces this camera on opt-out.
+        """
+        stream = await super().async_create_stream()
+        if not self._short_hls_idle or stream is None or stream is self._hls_idle_stream:
+            return stream
+        add_provider = stream.add_provider
+
+        def add_output(fmt: str, timeout: int | None = None) -> StreamOutput:
+            """Supply a shorter default only when a consumer requests HLS."""
+            return add_provider(
+                fmt, timeout=60 if fmt == "hls" and timeout is None else timeout
+            )
+
+        stream.add_provider = add_output
+        self._hls_idle_stream = stream
+        return stream
 
     async def async_added_to_hass(self) -> None:
         """Start updates and refresh credentials on Home Assistant's cached stream."""

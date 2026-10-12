@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { NvrPtcsReassembler } from "../src/stream/nvr-ptcs-reassembly.js";
-import { nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrVideo } from "../src/stream/nvr-protocol.js";
+import { nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrVideo, nvrTrialSensor, nvrStateSummary } from "../src/stream/nvr-protocol.js";
 import { loadConfig } from "../src/config.js";
 
 function offer(): string {
@@ -92,4 +92,64 @@ test('NVR trial configuration is default-off and requires authentication and a f
   assert.equal(loadConfig({}).experimentalNvrLive, false); assert.equal(loadConfig({}).experimentalNvrRegion, 'auto');
   assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_NVR_LIVE: 'true' }), /API_TOKEN/);
   assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_NVR_REGION: 'https://example.com' }), /region/);
+});
+
+
+test('NVR trial profiles match only exact reported model and type pairs', () => {
+  for (const [model, type] of [['T8140', 14], ['T8140-Z', 14], ['T8113-V', 8], ['T8172', 89], ['T8162', 26], ['T8170', 48], ['T81A0', 10005], ['T8425', 47]] as const) {
+    assert.equal(nvrTrialSensor(model, type), 0);
+    for (const wrong of [model.toLowerCase(), model + 'X']) assert.equal(nvrTrialSensor(wrong, type), null);
+    assert.equal(nvrTrialSensor(model, 301), null);
+    const command = nvrApplication(nvrCommand('synthetic', 1003, 1, 0, 0));
+    assert.deepEqual(JSON.parse(command.payload.toString()).payload.chn_list, [{ index: 0, chn: 0, sensor: 0 }]);
+    nvrMatchCamera({ payload: { dev_list: [{ sn: 'synthetic-camera', ch: 0, dev_type: type }] } }, 'synthetic-camera', 0, type);
+  }
+  assert.equal(nvrTrialSensor('T8E00', 301), 1);
+  assert.equal(nvrTrialSensor('T8E00', 14), null);
+  assert.throws(() => nvrCommand('synthetic', 1003, 1, 0, 2 as never));
+  assert.throws(() => nvrCommand('synthetic', 1224 as never, 1, 0));
+});
+
+test('NVR discovery rejects ambiguous aliases and duplicate selected identities before video', () => {
+  const row = { sn: 'synthetic-camera', ch: 0, dev_type: 14 };
+  for (const rows of [[{ ...row, type: 301 }], [{ ...row, type: '14' }], [row, { ...row, dev_type: 301 }], [row, { ...row, sn: 'synthetic-other' }], [row, { ...row, ch: 1 }], [{ ...row, dev_type: undefined }]]) {
+    assert.throws(() => nvrMatchCamera({ payload: { dev_list: rows } }, 'synthetic-camera', 0, 14));
+  }
+  nvrMatchCamera({ payload: { dev_list: [{ ...row, dev_type: undefined, type: 14 }] } }, 'synthetic-camera', 0, 14);
+});
+
+
+test('NVR state reads preserve explicit station and channel-zero scope without exposing other parameters', () => {
+  const response = { payload: { params: [
+    { dev_type: 255, param_type: 1224, param_value: '2' },
+    { channel: 255, param_type: 1151, param_value: 1 },
+    { channel: 0, param_type: 6250, param_value: 'MA==' },
+    { channel: 1, param_type: 6250, param_value: 1 },
+    { channel: 0, param_type: 9999, param_value: 'private-value-never-projected' },
+  ] } };
+  const value = nvrStateSummary(response, 0);
+  assert.equal(value.configuredGuardMode, 2); assert.equal(value.effectiveGuardMode, 1); assert.equal(value.cameraPower, 'on');
+  assert.equal(value.parameterCount, 5); assert.equal(Number.isNaN(Date.parse(value.queriedAt)), false);
+  assert.equal(JSON.stringify(value).includes('private-value'), false);
+  assert.equal(nvrStateSummary(response, 1).cameraPower, 'off');
+  const read = nvrApplication(nvrCommand('synthetic', 1103, 2, 0));
+  assert.deepEqual(JSON.parse(read.payload.toString()).payload, { channel_info: { array_size: 2, channel_array: [255, 0] } });
+});
+
+test('NVR state reads keep missing, invalid and structured values unknown', () => {
+  for (const value of [undefined, null, 'unknown', -1, 999, {}, 'eyJtb2RlIjoxfQ==', 'sA==']) {
+    const result = nvrStateSummary({ params: [{ channel: 0, param_type: 6250, param_value: value }, { dev_type: 255, param_type: 1224, param_value: value }] }, 0);
+    assert.equal(result.cameraPower, null); assert.equal(result.configuredGuardMode, null);
+  }
+  assert.equal(nvrStateSummary({ params: [{ dev_type: 255, param_type: 1224, param_value: 6 }] }, 0).configuredGuardMode, null);
+  const empty = nvrStateSummary({ params: [] }, 0);
+  assert.equal(empty.cameraPower, null); assert.equal(empty.effectiveGuardMode, null);
+});
+
+test('NVR state rejects malformed, oversized, duplicate and conflicting scoped rows', () => {
+  const row = { dev_type: 0, param_type: 6250, param_value: 0 };
+  for (const response of [{}, { params: {} }, { params: [], db_bypass_str: {} },
+    { params: Array(1025).fill(row) }, { params: [row, row] },
+    { params: [{ ...row, channel: 1 }] }, { params: [{ ...row, channel: '0' }] },
+    { params: [{ ...row, param_value: '0'.repeat(257) }] }]) assert.throws(() => nvrStateSummary(response, 0), /state/);
 });

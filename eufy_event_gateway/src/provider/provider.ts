@@ -9,6 +9,7 @@
  * tests; the production provider is the only implementation allowed to know
  * Mega and PPCS details.
  */
+import type { NvrStateSummary } from "../stream/nvr-protocol.js";
 import type { ModelControlTrial, ModelControlTrialResult } from "./model-control-trials.js";
 import type { CloudHistoryQuery, CloudHistoryRecord } from "../mega/cloud-history.js";
 import type { Readable } from "node:stream";
@@ -46,6 +47,9 @@ export interface CameraProvider {
 
   /** Reserve one explicit NVR video trial until its awaited cleanup completes. */
   reserveNvrLiveTrial?(serial: string, signal: AbortSignal): () => Promise<void>;
+
+  /** Query private NVR settings once, retiring the exclusive session before returning. */
+  readNvrStateTrial?(serial: string, signal: AbortSignal): Promise<NvrStateSummary>;
 
   /** List default-off exact-model trials, independently of verified capabilities. */
   modelControlTrials?(serial: string): readonly ModelControlTrial["action"][];
