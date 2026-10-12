@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.141
+
+- Add a default-off, private NVR video trial for T8E00/type301 cameras attached to exact T8N00/type300 or T9000/type27 parents. Enable `experimental_nvr_live`, select the camera in Diagnostics and explicitly request one ten-second clip. This is a test candidate, with physical NVR behaviour still unconfirmed.
+- Support H.264 and H.265 in the trial, check fresh camera identity before requesting video, and keep normal Home Assistant streams and NVR controls unavailable.
+- Keep trial footage out of retained snapshots and diagnostic media captures. Cancelling closes the original connection, and another trial waits for cleanup. Regional service selection is explicit when automatic discovery cannot identify the correct service.
+
 ## 0.1.140
 
 - Reconnect HomeBase-attached camera live view after decoded media stalls. The gateway now makes one bounded restart attempt, then closes the silent source so the viewer can establish a fresh camera session instead of remaining blank indefinitely.
