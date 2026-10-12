@@ -129,6 +129,8 @@ entity:
   sensor:
     last_recognized_person:
       name: Last recognized person
+    backup_battery:
+      name: Backup AA battery
     battery:
       name: Battery
     battery_health:

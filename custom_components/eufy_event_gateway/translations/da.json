@@ -187,6 +187,9 @@
       "last_recognized_person": {
         "name": "Sidste genkendte person"
       },
+      "backup_battery": {
+        "name": "AA-reservebatteri"
+      },
       "battery": {
         "name": "Batteri"
       },

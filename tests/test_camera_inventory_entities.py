@@ -53,6 +53,34 @@ class CameraInventoryEntitiesTest(unittest.IsolatedAsyncioTestCase):
         listeners[0]()
         self.assertEqual(added.count(("rssi", "camera")), 1)
 
+    async def test_backup_battery_arrives_later_without_duplicating_primary(self) -> None:
+        """Admit a late AA field once and keep missing later readings unknown."""
+        listeners, added = [], []
+        coordinator = SimpleNamespace(cameras={"camera": {}}, stations={}, sensors={})
+        coordinator.async_add_listener = lambda callback: listeners.append(callback)
+        entry = SimpleNamespace(runtime_data=SimpleNamespace(coordinator=coordinator), async_on_unload=lambda value: None)
+        namespace = {
+            "DOMAIN": "eufy_event_gateway",
+            "er": SimpleNamespace(async_get=lambda hass: None),
+            "_migrate_storage_display_units": lambda *args: None,
+            "EufyRecognizedPersonSensor": lambda *args: ("person", args[1]),
+            "EufyCameraSignalStrength": lambda *args: ("rssi", args[1]),
+            "EufyCameraBatterySensor": lambda *args: ("battery", args[1], args[2]),
+        }
+        setup = load_function("sensor.py", "async_setup_entry", namespace)
+        await setup(None, entry, added.extend)
+        coordinator.cameras["camera"]["battery"] = {"supported": ["level", "backupLevel"], "level": 93, "backupLevel": 57}
+        listeners[0]()
+        listeners[0]()
+        self.assertEqual(added.count(("battery", "camera", "backupLevel")), 1)
+        getter = load_function("sensor.py", "native_value", {}, "EufyCameraBatterySensor")
+        sensor = SimpleNamespace(camera=coordinator.cameras["camera"], field="backupLevel")
+        self.assertEqual(getter(sensor), 57)
+        sensor.camera["battery"] = {"supported": ["level", "backupLevel"], "level": 93, "backupLevel": None}
+        self.assertIsNone(getter(sensor))
+        sensor.camera["battery"] = {"supported": ["level"], "level": 93}
+        self.assertIsNone(getter(sensor))
+
     async def test_audio_attributes_are_allowlisted_and_keep_false_values(self) -> None:
         """Do not publish raw settings or infer missing values as disabled."""
         getter = load_function("camera.py", "extra_state_attributes", {}, "EufyGatewayCamera")

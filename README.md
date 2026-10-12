@@ -559,3 +559,8 @@ playback suffers, disable the option to restore HA defaults. Shorter camera
 wake time and battery savings remain unconfirmed until tested on the affected
 hardware. Report whether playback stays healthy while open and whether
 reconnections stop sooner after all viewers close.
+
+The T85V0/type203 backup AA battery has a separate read-only sensor when its
+inventory reports that measurement. Missing, invalid and unavailable values
+stay unknown. The primary battery is never used as a substitute, and the sensor
+does not poll or operate the lock. Physical percentage accuracy is unconfirmed.

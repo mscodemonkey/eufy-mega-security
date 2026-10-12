@@ -30,6 +30,17 @@ capabilities:
           status: declared
       read:
         parameter: 1101
+    backup_battery_level:
+      notes: Official Android T85V0 handler declares parameter 6485. Gateway decoding is limited to exact T85V0/type203 and reported integer percentages 1-100. Zero and 255 mean unavailable. Physical accuracy remains unconfirmed.
+      connections:
+        direct:
+          status: declared
+        T8025:
+          status: declared
+        T8030:
+          status: declared
+      read:
+        parameter: 6485
     battery_charging:
       connections:
         T8030:

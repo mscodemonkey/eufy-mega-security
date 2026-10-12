@@ -46,6 +46,7 @@ async def async_setup_entry(
     coordinator = entry.runtime_data.coordinator
     known_cameras: set[str] = set()
     known_camera_signal: set[str] = set()
+    known_backup_batteries: set[str] = set()
     known_mode_stations: set[str] = set()
     known_storage_stations: set[str] = set()
     known_sensors: set[str] = set()
@@ -62,6 +63,17 @@ async def async_setup_entry(
             async_add_entities([
                 EufyCameraSignalStrength(coordinator, serial)
                 for serial in sorted(signal_serials)
+            ])
+
+        backup_serials = {
+            serial for serial, camera in coordinator.cameras.items()
+            if "backupLevel" in (camera.get("battery") or {}).get("supported", [])
+        } - known_backup_batteries
+        if backup_serials:
+            known_backup_batteries.update(backup_serials)
+            async_add_entities([
+                EufyCameraBatterySensor(coordinator, serial, "backupLevel")
+                for serial in sorted(backup_serials)
             ])
 
         for serial, station in coordinator.stations.items():
@@ -261,11 +273,12 @@ class EufyCameraBatterySensor(EufyGatewayEntity, SensorEntity):
         )
         self._attr_translation_key = {
             "level": "battery",
+            "backupLevel": "backup_battery",
             "health": "battery_health",
             "temperature": "battery_temperature",
             "lastChargingDays": "days_since_last_charging",
         }[field]
-        if field == "level":
+        if field in ("level", "backupLevel"):
             self._attr_device_class = SensorDeviceClass.BATTERY
             self._attr_native_unit_of_measurement = PERCENTAGE
         elif field == "health":

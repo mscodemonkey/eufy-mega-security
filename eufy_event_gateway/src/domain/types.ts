@@ -240,12 +240,15 @@ export interface CameraStreamingQualityMode {
 
 /** Normalized battery reads exposed only when a device reports each field. */
 export interface BatteryState {
-  readonly supported: readonly ("level" | "charging" | "health" | "temperature" | "lastChargingDays")[];
+  readonly supported: readonly ("level" | "backupLevel" | "charging" | "health" | "temperature" | "lastChargingDays")[];
   readonly level: number | null;
   readonly charging: boolean | null;
   readonly health: number | null;
   readonly temperature: number | null;
   readonly lastChargingDays: number | null;
+
+  /** Separate AA backup percentage, absent unless this exact model reports it. */
+  readonly backupLevel?: number | null;
 }
 
 /** Complete normalized state for one supported standalone security sensor. */

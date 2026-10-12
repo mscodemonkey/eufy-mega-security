@@ -184,6 +184,7 @@ export interface MegaInventoryReads {
   /** Raw parameter 6250 value, retained without assigning privacy-mode polarity. */
   readonly privacy6250Value?: 0 | 1;
   readonly batteryLevel?: number;
+  readonly backupBatteryLevel?: number;
   readonly batteryCharging?: boolean;
   readonly batteryHealth?: number;
   readonly batteryTemperature?: number;
@@ -3049,6 +3050,13 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
     : undefined;
   const lastSeen = contactLastSeen ?? motionEventSeconds;
   const batteryLevel = percentage(1101);
+  const backupRows = deviceType === 203 && model === "T85V0"
+    ? value.filter(row => isRecord(row) && (row.param_type === 6485 || row.param_type === "6485")) : [];
+  const backupValue = backupRows.length === 1 && isRecord(backupRows[0]) ? backupRows[0].param_value : undefined;
+  const backupNumber = typeof backupValue === "number" ? backupValue
+    : typeof backupValue === "string" && /^(?:[1-9]\d?|100)$/.test(backupValue) ? Number(backupValue) : NaN;
+  const backupBatteryLevel = Number.isInteger(backupNumber) && backupNumber >= 1 && backupNumber <= 100
+    ? backupNumber : undefined;
   const imageFlipped = finiteNumber(params.get(1207));
   const doorbell = isDoorbellDevice({ deviceType, category: "eufy_security" });
   const soundDetection = finiteNumber(params.get(6043));
@@ -3190,6 +3198,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
       || (deviceType === 88 && model === "T8171" && nightVisionMode === 3) ? { nightVisionMode } : {}),
     ...(privacy6250 === 0 || privacy6250 === 1 ? { privacy6250Value: privacy6250 } : {}),
     ...(batteryLevel !== undefined ? { batteryLevel } : {}),
+    ...(backupBatteryLevel !== undefined ? { backupBatteryLevel } : {}),
     ...(batteryStatus !== null ? { batteryCharging: batteryStatus !== 0 && batteryStatus !== 2 } : {}),
     ...(batteryHealth !== undefined ? { batteryHealth } : {}),
     ...(temperature !== null && temperature >= -50 && temperature <= 100 ? { batteryTemperature: temperature } : {}),
@@ -3302,9 +3311,11 @@ export async function confirmStationWrite(
 }
 
 function batteryState(device: MegaInventoryDevice): BatteryState | null {
-  if (!device.paramTypes.includes(1101) || hasMainsBatterySentinel(device.model)) return null;
+  const backup = device.model === "T85V0" && device.deviceType === 203 && device.paramTypes.includes(6485);
+  if ((!device.paramTypes.includes(1101) && !backup) || hasMainsBatterySentinel(device.model)) return null;
   const supported: BatteryState["supported"] = [
-    "level",
+    ...(device.paramTypes.includes(1101) ? ["level" as const] : []),
+    ...(backup ? ["backupLevel" as const] : []),
     ...(device.paramTypes.includes(2111) ? ["charging" as const] : []),
     ...(device.paramTypes.includes(1198) ? ["health" as const] : []),
     ...(device.paramTypes.includes(1138) ? ["temperature" as const] : []),
@@ -3317,6 +3328,7 @@ function batteryState(device: MegaInventoryDevice): BatteryState | null {
     health: device.reads.batteryHealth ?? null,
     temperature: device.reads.batteryTemperature ?? null,
     lastChargingDays: device.reads.lastChargingDays ?? null,
+    ...(backup ? { backupLevel: device.reads.backupBatteryLevel ?? null } : {}),
   };
 }
 
