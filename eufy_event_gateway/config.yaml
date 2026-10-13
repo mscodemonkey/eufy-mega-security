@@ -30,6 +30,7 @@ options:
   experimental_model_controls: false
   experimental_nvr_live: false
   experimental_nvr_region: auto
+  experimental_fixed_h265_resolution: false
 schema:
   username: str
   password: password
@@ -39,3 +40,4 @@ schema:
   experimental_model_controls: bool
   experimental_nvr_live: bool
   experimental_nvr_region: list(auto|us|eu|ie)
+  experimental_fixed_h265_resolution: bool?

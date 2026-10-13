@@ -15,6 +15,7 @@ import test from "node:test";
 import { GatewayState } from "../src/domain/gateway-state.js";
 import {
   LiveStreamManager,
+  h265ViewerTranscoderArguments,
   SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS,
   StreamCadenceTracker,
   terminateMediaProcess,
@@ -104,6 +105,19 @@ test("source activity resets the quiet deadline and idle cleanup cancels it", as
 
 test("allows slower cameras 30 seconds to produce a fresh snapshot", () => {
   assert.equal(SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS, 30_000);
+});
+
+test("fixed H.265 viewer output adds a stable 1080p filter only when enabled", () => {
+  const unchanged = h265ViewerTranscoderArguments();
+  assert.equal(unchanged.includes("-vf"), false);
+
+  const fixed = h265ViewerTranscoderArguments(true);
+  const filterIndex = fixed.indexOf("-vf");
+  assert.notEqual(filterIndex, -1);
+  assert.equal(
+    fixed[filterIndex + 1],
+    "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+  );
 });
 
 test("summarizes stream cadence without retaining timestamps", () => {

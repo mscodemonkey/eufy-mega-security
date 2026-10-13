@@ -23,6 +23,7 @@ import { StartupSnapshotWarmup } from "./startup-snapshot-warmup.js";
 import { SnapshotStore } from "./storage/snapshot-store.js";
 import {
   LiveStreamManager,
+  spawnH265ViewerTranscoder,
   type ViewerClientSummary,
   type ViewerDeliverySummary,
   type ViewerTranscoderSummary,
@@ -78,7 +79,14 @@ if (config.provider === "simulated") {
   captchaProvider = eufyProvider;
 }
 
-const streams = new LiveStreamManager(state, snapshots, provider, config.streamGraceMilliseconds);
+const streams = new LiveStreamManager(
+  state,
+  snapshots,
+  provider,
+  config.streamGraceMilliseconds,
+  undefined,
+  () => spawnH265ViewerTranscoder(config.experimentalFixedH265Resolution),
+);
 streams.on("ffmpeg-error", (detail: string) => {
   logger.warn("ffmpeg_error", `Camera media conversion reported an error: ${detail}`);
 });

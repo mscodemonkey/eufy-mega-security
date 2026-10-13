@@ -423,6 +423,19 @@ docker build -t eufy-mega-security:test .
 Private diagnostic bundles for all discovered device families are described in
 [the private diagnostics guide](docs/PRIVATE_DIAGNOSTICS.md). Media requires explicit consent and private sharing.
 
+### Experimental fixed H.265 viewer resolution
+
+The app option `experimental_fixed_h265_resolution` is off by default. When
+enabled, the H.265 live-view fallback produces a fixed 1920 by 1080 H.264 output
+instead of following source resolution changes. It does not alter H.264 camera
+streams, retained snapshots, or saved clips.
+
+This is a playback compatibility test. It may improve players that drop when
+the source changes resolution, but it can increase transcoder work for smaller
+input and reduce detail from 4K input. Turn it off after testing to restore the
+existing behaviour. Standalone installs can set
+`EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION=true`.
+
 
 ### Experimental model controls
 

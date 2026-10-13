@@ -29,6 +29,9 @@ export interface GatewayConfig {
   /** Default-off, consented NVR video trials. Normal capabilities remain unchanged. */
   readonly experimentalNvrLive: boolean;
 
+  /** Default-off fixed 1080p output for diagnosing H.265 viewer reconfiguration drops. */
+  readonly experimentalFixedH265Resolution: boolean;
+
   /** Fixed regional service selection, never an arbitrary credential target. */
   readonly experimentalNvrRegion: "auto" | "us" | "eu" | "ie";
   readonly eufy: {
@@ -56,6 +59,10 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
   const captureFailedEventImages = captureBoolean(environment.EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES);
   const experimentalModelControls = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS, "EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS");
   const experimentalNvrLive = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_NVR_LIVE, "EUFY_GATEWAY_EXPERIMENTAL_NVR_LIVE");
+  const experimentalFixedH265Resolution = captureBoolean(
+    environment.EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION,
+    "EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION",
+  );
   const experimentalNvrRegion = environment.EUFY_GATEWAY_EXPERIMENTAL_NVR_REGION ?? "auto";
   if (!["auto", "us", "eu", "ie"].includes(experimentalNvrRegion)) throw new Error("Choose auto, us, eu or ie for the experimental NVR service region");
   if (experimentalNvrLive && !apiToken) throw new Error("Experimental NVR live video requires EUFY_GATEWAY_API_TOKEN");
@@ -80,6 +87,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
     captureFailedEventImages,
     experimentalModelControls,
     experimentalNvrLive,
+    experimentalFixedH265Resolution,
     experimentalNvrRegion: experimentalNvrRegion as "auto" | "us" | "eu" | "ie",
     eufy: {
       username: nonEmpty(environment.EUFY_USERNAME),

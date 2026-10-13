@@ -50,3 +50,16 @@ test("private image capture defaults off and accepts only explicit booleans with
   for (const value of ["", "false", " FALSE "]) assert.equal(loadConfig({ EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES: value }).captureFailedEventImages, false);
   for (const value of ["1", "yes", "invalid"]) assert.throws(() => loadConfig({ EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES: value }), /must be true or false/);
 });
+
+test("fixed H.265 viewer resolution defaults off and accepts only explicit booleans", () => {
+  assert.equal(loadConfig({}).experimentalFixedH265Resolution, false);
+  for (const value of ["true", " TRUE "]) {
+    assert.equal(loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION: value }).experimentalFixedH265Resolution, true);
+  }
+  for (const value of ["", "false", " FALSE "]) {
+    assert.equal(loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION: value }).experimentalFixedH265Resolution, false);
+  }
+  for (const value of ["1", "yes", "invalid"]) {
+    assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION: value }), /must be true or false/);
+  }
+});

@@ -1408,9 +1408,9 @@ export function terminateMediaProcess(
   forceTimer.unref?.();
 }
 
-/** Start the shared low-latency fallback used only when a camera returns H.265. */
-function spawnH265ViewerTranscoder(): ChildProcessWithoutNullStreams {
-  return spawn("ffmpeg", [
+/** Build FFmpeg arguments for the shared low-latency H.265 viewer fallback. */
+export function h265ViewerTranscoderArguments(fixedResolution = false): string[] {
+  return [
     "-hide_banner",
     "-loglevel",
     "error",
@@ -1427,6 +1427,10 @@ function spawnH265ViewerTranscoder(): ChildProcessWithoutNullStreams {
     "zerolatency",
     "-pix_fmt",
     "yuv420p",
+    ...(fixedResolution ? [
+      "-vf",
+      "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+    ] : []),
     "-x264-params",
 
     // Short keyframe spacing lets a second viewer join the shared fallback
@@ -1435,7 +1439,12 @@ function spawnH265ViewerTranscoder(): ChildProcessWithoutNullStreams {
     "-f",
     "h264",
     "pipe:1",
-  ]);
+  ];
+}
+
+/** Start the shared low-latency fallback used only when a camera returns H.265. */
+export function spawnH265ViewerTranscoder(fixedResolution = false): ChildProcessWithoutNullStreams {
+  return spawn("ffmpeg", h265ViewerTranscoderArguments(fixedResolution));
 }
 
 /** Start the JPEG extractor that retains a fresh image from the shared camera source. */
