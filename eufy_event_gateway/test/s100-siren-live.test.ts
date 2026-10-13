@@ -74,6 +74,14 @@ test("S100 acknowledgement ignores other channels and commands and retains nonze
   assert.equal(decodeModelControlTrialAcknowledgement(header, payload, 1201, 0, Buffer.alloc(16), key), null);
 });
 
+test("S100 setup failures expose only the closed privacy-safe stage vocabulary", () => {
+  for (const stage of ["session_key", "session_connect", "session_prepare"] as const) {
+    const error = new S100SirenTrialError([stage]);
+    assert.deepEqual(error.stages, [stage]);
+    assert.equal(error.message.includes("private"), false);
+  }
+});
+
 test("S100 pulse waits exactly five seconds, sends one start and then one stop", async context => {
   context.mock.timers.enable({ apis: ["setTimeout", "Date"] });
   context.mock.method(performance, "now", () => Date.now());

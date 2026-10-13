@@ -7,7 +7,8 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 /** Closed failure stages safe for HTTP responses and aggregate diagnostics. */
-export type S100SirenFailureStage = "start" | "primary_stop" | "secondary_stop" | "ownership" | "session";
+export type S100SirenFailureStage = "start" | "primary_stop" | "secondary_stop" | "ownership"
+  | "session_key" | "session_connect" | "session_prepare";
 
 /** Carries only fixed stage names, excluding transport errors and private inputs. */
 export class S100SirenTrialError extends Error {

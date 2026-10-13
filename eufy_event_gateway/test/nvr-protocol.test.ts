@@ -88,7 +88,19 @@ test('NVR endpoint and candidate checks reject local-only and malformed destinat
   for (const host of ['127.0.0.1', '0.0.0.0', '169.254.1.1', '224.0.0.1', '::1', '0:0:0:0:0:0:0:1', '0:0:0:0:0:0:0:0', '::', 'fe80::1', 'ff02::1', 'x.local', 'x.localhost']) assert.equal(nvrNetworkHost(host), false, host);
   for (const host of ['192.0.2.1', '10.0.0.1', 'turn.example.com']) assert.equal(nvrNetworkHost(host), true);
   const candidate = 'candidate:1 1 UDP 123 192.0.2.1 1234 typ host'; assert.equal(nvrCandidate('a=' + candidate), candidate);
-  for (const bad of [candidate.replace('192.0.2.1', '127.0.0.1'), candidate.replace('1234', '65536'), candidate + '\r\n', candidate.replace('UDP', 'TCP')]) assert.throws(() => nvrCandidate(bad));
+  const failures = new Map([
+    [candidate + '\r\n', 'candidate_shape'],
+    [candidate.replace(' 1 UDP', ' 2 UDP'), 'candidate_component'],
+    [candidate.replace('UDP', 'TCP'), 'candidate_transport'],
+    [candidate.replace(' 123 ', ' 4294967296 '), 'candidate_priority'],
+    [candidate.replace('192.0.2.1', '127.0.0.1'), 'candidate_host'],
+    [candidate.replace('1234', '65536'), 'candidate_port'],
+    [candidate.replace('typ host', 'typ unknown'), 'candidate_type'],
+    [candidate + ' rport 0', 'candidate_extension'],
+  ]);
+  for (const [bad, reason] of failures) {
+    assert.throws(() => nvrCandidate(bad), (error: unknown) => error instanceof NvrTrialError && error.reason === reason);
+  }
 });
 
 test('NVR trial configuration is default-off and requires authentication and a fixed region', () => {
@@ -175,7 +187,7 @@ test('NVR setup reasons identify rejected fields without echoing their values', 
     assert.equal(error.reason, reason); assert.equal(error.message.includes('private'), false); return true;
   });
   assert.throws(() => nvrCandidate('private-candidate'), error => {
-    assert.ok(error instanceof NvrTrialError); assert.equal(error.reason, 'candidate_syntax'); return true;
+    assert.ok(error instanceof NvrTrialError); assert.equal(error.reason, 'candidate_shape'); return true;
   });
   const unsafe = new NvrTrialError('negotiation', 'private-value' as never);
   assert.equal(unsafe.reason, 'unspecified'); assert.equal(unsafe.message.includes('private-value'), false);

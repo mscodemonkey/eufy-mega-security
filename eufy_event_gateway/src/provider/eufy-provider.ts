@@ -12,7 +12,7 @@
  * forwarding private event fields into the logger. Periodic cloud refreshes admit
  * newly added devices without replacing push receivers or active media sessions.
  */
-import { runS100SirenTrial, S100SirenTrialError } from "./s100-siren-trial.js";
+import { runS100SirenTrial, S100SirenTrialError, type S100SirenFailureStage } from "./s100-siren-trial.js";
 import { NvrRtcSession } from "../stream/nvr-rtc-session.js";
 import { NvrTrialError, nvrTrialSensor, type NvrStateSummary } from "../stream/nvr-protocol.js";
 import { modelControlTrialActions, parseModelControlTrial, runModelControlTrial, type ModelControlRoute, type ModelControlTrial, type ModelControlTrialResult } from "./model-control-trials.js";
@@ -1065,7 +1065,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         logger.info("model_control_trial_result", `Model control trial: model=${safeLogModel(device.model)} action=siren outcome=acknowledged physical_confirmation_required=true`);
         return { outcome: "acknowledged", physicalConfirmationRequired: true, stoppedEarly: true };
       } catch (error) {
-        const failure = error instanceof S100SirenTrialError ? error : new S100SirenTrialError(["session"]);
+        const failure = error instanceof S100SirenTrialError ? error : new S100SirenTrialError(["session_prepare"]);
         logger.warn("model_control_trial_failed", `Model control trial failed: model=${safeLogModel(device.model)} action=siren stages=${failure.stages.join(",")}`);
         throw failure;
       }
@@ -1080,6 +1080,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#trialPeers.add(peer.serial);
     let session: FirstPartyPpcsSession | null = null;
     let finishSiren: (() => void) | undefined;
+    let sirenSetupStage: S100SirenFailureStage = "session_key";
     const checkOwnership = () => {
       const current = this.#devices.get(serial);
       const currentPeer = this.#devices.get(peer.serial);
@@ -1093,6 +1094,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (!dsk || !peer.p2pDid || !peer.p2pConnection || device.channel === null || !device.adminUserId) {
         throw new Error("Model control session keys unavailable");
       }
+      sirenSetupStage = "session_connect";
       session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid,
         appConnection: peer.p2pConnection, localAddress: peer.localAddress, dskKey: dsk.key,
         channel: device.channel, cameraModel: device.model, accountId: device.adminUserId,
@@ -1100,6 +1102,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         resolveCipherKey: cipherId => this.#resolveCipherKey(cipherId, peer) });
       this.#trialSessions.set(peer.serial, session);
       await session.start();
+      sirenSetupStage = "session_prepare";
       checkOwnership();
       const owned = session;
       const profile = this.#modelTrialRoute(device, route);
@@ -1133,8 +1136,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       logger.info("model_control_trial_result", `Model control trial: model=${safeLogModel(device.model)} action=${request.action} outcome=${result.outcome} physical_confirmation_required=true`);
       return result;
     } catch (error) {
-      logger.warn("model_control_trial_failed", `Model control trial failed: model=${safeLogModel(device.model)} action=${request.action}${request.action === "siren" ? ` stages=${error instanceof S100SirenTrialError ? error.stages.join(",") : "session"}` : ""}`);
-      throw request.action === "siren" && !(error instanceof S100SirenTrialError) ? new S100SirenTrialError(["session"]) : error;
+      logger.warn("model_control_trial_failed", `Model control trial failed: model=${safeLogModel(device.model)} action=${request.action}${request.action === "siren" ? ` stages=${error instanceof S100SirenTrialError ? error.stages.join(",") : sirenSetupStage}` : ""}`);
+      throw request.action === "siren" && !(error instanceof S100SirenTrialError) ? new S100SirenTrialError([sirenSetupStage]) : error;
     } finally {
       session?.close();
       this.#trialSirenStops.delete(peer.serial);

@@ -693,9 +693,9 @@ export function buildS100SirenTrialFrames(
   route: ModelControlRoute, enabled: boolean, key: Buffer | null, sequence: number,
 ): readonly S100SirenTrialFrame[] {
   const primary = buildS100SirenCommand(route, enabled);
-  if (!key || key.length !== 32) throw new S100SirenTrialError(["session"]);
+  if (!key || key.length !== 32) throw new S100SirenTrialError(["session_prepare"]);
   if (!Number.isInteger(sequence) || sequence < 0 || sequence > (enabled ? 253 : 254)) {
-    throw new S100SirenTrialError(["session"]);
+    throw new S100SirenTrialError(["session_prepare"]);
   }
   const seal = (command: 1201 | 1202, wireChannel: 0 | 255, stage: S100SirenTrialFrame["stage"], body: Uint8Array): S100SirenTrialFrame =>
     ({ command, wireChannel, stage, payload: rawPayload(encryptLevel2(Buffer.from(body), key, sequence++), wireChannel, 8, [8, 0], 0) });
@@ -1764,11 +1764,11 @@ export class FirstPartyPpcsSession {
       || this.#pendingControl || this.#pendingControlQuery
       || !this.#options.modelControlTrial || this.#options.cameraModel !== route.model
       || this.#options.channel !== route.channel || this.#options.homeBaseAttached !== route.homeBaseAttached) {
-      throw new S100SirenTrialError(["session"]);
+      throw new S100SirenTrialError(["session_prepare"]);
     }
     try { await this.#waitForLevel2Key(); }
-    catch { throw new S100SirenTrialError(["session"]); }
-    if (this.#closed) throw new S100SirenTrialError(["session"]);
+    catch { throw new S100SirenTrialError(["session_prepare"]); }
+    if (this.#closed) throw new S100SirenTrialError(["session_prepare"]);
     const frames = buildS100SirenTrialFrames(route, enabled, this.#level2Key, this.#level2Seq);
     this.#level2Seq += frames.length;
     let attempted = false, cancelled = false, ambiguous = false;
