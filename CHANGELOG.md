@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.146
+
+- Accept the NVR's variable receive-packet lengths and metadata fields during experimental T9000 trials.
+- Decode bounded Zstandard-compressed NVR application frames while preserving strict fragment and memory limits.
+
 ## 0.1.145
 
 - Prevent queued Firebase notifications from replaying stale motion, person and doorbell events when the app restarts. Deliveries from the current startup remain available, and suppressed messages are still acknowledged so they do not return on the next connection.

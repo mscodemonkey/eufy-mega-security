@@ -1,19 +1,32 @@
 /**
- * Reassembles the sender-derived PTCS data-fragment candidate offline. A future
- * RTC adapter must own session identity, cross-frame ordering and recovery.
- * This layer has no observed receive confirmation, FEC, NACK or retransmission
- * contract and is deliberately separate from PPCS video access-unit assembly.
+ * Reassembles bounded PTCS sender and receive fragments for an owned NVR RTC
+ * session. The RTC adapter owns session identity, cross-frame ordering and
+ * recovery. This layer is separate from PPCS video access-unit assembly.
  */
+
+import { zstdDecompressSync } from "node:zlib";
 
 const PACKET_BYTES = 1028;
 const HEADER_BYTES = 28;
 const FRAGMENT_BYTES = 1000;
+const COMPRESSED_FLAG = 0x0800;
+const FINAL_FLAG = 0x0400;
+const REQUIRED_FLAG = 0x4000;
 
 /** Independent allocation and replay-history budgets for one owned session. */
 export interface NvrPtcsReassemblyLimits {
   readonly maxFrameBytes: number;
   readonly maxBufferedBytes: number;
   readonly maxPendingFrames: number;
+
+  /** Caps per-frame object overhead independently of retained payload bytes. */
+  readonly maxFragmentsPerFrame: number;
+
+  /** Caps fragment-object overhead across every pending frame in the session. */
+  readonly maxRetainedFragments: number;
+
+  /** Limits synchronous Zstandard output independently of compressed input. */
+  readonly maxDecompressedBytes: number;
 
   /** Oldest replay or poison history is evicted when this separate cap fills. */
   readonly maxCompletedTombstones: number;
@@ -23,7 +36,7 @@ export interface NvrPtcsReassemblyLimits {
 /** Structural rejection categories contain no account, device or frame contents. */
 export type NvrPtcsRejection = "packet-geometry" | "magic" | "type" | "flags" | "length" | "index"
   | "final-marker" | "channel" | "frame-too-large" | "metadata-conflict" | "duplicate-conflict"
-  | "replay" | "capacity" | "poisoned";
+  | "decompression" | "replay" | "capacity" | "poisoned";
 
 /** Complete frames transfer ownership to the caller, which must sequence them. */
 export type NvrPtcsReassemblyResult =
@@ -43,9 +56,10 @@ export interface NvrPtcsReassemblyStats {
 interface PendingFrame {
   readonly total: number;
   readonly firstArrival: number;
-  readonly frame: Buffer;
-  readonly received: Uint8Array;
-  remaining: number;
+  readonly compressed: boolean;
+  readonly fragments: Map<number, { readonly bytes: Buffer; readonly final: boolean }>;
+  receivedBytes: number;
+  finalIndex: number | null;
 }
 
 interface Tombstone {
@@ -57,8 +71,9 @@ interface Tombstone {
  * Owns bounded fragment buffers and replay history for one caller-owned session.
  * The caller supplies a monotonic millisecond clock and clears state at retirement.
  * Only complete type-3 fragment sets are accepted. Missing fragments expire,
- * unsupported recovery packets are rejected, and no live transport consumes this
- * candidate yet. A completed Buffer is mutable and owned solely by the caller.
+ * unsupported recovery packets are rejected, and completed application frames
+ * transfer to the RTC session. A completed Buffer is mutable and owned solely by
+ * the caller.
  */
 export class NvrPtcsReassembler {
   readonly #limits: NvrPtcsReassemblyLimits;
@@ -66,12 +81,14 @@ export class NvrPtcsReassembler {
   readonly #tombstones = new Map<string, Tombstone>();
   readonly #rejected: Partial<Record<NvrPtcsRejection, number>> = {};
   #bufferedBytes = 0;
+  #retainedFragments = 0;
   #lastNow = 0;
 
   /** Reject invalid budgets before retaining any packet or allocating a frame. */
   constructor(limits: Partial<NvrPtcsReassemblyLimits> = {}) {
     this.#limits = { maxFrameBytes: 4 * 1024 * 1024, maxBufferedBytes: 8 * 1024 * 1024,
-      maxPendingFrames: 64, maxCompletedTombstones: 256, expiryMilliseconds: 1000, ...limits };
+      maxPendingFrames: 64, maxFragmentsPerFrame: 8192, maxRetainedFragments: 32768,
+      maxDecompressedBytes: 1572864, maxCompletedTombstones: 256, expiryMilliseconds: 1000, ...limits };
     if (Object.values(this.#limits).some(value => !Number.isSafeInteger(value) || value <= 0)
       || this.#limits.maxFrameBytes < FRAGMENT_BYTES || this.#limits.maxFrameBytes > this.#limits.maxBufferedBytes) {
       throw new RangeError("Invalid PTCS reassembly limits");
@@ -89,6 +106,7 @@ export class NvrPtcsReassembler {
     this.#pending.clear();
     this.#tombstones.clear();
     this.#bufferedBytes = 0;
+    this.#retainedFragments = 0;
   }
 
   /** Expire idle state without a timer. Invalid clocks leave every entry intact. */
@@ -108,53 +126,91 @@ export class NvrPtcsReassembler {
   /** Validate geometry before reservation, retaining only copied declared bytes. */
   push(packet: Buffer, nowMilliseconds: number): NvrPtcsReassemblyResult {
     this.expire(nowMilliseconds);
-    if (packet.length !== PACKET_BYTES) return this.#reject("packet-geometry");
+    if (packet.length < HEADER_BYTES || packet.length > PACKET_BYTES) return this.#reject("packet-geometry");
     if (!packet.subarray(0, 4).equals(Buffer.from("PTCS"))) return this.#reject("magic");
     if (packet[4] !== 3) return this.#reject("type");
     const channel = packet[5]!;
     if (channel > 5) return this.#reject("channel");
-    if (packet.subarray(20, HEADER_BYTES).some(byte => byte !== 0)) return this.#reject("packet-geometry");
     const sequence = packet.readUInt16LE(6), timestamp = packet.readUInt32LE(8);
     const total = packet.readUInt32LE(12), index = packet.readUInt16LE(16), flags = packet.readUInt16LE(18);
-    if ((flags & ~0x47ff) !== 0 || (flags & 0x4000) === 0) return this.#reject("flags");
+    if ((flags & ~0x4fff) !== 0 || (flags & REQUIRED_FLAG) === 0) return this.#reject("flags");
+    const length = flags & 0x03ff, final = Boolean(flags & FINAL_FLAG), compressed = Boolean(flags & COMPRESSED_FLAG);
+    if (length > FRAGMENT_BYTES) return this.#reject("length");
+    const exactReceivePacket = packet.length === HEADER_BYTES + length;
+    if (!exactReceivePacket && packet.length !== PACKET_BYTES) return this.#reject("packet-geometry");
+    if (!exactReceivePacket && !final && length !== FRAGMENT_BYTES) return this.#reject("length");
+    if (length === 0 && !(total === 0 && index === 0 && final)) return this.#reject("length");
     if (total > this.#limits.maxFrameBytes) return this.#reject("frame-too-large");
-    const count = Math.max(1, Math.ceil(total / FRAGMENT_BYTES));
-    if (count > 65536) return this.#reject("frame-too-large");
-    if (index >= count) return this.#reject("index");
-    const final = index === count - 1;
-    if (Boolean(flags & 0x0400) !== final) return this.#reject("final-marker");
-    const length = flags & 0x03ff;
-    if (length !== Math.min(FRAGMENT_BYTES, total - index * FRAGMENT_BYTES)) return this.#reject("length");
+    if (index >= this.#limits.maxFragmentsPerFrame) return this.#reject("index");
     const key = `${channel}:${sequence}:${timestamp}`;
     const tombstone = this.#tombstones.get(key);
     if (tombstone) return this.#reject(tombstone.reason);
     let pending = this.#pending.get(key);
-    if (pending && pending.total !== total) return this.#poison(key, pending, "metadata-conflict");
+    if (pending && (pending.total !== total || pending.compressed !== compressed)) {
+      return this.#poison(key, pending, "metadata-conflict");
+    }
     if (!pending) {
       if (this.#pending.size >= this.#limits.maxPendingFrames
-        || total > this.#limits.maxBufferedBytes - this.#bufferedBytes) return this.#reject("capacity");
-      pending = { total, firstArrival: nowMilliseconds, frame: Buffer.alloc(total),
-        received: new Uint8Array(count), remaining: count };
+        || total > this.#limits.maxBufferedBytes - this.#bufferedBytes
+        || this.#retainedFragments >= this.#limits.maxRetainedFragments) return this.#reject("capacity");
+      pending = { total, firstArrival: nowMilliseconds, compressed, fragments: new Map(),
+        receivedBytes: 0, finalIndex: null };
       this.#pending.set(key, pending);
       this.#bufferedBytes += total;
     }
-    const offset = index * FRAGMENT_BYTES;
-    const part = packet.subarray(HEADER_BYTES, HEADER_BYTES + length);
-    if (pending.received[index]) {
-      if (!pending.frame.subarray(offset, offset + length).equals(part)) return this.#poison(key, pending, "duplicate-conflict");
+    if (pending.finalIndex !== null && (index > pending.finalIndex || final && index !== pending.finalIndex)) {
+      return this.#poison(key, pending, "final-marker");
+    }
+    const part = packet.subarray(HEADER_BYTES, HEADER_BYTES + length), retained = pending.fragments.get(index);
+    if (retained) {
+      if (retained.final !== final || !retained.bytes.equals(part)) return this.#poison(key, pending, "duplicate-conflict");
       return { status: "incomplete" };
     }
-    part.copy(pending.frame, offset);
-    pending.received[index] = 1;
-    if (--pending.remaining !== 0) return { status: "incomplete" };
+    if (this.#retainedFragments >= this.#limits.maxRetainedFragments) return this.#poison(key, pending, "capacity");
+    const copy = Buffer.alloc(length);
+    part.copy(copy);
+    pending.fragments.set(index, { bytes: copy, final });
+    pending.receivedBytes += length;
+    this.#retainedFragments++;
+    if (pending.receivedBytes > total) return this.#poison(key, pending, "length");
+    if (final) {
+      pending.finalIndex = index;
+      if ([...pending.fragments.keys()].some(fragmentIndex => fragmentIndex > index)) {
+        return this.#poison(key, pending, "final-marker");
+      }
+    }
+    if (pending.finalIndex === null) return { status: "incomplete" };
+    for (let fragmentIndex = 0; fragmentIndex <= pending.finalIndex; fragmentIndex++) {
+      if (!pending.fragments.has(fragmentIndex)) return { status: "incomplete" };
+    }
+    if (pending.receivedBytes !== total) return this.#poison(key, pending, "length");
+    const frame = Buffer.alloc(total);
+    let offset = 0;
+    for (let fragmentIndex = 0; fragmentIndex <= pending.finalIndex; fragmentIndex++) {
+      const bytes = pending.fragments.get(fragmentIndex)!.bytes;
+      bytes.copy(frame, offset);
+      offset += bytes.length;
+    }
     this.#release(key, pending);
+    let output = frame;
+    if (compressed) {
+      try {
+        const decompressed = zstdDecompressSync(frame, { maxOutputLength: this.#limits.maxDecompressedBytes });
+        output = Buffer.alloc(decompressed.length);
+        decompressed.copy(output);
+      } catch {
+        this.#remember(key, { firstArrival: pending.firstArrival, reason: "poisoned" });
+        return this.#reject("decompression");
+      }
+    }
     this.#remember(key, { firstArrival: pending.firstArrival, reason: "replay" });
-    return { status: "complete", channel, sequence, timestamp, frame: pending.frame };
+    return { status: "complete", channel, sequence, timestamp, frame: output };
   }
 
   #release(key: string, pending: PendingFrame): void {
     this.#pending.delete(key);
     this.#bufferedBytes -= pending.total;
+    this.#retainedFragments -= pending.fragments.size;
   }
 
   #remember(key: string, tombstone: Tombstone): void {
@@ -171,7 +227,7 @@ export class NvrPtcsReassembler {
     this.#tombstones.set(key, tombstone);
   }
 
-  #poison(key: string, pending: PendingFrame, reason: "metadata-conflict" | "duplicate-conflict"): NvrPtcsReassemblyResult {
+  #poison(key: string, pending: PendingFrame, reason: NvrPtcsRejection): NvrPtcsReassemblyResult {
     this.#release(key, pending);
     this.#remember(key, { firstArrival: pending.firstArrival, reason: "poisoned" });
     return this.#reject(reason);

@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
+import { zstdCompressSync } from 'node:zlib';
 import { GatewayState } from '../src/domain/gateway-state.js';
 import { LiveStreamManager } from '../src/stream/live-stream-manager.js';
 import WebSocket, { WebSocketServer } from 'ws';
@@ -20,6 +21,21 @@ function application(command: number, segment: number, body: Buffer): Buffer {
   frame.write('XZYH'); frame.writeUInt16LE(command, 4); frame.writeUInt32LE(body.length, 6);
   frame[11] = segment; frame[12] = 255; frame[15] = 2; body.copy(frame, 16);
   return frame;
+}
+
+function receivePackets(frame: Buffer, sequence: number, channel: number): Buffer[] {
+  const wire = zstdCompressSync(frame);
+  const count = Math.ceil(wire.length / 1000);
+  return Array.from({ length: count }, (_, index) => {
+    const length = Math.min(1000, wire.length - index * 1000);
+    const packet = Buffer.alloc(28 + length);
+    packet.write('PTCS'); packet[4] = 3; packet[5] = channel;
+    packet.writeUInt16LE(sequence, 6); packet.writeUInt32LE(77, 8);
+    packet.writeUInt32LE(wire.length, 12); packet.writeUInt16LE(index, 16);
+    packet.writeUInt16LE(0x4800 | (index === count - 1 ? 0x0400 : 0) | length, 18);
+    Buffer.from('receive!').copy(packet, 20); wire.copy(packet, 28, index * 1000, index * 1000 + length);
+    return packet;
+  });
 }
 
 for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'state-cancel', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async () => {
@@ -62,7 +78,10 @@ for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'stat
         ? application(1351, request.segment, Buffer.from(JSON.stringify({ cmd: 9100,
           payload: { dev_list: [{ sn: scenario === 'identity' ? 'synthetic-other' : 'synthetic-camera', ch: scenario === 'wrong-channel' ? 4 : 3, dev_type: scenario === 'legacy-first-lens' ? 14 : scenario === 'wrong-type' ? 302 : 301 }] } })))
         : application(1350, request.segment, Buffer.alloc(4));
-      for (const packet of nvrPackets(response, sequence++, 1)) channel.send(packet);
+      const responsePackets = scenario === 'state-read' && body.cmd === 9100
+        ? receivePackets(response, sequence++, 1)
+        : nvrPackets(response, sequence++, 1);
+      for (const packet of responsePackets) channel.send(packet);
       if (body.cmd === 1003) {
         assert.equal(body.payload.chn_list[0].sensor, scenario === 'legacy-first-lens' ? 0 : 1);
         sendVideo = setInterval(() => {
