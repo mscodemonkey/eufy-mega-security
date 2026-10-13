@@ -179,7 +179,7 @@ export interface NvrApplicationFrame {
 /** Reject inconsistent lengths before interpreting command or media bytes. */
 export function nvrApplication(frame: Buffer): NvrApplicationFrame {
   if (frame.length < 16 || !frame.subarray(0, 4).equals(Buffer.from("XZYH"))
-    || frame.readUInt32LE(6) !== frame.length - 16 || frame[10] !== 0 || frame[13] !== 0) throw new NvrTrialError("framing");
+    || frame.readUInt32LE(6) !== frame.length - 16 || ![0, 1].includes(frame[10]!) || frame[13] !== 0) throw new NvrTrialError("framing");
   return { command: frame.readUInt16LE(4), segment: frame[11]!, channel: frame[12]!, stream: frame[14]!, payload: frame.subarray(16) };
 }
 

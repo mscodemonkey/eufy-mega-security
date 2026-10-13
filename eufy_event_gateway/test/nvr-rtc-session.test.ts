@@ -38,7 +38,7 @@ function receivePackets(frame: Buffer, sequence: number, channel: number): Buffe
   });
 }
 
-for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'state-cancel', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async () => {
+for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async () => {
   const codec = scenario === 'h265' ? 'h265' : 'h264';
   const server = new WebSocketServer({ port: 0 });
   await once(server, 'listening');
@@ -60,7 +60,9 @@ for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'stat
       commands.push(body.cmd);
       if (body.cmd === 1103) {
         assert.deepEqual(body.payload.channel_info, { array_size: 2, channel_array: [255, 3] });
-        const ack = application(1350, request.segment, Buffer.alloc(4));
+        const ackBody = Buffer.alloc(132);
+        if (scenario === 'state-bad-ack-padding') ackBody[131] = 1;
+        const ack = application(1350, request.segment, ackBody);
         for (const packet of nvrPackets(ack, sequence++, 1)) channel.send(packet);
         const wrong = application(1351, request.segment, Buffer.from(JSON.stringify({ cmd: 9100, params: [] })));
         for (const packet of nvrPackets(wrong, sequence++, 1)) channel.send(packet);
@@ -78,7 +80,8 @@ for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'stat
         ? application(1351, request.segment, Buffer.from(JSON.stringify({ cmd: 9100,
           payload: { dev_list: [{ sn: scenario === 'identity' ? 'synthetic-other' : 'synthetic-camera', ch: scenario === 'wrong-channel' ? 4 : 3, dev_type: scenario === 'legacy-first-lens' ? 14 : scenario === 'wrong-type' ? 302 : 301 }] } })))
         : application(1350, request.segment, Buffer.alloc(4));
-      const responsePackets = scenario === 'state-read' && body.cmd === 9100
+      if ((scenario === 'state-read' || scenario === 'state-bad-ack-padding') && body.cmd === 9100) response[10] = 1;
+      const responsePackets = (scenario === 'state-read' || scenario === 'state-bad-ack-padding') && body.cmd === 9100
         ? receivePackets(response, sequence++, 1)
         : nvrPackets(response, sequence++, 1);
       for (const packet of responsePackets) channel.send(packet);
@@ -140,14 +143,14 @@ for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'stat
       }); } finally { clearTimeout(deadline); }
       assert.equal(commands.includes(1003), false); return;
     }
-    if (scenario === 'state-read' || scenario === 'state-cancel') {
+    if (scenario === 'state-read' || scenario === 'state-bad-ack-padding' || scenario === 'state-cancel') {
       if (scenario === 'state-cancel') await assert.rejects(session.readState(), error => {
         assert.equal((error as { stage: string }).stage, 'cancelled'); return true;
       });
       else {
         const result = await session.readState();
         assert.equal(result.configuredGuardMode, 2); assert.equal(result.effectiveGuardMode, 1); assert.equal(result.cameraPower, 'on');
-        assert.equal(session.stats.staleReplies, 1);
+        assert.equal(session.stats.staleReplies, scenario === 'state-bad-ack-padding' ? 2 : 1);
       }
       assert.deepEqual(commands, [9100, 1103]); assert.equal(attached, 0); assert.equal(snapshots, 0); assert.equal(diagnosticMedia, 0);
       await session.close(); return;

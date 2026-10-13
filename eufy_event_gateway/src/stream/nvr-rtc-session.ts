@@ -447,7 +447,8 @@ export class NvrRtcSession {
     const pending = this.#pending;
     if (!pending || frame.channel !== 255 || frame.segment !== 0 && frame.segment !== pending.segment) { this.stats.staleReplies++; return; }
     if (frame.segment === 0) this.stats.segmentNotEchoed++;
-    if (frame.command === 1350 && frame.payload.length === 4) {
+    if (frame.command === 1350 && frame.payload.length >= 4
+      && frame.payload.subarray(4).every((byte) => byte === 0)) {
       if (frame.payload.readInt32LE(0) !== 0) { pending.reject(new NvrTrialError(this.#stage)); clearTimeout(pending.timer); this.#pending = null; }
       else if (pending.command === 1003 || pending.command === 1004) { pending.resolve({}); clearTimeout(pending.timer); this.#pending = null; }
       return;

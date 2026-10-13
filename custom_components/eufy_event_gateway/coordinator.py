@@ -227,8 +227,18 @@ class EufyGatewayCoordinator(
         if not isinstance(name, str) or not name.strip():
             return
         registry = dr.async_get(self.hass)
-        device = registry.async_get_device_by_identifier(
-            (DOMAIN, serial), self.config_entry.entry_id
-        )
+        scoped_lookup = getattr(registry, "async_get_device_by_identifier", None)
+        if scoped_lookup is not None:
+            device = scoped_lookup((DOMAIN, serial), self.config_entry.entry_id)
+        else:
+            device = registry.async_get_device(identifiers={(DOMAIN, serial)})
+            if device is not None:
+                owner = getattr(device, "config_entry_id", None)
+                if owner is not None:
+                    owned = owner == self.config_entry.entry_id
+                else:
+                    owned = self.config_entry.entry_id in device.config_entries
+                if not owned:
+                    device = None
         if device is not None and device.name != name:
             registry.async_update_device(device.id, name=name)

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.147
+
+- Restore Home Assistant integration setup when the device registry does not expose the newer scoped identifier lookup.
+- Accept the observed flagged and padded NVR reply frames in the default-off T8N00 state and video trials while retaining strict framing checks.
+
 ## 0.1.146
 
 - Accept the NVR's variable receive-packet lengths and metadata fields during experimental T9000 trials.

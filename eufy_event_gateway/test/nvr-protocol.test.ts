@@ -50,6 +50,9 @@ test('NVR discovery/start/stop payloads and heartbeat match the separate fixed c
   assert.equal(nvrApplication(heartbeat.subarray(20)).command, 1139);
   assert.throws(() => nvrCommand('synthetic', 9100, 0, 3));
   const malformed = nvrCommand('synthetic', 9100, 1, 3); malformed.writeUInt32LE(999, 6); assert.throws(() => nvrApplication(malformed));
+  const flagged = nvrCommand('synthetic', 9100, 1, 3); flagged[10] = 1;
+  assert.equal(nvrApplication(flagged).command, 1350);
+  flagged[10] = 2; assert.throws(() => nvrApplication(flagged), /framing/);
 });
 
 test('NVR video requires the selected stream and preserves 64-bit timestamps', () => {
