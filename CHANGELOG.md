@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.148
+
+- Add default-off Smart Lock E30 T85F1 support with Home Assistant lock/unlock and battery entities through Eufy cloud MQTT.
+- Add E30 Auto Lock and notification switches plus audible sound selection, with fresh readback, shared operation limits and no optimistic setting changes.
+- Keep E30 support experimental and limited to one standalone lock on the US cloud route. Home Assistant hardware testing, High sound and timed auto-locking remain unconfirmed.
+- Include the opt-in fixed-resolution H.265 viewer trial already merged into main.
+
 ## 0.1.147
 
 - Restore Home Assistant integration setup when the device registry does not expose the newer scoped identifier lookup.
