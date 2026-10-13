@@ -26,6 +26,9 @@ export interface GatewayConfig {
   /** Default-off official-model control trials, requiring bearer authentication. */
   readonly experimentalModelControls: boolean;
 
+  /** Default-off E30 MQTT state and controls, requiring bearer authentication. */
+  readonly experimentalE30Locks: boolean;
+
   /** Default-off, consented NVR video trials. Normal capabilities remain unchanged. */
   readonly experimentalNvrLive: boolean;
 
@@ -58,6 +61,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
   const apiToken = nonEmpty(environment.EUFY_GATEWAY_API_TOKEN);
   const captureFailedEventImages = captureBoolean(environment.EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES);
   const experimentalModelControls = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS, "EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS");
+  const experimentalE30Locks = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_E30_LOCKS, "EUFY_GATEWAY_EXPERIMENTAL_E30_LOCKS");
+  if (experimentalE30Locks && !apiToken) throw new Error("Experimental E30 locks require EUFY_GATEWAY_API_TOKEN");
   const experimentalNvrLive = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_NVR_LIVE, "EUFY_GATEWAY_EXPERIMENTAL_NVR_LIVE");
   const experimentalFixedH265Resolution = captureBoolean(
     environment.EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION,
@@ -86,6 +91,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
     apiToken,
     captureFailedEventImages,
     experimentalModelControls,
+    experimentalE30Locks,
     experimentalNvrLive,
     experimentalFixedH265Resolution,
     experimentalNvrRegion: experimentalNvrRegion as "auto" | "us" | "eu" | "ie",

@@ -8,6 +8,7 @@
  * module owns request authentication, response framing, and route selection;
  * it does not parse Mega payloads or open camera sockets.
  */
+import { isE30LockSettingChange } from "./domain/types.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { BundleCapture, diagnosticTargets, type DiagnosticMedia } from "./diagnostics/bundle-capture.js";
@@ -20,6 +21,7 @@ import { GatewayState } from "./domain/gateway-state.js";
 import type { GatewayEvent } from "./domain/types.js";
 import { createLogger, observeLogEvents } from "./logging.js";
 import { parseModelControlTrial } from "./provider/model-control-trials.js";
+import { E30LockError } from "./provider/e30-lock-protocol.js";
 import { validateC31Preference } from "./provider/c31-preferences.js";
 import { SimulatedProvider } from "./provider/simulated-provider.js";
 import type { CameraProvider, CaptchaProvider } from "./provider/provider.js";
@@ -309,6 +311,40 @@ export class GatewayServer {
       }
       if (request.method === "GET" && url.pathname === "/api/cameras") {
         return json(response, 200, { cameras: this.state.listCameras() });
+      }
+      if (request.method === "GET" && url.pathname === "/api/locks") {
+        return json(response, 200, { locks: this.config.experimentalE30Locks ? this.state.listLocks() : [] });
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "locks"
+        && segments.length === 4 && (segments[3] === "refresh" || segments[3] === "state" || segments[3] === "settings")) {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !this.config.experimentalE30Locks) return json(response, 409, { error: "Experimental E30 locks are disabled", code: "disabled" });
+        if (!this.state.hasLock(segments[2]!)) return json(response, 404, { error: "Lock not found" });
+        if (request.headers["content-type"]?.split(";", 1)[0]?.trim() !== "application/json") return json(response, 415, { error: "Lock operations require application/json" });
+        const body = await readJson(request);
+        const writing = segments[3] === "state";
+        const settings = segments[3] === "settings";
+        if (settings ? !isE30LockSettingChange(body) : writing ? Object.keys(body).length !== 1 || typeof body.locked !== "boolean" : Object.keys(body).length !== 0) throw new SyntaxError("Invalid lock request");
+        const controller = new AbortController();
+        let dispatched = false;
+        const abort = (): void => { if (!dispatched) controller.abort(); };
+        request.once("aborted", abort); response.once("close", abort);
+        try {
+          const lock = settings && isE30LockSettingChange(body)
+            ? await this.provider.setLockSetting?.(segments[2]!, body, controller.signal, () => { dispatched = true; })
+            : writing
+            ? await this.provider.setLockState?.(segments[2]!, body.locked as boolean, controller.signal, () => { dispatched = true; })
+            : await this.provider.refreshLock?.(segments[2]!, controller.signal);
+          if (!lock) throw new E30LockError("unavailable");
+          if (!response.destroyed) json(response, 200, { lock });
+        } catch (error) {
+          const failure = error instanceof E30LockError ? error : new E30LockError(dispatched ? "outcome_unknown" : "unavailable");
+          if (!response.destroyed) json(response, failure.code === "rate_limited" ? 429 : failure.code === "unavailable" ? 503 : 409,
+            { error: failure.message, code: failure.code });
+        } finally {
+          request.removeListener("aborted", abort); response.removeListener("close", abort);
+        }
+        return;
       }
       if (request.method === "GET" && url.pathname === "/api/stations") {
         return json(response, 200, { stations: this.state.listStations() });
@@ -984,6 +1020,7 @@ export class GatewayServer {
       cameras: this.state.listCameras(),
       stations: this.state.listStations(),
       sensors: this.state.listSensors(),
+      locks: this.config.experimentalE30Locks ? this.state.listLocks() : [],
     })}\n\n`);
     const listener = (event: GatewayEvent) => response.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
     this.state.on("event", listener);

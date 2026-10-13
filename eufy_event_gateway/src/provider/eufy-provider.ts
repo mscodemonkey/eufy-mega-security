@@ -12,7 +12,10 @@
  * forwarding private event fields into the logger. Periodic cloud refreshes admit
  * newly added devices without replacing push receivers or active media sessions.
  */
+import type { E30LockSettingChange, SmartLockState } from "../domain/types.js";
 import { runS100SirenTrial, S100SirenTrialError, type S100SirenFailureStage } from "./s100-siren-trial.js";
+import { E30LockProvider } from "./e30-lock-provider.js";
+import { E30LockError } from "./e30-lock-protocol.js";
 import { NvrRtcSession } from "../stream/nvr-rtc-session.js";
 import { NvrTrialError, nvrTrialSensor, type NvrStateSummary } from "../stream/nvr-protocol.js";
 import { modelControlTrialActions, parseModelControlTrial, runModelControlTrial, type ModelControlRoute, type ModelControlTrial, type ModelControlTrialResult } from "./model-control-trials.js";
@@ -78,6 +81,9 @@ export interface EufyProviderConfig {
 
   /** Explicit opt-in for exact official-model control trials, off by default. */
   readonly experimentalModelControls?: boolean;
+
+  /** Explicit E30 MQTT opt-in, independent of camera admission and controls. */
+  readonly experimentalE30Locks?: boolean;
 
   /** Diagnostic-only NVR admission, independent of normal camera capabilities. */
   readonly experimentalNvrLive?: boolean;
@@ -514,6 +520,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #inventoryTrailingRefresh: Promise<void> | null = null;
   #inventoryKeyFailures = 0;
 
+  #locks: E30LockProvider | null = null;
+
   constructor(private readonly config: EufyProviderConfig) {
     this.#client = new MegaClient({
       email: config.username,
@@ -522,6 +530,25 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       persistentDirectory: config.persistentDirectory,
     });
   }
+
+  /** Query one opt-in lock through its separately owned MQTT operation. */
+  async refreshLock(serial: string, signal?: AbortSignal): Promise<SmartLockState> {
+    if (!this.#locks) throw new E30LockError("unavailable");
+    return this.#locks.refresh(serial, signal);
+  }
+
+  /** Change lock state once and require an independent correlated query response. */
+  async setLockState(serial: string, locked: boolean, signal?: AbortSignal, onDispatch?: () => void): Promise<SmartLockState> {
+    if (!this.#locks) throw new E30LockError("unavailable");
+    return this.#locks.setLocked(serial, locked, signal, onDispatch);
+  }
+
+  /** Forward one closed settings operation through the lock registry's shared lease. */
+  async setLockSetting(serial: string, change: E30LockSettingChange, signal?: AbortSignal, onDispatch?: () => void): Promise<SmartLockState> {
+    if (!this.#locks) throw new E30LockError("unavailable");
+    return this.#locks.setSetting(serial, change, signal, onDispatch);
+  }
+
 
   async #resolveCipherKey(cipherId: number, peer: MegaInventoryDevice): Promise<string | undefined> {
     const cached = this.#cipherKeys.get(cipherId);
@@ -659,6 +686,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const generation = ++this.#startupGeneration;
     this.#retireInventoryRefresh();
     this.#events = events;
+    this.#locks?.close();
+    this.#locks = this.config.experimentalE30Locks ? new E30LockProvider({
+      accountName: this.config.username.split("@")[0] || "Home Assistant",
+      credentials: () => this.#client.e30MqttCredentials(),
+      freshDevices: async () => (await this.#client.inventory()).devices,
+      changed: locks => { if (generation === this.#startupGeneration) events.locks?.(locks); },
+    }) : null;
     let auth;
     try { auth = await this.#client.connect(this.config.verifyCode); }
     catch (error) { if (generation !== this.#startupGeneration) return; throw error; }
@@ -1595,6 +1629,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (!this.#trialSirenStops.has(peer)) session.close();
     }
     ++this.#startupGeneration;
+    this.#locks?.close();
+    this.#locks = null;
     this.#retireInventoryRefresh();
     const push = this.#push;
     this.#push = null;
@@ -1710,6 +1746,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (generation !== this.#startupGeneration) return;
     }
     const devices = parseMegaInventory(inventory);
+    this.#locks?.inventory(inventory.devices, true);
     this.#devices.clear();
     this.#pendingSensorMotionCloudConfirmations.clear();
     this.#liveDeviceReads.clear();
@@ -1900,8 +1937,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Merge routing peers before publishing additive discovery through the captured generation. */
   async #runInventoryRefresh(events: ProviderEvents, generation: number): Promise<void> {
-    const refreshed = parseMegaInventory(await this.#client.inventory());
+    const inventory = await this.#client.inventory();
+    const refreshed = parseMegaInventory(inventory);
     if (generation !== this.#startupGeneration) throw new Error("Inventory refresh cancelled");
+    this.#locks?.inventory(inventory.devices);
     if (refreshed.length === 0) return;
     const previous = new Map(this.#devices);
     for (const device of refreshed) {

@@ -437,6 +437,45 @@ existing behaviour. Standalone installs can set
 `EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION=true`.
 
 
+### Experimental Smart Lock E30
+
+The `experimental_e30_locks` app option is off by default. Enable it only with
+an API token of at least 32 characters. The trial supports one standalone E30
+T85F1, type 206, on the US cloud route. Other models and regions remain disabled.
+
+EMS acts as an MQTT client of Eufy's cloud broker. Home Assistant receives a lock
+entity and battery sensor through EMS. It does not need its own MQTT broker.
+Both lock and unlock were physically confirmed on an off-door E30, with fresh
+queries after each command. This does not establish behaviour under door load,
+jam detection or recovery after a network outage.
+
+Each command queries the lock first, sends at most one absolute action, and
+waits for a fresh device query. It never reports an accepted MQTT message as
+completed movement. An unknown outcome makes the entity unavailable. Check the
+physical lock or Eufy app before trying again. Calibration, user management,
+latch opening, schedule and delay editing are not exposed.
+
+Home Assistant also receives Auto Lock, overall notifications, locked
+notifications and unlocked notifications switches, plus a Low/Medium/High
+sound selector. Settings writes require the bolt to be locked. Native sound
+Off is reported but makes the selector unavailable. EMS never writes Off.
+Auto Lock changes preserve the existing delay and schedule. Notification
+changes preserve every other notification bit.
+
+Off-door tests confirmed both Auto Lock values and both lock/unlock
+notification values against the restarted Eufy app. Overall notifications
+were switched off through EMS and restored in the native app after the trial
+stopped before its restore write. Low and Medium sound values were compared
+with the app. High, timed auto-locking and these controls in Home Assistant
+still need hardware confirmation.
+
+State and battery depend on Eufy's cloud. EMS polls every five minutes and
+expires observations after six minutes, so a change made elsewhere can take
+several minutes to appear. Home Assistant's recovery poll reads the EMS cache.
+Enabling this feature exposes unlock to Home Assistant dashboards, automations
+and any voice assistants to which you expose the entity. Review those before
+enabling it.
+
 ### Experimental model controls
 
 The app option `experimental_model_controls` is off by default. When enabled,

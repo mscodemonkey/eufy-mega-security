@@ -70,6 +70,7 @@ if (config.provider === "simulated") {
     persistentDirectory: join(config.dataDirectory, "eufy-client"),
     maxStreamSeconds: config.maxStreamSeconds,
     experimentalModelControls: config.experimentalModelControls,
+      experimentalE30Locks: config.experimentalE30Locks,
     experimentalNvrLive: config.experimentalNvrLive,
     experimentalNvrRegion: config.experimentalNvrRegion,
     ...(eventImageCapture ? { eventImageCapture } : {}),
@@ -184,6 +185,7 @@ const startupSnapshots = new StartupSnapshotWarmup(
 // gateway state. This keeps the HTTP server and Home Assistant API unaware of
 // Mega packet formats and authentication details.
 const providerEvents: ProviderEvents = {
+  locks(locks) { state.replaceLocks(locks); },
   camera(identity) {
     state.registerCamera(identity);
     const stored = snapshots.getInfo(identity.serial);

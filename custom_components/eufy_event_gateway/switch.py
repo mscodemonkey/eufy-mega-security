@@ -17,6 +17,7 @@ from .client import GatewayClientError
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity
 from .preferences import camera_preference_value
+from .lock import EufyLockSettingEntity
 
 
 async def async_setup_entry(
@@ -26,6 +27,7 @@ async def async_setup_entry(
 ) -> None:
     """Create reported camera switches as supported devices enter inventory."""
     coordinator = entry.runtime_data.coordinator
+    known_lock_settings: set[tuple[str, str]] = set()
     known_preferences: set[tuple[str, str]] = set()
     known_enabled: set[str] = set()
     known_motion: set[str] = set()
@@ -33,6 +35,12 @@ async def async_setup_entry(
     known_auto_night_vision: set[str] = set()
 
     def add_new() -> None:
+        for serial, lock in getattr(coordinator, "locks", {}).items():
+            for setting in ("autoLock", "notifications", "lockedNotifications", "unlockedNotifications"):
+                key = (serial, setting)
+                if key not in known_lock_settings and type(lock.get("settings", {}).get(setting)) is bool:
+                    known_lock_settings.add(key)
+                    async_add_entities([EufyLockSettingSwitch(coordinator, serial, setting)])
         for serial, camera in coordinator.cameras.items():
             for name in ("microphone", "speaker", "imageFlipped", "preRecording", "soundDetection", "statusLed", "soundRoundLook", "enhanceLighting", "continuousRecording", "rtspPublication"):
                 key = (serial, name)
@@ -283,3 +291,28 @@ class EufyCameraPreferenceSwitch(EufyGatewayEntity, SwitchEntity):
             self.coordinator.async_set_camera(camera)
         except GatewayClientError as error:
             raise HomeAssistantError(f"Could not change camera preference: {error}") from error
+
+
+class EufyLockSettingSwitch(EufyLockSettingEntity, SwitchEntity):
+    """Expose confirmed E30 booleans without owning vendor connections or retries."""
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, setting: str) -> None:
+        """Give each switch a distinct name under the same lock device."""
+        super().__init__(coordinator, serial, setting)
+        self._attr_translation_key = {"autoLock": "lock_auto_lock", "notifications": "lock_notifications",
+                                      "lockedNotifications": "lock_locked_notifications",
+                                      "unlockedNotifications": "lock_unlocked_notifications"}[setting]
+
+    @property
+    def is_on(self) -> bool | None:
+        """Preserve unknown values instead of displaying them as off."""
+        value = self.setting_value
+        return value if type(value) is bool else None
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Request and await an independently confirmed enable."""
+        await self.async_set_setting(True)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Request and await an independently confirmed disable."""
+        await self.async_set_setting(False)

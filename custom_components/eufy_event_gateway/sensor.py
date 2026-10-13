@@ -34,6 +34,7 @@ from . import EufyGatewayConfigEntry
 from .const import DOMAIN, GUARD_MODES
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity, EufySecuritySensorEntity, EufyStationEntity
+from .lock import EufyLockBattery
 from .guard_mode_options import guard_mode_label, guard_mode_options
 
 
@@ -50,10 +51,16 @@ async def async_setup_entry(
     known_mode_stations: set[str] = set()
     known_storage_stations: set[str] = set()
     known_sensors: set[str] = set()
+    known_locks: set[str] = set()
     registry = er.async_get(hass)
     _migrate_storage_display_units(hass, coordinator)
 
     def add_new() -> None:
+        lock_serials = set(coordinator.locks) - known_locks
+        if lock_serials:
+            known_locks.update(lock_serials)
+            async_add_entities([EufyLockBattery(coordinator, serial) for serial in sorted(lock_serials)])
+
         signal_serials = {
             serial for serial, camera in coordinator.cameras.items()
             if camera.get("rssi") is not None

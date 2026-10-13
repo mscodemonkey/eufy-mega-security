@@ -313,8 +313,63 @@ export interface HomeBaseState {
   };
 }
 
-/** Events sent over the gateway SSE endpoint. */
+/** Allowlisted lock state; private identities, raw enums and MQTT material never cross this boundary. */
+export const SMART_LOCK_STATE_TTL_MS = 360_000;
+
+/** Public settings facts with independent device and cloud observation ages. */
+export interface SmartLockSettings {
+  readonly volume: 0 | 1 | 2 | 3 | null;
+  readonly autoLock: boolean | null;
+  readonly notifications: boolean | null;
+  readonly lockedNotifications: boolean | null;
+  readonly unlockedNotifications: boolean | null;
+  readonly observedAt: string | null;
+  readonly notificationsObservedAt: string | null;
+}
+
+/** Closed user controls exclude schedule, timer, arbitrary modes and mute writes. */
+export type E30LockSettingChange = { readonly setting: "volume"; readonly value: 1 | 2 | 3 }
+  | { readonly setting: "autoLock" | "notifications" | "lockedNotifications" | "unlockedNotifications"; readonly value: boolean };
+
+/** Validate untrusted settings bodies before provider authority or network work is used. */
+export function isE30LockSettingChange(value: unknown): value is E30LockSettingChange {
+  if (!value || typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) return false;
+  const row = value as Record<string, unknown>;
+  if (Object.keys(row).length !== 2 || !Object.hasOwn(row, "setting") || !Object.hasOwn(row, "value")) return false;
+  return row.setting === "volume" ? Number.isInteger(row.value) && [1, 2, 3].includes(row.value as number)
+    : ["autoLock", "notifications", "lockedNotifications", "unlockedNotifications"].includes(row.setting as string) && typeof row.value === "boolean";
+}
+
+/** Copy cached facts and independently expire physical, device-settings and notification groups. */
+export function maskSmartLockState(state: SmartLockState, now = Date.now()): SmartLockState {
+  const fresh = (stamp: string | null): boolean => {
+    if (!stamp) return false;
+    const age = now - Date.parse(stamp);
+    return Number.isFinite(age) && age >= 0 && age <= SMART_LOCK_STATE_TTL_MS;
+  };
+  const settings = state.settings ? { ...state.settings,
+    ...(!fresh(state.settings.observedAt) ? { volume: null, autoLock: null, observedAt: null } : {}),
+    ...(!fresh(state.settings.notificationsObservedAt) ? { notifications: null, lockedNotifications: null, unlockedNotifications: null, notificationsObservedAt: null } : {}) } : undefined;
+  return { ...state, ...(settings ? { settings } : {}),
+    ...(!fresh(state.stateObservedAt) ? { state: "unknown" as const, available: false, batteryPercent: null } : {}) };
+}
+
+/** Only normalized observations cross from the lock provider into the authenticated local API. */
+export interface SmartLockState {
+  readonly serial: string;
+  readonly name: string;
+  readonly model: "T85F1";
+  readonly state: "locked" | "unlocked" | "unknown";
+  readonly available: boolean;
+  readonly batteryPercent: number | null;
+  readonly stateObservedAt: string | null;
+  readonly settings?: SmartLockSettings;
+}
+
+/** Normalized state notifications consumed by the authenticated SSE connection. */
 export type GatewayEvent =
+  | { readonly type: "lock"; readonly lock: SmartLockState }
+  | { readonly type: "locks"; readonly locks: readonly SmartLockState[] }
   | { readonly type: "camera-updated"; readonly camera: CameraState }
   | { readonly type: "sensor-updated"; readonly sensor: SecuritySensorState }
   | { readonly type: "sensors-updated"; readonly sensors: readonly SecuritySensorState[] }

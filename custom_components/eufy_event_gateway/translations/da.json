@@ -119,6 +119,14 @@
       }
     },
     "select": {
+      "lock_volume": {
+        "name": "Låselyd",
+        "state": {
+          "low": "Lav",
+          "medium": "Mellem",
+          "high": "Høj"
+        }
+      },
       "eufy_guard_mode_select": {
         "name": "beskyttelsestilstand",
         "state": {
@@ -260,6 +268,18 @@
       }
     },
     "switch": {
+      "lock_auto_lock": {
+        "name": "Automatisk lås"
+      },
+      "lock_notifications": {
+        "name": "Notifikationer"
+      },
+      "lock_locked_notifications": {
+        "name": "Notifikationer ved låsning"
+      },
+      "lock_unlocked_notifications": {
+        "name": "Notifikationer ved oplåsning"
+      },
       "camera_continuous_recording": {
         "name": "Kontinuerlig optagelse"
       },

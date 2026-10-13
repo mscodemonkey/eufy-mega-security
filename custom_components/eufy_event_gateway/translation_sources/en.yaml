@@ -77,6 +77,12 @@ entity:
     camera_speaker_volume:
       name: Speaker volume
   select:
+    lock_volume:
+      name: Lock volume
+      state:
+        low: Low
+        medium: Medium
+        high: High
     eufy_guard_mode_select:
       name: Guard mode
       state:
@@ -186,6 +192,14 @@ entity:
         mounting: Mounting
         reported: Reported
   switch:
+    lock_auto_lock:
+      name: Auto-lock
+    lock_notifications:
+      name: Notifications
+    lock_locked_notifications:
+      name: Locked notifications
+    lock_unlocked_notifications:
+      name: Unlocked notifications
     camera_continuous_recording:
       name: Continuous recording
     camera_rtsp_publication:

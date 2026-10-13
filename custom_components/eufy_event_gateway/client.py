@@ -19,7 +19,13 @@ from aiohttp import ClientError, ClientResponseError, ClientSession, ClientTimeo
 
 
 class GatewayClientError(Exception):
-    """Report a validated gateway, HTTP, or transport failure to callers."""
+    """Report a gateway failure with optional HTTP status and fixed command code."""
+
+    def __init__(self, message: str, *, status: int | None = None, code: str | None = None) -> None:
+        """Retain structured failure facts without requiring callers to parse prose."""
+        super().__init__(message)
+        self.status = status
+        self.code = code
 
 
 class GatewayAuthenticationError(GatewayClientError):
@@ -77,7 +83,7 @@ class GatewayClient:
         try:
             payload = await self._json("/api/sensors")
         except GatewayClientError as error:
-            if str(error) == "Gateway returned HTTP 404":
+            if error.status == 404:
                 return []
             raise
         sensors = payload.get("sensors")
@@ -88,6 +94,69 @@ class GatewayClient:
             for sensor in sensors
             if isinstance(sensor, dict) and isinstance(sensor.get("serial"), str)
         ]
+
+    async def locks(self) -> list[dict[str, Any]]:
+        """Read cached opt-in locks, tolerating older gateways without this endpoint."""
+        try:
+            payload = await self._json("/api/locks")
+        except GatewayClientError as error:
+            if error.status == 404:
+                return []
+            raise
+        locks = payload.get("locks")
+        if not isinstance(locks, list):
+            raise GatewayClientError("Gateway returned an invalid lock list")
+        return [self._lock_state(lock) for lock in locks]
+
+    async def set_lock_state(self, serial: str, locked: bool) -> dict[str, Any]:
+        """Request one absolute action and return only device-confirmed state."""
+        payload = await self._json(
+            f"/api/locks/{quote(serial, safe='')}/state", method="POST",
+            payload={"locked": locked}, timeout=60,
+        )
+        return self._lock_state(payload.get("lock"))
+
+    async def set_lock_setting(self, serial: str, setting: str, value: bool | int) -> dict[str, Any]:
+        """Wait for the gateway's independent setting readback, without optimistic state."""
+        payload = await self._json(
+            f"/api/locks/{quote(serial, safe='')}/settings", method="POST",
+            payload={"setting": setting, "value": value}, timeout=100,
+        )
+        state = self._lock_state(payload.get("lock"))
+        raw = payload.get("lock")
+        if not isinstance(raw, dict) or not isinstance(raw.get("settings"), dict) or "settings" not in state:
+            raise GatewayClientError("Gateway returned invalid lock settings")
+        return state
+
+    async def refresh_lock(self, serial: str) -> dict[str, Any]:
+        """Request a throttled read-only lock query rather than using cached state."""
+        payload = await self._json(
+            f"/api/locks/{quote(serial, safe='')}/refresh", method="POST", payload={}, timeout=60,
+        )
+        return self._lock_state(payload.get("lock"))
+
+    @staticmethod
+    def _lock_state(value: Any) -> dict[str, Any]:
+        """Project only normalized public facts, rejecting ambiguous command results."""
+        if (not isinstance(value, dict) or not isinstance(value.get("serial"), str)
+                or value.get("model") != "T85F1"
+                or value.get("state") not in ("locked", "unlocked", "unknown")
+                or not isinstance(value.get("available"), bool)):
+            raise GatewayClientError("Gateway returned invalid lock state")
+        state = {key: value.get(key) for key in (
+            "serial", "name", "model", "state", "available", "batteryPercent", "stateObservedAt"
+        )}
+        settings = value.get("settings")
+        if isinstance(settings, dict):
+            booleans = ("autoLock", "notifications", "lockedNotifications", "unlockedNotifications")
+            volume = settings.get("volume")
+            valid = all(key in settings for key in ("volume", *booleans, "observedAt", "notificationsObservedAt"))
+            valid = valid and (volume is None or (type(volume) is int and 0 <= volume <= 3))
+            valid = valid and all(settings.get(key) is None or type(settings[key]) is bool for key in booleans)
+            valid = valid and all(settings.get(key) is None or isinstance(settings[key], str) for key in ("observedAt", "notificationsObservedAt"))
+            if valid:
+                state["settings"] = {key: settings.get(key) for key in ("volume", *booleans, "observedAt", "notificationsObservedAt")}
+        return state
 
     async def stored_recordings(self, serial: str, date: str) -> list[dict[str, Any]]:
         """List a day of camera-owned event clips using opaque gateway references."""
@@ -498,7 +567,8 @@ class GatewayClient:
                     )
                     if isinstance(detail, str) and detail and len(detail) <= 300:
                         raise GatewayClientError(
-                            f"Gateway returned HTTP {response.status}: {detail}"
+                            f"Gateway returned HTTP {response.status}: {detail}",
+                            status=response.status, code=error_payload.get("code") if error_payload.get("code") in ("unavailable", "busy", "rate_limited", "outcome_unknown", "disabled") else None
                         )
                 self._raise_for_status(response)
                 payload = await response.json()
@@ -518,8 +588,8 @@ class GatewayClient:
     def _raise_for_status(response: Any) -> None:
         """Translate HTTP failures into stable integration exception types."""
         if response.status == 401:
-            raise GatewayAuthenticationError("Gateway rejected the API token")
+            raise GatewayAuthenticationError("Gateway rejected the API token", status=401)
         try:
             response.raise_for_status()
         except ClientResponseError as error:
-            raise GatewayClientError(f"Gateway returned HTTP {error.status}") from error
+            raise GatewayClientError(f"Gateway returned HTTP {error.status}", status=error.status) from error

@@ -35,7 +35,7 @@ class CameraInventoryEntitiesTest(unittest.IsolatedAsyncioTestCase):
     async def test_signal_entity_can_arrive_after_initial_discovery(self) -> None:
         """Create the diagnostic once when its own reading first appears."""
         listeners, added = [], []
-        coordinator = SimpleNamespace(cameras={"camera": {}}, stations={}, sensors={})
+        coordinator = SimpleNamespace(cameras={"camera": {}}, stations={}, sensors={}, locks={})
         coordinator.async_add_listener = lambda callback: listeners.append(callback)
         entry = SimpleNamespace(runtime_data=SimpleNamespace(coordinator=coordinator), async_on_unload=lambda value: None)
         namespace = {
@@ -56,7 +56,7 @@ class CameraInventoryEntitiesTest(unittest.IsolatedAsyncioTestCase):
     async def test_backup_battery_arrives_later_without_duplicating_primary(self) -> None:
         """Admit a late AA field once and keep missing later readings unknown."""
         listeners, added = [], []
-        coordinator = SimpleNamespace(cameras={"camera": {}}, stations={}, sensors={})
+        coordinator = SimpleNamespace(cameras={"camera": {}}, stations={}, sensors={}, locks={})
         coordinator.async_add_listener = lambda callback: listeners.append(callback)
         entry = SimpleNamespace(runtime_data=SimpleNamespace(coordinator=coordinator), async_on_unload=lambda value: None)
         namespace = {

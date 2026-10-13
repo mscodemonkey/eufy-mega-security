@@ -10,6 +10,7 @@
  */
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
+import { maskSmartLockState, type SmartLockState } from "./types.js";
 
 import type {
   CameraIdentity,
@@ -68,6 +69,7 @@ export class GatewayState extends EventEmitter {
   readonly #cameras = new Map<string, MutableCameraState>();
   readonly #stations = new Map<string, HomeBaseState>();
   readonly #sensors = new Map<string, SecuritySensorState>();
+  readonly #locks = new Map<string, SmartLockState>();
   readonly #pushDiagnostics: PushDiagnostic[] = [];
   #eventDeliveryDiagnostic: EventDeliveryDiagnostic = {
     receiverState: "stopped",
@@ -95,6 +97,21 @@ export class GatewayState extends EventEmitter {
   constructor(private readonly detectionHoldMilliseconds = 10_000) {
     super();
   }
+
+  /** Replace lock inventory atomically so removed bindings cannot remain actionable. */
+  replaceLocks(locks: readonly SmartLockState[]): void {
+    this.#locks.clear();
+    for (const lock of locks) this.#locks.set(lock.serial, structuredClone(lock));
+    this.emit("event", { type: "locks", locks: this.listLocks() } satisfies GatewayEvent);
+  }
+
+  /** Return cached lock observations only, with expired observations marked unavailable. */
+  listLocks(): SmartLockState[] {
+    return [...this.#locks.values()].map(lock => maskSmartLockState(lock));
+  }
+
+  /** Check normalized lock existence without consulting the network. */
+  hasLock(serial: string): boolean { return this.#locks.has(serial); }
 
   /** Add a camera or refresh its discovered metadata and return its state. */
   registerCamera(identity: CameraIdentity): CameraState {

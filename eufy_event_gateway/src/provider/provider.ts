@@ -9,7 +9,9 @@
  * tests; the production provider is the only implementation allowed to know
  * Mega and PPCS details.
  */
+import type { E30LockSettingChange } from "../domain/types.js";
 import type { NvrStateSummary } from "../stream/nvr-protocol.js";
+import type { SmartLockState } from "../domain/types.js";
 import type { ModelControlTrial, ModelControlTrialResult } from "./model-control-trials.js";
 import type { CloudHistoryQuery, CloudHistoryRecord } from "../mega/cloud-history.js";
 import type { Readable } from "node:stream";
@@ -19,6 +21,9 @@ import type { CameraCapabilityManifest, CameraIdentity, CameraPresetPosition, De
 
 /** Callbacks through which a provider reports normalized observations. */
 export interface ProviderEvents {
+
+  /** Replace the separately owned lock inventory; optional for older/simulated adapters. */
+  locks?(locks: readonly SmartLockState[]): void;
   camera(identity: CameraIdentity): void;
   station(state: HomeBaseState): void;
   sensor(state: SecuritySensorState): void;
@@ -44,6 +49,15 @@ export interface ProviderEvents {
 
 /** Lifecycle and stream operations required by the gateway server. */
 export interface CameraProvider {
+
+  /** Refresh one admitted experimental lock without actuating it. */
+  refreshLock?(serial: string, signal?: AbortSignal): Promise<SmartLockState>;
+
+  /** Submit one absolute lock state and return only fresh confirmed readback. */
+  setLockState?(serial: string, locked: boolean, signal?: AbortSignal, onDispatch?: () => void): Promise<SmartLockState>;
+
+  /** Write one closed E30 setting and return independently confirmed facts. */
+  setLockSetting?(serial: string, change: E30LockSettingChange, signal?: AbortSignal, onDispatch?: () => void): Promise<SmartLockState>;
 
   /** Reserve one explicit NVR video trial until its awaited cleanup completes. */
   reserveNvrLiveTrial?(serial: string, signal: AbortSignal): () => Promise<void>;

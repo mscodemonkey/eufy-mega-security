@@ -5,7 +5,7 @@ coordinator applies those changes immediately and keeps a sixty-second poll as
 recovery for a dropped stream or a gateway restart. It owns reconnect/backoff
 and the first inventory fetch; entity code only reads the coordinator's
 normalized camera dictionary and never makes a protocol request of its own.
-Camera, station, and standalone-sensor inventories are replaced independently
+Camera, station, lock, and standalone-sensor inventories are replaced independently
 so a partial event cannot erase state owned by another device family.
 """
 
@@ -61,8 +61,8 @@ class EufyGatewayCoordinator(
         # Polling is recovery only. Normal updates arrive through the long-lived
         # SSE connection started after the first successful refresh.
         try:
-            cameras, stations, sensors = await asyncio.gather(
-                self.client.cameras(), self.client.stations(), self.client.sensors()
+            cameras, stations, sensors, locks = await asyncio.gather(
+                self.client.cameras(), self.client.stations(), self.client.sensors(), self.client.locks()
             )
         except GatewayClientError as error:
             raise UpdateFailed(str(error)) from error
@@ -70,6 +70,7 @@ class EufyGatewayCoordinator(
             "cameras": {camera["serial"]: camera for camera in cameras},
             "stations": {station["serial"]: station for station in stations},
             "sensors": {sensor["serial"]: sensor for sensor in sensors},
+            "locks": {lock["serial"]: lock for lock in locks},
         }
         self._sync_device_names(updated)
         return updated
@@ -89,6 +90,19 @@ class EufyGatewayCoordinator(
         """Return the latest standalone sensor state indexed by serial."""
         return (self.data or {}).get("sensors", {})
 
+    @property
+    def locks(self) -> dict[str, dict[str, Any]]:
+        """Return cached opt-in lock facts without querying the lock."""
+        return (self.data or {}).get("locks", {})
+
+    def async_set_lock(self, lock: dict[str, Any]) -> None:
+        """Publish a confirmed lock response while preserving every other family."""
+        updated = {"cameras": dict(self.cameras), "stations": dict(self.stations),
+                   "sensors": dict(self.sensors), "locks": dict(self.locks)}
+        updated["locks"][lock["serial"]] = lock
+        self._sync_device_name(lock["serial"], lock.get("name"))
+        self.async_set_updated_data(updated)
+
     def async_set_station(self, station: dict[str, Any]) -> None:
         """Merge confirmed command state and notify all station entities."""
         serial = station.get("serial")
@@ -98,6 +112,7 @@ class EufyGatewayCoordinator(
             "cameras": dict(self.cameras),
             "stations": dict(self.stations),
             "sensors": dict(self.sensors),
+            "locks": dict(self.locks),
         }
         updated["stations"][serial] = station
         self._sync_device_name(serial, station.get("name"))
@@ -112,6 +127,7 @@ class EufyGatewayCoordinator(
             "cameras": dict(self.cameras),
             "stations": dict(self.stations),
             "sensors": dict(self.sensors),
+            "locks": dict(self.locks),
         }
         updated["cameras"][serial] = camera
         self._sync_device_name(serial, camera.get("name"))
@@ -162,6 +178,7 @@ class EufyGatewayCoordinator(
                 "cameras": normalized,
                 "stations": dict(self.stations),
                 "sensors": dict(self.sensors),
+                "locks": dict(self.locks),
             }
             self._sync_device_names(updated)
             self.async_set_updated_data(updated)
@@ -177,6 +194,7 @@ class EufyGatewayCoordinator(
                 "cameras": dict(self.cameras),
                 "stations": normalized,
                 "sensors": dict(self.sensors),
+                "locks": dict(self.locks),
             }
             self._sync_device_names(updated)
             self.async_set_updated_data(updated)
@@ -200,6 +218,7 @@ class EufyGatewayCoordinator(
                 "cameras": dict(self.cameras),
                 "stations": dict(self.stations),
                 "sensors": normalized,
+                "locks": dict(self.locks),
             }
             self.async_set_updated_data(updated)
 
@@ -209,16 +228,37 @@ class EufyGatewayCoordinator(
                 "cameras": dict(self.cameras),
                 "stations": dict(self.stations),
                 "sensors": dict(self.sensors),
+                "locks": dict(self.locks),
             }
             updated["sensors"][sensor["serial"]] = sensor
             self._sync_device_name(sensor["serial"], sensor.get("name"))
             self.async_set_updated_data(updated)
 
+        locks = event.get("locks")
+        if isinstance(locks, list):
+            updated = {"cameras": dict(self.cameras), "stations": dict(self.stations),
+                       "sensors": dict(self.sensors), "locks": {}}
+            for lock in locks:
+                try:
+                    normalized = self.client._lock_state(lock)
+                except GatewayClientError:
+                    continue
+                updated["locks"][normalized["serial"]] = normalized
+            self._sync_device_names(updated)
+            self.async_set_updated_data(updated)
+
+        lock = event.get("lock")
+        if isinstance(lock, dict):
+            try:
+                self.async_set_lock(self.client._lock_state(lock))
+            except GatewayClientError:
+                pass
+
     def _sync_device_names(
         self, data: dict[str, dict[str, dict[str, Any]]]
     ) -> None:
         """Refresh vendor names without changing Home Assistant user overrides."""
-        for family in ("cameras", "stations", "sensors"):
+        for family in ("cameras", "stations", "sensors", "locks"):
             for serial, device in data.get(family, {}).items():
                 self._sync_device_name(serial, device.get("name"))
 

@@ -32,6 +32,39 @@ afterEach(async () => {
   assert.equal(networkCalls, 0);
 });
 
+test("E30 credential scope uses the existing session and never persists credential response material", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mega-e30-credentials-"));
+  const sharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
+  const openHost = "app-openapi-us-pr.eufy.com";
+  const scopes: string[] = [];
+  try {
+    await writeFile(join(directory, "mega-session.json"), JSON.stringify({
+      version: 2, country: "au", openUdid: "device", credentialVerifier: credentialVerifier("device", "user@example.invalid", "password"),
+      authToken: "synthetic-token", tokenExpiresAt: 2_000_000_000, userId: "synthetic-user", verificationPending: false,
+      megaDomain: "mega-us-pr.eufy.com", domains: {},
+      identities: { [openHost]: { keyIdent: "identity", sharedKey, clientPublicKey: "public" } },
+    }));
+    const client = new MegaClient({ email: "user@example.invalid", password: "password", country: "AU",
+      persistentDirectory: directory, minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000,
+      fetch: async (input, init) => {
+        const path = new URL(String(input)).pathname;
+        scopes.push(new Headers(init?.headers).get("app-name")!);
+        assert.deepEqual(JSON.parse(decryptEnvelope(String(init?.body), sharedAesKey(sharedKey))),
+          path.endsWith("get_user_mqtt_info") ? {} : { house_id: "", device_sns: {} });
+        if (path.endsWith("get_user_mqtt_info")) return new Response(JSON.stringify({ code: 0,
+          data: { endpoint_addr: "attacker.invalid", private_key: "SENTINEL_PRIVATE_CREDENTIAL", certificate_pem: "SENTINEL_CERTIFICATE" } }));
+        assert.equal(path, "/app/house/get_devs_list");
+        return new Response(JSON.stringify({ code: 0, data: { devices: [], groups: [] } }));
+      } });
+    assert.equal((await client.connect()).state, "authenticated");
+    await assert.rejects(client.e30MqttCredentials(), /Lock operation unavailable/);
+    await client.inventory();
+    assert.equal(scopes[0], "eufy_security");
+    assert.ok(scopes.slice(1).length > 0 && scopes.slice(1).every(scope => scope === "eufy_mega"));
+    assert.doesNotMatch(await readFile(join(directory, "mega-session.json"), "utf8"), /SENTINEL/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("completes encrypted push registration and activation using one restored regional session", async () => {
   const sharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
   const pushPath = "/app/push/register_push_token";

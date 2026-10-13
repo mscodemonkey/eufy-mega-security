@@ -146,6 +146,7 @@ export class BundleCapture {
 
   /** Observe normalized lifecycle events without names, detection identities or detail text. */
   event(event: GatewayEvent): void {
+    if (event.type === "lock" || event.type === "locks") return;
     if (event.type === "camera-updated") this.record(event.type, event.camera.serial, event.camera.stream.state);
     else if (event.type === "sensor-updated") this.record(event.type, event.sensor.serial);
     else if (event.type === "station-updated") this.record(event.type, event.station.serial);

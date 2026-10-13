@@ -11,7 +11,8 @@
  */
 import type { NvrSignallingContext } from "../stream/nvr-rtc-session.js";
 import { NvrTrialError } from "../stream/nvr-protocol.js";
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { parseE30MqttCredentials, type E30MqttCredentials } from "../provider/e30-lock-protocol.js";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -220,6 +221,16 @@ export class MegaClient {
     this.#pendingCaptcha = null;
     await this.#save();
     return { state: "authenticated" };
+  }
+
+  /** Fetch transient lock credentials in Security scope without another login or persistence. */
+  async e30MqttCredentials(): Promise<E30MqttCredentials> {
+    this.#requireAuthentication();
+    const session = this.#session!;
+    const result = await this.#call("devicemanage", "/app/devicemanage/get_user_mqtt_info", {}, true, "eufy_security");
+    if (this.#session?.authToken !== session.authToken || this.#session.userId !== session.userId) throw new Error("Lock credentials unavailable");
+    return parseE30MqttCredentials(this.#decodeResult(result), session.userId,
+      createHash("sha256").update(session.openUdid).digest("hex").slice(0, 16));
   }
 
   /** Fetch the account's devices and groups after authentication. */
@@ -604,14 +615,14 @@ export class MegaClient {
     return identity;
   }
 
-  async #call(service: string, path: string, payload: unknown, retryIdentity = true): Promise<MegaResult> {
+  async #call(service: string, path: string, payload: unknown, retryIdentity = true, appScope?: "eufy_security"): Promise<MegaResult> {
     const lifetime = this.#requestLifetime.signal;
     lifetime.throwIfAborted();
     const host = this.#clusterHost(service);
     const identityHost = host.endsWith(".eufylife.com") ? host : this.#clusterHost("openapi");
     const identity = await this.#identity(identityHost);
     lifetime.throwIfAborted();
-    const result = await this.#signedPost(host, path, payload, identity);
+    const result = await this.#signedPost(host, path, payload, identity, undefined, appScope);
     lifetime.throwIfAborted();
     if (retryIdentity && TRANSIENT_IDENTITY_ERRORS.has(result.code)) {
       if (this.#session?.identities[identityHost] === identity) {
@@ -623,7 +634,7 @@ export class MegaClient {
       lifetime.throwIfAborted();
       await this.#save();
       lifetime.throwIfAborted();
-      const retried = await this.#signedPost(host, path, payload, refreshedIdentity);
+      const retried = await this.#signedPost(host, path, payload, refreshedIdentity, undefined, appScope);
       lifetime.throwIfAborted();
       return retried;
     }
@@ -636,6 +647,7 @@ export class MegaClient {
     payload: unknown,
     identity?: MegaIdentity,
     bootstrap?: { readonly keyIdent: string; readonly encryptedPublicKey: string },
+    appScope?: "eufy_security",
   ): Promise<MegaResult> {
     return this.#enqueue(async (signal) => {
       const timestamp = `${Math.floor(this.#now() / 1_000)}`;
@@ -649,6 +661,7 @@ export class MegaClient {
         bootstrap?.keyIdent ?? identity!.keyIdent, timestamp, nonce,
         requestSignature(signingKey, timestamp, nonce, encrypted),
       );
+      if (appScope) headers["app-name"] = appScope;
       const result = await this.#post(host, path, body, headers, signal);
       if (identity) {
 

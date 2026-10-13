@@ -21,6 +21,7 @@ PLATFORMS = [
     Platform.NUMBER,
     Platform.SWITCH,
     Platform.SIREN,
+    Platform.LOCK,
 ]
 
 GUARD_MODE_AWAY = 0
