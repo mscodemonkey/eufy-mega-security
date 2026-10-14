@@ -36,7 +36,7 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         self.camera = namespace["TestCamera"]()
         self.camera._short_hls_idle = True
         self.camera._hls_idle_stream = None
-        self.original = Mock(return_value=object())
+        self.original = Mock(return_value=SimpleNamespace(idle_timer=Mock()))
         self.stream = SimpleNamespace(add_provider=self.original)
         base.async_create_stream.return_value = self.stream
 
@@ -56,12 +56,14 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         self.original.assert_not_called()
         self.assertIs(self.stream.add_provider("hls"), self.original.return_value)
         self.original.assert_called_with("hls", timeout=60)
+        self.original.return_value.idle_timer.start.assert_called_once_with()
         self.stream.add_provider("recorder", 240)
         self.original.assert_called_with("recorder", timeout=240)
         self.stream.add_provider("recorder")
         self.original.assert_called_with("recorder", timeout=None)
         self.stream.add_provider("hls", 120)
         self.original.assert_called_with("hls", timeout=120)
+        self.original.return_value.idle_timer.start.assert_called_once_with()
 
     async def test_cached_and_replaced_streams_keep_one_wrapper(self) -> None:
         """Install once per stream, including a replacement from HA."""
@@ -86,6 +88,71 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         self.original.side_effect = RuntimeError("provider failed")
         with self.assertRaisesRegex(RuntimeError, "provider failed"):
             self.stream.add_provider("hls")
+
+    async def test_no_frame_startup_expires_without_retry_access_extending_it(self) -> None:
+        """Expire an unused no-frame output through HA's own cleanup callback."""
+        clock = SimpleNamespace(now=0, deadline=None)
+        stopped = Mock()
+
+        class Timer:
+            """Model HA's idempotent start and consumer-owned awake deadlines.
+
+            The test owns the clock and fires the normal provider removal
+            callback. No camera, real timer, or worker thread is started.
+            """
+
+            def start(self) -> None:
+                """Arm once without extending the deadline on repeated access."""
+                if clock.deadline is None:
+                    clock.deadline = clock.now + 60
+
+            def awake(self) -> None:
+                """Allow actual viewer traffic to extend its output's lifetime."""
+                clock.deadline = clock.now + 60
+
+        provider = SimpleNamespace(idle_timer=Timer())
+        outputs = {"hls": provider}
+        self.original.return_value = provider
+        await self.camera.async_create_stream()
+        self.stream.add_provider("hls")
+        self.assertEqual(clock.deadline, 60)
+        clock.now = 40
+        self.stream.add_provider("hls")
+        self.assertEqual(clock.deadline, 60)
+
+        # HA removes the expired provider and stops when no other output owns it.
+        clock.now = 60
+        if clock.deadline <= clock.now:
+            outputs.pop("hls")
+            if not outputs:
+                stopped()
+        stopped.assert_called_once_with()
+        self.assertFalse(outputs)
+
+    async def test_active_viewer_refreshes_deadline_without_affecting_other_outputs(self) -> None:
+        """Keep an active HLS viewer alive while leaving explicit consumers alone."""
+        deadline = {"value": None}
+        now = {"value": 0}
+
+        def start() -> None:
+            """Represent HA's start-once contract for the selected output."""
+            if deadline["value"] is None:
+                deadline["value"] = now["value"] + 60
+
+        timer = SimpleNamespace(start=Mock(side_effect=start))
+        self.original.return_value = SimpleNamespace(idle_timer=timer)
+        await self.camera.async_create_stream()
+        self.stream.add_provider("recorder", 240)
+        self.stream.add_provider("hls", 120)
+        timer.start.assert_not_called()
+        self.stream.add_provider("hls")
+        self.assertEqual(deadline["value"], 60)
+        now["value"] = 50
+
+        # HA's consumer awake method replaces the deadline on viewer activity.
+        deadline["value"] = now["value"] + 60
+        self.stream.add_provider("hls")
+        self.assertEqual(deadline["value"], 110)
 
 
 if __name__ == "__main__":

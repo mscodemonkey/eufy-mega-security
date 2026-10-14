@@ -149,8 +149,10 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
 
         HA owns the stream, viewer traffic, timers and output cleanup. Wrapping
         this instance's public provider factory avoids creating an unwanted HLS
-        output for a recording. Recorders, explicit timeouts and preload keep
-        HA's own behaviour. The entry reload replaces this camera on opt-out.
+        output for a recording. Start the default HLS timer before any segment
+        arrives so a failed startup cannot leave retries running indefinitely.
+        Recorders, explicit timeouts and preload keep HA's own behaviour. The
+        entry reload replaces this camera on opt-out.
         """
         stream = await super().async_create_stream()
         if not self._short_hls_idle or stream is None or stream is self._hls_idle_stream:
@@ -158,10 +160,13 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         add_provider = stream.add_provider
 
         def add_output(fmt: str, timeout: int | None = None) -> StreamOutput:
-            """Supply a shorter default only when a consumer requests HLS."""
-            return add_provider(
+            """Arm the opt-in startup deadline when a consumer requests HLS."""
+            provider = add_provider(
                 fmt, timeout=60 if fmt == "hls" and timeout is None else timeout
             )
+            if fmt == "hls" and timeout is None:
+                provider.idle_timer.start()
+            return provider
 
         stream.add_provider = add_output
         self._hls_idle_stream = stream

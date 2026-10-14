@@ -644,9 +644,14 @@ output alive. Closing all viewers should let it expire after about 60 seconds
 plus any in-flight requests and worker cleanup, instead of HA's usual five
 minutes. Other HLS clients, including casts, can still keep it active.
 
-The option applies to this integration's HA live views. Recordings retain their
-own timeout, and gateway URLs or Eufy app sessions are separate. It also limits
-initial HLS startup to 60 seconds. If a slow camera fails to start or active
+The option starts its 60-second startup deadline before the first video segment,
+so a failed initial session can expire instead of retrying indefinitely. A new
+playback request can start another session. This does not fix an HTTP 463 failure
+or restore a missing picture.
+
+The option applies to this integration's HA live views. Recordings and explicitly
+requested timeouts retain their own behaviour, and gateway URLs or Eufy app
+sessions are separate. If a slow camera fails to start or active
 playback suffers, disable the option to restore HA defaults. Shorter camera
 wake time and battery savings remain unconfirmed until tested on the affected
 hardware. Report whether playback stays healthy while open and whether

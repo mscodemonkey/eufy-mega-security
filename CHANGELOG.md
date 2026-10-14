@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.151
+
+- Improve the opt-in NVR connection test to accept concealed related-address metadata while preserving strict destination and certificate checks. This corrects a connection compatibility problem but still needs a T9000 hardware retest.
+- Correct NVR diagnostics labels for custom guard modes and Geofencing, and preserve those values when actually returned. Missing or unrecognised station readings remain Unknown. Inventory state stays separate from a fresh local read.
+- Fix the existing opt-in 60-second Home Assistant HLS timeout so it also starts before the first video segment. Failed startup can now expire instead of leaving the worker retrying indefinitely. The option remains off by default, and recordings and explicit timeouts keep Home Assistant behaviour.
+- Add regression coverage through the actual WebRTC candidate parser, malformed metadata checks, guard-mode projections and diagnostics output.
+
+- NVR video playback, effective mode under schedules, arming and camera-power controls remain unconfirmed or unavailable. This release does not claim to fix the HTTP 463 video failures.
+
 ## 0.1.150
 
 - Add a Home Assistant Smart Lock E30 auto-lock delay selector with reviewed 30, 60, 90, 120, 150, 180 and 300-second choices. Changes preserve auto-lock enablement, schedules and other lock settings. The existing experimental E30 option remains off by default.
