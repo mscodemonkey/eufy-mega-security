@@ -126,6 +126,8 @@ class GatewayClient:
         raw = payload.get("lock")
         if not isinstance(raw, dict) or not isinstance(raw.get("settings"), dict) or "settings" not in state:
             raise GatewayClientError("Gateway returned invalid lock settings")
+        if setting == "autoLockDelaySeconds" and state["settings"].get(setting) != value:
+            raise GatewayClientError("Gateway did not confirm the auto-lock delay")
         return state
 
     async def refresh_lock(self, serial: str) -> dict[str, Any]:
@@ -156,6 +158,9 @@ class GatewayClient:
             valid = valid and all(settings.get(key) is None or isinstance(settings[key], str) for key in ("observedAt", "notificationsObservedAt"))
             if valid:
                 state["settings"] = {key: settings.get(key) for key in ("volume", *booleans, "observedAt", "notificationsObservedAt")}
+                if "autoLockDelaySeconds" in settings:
+                    delay = settings["autoLockDelaySeconds"]
+                    state["settings"]["autoLockDelaySeconds"] = delay if type(delay) is int and 1 <= delay <= 3600 else None
         return state
 
     async def stored_recordings(self, serial: str, date: str) -> list[dict[str, Any]]:
@@ -344,6 +349,23 @@ class GatewayClient:
         )
         if not isinstance(camera.get("serial"), str):
             raise GatewayClientError("Gateway returned an invalid camera response")
+        return camera
+
+    async def set_camera_setting(self, serial: str, setting: str, value: bool | int) -> dict[str, Any]:
+        """Await an independently confirmed setting within the gateway's 90-second deadline."""
+        try:
+            camera = await self._json(
+                f"/api/cameras/{quote(serial, safe='')}/settings", method="POST",
+                payload={"setting": setting, "value": value}, timeout=140,
+            )
+        except GatewayClientError as error:
+            if error.status is None and error.code is None:
+                raise GatewayClientError("Camera setting outcome is unknown", code="outcome_unknown") from error
+            raise
+        field = "motionSensitivityStep" if setting == "motionSensitivity" else "homebaseChimeEnabled"
+        observed = camera.get("reportedSettings", {}).get(field) if isinstance(camera, dict) and isinstance(camera.get("reportedSettings"), dict) else None
+        if not isinstance(camera, dict) or camera.get("serial") != serial or type(observed) is not type(value) or observed != value:
+            raise GatewayClientError("Gateway did not confirm the camera setting", code="outcome_unknown")
         return camera
 
     async def set_camera_preference(self, serial: str, name: str, value: int) -> dict[str, Any]:

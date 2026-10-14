@@ -9,6 +9,7 @@
  * tests; the production provider is the only implementation allowed to know
  * Mega and PPCS details.
  */
+import type { CameraSettingChange } from "./camera-settings.js";
 import type { E30LockSettingChange } from "../domain/types.js";
 import type { NvrStateSummary } from "../stream/nvr-protocol.js";
 import type { SmartLockState } from "../domain/types.js";
@@ -49,6 +50,9 @@ export interface ProviderEvents {
 
 /** Lifecycle and stream operations required by the gateway server. */
 export interface CameraProvider {
+
+  /** Submit one reviewed absolute camera setting and return fresh confirmed state. */
+  setCameraSetting?(serial: string, change: CameraSettingChange, signal?: AbortSignal): Promise<CameraIdentity>;
 
   /** Refresh one admitted experimental lock without actuating it. */
   refreshLock?(serial: string, signal?: AbortSignal): Promise<SmartLockState>;

@@ -64,6 +64,8 @@ entity:
     eufy_station_camera_route:
       name: Kamera rute
   number:
+    camera_motion_sensitivity:
+      name: Bevægelsesfølsomhed
     camera_light_brightness:
       name: Lysstyrke
     camera_notification_interval:
@@ -77,6 +79,16 @@ entity:
     camera_speaker_volume:
       name: Højttalerlydstyrke
   select:
+    lock_auto_lock_delay:
+      name: Forsinkelse for automatisk låsning
+      state:
+        "30": "30 sekunder"
+        "60": "60 sekunder"
+        "90": "90 sekunder"
+        "120": "120 sekunder"
+        "150": "150 sekunder"
+        "180": "180 sekunder"
+        "300": "300 sekunder"
     lock_volume:
       name: Låselyd
       state:
@@ -192,6 +204,8 @@ entity:
         mounting: Monterer
         reported: Reporteret
   switch:
+    doorbell_homebase_chime:
+      name: Dørklokkelyd på HomeBase
     lock_auto_lock:
       name: Automatisk lås
     lock_notifications:

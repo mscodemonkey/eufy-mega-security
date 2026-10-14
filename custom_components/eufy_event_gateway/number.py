@@ -21,6 +21,7 @@ from .client import GatewayClientError
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyStationEntity, EufyGatewayEntity
 from .preferences import camera_preference_value
+from homeassistant.helpers.entity import EntityCategory
 
 
 async def async_setup_entry(
@@ -32,9 +33,15 @@ async def async_setup_entry(
     coordinator = entry.runtime_data.coordinator
     known: set[str] = set()
     known_cameras: set[tuple[str, str]] = set()
+    known_sensitivity: set[str] = set()
 
     def add_new() -> None:
         for serial, camera in coordinator.cameras.items():
+            sensitivity = camera.get("reportedSettings", {}).get("motionSensitivityStep") if isinstance(camera.get("reportedSettings"), dict) else None
+            steps = camera.get("motionSensitivitySteps")
+            if serial not in known_sensitivity and camera.get("motionSensitivityControlSupported") is True and type(steps) is int and steps in (3, 5, 7) and type(sensitivity) is int and 1 <= sensitivity <= steps:
+                known_sensitivity.add(serial)
+                async_add_entities([EufyMotionSensitivityNumber(coordinator, serial)])
             for name in ("speakerVolume", "soundSensitivity", "lightBrightness", "notificationInterval"):
                 key = (serial, name)
                 if key not in known_cameras and camera_preference_value(camera, name) is not None:
@@ -140,3 +147,54 @@ class EufyCameraPreferenceNumber(EufyGatewayEntity, NumberEntity):
             self.coordinator.async_set_camera(camera)
         except GatewayClientError as error:
             raise HomeAssistantError(f"Could not change camera preference: {error}") from error
+
+
+class EufyMotionSensitivityNumber(EufyGatewayEntity, NumberEntity):
+    """Expose a camera's reviewed detection ladder for its coordinator lifetime.
+
+    The gateway owns native conversion, leases and readback. A higher HA value
+    means more sensitive even where the device's native ladder counts down.
+    """
+
+    _attr_translation_key = "camera_motion_sensitivity"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_native_min_value = 1
+    _attr_native_step = 1
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Bind the control without caching its model-specific maximum."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        NumberEntity.__init__(self)
+        self._attr_unique_id = f"{serial}_motion_sensitivity"
+
+    @property
+    def native_max_value(self) -> float:
+        """Read the current admitted ladder size, leaving invalid admission unavailable."""
+        steps = self.camera.get("motionSensitivitySteps")
+        return steps if type(steps) is int and steps in (3, 5, 7) else 1
+
+    @property
+    def native_value(self) -> float | None:
+        """Select only a confirmed step within the current model's ladder."""
+        settings = self.camera.get("reportedSettings")
+        value = settings.get("motionSensitivityStep") if isinstance(settings, dict) else None
+        return value if type(value) is int and 1 <= value <= self.native_max_value else None
+
+    @property
+    def available(self) -> bool:
+        """Require route admission and a confirmed value, including after failed writes."""
+        steps = self.camera.get("motionSensitivitySteps")
+        return super().available and self.camera.get("motionSensitivityControlSupported") is True and type(steps) is int and steps in (3, 5, 7) and self.native_value is not None
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Convert an integral HA value and publish only independent gateway confirmation."""
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 1 <= value <= self.native_max_value or value != int(value):
+            raise HomeAssistantError("Motion sensitivity must be a supported whole-number step")
+        try:
+            camera = await self.coordinator.client.set_camera_setting(self.serial, "motionSensitivity", int(value))
+            self.coordinator.async_set_camera(camera)
+        except GatewayClientError as error:
+            if error.code == "outcome_unknown":
+                camera = {**self.camera, "reportedSettings": {**(self.camera.get("reportedSettings") or {}), "motionSensitivityStep": None}}
+                self.coordinator.async_set_camera(camera)
+            raise HomeAssistantError(str(error)) from error

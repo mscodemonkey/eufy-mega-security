@@ -167,7 +167,7 @@ class EufyLockSettingEntity(EufyLockEntity):
     @property
     def available(self) -> bool:
         """Expire device settings independently from cloud notification settings."""
-        key = "observedAt" if self.setting in ("volume", "autoLock") else "notificationsObservedAt"
+        key = "observedAt" if self.setting in ("volume", "autoLock", "autoLockDelaySeconds") else "notificationsObservedAt"
         try:
             stamp = self.lock_state["settings"][key]
             observed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
@@ -181,7 +181,7 @@ class EufyLockSettingEntity(EufyLockEntity):
         try:
             state = await self.coordinator.client.set_lock_setting(self.serial, self.setting, value)
         except GatewayClientError as error:
-            if error.code in (None, "outcome_unknown"):
+            if error.code in (None, "outcome_unknown") and getattr(error, "status", None) != 400:
                 state = {**self.lock_state, "serial": self.serial}
                 state.pop("settings", None)
                 self.coordinator.async_set_lock(state)

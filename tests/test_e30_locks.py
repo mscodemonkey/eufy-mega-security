@@ -204,6 +204,39 @@ class E30LockTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await command(client, "synthetic", "autoLock", True)
 
+    async def test_delay_projection_is_optional_and_confirmations_must_match(self):
+        """Version skew and malformed timers leave existing controls intact."""
+        from urllib.parse import quote
+        projection = method("client.py", "GatewayClient", "_lock_state", {"GatewayClientError": ValueError})
+        settings = {"volume": 2, "autoLock": False, "notifications": True, "lockedNotifications": False,
+                    "unlockedNotifications": True, "observedAt": None, "notificationsObservedAt": None}
+        state = {"serial": "synthetic", "model": "T85F1", "state": "locked", "available": True, "settings": settings}
+        self.assertNotIn("autoLockDelaySeconds", projection(state)["settings"])
+        for value in (None, True, 0, 3601, "60", 60.0, 1, 60, 3600):
+            result = projection({**state, "settings": {**settings, "autoLockDelaySeconds": value}})
+            self.assertEqual(result["settings"]["autoLockDelaySeconds"], value if type(value) is int and 1 <= value <= 3600 else None)
+            self.assertEqual(result["settings"]["volume"], 2)
+        command = method("client.py", "GatewayClient", "set_lock_setting", {"GatewayClientError": ValueError, "quote": quote})
+        client = SimpleNamespace(_json=AsyncMock(return_value={"lock": {**state, "settings": {**settings, "autoLockDelaySeconds": 60}}}), _lock_state=projection)
+        await command(client, "synthetic", "autoLockDelaySeconds", 60)
+        with self.assertRaises(ValueError):
+            await command(client, "synthetic", "autoLockDelaySeconds", 90)
+
+    async def test_delay_select_maps_exact_choices_without_rounding(self):
+        """Only reviewed options dispatch, and unknown native values stay unavailable."""
+        current = method("select.py", "EufyLockAutoLockDelaySelect", "current_option", {})
+        select = method("select.py", "EufyLockAutoLockDelaySelect", "async_select_option", {"HomeAssistantError": RuntimeError})
+        entity = SimpleNamespace(_attr_options=["30", "60", "90", "120", "150", "180", "300"], setting_value=None, async_set_setting=AsyncMock())
+        for value in (None, True, "60", 60.0, 10, 3600, 30, 300):
+            entity.setting_value = value
+            self.assertEqual(current(entity), str(value) if type(value) is int and str(value) in entity._attr_options else None)
+        for option in ("0", "31", "60.0", "600", "unknown"):
+            with self.assertRaises(RuntimeError):
+                await select(entity, option)
+        entity.async_set_setting.assert_not_called()
+        await select(entity, "60")
+        entity.async_set_setting.assert_awaited_once_with(60)
+
     async def test_settings_failure_never_hides_physical_lock(self):
         """Busy leaves the cache alone and ambiguous outcomes clear only settings."""
         class ClientError(Exception):
@@ -286,17 +319,17 @@ class E30LockTest(unittest.IsolatedAsyncioTestCase):
             setup = next(node for node in tree.body if isinstance(node, ast.AsyncFunctionDef) and node.name == "async_setup_entry")
             added, listeners = [], []
             coordinator = SimpleNamespace(cameras={}, stations={}, sensors={}, locks={}, async_add_listener=listeners.append)
-            namespace = {factory: lambda *args: args[1:], "er": SimpleNamespace(async_get=lambda hass: None)}
+            namespace = {factory: lambda *args: args[1:], "EufyLockAutoLockDelaySelect": lambda *args: (args[1], "delay"), "er": SimpleNamespace(async_get=lambda hass: None)}
             exec(compile(ast.Module(body=[tree.body[1], setup], type_ignores=[]), filename, "exec"), namespace)
             entry = SimpleNamespace(runtime_data=SimpleNamespace(coordinator=coordinator), async_on_unload=lambda callback: None)
             await namespace["async_setup_entry"](None, entry, added.extend)
             self.assertEqual(added, [])
             coordinator.locks["synthetic"] = {"settings": {"volume": 0, "autoLock": False, "notifications": True,
-                                                           "lockedNotifications": False, "unlockedNotifications": True}}
+                                                           "lockedNotifications": False, "unlockedNotifications": True, "autoLockDelaySeconds": 60}}
             for listener in listeners:
                 listener()
                 listener()
-            self.assertEqual(len(added), 4 if filename == "switch.py" else 1)
+            self.assertEqual(len(added), 4 if filename == "switch.py" else 2)
             self.assertEqual(len(set(added)), len(added))
 
     async def test_volume_keys_reject_off_and_unknown_without_sending(self):

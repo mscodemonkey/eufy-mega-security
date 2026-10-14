@@ -42,6 +42,7 @@ import type { CameraProvider, CaptchaChallenge, CaptchaProvider, ProviderEvents 
 import { PushEventDeduplicator } from "./push-event-deduplicator.js";
 import { resolveDeviceRoute } from "./device-routing.js";
 
+import { CameraSettingError, cameraSettingProfile, cameraSettingWireValue, parseCameraSettingChange, readCameraSetting, runConfirmedCameraSetting, type CameraSettingChange } from "./camera-settings.js";
 import { c31PreferenceNames, c31PreferenceValue, c31PreferenceReadField, validateC31Preference } from "./c31-preferences.js";
 
 const logger = createLogger("provider");
@@ -157,6 +158,7 @@ export interface MegaInventoryReads {
   readonly antiTheftDetectionEnabled?: boolean;
   readonly spotlightEnabled?: boolean;
   readonly motionSensitivityRaw?: number;
+  readonly motionSensitivityStep?: number;
   readonly workingMode?: string;
   readonly recordingDurationSeconds?: number;
   readonly recordingIntervalSeconds?: number;
@@ -749,7 +751,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       guardModeControlSupported: false, guardModeRefreshSupported: false, nightVisionControlSupported: false,
       autoNightVisionControlSupported: false, cameraLightControlSupported: false, timedLightControlSupported: false,
       cameraSirenControlSupported: false, presetPositionControlSupported: false, aiTrackingControlSupported: false,
-      autoCruiseControlSupported: false, preferenceControls: [], streamingQualityModes: [], nightVisionModes: [],
+      autoCruiseControlSupported: false, motionSensitivityControlSupported: false, motionSensitivitySteps: null, homebaseChimeControlSupported: false, preferenceControls: [], streamingQualityModes: [], nightVisionModes: [],
     };
   }
 
@@ -1074,6 +1076,96 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (this.#cameraOperations.get(serial) === current) this.#cameraOperations.delete(serial);
     }).catch(() => undefined);
     return current;
+  }
+
+  /** Own one peer until a single reviewed setting is freshly confirmed or invalidated. */
+  async setCameraSetting(serial: string, input: CameraSettingChange, signal?: AbortSignal): Promise<CameraIdentity> {
+    const change = parseCameraSettingChange(input);
+    const device = this.#devices.get(serial);
+    const route = device ? ppcsStreamRoute(device, this.#devices) : null;
+    const peer = route?.peer;
+    const profile = device && route ? cameraSettingProfile(this.#modelTrialRoute(device, route), change.setting) : null;
+    if (!device || !route || !peer || !profile || !device.adminUserId || this.#recordingClosing) throw new CameraSettingError("unavailable");
+    cameraSettingWireValue(profile, change);
+    const controlMaps = [this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations,
+      this.#audioRecordingOperations, this.#motionOperations, this.#nightVisionOperations, this.#guardModeOperations,
+      this.#lightOperations, this.#panControlOperations, this.#cameraSirenOperations];
+    const related = [...this.#devices.values()].filter(row => (row.parentSerial || row.serial) === peer.serial || row.serial === peer.serial);
+    if (this.#trialPeers.has(peer.serial) || this.#recordingPeerReserved(serial) || this.#stationOperations.has(peer.serial)
+      || related.some(row => this.#ppcsStreams.has(row.serial) || controlMaps.some(map => map.has(row.serial)))) throw new CameraSettingError("busy");
+    this.#trialPeers.add(peer.serial);
+    const generation = this.#startupGeneration;
+    const deadline = Date.now() + 90_000;
+    const field = change.setting === "motionSensitivity" ? "motionSensitivityStep" : "homebaseChimeEnabled";
+    let session: FirstPartyPpcsSession | null = null;
+    let dispatched = false;
+    const check = (): void => {
+      const current = this.#devices.get(serial), currentPeer = this.#devices.get(peer.serial);
+      if (this.#recordingClosing || generation !== this.#startupGeneration || Date.now() >= deadline || (!dispatched && signal?.aborted)
+        || !current || !currentPeer || inventoryBindingChanged(device, current) || inventoryBindingChanged(peer, currentPeer)
+        || currentPeer.p2pDid !== peer.p2pDid || currentPeer.p2pConnection !== peer.p2pConnection) throw new CameraSettingError("unavailable");
+    };
+    const clear = (): void => {
+      this.#invalidateLiveReads(serial, [field]);
+      const current = this.#devices.get(serial);
+      if (current && !inventoryBindingChanged(device, current)) {
+        const reads = { ...current.reads }; delete reads[field];
+        this.#devices.set(serial, { ...current, reads });
+      }
+    };
+    const open = async (): Promise<FirstPartyPpcsSession> => {
+      if (session) return session;
+      const dsk = await this.#dskKey(peer.serial); check();
+      if (!dsk || !peer.p2pDid || !peer.p2pConnection || device.channel === null) throw new CameraSettingError("unavailable");
+      session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid,
+        appConnection: peer.p2pConnection, localAddress: peer.localAddress, dskKey: dsk.key,
+        channel: device.channel, cameraModel: device.model, accountId: device.adminUserId!,
+        homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 90,
+        resolveCipherKey: id => this.#resolveCipherKey(id, peer) });
+      this.#trialSessions.set(peer.serial, session);
+      await session.start(); check(); return session;
+    };
+    const originalPublic = this.#cameraIdentity(device);
+    const abort = (): void => { if (!dispatched) session?.close(); };
+    signal?.addEventListener("abort", abort, { once: true });
+    try {
+      await runConfirmedCameraSetting({ deadline, ...(signal ? { signal } : {}), check,
+        read: async () => {
+          if (!route.homeBaseAttached && (session !== null || !dispatched)) {
+            const owned = await open(); check();
+            try {
+              const params = await owned.readCameraInfo(); check();
+              const value = readCameraSetting(params, device.model, device.deviceType, true, change.setting);
+              clear(); this.#mergeCameraInfo(this.#devices.get(serial)!, params);
+              return value;
+            } catch (error) {
+              check();
+              if (!dispatched) throw error;
+              session?.close(); session = null; this.#trialSessions.delete(peer.serial);
+            }
+          }
+          clear(); await this.#refreshInventoryReads(); check();
+          return this.#devices.get(serial)?.reads[field];
+        },
+        write: async onDispatch => {
+          const owned = await open(); check();
+          await owned.writeReviewedCameraSetting(change, this.#modelTrialRoute(device, route), () => {
+            check(); onDispatch(); dispatched = true;
+          });
+          check();
+          if (route.homeBaseAttached) { owned.close(); session = null; this.#trialSessions.delete(peer.serial); }
+        },
+        invalidate: () => { clear(); const current = this.#devices.get(serial); if (current) this.#events?.camera(this.#cameraIdentity(current)); },
+      }, change.value);
+      check();
+      const identity = this.#cameraIdentity(this.#devices.get(serial)!); this.#events?.camera(identity); return identity;
+    } catch (error) {
+      if (!dispatched && generation === this.#startupGeneration) this.#events?.camera(originalPublic);
+      throw error;
+    } finally {
+      signal?.removeEventListener("abort", abort);
+      this.#trialSessions.get(peer.serial)?.close(); this.#trialSessions.delete(peer.serial); this.#trialPeers.delete(peer.serial);
+    }
   }
 
   /** List trials independently of normal hardware-verified capability flags. */
@@ -2089,6 +2181,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #cameraIdentity(device: MegaInventoryDevice): CameraIdentity {
     const dskPeerSerials = new Set(this.#dskKeys.keys());
     const route = ppcsStreamRoute(device, this.#devices);
+    const settingRoute = route ? this.#modelTrialRoute(device, route) : null;
+    const sensitivityProfile = settingRoute ? cameraSettingProfile(settingRoute, "motionSensitivity") : null;
+    const chimeProfile = settingRoute ? cameraSettingProfile(settingRoute, "homebaseChime") : null;
+    const settingRouteReady = Boolean(device.adminUserId) && isPpcsRouteReady(device, this.#devices, dskPeerSerials);
     const t817lControlsSupported = device.model.toUpperCase().startsWith("T817L")
       && route?.homeBaseAttached === true
       && device.channel !== null
@@ -2114,6 +2210,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         speakerVolume: device.reads.speakerVolume ?? null,
       },
       talkbackSupported: supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
+      motionSensitivityControlSupported: settingRouteReady && sensitivityProfile !== null && device.reads.motionSensitivityStep !== undefined,
+      motionSensitivitySteps: sensitivityProfile?.ladder?.length ?? null,
+      homebaseChimeControlSupported: settingRouteReady && chimeProfile !== null && device.reads.homebaseChimeEnabled !== undefined,
       preferenceControls: supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials))
         ? c31PreferenceNames.filter((name) => c31PreferenceValue(device.reads, name) !== undefined) : [],
       reportedSettings: {
@@ -2136,6 +2235,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         antiTheftDetectionEnabled: device.reads.antiTheftDetectionEnabled ?? null,
         spotlightEnabled: device.reads.spotlightEnabled ?? null,
         motionSensitivityRaw: device.reads.motionSensitivityRaw ?? null,
+        motionSensitivityStep: device.reads.motionSensitivityStep ?? null,
         imageFlipped: device.reads.imageFlipped ?? null,
         statusLedEnabled: device.reads.statusLedEnabled ?? null,
         soundDetectionEnabled: device.reads.soundDetectionEnabled ?? null,
@@ -3078,6 +3178,13 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
     const type = integer(row.param_type);
     if (type !== null) params.set(type, row.param_value);
   }
+  const settingRows = value.flatMap(row => {
+    if (!isRecord(row)) return [];
+    const type = integer(row.param_type);
+    return type === null ? [] : [{ param_type: type, param_value: row.param_value }];
+  });
+  const motionStep = readCameraSetting(settingRows, model ?? "", deviceType, standaloneChannelZero, "motionSensitivity");
+  const reviewedChime = readCameraSetting(settingRows, model ?? "", deviceType, standaloneChannelZero, "homebaseChime");
   const percentage = (type: number): number | undefined => {
     const parsed = finiteNumber(params.get(type));
     return parsed !== null && parsed >= 0 && parsed <= 100 ? parsed : undefined;
@@ -3117,7 +3224,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   // These reads have model-specific evidence. Shared parameter IDs alone do not
   // establish their meaning for every device that reports them.
   const verifiedDoorbell = deviceType === 5 || deviceType === 94;
-  const homebaseChime = verifiedDoorbell ? finiteNumber(params.get(1702)) : null;
+  const homebaseChime = reviewedChime !== undefined ? (reviewedChime ? 1 : 0) : verifiedDoorbell ? finiteNumber(params.get(1702)) : null;
   const mechanicalChime = verifiedDoorbell ? finiteNumber(params.get(1703)) : null;
   const wideDynamicRange = verifiedDoorbell ? finiteNumber(params.get(1704)) : null;
   const chimeVolume = verifiedDoorbell ? percentage(1717) : undefined;
@@ -3202,6 +3309,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
     ...(watermark !== null && [0, 1, 2].includes(watermark) ? { watermarkMode: watermark } : {}),
     ...(antiTheft === 0 || antiTheft === 1 ? { antiTheftDetectionEnabled: antiTheft === 1 } : {}),
     ...(spotlight === 0 || spotlight === 1 ? { spotlightEnabled: spotlight === 1 } : {}),
+    ...(typeof motionStep === "number" ? { motionSensitivityStep: motionStep } : {}),
     ...(sensitivity !== null && Number.isInteger(sensitivity) && sensitivity >= 1 && sensitivity <= 7
       ? { motionSensitivityRaw: sensitivity } : {}),
     ...(mode !== null && Number.isInteger(mode) && mode >= 0 && mode <= 2 ? { workingMode: modeNames[mode]! } : {}),

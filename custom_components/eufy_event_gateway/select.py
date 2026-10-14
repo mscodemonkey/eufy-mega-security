@@ -42,6 +42,7 @@ async def async_setup_entry(
     """Create reported night-vision and managed HomeBase selects."""
     coordinator = entry.runtime_data.coordinator
     known_lock_volumes: set[str] = set()
+    known_lock_delays: set[str] = set()
     known_preferences: set[tuple[str, str]] = set()
 
     def add_preferences() -> None:
@@ -50,6 +51,9 @@ async def async_setup_entry(
             if serial not in known_lock_volumes and type(volume) is int and 0 <= volume <= 3:
                 known_lock_volumes.add(serial)
                 async_add_entities([EufyLockVolumeSelect(coordinator, serial)])
+            if serial not in known_lock_delays and "autoLockDelaySeconds" in lock.get("settings", {}):
+                known_lock_delays.add(serial)
+                async_add_entities([EufyLockAutoLockDelaySelect(coordinator, serial)])
         for serial, camera in coordinator.cameras.items():
             for name in ("watermark", "recordingQuality", "soundType"):
                 key = (serial, name)
@@ -407,3 +411,35 @@ class EufyLockVolumeSelect(EufyLockSettingEntity, SelectEntity):
         if option not in self._attr_options:
             raise HomeAssistantError("Unsupported lock sound level")
         await self.async_set_setting(self._attr_options.index(option) + 1)
+
+
+class EufyLockAutoLockDelaySelect(EufyLockSettingEntity, SelectEntity):
+    """Expose reviewed E30 timer choices without changing automatic-lock enablement.
+
+    The coordinator owns observations and expiry. The gateway preserves schedules
+    and confirms each change before this entity publishes a selected option.
+    """
+
+    _attr_translation_key = "lock_auto_lock_delay"
+    _attr_options = ["30", "60", "90", "120", "150", "180", "300"]
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Bind the delay to the lock's device-settings observation lifetime."""
+        super().__init__(coordinator, serial, "autoLockDelaySeconds")
+
+    @property
+    def available(self) -> bool:
+        """Require fresh settings and a value represented by the reviewed choices."""
+        return super().available and self.current_option is not None
+
+    @property
+    def current_option(self) -> str | None:
+        """Keep unknown and unoffered native timers unavailable rather than rounding."""
+        value = self.setting_value
+        return str(value) if type(value) is int and str(value) in self._attr_options else None
+
+    async def async_select_option(self, option: str) -> None:
+        """Request a mapped integer and await the gateway's independent confirmation."""
+        if option not in self._attr_options:
+            raise HomeAssistantError("Unsupported auto-lock delay")
+        await self.async_set_setting(int(option))

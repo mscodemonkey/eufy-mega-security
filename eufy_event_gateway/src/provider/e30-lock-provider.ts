@@ -31,6 +31,7 @@ export interface E30LockSession {
   querySettings?(): Promise<E30SettingsObservation>;
   setSoundVolume?(volume: E30AudibleVolume, onDispatch: () => void): Promise<void>;
   setAutoLock?(enabled: boolean, onDispatch: () => void): Promise<void>;
+  setAutoLockDelay?(seconds: number, baseline: E30SettingsObservation, onDispatch: () => void): Promise<void>;
   setNotification?(setting: E30NotificationSetting, enabled: boolean, currentMode: number, onDispatch: () => void): Promise<void>;
   close(): void;
 }
@@ -150,7 +151,7 @@ export class E30LockProvider {
     if (Date.now() - (throttle.get(serial) ?? 0) < 10_000) throw new E30LockError("rate_limited");
     const changingSettings = typeof desired === "object";
     const deadline = Date.now() + (changingSettings ? 90_000 : 45_000);
-    const reserve = changingSettings ? (desired.setting === "autoLock" ? 35_000 : 30_000)
+    const reserve = changingSettings ? (["autoLock", "autoLockDelaySeconds"].includes(desired.setting) ? 35_000 : 30_000)
       : desired !== undefined ? 20_000 : 0;
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(changingSettings ? 90_000 : 45_000)]);
@@ -245,14 +246,15 @@ export class E30LockProvider {
   #settings(serial: string, patch: Partial<SmartLockSettings>): SmartLockState {
     const state = this.#states.get(serial);
     if (!state) throw new E30LockError("unavailable");
-    const settings: SmartLockSettings = { volume: null, autoLock: null, notifications: null, lockedNotifications: null,
+    const settings: SmartLockSettings = { volume: null, autoLock: null, autoLockDelaySeconds: null, notifications: null, lockedNotifications: null,
       unlockedNotifications: null, observedAt: null, notificationsObservedAt: null, ...state.settings, ...patch };
     this.#states.set(serial, { ...state, settings }); this.#emit();
     return maskSmartLockState(this.#states.get(serial)!);
   }
 
   #deviceSettings(identity: E30LockIdentity, value: E30SettingsObservation): void {
-    this.#settings(identity.serial, { volume: value.volume, autoLock: value.autoLockEnabled, observedAt: new Date().toISOString() });
+    this.#settings(identity.serial, { volume: value.volume, autoLock: value.autoLockEnabled,
+      autoLockDelaySeconds: value.autoLockDelaySeconds, observedAt: new Date().toISOString() });
   }
 
   #notificationSettings(identity: E30LockIdentity, mode: number): void {
@@ -263,7 +265,7 @@ export class E30LockProvider {
   async #refreshSettings(identity: E30LockIdentity, session: E30LockSession, signal: AbortSignal, check: () => void): Promise<void> {
     if (session.querySettings) {
       try { const value = await bounded(session.querySettings(), signal, 5_000); check(); this.#deviceSettings(identity, value); }
-      catch { check(); this.#settings(identity.serial, { volume: null, autoLock: null, observedAt: null }); }
+      catch { check(); this.#settings(identity.serial, { volume: null, autoLock: null, autoLockDelaySeconds: null, observedAt: null }); }
     }
     if (this.options.freshDevices && Date.now() - this.#lastNotificationRead >= 60_000) {
       this.#lastNotificationRead = Date.now();
@@ -282,7 +284,11 @@ export class E30LockProvider {
     const same = (value: E30SettingsObservation): boolean => first.compareStableFields(second, value, "sound").unchanged
       && first.compareStableFields(second, value, "autoLock").unchanged;
     if (first.autoLockEnabled === null || second.autoLockEnabled === null || !same(second)) throw new E30LockError("unavailable");
-    const notification = change.setting !== "volume" && change.setting !== "autoLock";
+    const changingDelay = change.setting === "autoLockDelaySeconds";
+    if (changingDelay && (second.autoLockDelaySeconds === null || !first.compareStableFields(second, second, "delay").unchanged)) {
+      throw new E30LockError("unavailable");
+    }
+    const notification = change.setting === "notifications" || change.setting === "lockedNotifications" || change.setting === "unlockedNotifications";
     let mode: number | undefined, desiredMode: number | undefined, modeObserved = 0;
     if (notification) {
       mode = await read(this.#mode(identity, signal, check), 20_000); check(); modeObserved = performance.now();
@@ -290,7 +296,8 @@ export class E30LockProvider {
       const mask = change.setting === "notifications" ? 1 : change.setting === "unlockedNotifications" ? 2 : 4;
       desiredMode = change.value ? mode | mask : mode & ~mask;
       if (mode === desiredMode) return maskSmartLockState(this.#states.get(identity.serial)!);
-    } else if (change.setting === "volume" ? second.volume === change.value : second.autoLockEnabled === change.value) {
+    } else if (change.setting === "volume" ? second.volume === change.value
+      : changingDelay ? second.autoLockDelaySeconds === change.value : second.autoLockEnabled === change.value) {
       return maskSmartLockState(this.#states.get(identity.serial)!);
     }
     let started = 0;
@@ -302,6 +309,7 @@ export class E30LockProvider {
     };
     if (change.setting === "volume" && session.setSoundVolume) await session.setSoundVolume(change.value, onDispatch);
     else if (change.setting === "autoLock" && session.setAutoLock) await session.setAutoLock(change.value, onDispatch);
+    else if (change.setting === "autoLockDelaySeconds" && session.setAutoLockDelay) await session.setAutoLockDelay(change.value, second, onDispatch);
     else if (notification && session.setNotification) await session.setNotification(change.setting as E30NotificationSetting, change.value as boolean, mode!, onDispatch);
     else throw new E30LockError("unavailable");
     let confirmed = false;
@@ -316,9 +324,9 @@ export class E30LockProvider {
         if (after !== mode) throw new E30LockError("outcome_unknown");
       } else {
         const after = await bounded(session.querySettings(), signal, remaining); check(); this.#deviceSettings(identity, after);
-        const comparison = first.compareStableFields(second, after, change.setting === "volume" ? "sound" : "autoLock");
+        const comparison = first.compareStableFields(second, after, change.setting === "volume" ? "sound" : changingDelay ? "delay" : "autoLock");
         if (!comparison.unchanged) throw new E30LockError("outcome_unknown");
-        if ((change.setting === "volume" ? after.volume : after.autoLockEnabled) === change.value) { confirmed = true; break; }
+        if ((change.setting === "volume" ? after.volume : changingDelay ? after.autoLockDelaySeconds : after.autoLockEnabled) === change.value) { confirmed = true; break; }
       }
     }
     if (!confirmed) throw new E30LockError("outcome_unknown");
@@ -332,7 +340,7 @@ export class E30LockProvider {
   }
 
   #clearSettings(serial: string): void {
-    if (this.#states.get(serial)?.settings) this.#settings(serial, { volume: null, autoLock: null, notifications: null,
+    if (this.#states.get(serial)?.settings) this.#settings(serial, { volume: null, autoLock: null, autoLockDelaySeconds: null, notifications: null,
       lockedNotifications: null, unlockedNotifications: null, observedAt: null, notificationsObservedAt: null });
   }
 

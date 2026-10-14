@@ -64,6 +64,8 @@ entity:
     eufy_station_camera_route:
       name: Camera route
   number:
+    camera_motion_sensitivity:
+      name: Motion sensitivity
     camera_light_brightness:
       name: Light brightness
     camera_notification_interval:
@@ -77,6 +79,16 @@ entity:
     camera_speaker_volume:
       name: Speaker volume
   select:
+    lock_auto_lock_delay:
+      name: Auto-lock delay
+      state:
+        "30": "30 seconds"
+        "60": "60 seconds"
+        "90": "90 seconds"
+        "120": "120 seconds"
+        "150": "150 seconds"
+        "180": "180 seconds"
+        "300": "300 seconds"
     lock_volume:
       name: Lock volume
       state:
@@ -192,6 +204,8 @@ entity:
         mounting: Mounting
         reported: Reported
   switch:
+    doorbell_homebase_chime:
+      name: HomeBase doorbell chime
     lock_auto_lock:
       name: Auto-lock
     lock_notifications:

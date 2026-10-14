@@ -822,7 +822,7 @@ test("E30 settings bodies are closed and TTL groups expire independently", async
   for(const body of [null,[],{},Object.create({setting:"autoLock",value:true}),{setting:"autoLock",value:1},{setting:"volume",value:true},{setting:"volume",value:0},{setting:"volume",value:4},{setting:"__proto__",value:true},{setting:"autoLock",value:true,extra:1}])assert.equal(isE30LockSettingChange(body),false);
   const now=Date.now(),fresh=new Date(now).toISOString(),old=new Date(now-360001).toISOString();
   const state={serial:identity.serial,name:"Synthetic",model:"T85F1" as const,state:"locked" as const,available:true,batteryPercent:100,stateObservedAt:fresh,
-    settings:{volume:2 as const,autoLock:false,notifications:true,lockedNotifications:false,unlockedNotifications:true,observedAt:fresh,notificationsObservedAt:old}};
+    settings:{volume:2 as const,autoLock:false,autoLockDelaySeconds:90,notifications:true,lockedNotifications:false,unlockedNotifications:true,observedAt:fresh,notificationsObservedAt:old}};
   const masked=maskSmartLockState(state,now);assert.equal(masked.available,true);assert.equal(masked.settings?.autoLock,false);assert.equal(masked.settings?.notifications,null);assert.equal(state.settings.notifications,true);
   const reverse=maskSmartLockState({...state,stateObservedAt:old,settings:{...state.settings,observedAt:old,notificationsObservedAt:fresh}},now);
   assert.equal(reverse.available,false);assert.equal(reverse.settings?.autoLock,null);assert.equal(reverse.settings?.notifications,true);
@@ -961,4 +961,110 @@ test("E30 post-dispatch readback keeps the fifteen-second provider cap", async c
   const provider=new E30LockProvider({credentials:async()=>credentials,changed:()=>{},session:()=>({open:async()=>{},query:async()=>{if(written){now=original+16000;return new Promise<never>(()=>{});}return{rawState:4,batteryPercent:100};},actuate:async(_desired,dispatch)=>{dispatch();writes++;written=true;},close:()=>{}})});
   try{provider.inventory([inventoryRow()],true);await new Promise(resolve=>setImmediate(resolve));await assert.rejects(provider.setLocked(identity.serial,false),(error:unknown)=>error instanceof E30LockError&&error.code==="outcome_unknown");assert.equal(writes,1);assert.equal(provider.list()[0]?.available,false);}
   finally{provider.close();}
+});
+
+test("E30 delay writes preserve enablement and schedule and reject unreviewed choices", async context => {
+  const { E30_AUTO_LOCK_DELAYS } = await import("../src/provider/e30-lock-protocol.js");
+  const { isE30LockSettingChange } = await import("../src/domain/types.js");
+  for (const enabled of [false, true]) for (const schedule of [0, 1]) {
+    const snapshot = autoSnapshot(autoSettingsPlain(enabled, 90, 2, schedule, [7, 30], [22, 5]));
+    const original = commandPlainFields(buildE30Command(identity, { autoLock: { enabled, settings: snapshot } }, 1, 2, 3));
+    for (const seconds of E30_AUTO_LOCK_DELAYS) {
+      const fields = commandPlainFields(buildE30Command(identity, { autoLockDelay: { seconds, settings: snapshot } }, 1, 2, 3));
+      assert.deepEqual([...fields.keys()], [...original.keys()]);
+      for (const [tag, bytes] of original) {
+        if (tag === 0xa5) assert.equal(fields.get(tag)!.readUInt16LE(), seconds);
+        else assert.deepEqual(fields.get(tag), bytes);
+      }
+      assert.equal(isE30LockSettingChange({ setting: "autoLockDelaySeconds", value: seconds }), true);
+    }
+  }
+  const snapshot = autoSnapshot();
+  for (const seconds of [true, 0, -1, 31, 30.5, 301, 3601, Infinity, NaN, "60", null, undefined]) {
+    assert.throws(() => buildE30Command(identity, { autoLockDelay: { seconds, settings: snapshot } } as never, 1, 2, 3), E30LockError);
+    assert.equal(isE30LockSettingChange({ setting: "autoLockDelaySeconds", value: seconds }), false);
+  }
+  assert.throws(() => buildE30Command(identity, { autoLockDelay: { seconds: 60, settings: snapshot, extra: 1 } } as never, 1, 2, 3), E30LockError);
+  assert.equal(isE30LockSettingChange({ setting: "autoLockDelaySeconds", value: 60, extra: 1 }), false);
+  for (const seconds of [0, 1, 3600, 3601]) assert.equal(autoSnapshot(autoSettingsPlain(false, seconds)).autoLockDelaySeconds, seconds >= 1 && seconds <= 3600 ? seconds : null);
+  for (const foreign of [{ ...identity, serial: "T85F100000000002" }, { ...identity, adminUserId: "mnopqrstuvwx" }]) {
+    assert.throws(() => buildE30Command(foreign, { autoLockDelay: { seconds: 60, settings: snapshot } }, 1, 2, 3), E30LockError);
+  }
+  let now = 0; context.mock.method(performance, "now", () => now);
+  const stale = autoSnapshot(); now = 10_001;
+  assert.throws(() => buildE30Command(identity, { autoLockDelay: { seconds: 60, settings: stale } }, 1, 2, 3), E30LockError);
+  assert.ok(!JSON.stringify(snapshot).includes("autoLockDelaySeconds"));
+});
+
+test("E30 timer comparison rejects companion drift, including opaque tags", () => {
+  const a = autoSnapshot(), after = autoSnapshot(autoSettingsPlain(false, 60));
+  assert.equal(a.compareStableFields(a, after, "delay").unchanged, true);
+  for (const bytes of [autoSettingsPlain(true), autoSettingsPlain(false, 90, 3), autoSettingsPlain(false, 90, 2, 1, [7, 30], [22, 5]), autoSettingsPlain(false, 90, 2, 0, [7, 30])]) {
+    const b = autoSnapshot(bytes);
+    assert.equal(a.compareStableFields(b, after, "delay").unchanged, false);
+    assert.equal(a.compareStableFields(a, b, "delay").unchanged, false);
+  }
+  assert.equal(a.compareStableFields(after, after, "autoLock").unchanged, false);
+  const opaque = (value: number) => autoSnapshot(Buffer.concat([autoSettingsPlain(), Buffer.from([0xac, 1, value])]));
+  assert.equal(opaque(1).compareStableFields(opaque(2), opaque(2), "delay").unchanged, false);
+  assert.equal(opaque(1).compareStableFields(opaque(1), a, "delay").unchanged, false);
+  const empty = new E30SettingsObservation(2, new Map());
+  assert.equal(empty.compareStableFields(empty, empty, "delay").unchanged, false);
+});
+
+test("E30 timer transport binds fresh settings to baseline and publishes once", async () => {
+  const fake = new FakeMqtt();
+  const session = new E30MqttSession(identity, credentials, new AbortController().signal, {
+    resolve: async () => ["8.8.8.8"],
+    connect: () => { queueMicrotask(() => { fake.connected = true; fake.emit("connect"); }); return fake as unknown as MqttClient; },
+  });
+  let dispatched = 0;
+  try {
+    await session.open(); const baseline = await session.querySettings();
+    fake.autoLock = true;
+    await assert.rejects(session.setAutoLockDelay(60, baseline, () => dispatched++), E30LockError);
+    fake.autoLock = false; fake.autoDelay = 120;
+    await assert.rejects(session.setAutoLockDelay(60, baseline, () => dispatched++), E30LockError);
+    assert.equal(fake.commands.filter(row => row.opcode === 52).length, 0);
+    fake.autoDelay = 90;
+    await session.setAutoLockDelay(60, baseline, () => dispatched++);
+    assert.equal(dispatched, 1); assert.equal(fake.autoDelay, 60); assert.equal(fake.autoLock, false);
+    const latest = await session.querySettings(); fake.publishError = true;
+    await assert.rejects(session.setAutoLockDelay(90, latest, () => dispatched++), (error: unknown) => error instanceof E30LockError && error.code === "outcome_unknown");
+    assert.equal(dispatched, 2); assert.equal(fake.commands.filter(row => row.opcode === 52).length, 2);
+  } finally { session.close(); }
+});
+
+test("E30 timer provider confirms readback, rejects companion drift and leaves notification paths alone", async () => {
+  for (const scenario of ["success", "enabled-drift", "volume-drift", "unknown", "noop"] as const) {
+    let seconds = 90, enabled = false, volume = 2, writes = 0, cloud = 0;
+    const provider = new E30LockProvider({ credentials: async () => credentials, changed: () => {},
+      freshDevices: async () => { cloud++; return [{ ...inventoryRow(), params: [{ param_type: 1919, param_value: "3" }] }]; },
+      session: () => ({ open: async () => {}, query: async () => ({ rawState: 4, batteryPercent: 100 }),
+        querySettings: async () => autoSnapshot(autoSettingsPlain(enabled, seconds, volume)),
+        setAutoLockDelay: async (value, baseline, dispatch) => {
+          assert.equal(baseline.autoLockDelaySeconds, 90); dispatch(); writes++; seconds = value;
+          if (scenario === "enabled-drift") enabled = true;
+          if (scenario === "volume-drift") volume = 3;
+          if (scenario === "unknown") throw Error("synthetic");
+        },
+        setNotification: async () => { throw Error("Timer must not write notifications"); },
+        actuate: async () => { throw Error("Timer must not actuate"); }, close: () => {},
+      }),
+    });
+    try {
+      provider.inventory([inventoryRow()], true); await new Promise(resolve => setImmediate(resolve));
+      const initialCloud = cloud;
+      const pending = provider.setSetting(identity.serial, { setting: "autoLockDelaySeconds", value: scenario === "noop" ? 90 : 60 });
+      if (scenario === "success" || scenario === "noop") {
+        const state = await pending; assert.equal(state.settings?.autoLockDelaySeconds, scenario === "noop" ? 90 : 60);
+        assert.equal(state.settings?.autoLock, false); assert.equal(state.settings?.volume, 2);
+      } else {
+        await assert.rejects(pending, (error: unknown) => error instanceof E30LockError && error.code === "outcome_unknown");
+        assert.equal(provider.list()[0]?.settings?.autoLockDelaySeconds, null);
+      }
+      assert.equal(cloud, initialCloud); assert.equal(writes, scenario === "noop" ? 0 : 1);
+      assert.equal(provider.list()[0]?.state, "locked");
+    } finally { provider.close(); }
+  }
 });

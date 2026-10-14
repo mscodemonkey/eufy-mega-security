@@ -111,6 +111,9 @@ export interface CameraReportedSettings {
   readonly antiTheftDetectionEnabled?: boolean | null;
   readonly spotlightEnabled?: boolean | null;
   readonly motionSensitivityRaw?: number | null;
+
+  /** Reviewed least-to-most detection step, independent of legacy raw parameter mirrors. */
+  readonly motionSensitivityStep?: number | null;
   readonly imageFlipped: boolean | null;
   readonly statusLedEnabled: boolean | null;
   readonly soundDetectionEnabled: boolean | null;
@@ -159,6 +162,11 @@ export interface CameraState {
 
   /** Known preferences with an exact owned and ready control route. */
   readonly preferenceControls?: readonly string[];
+
+  /** Exact-route admission for fresh-state-confirmed sensitivity and HomeBase chime writes. */
+  readonly motionSensitivityControlSupported?: boolean;
+  readonly motionSensitivitySteps?: number | null;
+  readonly homebaseChimeControlSupported?: boolean;
 
   /** Model-specific streaming choices, used only when control admission is true. */
   readonly streamingQualityModes?: readonly CameraStreamingQualityMode[];
@@ -320,6 +328,9 @@ export const SMART_LOCK_STATE_TTL_MS = 360_000;
 export interface SmartLockSettings {
   readonly volume: 0 | 1 | 2 | 3 | null;
   readonly autoLock: boolean | null;
+
+  /** Device-reported timer, independent of whether automatic locking is enabled. */
+  readonly autoLockDelaySeconds: number | null;
   readonly notifications: boolean | null;
   readonly lockedNotifications: boolean | null;
   readonly unlockedNotifications: boolean | null;
@@ -327,8 +338,9 @@ export interface SmartLockSettings {
   readonly notificationsObservedAt: string | null;
 }
 
-/** Closed user controls exclude schedule, timer, arbitrary modes and mute writes. */
+/** Closed user controls admit reviewed timer choices, excluding schedules and mute writes. */
 export type E30LockSettingChange = { readonly setting: "volume"; readonly value: 1 | 2 | 3 }
+  | { readonly setting: "autoLockDelaySeconds"; readonly value: 30 | 60 | 90 | 120 | 150 | 180 | 300 }
   | { readonly setting: "autoLock" | "notifications" | "lockedNotifications" | "unlockedNotifications"; readonly value: boolean };
 
 /** Validate untrusted settings bodies before provider authority or network work is used. */
@@ -337,6 +349,7 @@ export function isE30LockSettingChange(value: unknown): value is E30LockSettingC
   const row = value as Record<string, unknown>;
   if (Object.keys(row).length !== 2 || !Object.hasOwn(row, "setting") || !Object.hasOwn(row, "value")) return false;
   return row.setting === "volume" ? Number.isInteger(row.value) && [1, 2, 3].includes(row.value as number)
+    : row.setting === "autoLockDelaySeconds" ? Number.isInteger(row.value) && [30, 60, 90, 120, 150, 180, 300].includes(row.value as number)
     : ["autoLock", "notifications", "lockedNotifications", "unlockedNotifications"].includes(row.setting as string) && typeof row.value === "boolean";
 }
 
@@ -348,7 +361,7 @@ export function maskSmartLockState(state: SmartLockState, now = Date.now()): Sma
     return Number.isFinite(age) && age >= 0 && age <= SMART_LOCK_STATE_TTL_MS;
   };
   const settings = state.settings ? { ...state.settings,
-    ...(!fresh(state.settings.observedAt) ? { volume: null, autoLock: null, observedAt: null } : {}),
+    ...(!fresh(state.settings.observedAt) ? { volume: null, autoLock: null, autoLockDelaySeconds: null, observedAt: null } : {}),
     ...(!fresh(state.settings.notificationsObservedAt) ? { notifications: null, lockedNotifications: null, unlockedNotifications: null, notificationsObservedAt: null } : {}) } : undefined;
   return { ...state, ...(settings ? { settings } : {}),
     ...(!fresh(state.stateObservedAt) ? { state: "unknown" as const, available: false, batteryPercent: null } : {}) };
@@ -407,6 +420,11 @@ export interface CameraIdentity {
 
   /** Known preferences with an exact owned and ready control route. */
   readonly preferenceControls?: readonly string[];
+
+  /** Exact-route admission for fresh-state-confirmed sensitivity and HomeBase chime writes. */
+  readonly motionSensitivityControlSupported?: boolean;
+  readonly motionSensitivitySteps?: number | null;
+  readonly homebaseChimeControlSupported?: boolean;
 
   /** Native choices for this model, separate from recorded-video resolution. */
   readonly streamingQualityModes?: readonly CameraStreamingQualityMode[];

@@ -10,6 +10,7 @@
  * stream plus safe counters, so the rest of the gateway never handles PPCS
  * packet layout or camera encryption directly.
  */
+import { cameraSettingProfile, cameraSettingWireValue, type CameraSettingChange } from "../provider/camera-settings.js";
 import { buildS100SirenCommand } from "./s100-siren-command.js";
 import { S100SirenTrialError, type S100SirenTrialTransport, type S100SirenFailureStage } from "../provider/s100-siren-trial.js";
 import { createCipheriv, createDecipheriv, createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes } from "node:crypto";
@@ -866,6 +867,23 @@ export function buildC31PreferencePayload(name: C31Preference, value: number, ac
     clear = buildCameraEnableBody(0, value, accountId);
   }
   return { command, payload: rawPayload(encryptLevel2(clear, key, sequence), 0, 8, [8, 0], 0) };
+}
+
+/** Build one exact-profile encrypted setting frame with native ownership and child routing. */
+export function buildReviewedCameraSettingPayload(
+  change: CameraSettingChange, route: ModelControlRoute, accountId: string, key: Buffer, sequence: number, now: number,
+): { readonly command: number; readonly payload: Buffer } {
+  const profile = cameraSettingProfile(route, change.setting);
+  if (!profile || !accountId || key.length !== 32 || !Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) {
+    throw new Error("Reviewed camera setting route unavailable");
+  }
+  const native = cameraSettingWireValue(profile, change);
+  const clear = profile.form === "binary" ? buildCameraEnableBody(route.channel!, native, accountId)
+    : Buffer.from(JSON.stringify(profile.form === "payload"
+      ? { account_id: accountId, cmd: profile.readParam, mChannel: route.channel, mValue3: 0,
+        payload: { sensitivity: native, channel: route.channel } }
+      : { commandType: profile.readParam, data: { value: native, index: native, channel: route.channel, transaction: `${now}` } }));
+  return { command: profile.command, payload: rawPayload(encryptLevel2(clear, key, sequence), route.channel!, 8, [8, 0], 0) };
 }
 
 /** Protect a native SoloCam preset or tracking request on its channel-zero control envelope. */
@@ -1821,6 +1839,29 @@ export class FirstPartyPpcsSession {
     try { this.#sendCommand(frame.command, frame.payload); }
     catch (error) { void acknowledgement.catch(() => undefined); throw error; }
     await acknowledgement;
+  }
+
+  /** Send exactly one reviewed absolute setting; only provider readback can establish success. */
+  async writeReviewedCameraSetting(change: CameraSettingChange, route: ModelControlRoute, onDispatch: () => void): Promise<void> {
+    const profile = cameraSettingProfile(route, change.setting);
+    if (!profile || this.#closed || this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
+      || this.#options.cameraModel !== route.model || this.#options.channel !== route.channel
+      || this.#options.homeBaseAttached !== route.homeBaseAttached) throw new Error("Reviewed camera setting session unavailable");
+    cameraSettingWireValue(profile, change);
+    await this.#waitForLevel2Key();
+    const frame = buildReviewedCameraSettingPayload(change, route, this.#options.accountId, this.#level2Key!, this.#level2Seq++, Date.now());
+    const acknowledgement = this.#waitForControlResult(frame.command, route.channel!);
+    try {
+      onDispatch();
+      this.#sendCommand(frame.command, frame.payload);
+    } catch (error) { void acknowledgement.catch(() => undefined); throw error; }
+    try { await acknowledgement; }
+    catch (error) {
+
+      // Some firmware omits the acknowledgement. Keep the session alive for
+      // delivery, then let fresh provider readback decide without resending.
+      if (!(error instanceof CameraControlAcknowledgementTimeoutError)) throw error;
+    }
   }
 
   /** Send only reviewed exact-C31 preferences; the provider must independently confirm inventory. */

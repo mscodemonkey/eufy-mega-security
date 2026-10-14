@@ -437,6 +437,43 @@ existing behaviour. Standalone installs can set
 `EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION=true`.
 
 
+### Motion sensitivity and doorbell quiet hours
+
+Home Assistant exposes a motion sensitivity number for these exact routes.
+Step 1 is least sensitive. Higher steps increase sensitivity, including on
+models whose native values count down.
+
+| Model | Connection | Steps |
+| --- | --- | --- |
+| T8210 | HomeBase 3 | 1 to 5 |
+| T8113-Z | HomeBase 3 | 1 to 7 |
+| T8160-C | HomeBase 3 | 1 to 7 |
+| T8171 | HomeBase 3 | 1 to 7 |
+| T817L | Standalone, channel zero | 1 to 3 |
+
+Controls appear only when the gateway has a known setting and a ready route.
+Close live views before changing these settings, including views of other
+cameras on the same HomeBase. Each change sends one command and waits for
+fresh confirmation. If the outcome is unknown, check the Eufy app before
+retrying. Other models and connections do not gain these controls.
+
+The T8210 on HomeBase 3 also exposes a HomeBase doorbell chime switch. Turning
+it off leaves motion detection, recording and Home Assistant doorbell events
+enabled. It controls the HomeBase sound, not a separate wired or plug-in chime.
+
+[Import the quiet-hours blueprint](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fmscodemonkey%2Feufy-mega-security%2Fblob%2Fv0.1.150%2Fblueprints%2Fautomation%2Feufy_event_gateway%2Fdoorbell_quiet_hours.yaml)
+and select that chime switch, then set the start and end times. The blueprint
+checks the switch's dedicated chime attribute and refuses other controls.
+It switches the chime off during quiet hours and on outside them. Equal times
+mean no quiet interval. The automation owns this schedule and reevaluates on
+Home Assistant startup, automation reload and recovery of the switch.
+
+Times follow Home Assistant's local timezone. A clock time skipped by daylight
+saving time takes effect at the next trigger or recovery. Disabling the
+automation during quiet hours leaves the chime off until it is enabled manually.
+Stored-setting confirmation does not establish acoustic silence or ringing,
+or measure how effectively a camera detects physical motion at each step.
+
 ### Experimental Smart Lock E30
 
 The `experimental_e30_locks` app option is off by default. Enable it only with
@@ -453,13 +490,16 @@ Each command queries the lock first, sends at most one absolute action, and
 waits for a fresh device query. It never reports an accepted MQTT message as
 completed movement. An unknown outcome makes the entity unavailable. Check the
 physical lock or Eufy app before trying again. Calibration, user management,
-latch opening, schedule and delay editing are not exposed.
+latch opening and schedule editing are not exposed.
 
 Home Assistant also receives Auto Lock, overall notifications, locked
 notifications and unlocked notifications switches, plus a Low/Medium/High
 sound selector. Settings writes require the bolt to be locked. Native sound
 Off is reported but makes the selector unavailable. EMS never writes Off.
-Auto Lock changes preserve the existing delay and schedule. Notification
+The Auto-lock delay selector offers 30, 60, 90, 120, 150, 180 and 300 seconds.
+Changing the delay preserves Auto Lock enablement and its schedule. Timers
+outside those choices remain readable but make the selector unavailable.
+Auto Lock switch changes preserve the existing delay and schedule. Notification
 changes preserve every other notification bit.
 
 Off-door tests confirmed both Auto Lock values and both lock/unlock

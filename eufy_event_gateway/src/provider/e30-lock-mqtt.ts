@@ -154,6 +154,18 @@ export class E30MqttSession {
     } catch { throw new E30LockError(dispatched ? "outcome_unknown" : "unavailable"); }
   }
 
+  /** Bind a single timer write to the provider baseline and a fresh unchanged device read. */
+  async setAutoLockDelay(seconds: number, baseline: E30SettingsObservation, onDispatch: () => void): Promise<void> {
+    let dispatched = false;
+    try {
+      const settings = await this.querySettings();
+      if (settings.autoLockDelaySeconds !== baseline.autoLockDelaySeconds
+        || !baseline.compareStableFields(baseline, settings, "delay").unchanged) throw new E30LockError("unavailable");
+      const command = await this.#command({ autoLockDelay: { seconds, settings } });
+      await this.#publish(command, () => { onDispatch(); dispatched = true; });
+    } catch { throw new E30LockError(dispatched ? "outcome_unknown" : "unavailable"); }
+  }
+
   /** Publish one notification bit change. The caller owns mode freshness; PUBACK never proves delivery or state. */
   async setNotification(setting: E30NotificationSetting, enabled: boolean, currentMode: number, onDispatch: () => void): Promise<void> {
     if (typeof onDispatch !== "function") throw new E30LockError("unavailable");

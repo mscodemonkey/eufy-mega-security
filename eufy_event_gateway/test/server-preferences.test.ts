@@ -59,3 +59,29 @@ test("preference writes validate input and preserve reported state when confirma
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("reviewed settings distinguish clean rejection, ambiguity and confirmed SSE state", async () => {
+  const { CameraSettingError } = await import("../src/provider/camera-settings.js");
+  const directory = await mkdtemp(join(tmpdir(), "eufy-settings-http-")), state = new GatewayState();
+  const identity = { serial: "fixture", name: "Fixture", model: "T817L", stationSerial: "fixture", streamSupported: false, doorbellSupported: false,
+    motionSensitivityControlSupported: true, motionSensitivitySteps: 3, reportedSettings: { motionSensitivityStep: 2 } } as unknown as Parameters<GatewayState["registerCamera"]>[0];
+  state.registerCamera(identity);
+  let calls = 0, code: "busy" | "outcome_unknown" | null = "busy";
+  const provider = { setCameraSetting: async () => { calls++; if (code) throw new CameraSettingError(code); return { ...identity, reportedSettings: { motionSensitivityStep: 3 } }; } } as unknown as CameraProvider;
+  const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "fixture-token" }, state, new SnapshotStore(directory), {} as LiveStreamManager, provider, null);
+  const events: unknown[] = []; state.on("event", event => events.push(event));
+  try {
+    await server.listen(); const base = `http://127.0.0.1:${server.port}/api/cameras`;
+    const post = (body: unknown, headers = { authorization: "Bearer fixture-token", "content-type": "application/json" }, id = "fixture") => fetch(`${base}/${id}/settings`, { method: "POST", headers, body: JSON.stringify(body) });
+    const body = { setting: "motionSensitivity", value: 3 };
+    assert.equal((await post(body, { authorization: "", "content-type": "application/json" })).status, 401);
+    assert.equal((await post(body, undefined, "missing")).status, 404);
+    assert.equal((await post(body, { authorization: "Bearer fixture-token", "content-type": "text/plain" })).status, 400);
+    assert.equal((await post({ ...body, extra: 1 })).status, 400); assert.equal(calls, 0);
+    let result = await post(body); assert.equal(result.status, 409); assert.equal((await result.json()).code, "busy");
+    code = "outcome_unknown"; result = await post(body); assert.equal(result.status, 503); assert.equal((await result.json()).code, "outcome_unknown");
+    code = null; result = await post(body); assert.equal(result.status, 200);
+    const confirmed = await result.json(); assert.equal(confirmed.motionSensitivitySteps, 3); assert.equal(confirmed.reportedSettings.motionSensitivityStep, 3);
+    assert.ok(events.some(event => JSON.stringify(event).includes('"motionSensitivityStep":3')));
+  } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
+});

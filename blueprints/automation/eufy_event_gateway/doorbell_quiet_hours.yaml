@@ -1,0 +1,65 @@
+blueprint:
+  name: Eufy HomeBase doorbell quiet hours
+  description: >-
+    Silence the HomeBase chime during quiet hours while recording, detection and
+    Home Assistant doorbell events stay enabled. Select the HomeBase chime switch,
+    not a motion or camera switch. The automation enables the chime outside quiet
+    hours and owns this schedule. Equal start and end times disable quiet hours.
+    Disabling the automation while quiet leaves the chime off until you enable it
+    yourself. Times follow Home Assistant's local timezone. A boundary skipped by
+    daylight saving time is applied at the next trigger or availability recovery.
+  domain: automation
+  input:
+    doorbell_chime:
+      name: HomeBase doorbell chime
+      description: The Eufy HomeBase chime switch with the dedicated chime control attribute.
+      selector:
+        entity:
+          filter:
+            - domain: switch
+              integration: eufy_event_gateway
+    quiet_start:
+      name: Quiet hours start
+      default: "22:00:00"
+      selector:
+        time: {}
+    quiet_end:
+      name: Quiet hours end
+      default: "07:00:00"
+      selector:
+        time: {}
+mode: restart
+variables:
+  chime_entity: !input doorbell_chime
+  quiet_start: !input quiet_start
+  quiet_end: !input quiet_end
+  current_time: "{{ now().strftime('%H:%M:%S') }}"
+  quiet_now: >-
+    {{ (quiet_start < quiet_end and quiet_start <= current_time < quiet_end)
+       or (quiet_start > quiet_end and (current_time >= quiet_start or current_time < quiet_end)) }}
+trigger:
+  - platform: time
+    at: !input quiet_start
+  - platform: time
+    at: !input quiet_end
+  - platform: homeassistant
+    event: start
+  - platform: event
+    event_type: automation_reloaded
+  - platform: state
+    entity_id: !input doorbell_chime
+    from: unavailable
+  - platform: state
+    entity_id: !input doorbell_chime
+    from: unknown
+condition:
+  - condition: template
+    value_template: "{{ state_attr(chime_entity, 'eufy_control') == 'homebase_doorbell_chime' }}"
+  - condition: template
+    value_template: "{{ states(chime_entity) in ['on', 'off'] }}"
+  - condition: template
+    value_template: "{{ states(chime_entity) != ('off' if quiet_now else 'on') }}"
+action:
+  - service: "{{ 'switch.turn_off' if quiet_now else 'switch.turn_on' }}"
+    target:
+      entity_id: !input doorbell_chime

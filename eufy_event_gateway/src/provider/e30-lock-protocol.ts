@@ -52,6 +52,9 @@ export type E30AudibleVolume = 1 | 2 | 3;
 /** The three E30 notification bits; other mode bits remain owned by the device. */
 export type E30NotificationSetting = "notifications" | "lockedNotifications" | "unlockedNotifications";
 
+/** Shared native timer choices admitted until the E30-specific extended UI gate is confirmed. */
+export const E30_AUTO_LOCK_DELAYS = [30, 60, 90, 120, 150, 180, 300] as const;
+
 /** Build one JSON notification write from a caller-owned fresh mode, preserving every other bit. */
 export function buildE30NotificationCommand(identity: E30LockIdentity, setting: E30NotificationSetting,
   enabled: boolean, currentMode: number, sequence: number): E30Command {
@@ -89,11 +92,12 @@ function notificationMode(value: unknown): value is number {
 
 /** Closed settings actions cannot select an arbitrary setting or motor command. */
 export type E30SettingsAction = "settings" | { readonly soundVolume: E30AudibleVolume }
-  | { readonly autoLock: { readonly enabled: boolean; readonly settings: E30SettingsObservation } };
+  | { readonly autoLock: { readonly enabled: boolean; readonly settings: E30SettingsObservation } }
+  | { readonly autoLockDelay: { readonly seconds: number; readonly settings: E30SettingsObservation } };
 
 /**
  * Owns one transient settings snapshot inside the transport caller's operation.
- * Only volume and stable-field comparison escape; serialization and inspection
+ * Normalized settings and stable-field comparison escape; serialization and inspection
  * redact the private tag values. Never persist this object or include it in errors.
  */
 export class E30SettingsObservation {
@@ -112,6 +116,26 @@ export class E30SettingsObservation {
     return this.#validAutoLock() ? this.#fields.get(0xa1)![0] === 1 : null;
   }
 
+  /** Report the native seconds without substituting a disabled or malformed value. */
+  get autoLockDelaySeconds(): number | null {
+    if (!this.#validAutoLock()) return null;
+    const seconds = this.#fields.get(0xa2)!.readUInt16LE();
+    return seconds >= 1 && seconds <= 3600 ? seconds : null;
+  }
+
+  /** Change only timer bytes, preserving enablement and opaque schedule companions. */
+  autoLockDelayCommand(identity: E30LockIdentity, seconds: number, unixTime: number, keyTime: number, sequence: number): E30Command {
+    if (!E30_AUTO_LOCK_DELAYS.includes(seconds as typeof E30_AUTO_LOCK_DELAYS[number]) || this.autoLockDelaySeconds === null) {
+      throw new E30LockError("unavailable");
+    }
+
+    this.#validateSettingsWrite(identity, unixTime, keyTime, sequence);
+    const timestamp = Buffer.alloc(4); timestamp.writeUInt32LE(unixTime);
+    const timer = Buffer.alloc(2); timer.writeUInt16LE(seconds);
+    return encodeE30Command(identity, 52, [timestamp, Buffer.from(identity.adminUserId), Buffer.from([0]),
+      this.#fields.get(0xa1)!, timer, this.#fields.get(0xa3)!, this.#fields.get(0xa4)!, this.#fields.get(0xa5)!], keyTime, sequence);
+  }
+
   /** Check inactive companions for structural plausibility; preserve bytes and privately confirm the delay. */
   autoLockTrialPreflight(): { eligible: boolean; delaySeconds: number | null } {
     const valid = this.#validAutoLock();
@@ -124,13 +148,18 @@ export class E30SettingsObservation {
 
   /** Encode only the enable change from this fresh, device/owner-bound private snapshot. */
   autoLockCommand(identity: E30LockIdentity, enabled: boolean, unixTime: number, keyTime: number, sequence: number): E30Command {
-    validateE30Identity(identity, false);
-    const age = performance.now() - this.#observedAt;
-    if (![unixTime, keyTime, sequence].every(uint32) || typeof enabled !== "boolean" || !this.#validAutoLock() || this.#device !== identity.serial
-      || this.#owner !== identity.adminUserId || age < 0 || age > 10_000) throw new E30LockError("unavailable");
+    this.#validateSettingsWrite(identity, unixTime, keyTime, sequence);
+    if (typeof enabled !== "boolean") throw new E30LockError("unavailable");
     const timestamp = Buffer.alloc(4); timestamp.writeUInt32LE(unixTime);
     return encodeE30Command(identity, 52, [timestamp, Buffer.from(identity.adminUserId), Buffer.from([0]), Buffer.from([enabled ? 1 : 0]),
       this.#fields.get(0xa2)!, this.#fields.get(0xa3)!, this.#fields.get(0xa4)!, this.#fields.get(0xa5)!], keyTime, sequence);
+  }
+
+  #validateSettingsWrite(identity: E30LockIdentity, unixTime: number, keyTime: number, sequence: number): void {
+    validateE30Identity(identity, false);
+    const age = performance.now() - this.#observedAt;
+    if (![unixTime, keyTime, sequence].every(uint32) || !this.#validAutoLock() || this.#device !== identity.serial
+      || this.#owner !== identity.adminUserId || age < 0 || age > 10_000) throw new E30LockError("unavailable");
   }
 
   #validAutoLock(): boolean {
@@ -148,17 +177,17 @@ export class E30SettingsObservation {
   }
 
   /** Compare fields stable across two baseline reads, excluding volume itself. */
-  compareStableFields(baseline: E30SettingsObservation, latest: E30SettingsObservation, setting: "sound" | "autoLock" = "sound"): { unchanged: boolean; comparedFields: number } {
-    if (setting !== "sound" && setting !== "autoLock") throw new E30LockError("unavailable");
+  compareStableFields(baseline: E30SettingsObservation, latest: E30SettingsObservation, setting: "sound" | "autoLock" | "delay" = "sound"): { unchanged: boolean; comparedFields: number } {
+    if (setting !== "sound" && setting !== "autoLock" && setting !== "delay") throw new E30LockError("unavailable");
     let unchanged = true;
     let comparedFields = 0;
     const tags = new Set([...this.#fields.keys(), ...baseline.#fields.keys(), ...latest.#fields.keys()]);
     for (const tag of tags) {
-      if (tag === (setting === "sound" ? 0xab : 0xa1)) continue;
+      if (tag === (setting === "sound" ? 0xab : setting === "delay" ? 0xa2 : 0xa1)) continue;
       const first = this.#fields.get(tag), second = baseline.#fields.get(tag), after = latest.#fields.get(tag);
       if (!first || !second) { unchanged = false; continue; }
       if (!first.equals(second)) {
-        if (setting === "autoLock" && ((tag >= 0xa2 && tag <= 0xa5) || tag === 0xab)) unchanged = false;
+        if (setting === "delay" || (setting === "autoLock" && ((tag >= 0xa2 && tag <= 0xa5) || tag === 0xab))) unchanged = false;
         continue;
       }
       comparedFields++;
@@ -240,6 +269,12 @@ export function buildE30Command(
   if (![unixTime, keyTime, sequence].every(uint32)) throw new E30LockError("unavailable");
   const objectAction = typeof action === "object" && action !== null;
   if (objectAction && Object.keys(action).length !== 1) throw new E30LockError("unavailable");
+  if (objectAction && "autoLockDelay" in action) {
+    const request = action.autoLockDelay;
+    if (!request || typeof request !== "object" || Object.keys(request).length !== 2
+      || !(request.settings instanceof E30SettingsObservation)) throw new E30LockError("unavailable");
+    return request.settings.autoLockDelayCommand(identity, request.seconds, unixTime, keyTime, sequence);
+  }
   if (objectAction && "autoLock" in action) {
     const request = action.autoLock;
     if (!request || typeof request !== "object" || Object.keys(request).length !== 2
