@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.152
+
+- Fix the standalone T8200 doorbell live-start request to match the official client contract. This is limited to exact T8200 direct connections and leaves every other camera on its existing media path.
+- Prevent later session-key negotiation from repeating the T8200 start request, and identify the selected path in privacy-safe stream diagnostics.
+- Add exact JSON and wire-envelope regression coverage.
+- The request contract is verified from an official-client capture. Playable video on physical T8200 hardware still needs reporter confirmation.
+
 ## 0.1.151
 
 - Improve the opt-in NVR connection test to accept concealed related-address metadata while preserving strict destination and certificate checks. This corrects a connection compatibility problem but still needs a T9000 hardware retest.
