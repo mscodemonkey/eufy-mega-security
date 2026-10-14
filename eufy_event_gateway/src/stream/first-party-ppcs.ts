@@ -637,6 +637,44 @@ export function buildStandaloneLiveStartValue(
 }
 
 /**
+ * Serialize the clear live-start request used by an exact standalone T8200.
+ *
+ * This deliberately excludes fields from newer standalone-camera contracts.
+ * A working official-client exchange sent this minimal shape once and received
+ * video immediately, without first negotiating a control-session key.
+ */
+export function buildT8200LiveStartValue(
+  accountId: string,
+  publicKey: string,
+  timestamp: number,
+): string {
+  if (accountId.length === 0) throw new Error("T8200 live start requires an account identifier");
+  if (publicKey.length === 0) throw new Error("T8200 live start requires a public key");
+  if (!Number.isSafeInteger(timestamp) || timestamp < 0) {
+    throw new Error("T8200 live-start timestamp must be a non-negative whole number");
+  }
+  return JSON.stringify({ commandType: 1000, data: {
+    accountId,
+    camera_type: 0,
+    encryptkey: publicKey,
+    entrytype: 0,
+    msg_id: 3,
+    streamtype: 1,
+    timestamp,
+  } });
+}
+
+/**
+ * Wrap an exact T8200 live-start value in its observed clear command envelope.
+ *
+ * Channel zero, sign code zero, and stream identifier 13 are part of this
+ * model-specific wire contract rather than generic PPCS defaults.
+ */
+export function buildT8200LiveStartPayload(value: string): Buffer {
+  return rawPayload(Buffer.from(value), 0, 0, [1, 0], 13);
+}
+
+/**
  * Build the level-one control payload that starts a standalone camera stream.
  *
  * The encrypted JSON is labelled with sign code 1 and frame type 11 so the
@@ -1459,7 +1497,7 @@ export class FirstPartyPpcsSession {
     videoCodec: "unknown" as "h264" | "h265" | "unknown",
     videoNalTypes: [] as number[],
     mediaStartAttempts: 0,
-    mediaStartProtocols: [] as ("level1" | "level2")[],
+    mediaStartProtocols: [] as ("level1" | "level2" | "t8200-clear")[],
     mediaStopAttempts: 0,
     mediaStopProtocol: "none" as "none" | "level1-direct" | "level2-payload",
     closeReason: "open" as PpcsStreamCloseReason | "open",
@@ -1484,6 +1522,7 @@ export class FirstPartyPpcsSession {
   #speaker: C31TalkbackSender | null = null;
   #closed = false;
   #closedSequenceChannels: string | null = null;
+  #t8200MediaStartSent = false;
   #maximumDurationTimer: ReturnType<typeof setTimeout> | null = null;
   #firstFrameTimer: ReturnType<typeof setTimeout> | null = null;
   #pendingByType = new Map<number, PendingPpcsFrame>();
@@ -2964,9 +3003,23 @@ export class FirstPartyPpcsSession {
     this.#send(REQ.data, packet, this.#remote);
   }
 
-  /** Send START_LIVE using the strongest protection negotiated with a standalone peer. */
+  /** Send START_LIVE using the exact model contract or strongest negotiated protection. */
   #startOwnMedia(): void {
     if (this.#closed || !this.#remote) return;
+    if (this.#options.cameraModel === "T8200") {
+      if (this.#t8200MediaStartSent) return;
+      const accountId = this.#options.accountId ?? "";
+      if (accountId.length === 0) {
+        this.stats.level2Error = "T8200 live start requires an account identifier";
+        return;
+      }
+      const value = buildT8200LiveStartValue(accountId, publicModulus(this.#rsa.publicKey), Date.now());
+      this.#t8200MediaStartSent = true;
+      this.stats.mediaStartAttempts++;
+      this.stats.mediaStartProtocols.push("t8200-clear");
+      this.#sendCommand(1700, buildT8200LiveStartPayload(value));
+      return;
+    }
     this.stats.mediaStartAttempts++;
     const value = buildStandaloneLiveStartValue(
       this.#options.cameraModel,

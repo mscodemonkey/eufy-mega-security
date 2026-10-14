@@ -37,6 +37,8 @@ import {
   buildStandaloneGuardModeValue,
   buildStandaloneLiveStartPayload,
   buildStandaloneLiveStartValue,
+  buildT8200LiveStartPayload,
+  buildT8200LiveStartValue,
   buildTimedCameraLightControlValue,
   decodePpcsVideoFrame,
   decodePpcsControlRecord,
@@ -306,6 +308,34 @@ test("labels a negotiated standalone live start as level-two frame type 10", () 
   decipher.setAuthTag(encrypted.subarray(0, 16));
   const clear = Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
   assert.equal(clear.toString("utf8"), value);
+});
+
+test("builds the exact clear T8200 live-start contract", () => {
+  const value = buildT8200LiveStartValue("test-account", "test-modulus", 1_791_730_800_000);
+  assert.deepEqual(JSON.parse(value), {
+    commandType: 1000,
+    data: {
+      accountId: "test-account",
+      camera_type: 0,
+      encryptkey: "test-modulus",
+      entrytype: 0,
+      msg_id: 3,
+      streamtype: 1,
+      timestamp: 1_791_730_800_000,
+    },
+  });
+
+  const payload = buildT8200LiveStartPayload(value);
+  assert.equal(payload.readUInt16LE(0), value.length);
+  assert.deepEqual(payload.subarray(4, 10), Buffer.from([1, 0, 0, 0, 13, 0]));
+  assert.equal(payload.subarray(10).toString("utf8"), value);
+});
+
+test("rejects incomplete T8200 live-start values", () => {
+  assert.throws(() => buildT8200LiveStartValue("", "test-modulus", 1), /account identifier/);
+  assert.throws(() => buildT8200LiveStartValue("test-account", "", 1), /public key/);
+  assert.throws(() => buildT8200LiveStartValue("test-account", "test-modulus", -1), /timestamp/);
+  assert.throws(() => buildT8200LiveStartValue("test-account", "test-modulus", 1.5), /timestamp/);
 });
 
 test("keeps the native SoloCam motion envelope separate from a live-start request", () => {
