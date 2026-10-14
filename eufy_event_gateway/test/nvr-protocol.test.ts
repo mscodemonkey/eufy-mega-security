@@ -4,6 +4,8 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { IceCandidate, RTCIceCandidate } from "werift";
+import { diagnosticsPage } from "../src/diagnostics/page.js";
 import { NvrPtcsReassembler } from "../src/stream/nvr-ptcs-reassembly.js";
 import { nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrVideo, nvrTrialSensor, nvrStateSummary, NvrTrialError } from "../src/stream/nvr-protocol.js";
 import { loadConfig } from "../src/config.js";
@@ -96,7 +98,7 @@ test('NVR endpoint and candidate checks reject local-only and malformed destinat
     [candidate.replace('192.0.2.1', '127.0.0.1'), 'candidate_host'],
     [candidate.replace('1234', '65536'), 'candidate_port'],
     [candidate.replace('typ host', 'typ unknown'), 'candidate_type'],
-    [candidate + ' rport 0', 'candidate_extension'],
+    [candidate + ' rport 0', 'candidate_related_port'],
   ]);
   for (const [bad, reason] of failures) {
     assert.throws(() => nvrCandidate(bad), (error: unknown) => error instanceof NvrTrialError && error.reason === reason);
@@ -200,4 +202,98 @@ test('NVR offer accepts one optional numeric SCTP token without widening the med
       assert.ok(error instanceof NvrTrialError); assert.equal(error.reason, 'offer_media'); return true;
     });
   }
+});
+
+test('NVR concealed metadata reaches the real ICE parser without weakening destinations', () => {
+  for (const type of ['srflx', 'prflx', 'relay']) {
+    for (const destination of ['192.0.2.1', '2001:db8::1']) {
+      for (const address of ['0.0.0.0', '::']) {
+        for (const port of ['0', '9']) {
+          const text = `candidate:1 1 UDP 123 ${destination} 1234 typ ${type} raddr ${address} rport ${port}`;
+          assert.equal(nvrCandidate('a=' + text), text);
+          assert.equal(nvrOffer(offer() + 'a=' + text + '\r\n').mid, '2');
+          const parsed = IceCandidate.fromJSON(new RTCIceCandidate({ candidate: nvrCandidate(text), sdpMid: '2', sdpMLineIndex: 0 }));
+          assert.ok(parsed);
+          assert.equal(parsed.ip, destination);
+          assert.equal(parsed.port, 1234);
+          assert.equal(parsed.relatedAddress, address);
+          assert.equal(parsed.relatedPort, Number(port));
+        }
+      }
+    }
+  }
+  const candidate = 'candidate:1 1 UDP 123 192.0.2.1 1234 typ relay raddr 0.0.0.0 rport 0';
+  assert.equal(nvrOffer(offer() + ('a=' + candidate + '\r\n').repeat(64)).mid, '2');
+  assert.throws(() => nvrOffer(offer() + ('a=' + candidate + '\r\n').repeat(65)),
+    (error: unknown) => error instanceof NvrTrialError && error.reason === 'candidate_limit');
+  assert.throws(() => nvrOffer((offer() + 'a=' + candidate + '\r\n').replace('sha-256', 'sha-1')),
+    (error: unknown) => error instanceof NvrTrialError && error.reason === 'offer_fingerprint');
+});
+
+test('NVR related metadata rejects malformed and ambiguous pairs with fixed reasons', () => {
+  const prefix = 'candidate:1 1 UDP 123 192.0.2.1 1234 typ relay';
+  const cases = [
+    [' raddr 0.0.0.0', 'candidate_related_address'],
+    [' raddr :: rport 1234', 'candidate_related_address'],
+    [' raddr [::] rport 9', 'candidate_related_address'],
+    [' raddr 0:0:0:0:0:0:0:0 rport 9', 'candidate_related_address'],
+    [' raddr 00.0.0.0 rport 9', 'candidate_related_address'],
+    [' rport 0', 'candidate_related_port'],
+    [' raddr 192.0.2.2 rport 0', 'candidate_related_port'],
+    [' raddr :: rport -1', 'candidate_related_port'],
+    [' raddr :: rport canary-private-value', 'candidate_related_port'],
+    [' raddr :: rport 65536', 'candidate_related_port'],
+    [' raddr :: rport 0 rport 9', 'candidate_related_port'],
+    [' raddr :: raddr 0.0.0.0 rport 9', 'candidate_related_address'],
+    [' raddr :: rport', 'candidate_shape'],
+  ] as const;
+  for (const [suffix, reason] of cases) {
+    assert.throws(() => nvrCandidate(prefix + suffix), (error: unknown) => {
+      assert.ok(error instanceof NvrTrialError);
+      assert.equal(error.reason, reason);
+      assert.equal(error.message.includes('canary-private-value'), false);
+      return true;
+    });
+  }
+  for (const port of ['0', '9']) {
+    assert.throws(() => nvrCandidate(prefix.replace('typ relay', 'typ host') + ' raddr :: rport ' + port));
+  }
+  for (const destination of ['0.0.0.0', '::', '127.0.0.1']) {
+    assert.throws(() => nvrCandidate(prefix.replace('192.0.2.1', destination) + ' raddr :: rport 0'),
+      (error: unknown) => error instanceof NvrTrialError && error.reason === 'candidate_host');
+  }
+  assert.throws(() => nvrCandidate(prefix.replace('1234', '0') + ' raddr :: rport 0'),
+    (error: unknown) => error instanceof NvrTrialError && error.reason === 'candidate_port');
+  for (const suffix of ['', ' raddr 192.0.2.2 rport 9', ' raddr 192.0.2.2 rport 65535', ' generation 0 network-cost 999']) {
+    assert.equal(nvrCandidate(prefix + suffix), prefix + suffix);
+  }
+});
+
+test('NVR modes retain custom and geofencing values without inventing absent station state', () => {
+  for (const mode of [0, 1, 2, 3, 4, 5, 47, 63, 6, 7, 62, 64]) {
+    const result = nvrStateSummary({ params: [
+      { channel: 255, param_type: 1224, param_value: mode },
+      { dev_type: 255, param_type: 1151, param_value: mode },
+    ] }, 9);
+    const expected = [6, 7, 62, 64].includes(mode) ? null : mode;
+    assert.equal(result.configuredGuardMode, expected);
+    assert.equal(result.effectiveGuardMode, expected);
+  }
+  const cameraOnly = nvrStateSummary({ params: [{ dev_type: 9, param_type: 1224, param_value: 2 }],
+    db_bypass_str: [{ channel: 9, param_type: 6250, param_value: 'MA==' }] }, 9);
+  assert.equal(cameraOnly.cameraPower, 'on');
+  assert.equal(cameraOnly.configuredGuardMode, null);
+  assert.equal(cameraOnly.effectiveGuardMode, null);
+  assert.equal(cameraOnly.parameterCount, 2);
+});
+
+test('NVR diagnostics distinguish custom labels and unknown local readings', () => {
+  const page = diagnosticsPage();
+  for (const [mode, label] of [[0, 'Away'], [1, 'Home'], [2, 'Schedule'], [3, 'Custom 1'],
+    [4, 'Custom 2'], [5, 'Custom 3'], [47, 'Geofencing'], [63, 'Disarmed']]) {
+    assert.ok(page.includes(`${mode}: '${label}'`));
+  }
+  assert.equal(page.includes("3: 'Geofence'"), false);
+  assert.ok(page.includes('Unknown means this read returned no value or an unrecognised one.'));
+  assert.ok(page.includes('Inventory state may appear separately in Home Assistant. It is not a fresh local read.'));
 });

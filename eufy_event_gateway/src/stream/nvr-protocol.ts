@@ -15,7 +15,8 @@ const nvrTrialReasons = [
   "unspecified", "signalling_queue_limit", "signalling_closed", "signalling_error", "session_mismatch",
   "station_mismatch", "channel_mismatch", "relay_count", "relay_shape", "relay_fields", "candidate_limit",
   "candidate_shape", "candidate_component", "candidate_transport", "candidate_priority", "candidate_host",
-  "candidate_port", "candidate_type", "candidate_extension", "offer_order", "offer_media", "offer_fingerprint", "offer_mid", "offer_ice",
+  "candidate_port", "candidate_type", "candidate_extension", "candidate_related_address", "candidate_related_port",
+  "offer_order", "offer_media", "offer_fingerprint", "offer_mid", "offer_ice",
   "offer_setup", "offer_sctp", "offer_message_size", "offer_duplicate", "peer_setup", "peer_failed",
   "peer_disconnected", "local_candidate_limit", "remote_description", "remote_candidate", "create_answer",
   "local_description", "send_answer", "unexpected_negotiation_error",
@@ -133,7 +134,7 @@ export function nvrStateSummary(response: Record<string, unknown>, channel: numb
   };
   const guard = (parameter: number): number | null => {
     const value = read(255, parameter);
-    return value !== null && [0, 1, 2, 3, 63].includes(value) ? value : null;
+    return value !== null && [0, 1, 2, 3, 4, 5, 47, 63].includes(value) ? value : null;
   };
   const power = read(channel, 6250, true);
   return { configuredGuardMode: guard(1224), effectiveGuardMode: guard(1151),
@@ -265,7 +266,11 @@ export function nvrOffer(value: unknown): { sdp: string; mid: string } {
   return { sdp: value, mid: mids[0]!.slice(6) };
 }
 
-/** Validate candidate syntax and addresses before passing it to the ICE library. */
+/**
+ * Validate destinations before passing a candidate to the ICE library.
+ * Non-host candidates may conceal paired related metadata, as in RFC 8829
+ * section 7.3 and RFC 8839 section 5.1. Those fields are never destinations.
+ */
 export function nvrCandidate(value: unknown): string {
   if (typeof value !== "string" || Buffer.byteLength(value) > 8192 || /[\r\n]/.test(value)) throw new NvrTrialError("negotiation", "candidate_shape");
   const text = value.replace(/^a=/, ""), parts = text.trim().split(/\s+/);
@@ -277,9 +282,26 @@ export function nvrCandidate(value: unknown): string {
   if (!nvrNetworkHost(parts[4] ?? "")) throw new NvrTrialError("negotiation", "candidate_host");
   if (!/^\d+$/.test(parts[5] ?? "") || Number(parts[5]) < 1 || Number(parts[5]) > 65535) throw new NvrTrialError("negotiation", "candidate_port");
   if (!["host", "srflx", "relay", "prflx"].includes(parts[7] ?? "")) throw new NvrTrialError("negotiation", "candidate_type");
+  let relatedAddress: string | undefined, relatedPort: string | undefined;
   for (let i = 8; i < parts.length; i += 2) {
-    if (parts[i] === "rport" && (!/^\d+$/.test(parts[i + 1] ?? "") || Number(parts[i + 1]) < 1 || Number(parts[i + 1]) > 65535)) throw new NvrTrialError("negotiation", "candidate_extension");
-    if (parts[i] === "raddr" && !nvrNetworkHost(parts[i + 1] ?? "")) throw new NvrTrialError("negotiation", "candidate_extension");
+    if (parts[i] === "raddr") {
+      if (relatedAddress !== undefined) throw new NvrTrialError("negotiation", "candidate_related_address");
+      relatedAddress = parts[i + 1]!;
+    }
+    if (parts[i] === "rport") {
+      if (relatedPort !== undefined) throw new NvrTrialError("negotiation", "candidate_related_port");
+      relatedPort = parts[i + 1]!;
+    }
+  }
+  const concealed = parts[7] !== "host" && (relatedAddress === "0.0.0.0" || relatedAddress === "::")
+    && (relatedPort === "0" || relatedPort === "9");
+  if (!concealed) {
+    if (relatedPort !== undefined && (!/^\d+$/.test(relatedPort) || Number(relatedPort) < 1 || Number(relatedPort) > 65535)) {
+      throw new NvrTrialError("negotiation", "candidate_related_port");
+    }
+    if (relatedAddress !== undefined && !nvrNetworkHost(relatedAddress)) {
+      throw new NvrTrialError("negotiation", "candidate_related_address");
+    }
   }
   return text;
 }
