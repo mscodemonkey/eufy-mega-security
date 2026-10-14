@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.149
+
+- Give Smart Lock E30 initial status queries up to 15 seconds before rejecting a command, while reserving time for confirmed readback.
+- Keep E30 controls available after a command is rejected before dispatch, using the existing confirmed state and its original expiry. Uncertain outcomes after dispatch still invalidate state.
+- Handle rejected preflight reads safely when the operation budget is exhausted. Motor commands are never retried automatically.
+
 ## 0.1.148
 
 - Add default-off Smart Lock E30 T85F1 support with Home Assistant lock/unlock and battery entities through Eufy cloud MQTT.
