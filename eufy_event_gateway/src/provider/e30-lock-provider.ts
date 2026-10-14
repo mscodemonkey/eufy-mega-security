@@ -9,7 +9,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { MegaDevice } from "../mega/types.js";
 import { maskSmartLockState, isE30LockSettingChange, type E30LockSettingChange, type SmartLockSettings, type SmartLockState } from "../domain/types.js";
 import { createLogger } from "../logging.js";
-import { bounded, E30MqttSession } from "./e30-lock-mqtt.js";
+import { bounded, E30MqttSession, E30_STATUS_QUERY_TIMEOUT_MS } from "./e30-lock-mqtt.js";
 import { E30LockError, validateE30Identity, type E30LockIdentity, type E30MqttCredentials, type E30Observation, type E30SettingsObservation, type E30AudibleVolume, type E30NotificationSetting, parseE30NotificationMode } from "./e30-lock-protocol.js";
 
 const logger = createLogger("e30-lock");
@@ -150,12 +150,18 @@ export class E30LockProvider {
     if (Date.now() - (throttle.get(serial) ?? 0) < 10_000) throw new E30LockError("rate_limited");
     const changingSettings = typeof desired === "object";
     const deadline = Date.now() + (changingSettings ? 90_000 : 45_000);
-    const reserve = changingSettings && desired.setting === "autoLock" ? 35_000 : 30_000;
+    const reserve = changingSettings ? (desired.setting === "autoLock" ? 35_000 : 30_000)
+      : desired !== undefined ? 20_000 : 0;
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(changingSettings ? 90_000 : 45_000)]);
     const read = <T>(work: Promise<T>, limit: number): Promise<T> => {
-      const remaining = deadline - Date.now() - (changingSettings ? reserve : 0);
-      if (remaining <= 0) throw new E30LockError("unavailable");
+      const remaining = deadline - Date.now() - reserve;
+      if (remaining <= 0) {
+
+        // Callers have already started this read. Retiring it must not leave an orphaned rejection.
+        void work.catch(() => undefined);
+        throw new E30LockError("unavailable");
+      }
       return bounded(work, signal, Math.min(limit, remaining));
     };
     let dispatched = false;
@@ -177,7 +183,7 @@ export class E30LockProvider {
       stage = "connect";
       await read(session.open(), 45_000); check();
       stage = "query";
-      const before = await read(session.query(), 5_000); check();
+      const before = await read(session.query(), E30_STATUS_QUERY_TIMEOUT_MS); check();
       let state = this.#observe(identity, before);
       if (desired === undefined) {
         await this.#refreshSettings(identity, session, signal, check);
@@ -188,12 +194,19 @@ export class E30LockProvider {
         return await this.#changeSettings(identity, session, desired, signal, deadline, check, read,
           () => { check(); dispatched = true; this.#lastWrite.set(serial, Date.now()); onDispatch?.(); });
       }
-      if (state.state === "unknown") throw new E30LockError("unavailable");
+      if (state.state === "unknown") {
+        this.#invalidate(serial); this.#emit();
+        throw new E30LockError("unavailable");
+      }
       if ((state.state === "locked") === desired) return state;
       stage = "write";
-      await bounded(session.actuate(desired, () => { check(); dispatched = true; this.#lastWrite.set(serial, Date.now()); onDispatch?.(); }), signal, 3_000);
+      const motorBudget = (): void => { if (deadline - Date.now() < 20_000) throw new E30LockError("unavailable"); };
+      motorBudget();
+      await bounded(session.actuate(desired, () => { check(); motorBudget(); dispatched = true; this.#lastWrite.set(serial, Date.now()); onDispatch?.(); }), signal, 3_000);
       stage = "readback";
       const start = Date.now();
+
+      // The provider caps the complete readback window even though a transport status read permits longer.
       for (const at of [3_000, 8_000, 13_000]) {
         await delay(Math.max(0, start + at - Date.now()), undefined, { signal }); check();
         const observation = await bounded(session.query(), signal, Math.max(1, start + 15_000 - Date.now())); check();
@@ -206,7 +219,7 @@ export class E30LockProvider {
         logger.warn("e30_lock_operation_unavailable", `stage=${stage} dispatched=${dispatched}`);
         if (changingSettings) {
           if (dispatched) this.#clearSettings(serial);
-        } else this.#invalidate(serial);
+        } else if (desired === undefined || dispatched) this.#invalidate(serial);
         this.#emit();
       }
       if (dispatched) throw new E30LockError("outcome_unknown");

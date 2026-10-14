@@ -904,3 +904,61 @@ test("E30 settings and motor share a lease and cancellation retires delayed cred
     controller.abort();await assert.rejects(pending);release?.(credentials);await new Promise(resolve=>setImmediate(resolve));assert.equal(writes,0);assert.equal(provider.list()[0]?.state,"locked");
   }finally{provider.close();}
 });
+
+test("E30 provider accepts a correlated status reply after the former five-second cutoff", async () => {
+  const fake=new FakeMqtt(),emit=fake.emit.bind(fake),timers:ReturnType<typeof setTimeout>[]=[];
+  fake.emit=(event:string|symbol,...args:unknown[]):boolean=>{
+    const packet=args[2] as {retain?:boolean;dup?:boolean}|undefined;
+    if(event==="message"&&fake.commands.at(-1)?.opcode===34&&!packet?.retain&&!packet?.dup){timers.push(setTimeout(()=>emit(event,...args),6000));return true;}
+    return emit(event,...args);
+  };
+  const done=new Promise<void>(resolve=>fake.once("close",resolve));
+  const provider=new E30LockProvider({credentials:async()=>credentials,changed:()=>{},stateCodes:{locked:2,unlocked:1},
+    session:(id,creds,signal)=>new E30MqttSession(id,creds,signal,{resolve:async()=>["8.8.8.8"],connect:()=>{queueMicrotask(()=>{fake.connected=true;fake.emit("connect");});return fake as unknown as MqttClient;}})});
+  try{provider.inventory([inventoryRow()],true);await done;assert.equal(provider.list()[0]?.state,"locked");assert.equal(provider.list()[0]?.available,true);assert.equal(fake.publishes,2);}
+  finally{provider.close();timers.forEach(clearTimeout);}
+});
+
+test("E30 status transport allows fifteen seconds while settings retain their five-second bound", async context => {
+  const {E30_STATUS_QUERY_TIMEOUT_MS}=await import("../src/provider/e30-lock-mqtt.js");assert.equal(E30_STATUS_QUERY_TIMEOUT_MS,15000);
+  const requested:number[]=[],original=AbortSignal.timeout.bind(AbortSignal);
+  context.mock.method(AbortSignal,"timeout",(ms:number)=>{requested.push(ms);return original(ms===5000?5:ms);});
+  const fake=new FakeMqtt(),session=new E30MqttSession(identity,credentials,new AbortController().signal,{resolve:async()=>["8.8.8.8"],connect:()=>{queueMicrotask(()=>{fake.connected=true;fake.emit("connect");});return fake as unknown as MqttClient;}});
+  try{await session.open();await session.query();fake.wrongMessages=true;await assert.rejects(session.querySettings(),E30LockError);assert.deepEqual(requested,[15000,5000]);assert.equal(fake.listenerCount("message"),0);}
+  finally{session.close();}
+});
+
+test("E30 pre-dispatch motor failures preserve confirmed facts without setting a write throttle", async context => {
+  const now=Date.now();let fail=false;context.mock.timers.enable({apis:["Date"],now});
+  const provider=new E30LockProvider({credentials:async()=>credentials,changed:()=>{},session:()=>({open:async()=>{},query:async()=>{if(fail)throw Error('synthetic');return{rawState:4,batteryPercent:100};},querySettings:async()=>autoSnapshot(),actuate:async()=>{throw Error('Forbidden');},close:()=>{}})});
+  try{
+    provider.inventory([inventoryRow()],true);await new Promise(resolve=>setImmediate(resolve));const before=provider.list()[0];assert.equal(before?.state,"locked");fail=true;
+    for(let n=0;n<2;n++){await assert.rejects(provider.setLocked(identity.serial,false),(error:unknown)=>error instanceof E30LockError&&error.code==="unavailable");assert.deepEqual(provider.list()[0],before);}
+    context.mock.timers.setTime(now+11000);await assert.rejects(provider.refresh(identity.serial));assert.equal(provider.list()[0]?.available,false);assert.equal(provider.list()[0]?.settings?.autoLock,null);
+    context.mock.timers.setTime(now+411000);assert.equal(provider.list()[0]?.available,false);
+  }finally{provider.close();}
+});
+
+test("E30 motor reserve admits twenty seconds and refuses less before dispatch", async context => {
+  let now=Date.now();context.mock.timers.enable({apis:["Date"],now});context.mock.method(Date,"now",()=>now);
+  for(const remaining of [19999,20000]){
+    const baseline=now;let active=false,advanced=false,actuations=0,dispatches=0;
+    const provider=new E30LockProvider({credentials:async()=>credentials,changed:()=>{},session:()=>({open:async()=>{},query:async()=>({get rawState(){if(active&&!advanced){now=baseline+45000-remaining;advanced=true;}return 4;},batteryPercent:100}),actuate:async(_desired,dispatch)=>{actuations++;dispatch();dispatches++;throw Error('synthetic');},close:()=>{}})});
+    try{provider.inventory([inventoryRow()],true);await new Promise(resolve=>setImmediate(resolve));active=true;await assert.rejects(provider.setLocked(identity.serial,false),(error:unknown)=>error instanceof E30LockError&&error.code===(remaining===20000?"outcome_unknown":"unavailable"));assert.equal(actuations,remaining===20000?1:0);assert.equal(dispatches,remaining===20000?1:0);}
+    finally{provider.close();now=baseline;}
+  }
+});
+
+test("E30 exhausted preflight handles already-started read rejections", async context => {
+  let now=Date.now(),active=false,writes=0;const failures:unknown[]=[];const rejected=(reason:unknown)=>failures.push(reason);process.on("unhandledRejection",rejected);context.mock.timers.enable({apis:["Date"],now});context.mock.method(Date,"now",()=>now);
+  const provider=new E30LockProvider({credentials:async()=>{if(active)now+=26000;return credentials;},changed:()=>{},session:()=>({open:async()=>{if(active)throw Error('synthetic retired read');},query:async()=>({rawState:4,batteryPercent:100}),actuate:async()=>{writes++;},close:()=>{}})});
+  try{provider.inventory([inventoryRow()],true);await new Promise(resolve=>setImmediate(resolve));active=true;await assert.rejects(provider.setLocked(identity.serial,false));await new Promise(resolve=>setImmediate(resolve));await new Promise(resolve=>setImmediate(resolve));assert.equal(writes,0);assert.deepEqual(failures,[]);assert.equal(provider.list()[0]?.state,"locked");}
+  finally{provider.close();process.off("unhandledRejection",rejected);}
+});
+
+test("E30 post-dispatch readback keeps the fifteen-second provider cap", async context => {
+  let now=Date.now(),written=false,clockReads=0,writes=0;const original=now;context.mock.timers.enable({apis:["Date"],now});context.mock.method(Date,"now",()=>{if(written&&++clockReads===2)now=original+3000;return now;});
+  const provider=new E30LockProvider({credentials:async()=>credentials,changed:()=>{},session:()=>({open:async()=>{},query:async()=>{if(written){now=original+16000;return new Promise<never>(()=>{});}return{rawState:4,batteryPercent:100};},actuate:async(_desired,dispatch)=>{dispatch();writes++;written=true;},close:()=>{}})});
+  try{provider.inventory([inventoryRow()],true);await new Promise(resolve=>setImmediate(resolve));await assert.rejects(provider.setLocked(identity.serial,false),(error:unknown)=>error instanceof E30LockError&&error.code==="outcome_unknown");assert.equal(writes,1);assert.equal(provider.list()[0]?.available,false);}
+  finally{provider.close();}
+});

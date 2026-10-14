@@ -14,6 +14,9 @@ import { buildE30Command, buildE30NotificationCommand, decodeE30QueryReply, deco
 
 const logger = createLogger("e30-mqtt");
 
+/** Initial status reads allow a sleeping lock time to respond; callers retain shorter operation/readback caps. */
+export const E30_STATUS_QUERY_TIMEOUT_MS = 15_000;
+
 /** Injectable network boundary for deterministic transport tests. */
 export interface E30MqttNetwork {
   readonly resolve: (hostname: string) => Promise<string[]>;
@@ -123,7 +126,7 @@ export class E30MqttSession {
 
   /** Publish a read once and accept only its non-retained, non-duplicate correlated reply. */
   async query(): Promise<E30Observation> {
-    return this.#read(await this.#command("query"), decodeE30QueryReply);
+    return this.#read(await this.#command("query"), decodeE30QueryReply, E30_STATUS_QUERY_TIMEOUT_MS);
   }
 
   /** Read fresh settings without exposing unrelated values or interpreting a SET acknowledgement. */
@@ -165,12 +168,12 @@ export class E30MqttSession {
 
   #nextSequence(): number { return ++this.#sequence; }
 
-  async #read<T>(command: E30Command, decode: (bytes: Buffer, identity: E30LockIdentity, query: E30Command) => T | null): Promise<T> {
+  async #read<T>(command: E30Command, decode: (bytes: Buffer, identity: E30LockIdentity, query: E30Command) => T | null, timeout = 5_000): Promise<T> {
     if (this.#reading || this.#publishing) throw new E30LockError("busy");
     const client = this.#check();
     this.#reading = true;
     const controller = new AbortController();
-    const signal = AbortSignal.any([this.signal, controller.signal, AbortSignal.timeout(5_000)]);
+    const signal = AbortSignal.any([this.signal, controller.signal, AbortSignal.timeout(timeout)]);
     let cleanup = (): void => {};
     const result = new Promise<T>((resolve, reject) => {
       const received = (topic: string, bytes: Buffer, packet: { retain?: boolean; dup?: boolean }): void => {

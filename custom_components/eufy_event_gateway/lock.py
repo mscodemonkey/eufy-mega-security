@@ -112,8 +112,9 @@ class EufySmartLock(EufyLockEntity, LockEntity):
         try:
             state = await self.coordinator.client.set_lock_state(self.serial, locked)
         except GatewayClientError as error:
-            self.coordinator.async_set_lock({**self.lock_state, "serial": self.serial,
-                                             "state": "unknown", "available": False})
+            if getattr(error, "code", None) not in ("busy", "rate_limited", "unavailable", "disabled"):
+                self.coordinator.async_set_lock({**self.lock_state, "serial": self.serial,
+                                                 "state": "unknown", "available": False})
             raise HomeAssistantError(str(error)) from error
         self.coordinator.async_set_lock(state)
 

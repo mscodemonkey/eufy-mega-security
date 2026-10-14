@@ -314,3 +314,39 @@ class E30LockTest(unittest.IsolatedAsyncioTestCase):
         for index, option in enumerate(entity._attr_options, 1):
             await select(entity, option)
             entity.async_set_setting.assert_awaited_with(index)
+
+    async def test_motor_rejections_preserve_cache_and_ambiguous_failures_invalidate(self):
+        """A rejected preflight must not turn every lock control unavailable."""
+        class ClientError(Exception):
+            """Supply the gateway's fixed command outcome category."""
+
+            def __init__(self, code):
+                """Keep a synthetic code without any account or protocol data."""
+                super().__init__("synthetic")
+                self.code = code
+
+        callback = method("lock.py", "EufySmartLock", "_set_locked", {"GatewayClientError": ClientError, "HomeAssistantError": RuntimeError})
+        original = {"serial": "synthetic", "state": "locked", "available": True,
+                    "stateObservedAt": "2026-10-14T00:00:00Z", "settings": {"autoLock": False}}
+        published = []
+        client = SimpleNamespace(set_lock_state=AsyncMock())
+        entity = SimpleNamespace(serial="synthetic", lock_state=original,
+                                 coordinator=SimpleNamespace(client=client, async_set_lock=published.append))
+        for code in ("unavailable", "busy", "rate_limited", "disabled"):
+            client.set_lock_state.side_effect = ClientError(code)
+            with self.assertRaises(RuntimeError):
+                await callback(entity, False)
+            self.assertEqual(published, [])
+            self.assertEqual(entity.lock_state, original)
+        for code in (None, "outcome_unknown", "unexpected"):
+            client.set_lock_state.side_effect = ClientError(code)
+            with self.assertRaises(RuntimeError):
+                await callback(entity, False)
+            self.assertEqual(published[-1]["state"], "unknown")
+            self.assertFalse(published[-1]["available"])
+        confirmed = {**original, "state": "unlocked"}
+        client.set_lock_state.side_effect = None
+        client.set_lock_state.return_value = confirmed
+        await callback(entity, False)
+        self.assertEqual(published[-1], confirmed)
+        self.assertEqual(original["state"], "locked")
