@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.150
+
+- Add a Home Assistant Smart Lock E30 auto-lock delay selector with reviewed 30, 60, 90, 120, 150, 180 and 300-second choices. Changes preserve auto-lock enablement, schedules and other lock settings. The existing experimental E30 option remains off by default.
+- Add model-specific Home Assistant motion sensitivity controls for T8210, T8113-Z, T8160-C and T8171 on HomeBase 3, plus standalone channel-zero T817L. Higher HA steps always mean greater sensitivity, including the inverted eufyCam 2C scale.
+- Add a T8210 HomeBase chime switch and a quiet-hours automation blueprint that supports overnight schedules, checks the dedicated chime control attribute and leaves detection, recording and HA doorbell events enabled.
+- Require a fresh settings baseline, one native write and independent readback. Competing peer operations are rejected, and uncertain outcomes invalidate only the affected setting. Unsupported models and connections remain unavailable.
+
 ## 0.1.149
 
 - Give Smart Lock E30 initial status queries up to 15 seconds before rejecting a command, while reserving time for confirmed readback.
