@@ -159,7 +159,7 @@ test("normalizes a nested HomeBase 3 Mega notification", () => {
     messageType: 1, notificationStyle: null, personName: "Alex", detectionEvidence: [],
     content: "Alex has been detected.",
     pictureUrl: "https://example.invalid/image", filePath: null, fetchId: null, senseId: null,
-    guardMode: null, effectiveMode: null, effectiveModeField: null,
+    guardMode: null, effectiveMode: null, effectiveModeField: null, nvrModeChange: null,
     alarmType: null, sensorOpen: null, eventId: null,
   });
 });

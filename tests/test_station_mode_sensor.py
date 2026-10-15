@@ -62,6 +62,12 @@ class StationModeSensorTest(unittest.TestCase):
         )
         sensor_class = namespace["EufyGuardModeSensor"]
         self.sensor = sensor_class.__new__(sensor_class)
+        effective = next(node for node in tree.body if isinstance(node, ast.ClassDef)
+                         and node.name == "EufyEffectiveModeSensor")
+        exec(compile(ast.Module(body=[effective], type_ignores=[]), str(ROOT / "sensor.py"), "exec"), namespace)
+        effective_class = namespace["EufyEffectiveModeSensor"]
+        self.effective = effective_class.__new__(effective_class)
+
 
     def test_nvr_custom_mode_and_geofencing_use_catalogue_numbers(self) -> None:
         """Decode confirmed custom mode three and catalogue Geofencing 47."""
@@ -107,6 +113,22 @@ class StationModeSensorTest(unittest.TestCase):
             with self.subTest(value=value):
                 self.sensor.station = {"model": "T8N00", "guardMode": value}
                 self.assertEqual(self.sensor.native_value, expected)
+
+    def test_effective_mode_uses_custom_title_and_reports_push_provenance(self) -> None:
+        """Keep configured Schedule separate from the observed named custom mode."""
+        self.effective.station = {"model": "T8N00", "guardMode": 2, "effectiveMode": 3,
+                                  "guardModeNames": {"3": "Night"},
+                                  "effectiveModeReportedAt": "2026-10-15T12:00:00.000Z"}
+        self.assertEqual(self.effective.native_value, "Night")
+        self.assertIn("Night", self.effective.options)
+        self.assertEqual(self.effective.extra_state_attributes,
+                         {"state_source": "eufy_push", "last_reported": "2026-10-15T12:00:00.000Z"})
+        self.effective.station["effectiveMode"] = True
+        self.assertIsNone(self.effective.native_value)
+        self.effective.station["effectiveMode"] = None
+        self.effective.station["effectiveModeReportedAt"] = None
+        self.assertIsNone(self.effective.native_value)
+        self.assertIsNone(self.effective.extra_state_attributes)
 
 
 if __name__ == "__main__":

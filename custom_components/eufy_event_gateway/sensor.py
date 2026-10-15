@@ -415,20 +415,19 @@ class EufyGuardModeSensor(EufyStationEntity, SensorEntity):
 
 
 class EufyEffectiveModeSensor(EufyStationEntity, SensorEntity):
-    """Expose the active HomeBase mode independently of configured policy.
+    """Expose the latest reported station mode independently of configured policy.
 
-    Schedule and geofencing policies can produce an effective mode different
-    from the configured selection. This read-only entity represents the active
-    result while the select entity retains the configured policy.
+    The coordinator owns state for this read-only entity. Schedule and geofencing
+    can produce a different effective mode. Push-owned NVR observations include
+    their report time and become unknown when the receiver loses its connection.
     """
 
     _attr_translation_key = "eufy_effective_mode_sensor"
     _attr_icon = "mdi:shield-check"
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options: ClassVar[list[str]] = list(GUARD_MODES.values())
 
     def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
-        """Create the effective-mode sensor for one HomeBase."""
+        """Bind the entity to one station without owning its transport or controls."""
         EufyStationEntity.__init__(self, coordinator, serial)
         SensorEntity.__init__(self)
         self._attr_unique_id = f"{serial}_effective_mode"
@@ -437,7 +436,20 @@ class EufyEffectiveModeSensor(EufyStationEntity, SensorEntity):
     def native_value(self) -> str | None:
         """Return the Eufy label for the active effective mode."""
         value = self.station.get("effectiveMode")
-        return GUARD_MODES.get(value) if isinstance(value, int) else None
+        return guard_mode_label(self.station, value)
+
+    @property
+    def options(self) -> list[str]:
+        """Use the station's validated custom names for effective mode too."""
+        return list(guard_mode_options(self.station).values())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str] | None:
+        """Identify the last device push observation without inferring a live query."""
+        reported = self.station.get("effectiveModeReportedAt")
+        if isinstance(reported, str):
+            return {"state_source": "eufy_push", "last_reported": reported}
+        return None
 
 
 class EufyStorageSensor(EufyStationEntity, SensorEntity):

@@ -782,6 +782,11 @@ export class MegaClient {
       // EufyLife data requests carry opaque encrypted text. Mega and the
       // JSON key-exchange bootstrap retain their existing content types.
       if (!bootstrap && host.endsWith(".eufylife.com")) headers["content-type"] = "text/plain";
+
+      // The native cipher API routes the Security family independently of app-name.
+      if (!bootstrap && host.endsWith(".eufylife.com") && path === "/v3/app/cipher/get_ciphers") {
+        headers["app-tab"] = "eufy_security";
+      }
       if (appScope) headers["app-name"] = appScope;
       const result = await this.#post(host, path, body, headers, signal);
       if (identity) {

@@ -718,3 +718,19 @@ test("retry login timeout after connect throw retains the same transport", async
   assert.deepEqual(states, frozen.states);
   assert.equal(timers.size, 0);
 });
+
+
+test("NVR mode delivery carries the MCS clock rather than a payload timestamp", async () => {
+  const fixture = await receiverFixture(async () => undefined);
+  try {
+    await fixture.receiver.start();
+    fixture.transports[0]!.emit("message", { sent: "1800000000000", payload: { device_sn: "station", a: 9,
+      arming: 2, mode: 3, before_change_mode: 1, transportSentAtMilliseconds: 1 } });
+    const received = fixture.events.at(-1) as { transportSentAtMilliseconds: number; nvrModeChange: { effective: number } };
+    assert.equal(received.transportSentAtMilliseconds, 1_800_000_000_000);
+    assert.equal(received.nvrModeChange.effective, 3);
+    fixture.transports[0]!.emit("message", { payload: { device_sn: "station", a: 9,
+      arming: 2, mode: 1, before_change_mode: 3, transportSentAtMilliseconds: 1_800_000_000_001 } });
+    assert.equal((fixture.events.at(-1) as { transportSentAtMilliseconds: unknown }).transportSentAtMilliseconds, null);
+  } finally { await fixture.cleanup(); }
+});

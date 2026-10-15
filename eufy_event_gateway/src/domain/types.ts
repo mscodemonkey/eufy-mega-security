@@ -281,7 +281,7 @@ export interface HomeBaseStorageState {
   readonly freeBytes: number | null;
 }
 
-/** Complete normalized state for one discovered HomeBase. */
+/** Complete normalized state for one discovered station. */
 export interface HomeBaseState {
   readonly serial: string;
   readonly name: string;
@@ -298,7 +298,7 @@ export interface HomeBaseState {
   /** Whether the station may receive confirmed guard-mode writes. */
   readonly guardModeControlSupported: boolean;
 
-  /** Whether the local state path is enabled for this station model. */
+  /** Whether this station has an established read-only state source. */
   readonly stateReadSupported: boolean;
   readonly homeBaseSirenControlSupported: boolean;
   readonly connected: boolean;
@@ -307,6 +307,9 @@ export interface HomeBaseState {
   /** Account-defined labels for explicitly reported custom modes 3 to 5. */
   readonly guardModeNames: Readonly<Record<number, string>>;
   readonly effectiveMode: number | null;
+
+  /** Last fresh NVR push observation. Its absence must not be treated as a live readback. */
+  readonly effectiveModeReportedAt?: string | null;
   readonly alarmActive: boolean | null;
   readonly alarmVolume: number | null;
   readonly promptVolume: number | null;

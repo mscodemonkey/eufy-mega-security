@@ -37,6 +37,7 @@ async function fixture(mode: "success" | "empty" | "limit" | "non-json" | "cance
         assert.equal(headers.get("x-auth-token"), "retained-token");
         if (path === "/v3/openapi/oauth/key/exchange") {
           assert.equal(headers.get("content-type"), "application/json");
+          assert.equal(headers.has("app-tab"), false);
           exchanges++;
           if (mode === "cancel") {
             client.cancelPendingRequests();
@@ -52,6 +53,8 @@ async function fixture(mode: "success" | "empty" | "limit" | "non-json" | "cance
         }
         assert.equal(path, "/v3/app/cipher/get_ciphers", "recovery cannot log in or send a device write");
         assert.equal(headers.get("content-type"), "text/plain");
+        assert.equal(headers.get("app-tab"), "eufy_security");
+        assert.equal(headers.get("app-name"), "eufy_mega");
         reads++;
         if (mode === "limit") return new Response(JSON.stringify({ code: 100028 }), { status: 463 });
         if (mode === "non-json") return new Response("not-json", { status: 463 });

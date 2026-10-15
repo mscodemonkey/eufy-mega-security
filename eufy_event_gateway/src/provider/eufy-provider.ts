@@ -481,6 +481,8 @@ export interface PpcsStreamRoute {
 export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #client: MegaClient;
   readonly #devices = new Map<string, MegaInventoryDevice>();
+  readonly #nvrModePushTimes = new Map<string, number>();
+  #nvrModePushStartedAt = 0;
   readonly #doorbellTrials = new Map<string, { controller: AbortController; device: MegaInventoryDevice; generation: number;
     connecting: boolean; session: DoorbellRtcSession | null; release: () => Promise<void> }>();
   readonly #ppcsStreams = new Map<string, FirstPartyPpcsSession>();
@@ -730,6 +732,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Authenticate and publish cameras independently of background push readiness. */
   async start(events: ProviderEvents): Promise<void> {
+    this.#nvrModePushStartedAt = Date.now();
+    this.#nvrModePushTimes.clear();
     for (const pending of this.#streamStarts.values()) pending.cancelled = true;
     this.#streamStarts.clear();
     this.#cipherFlights.clear();
@@ -1881,6 +1885,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const push = this.#push;
     this.#push = null;
     const closingPush = push?.close();
+    if (this.#events) this.#clearNvrEffectiveModes(this.#events);
+    this.#nvrModePushTimes.clear();
     try { this.#events?.eventReceiverState("stopped"); } catch {}
     await Promise.allSettled([...this.#nvrTrials.values()].map(trial => trial.release()));
     await Promise.allSettled([...this.#doorbellTrials.values()].map(trial => trial.release()));
@@ -2100,7 +2106,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#client,
       join(this.config.persistentDirectory, "mega-push.json"),
       (event) => { if (this.#push === push) this.#handlePush(events, event); },
-      (state) => { if (this.#push === push) events.eventReceiverState(state); },
+      (state) => {
+        if (this.#push !== push) return;
+        if (["disconnected", "stopped", "degraded", "activation-unconfirmed"].includes(state)) this.#clearNvrEffectiveModes(events);
+        events.eventReceiverState(state);
+      },
       (outcome) => { if (this.#push === push) events.eventDelivery(outcome); },
     );
     this.#push = push;
@@ -2803,10 +2813,24 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (failures > 0) logger.info("station_refresh_recovered", `HomeBase state refresh recovered after failures=${failures}`);
   }
 
+  #clearNvrEffectiveModes(events: ProviderEvents): void {
+    for (const station of this.#stations.values()) {
+      if (!station.effectiveModeReportedAt) continue;
+      const updated = { ...station, effectiveMode: null, effectiveModeReportedAt: null };
+      this.#stations.set(station.serial, updated);
+      try { events.station(updated); } catch {}
+    }
+  }
+
   #handlePush(events: ProviderEvents, event: MegaPushEvent): void {
     const station = this.#stations.get(event.stationSerial);
     const stationIdentity = this.#devices.get(event.stationSerial);
-    if (station?.guardModeControlSupported && event.eventType === 9) {
+    const nvrState = station && stationIdentity ? applyNvrModePush(station, stationIdentity, event,
+      this.#nvrModePushStartedAt, this.#nvrModePushTimes.get(station.serial) ?? null, Date.now()) : null;
+    if (nvrState) {
+      this.#nvrModePushTimes.set(station!.serial, event.transportSentAtMilliseconds!);
+      this.#stations.set(station!.serial, nvrState); events.station(nvrState);
+    } else if (station?.guardModeControlSupported && event.eventType === 9) {
       const updated = {
         ...station,
         guardMode: validGuardMode(event.guardMode) ? event.guardMode : station.guardMode,
@@ -3720,6 +3744,33 @@ export function isInventoryStation(
     || (device.category === "eufy_security" && device.deviceType === 300 && device.model.startsWith("T8N00"));
 }
 
+/**
+ * Apply fresh native T8N00 mode observations without enabling any security writes.
+ * The provider owns the transport clock and monotonic fence. Generic HomeBase
+ * fields, other models, stale deliveries and policy values posing as actual modes
+ * cannot cross this read-only boundary. An unrecognized fresh change invalidates
+ * the prior effective mode rather than keeping an obsolete reading.
+ */
+export function applyNvrModePush(station: HomeBaseState,
+  identity: Pick<MegaInventoryDevice, "category" | "deviceType" | "model" | "serial">,
+  event: MegaPushEvent, startedAt: number, previousSent: number | null, now: number): HomeBaseState | null {
+  const change = event.nvrModeChange, sent = event.transportSentAtMilliseconds;
+  if (identity.model !== "T8N00" || identity.deviceType !== 300 || identity.category !== "eufy_security"
+    || identity.serial !== station.serial || event.stationSerial !== station.serial || event.cameraSerial !== station.serial
+    || event.eventType !== 9 || !Number.isSafeInteger(startedAt) || !Number.isSafeInteger(now)
+    || !Number.isSafeInteger(sent) || typeof sent !== "number" || sent < startedAt - 5000
+    || sent < now - 120_000 || sent > now + 60_000 || sent < Date.UTC(2000, 0, 1)
+    || sent > Date.UTC(9999, 11, 31) || previousSent !== null && sent <= previousSent) return null;
+  if (!change || !validGuardMode(change.configured) || ![0, 1, 3, 4, 5, 63].includes(change.effective)
+    || ![0, 1, 3, 4, 5, 63].includes(change.previous)
+    || event.guardMode !== null && event.guardMode !== change.configured
+    || event.effectiveMode !== null && event.effectiveMode !== change.effective) {
+    return { ...station, effectiveMode: null, effectiveModeReportedAt: null };
+  }
+  return { ...station, stateReadSupported: true, guardMode: change.configured, effectiveMode: change.effective,
+    effectiveModeReportedAt: new Date(sent).toISOString() };
+}
+
 /** Return whether inventory proves support for the wrapped guard-mode command. */
 export function supportsHomeBaseGuardMode(
   device: Pick<MegaInventoryDevice, "category" | "deviceType" | "model" | "firmware">,
@@ -3783,6 +3834,8 @@ export function refreshInventoryStationState(
     ...existing,
     firmware: device.firmware ?? existing.firmware,
     guardMode: device.reads.guardMode ?? existing.guardMode,
+    ...(existing.effectiveModeReportedAt && device.reads.guardMode !== undefined && device.reads.guardMode !== existing.guardMode
+      ? { effectiveMode: null, effectiveModeReportedAt: null } : {}),
     guardModeNames: device.guardModeNames ?? existing.guardModeNames,
   };
 }
@@ -4077,7 +4130,7 @@ export function safePushLogSummary(
   else if (cameraAccepted && isCameraDetection(event.eventType)) {
     handling = cameraDetectionKind(event.eventType) ?? "unhandled";
   }
-  const model = device?.model && /^T[0-9]{3,4}(?:[A-Z]{1,2}|-[A-Z]{1,2})?$/.test(device.model)
+  const model = device?.model === "T8N00" ? device.model : device?.model && /^T[0-9]{3,4}(?:[A-Z]{1,2}|-[A-Z]{1,2})?$/.test(device.model)
     ? device.model
     : "unknown";
   return [

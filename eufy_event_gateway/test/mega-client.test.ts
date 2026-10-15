@@ -457,8 +457,9 @@ test("fetches first-party PPCS DSK keys from the Mega device-relation API", asyn
       domains: {}, identities: { [host]: { keyIdent: "identity", sharedKey, clientPublicKey: "public" }, "app-devicerelation-eu-pr.eufy.com": { keyIdent: "identity", sharedKey, clientPublicKey: "public" } },
     }));
     const requests: string[] = [];
-    const fakeFetch: typeof fetch = async (input, _init) => {
+    const fakeFetch: typeof fetch = async (input, init) => {
       requests.push(String(input));
+      assert.equal(new Headers(init?.headers).has("app-tab"), false);
       const data = encryptEnvelope(JSON.stringify({ device_dsks: [{ device_sn: "station", dsk_key: "dsk", expiration: 1_700_000_123 }] }), sharedAesKey(sharedKey), Buffer.alloc(16, 3));
       return new Response(JSON.stringify({ code: 0, data }), { status: 200 });
     };
@@ -496,6 +497,8 @@ test("fetches PPCS cipher keys through the regional eufy security API", async ()
     assert.deepEqual(await client.getCiphers([197], "user", "station"), [{ cipher_id: 197, ecc_private_key: "ecc", private_key: "private" }]);
     assert.equal(requests.at(-1)?.url, "https://security-app-eu.eufylife.com/v3/app/cipher/get_ciphers");
     assert.equal(requests.at(-1)?.headers.get("content-type"), "text/plain");
+    assert.equal(requests.at(-1)?.headers.get("app-tab"), "eufy_security");
+    assert.equal(requests.at(-1)?.headers.get("app-name"), "eufy_mega");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

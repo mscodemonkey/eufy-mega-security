@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.157
+
+- Read the T8N00 NVR S4 configured and effective modes separately from verified mode-change notifications. Keep mode and camera-power controls disabled. Reject stale or replayed delivery and clear the push-owned reading when notification reception is lost.
+- Show validated custom mode titles and the last NVR report time in the read-only Home Assistant effective-mode sensor.
+- Match the current Android app routing header on Security picture/video key requests while retaining the existing account sign-in and bounded recovery. Reporter media recovery still needs confirmation.
+
 ## 0.1.156
 
 - Add a default-off Diagnostics preview for existing cloud recordings, protected by an API token and private-video consent. It supports plain MP4 and source-defined v8 H.264, produces a checked video-only preview up to two minutes and keeps local HomeBase recordings separate.

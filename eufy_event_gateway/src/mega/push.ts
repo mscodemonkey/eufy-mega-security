@@ -76,7 +76,13 @@ export interface MegaPushEvent {
   readonly effectiveMode: number | null;
 
   /** Source field for the effective mode, retained without its private value for safe diagnostics. */
-  readonly effectiveModeField: "station_current_mode" | "current_mode" | null;
+  readonly effectiveModeField: "station_current_mode" | "current_mode" | "mode" | null;
+
+  /** Paired native station fields, interpreted only after exact NVR inventory binding. */
+  readonly nvrModeChange?: { readonly configured: number; readonly effective: number; readonly previous: number } | null;
+
+  /** MCS-owned send time, never read from the untrusted application payload. */
+  readonly transportSentAtMilliseconds?: number | null;
   readonly alarmType: number | null;
   readonly sensorOpen: boolean | null;
   readonly eventId: string | null;
@@ -283,7 +289,7 @@ export class MegaPushReceiver {
         && !isFreshStartupDelivery(message.sent, this.#startedAtMilliseconds, this.now());
       this.onDelivery(outcome);
       logger.info("push_received", `persistent_id_present=${Boolean(message.persistentId)} new_id=${newPersistentId} payload_record=${isRecord(message.payload)} parsed=${event !== null} startup_replay_suppressed=${suppressStartupReplay}`);
-      if (event && !suppressStartupReplay) this.onEvent(event);
+      if (event && !suppressStartupReplay) this.onEvent({ ...event, transportSentAtMilliseconds: mcsTimestampMilliseconds(message.sent) });
       else if (suppressStartupReplay) logger.info("push_startup_replay_suppressed", "Queued Android notification was acknowledged without publishing a device event");
       else if (!isRecord(message.payload) || Object.keys(message.payload).length === 0) logger.info("push_empty", "Android FCM notification had no Eufy data fields");
       else logger.info("push_unparsed", `Android FCM notification lacked a usable Eufy device identity: ${safeUnparsedShape(message.payload)}`);
@@ -452,6 +458,11 @@ export function parsePushEvent(data: unknown): MegaPushEvent | null {
   const stationSerial = field("station_sn");
   const cameraSerial = field("device_sn") ?? stationSerial;
   if (!cameraSerial) return null;
+  const nvrModeChange = (integer(payload.a) ?? integer(payload.event_type)) === 9
+    && typeof payload.arming === "number" && Number.isSafeInteger(payload.arming)
+    && typeof payload.mode === "number" && Number.isSafeInteger(payload.mode)
+    && typeof payload.before_change_mode === "number" && Number.isSafeInteger(payload.before_change_mode)
+    ? { configured: payload.arming, effective: payload.mode, previous: payload.before_change_mode } : null;
   return {
     cameraSerial,
     stationSerial: stationSerial ?? cameraSerial,
@@ -470,7 +481,8 @@ export function parsePushEvent(data: unknown): MegaPushEvent | null {
     effectiveMode: integer(payload.station_current_mode) ?? integer(payload.current_mode),
     effectiveModeField: integer(payload.station_current_mode) !== null
       ? "station_current_mode"
-      : integer(payload.current_mode) !== null ? "current_mode" : null,
+      : integer(payload.current_mode) !== null ? "current_mode" : nvrModeChange ? "mode" : null,
+    nvrModeChange,
     alarmType: integer(payload.alarm_type),
     sensorOpen: sensorOpen(payload.e),
     eventId: field("unique_id"),
