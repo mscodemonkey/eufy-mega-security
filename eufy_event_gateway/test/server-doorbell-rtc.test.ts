@@ -64,6 +64,6 @@ test("doorbell Diagnostics keeps private consent, cancellation and page-exit cle
   assert.match(page, /doorbell-consent/); assert.match(page, /doorbell-video-trial/);
   assert.match(page, /if\(doorbellJob\) doorbellJob\.abort\(\)/);
   assert.match(page, /URL\.revokeObjectURL\(doorbellClip\)/);
-  const script = page.match(/<script>([\s\S]*)<\/script>/)?.[1]; assert.ok(script);
+  const script = page.match(/<script>([\s\S]*)<\/script>/i)?.[1]; assert.ok(script);
   new Script(script);
 });
