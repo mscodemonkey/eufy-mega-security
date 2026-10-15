@@ -74,6 +74,9 @@ export interface MegaPushEvent {
   readonly senseId: string | null;
   readonly guardMode: number | null;
   readonly effectiveMode: number | null;
+
+  /** Source field for the effective mode, retained without its private value for safe diagnostics. */
+  readonly effectiveModeField: "station_current_mode" | "current_mode" | null;
   readonly alarmType: number | null;
   readonly sensorOpen: boolean | null;
   readonly eventId: string | null;
@@ -465,6 +468,9 @@ export function parsePushEvent(data: unknown): MegaPushEvent | null {
     senseId: text(payload.sense_id) ?? text(payload.j),
     guardMode: integer(payload.station_guard_mode),
     effectiveMode: integer(payload.station_current_mode) ?? integer(payload.current_mode),
+    effectiveModeField: integer(payload.station_current_mode) !== null
+      ? "station_current_mode"
+      : integer(payload.current_mode) !== null ? "current_mode" : null,
     alarmType: integer(payload.alarm_type),
     sensorOpen: sensorOpen(payload.e),
     eventId: field("unique_id"),

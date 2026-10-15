@@ -159,7 +159,8 @@ test("normalizes a nested HomeBase 3 Mega notification", () => {
     messageType: 1, notificationStyle: null, personName: "Alex", detectionEvidence: [],
     content: "Alex has been detected.",
     pictureUrl: "https://example.invalid/image", filePath: null, fetchId: null, senseId: null,
-    guardMode: null, effectiveMode: null, alarmType: null, sensorOpen: null, eventId: null,
+    guardMode: null, effectiveMode: null, effectiveModeField: null,
+    alarmType: null, sensorOpen: null, eventId: null,
   });
 });
 
@@ -259,8 +260,18 @@ test("normalizes HomeBase guard and alarm push state without retaining unrelated
 
   assert.equal(result?.guardMode, 2);
   assert.equal(result?.effectiveMode, 1);
+  assert.equal(result?.effectiveModeField, "current_mode");
   assert.equal(result?.alarmType, 3);
   assert.equal(JSON.stringify(result).includes("private@example.invalid"), false);
+});
+
+test("prefers the station effective-mode field and retains only its source name", () => {
+  const result = parsePushEvent({ payload: JSON.stringify({
+    station_sn: "station", event_type: 9, station_current_mode: 3, current_mode: 47,
+  }) });
+
+  assert.equal(result?.effectiveMode, 3);
+  assert.equal(result?.effectiveModeField, "station_current_mode");
 });
 
 for (const activated of [true, false, undefined, null, 1, "true"]) {

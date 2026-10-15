@@ -3889,7 +3889,7 @@ export function ppcsStreamLogSummary(
  */
 export function safePushLogSummary(
   event: Pick<MegaPushEvent, "eventType" | "messageType" | "notificationStyle" | "pictureUrl" | "alarmType">
-    & Partial<Pick<MegaPushEvent, "detectionEvidence" | "personName">>,
+    & Partial<Pick<MegaPushEvent, "detectionEvidence" | "personName" | "effectiveModeField">>,
   device: Pick<MegaInventoryDevice, "model" | "category" | "deviceType"> | null,
   stationPresent: boolean,
   stationManaged: boolean,
@@ -3936,6 +3936,7 @@ export function safePushLogSummary(
     `notification_style=${safePushCode(event.notificationStyle)}`,
     `handling=${handling}`,
     `picture_present=${event.pictureUrl !== null}`,
+    ...(event.eventType === 9 ? [`effective_mode_field=${event.effectiveModeField ?? "none"}`] : []),
     `ai_evidence=${event.detectionEvidence?.join(",") || "none"}`,
   ].join(" ");
 }

@@ -1507,6 +1507,16 @@ test("reports routed contact-sensor pushes as handled", () => {
   assert.match(summary, /model=T8900 .*handling=sensor_contact/);
 });
 
+test("logs only the effective-mode field source for station guard pushes", () => {
+  const summary = safePushLogSummary({
+    eventType: 9, messageType: null, notificationStyle: null,
+    pictureUrl: null, alarmType: null, effectiveModeField: "station_current_mode",
+  }, { model: "T8N00", category: "eufy_security", deviceType: 128 }, true, true);
+
+  assert.match(summary, /handling=station_guard picture_present=false effective_mode_field=station_current_mode/);
+  assert.equal(summary.includes("mode=3"), false);
+});
+
 test("rejects arbitrary inventory labels and invalid push codes from copyable logs", () => {
   const summary = safePushLogSummary({
     eventType: -1, messageType: 999_999, notificationStyle: null,
