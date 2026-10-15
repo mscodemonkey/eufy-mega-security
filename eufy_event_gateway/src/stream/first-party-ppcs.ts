@@ -1546,11 +1546,7 @@ export class FirstPartyPpcsSession {
     },
   );
   readonly #videoNormalizer = new PpcsVideoStreamNormalizer();
-  readonly #videoAssembler = new PpcsAccessUnitAssembler((drop) => {
-    this.stats.incompleteAccessUnits++;
-    this.stats.incompleteAccessUnitBytes += drop.carriedBytes;
-    this.#recordVideoResult("incomplete-access-unit-dropped");
-  });
+  readonly #videoAssembler: PpcsAccessUnitAssembler;
   #lastDeliveredMediaFrameAt: number | null = null;
   #lastAttachedMediaReassertAt: number | null = null;
   #heartbeat: ReturnType<typeof setInterval> | null = null;
@@ -1573,6 +1569,13 @@ export class FirstPartyPpcsSession {
   /** Create a session; no socket is bound until {@link start} runs. */
   constructor(options: PpcsCameraOptions) {
     this.#options = options;
+    this.#videoAssembler = new PpcsAccessUnitAssembler((drop) => {
+      this.stats.incompleteAccessUnits++;
+      this.stats.incompleteAccessUnitBytes += drop.carriedBytes;
+      this.#recordVideoResult("incomplete-access-unit-dropped");
+    }, {
+      emitChunks: options.cameraModel === "T8200" && options.homeBaseAttached !== true && options.purpose !== "control",
+    });
 
     // Capture the session rather than the stats object's receiver. Failure
     // logs read this before close, while close logs need the frozen copy.

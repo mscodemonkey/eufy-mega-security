@@ -41,6 +41,13 @@ export interface DroppedPpcsAccessUnit {
   readonly totalDropped: number;
 }
 
+/** Select how decoded transport chunks reach the downstream media normaliser. */
+export interface PpcsAccessUnitAssemblerOptions {
+
+  /** Emit each decoded chunk immediately when the camera's byte stream spans frame identities. */
+  readonly emitChunks?: boolean;
+}
+
 /** Parse the fixed metadata header from one raw command-1300 payload. */
 export function parsePpcsVideoFrameHeader(payload: Buffer): PpcsVideoFrameHeader | undefined {
   if (payload.length < VIDEO_FRAME_HEADER_BYTES) return undefined;
@@ -63,8 +70,12 @@ export class PpcsAccessUnitAssembler {
 
   /**
    * @param onDropped Receives structural drop counts without media bytes or identifiers.
+   * @param options Keeps strict access-unit reassembly by default; callers must opt into chunk delivery.
    */
-  constructor(private readonly onDropped?: (drop: DroppedPpcsAccessUnit) => void) {}
+  constructor(
+    private readonly onDropped?: (drop: DroppedPpcsAccessUnit) => void,
+    private readonly options: PpcsAccessUnitAssemblerOptions = {},
+  ) {}
 
   /**
    * Feed one raw command-1300 payload and return any units completed by it.
@@ -78,6 +89,11 @@ export class PpcsAccessUnitAssembler {
     if (!header || !body || body.length === 0) {
       this.#discard();
       return [];
+    }
+
+    if (this.options.emitChunks) {
+      this.#discard();
+      return [unitOf(header, body)];
     }
 
     const fullChunk = header.payloadLength === PPCS_STATION_CHUNK_BYTES;

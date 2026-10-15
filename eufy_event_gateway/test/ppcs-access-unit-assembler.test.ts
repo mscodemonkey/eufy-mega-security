@@ -63,6 +63,23 @@ test("joins a full chunk and a continuation into one access unit", () => {
   assert.equal(units[0]?.streamType, 1);
 });
 
+test("emits exact camera byte-stream chunks without retaining a 64,000-byte fragment", () => {
+  const head = Buffer.concat([START_CODE, Buffer.alloc(PPCS_STATION_CHUNK_BYTES - 4, 0x11)]);
+  const tail = Buffer.alloc(151, 0x22);
+  const drops: number[] = [];
+  const assembler = new PpcsAccessUnitAssembler((drop) => drops.push(drop.carriedBytes), { emitChunks: true });
+
+  const first = assembler.push(frame(head, { sequence: 7, timestamp: 9 }), (payload) => payload.subarray(22));
+  const second = assembler.push(frame(tail, { sequence: 8, timestamp: 10 }), (payload) => payload.subarray(22));
+  assembler.reset();
+
+  assert.equal(first.length, 1);
+  assert.deepEqual(first[0]?.data, head);
+  assert.equal(second.length, 1);
+  assert.deepEqual(second[0]?.data, tail);
+  assert.deepEqual(drops, []);
+});
+
 test("preserves the declared codec across split access-unit chunks", () => {
   const head = Buffer.concat([START_CODE, Buffer.alloc(PPCS_STATION_CHUNK_BYTES - 4, 0x11)]);
   const tail = Buffer.alloc(3, 0x22);

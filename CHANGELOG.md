@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.153
+
+- Delivers every decoded video fragment from standalone T8200 doorbells so large keyframes reach the viewer instead of being discarded at the 64,000-byte transport boundary.
+- Updates the T8200 support note to distinguish confirmed live-video startup from continuous-playback confirmation that still needs reporter hardware testing.
+
 ## 0.1.152
 
 - Fix the standalone T8200 doorbell live-start request to match the official client contract. This is limited to exact T8200 direct connections and leaves every other camera on its existing media path.

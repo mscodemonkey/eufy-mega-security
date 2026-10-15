@@ -98,7 +98,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 
 ### Doorbells
 
-- 🟠 Video Doorbell T8200: discovery, entities, motion and person events, and retained event images are confirmed through its self-parented PPCS session. Press notifications, live video, and on-demand snapshots remain unresolved on the reported hardware.
+- 🟠 Video Doorbell T8200: discovery, entities, motion and person events, retained event images, and live-video startup are confirmed through its self-parented PPCS session. Continuous live playback after fragmented keyframes still needs hardware confirmation. Press notifications and on-demand snapshots remain unresolved.
 - ✅ Video Doorbell T8210: live streams and snapshots produced on real hardware. One HomeBase 2 reporter now has smooth playback, while another still receives video data without a rendered view.
 - 🟠 Video Doorbell T8213: discovery, sensors, retained images, and live video are confirmed through HomeBase 3. A second HomeBase 3 setup now shows live video from both lenses on v0.1.123, while fresh snapshots and longer-term reliability on that setup remain unconfirmed.
 - 🟠 Video Doorbell Slim T8220: discovery and live video through HomeBase 2 are reporter-confirmed. Slow startup and continued streaming after the view closes are reported. Events, fresh snapshots, and battery values still await confirmation.
