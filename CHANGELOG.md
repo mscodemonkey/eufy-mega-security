@@ -7,6 +7,7 @@
 - Start Home Assistant's normal HLS startup timeout even when the optional idle-timeout setting is off.
 - Preserve specific NVR framing failure reasons and rejection counts. Include the queued effective-mode field-source diagnostic. NVR playback and mode controls remain unconfirmed.
 - Recover an H.265 viewer converter that stalls after initially producing a picture, using a later complete picture and a fixed retry limit.
+- Isolate cached media credentials by device and shared-account owner, reject mismatched or duplicate replies, and share matching key lookups.
 
 ## 0.1.153
 

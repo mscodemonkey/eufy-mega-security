@@ -14,7 +14,7 @@ import { MegaPushReceiver } from "../src/mega/push.js";
 import { PushClient } from "../src/mega/android-push/push-client.js";
 import { EufyProvider } from "../src/provider/eufy-provider.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
-import { FirstPartyPpcsSession, PpcsLookupTimeoutError } from "../src/stream/first-party-ppcs.js";
+import { FirstPartyPpcsSession, PpcsLookupTimeoutError, PpcsVideoFrameDecoder } from "../src/stream/first-party-ppcs.js";
 import { LiveStreamManager } from "../src/stream/live-stream-manager.js";
 
 // Keep filesystem polling independent of the synthetic retry clock.
@@ -978,5 +978,37 @@ for (const scenario of ["shared", "retry", "exhausted", "cancel", "other-error",
       release();
       await f.provider.close();
     }
+  });
+}
+
+
+for (const scenario of ["separate-owners", "wrong-id", "duplicate-id"] as const) {
+  test(`cipher cache ${scenario} keeps keys bound to the requested peer`, async context => {
+    const f = fixture(context);
+    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: ["first", "second"].map(serial => ({
+      device_sn: serial, device_model: "T8170", device_type: 48, category: "eufy_security", device_channel: 0,
+      cipher_id: 197, p2p_did: "synthetic-peer", p2p_conn: "synthetic-route", member: { admin_user_id: serial + "-owner" },
+    })) }));
+    context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ first: { key: "synthetic", expiresAt: null }, second: { key: "synthetic", expiresAt: null } }));
+    context.mock.method(MegaPushReceiver.prototype, "start", async () => { throw new Error("Offline push fixture"); });
+    const requests: string[] = [], installed: string[] = [];
+    context.mock.method(MegaClient.prototype, "getCiphers", async (ids: readonly number[], owner: string, station: string) => {
+      assert.deepEqual(ids, [197]);
+      assert.equal(owner, station + "-owner");
+      requests.push(station);
+      const row = { cipher_id: scenario === "wrong-id" ? 198 : 197, ecc_private_key: station + "-key" };
+      return scenario === "duplicate-id" ? [row, row] : [row];
+    });
+    context.mock.method(PpcsVideoFrameDecoder.prototype, "setEccPrivateKey", (key: string) => { installed.push(key); });
+    context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => undefined);
+    context.mock.method(FirstPartyPpcsSession.prototype, "close", () => undefined);
+    try {
+      await f.provider.start(f.events);
+      await f.provider.startStream("first");
+      await f.provider.startStream("second");
+      await f.provider.startStream("first");
+      assert.deepEqual(requests, scenario === "separate-owners" ? ["first", "second"] : ["first", "second", "first"]);
+      assert.deepEqual(installed, scenario === "separate-owners" ? ["first-key", "second-key", "first-key"] : []);
+    } finally { await f.provider.close(); }
   });
 }

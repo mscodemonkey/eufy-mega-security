@@ -489,7 +489,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #recordingSessions = new Map<string, FirstPartyPpcsSession>();
   readonly #dskKeys = new Map<string, { readonly key: string; readonly expiresAt: number | null }>();
   readonly #dskRefreshes = new Map<string, Promise<{ readonly key: string; readonly expiresAt: number | null } | null>>();
-  readonly #cipherKeys = new Map<number, string>();
+  readonly #cipherKeys = new Map<string, string>();
+  readonly #cipherFlights = new Map<string, Promise<string | undefined>>();
   readonly #pushSnapshotQueues = new Map<string, Promise<void>>();
   readonly #pushDeduplicator = new PushEventDeduplicator();
   readonly #stationRefreshFailures = new Map<string, number>();
@@ -554,20 +555,39 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
 
   async #resolveCipherKey(cipherId: number, peer: MegaInventoryDevice): Promise<string | undefined> {
-    const cached = this.#cipherKeys.get(cipherId);
-    if (cached) return cached;
     if (!peer.adminUserId) return undefined;
-    try {
-      const ciphers = await this.#client.getCiphers([cipherId], peer.adminUserId, peer.serial);
-      for (const cipher of ciphers) {
-        const id = typeof cipher.cipher_id === "number" ? cipher.cipher_id : Number(cipher.cipher_id);
-        const key = typeof cipher.ecc_private_key === "string" ? cipher.ecc_private_key : "";
-        if (Number.isInteger(id) && key) this.#cipherKeys.set(id, key);
+    const cacheKey = JSON.stringify([peer.serial, peer.adminUserId, cipherId]);
+    const cached = this.#cipherKeys.get(cacheKey);
+    if (cached) return cached;
+    const pending = this.#cipherFlights.get(cacheKey);
+    if (pending) return pending;
+    const generation = this.#startupGeneration;
+    const lookup = (async () => {
+      try {
+        const ciphers = await this.#client.getCiphers([cipherId], peer.adminUserId!, peer.serial);
+        if (generation !== this.#startupGeneration || this.#recordingClosing
+          || this.#devices.get(peer.serial)?.adminUserId !== peer.adminUserId) return undefined;
+        const matches = ciphers.filter(cipher => {
+          const id = cipher.cipher_id;
+          return (typeof id === "number" && Number.isSafeInteger(id)
+            || typeof id === "string" && /^\d{1,10}$/.test(id)) && Number(id) === cipherId;
+        });
+        const key = matches.length === 1 && typeof matches[0]!.ecc_private_key === "string"
+          ? matches[0]!.ecc_private_key : undefined;
+        if (key) this.#cipherKeys.set(cacheKey, key);
+        return key;
+      } catch (error) {
+        if (generation === this.#startupGeneration && !this.#recordingClosing) {
+          logger.warn("cipher_lookup_unavailable", `Mega cipher lookup unavailable: ${safeError(error)}`);
+        }
+        return undefined;
       }
-    } catch (error) {
-      logger.warn("cipher_lookup_unavailable", `Mega cipher lookup unavailable: ${safeError(error)}`);
+    })();
+    this.#cipherFlights.set(cacheKey, lookup);
+    try { return await lookup; }
+    finally {
+      if (this.#cipherFlights.get(cacheKey) === lookup) this.#cipherFlights.delete(cacheKey);
     }
-    return this.#cipherKeys.get(cipherId);
   }
 
   async #dskKey(peerSerial: string): Promise<{ readonly key: string; readonly expiresAt: number | null } | null> {
@@ -687,6 +707,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   async start(events: ProviderEvents): Promise<void> {
     for (const pending of this.#streamStarts.values()) pending.cancelled = true;
     this.#streamStarts.clear();
+    this.#cipherFlights.clear();
     this.#recordingClosing = false;
     const generation = ++this.#startupGeneration;
     this.#retireInventoryRefresh();
@@ -1005,18 +1026,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         purpose: "control",
         maxSeconds: 40,
         ...((route.homeBaseAttached || supportsStandaloneC31Presets(device, route, true)) ? {
-          resolveCipherKey: async (cipherId: number) => {
-            const cached = this.#cipherKeys.get(cipherId);
-            if (cached) return cached;
-            if (!peer.adminUserId) return undefined;
-            const ciphers = await this.#client.getCiphers([cipherId], peer.adminUserId, peer.serial);
-            for (const cipher of ciphers) {
-              const id = typeof cipher.cipher_id === "number" ? cipher.cipher_id : Number(cipher.cipher_id);
-              const key = typeof cipher.ecc_private_key === "string" ? cipher.ecc_private_key : "";
-              if (Number.isInteger(id) && key) this.#cipherKeys.set(id, key);
-            }
-            return this.#cipherKeys.get(cipherId);
-          },
+          resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
         } : {}),
       });
       let acknowledgementTimedOut = false;
@@ -1759,6 +1769,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#recordingClosing = true;
     for (const pending of this.#streamStarts.values()) pending.cancelled = true;
     this.#streamStarts.clear();
+    this.#cipherFlights.clear();
+    this.#cipherKeys.clear();
     for (const [peer, session] of this.#trialSessions) {
       if (!this.#trialSirenStops.has(peer)) session.close();
     }
