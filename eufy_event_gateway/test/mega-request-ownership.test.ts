@@ -4,6 +4,8 @@
  */
 import assert from "node:assert/strict";
 import { createECDH } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { CloudRecordingError } from "../src/stream/cloud-recordings.js";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -204,4 +206,79 @@ test("concurrent connect calls share restoration and conflicting challenge submi
     await assert.rejects(f.client.connect("123456"), /authentication is already in progress/);
     assert.deepEqual(await Promise.all([connecting, duplicate]), [{ state: "authenticated" }, { state: "authenticated" }]);
   } finally { await f.dispose(); }
+});
+
+test("cloud recording renewal keeps record owners, verifies responses and strips object-store credentials", { timeout: 15_000 }, async context => {
+  const generated = spawnSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=32x32:rate=10", "-t", "0.2",
+    "-c:v", "libx264", "-movflags", "frag_keyframe+empty_moov", "-f", "mp4", "pipe:1"]);
+  assert.equal(generated.status, 0);
+  const objectUrl = "https://zhixin-security-fixture.s3.eu-west-1.amazonaws.com/private-record.mp4?signature=synthetic";
+  for (const outcome of ["valid", "wrong-camera", "wrong-parent", "duplicate", "wrong-url", "wrong-key", "bad-length", "external-host", "bad-signature", "cancel-download"]) {
+    await context.test(outcome, async () => {
+      const controller = new AbortController();
+      const requests: string[] = [];
+      const f = await fixture(async (input, init) => {
+        const url = new URL(String(input)); requests.push(url.pathname);
+        if (url.hostname.endsWith("amazonaws.com")) {
+          const headers = new Headers(init?.headers);
+          assert.equal(headers.has("authorization"), false); assert.equal(headers.has("x-auth-token"), false);
+          assert.equal(init?.redirect, "manual");
+          if (outcome === "cancel-download") {
+            return new Response(new ReadableStream({ start() { setImmediate(() => controller.abort()); } }));
+          }
+          return new Response(generated.stdout, { headers: { "content-length": String(generated.stdout.length + (outcome === "bad-length" ? 1 : 0)) } });
+        }
+        assert.equal(url.hostname, "security-app-eu.eufylife.com");
+        const body = JSON.parse(decryptEnvelope(String(init?.body), sharedAesKey(sharedKey)));
+        let value: unknown;
+        if (url.pathname.endsWith("get_all_video_record")) {
+          const row = { monitor_id: 123, device_sn: outcome === "wrong-camera" ? "other" : "synthetic-camera",
+            station_sn: outcome === "wrong-parent" ? "other" : "synthetic-station", start_time: 100, end_time: 120,
+            cipher_user_id: "record-owner", member: { action_user_id: "key-owner" }, cipher_id: 7,
+            extra: Buffer.from(JSON.stringify({ aes_key: "synthetic-encrypted-key" })).toString("base64url") };
+          value = outcome === "duplicate" ? [row, row] : [row];
+        } else if (url.pathname.endsWith("get_kvs_urls")) {
+          assert.deepEqual(body, { monitor_ids: [123], user_id: "record-owner" });
+          value = [{ monitor_id: outcome === "wrong-url" ? 999 : 123, cloud_path: outcome === "external-host" ? "https://attacker.invalid/private" : objectUrl }];
+        } else {
+          assert.equal(url.pathname, "/v3/web/cipher/dec_aes_keys"); assert.equal(body.user_id, "key-owner");
+          const entry = body.cipher_keys[0]; assert.equal(entry.cipher_id, 7);
+          assert.equal(entry.aes_keys[entry.aes_keys.uuid], "synthetic-encrypted-key");
+          value = { cipher_keys: [{ cipher_id: outcome === "wrong-key" ? 999 : 7,
+            aes_keys: { [entry.aes_keys.uuid]: Buffer.alloc(32, 7).toString("base64url") } }] };
+        }
+        const headers = new Headers(init?.headers), data = encryptEnvelope(JSON.stringify(value), sharedAesKey(sharedKey));
+        const signature = outcome === "bad-signature" ? "0".repeat(64) : requestSignature(sharedSigningKey(sharedKey),
+          headers.get("x-request-ts")!, headers.get("x-request-once")!, data);
+        return new Response(JSON.stringify({ code: 0, data, signature }));
+      });
+      try {
+        const result = f.client.cloudRecordingTrial("synthetic-camera", "synthetic-station", "123", { startTime: 90, endTime: 130 }, controller.signal);
+        if (outcome === "valid") {
+          const media = await result;
+          assert.equal(media.subarray(4, 8).toString(), "ftyp"); assert.equal(requests.length, 4);
+        } else {
+          const stage = outcome === "bad-signature" ? "history" : ["wrong-camera", "wrong-parent", "duplicate"].includes(outcome) ? "ownership"
+            : outcome === "wrong-key" ? "key" : outcome === "wrong-url" ? "url" : outcome === "cancel-download" ? "cancelled" : "download";
+          await assert.rejects(result, error => error instanceof CloudRecordingError && error.stage === stage
+            && !/synthetic|private|attacker|record-owner|key-owner/.test(error.message));
+          if (["wrong-camera", "wrong-parent", "duplicate", "bad-signature"].includes(outcome)) assert.equal(requests.length, 1);
+        }
+        assert.ok(requests.every(path => !path.includes("login") && !path.includes("delete")));
+      } finally { await f.dispose(); }
+    });
+  }
+});
+
+test("cancelled cloud history stops its queued request before network dispatch", async () => {
+  let release!: () => void, enter!: () => void, calls = 0;
+  const waiting = new Promise<void>(resolve => { enter = resolve; });
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  const f = await fixture(async () => { calls++; enter(); await hold; return encrypted({ device_dsks: [] }); });
+  try {
+    const first = f.client.dskKeys(["synthetic-station"]); await waiting;
+    const controller = new AbortController();
+    const stopped = assert.rejects(f.client.cloudRecordingTrial("synthetic-camera", "synthetic-station", "123", { startTime: 90, endTime: 130 }, controller.signal), /cancelled/);
+    controller.abort(); release(); await first; await stopped; assert.equal(calls, 1);
+  } finally { release(); await f.dispose(); }
 });

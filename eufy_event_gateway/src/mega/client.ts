@@ -32,7 +32,8 @@ import {
   sharedAesKey,
   sharedSigningKey,
 } from "./crypto.js";
-import { projectCloudHistory, validateCloudHistoryQuery, type CloudHistoryQuery, type CloudHistoryRecord } from "./cloud-history.js";
+import { CloudRecordingError, type CloudRecordingStage, prepareCloudRecording } from "../stream/cloud-recordings.js";
+import { selectCloudRecording, cloudRecordingUrl, cloudRecordingKey, projectCloudHistory, validateCloudHistoryQuery, type CloudHistoryQuery, type CloudHistoryRecord } from "./cloud-history.js";
 import { readBoundedResponse } from "./bounded-response.js";
 import { MegaSessionStore } from "./session-store.js";
 import type { MegaAuthResult, MegaCaptcha, MegaIdentity, MegaInventory, MegaResult, MegaSession } from "./types.js";
@@ -285,6 +286,65 @@ export class MegaClient {
     return projectCloudHistory(this.#decodeResult(result), cameraSerial, query.count ?? 100);
   }
 
+  /**
+   * Prepare one user-consented cloud clip from a fresh camera/parent history binding.
+   * This read-only experiment never changes subscriptions, recordings or settings.
+   * Temporary URLs, the recovered key and downloaded source stay operation-owned.
+   */
+  async cloudRecordingTrial(camera: string, station: string, id: string, query: CloudHistoryQuery,
+    cancellation: AbortSignal): Promise<Buffer> {
+    this.#requireAuthentication();
+    const session = this.#session!;
+    const signal = AbortSignal.any([cancellation, this.#requestLifetime.signal, AbortSignal.timeout(90_000)]);
+    let stage: CloudRecordingStage = "history", key: Buffer | null = null, media: Buffer | null = null;
+    const current = (): void => {
+      signal.throwIfAborted();
+      if (this.#session?.authToken !== session.authToken || this.#session?.userId !== session.userId
+        || this.#session?.openUdid !== session.openUdid) throw new CloudRecordingError("cancelled");
+    };
+    try {
+      current(); validateCloudHistoryQuery(query);
+      const history = await this.#call("security", "/v3/event/app/get_all_video_record", {
+        device_sn: camera, start_time: query.startTime, end_time: query.endTime,
+        offset: query.timezoneOffset ?? 0, id: query.cursor ?? 0, num: query.count ?? 100,
+        pullup: true, shared: true, storage: 2,
+      }, false, undefined, signal);
+      current(); stage = "ownership";
+      const reference = selectCloudRecording(this.#decodeResult(history), camera, station, id, query);
+      stage = "url";
+      const renewed = await this.#call("security", "/v3/event/app/get_kvs_urls", {
+        monitor_ids: [reference.monitorId], user_id: reference.cipherOwner,
+      }, false, undefined, signal);
+      current(); const url = cloudRecordingUrl(this.#decodeResult(renewed), reference);
+      if (reference.encryptedKey) {
+        stage = "key";
+        if (reference.cipherId === null) throw new CloudRecordingError("key");
+        const label = randomIdentifier();
+        const result = await this.#call("security", "/v3/web/cipher/dec_aes_keys", {
+          user_id: reference.keyOwner,
+          cipher_keys: [{ cipher_id: reference.cipherId, aes_keys: { uuid: label, [label]: reference.encryptedKey } }],
+        }, false, undefined, signal);
+        current(); key = cloudRecordingKey(this.#decodeResult(result), reference.cipherId, label);
+      }
+      stage = "download"; media = await this.#downloadCloudRecording(url, signal);
+      current(); stage = "video";
+      const clip = await prepareCloudRecording(media, key, signal);
+      try { current(); } catch (error) { clip.fill(0); throw error; }
+      return clip;
+    } catch (error) {
+      throw error instanceof CloudRecordingError ? error : new CloudRecordingError(signal.aborted ? "cancelled" : stage);
+    } finally { key?.fill(0); media?.fill(0); }
+  }
+
+  /** Download only the selected native media location, with no account headers to object storage. */
+  async #downloadCloudRecording(value: string, signal: AbortSignal): Promise<Buffer> {
+    const url = allowedMediaUrl(value, new RegExp(`${MEDIA_HOST.source}|${MEDIA_OBJECT_HOST.source}`));
+    const response = MEDIA_HOST.test(url.hostname) ? await this.#fetchMedia(url, signal)
+      : await this.#fetch(url, { redirect: "manual", signal });
+    if (!response.ok) { await response.body?.cancel(); throw new CloudRecordingError("download"); }
+    return await readBoundedResponse(response, 32 * 1024 * 1024, signal);
+  }
+
   /** Read the established Security inventory field without retaining its other device data. */
   async #legacyChargingDays(): Promise<ReadonlyMap<string, unknown>> {
     const result = await this.#call("security", "/v2/house/device_list", {
@@ -482,6 +542,7 @@ export class MegaClient {
     });
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
+      await response.body?.cancel();
       if (!location) throw new Error("Mega media download rejected");
       const target = allowedMediaUrl(location, MEDIA_OBJECT_HOST);
       response = await this.#fetch(target, { redirect: "manual", signal });
@@ -630,8 +691,8 @@ export class MegaClient {
     return identity;
   }
 
-  async #call(service: string, path: string, payload: unknown, retryIdentity = true, appScope?: "eufy_security"): Promise<MegaResult> {
-    const lifetime = this.#requestLifetime.signal;
+  async #call(service: string, path: string, payload: unknown, retryIdentity = true, appScope?: "eufy_security", cancellation?: AbortSignal): Promise<MegaResult> {
+    const lifetime = cancellation ? AbortSignal.any([this.#requestLifetime.signal, cancellation]) : this.#requestLifetime.signal;
     lifetime.throwIfAborted();
     const host = this.#clusterHost(service);
     const identityHost = host.endsWith(".eufylife.com") ? host : this.#clusterHost("openapi");
@@ -639,7 +700,7 @@ export class MegaClient {
     lifetime.throwIfAborted();
     let result: MegaResult;
     try {
-      result = await this.#signedPost(host, path, payload, identity, undefined, appScope);
+      result = await this.#signedPost(host, path, payload, identity, undefined, appScope, cancellation);
     } catch (error) {
       lifetime.throwIfAborted();
       if (!retryIdentity || path !== "/v3/app/cipher/get_ciphers" || !(error instanceof MegaHttpRejection)
@@ -655,13 +716,13 @@ export class MegaClient {
       }
       const refreshedIdentity = await this.#renewIdentity(identityHost, identity);
       lifetime.throwIfAborted();
-      return this.#signedPost(host, path, payload, refreshedIdentity, undefined, appScope);
+      return this.#signedPost(host, path, payload, refreshedIdentity, undefined, appScope, cancellation);
     }
     lifetime.throwIfAborted();
     if (retryIdentity && TRANSIENT_IDENTITY_ERRORS.has(result.code)) {
       const refreshedIdentity = await this.#renewIdentity(identityHost, identity);
       lifetime.throwIfAborted();
-      const retried = await this.#signedPost(host, path, payload, refreshedIdentity, undefined, appScope);
+      const retried = await this.#signedPost(host, path, payload, refreshedIdentity, undefined, appScope, cancellation);
       lifetime.throwIfAborted();
       return retried;
     }
@@ -701,8 +762,11 @@ export class MegaClient {
     identity?: MegaIdentity,
     bootstrap?: { readonly keyIdent: string; readonly encryptedPublicKey: string },
     appScope?: "eufy_security",
+    cancellation?: AbortSignal,
   ): Promise<MegaResult> {
-    return this.#enqueue(async (signal) => {
+    return this.#enqueue(async (lifetime) => {
+      const signal = cancellation ? AbortSignal.any([lifetime, cancellation]) : lifetime;
+      signal.throwIfAborted();
       const timestamp = `${Math.floor(this.#now() / 1_000)}`;
       const nonce = randomIdentifier();
       const encrypted = bootstrap?.encryptedPublicKey ?? encryptEnvelope(JSON.stringify(payload), sharedAesKey(identity!.sharedKey));

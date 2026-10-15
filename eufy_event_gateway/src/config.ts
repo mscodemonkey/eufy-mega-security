@@ -35,6 +35,9 @@ export interface GatewayConfig {
   /** Default-off native standalone doorbell video test, requiring private-media consent. */
   readonly experimentalDoorbellRtc: boolean;
 
+  /** Default-off download of existing cloud recordings with explicit private-media consent. */
+  readonly experimentalCloudRecordings: boolean;
+
   /** Default-off fixed 1080p output for diagnosing H.265 viewer reconfiguration drops. */
   readonly experimentalFixedH265Resolution: boolean;
 
@@ -68,6 +71,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
   if (experimentalE30Locks && !apiToken) throw new Error("Experimental E30 locks require EUFY_GATEWAY_API_TOKEN");
   const experimentalDoorbellRtc = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_DOORBELL_RTC, "EUFY_GATEWAY_EXPERIMENTAL_DOORBELL_RTC");
   if (experimentalDoorbellRtc && !apiToken) throw new Error("Experimental doorbell video requires EUFY_GATEWAY_API_TOKEN");
+  const experimentalCloudRecordings = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS, "EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS");
+  if (experimentalCloudRecordings && !apiToken) throw new Error("Experimental cloud recordings require EUFY_GATEWAY_API_TOKEN");
   const experimentalNvrLive = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_NVR_LIVE, "EUFY_GATEWAY_EXPERIMENTAL_NVR_LIVE");
   const experimentalFixedH265Resolution = captureBoolean(
     environment.EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION,
@@ -99,6 +104,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
     experimentalE30Locks,
     experimentalNvrLive,
     experimentalDoorbellRtc,
+    experimentalCloudRecordings,
     experimentalFixedH265Resolution,
     experimentalNvrRegion: experimentalNvrRegion as "auto" | "us" | "eu" | "ie",
     eufy: {

@@ -70,3 +70,10 @@ test("standalone doorbell trials default off and require explicit authenticated 
   assert.equal(loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_DOORBELL_RTC: "true", EUFY_GATEWAY_API_TOKEN: "x".repeat(32) }).experimentalDoorbellRtc, true);
   assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_DOORBELL_RTC: "yes" }), /must be true or false/);
 });
+
+test("cloud recording trial is default-off and requires a token with strict flag parsing", () => {
+  assert.equal(loadConfig({}).experimentalCloudRecordings, false);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS: "true" }), /API_TOKEN/);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS: "maybe" }), /must be true or false/);
+  assert.equal(loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS: "true", EUFY_GATEWAY_API_TOKEN: "x".repeat(32) }).experimentalCloudRecordings, true);
+});

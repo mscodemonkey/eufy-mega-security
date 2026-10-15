@@ -1,4 +1,7 @@
 configuration:
+  experimental_cloud_recordings:
+    name: Experimental cloud recording test
+    description: Request an existing private cloud recording in Diagnostics with explicit consent. Video only. Local HomeBase recordings and deletion are separate. Off by default.
   experimental_doorbell_rtc:
     name: Experimental standalone doorbell video test
     description: Enable a consented ten-second private video test in Diagnostics for a standalone Video Doorbell C30. Normal streaming stays unchanged. Hardware behaviour is unconfirmed. Off by default.

@@ -17,6 +17,7 @@ export EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS="$(jq -r '.experimental_model_co
 export EUFY_GATEWAY_EXPERIMENTAL_E30_LOCKS="$(jq -r '.experimental_e30_locks // false' "$options")"
 export EUFY_GATEWAY_EXPERIMENTAL_NVR_LIVE="$(jq -r '.experimental_nvr_live // false' "$options")"
 export EUFY_GATEWAY_EXPERIMENTAL_DOORBELL_RTC="$(jq -r '.experimental_doorbell_rtc // false' "$options")"
+export EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS="$(jq -r '.experimental_cloud_recordings // false' "$options")"
 export EUFY_GATEWAY_EXPERIMENTAL_NVR_REGION="$(jq -r '.experimental_nvr_region // "auto"' "$options")"
 export EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION="$(jq -r '.experimental_fixed_h265_resolution // false' "$options")"
 if [ ! -s "$token_file" ]; then

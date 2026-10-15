@@ -33,6 +33,7 @@ import { MegaClient } from "../mega/client.js";
 import { decodeEventImage, isJpeg } from "../mega/image.js";
 import { parseV8EventImage, decodeV8EventImage } from "../mega/v8-image.js";
 import { MegaPushReceiver, type MegaPushEvent } from "../mega/push.js";
+import { CloudRecordingError } from "../stream/cloud-recordings.js";
 import { DoorbellRtcSession } from "../stream/doorbell-rtc-session.js";
 import { DoorbellRtcError } from "../stream/doorbell-rtc-offer.js";
 import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, PpcsLookupTimeoutError, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
@@ -93,6 +94,9 @@ export interface EufyProviderConfig {
 
   /** Default-off, media-only native doorbell diagnostic trial. */
   readonly experimentalDoorbellRtc?: boolean;
+
+  /** Default-off existing cloud recording download, independent of live camera capabilities. */
+  readonly experimentalCloudRecordings?: boolean;
   readonly experimentalNvrRegion?: "auto" | "us" | "eu" | "ie";
 
   /** Optional process-owned evidence collector, closed by the composition root. */
@@ -634,6 +638,20 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const camera = this.#devices.get(serial);
     if (!camera || !isSupportedCameraType(camera)) throw new Error("Camera not found");
     return this.#client.cloudHistory(serial, query);
+  }
+
+  /** Prepare existing cloud video for one currently admitted camera without waking or controlling it. */
+  async cloudRecordingTrial(serial: string, id: string, query: CloudHistoryQuery, signal: AbortSignal): Promise<Buffer> {
+    const device = this.#devices.get(serial), generation = this.#startupGeneration;
+    if (!this.config.experimentalCloudRecordings || !device || !isSupportedCameraType(device)
+      || this.#recordingClosing || signal.aborted || !this.#client.isAuthenticated) throw new CloudRecordingError("admission");
+    const media = await this.#client.cloudRecordingTrial(serial, device.parentSerial, id, query, signal);
+    const current = this.#devices.get(serial);
+    if (signal.aborted || this.#recordingClosing || generation !== this.#startupGeneration || !current
+      || inventoryBindingChanged(device, current) || current.adminUserId !== device.adminUserId) {
+      media.fill(0); throw new CloudRecordingError("cancelled");
+    }
+    return media;
   }
 
   /** List validated, completed SoloCam event clips through its currently verified storage route. */

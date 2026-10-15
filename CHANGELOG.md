@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.156
+
+- Add a default-off Diagnostics preview for existing cloud recordings, protected by an API token and private-video consent. It supports plain MP4 and source-defined v8 H.264, produces a checked video-only preview up to two minutes and keeps local HomeBase recordings separate.
+- Validate current camera, parent, record and shared-account key ownership before downloading. Keep private URLs and keys out of logs and cancel queued requests, downloads and conversion when the preview is retired.
+- Reject unsupported legacy formats, damaged frames and failed authentication. Handle video resolution changes with a fixed-size H.264 preview. Actual cloud recording and shared-account behaviour remain unconfirmed.
+
 ## 0.1.155
 
 - Add a default-off, consented private video trial for standalone T8224/type 96 doorbells without a normal streaming connection. The diagnostic checks the clip before download. Hardware and shared-account playback remain unconfirmed.

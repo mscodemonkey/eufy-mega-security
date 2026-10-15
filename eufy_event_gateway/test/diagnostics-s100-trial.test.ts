@@ -9,10 +9,10 @@ import { diagnosticsPage } from "../src/diagnostics/page.js";
 
 test("S100 Stop button remains available while the pulse form is locked and targets its original camera", async () => {
   const elements = new Map<string, { value: string; checked: boolean; disabled: boolean; hidden: boolean; textContent: string;
-    onclick?: () => Promise<void>; onchange?: () => void; replaceChildren: () => void; add: (option: { value: string }) => void }>();
+    onclick?: () => Promise<void>; onchange?: () => void; addEventListener: () => void; replaceChildren: () => void; add: (option: { value: string }) => void }>();
   const element = (id: string) => {
     if (!elements.has(id)) {
-      const value = { value: "", checked: true, disabled: false, hidden: false, textContent: "",
+      const value = { addEventListener: () => {}, value: "", checked: true, disabled: false, hidden: false, textContent: "",
         replaceChildren: () => { value.value = ""; }, add: (option: { value: string }) => { value.value ||= option.value; } };
       elements.set(id, value);
     }
@@ -41,6 +41,8 @@ test("S100 Stop button remains available while the pulse form is locked and targ
   assert.equal(element("trial-load").disabled, true);
   assert.equal(element("trial-siren-stop").hidden, false);
   assert.equal(element("trial-siren-stop").disabled, false);
+  await element("cloud-list").onclick!();
+  assert.equal(calls.length, 1); assert.equal(element("device").disabled, true);
   element("device").value = "other";
   await element("trial-siren-stop").onclick!(); await pulse;
   assert.deepEqual(calls.map(call => call.enabled), [true, false]);

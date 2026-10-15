@@ -8,6 +8,7 @@
  * module owns request authentication, response framing, and route selection;
  * it does not parse Mega payloads or open camera sockets.
  */
+import { CloudRecordingError } from "./stream/cloud-recordings.js";
 import { DoorbellRtcError } from "./stream/doorbell-rtc-offer.js";
 import { validateStoredMedia } from "./stream/stored-recordings.js";
 import { isE30LockSettingChange } from "./domain/types.js";
@@ -414,6 +415,44 @@ export class GatewayServer {
       }
       if (segments[0] === "api" && segments[1] === "cameras" && segments[3] === "recordings") {
         return await this.#storedRecordings(request, response, segments, url);
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras"
+        && segments[3] === "cloud-recording-trial" && segments.length === 4) {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !this.config.experimentalCloudRecordings || !this.provider.cloudRecordingTrial) {
+          return json(response, 409, { error: "Experimental cloud recording tests are disabled" });
+        }
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
+        if ((request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase() !== "application/json") {
+          return json(response, 400, { error: "JSON private-media consent is required" });
+        }
+        const body = await readJson(request);
+        if (body.consentPrivateMedia !== true || typeof body.recordId !== "string" || !body.recordId.length || body.recordId.length > 128
+          || Object.keys(body).some(key => !["consentPrivateMedia", "recordId", "startTime", "endTime", "timezoneOffset"].includes(key))) {
+          return json(response, 400, { error: "A selected recording and explicit private-media consent are required" });
+        }
+        const query = { startTime: body.startTime as number, endTime: body.endTime as number,
+          timezoneOffset: body.timezoneOffset as number, count: 1000 };
+        validateCloudHistoryQuery(query);
+        if (this.#nvrTrialJobs.size) return json(response, 409, { error: "A private media test is already running" });
+        const controller = new AbortController(); this.#nvrTrialJobs.add(controller);
+        const deadline = setTimeout(() => controller.abort(), 95_000);
+        const abort = (): void => { controller.abort(); };
+        response.once("close", abort); request.once("aborted", abort);
+        try {
+          const clip = await this.provider.cloudRecordingTrial(segments[2]!, body.recordId, query, controller.signal);
+          if (controller.signal.aborted) { clip.fill(0); throw new CloudRecordingError("cancelled"); }
+          response.writeHead(200, { "Content-Type": "video/mp4", "Content-Length": clip.length, "Cache-Control": "no-store" });
+          response.end(clip);
+        } catch (error) {
+          const failure = error instanceof CloudRecordingError ? error : new CloudRecordingError(controller.signal.aborted ? "cancelled" : "video");
+          logger.warn("cloud_recording_trial_failed", `stage=${failure.stage}`);
+          if (!response.destroyed) json(response, 409, { error: failure.message, stage: failure.stage });
+        } finally {
+          controller.abort(); clearTimeout(deadline);
+          response.removeListener("close", abort); request.removeListener("aborted", abort); this.#nvrTrialJobs.delete(controller);
+        }
+        return;
       }
       if (request.method === "GET" && segments[0] === "api" && segments[1] === "cameras" &&
         segments[3] === "cloud-history" && segments.length === 4) {

@@ -73,6 +73,7 @@ if (config.provider === "simulated") {
       experimentalE30Locks: config.experimentalE30Locks,
     experimentalNvrLive: config.experimentalNvrLive,
     experimentalDoorbellRtc: config.experimentalDoorbellRtc,
+    experimentalCloudRecordings: config.experimentalCloudRecordings,
     experimentalNvrRegion: config.experimentalNvrRegion,
     ...(eventImageCapture ? { eventImageCapture } : {}),
     ...(config.eufy.verifyCode ? { verifyCode: config.eufy.verifyCode } : {}),

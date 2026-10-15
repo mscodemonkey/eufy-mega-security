@@ -45,6 +45,16 @@ export function diagnosticsPage(): string {
 <video id="doorbell-video" controls hidden style="max-width:100%"></video>
 <a id="doorbell-download" hidden download="eufy-doorbell-test.mp4">Download private test clip</a>
 <p>The clip stays in this browser and is never uploaded automatically. Keep it private. If the test fails, share only the doorbell_rtc_trial_failed log line.</p></details>
+<details><summary>Experimental cloud recording preview</summary>
+<p>Enable this test in the app options first. Select one camera and a day, then choose an existing cloud recording. This does not list local HomeBase recordings or change your subscription.</p>
+<label>Recording day <input id="cloud-date" type="date"></label><button id="cloud-list">Load cloud recordings</button>
+<label>Recording <select id="cloud-record"><option value="">Load a day first</option></select></label>
+<label><input id="cloud-consent" type="checkbox"> I agree to download and process the selected private recording for a video-only preview.</label>
+<button id="cloud-test">Preview selected recording</button><button id="cloud-stop">Cancel cloud test</button>
+<pre id="cloud-status" role="status">No cloud recording selected.</pre>
+<video id="cloud-video" controls hidden style="max-width:100%"></video>
+<a id="cloud-download" hidden download="eufy-cloud-preview.mp4">Download private preview</a>
+<p>The preview has no audio and is limited to two minutes. Some older recording formats are unavailable. It stays in this browser and is never uploaded automatically. Keep footage private. If it fails, share only the cloud_recording_trial_failed log line.</p></details>
 <label>Capture duration <select id="seconds"><option value="30">30 seconds</option><option value="60">60 seconds</option></select></label>
 <label><input id="media" type="checkbox"> Include private pictures, audio and video. I agree to capture and share this evidence privately.
 <small>Leave this unchecked for discovery, controls or event delivery problems. Media can reveal people, conversations and your surroundings.</small></label>
@@ -57,6 +67,7 @@ export function diagnosticsPage(): string {
 <script>
 const el = id => document.getElementById(id);
 let targets = [], stream = null, poll = null, activeTrialSerial = null, nvrJob = null, nvrClip = null, doorbellJob = null, doorbellClip = null;
+let cloudJob = null, cloudLoadJob = null, cloudClip = null, cloudSelection = null, cloudGeneration = 0;
 const show = value => { el('status').textContent = value; };
 const abortStream = () => { if(stream) stream.abort(); stream = null; };
 async function api(path, method = 'GET', body) {
@@ -109,6 +120,7 @@ action('trial-load', async () => {
   el('trial-status').textContent = value.actions.length ? 'Choose one control and observe the camera.' : 'No exact model control trials available.';
 });
 action('trial-send', async () => {
+  if(cloudJob || cloudLoadJob) throw Error('Finish the cloud recording test before trying camera controls.');
   if(!el('trial-consent').checked) throw Error('Confirm you are ready to observe and restore the camera.');
   const action = el('trial-action').value, value = el('trial-value').value;
   if(action === 'ptz' ? !['left','right','up','down'].includes(value) : !['true','false'].includes(value)) throw Error('Choose a value matching the control.');
@@ -163,7 +175,7 @@ action('nvr-stop', async () => { if(nvrJob) nvrJob.abort(); });
 action('nvr-test', async () => {
   const selected = el('device').value;
   if(!selected || !el('nvr-consent').checked) throw Error('Select one camera and confirm private video consent.');
-  if(nvrJob || doorbellJob) return;
+  if(nvrJob || doorbellJob || cloudJob) return;
   const job = nvrJob = new AbortController();
   el('nvr-test').disabled = true; el('nvr-state-test').disabled = true; el('device').disabled = true;
   el('nvr-status').textContent = 'Connecting and requesting a ten-second clip. This may take up to 90 seconds.';
@@ -185,7 +197,7 @@ action('nvr-test', async () => {
 action('nvr-state-test', async () => {
   const selected = el('device').value;
   if(!selected || !el('nvr-state-consent').checked) throw Error('Select one camera and confirm read-state consent.');
-  if(nvrJob || doorbellJob) return;
+  if(nvrJob || doorbellJob || cloudJob) return;
   const job = nvrJob = new AbortController();
   el('nvr-test').disabled = true; el('nvr-state-test').disabled = true; el('device').disabled = true;
   el('nvr-status').textContent = 'Connecting and reading settings. This may take up to 45 seconds, followed by connection cleanup.';
@@ -210,7 +222,7 @@ action('doorbell-stop', async () => { if(doorbellJob) doorbellJob.abort(); });
 action('doorbell-test', async () => {
   const selected = el('device').value;
   if(!selected || !el('doorbell-consent').checked) throw Error('Select one standalone doorbell and confirm private video consent.');
-  if(doorbellJob || nvrJob) return;
+  if(doorbellJob || nvrJob || cloudJob) return;
   const job = doorbellJob = new AbortController();
   if(doorbellClip) URL.revokeObjectURL(doorbellClip);
   doorbellClip = null; el('doorbell-video').removeAttribute('src');
@@ -232,6 +244,76 @@ action('doorbell-test', async () => {
   } catch(error) { el('doorbell-status').textContent = job.signal.aborted ? 'Doorbell test cancelled.' : error.message + ' Please send only the doorbell_rtc_trial_failed log line if it failed.'; }
   finally { doorbellJob = null; el('doorbell-test').disabled = false; el('device').disabled = false; }
 });
-window.addEventListener('pagehide', () => { abortStream(); if(nvrJob) nvrJob.abort(); if(nvrClip) URL.revokeObjectURL(nvrClip); if(doorbellJob) doorbellJob.abort(); if(doorbellClip) URL.revokeObjectURL(doorbellClip); });
+function cloudControls(busy) {
+  for(const id of ['cloud-list','cloud-test','cloud-date','cloud-record']) el(id).disabled = busy;
+  for(const id of ['device','load']) el(id).disabled = busy || activeTrialSerial !== null || !!nvrJob || !!doorbellJob;
+}
+function clearCloudClip() {
+  if(cloudClip) URL.revokeObjectURL(cloudClip);
+  cloudClip = null; el('cloud-video').removeAttribute('src'); el('cloud-video').hidden = true; el('cloud-download').hidden = true;
+}
+function resetCloud() {
+  cloudGeneration++;
+  if(cloudJob) cloudJob.abort(); if(cloudLoadJob) cloudLoadJob.abort();
+  cloudJob = null; cloudLoadJob = null; cloudSelection = null;
+  cloudControls(false); clearCloudClip(); el('cloud-consent').checked = false;
+  el('cloud-record').replaceChildren(new Option('Load a day first', ''));
+  el('cloud-status').textContent = 'No cloud recording selected.';
+}
+el('cloud-date').value = new Date(Date.now() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+el('device').addEventListener('change', resetCloud);
+el('cloud-date').addEventListener('change', resetCloud);
+el('cloud-record').addEventListener('change', () => { clearCloudClip(); el('cloud-consent').checked = false; });
+action('cloud-stop', async () => { if(cloudJob) cloudJob.abort(); if(cloudLoadJob) cloudLoadJob.abort(); });
+action('cloud-list', async () => {
+  if(cloudJob || cloudLoadJob || nvrJob || doorbellJob || activeTrialSerial !== null) return;
+  const serial = el('device').value, day = el('cloud-date').value;
+  if(!serial || !/^\\d{4}-\\d{2}-\\d{2}$/.test(day)) throw Error('Select one camera and a recording day.');
+  resetCloud();
+  const generation = cloudGeneration, job = cloudLoadJob = new AbortController();
+  const start = new Date(day + 'T00:00:00'), end = new Date(start); end.setDate(end.getDate()+1);
+  const query = { startTime: start.getTime()/1000, endTime: end.getTime()/1000, timezoneOffset: -start.getTimezoneOffset()*60 };
+  cloudControls(true); el('cloud-status').textContent = 'Loading existing cloud recording metadata.';
+  try {
+    const params = new URLSearchParams({ start: query.startTime, end: query.endTime, timezone_offset: query.timezoneOffset, count: 1000 });
+    const result = await fetch('api/cameras/' + encodeURIComponent(serial) + '/cloud-history?' + params, {
+      signal: job.signal, cache: 'no-store', headers: { Authorization: 'Bearer ' + el('token').value } });
+    if(!result.ok) throw Error('Cloud history returned HTTP ' + result.status + '.');
+    const value = await result.json();
+    if(generation !== cloudGeneration || job.signal.aborted) return;
+    if(!Array.isArray(value.records) || value.records.length > 1000) throw Error('Cloud history did not return a valid list.');
+    const records = value.records.filter(row => row.hasCloudMedia === true && typeof row.id === 'string' && row.id.length <= 128 && Number.isSafeInteger(row.startTime));
+    cloudSelection = { serial, query, records };
+    el('cloud-record').replaceChildren(new Option(records.length ? 'Choose one recording' : 'No cloud recordings for this day', ''));
+    for(const row of records) el('cloud-record').add(new Option(new Date(row.startTime*1000).toLocaleString(), row.id));
+    el('cloud-status').textContent = records.length ? 'Choose one recording and confirm private-video consent.' : 'No cloud recordings returned. Local HomeBase recordings are separate.';
+  } catch(error) { if(generation === cloudGeneration) el('cloud-status').textContent = job.signal.aborted ? 'Cloud history cancelled.' : error.message; }
+  finally { if(generation === cloudGeneration) { cloudLoadJob = null; cloudControls(false); } }
+});
+action('cloud-test', async () => {
+  if(cloudJob || cloudLoadJob || nvrJob || doorbellJob || activeTrialSerial !== null) return;
+  const selection = cloudSelection, recordId = el('cloud-record').value;
+  if(!selection || selection.serial !== el('device').value || !selection.records.some(row => row.id === recordId) || !el('cloud-consent').checked) {
+    throw Error('Select one existing recording and confirm private-video consent.');
+  }
+  const generation = cloudGeneration, job = cloudJob = new AbortController();
+  clearCloudClip(); cloudControls(true); el('cloud-status').textContent = 'Downloading and checking the private video preview. This may take up to 95 seconds.';
+  try {
+    const result = await fetch('api/cameras/' + encodeURIComponent(selection.serial) + '/cloud-recording-trial', {
+      method: 'POST', signal: job.signal, cache: 'no-store',
+      headers: { Authorization: 'Bearer ' + el('token').value, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ consentPrivateMedia: true, recordId, ...selection.query }) });
+    if(!result.ok) { const value = await result.json(); throw Error(value.error || 'Cloud recording test failed.'); }
+    const clip = await result.blob();
+    if(generation !== cloudGeneration || job.signal.aborted) return;
+    if(clip.size > 32*1024*1024) throw Error('The private preview exceeded the test limit.');
+    cloudClip = URL.createObjectURL(clip);
+    el('cloud-video').src = cloudClip; el('cloud-video').hidden = false;
+    el('cloud-download').href = cloudClip; el('cloud-download').hidden = false;
+    el('cloud-status').textContent = 'Preview checked. Does it play and show the selected recording? Keep footage private.';
+  } catch(error) { if(generation === cloudGeneration) el('cloud-status').textContent = job.signal.aborted ? 'Cloud preview cancelled.' : error.message + ' Please send only the cloud_recording_trial_failed line if it failed.'; }
+  finally { if(generation === cloudGeneration) { cloudJob = null; cloudControls(false); } }
+});
+window.addEventListener('pagehide', () => { resetCloud(); abortStream(); if(nvrJob) nvrJob.abort(); if(nvrClip) URL.revokeObjectURL(nvrClip); if(doorbellJob) doorbellJob.abort(); if(doorbellClip) URL.revokeObjectURL(doorbellClip); });
 </script></html>`;
 }

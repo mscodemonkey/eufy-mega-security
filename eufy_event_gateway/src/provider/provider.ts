@@ -88,6 +88,9 @@ export interface CameraProvider {
   downloadStoredRecording?(serial: string, id: string, signal?: AbortSignal): Promise<Buffer | null>;
   /** Optional read-only cloud metadata, independent of local station storage. */
   cloudHistory?(serial: string, query: CloudHistoryQuery): Promise<readonly CloudHistoryRecord[]>;
+
+  /** Prepare one consented private cloud recording, without any camera or account writes. */
+  cloudRecordingTrial?(serial: string, id: string, query: CloudHistoryQuery, signal: AbortSignal): Promise<Buffer>;
   start(events: ProviderEvents): Promise<void>;
   startStream(serial: string): Promise<void>;
   stopStream(serial: string): Promise<void>;
