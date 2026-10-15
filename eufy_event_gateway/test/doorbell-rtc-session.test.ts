@@ -13,6 +13,22 @@ import { RTCPeerConnection, RTCSessionDescription, MediaStreamTrack, RtpPacket, 
 import { DoorbellRtcSession } from "../src/stream/doorbell-rtc-session.js";
 import { DoorbellRtcError } from "../src/stream/doorbell-rtc-offer.js";
 
+test("RTC service protocol selection rejects a bare account token", { timeout: 5000 }, async () => {
+  const server = new WebSocketServer({ port: 0, handleProtocols: protocols => protocols.has("v1") ? "v1" : false });
+  await once(server, "listening");
+  const address = server.address() as { port: number };
+  const client = new WebSocket(`ws://127.0.0.1:${address.port}`, ["synthetic-token"]);
+  const rejected = once(client, "error");
+  try {
+    const [error] = await rejected;
+    assert.match(error.message, /subprotocol/);
+  } finally {
+    client.terminate();
+    for (const socket of server.clients) socket.terminate();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
+
 /** Split generated Annex-B video into complete AUD-delimited frames. */
 function frames(data: Buffer): Buffer[][] {
   const starts: { at: number; bytes: number }[] = [];
@@ -51,7 +67,8 @@ for (const scenario of ["video", "loss", "busy", "wrong-owner", "no-video", "can
       "-f", "h264", "pipe:1"], { maxBuffer: 4 * 1024 * 1024 });
     assert.equal(generated.status, 0);
     const units = frames(generated.stdout); assert.equal(units.length, 10);
-    const server = new WebSocketServer({ port: 0 }); await once(server, "listening");
+    const server = new WebSocketServer({ port: 0, handleProtocols: protocols => protocols.has("v1") ? "v1" : false });
+    await once(server, "listening");
     const address = server.address() as { port: number };
     const camera = new RTCPeerConnection({ iceServers: [], iceUseIpv6: false,
       codecs: { audio: [], video: [useH264({ payloadType: 99 })] } });
@@ -79,7 +96,15 @@ for (const scenario of ["video", "loss", "busy", "wrong-owner", "no-video", "can
         counter++;
       }, 100);
     });
-    server.on("connection", connection => {
+    server.on("connection", (connection, request) => {
+      const protocols = request.headers["sec-websocket-protocol"]!.split(/,\s*/);
+      assert.equal(protocols.length, 2);
+      assert.equal(protocols[0], "v1");
+      assert.match(protocols[1]!, /^[A-Za-z0-9_-]+$/);
+      assert.deepEqual(JSON.parse(Buffer.from(protocols[1]!, "base64url").toString("utf8")), {
+        region: "EU", type: "NVR", sn: "synthetic-station", token: "synthetic-token",
+        gtoken: "synthetic-gtoken", sign: "synthetic-sign", appName: "eufy_mega", modelType: "WEB",
+      });
       const send = (value: Record<string, unknown>): void => { connection.send(JSON.stringify({ data: JSON.stringify(value) })); };
       const reply = (kind: string, data: Record<string, unknown>): void => send({ action: 3, code: 200,
         sessionId: "synthetic-sign", sn: scenario === "wrong-owner" ? "other-station" : "synthetic-station",
@@ -113,7 +138,7 @@ for (const scenario of ["video", "loss", "busy", "wrong-owner", "no-video", "can
     }, {
       socket: (url, protocols, options) => {
         assert.equal(url, "wss://security-smart-eu.eufylife.com/v1/rtc/ws/join?reqtype=nvr");
-        assert.deepEqual(protocols, ["synthetic-token"]); assert.equal(options.followRedirects, false);
+        assert.equal(options.followRedirects, false);
         return new WebSocket(`ws://127.0.0.1:${address.port}`, protocols);
       },
       peer: (_servers, offer) => {

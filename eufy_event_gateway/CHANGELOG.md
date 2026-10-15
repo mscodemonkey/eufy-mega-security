@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.158
+
+- Correct the experimental standalone doorbell video test joining the video service. The test now sends the service-specific join header instead of a bare account token. It remains off by default, and T8224 physical playback still needs confirmation.
+- Recover an additional HomeBase 2 v2 event-thumbnail layout safely, so a received motion event can update its event image rather than fail at image decoding. Reporter confirmation is still required.
+
 ## 0.1.157
 
 - Read the T8N00 NVR S4 configured and effective modes separately from verified mode-change notifications. Keep mode and camera-power controls disabled. Reject stale or replayed delivery and clear the push-owned reading when notification reception is lost.

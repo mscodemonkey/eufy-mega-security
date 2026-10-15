@@ -110,7 +110,11 @@ export class DoorbellRtcSession {
     this.options.signal.addEventListener("abort", this.#abort, { once: true });
     this.#deadline = setTimeout(() => this.#fail("deadline"), this.options.startupTimeoutMilliseconds ?? 35_000);
     try {
-      this.#socket = this.dependencies.socket(`wss://${host}/v1/rtc/ws/join?reqtype=nvr`, [this.options.context.authToken], {
+      const protocols = ["v1", Buffer.from(JSON.stringify({ region: this.options.context.region,
+        type: "NVR", sn: this.options.station, token: this.options.context.authToken,
+        gtoken: this.options.context.gtoken, sign: this.options.context.sign,
+        appName: "eufy_mega", modelType: "WEB" })).toString("base64url")];
+      this.#socket = this.dependencies.socket(`wss://${host}/v1/rtc/ws/join?reqtype=nvr`, protocols, {
         headers: { Origin: "https://security.eufy.com" }, followRedirects: false, maxPayload: 65536,
         handshakeTimeout: 10_000, perMessageDeflate: false,
       });
