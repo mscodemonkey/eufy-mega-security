@@ -15,8 +15,11 @@ import type { MegaIdentity, MegaSession } from "./types.js";
  * Atomic file store for native Mega sessions.
  * It intentionally rejects older schemas whose credential guard used a fast
  * password hash, requiring one fresh login after the security upgrade.
+ * Each instance serializes its writes until they settle so concurrent host
+ * renewals cannot overwrite the same replacement file.
  */
 export class MegaSessionStore {
+  #saveTail: Promise<void> = Promise.resolve();
 
   /** Create a store for the current private session path. */
   constructor(private readonly path: string) {}
@@ -33,11 +36,18 @@ export class MegaSessionStore {
     return value.openUdid.length > 0 ? value.openUdid : null;
   }
 
-  /** Persist a session with restrictive permissions and atomic replacement. */
-  async save(session: MegaSession): Promise<void> {
+  /** Queue a snapshot with restrictive permissions and atomic replacement. */
+  save(session: MegaSession): Promise<void> {
+    const body = `${JSON.stringify(session, null, 2)}\n`;
+    const write = this.#saveTail.then(() => this.#write(body));
+    this.#saveTail = write.catch(() => undefined);
+    return write;
+  }
+
+  async #write(body: string): Promise<void> {
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
     const temporary = `${this.path}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(session, null, 2)}\n`, { mode: 0o600 });
+    await writeFile(temporary, body, { mode: 0o600 });
     await chmod(temporary, 0o600);
     await rename(temporary, this.path);
   }

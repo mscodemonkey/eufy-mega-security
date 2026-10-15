@@ -145,24 +145,30 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         )
 
     async def async_create_stream(self) -> Stream | None:
-        """Apply the opt-in timeout to this camera's future HLS providers.
+        """Start the HLS startup deadline, with an optional shorter idle timeout.
 
         HA owns the stream, viewer traffic, timers and output cleanup. Wrapping
         this instance's public provider factory avoids creating an unwanted HLS
-        output for a recording. Start the default HLS timer before any segment
-        arrives so a failed startup cannot leave retries running indefinitely.
+        output for a recording. Start HA's HLS timer before any segment arrives
+        even when the optional timeout is off, so a failed startup cannot leave
+        retries running indefinitely.
         Recorders, explicit timeouts and preload keep HA's own behaviour. The
         entry reload replaces this camera on opt-out.
         """
         stream = await super().async_create_stream()
-        if not self._short_hls_idle or stream is None or stream is self._hls_idle_stream:
+        if stream is None or stream is self._hls_idle_stream:
             return stream
         add_provider = stream.add_provider
 
         def add_output(fmt: str, timeout: int | None = None) -> StreamOutput:
-            """Arm the opt-in startup deadline when a consumer requests HLS."""
+            """Arm the startup deadline when a consumer requests ordinary HLS."""
             provider = add_provider(
-                fmt, timeout=60 if fmt == "hls" and timeout is None else timeout
+                fmt,
+                timeout=(
+                    60
+                    if self._short_hls_idle and fmt == "hls" and timeout is None
+                    else timeout
+                ),
             )
             if fmt == "hls" and timeout is None:
                 provider.idle_timer.start()

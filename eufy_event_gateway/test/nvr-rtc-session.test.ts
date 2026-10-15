@@ -38,7 +38,7 @@ function receivePackets(frame: Buffer, sequence: number, channel: number): Buffe
   });
 }
 
-for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async () => {
+for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async () => {
   const codec = scenario === 'h265' ? 'h265' : 'h264';
   const server = new WebSocketServer({ port: 0 });
   await once(server, 'listening');
@@ -84,6 +84,12 @@ for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'stat
       const responsePackets = (scenario === 'state-read' || scenario === 'state-bad-ack-padding') && body.cmd === 9100
         ? receivePackets(response, sequence++, 1)
         : nvrPackets(response, sequence++, 1);
+      if (scenario === 'framing-flags' && body.cmd === 9100) {
+        const malformed = responsePackets[0]!;
+        malformed.writeUInt16LE(malformed.readUInt16LE(18) | 0x8000, 18);
+        for (let index = 0; index < 32; index++) channel.send(malformed);
+        return;
+      }
       for (const packet of responsePackets) channel.send(packet);
       if (body.cmd === 1003) {
         assert.equal(body.payload.chn_list[0].sensor, scenario === 'legacy-first-lens' ? 0 : 1);
@@ -136,10 +142,15 @@ for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'stat
     }, peer: () => new RTCPeerConnection({ iceServers: [], iceUseIpv6: false }),
   });
   try {
-    if (['identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start'].includes(scenario)) {
+    if (['identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags'].includes(scenario)) {
       const deadline = setTimeout(() => controller.abort(), 5000);
       try { await assert.rejects(session.start(), error => {
-        assert.equal((error as { stage: string }).stage, ['identity', 'wrong-channel', 'wrong-type'].includes(scenario) ? 'identity_unmatched' : scenario === 'unknown-channel' ? 'channel' : scenario === 'cancel-start' ? 'cancelled' : 'negotiation'); return true;
+        assert.equal((error as { stage: string }).stage, ['identity', 'wrong-channel', 'wrong-type'].includes(scenario) ? 'identity_unmatched' : scenario === 'unknown-channel' ? 'channel' : scenario === 'cancel-start' ? 'cancelled' : scenario === 'framing-flags' ? 'framing' : 'negotiation');
+        if (scenario === 'framing-flags') {
+          assert.equal((error as NvrTrialError).reason, 'ptcs_flags');
+          assert.deepEqual(session.framingRejections, { flags: 32 });
+        }
+        return true;
       }); } finally { clearTimeout(deadline); }
       assert.equal(commands.includes(1003), false); return;
     }

@@ -492,7 +492,7 @@ export class GatewayServer {
           response.writeHead(200, { "Content-Type": "video/mp4", "Content-Length": clip.length, "Cache-Control": "no-store" }); response.end(clip);
         } catch (error) {
           const failure = error instanceof NvrTrialError ? error : new NvrTrialError(controller.signal.aborted ? "cancelled" : "video");
-          logger.warn("nvr_live_trial_failed", `stage=${failure.stage}`);
+          logger.warn("nvr_live_trial_failed", `stage=${failure.stage} reason=${failure.reason}`);
           if (!response.destroyed) json(response, 409, { error: failure.message, stage: failure.stage });
         } finally {
           controller.abort(); clearTimeout(deadline);

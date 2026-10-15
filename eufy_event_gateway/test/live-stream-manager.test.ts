@@ -622,7 +622,7 @@ test("shares an H.264 fallback with viewers when a camera returns H.265", async 
   assert.equal(deliverySummaries[0]?.clientBackpressureEvents, 0);
 });
 
-test("restarts a silent H.265 transcoder from a later random-access picture", async () => {
+test("recovers initial silence and a later H.265 stall only from a new complete picture", async () => {
   const state = new GatewayState();
   state.registerCamera(camera);
   const source = new PassThrough();
@@ -681,11 +681,20 @@ test("restarts a silent H.265 transcoder from a later random-access picture", as
   (replacementViewer.stdout as PassThrough).write(h264);
   now = 12_000;
   source.write(annexBNal(0x26, 1, 0x80, 3));
-  assert.equal(transcoders.length, 3, "output from the replacement disables further silent recovery");
+  (replacementViewer.stdout as PassThrough).write(h264);
+  assert.equal(transcoders.length, 3, "healthy conversion must not restart");
+  now = 23_000;
+  source.write(annexBNal(0x02, 1, 0x80, 4));
+  assert.equal(transcoders.length, 3, "a stale startup picture must not trigger stall recovery");
+  source.write(annexBNal(0x26, 1, 0x80, 4));
+  assert.equal(transcoders.length, 4, "a running converter that stopped output must recover from the next complete picture");
+  replacementViewer.emit("close", 1);
+  assert.equal(response.destroyed, false);
+  (transcoders[3]!.stdout as PassThrough).write(h264);
   assert.ok(Buffer.concat(delivered).includes(h264));
 
   response.emit("close");
-  assert.equal(summaries.at(-1)?.silentRestarts, 1);
+  assert.equal(summaries.at(-1)?.silentRestarts, 2);
   await manager.close();
 });
 

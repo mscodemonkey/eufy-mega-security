@@ -14,7 +14,7 @@ import { MegaPushReceiver } from "../src/mega/push.js";
 import { PushClient } from "../src/mega/android-push/push-client.js";
 import { EufyProvider } from "../src/provider/eufy-provider.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
-import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
+import { FirstPartyPpcsSession, PpcsLookupTimeoutError } from "../src/stream/first-party-ppcs.js";
 import { LiveStreamManager } from "../src/stream/live-stream-manager.js";
 
 // Keep filesystem polling independent of the synthetic retry clock.
@@ -923,3 +923,60 @@ test("HomeBase recording ownership prevents sibling live and pan sessions until 
     assert.equal(starts.mock.callCount(), 2);
   } finally { finish([]); await f.provider.close(); }
 });
+
+
+for (const scenario of ["shared", "retry", "exhausted", "cancel", "other-error", "other-model"] as const) {
+  test(`media startup ${scenario} preserves one owner and bounded lookup attempts`, async context => {
+    const f = fixture(context);
+    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{
+      device_sn: "camera", device_model: scenario === "other-model" ? "T8171" : "T8170",
+      device_type: scenario === "other-model" ? 88 : 48, category: "eufy_security", device_channel: 0,
+      p2p_did: "synthetic-peer", p2p_conn: "synthetic-route", member: { admin_user_id: "synthetic-owner" },
+    }] }));
+    context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ camera: { key: "synthetic-key", expiresAt: null } }));
+    context.mock.method(MegaPushReceiver.prototype, "start", async () => { throw new Error("Offline push fixture"); });
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    let attempts = 0, publications = 0;
+    f.events.streamStarted = () => { publications++; };
+    context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => {
+      attempts++;
+      if (scenario === "shared" || scenario === "cancel") await pending;
+      if (scenario === "other-error") throw new Error("Unrelated media failure");
+      if (scenario === "exhausted" || scenario === "other-model" || scenario === "retry" && attempts === 1) {
+        throw new PpcsLookupTimeoutError();
+      }
+    });
+    context.mock.method(FirstPartyPpcsSession.prototype, "close", () => undefined);
+    try {
+      await f.provider.start(f.events);
+      if (scenario === "shared") {
+        const first = f.provider.startStream("camera"), second = f.provider.startStream("camera");
+        await settleDiscovery();
+        assert.equal(attempts, 1);
+        release();
+        await Promise.all([first, second]);
+        assert.equal(publications, 1);
+      } else if (scenario === "cancel") {
+        const failed = assert.rejects(f.provider.startStream("camera"), /cancelled/);
+        await settleDiscovery();
+        await f.provider.stopStream("camera");
+        release();
+        await failed;
+        assert.equal(attempts, 1);
+        assert.equal(publications, 0);
+      } else if (scenario === "retry") {
+        await f.provider.startStream("camera");
+        assert.equal(attempts, 2);
+        assert.equal(publications, 1);
+      } else {
+        await assert.rejects(f.provider.startStream("camera"));
+        assert.equal(attempts, scenario === "exhausted" ? 4 : 1);
+        assert.equal(publications, 0);
+      }
+    } finally {
+      release();
+      await f.provider.close();
+    }
+  });
+}

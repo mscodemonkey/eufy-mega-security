@@ -20,6 +20,10 @@ const nvrTrialReasons = [
   "offer_setup", "offer_sctp", "offer_message_size", "offer_duplicate", "peer_setup", "peer_failed",
   "peer_disconnected", "local_candidate_limit", "remote_description", "remote_candidate", "create_answer",
   "local_description", "send_answer", "unexpected_negotiation_error",
+  "ptcs_packet_geometry", "ptcs_magic", "ptcs_type", "ptcs_flags", "ptcs_length", "ptcs_index",
+  "ptcs_final_marker", "ptcs_channel", "ptcs_frame_too_large", "ptcs_metadata_conflict",
+  "ptcs_duplicate_conflict", "ptcs_decompression", "ptcs_replay", "ptcs_capacity", "ptcs_poisoned",
+  "frame_sequence_gap", "frame_reorder_limit", "frame_reorder_timeout", "clock_reversed",
 ] as const;
 
 /** Fixed failure reasons distinguish setup failures without retaining received values. */

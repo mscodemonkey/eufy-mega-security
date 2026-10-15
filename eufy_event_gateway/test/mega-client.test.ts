@@ -495,7 +495,7 @@ test("fetches PPCS cipher keys through the regional eufy security API", async ()
     await client.connect();
     assert.deepEqual(await client.getCiphers([197], "user", "station"), [{ cipher_id: 197, ecc_private_key: "ecc", private_key: "private" }]);
     assert.equal(requests.at(-1)?.url, "https://security-app-eu.eufylife.com/v3/app/cipher/get_ciphers");
-    assert.equal(requests.at(-1)?.headers.get("content-type"), "application/json");
+    assert.equal(requests.at(-1)?.headers.get("content-type"), "text/plain");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

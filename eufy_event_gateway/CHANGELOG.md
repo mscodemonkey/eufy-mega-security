@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.154
+
+- Correct Security-cloud encrypted request headers and add a rate-limited media-key recovery that preserves the signed-in account.
+- Share concurrent camera startups, cancel stopped lookups promptly, and use bounded fresh lookups for standalone T8170 cameras.
+- Start Home Assistant's normal HLS startup timeout even when the optional idle-timeout setting is off.
+- Preserve specific NVR framing failure reasons and rejection counts. Include the queued effective-mode field-source diagnostic. NVR playback and mode controls remain unconfirmed.
+- Recover an H.265 viewer converter that stalls after initially producing a picture, using a later complete picture and a fixed retry limit.
+
 ## 0.1.153
 
 - Delivers every decoded video fragment from standalone T8200 doorbells so large keyframes reach the viewer instead of being discarded at the 64,000-byte transport boundary.

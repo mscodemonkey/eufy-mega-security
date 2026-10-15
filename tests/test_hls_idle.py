@@ -1,4 +1,4 @@
-"""Exercise the opt-in HLS boundary without opening a camera.
+"""Exercise HLS startup cleanup and optional idle timing without a camera.
 
 Tests execute the camera hook against an owned provider factory. Home
 Assistant owns viewer timers, checked separately against its actual source.
@@ -17,7 +17,7 @@ SOURCE = Path(__file__).parents[1] / "custom_components/eufy_event_gateway/camer
 
 
 class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
-    """Keep the opt-in confined to the selected camera's HLS defaults."""
+    """Arm startup cleanup while keeping custom timing confined to HLS defaults."""
 
     def setUp(self) -> None:
         """Load the real hook with a synthetic HA camera base."""
@@ -40,15 +40,20 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         self.stream = SimpleNamespace(add_provider=self.original)
         base.async_create_stream.return_value = self.stream
 
-    async def test_default_off_and_missing_stream_preserve_ha(self) -> None:
-        """Do not intercept providers without an explicit opt-in."""
+    async def test_default_off_arms_startup_without_changing_ha_timeouts(self) -> None:
+        """Stop no-frame retries with HA's timer even without the optional setting."""
         self.camera._short_hls_idle = False
         self.assertIs(await self.camera.async_create_stream(), self.stream)
-        self.assertIs(self.stream.add_provider, self.original)
         self.original.assert_not_called()
-        self.camera._short_hls_idle = True
+        self.stream.add_provider("hls")
+        self.original.assert_called_once_with("hls", timeout=None)
+        self.original.return_value.idle_timer.start.assert_called_once_with()
+
+    async def test_missing_stream_preserves_ha(self) -> None:
+        """Do not create an output when HA cannot create its stream."""
         self.base.async_create_stream.return_value = None
         self.assertIsNone(await self.camera.async_create_stream())
+        self.original.assert_not_called()
 
     async def test_only_requested_hls_default_changes(self) -> None:
         """Leave recordings and explicit timeouts with their original owner."""
@@ -113,6 +118,7 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         provider = SimpleNamespace(idle_timer=Timer())
         outputs = {"hls": provider}
         self.original.return_value = provider
+        self.camera._short_hls_idle = False
         await self.camera.async_create_stream()
         self.stream.add_provider("hls")
         self.assertEqual(clock.deadline, 60)

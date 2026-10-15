@@ -1251,6 +1251,9 @@ interface PendingPpcsFrame {
  */
 export interface PpcsCameraOptions {
 
+  /** Internal bounded lookup deadline. Media and control lifetimes remain separate. */
+  readonly lookupTimeoutMs?: number;
+
   /** Serial used only to derive the observed legacy level-one command key. */
   readonly stationSerial: string;
 
@@ -1411,6 +1414,20 @@ export function parseCameraPresetPositions(payload: unknown): CameraPresetPositi
   return positions;
 }
 
+/**
+ * Identifies a lookup that ended before any peer was selected.
+ * The session has already retired its sockets. Only a media-start owner may
+ * use this result to attempt a fresh connection, never replay a device write.
+ */
+export class PpcsLookupTimeoutError extends Error {
+
+  /** Create a content-free failure distinct from later media or control timeouts. */
+  constructor() {
+    super("PPCS camera lookup timed out");
+    this.name = "PpcsLookupTimeoutError";
+  }
+}
+
 /** Identify a write that may have applied even though its result frame was lost. */
 export class CameraControlAcknowledgementTimeoutError extends Error {
 
@@ -1521,6 +1538,7 @@ export class FirstPartyPpcsSession {
   #speakerSequence = 0;
   #speaker: C31TalkbackSender | null = null;
   #closed = false;
+  #lookupCancel: (() => void) | null = null;
   #closedSequenceChannels: string | null = null;
   #t8200MediaStartSent = false;
   #maximumDurationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1568,6 +1586,10 @@ export class FirstPartyPpcsSession {
 
   /** Create a session; no socket is bound until {@link start} runs. */
   constructor(options: PpcsCameraOptions) {
+    if (!Number.isSafeInteger(options.lookupTimeoutMs ?? 20_000)
+      || (options.lookupTimeoutMs ?? 20_000) < 1 || (options.lookupTimeoutMs ?? 20_000) > 20_000) {
+      throw new RangeError("Invalid PPCS lookup deadline");
+    }
     this.#options = options;
     this.#videoAssembler = new PpcsAccessUnitAssembler((drop) => {
       this.stats.incompleteAccessUnits++;
@@ -1602,18 +1624,24 @@ export class FirstPartyPpcsSession {
     // has started yet.
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
+        this.#lookupCancel = null;
         this.close("start_failed");
-        reject(new Error("PPCS camera lookup timed out"));
-      }, 20_000);
+        reject(new PpcsLookupTimeoutError());
+      }, this.#options.lookupTimeoutMs ?? 20_000);
+      this.#lookupCancel = () => {
+        clearTimeout(timeout);
+        reject(new Error("PPCS camera lookup cancelled"));
+      };
       this.#socket.once("error", (error) => {
         clearTimeout(timeout);
+        this.#lookupCancel = null;
         this.close("start_failed");
         reject(error);
       });
       const onMessage = (message: Buffer, info: RemoteInfo, socket: Socket): void => {
         try {
-          if (this.#handle(message, info, socket)) { clearTimeout(timeout); resolve(); }
-        } catch (error) { clearTimeout(timeout); reject(error); }
+          if (this.#handle(message, info, socket)) { clearTimeout(timeout); this.#lookupCancel = null; resolve(); }
+        } catch (error) { clearTimeout(timeout); this.#lookupCancel = null; reject(error); }
       };
       this.#socket.on("message", (message, info) => onMessage(message, info, this.#socket));
       this.#socket.bind(0, async () => {
@@ -1630,6 +1658,7 @@ export class FirstPartyPpcsSession {
         });
         this.#lookupSockets = new PpcsLookupSocketPool(this.#socket, onMessage, (error) => {
           clearTimeout(timeout);
+          this.#lookupCancel = null;
           this.close("start_failed");
           reject(error);
         });
@@ -2298,6 +2327,8 @@ export class FirstPartyPpcsSession {
     if (this.#closed) return;
     this.#speaker?.close();
     this.#closed = true;
+    this.#lookupCancel?.();
+    this.#lookupCancel = null;
     this.stats.closeReason = reason;
     this.#recordings?.close();
     if (this.#maximumDurationTimer) clearTimeout(this.#maximumDurationTimer);

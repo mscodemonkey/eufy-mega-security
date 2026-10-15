@@ -46,6 +46,18 @@ const AUTH_SESSION_INVALID_CODES = new Set([4404, 26084, 26884]);
 const MEDIA_HOST = /^security-app(?:-(?:eu|ie))?\.eufylife\.com$/;
 const MEDIA_OBJECT_HOST = /^zhixin-security-[a-z0-9]+(?:-[a-z0-9]+)*\.s3(?:\.[a-z]{2}(?:-[a-z0-9]+)+-\d)?\.amazonaws\.com$/;
 const MEDIA_NOT_READY_DELAYS_MS = [1_000, 2_000] as const;
+const CIPHER_IDENTITY_RECOVERY_INTERVAL_MS = 10 * 60_000;
+
+/**
+ * Carries an unclassified HTTP rejection without treating it as an expired login.
+ * The request caller owns any narrowly scoped read retry. This error retains
+ * only a response category, never the server body or account material.
+ */
+class MegaHttpRejection extends Error {
+  constructor(readonly responseKind: string) {
+    super(`Mega request failed (HTTP 463 response ${responseKind})`);
+  }
+}
 
 /** Result of registering one Firebase token with Eufy's notification backends. */
 export interface PushActivationResult {
@@ -98,6 +110,8 @@ export class MegaClient {
   #requestTail: Promise<unknown> = Promise.resolve();
   #requestLifetime = new AbortController();
   readonly #identityFlights = new Map<string, Promise<MegaIdentity>>();
+  readonly #identityRecoveryFlights = new Map<string, Promise<MegaIdentity>>();
+  readonly #cipherIdentityRecoveryAt = new Map<string, number>();
   readonly #responseIdentities = new WeakMap<MegaResult, MegaIdentity>();
   #session: MegaSession | null = null;
   #pendingCaptcha: MegaCaptcha | null = null;
@@ -120,6 +134,7 @@ export class MegaClient {
   cancelPendingRequests(): void {
     this.#requestLifetime.abort();
     this.#identityFlights.clear();
+    this.#identityRecoveryFlights.clear();
   }
 
   /** Return the pending image challenge, if login requested one. */
@@ -622,23 +637,61 @@ export class MegaClient {
     const identityHost = host.endsWith(".eufylife.com") ? host : this.#clusterHost("openapi");
     const identity = await this.#identity(identityHost);
     lifetime.throwIfAborted();
-    const result = await this.#signedPost(host, path, payload, identity, undefined, appScope);
+    let result: MegaResult;
+    try {
+      result = await this.#signedPost(host, path, payload, identity, undefined, appScope);
+    } catch (error) {
+      lifetime.throwIfAborted();
+      if (!retryIdentity || path !== "/v3/app/cipher/get_ciphers" || !(error instanceof MegaHttpRejection)
+        || !["empty", "empty_or_truncated"].includes(error.responseKind)) throw error;
+
+      // An empty rejection does not prove expiry. Replay only this read, with
+      // key exchange rather than login, and cap attempts across all cameras.
+      if (this.#session?.identities[identityHost] === identity) {
+        const previous = this.#cipherIdentityRecoveryAt.get(identityHost);
+        const now = this.#now();
+        if (previous !== undefined && now - previous < CIPHER_IDENTITY_RECOVERY_INTERVAL_MS) throw error;
+        this.#cipherIdentityRecoveryAt.set(identityHost, now);
+      }
+      const refreshedIdentity = await this.#renewIdentity(identityHost, identity);
+      lifetime.throwIfAborted();
+      return this.#signedPost(host, path, payload, refreshedIdentity, undefined, appScope);
+    }
     lifetime.throwIfAborted();
     if (retryIdentity && TRANSIENT_IDENTITY_ERRORS.has(result.code)) {
-      if (this.#session?.identities[identityHost] === identity) {
-        const identities = { ...this.#session.identities };
-        delete identities[identityHost];
-        this.#session = { ...this.#session, identities };
-      }
-      const refreshedIdentity = await this.#identity(identityHost);
-      lifetime.throwIfAborted();
-      await this.#save();
+      const refreshedIdentity = await this.#renewIdentity(identityHost, identity);
       lifetime.throwIfAborted();
       const retried = await this.#signedPost(host, path, payload, refreshedIdentity, undefined, appScope);
       lifetime.throwIfAborted();
       return retried;
     }
     return result;
+  }
+
+  async #renewIdentity(host: string, rejected: MegaIdentity): Promise<MegaIdentity> {
+    const flight = this.#identityRecoveryFlights.get(host);
+    if (flight) return flight;
+    if (this.#session?.identities[host] !== rejected) return this.#identity(host);
+    const lifetime = this.#requestLifetime.signal;
+    const renewal = (async () => {
+      const identities = { ...this.#session!.identities };
+      delete identities[host];
+      this.#session = { ...this.#session!, identities };
+      const identity = await this.#identity(host);
+      lifetime.throwIfAborted();
+
+      // Share persistence as well as exchange so concurrent rejected reads
+      // cannot race the session store's atomic replacement file.
+      await this.#save();
+      lifetime.throwIfAborted();
+      return identity;
+    })();
+    this.#identityRecoveryFlights.set(host, renewal);
+    try {
+      return await renewal;
+    } finally {
+      if (this.#identityRecoveryFlights.get(host) === renewal) this.#identityRecoveryFlights.delete(host);
+    }
   }
 
   async #signedPost(
@@ -661,6 +714,10 @@ export class MegaClient {
         bootstrap?.keyIdent ?? identity!.keyIdent, timestamp, nonce,
         requestSignature(signingKey, timestamp, nonce, encrypted),
       );
+
+      // EufyLife data requests carry opaque encrypted text. Mega and the
+      // JSON key-exchange bootstrap retain their existing content types.
+      if (!bootstrap && host.endsWith(".eufylife.com")) headers["content-type"] = "text/plain";
       if (appScope) headers["app-name"] = appScope;
       const result = await this.#post(host, path, body, headers, signal);
       if (identity) {
@@ -741,7 +798,7 @@ export class MegaClient {
           }
         }
         if (applicationCode !== undefined) throw new Error(`Mega request failed (HTTP 463 code ${applicationCode})`);
-        throw new Error(`Mega request failed (HTTP 463 response ${responseKind})`);
+        throw new MegaHttpRejection(responseKind);
       }
       await response.body?.cancel();
       throw new Error(`Mega request failed (HTTP ${response.status})`);

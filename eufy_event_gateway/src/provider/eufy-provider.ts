@@ -33,7 +33,7 @@ import { MegaClient } from "../mega/client.js";
 import { decodeEventImage, isJpeg } from "../mega/image.js";
 import { parseV8EventImage, decodeV8EventImage } from "../mega/v8-image.js";
 import { MegaPushReceiver, type MegaPushEvent } from "../mega/push.js";
-import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
+import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, PpcsLookupTimeoutError, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBaseChildParam, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
 import type { SensorContactObservation } from "../stream/sensor-status-notification.js";
 import { cameraCapabilityLogSummaries, describeCameraCapabilities, isSupportedCameraType, describeDeviceCapabilities, deviceCapabilityLogSummaries } from "./device-capabilities-core.js";
@@ -473,6 +473,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #client: MegaClient;
   readonly #devices = new Map<string, MegaInventoryDevice>();
   readonly #ppcsStreams = new Map<string, FirstPartyPpcsSession>();
+  readonly #streamStarts = new Map<string, { promise: Promise<void>; cancelled: boolean }>();
   readonly #nvrTrials = new Map<string, { controller: AbortController; device: MegaInventoryDevice;
     station: MegaInventoryDevice; stateOnly: boolean; connecting: boolean;
     session: NvrRtcSession | null; release: () => Promise<void> }>();
@@ -684,6 +685,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Authenticate and publish cameras independently of background push readiness. */
   async start(events: ProviderEvents): Promise<void> {
+    for (const pending of this.#streamStarts.values()) pending.cancelled = true;
+    this.#streamStarts.clear();
     this.#recordingClosing = false;
     const generation = ++this.#startupGeneration;
     this.#retireInventoryRefresh();
@@ -845,16 +848,48 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
+  /** Share an in-flight media start and retire bounded lookup retries on stop. */
   async startStream(serial: string): Promise<void> {
     const nvrTrial = this.#nvrTrials.get(serial);
     if (nvrTrial?.stateOnly) throw new NvrTrialError("admission");
     if (nvrTrial) return this.#startNvrTrial(serial);
+    const pending = this.#streamStarts.get(serial);
+    if (pending && !pending.cancelled) return pending.promise;
+    const ticket = { promise: Promise.resolve(), cancelled: false };
+    const generation = this.#startupGeneration;
+    const current = (): void => {
+      if (ticket.cancelled || this.#streamStarts.get(serial) !== ticket
+        || this.#recordingClosing || generation !== this.#startupGeneration) {
+        throw new Error("Camera stream start cancelled");
+      }
+    };
+    ticket.promise = Promise.resolve().then(async () => {
+      for (let attempt = 0; ; attempt++) {
+        current();
+        try { await this.#startStreamOnce(serial, current); return; }
+        catch (error) {
+          current();
+          const device = this.#devices.get(serial);
+          const route = device ? ppcsStreamRoute(device, this.#devices) : null;
+          if (!(error instanceof PpcsLookupTimeoutError) || attempt >= 3 || !route || route.homeBaseAttached
+            || device?.model !== "T8170" || device.deviceType !== 48) throw error;
+        }
+      }
+    });
+    this.#streamStarts.set(serial, ticket);
+    try { await ticket.promise; }
+    finally { if (this.#streamStarts.get(serial) === ticket) this.#streamStarts.delete(serial); }
+  }
+
+  async #startStreamOnce(serial: string, current: () => void): Promise<void> {
+    current();
     if (this.#recordingPeerReserved(serial)) throw new Error("Wait for recording retrieval before starting live view");
     const device = this.#devices.get(serial);
     if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
     const route = ppcsStreamRoute(device, this.#devices);
     const peer = route?.peer;
     const dsk = peer ? await this.#dskKey(peer.serial) : null;
+    current();
 
     // The production path is deliberately first-party Mega/PPCS.
     if (route && peer?.p2pDid && peer.p2pConnection && dsk && device.channel !== null) {
@@ -863,8 +898,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const initialEccPrivateKey = !route.homeBaseAttached && device.cipherId !== null
         ? await this.#resolveCipherKey(device.cipherId, peer)
         : undefined;
+      current();
       if (this.#recordingPeerReserved(serial)) throw new Error("Wait for recording retrieval before starting live view");
       const stream = new FirstPartyPpcsSession({
+        ...(device.model === "T8170" && device.deviceType === 48 && !route.homeBaseAttached ? { lookupTimeoutMs: 8_000 } : {}),
         stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
         localAddress: peer.localAddress,
         dskKey: dsk.key, channel: device.channel, cameraModel: device.model, stationModel: peer.model,
@@ -886,6 +923,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#ppcsStreams.set(serial, stream);
       try {
         await stream.start();
+        current();
       } catch (error) {
         logger.warn(
           "camera_stream_start_failed",
@@ -907,6 +945,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   async stopStream(serial: string): Promise<void> {
+    const pending = this.#streamStarts.get(serial);
+    if (pending) pending.cancelled = true;
     const trial = this.#nvrTrials.get(serial);
     if (trial) { await trial.session?.close(); return; }
     const stream = this.#ppcsStreams.get(serial);
@@ -1717,6 +1757,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   /** Retire startup and push synchronously before cancelling shared cloud work. */
   async close(): Promise<void> {
     this.#recordingClosing = true;
+    for (const pending of this.#streamStarts.values()) pending.cancelled = true;
+    this.#streamStarts.clear();
     for (const [peer, session] of this.#trialSessions) {
       if (!this.#trialSirenStops.has(peer)) session.close();
     }
@@ -4045,5 +4087,7 @@ function integer(value: unknown): number | null {
 
 /** Keep diagnostic counters independent of wire or account content. */
 function nvrTrialCounters(session: NvrRtcSession): string {
-  return Object.entries(session.stats).map(([key, value]) => `${key}=${value}`).join(" ");
+  const counts = Object.entries(session.stats).map(([key, value]) => `${key}=${value}`).join(" ");
+  const rejections = Object.entries(session.framingRejections).map(([key, value]) => `${key}:${value}`).join(",") || "none";
+  return `${counts} framing_rejections=${rejections}`;
 }

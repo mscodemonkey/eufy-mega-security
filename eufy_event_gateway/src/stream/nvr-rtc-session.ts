@@ -9,7 +9,7 @@ import { PassThrough } from "node:stream";
 import WebSocket from "ws";
 import { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, type RTCDataChannel, type RTCIceServer } from "werift";
 import type { VideoCodec } from "../domain/types.js";
-import { NvrPtcsReassembler } from "./nvr-ptcs-reassembly.js";
+import { NvrPtcsReassembler, type NvrPtcsReassemblyStats } from "./nvr-ptcs-reassembly.js";
 import { VideoParameterSetCache } from "./live-stream-manager.js";
 import { installNvrIceTiming } from "./nvr-ice-timing.js";
 import { NvrTrialError, nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrJson,
@@ -90,6 +90,11 @@ export class NvrRtcSession {
   readonly #negotiation = new AbortController();
   readonly #reassembler = new NvrPtcsReassembler({ maxFrameBytes: 4 * 1024 * 1024 + 64,
     maxBufferedBytes: 12 * 1024 * 1024, expiryMilliseconds: 1000 });
+
+  /** Return copied structural rejection counts without retaining packet contents. */
+  get framingRejections(): NvrPtcsReassemblyStats["rejected"] {
+    return this.#reassembler.stats.rejected;
+  }
   readonly #cache = new VideoParameterSetCache();
   readonly #channels = new Map<string, RTCDataChannel>();
   readonly #pendingCandidates: string[] = [];
@@ -371,7 +376,10 @@ export class NvrRtcSession {
       try {
         this.#guard(); channel.send(nvrHeartbeat());
         this.#heartbeat = setInterval(() => { try { this.#guard(); channel.send(nvrHeartbeat()); } catch { this.#fail("channel"); } }, 10_000);
-        this.#sweep = setInterval(() => { try { this.#guard(); this.#reassembler.expire(this.#now()); this.#drain(); } catch { this.#fail("framing"); } }, 100);
+        this.#sweep = setInterval(() => {
+          try { this.#guard(); this.#reassembler.expire(this.#now()); this.#drain(); }
+          catch (error) { this.#fail(error instanceof NvrTrialError ? error.stage : "framing", error instanceof NvrTrialError ? error.reason : "unspecified"); }
+        }, 100);
         this.#readyResolve?.(); this.#readyResolve = null; this.#readyReject = null;
       } catch { this.#fail("channel"); }
     };
@@ -379,13 +387,14 @@ export class NvrRtcSession {
     channel.onmessage = event => {
       if (this.#retired && this.#pending?.command !== 1004) return;
       if (!Buffer.isBuffer(event.data)) { this.stats.rejected++; return; }
-      try { this.#packet(event.data); } catch (error) { this.#fail(error instanceof NvrTrialError ? error.stage : "framing"); }
+      try { this.#packet(event.data); }
+      catch (error) { this.#fail(error instanceof NvrTrialError ? error.stage : "framing", error instanceof NvrTrialError ? error.reason : "unspecified"); }
     };
   }
 
   #now(): number {
     const now = Math.floor(performance.now());
-    if (now < this.#lastNow) throw new NvrTrialError("framing");
+    if (now < this.#lastNow) throw new NvrTrialError("framing", "clock_reversed");
     this.#lastNow = now; return now;
   }
 
@@ -393,7 +402,12 @@ export class NvrRtcSession {
     this.stats.packets++;
     if (packet.length >= 5 && packet.subarray(0, 4).toString() === "PTCS" && packet[4] !== 3) { this.stats.controlPackets++; return; }
     const result = this.#reassembler.push(packet, this.#now());
-    if (result.status === "rejected") { if (result.reason !== "replay" && ++this.stats.rejected >= 32) throw new NvrTrialError("framing"); return; }
+    if (result.status === "rejected") {
+      if (result.reason !== "replay" && ++this.stats.rejected >= 32) {
+        throw new NvrTrialError("framing", `ptcs_${result.reason.replaceAll("-", "_")}` as NvrTrialReason);
+      }
+      return;
+    }
     if (result.status !== "complete") return;
     const counter = (["channel0Frames", "channel1Frames", "channel2Frames", "channel3Frames", "channel4Frames", "channel5Frames"] as const)[result.channel];
     if (counter) this.stats[counter]++;
@@ -401,11 +415,11 @@ export class NvrRtcSession {
     if (previous !== undefined) {
       const distance = (result.sequence - previous + 65536) % 65536;
       if (distance === 0 || distance >= 32768) return;
-      if (distance > 16) throw new NvrTrialError("framing");
+      if (distance > 16) throw new NvrTrialError("framing", "frame_sequence_gap");
     }
     const key = `${result.channel}:${result.sequence}`;
     if (this.#reorder.has(key)) return;
-    if (this.#reorder.size >= 16 || this.#reorderBytes + result.frame.length > 8 * 1024 * 1024) throw new NvrTrialError("framing");
+    if (this.#reorder.size >= 16 || this.#reorderBytes + result.frame.length > 8 * 1024 * 1024) throw new NvrTrialError("framing", "frame_reorder_limit");
     this.#reorder.set(key, { channel: result.channel, sequence: result.sequence, frame: result.frame, at: this.#now() });
     this.#reorderBytes += result.frame.length; this.#drain();
   }
@@ -414,7 +428,7 @@ export class NvrRtcSession {
     for (const [key, item] of this.#reorder) {
       const previous = this.#lastSequence.get(item.channel);
       if (previous !== undefined && item.sequence !== (previous + 1) % 65536) {
-        if (this.#now() - item.at >= 1000) throw new NvrTrialError("framing");
+        if (this.#now() - item.at >= 1000) throw new NvrTrialError("framing", "frame_reorder_timeout");
         continue;
       }
       this.#reorder.delete(key); this.#reorderBytes -= item.frame.length;
