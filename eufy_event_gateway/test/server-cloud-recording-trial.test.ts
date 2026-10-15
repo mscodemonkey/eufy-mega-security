@@ -86,15 +86,31 @@ test("cloud preview browser selection owns consent, cancellation and object URLs
     return nodes.get(id)!;
   };
   const urls: string[] = [], revoked: string[] = [];
+  let late = false, finish!: (response: Response) => void, entered!: () => void, pendingSignal: AbortSignal | null = null;
+  const waiting = new Promise<void>(resolve => { entered = resolve; });
+  const pending = new Promise<Response>(resolve => { finish = resolve; });
   new Script(script).runInNewContext({ document: { getElementById: node }, window: { addEventListener: () => {} },
     Option: class { constructor(readonly text: string, readonly value: string) {} }, Date, AbortController, URLSearchParams,
     URL: { revokeObjectURL: (url: string) => { revoked.push(url); }, createObjectURL: () => "blob:private" },
     setInterval, clearInterval,
-    fetch: async (url: string) => { urls.push(url); return new Response(JSON.stringify({ records: [{ id: "record", startTime: 100, hasCloudMedia: true }] })); } });
+    fetch: async (url: string, options: RequestInit) => {
+      urls.push(url);
+      if (url.endsWith("cloud-recording-trial")) {
+        if (late) { pendingSignal = options.signal!; entered(); return pending; }
+        return new Response("checked-private-media");
+      }
+      return new Response(JSON.stringify({ records: [{ id: "record", startTime: 100, hasCloudMedia: true }] }));
+    } });
   node("device").value = "synthetic"; node("cloud-date").value = "2026-10-16";
   await node("cloud-list").onclick!(); assert.equal(urls.length, 1); assert.match(urls[0]!, /cloud-history\?/);
   node("cloud-record").value = "record"; node("cloud-consent").checked = true;
+  await node("cloud-test").onclick!(); assert.equal(node("cloud-video").hidden, false);
   node("cloud-record").handlers.get("change")!(); assert.equal(node("cloud-consent").checked, false);
+  assert.deepEqual(revoked, ["blob:private"]); assert.equal(node("cloud-video").hidden, true);
+  node("cloud-consent").checked = true; late = true;
+  const stale = node("cloud-test").onclick!(); await waiting;
   node("device").handlers.get("change")!(); assert.equal(node("cloud-status").textContent, "No cloud recording selected.");
-  assert.deepEqual(revoked, []);
+  assert.equal((pendingSignal as AbortSignal | null)?.aborted, true);
+  finish(new Response("late-private-media")); await stale;
+  assert.equal(node("cloud-video").hidden, true); assert.deepEqual(revoked, ["blob:private"]);
 });

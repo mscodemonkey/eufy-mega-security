@@ -219,7 +219,7 @@ test("cloud recording renewal keeps record owners, verifies responses and strips
       const requests: string[] = [];
       const f = await fixture(async (input, init) => {
         const url = new URL(String(input)); requests.push(url.pathname);
-        if (url.hostname.endsWith("amazonaws.com")) {
+        if (url.hostname === "zhixin-security-fixture.s3.eu-west-1.amazonaws.com") {
           const headers = new Headers(init?.headers);
           assert.equal(headers.has("authorization"), false); assert.equal(headers.has("x-auth-token"), false);
           assert.equal(init?.redirect, "manual");
