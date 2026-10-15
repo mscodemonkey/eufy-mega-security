@@ -473,13 +473,13 @@ export class MegaClient {
   async registerPushToken(token: string): Promise<PushActivationResult> {
     this.#requireAuthentication();
     await this.#registerMegaPushToken(token);
-    const securityRegistration = await this.#call("security", "/v1/apppush/register_push_token", {
+    const securityRegistration = await this.#securityPushStep("/v1/apppush/register_push_token", {
       token,
       is_notification_enable: true,
       transaction: `${this.#now()}`,
-    }, false);
-    if (!isSuccess(securityRegistration.code)) {
-      const code = typeof securityRegistration.code === "number" && Number.isFinite(securityRegistration.code)
+    });
+    if (!securityRegistration || !isSuccess(securityRegistration.code)) {
+      const code = typeof securityRegistration?.code === "number" && Number.isFinite(securityRegistration.code)
         ? securityRegistration.code
         : null;
       await this.#registerMegaPushToken(token);
@@ -490,16 +490,30 @@ export class MegaClient {
         megaRegistrationRestored: true,
       };
     }
-    const activation = await this.#call("security", "/v1/app/review/app_push_check", {
+    const activation = await this.#securityPushStep("/v1/app/review/app_push_check", {
       app_type: "eufySecurity",
       transaction: `${this.#now()}`,
-    }, false);
-    const code = typeof activation.code === "number" && Number.isFinite(activation.code)
+    });
+    const code = typeof activation?.code === "number" && Number.isFinite(activation.code)
       ? activation.code
       : null;
-    if (isSuccess(activation.code)) return { activated: true, code };
+    if (activation && isSuccess(activation.code)) return { activated: true, code };
     await this.#registerMegaPushToken(token);
     return { activated: false, code, failedSecurityStage: "activation", megaRegistrationRestored: true };
+  }
+
+  /** Treat a failed Security step as degraded so the accepted Mega registration can be restored once. */
+  async #securityPushStep(path: "/v1/apppush/register_push_token" | "/v1/app/review/app_push_check",
+    payload: unknown): Promise<MegaResult | null> {
+    const lifetime = this.#requestLifetime.signal;
+    try {
+      return await this.#call("security", path, payload, false);
+    } catch {
+
+      // Closing or replacing this client's request lifetime must never revive registration.
+      lifetime.throwIfAborted();
+      return null;
+    }
   }
 
   /** Register the current Firebase identity through the proven Mega notification path. */

@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.1.158
+- Preserve the accepted Mega push registration when a later Security registration or activation request fails with an HTTP or network error. Restoration runs once, keeps sign-in intact and does not retry the rejected Security request. Initial Mega rejections remain failures.
 
 - Correct the experimental standalone doorbell video test joining the video service. The test now sends the service-specific join header instead of a bare account token. It remains off by default, and T8224 physical playback still needs confirmation.
 - Recover an additional HomeBase 2 v2 event-thumbnail layout safely, so a received motion event can update its event image rather than fail at image decoding. Reporter confirmation is still required.
