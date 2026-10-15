@@ -17,14 +17,14 @@ import { GatewayState } from '../src/domain/gateway-state.js';
 
 const additional = new Map<string, number>([['T8140', 14], ['T8140-Z', 14], ['T8113-V', 8], ['T8172', 89], ['T8162', 26], ['T8170', 48], ['T81A0', 10005], ['T8425', 47]]);
 
-for (const mode of [...additional.keys(), 'state-read', 'state-read-failure', 'state-read-reason', 'live-reason', 'valid', 'binding-change', 'valid-t9000', 'channel-zero', 'channel-last', 'equal-owner', 'close-failure', 'disabled', 'unauthenticated', 'wrong-camera', 'wrong-type', 'wrong-station', 'missing-channel', 'missing-owner', 'wrong-parent-type', 't9000-cross-type', 'suffix-parent', 'case-parent', 'child-owner-mismatch', 'channel-negative', 'channel-over', 'channel-fraction']) test(`NVR provider ${mode} admits only an explicit exact-model lease`, async context => {
+for (const mode of [...additional.keys(), 'state-read', 'state-read-failure', 'state-read-reason', 'live-reason', 'valid', 'pending-sign', 'binding-change', 'valid-t9000', 'channel-zero', 'channel-last', 'equal-owner', 'close-failure', 'disabled', 'unauthenticated', 'wrong-camera', 'wrong-type', 'wrong-station', 'missing-channel', 'missing-owner', 'wrong-parent-type', 't9000-cross-type', 'suffix-parent', 'case-parent', 'child-owner-mismatch', 'channel-negative', 'channel-over', 'channel-fraction']) test(`NVR provider ${mode} admits only an explicit exact-model lease`, async context => {
   const logLines: string[] = [];
   if (mode.endsWith('-reason')) context.mock.method(process.stderr, 'write', (chunk: unknown) => { logLines.push(String(chunk)); return true; });
   const directory = await mkdtemp(join(tmpdir(), 'nvr-provider-'));
   context.mock.method(globalThis, 'fetch', async () => { assert.fail('Network forbidden'); });
   context.mock.method(MegaClient.prototype, 'connect', async () => ({ state: 'authenticated' }));
   context.mock.getter(MegaClient.prototype, 'isAuthenticated', () => mode !== 'unauthenticated');
-  const valid = ['live-reason', 'valid', 'binding-change', 'valid-t9000', 'channel-zero', 'channel-last', 'equal-owner', 'close-failure'].includes(mode) || additional.has(mode) || mode.startsWith('state-read');
+  const valid = ['live-reason', 'valid', 'pending-sign', 'binding-change', 'valid-t9000', 'channel-zero', 'channel-last', 'equal-owner', 'close-failure'].includes(mode) || additional.has(mode) || mode.startsWith('state-read');
   const parentModel = mode === 'wrong-station' ? 'T8030' : (['valid-t9000', 't9000-cross-type'].includes(mode) || additional.has(mode)) ? 'T9000' : mode === 'suffix-parent' ? 'T9000121' : mode === 'case-parent' ? 't9000' : 'T8N00';
   let parentType = (['valid-t9000', 'wrong-parent-type', 'suffix-parent', 'case-parent'].includes(mode) || additional.has(mode)) ? 27 : 300;
   const channels: Record<string, number | undefined> = { 'missing-channel': undefined, 'channel-zero': 0, 'channel-last': 254, 'channel-negative': -1, 'channel-over': 255, 'channel-fraction': 1.5 };
@@ -38,9 +38,12 @@ for (const mode of [...additional.keys(), 'state-read', 'state-read-failure', 's
   context.mock.method(MegaPushReceiver.prototype, 'start', async () => {});
   const refreshes: (() => void)[] = [];
   context.mock.method(globalThis, 'setInterval', (callback: () => void) => { refreshes.push(callback); return { unref() {} } as unknown as NodeJS.Timeout; });
+  let finishSign!: () => void, enterSign!: () => void;
+  const signEntered = new Promise<void>(resolve => { enterSign = resolve; });
+  const signDone = new Promise<void>(resolve => { finishSign = resolve; });
   let contexts = 0, starts = 0, closes = 0, finishClose!: () => void;
   const closing = new Promise<void>(resolve => { finishClose = resolve; });
-  context.mock.method(MegaClient.prototype, 'nvrSignallingContext', async () => { contexts++; if (mode === 'binding-change') { parentType = 27; refreshes.at(-1)!(); await new Promise<void>(resolve => setImmediate(resolve)); await new Promise<void>(resolve => setImmediate(resolve)); } return { host: 'security-smart-ie.eufylife.com', region: 'IE', authToken: 'synthetic', gtoken: 'synthetic', sign: 'synthetic' }; });
+  context.mock.method(MegaClient.prototype, 'nvrSignallingContext', async () => { contexts++; if (mode === 'pending-sign') { enterSign(); await signDone; } if (mode === 'binding-change') { parentType = 27; refreshes.at(-1)!(); await new Promise<void>(resolve => setImmediate(resolve)); await new Promise<void>(resolve => setImmediate(resolve)); } return { host: 'security-smart-ie.eufylife.com', region: 'IE', authToken: 'synthetic', gtoken: 'synthetic', sign: 'synthetic' }; });
   let reads = 0, enterRead!: () => void, finishRead!: () => void;
   const reading = new Promise<void>(resolve => { enterRead = resolve; }), readDone = new Promise<void>(resolve => { finishRead = resolve; });
   context.mock.method(NvrRtcSession.prototype, 'readState', async () => { reads++; enterRead(); await readDone; if (mode === 'state-read-failure') throw Error('Synthetic private error'); if (mode === 'state-read-reason') throw new NvrTrialError('negotiation', 'offer_media'); return { configuredGuardMode: 2, effectiveGuardMode: 1, cameraPower: 'on', parameterCount: 3, queriedAt: new Date().toISOString() }; });
@@ -81,6 +84,14 @@ for (const mode of [...additional.keys(), 'state-read', 'state-read-failure', 's
     await assert.rejects(provider.startStream('synthetic-camera')); assert.equal(contexts, 0);
     const release = provider.reserveNvrLiveTrial('synthetic-camera', controller.signal);
     assert.equal(contexts, 0);
+    if (mode === 'pending-sign') {
+      const failed = assert.rejects(provider.startStream('synthetic-camera'), /cancelled/);
+      await signEntered; await provider.stopStream('synthetic-camera');
+      const next = provider.reserveNvrLiveTrial('synthetic-camera', new AbortController().signal);
+      finishSign(); await failed; await release(); assert.equal(starts, 0);
+      assert.throws(() => provider.reserveNvrLiveTrial('synthetic-camera', new AbortController().signal));
+      await next(); return;
+    }
     if (mode === 'binding-change') { await assert.rejects(provider.startStream('synthetic-camera')); assert.equal(starts, 0); assert.throws(() => provider.reserveNvrLiveTrial('synthetic-camera', new AbortController().signal)); return; }
     if (mode === 'live-reason') {
       finishClose(); await assert.rejects(provider.startStream('synthetic-camera'), /NVR video test failed at negotiation/);
@@ -94,5 +105,5 @@ for (const mode of [...additional.keys(), 'state-read', 'state-read-failure', 's
     assert.throws(() => provider.reserveNvrLiveTrial('synthetic-camera', new AbortController().signal));
     finishClose(); if (mode === 'close-failure') await assert.rejects(cleanup); else await cleanup;
     const retry = provider.reserveNvrLiveTrial('synthetic-camera', new AbortController().signal); await retry();
-  } finally { finishRead(); finishClose(); await provider.close(); await rm(directory, { recursive: true, force: true }); }
+  } finally { finishSign(); finishRead(); finishClose(); await provider.close(); await rm(directory, { recursive: true, force: true }); }
 });

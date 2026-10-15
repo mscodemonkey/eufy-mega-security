@@ -72,9 +72,9 @@ class EufyCameraSiren(EufyGatewayEntity, SirenEntity):
         self._attr_unique_id = f"{serial}_siren"
 
     @property
-    def is_on(self) -> bool:
-        """Return false because the camera does not expose readable siren state."""
-        return False
+    def is_on(self) -> bool | None:
+        """Keep state unknown because this command route has no siren readback."""
+        return None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Trigger the camera siren for the requested or default five seconds."""
@@ -111,9 +111,10 @@ class EufyHomeBaseSiren(EufyStationEntity, SirenEntity):
         self._attr_unique_id = f"{serial}_siren"
 
     @property
-    def is_on(self) -> bool:
-        """Return the latest station-reported alarm state when available."""
-        return self.station.get("alarmActive") is True
+    def is_on(self) -> bool | None:
+        """Preserve unknown until the station reports an explicit alarm state."""
+        state = self.station.get("alarmActive")
+        return state if isinstance(state, bool) else None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Trigger the HomeBase siren for the requested or default five seconds."""

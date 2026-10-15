@@ -37,6 +37,14 @@ export function diagnosticsPage(): string {
 <video id="nvr-video" controls hidden style="max-width:100%"></video>
 <a id="nvr-download" hidden download="eufy-nvr-test.mp4">Download private test clip</a>
 <p>The clip stays in this browser and is never uploaded automatically. HEVC may require a compatible player. If the picture does not play, keep the clip private and share only the nvr_live_trial_failed log line publicly.</p></details>
+<details><summary>Experimental standalone doorbell video test</summary>
+<p>Enable this test in the app options first, then select one standalone Video Doorbell C30. Stop other viewers before testing. Normal Home Assistant live view stays unchanged.</p>
+<label><input id="doorbell-consent" type="checkbox"> I agree to request a ten-second private video clip from the selected doorbell.</label>
+<button id="doorbell-test">Try doorbell video once</button><button id="doorbell-stop">Cancel doorbell test</button>
+<pre id="doorbell-status" role="status">No doorbell video test started.</pre>
+<video id="doorbell-video" controls hidden style="max-width:100%"></video>
+<a id="doorbell-download" hidden download="eufy-doorbell-test.mp4">Download private test clip</a>
+<p>The clip stays in this browser and is never uploaded automatically. Keep it private. If the test fails, share only the doorbell_rtc_trial_failed log line.</p></details>
 <label>Capture duration <select id="seconds"><option value="30">30 seconds</option><option value="60">60 seconds</option></select></label>
 <label><input id="media" type="checkbox"> Include private pictures, audio and video. I agree to capture and share this evidence privately.
 <small>Leave this unchecked for discovery, controls or event delivery problems. Media can reveal people, conversations and your surroundings.</small></label>
@@ -48,7 +56,7 @@ export function diagnosticsPage(): string {
 <p>Evidence is held in gateway memory for up to 10 minutes. Download stops capture. Clear evidence erases the session. A gateway restart also erases it.</p>
 <script>
 const el = id => document.getElementById(id);
-let targets = [], stream = null, poll = null, activeTrialSerial = null, nvrJob = null, nvrClip = null;
+let targets = [], stream = null, poll = null, activeTrialSerial = null, nvrJob = null, nvrClip = null, doorbellJob = null, doorbellClip = null;
 const show = value => { el('status').textContent = value; };
 const abortStream = () => { if(stream) stream.abort(); stream = null; };
 async function api(path, method = 'GET', body) {
@@ -155,7 +163,7 @@ action('nvr-stop', async () => { if(nvrJob) nvrJob.abort(); });
 action('nvr-test', async () => {
   const selected = el('device').value;
   if(!selected || !el('nvr-consent').checked) throw Error('Select one camera and confirm private video consent.');
-  if(nvrJob) return;
+  if(nvrJob || doorbellJob) return;
   const job = nvrJob = new AbortController();
   el('nvr-test').disabled = true; el('nvr-state-test').disabled = true; el('device').disabled = true;
   el('nvr-status').textContent = 'Connecting and requesting a ten-second clip. This may take up to 90 seconds.';
@@ -177,7 +185,7 @@ action('nvr-test', async () => {
 action('nvr-state-test', async () => {
   const selected = el('device').value;
   if(!selected || !el('nvr-state-consent').checked) throw Error('Select one camera and confirm read-state consent.');
-  if(nvrJob) return;
+  if(nvrJob || doorbellJob) return;
   const job = nvrJob = new AbortController();
   el('nvr-test').disabled = true; el('nvr-state-test').disabled = true; el('device').disabled = true;
   el('nvr-status').textContent = 'Connecting and reading settings. This may take up to 45 seconds, followed by connection cleanup.';
@@ -198,6 +206,32 @@ action('nvr-state-test', async () => {
   } catch(error) { el('nvr-status').textContent = job.signal.aborted ? 'NVR test cancelled.' : error.message + ' Please send only the nvr_state_trial_failed log line if it failed.'; }
   finally { nvrJob = null; el('nvr-test').disabled = false; el('nvr-state-test').disabled = false; el('device').disabled = false; }
 });
-window.addEventListener('pagehide', () => { abortStream(); if(nvrJob) nvrJob.abort(); if(nvrClip) URL.revokeObjectURL(nvrClip); });
+action('doorbell-stop', async () => { if(doorbellJob) doorbellJob.abort(); });
+action('doorbell-test', async () => {
+  const selected = el('device').value;
+  if(!selected || !el('doorbell-consent').checked) throw Error('Select one standalone doorbell and confirm private video consent.');
+  if(doorbellJob || nvrJob) return;
+  const job = doorbellJob = new AbortController();
+  if(doorbellClip) URL.revokeObjectURL(doorbellClip);
+  doorbellClip = null; el('doorbell-video').removeAttribute('src');
+  el('doorbell-video').hidden = true; el('doorbell-download').hidden = true;
+  el('doorbell-test').disabled = true; el('device').disabled = true;
+  el('doorbell-status').textContent = 'Connecting and checking a ten-second private clip. This may take up to 90 seconds.';
+  try {
+    const result = await fetch('api/cameras/' + encodeURIComponent(selected) + '/doorbell-video-trial', {
+      method: 'POST', signal: job.signal, cache: 'no-store',
+      headers: { Authorization: 'Bearer ' + el('token').value, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ consentPrivateMedia: true }) });
+    if(!result.ok) { const value = await result.json(); throw Error(value.error || 'Doorbell video test failed.'); }
+    const clip = await result.blob();
+    if(clip.size > 32 * 1024 * 1024) throw Error('The private clip exceeded the test limit.');
+    doorbellClip = URL.createObjectURL(clip);
+    el('doorbell-video').src = doorbellClip; el('doorbell-video').hidden = false;
+    el('doorbell-download').href = doorbellClip; el('doorbell-download').hidden = false;
+    el('doorbell-status').textContent = 'Clip received. Does it play and show the selected doorbell? This result does not enable normal live view. Keep the clip private.';
+  } catch(error) { el('doorbell-status').textContent = job.signal.aborted ? 'Doorbell test cancelled.' : error.message + ' Please send only the doorbell_rtc_trial_failed log line if it failed.'; }
+  finally { doorbellJob = null; el('doorbell-test').disabled = false; el('device').disabled = false; }
+});
+window.addEventListener('pagehide', () => { abortStream(); if(nvrJob) nvrJob.abort(); if(nvrClip) URL.revokeObjectURL(nvrClip); if(doorbellJob) doorbellJob.abort(); if(doorbellClip) URL.revokeObjectURL(doorbellClip); });
 </script></html>`;
 }

@@ -8,6 +8,8 @@
  * module owns request authentication, response framing, and route selection;
  * it does not parse Mega payloads or open camera sockets.
  */
+import { DoorbellRtcError } from "./stream/doorbell-rtc-offer.js";
+import { validateStoredMedia } from "./stream/stored-recordings.js";
 import { isE30LockSettingChange } from "./domain/types.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -472,9 +474,13 @@ export class GatewayServer {
         return;
       }
       if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras"
-        && segments[3] === "nvr-live-trial" && segments.length === 4) {
+        && ["nvr-live-trial", "doorbell-video-trial"].includes(segments[3]!) && segments.length === 4) {
         response.setHeader("cache-control", "no-store");
-        if (!this.config.apiToken || !this.config.experimentalNvrLive || !this.provider.reserveNvrLiveTrial) return json(response, 409, { error: "Experimental NVR video tests are disabled" });
+        const doorbell = segments[3] === "doorbell-video-trial";
+        const reserve = doorbell ? this.provider.reserveDoorbellRtcTrial : this.provider.reserveNvrLiveTrial;
+        if (!this.config.apiToken || !(doorbell ? this.config.experimentalDoorbellRtc : this.config.experimentalNvrLive) || !reserve) {
+          return json(response, 409, { error: doorbell ? "Experimental standalone doorbell video tests are disabled" : "Experimental NVR video tests are disabled" });
+        }
         if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
         if ((request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase() !== "application/json") return json(response, 400, { error: "JSON private-media consent is required" });
         const body = await readJson(request);
@@ -486,18 +492,22 @@ export class GatewayServer {
         response.once("close", abort); request.once("aborted", abort);
         let release: (() => Promise<void>) | undefined;
         try {
-          release = this.provider.reserveNvrLiveTrial(segments[2]!, controller.signal);
+          release = reserve.call(this.provider, segments[2]!, controller.signal);
           const clip = await this.streams.recordClip(segments[2]!, 10, 75_000, true, controller.signal);
+          if (doorbell) await validateStoredMedia(clip, controller.signal, 4096 * 2160);
           controller.signal.throwIfAborted();
           response.writeHead(200, { "Content-Type": "video/mp4", "Content-Length": clip.length, "Cache-Control": "no-store" }); response.end(clip);
         } catch (error) {
-          const failure = error instanceof NvrTrialError ? error : new NvrTrialError(controller.signal.aborted ? "cancelled" : "video");
-          logger.warn("nvr_live_trial_failed", `stage=${failure.stage} reason=${failure.reason}`);
+          const failure = doorbell
+            ? error instanceof DoorbellRtcError ? error : new DoorbellRtcError(controller.signal.aborted ? "cancelled" : "video")
+            : error instanceof NvrTrialError ? error : new NvrTrialError(controller.signal.aborted ? "cancelled" : "video");
+          logger.warn(doorbell ? "doorbell_rtc_trial_failed" : "nvr_live_trial_failed",
+            `stage=${failure.stage}${failure instanceof NvrTrialError ? ` reason=${failure.reason}` : ""}`);
           if (!response.destroyed) json(response, 409, { error: failure.message, stage: failure.stage });
         } finally {
           controller.abort(); clearTimeout(deadline);
           try { await release?.(); }
-          catch { logger.warn("nvr_live_trial_failed", "stage=stop"); }
+          catch { logger.warn(doorbell ? "doorbell_rtc_trial_failed" : "nvr_live_trial_failed", "stage=stop"); }
           finally { response.removeListener("close", abort); request.removeListener("aborted", abort); this.#nvrTrialJobs.delete(controller); }
         }
         return;

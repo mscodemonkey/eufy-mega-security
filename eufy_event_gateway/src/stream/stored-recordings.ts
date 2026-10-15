@@ -270,11 +270,20 @@ export function decodeStoredVideo(frames: readonly StoredVideoFrame[], serial: s
   return Buffer.concat(output);
 }
 
-/** Decode every MP4 track before serving a recording, cancelling the verifier with its caller. */
-export async function validateStoredMedia(media: Buffer, signal?: AbortSignal): Promise<void> {
+/**
+ * Decode every MP4 track before serving it, cancelling with the caller.
+ * An optional pixel ceiling restricts unconfirmed trial video before allocating
+ * decoder frames. Existing verified recording routes retain their normal limit.
+ */
+export async function validateStoredMedia(media: Buffer, signal?: AbortSignal, maximumPixels?: number): Promise<void> {
+  if (maximumPixels !== undefined && (!Number.isSafeInteger(maximumPixels) || maximumPixels < 1 || maximumPixels > 4096 * 2160)) {
+    throw new Error("Invalid recording decoder pixel limit");
+  }
   if (signal?.aborted) throw new Error("Camera recording operation was cancelled");
   await new Promise<void>((resolve, reject) => {
-    const child = spawn("ffmpeg", ["-v", "error", "-xerror", "-err_detect", "explode", "-i", "pipe:0", "-map", "0", "-f", "null", "-"], { stdio: ["pipe", "ignore", "ignore"] });
+    const child = spawn("ffmpeg", ["-v", "error", "-xerror", "-err_detect", "explode",
+      ...(maximumPixels === undefined ? [] : ["-max_alloc", "67108864", "-max_pixels", String(maximumPixels)]),
+      "-i", "pipe:0", "-map", "0", "-f", "null", "-"], { stdio: ["pipe", "ignore", "ignore"] });
     const abort = (): void => { child.kill("SIGKILL"); };
     const timer = setTimeout(abort, 30_000);
     signal?.addEventListener("abort", abort, { once: true });

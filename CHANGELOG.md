@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.155
+
+- Add a default-off, consented private video trial for standalone T8224/type 96 doorbells without a normal streaming connection. The diagnostic checks the clip before download. Hardware and shared-account playback remain unconfirmed.
+- Keep camera siren state unknown when the command route has no readback, and preserve unknown HomeBase alarm state until the station reports it.
+- Cancel pending experimental NVR or doorbell connections when their trial is stopped, preventing a late video start.
+
 ## 0.1.154
 
 - Correct Security-cloud encrypted request headers and add a rate-limited media-key recovery that preserves the signed-in account.

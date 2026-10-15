@@ -33,6 +33,8 @@ import { MegaClient } from "../mega/client.js";
 import { decodeEventImage, isJpeg } from "../mega/image.js";
 import { parseV8EventImage, decodeV8EventImage } from "../mega/v8-image.js";
 import { MegaPushReceiver, type MegaPushEvent } from "../mega/push.js";
+import { DoorbellRtcSession } from "../stream/doorbell-rtc-session.js";
+import { DoorbellRtcError } from "../stream/doorbell-rtc-offer.js";
 import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, PpcsLookupTimeoutError, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBaseChildParam, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
 import type { SensorContactObservation } from "../stream/sensor-status-notification.js";
@@ -88,6 +90,9 @@ export interface EufyProviderConfig {
 
   /** Diagnostic-only NVR admission, independent of normal camera capabilities. */
   readonly experimentalNvrLive?: boolean;
+
+  /** Default-off, media-only native doorbell diagnostic trial. */
+  readonly experimentalDoorbellRtc?: boolean;
   readonly experimentalNvrRegion?: "auto" | "us" | "eu" | "ie";
 
   /** Optional process-owned evidence collector, closed by the composition root. */
@@ -472,6 +477,8 @@ export interface PpcsStreamRoute {
 export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #client: MegaClient;
   readonly #devices = new Map<string, MegaInventoryDevice>();
+  readonly #doorbellTrials = new Map<string, { controller: AbortController; device: MegaInventoryDevice; generation: number;
+    connecting: boolean; session: DoorbellRtcSession | null; release: () => Promise<void> }>();
   readonly #ppcsStreams = new Map<string, FirstPartyPpcsSession>();
   readonly #streamStarts = new Map<string, { promise: Promise<void>; cancelled: boolean }>();
   readonly #nvrTrials = new Map<string, { controller: AbortController; device: MegaInventoryDevice;
@@ -751,6 +758,78 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     };
   }
 
+  #doorbellRtcBinding(device: MegaInventoryDevice | undefined): boolean {
+    return this.config.experimentalDoorbellRtc === true && !!device && device.model === "T8224" && device.deviceType === 96
+      && device.category === "eufy_security" && device.parentSerial === device.serial && !device.p2pConnection
+      && !!device.adminUserId && device.channel !== null && Number.isInteger(device.channel)
+      && device.channel >= 0 && device.channel <= 254;
+  }
+
+  /** Reserve one exact standalone doorbell for a private, video-only diagnostic clip. */
+  reserveDoorbellRtcTrial(serial: string, signal: AbortSignal): () => Promise<void> {
+    const device = this.#devices.get(serial);
+    if (!this.#doorbellRtcBinding(device) || !device || signal.aborted || this.#recordingClosing
+      || !this.#client.isAuthenticated || this.#doorbellTrials.size || this.#nvrTrials.size
+      || this.#trialPeers.has(serial) || this.#recordingPeerReserved(serial) || this.#stationHasActiveMedia(serial)) {
+      throw new DoorbellRtcError("admission");
+    }
+    const controller = new AbortController();
+    let closed: Promise<void> | null = null;
+    const deadline = setTimeout(() => { void entry.release().catch(() => logger.warn("doorbell_rtc_trial_failed", "stage=stop")); }, 85_000);
+    const entry = { controller, device, generation: this.#startupGeneration, connecting: false, session: null as DoorbellRtcSession | null,
+      release: (): Promise<void> => {
+        if (closed) return closed;
+        controller.abort();
+        closed = (async () => {
+          clearTimeout(deadline);
+          try { await entry.session?.close(); }
+          finally {
+            signal.removeEventListener("abort", abort);
+            if (this.#doorbellTrials.get(serial) === entry) this.#doorbellTrials.delete(serial);
+            this.#trialPeers.delete(serial); this.#events?.streamStopped(serial);
+          }
+        })();
+        return closed;
+      },
+    };
+    const abort = (): void => { void entry.release().catch(() => logger.warn("doorbell_rtc_trial_failed", "stage=stop")); };
+    signal.addEventListener("abort", abort, { once: true });
+    this.#doorbellTrials.set(serial, entry); this.#trialPeers.add(serial);
+    return entry.release;
+  }
+
+  async #startDoorbellRtcTrial(serial: string): Promise<void> {
+    const entry = this.#doorbellTrials.get(serial)!;
+    if (entry.connecting || entry.session || entry.controller.signal.aborted) throw new DoorbellRtcError("cancelled");
+    entry.connecting = true;
+    const generation = entry.generation;
+    const current = (): boolean => {
+      const device = this.#devices.get(serial);
+      return generation === this.#startupGeneration && this.#doorbellTrials.get(serial) === entry
+        && !this.#recordingClosing && !entry.controller.signal.aborted && !!device
+        && this.#doorbellRtcBinding(device) && !inventoryBindingChanged(entry.device, device)
+        && device.adminUserId === entry.device.adminUserId;
+    };
+    try {
+      const context = await this.#client.nvrSignallingContext(serial, this.config.experimentalNvrRegion ?? "auto", entry.controller.signal);
+      if (!current()) throw new DoorbellRtcError("cancelled");
+      const session = entry.session = new DoorbellRtcSession({ station: serial,
+        administrator: entry.device.adminUserId!, context, signal: entry.controller.signal, current,
+        ready: output => {
+          if (!current()) throw new DoorbellRtcError("cancelled");
+          this.#events?.streamStarted(serial, output, () => "h264");
+        },
+      });
+      session.output.once("error", error => logger.warn("doorbell_rtc_trial_failed",
+        `stage=${error instanceof DoorbellRtcError ? error.stage : "video"}`));
+      await session.start();
+    } catch (error) {
+      const failure = error instanceof DoorbellRtcError ? error : new DoorbellRtcError(entry.controller.signal.aborted ? "cancelled" : "sign");
+      logger.warn("doorbell_rtc_trial_failed", `stage=${failure.stage}`);
+      await entry.release(); throw failure;
+    }
+  }
+
   #nvrBinding(device: MegaInventoryDevice | undefined, station: MegaInventoryDevice | undefined): boolean {
     const parents = [["T8N00", 300], ["T9000", 27]] as const;
     return !!this.config.experimentalNvrLive && !!device && !!station
@@ -871,6 +950,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Share an in-flight media start and retire bounded lookup retries on stop. */
   async startStream(serial: string): Promise<void> {
+    if (this.#doorbellTrials.has(serial)) return this.#startDoorbellRtcTrial(serial);
     const nvrTrial = this.#nvrTrials.get(serial);
     if (nvrTrial?.stateOnly) throw new NvrTrialError("admission");
     if (nvrTrial) return this.#startNvrTrial(serial);
@@ -966,10 +1046,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   async stopStream(serial: string): Promise<void> {
+    const doorbell = this.#doorbellTrials.get(serial);
+    if (doorbell) { await doorbell.release(); return; }
     const pending = this.#streamStarts.get(serial);
     if (pending) pending.cancelled = true;
     const trial = this.#nvrTrials.get(serial);
-    if (trial) { await trial.session?.close(); return; }
+    if (trial) { await trial.release(); return; }
     const stream = this.#ppcsStreams.get(serial);
     const device = this.#devices.get(serial);
     if (!stream || !device) return;
@@ -1783,6 +1865,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const closingPush = push?.close();
     try { this.#events?.eventReceiverState("stopped"); } catch {}
     await Promise.allSettled([...this.#nvrTrials.values()].map(trial => trial.release()));
+    await Promise.allSettled([...this.#doorbellTrials.values()].map(trial => trial.release()));
     this.#client.cancelPendingRequests();
     if (this.#stationRefreshTimer) clearInterval(this.#stationRefreshTimer);
     this.#stationRefreshTimer = null;
