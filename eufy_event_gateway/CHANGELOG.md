@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.159
+
+- Correct two receive checks that rejected valid T8E00 keyframe fragments and video replies in the experimental T8N00 NVR video test. Preserve camera selection and bounded receive validation. Hardware playback still needs reporter confirmation.
+- Recognise exact NVR heartbeat echoes without counting them as malformed video traffic. The NVR trial remains off by default, and normal Home Assistant NVR streaming and write controls remain disabled.
+
 ## 0.1.158
 - Preserve the accepted Mega push registration when a later Security registration or activation request fails with an HTTP or network error. Restoration runs once, keeps sign-in intact and does not retry the rejected Security request. Initial Mega rejections remain failures.
 
