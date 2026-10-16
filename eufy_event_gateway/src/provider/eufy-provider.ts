@@ -946,7 +946,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       session.output.once("error", error => {
         const failure = error instanceof NvrTrialError ? error : new NvrTrialError("video");
         const details = `stage=${failure.stage} reason=${failure.reason} ${nvrTrialCounters(session)}`;
-        if (failure.stage === "cancelled" && session.stats.video > 0) logger.info("nvr_live_trial_completed", details);
+        if (failure.stage === "cancelled" && session.stats.video > 0) logger.info("nvr_live_trial_completed", `stage=completed ${nvrTrialCounters(session)}`);
         else logger.warn("nvr_live_trial_failed", details);
       });
       await session.start();
@@ -963,9 +963,50 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     let release: (() => Promise<void>) | undefined;
     try {
       release = this.#reserveNvrTrial(serial, signal, true);
-      return await (await this.#nvrTrialSession(serial)).readState();
+      const entry = this.#nvrTrials.get(serial)!;
+      const startedAt = Date.now();
+      const current = (): void => {
+        if (signal.aborted || entry.controller.signal.aborted || this.#nvrTrials.get(serial) !== entry || this.#recordingClosing) {
+          throw new NvrTrialError("cancelled");
+        }
+        const child = this.#devices.get(serial), parent = this.#devices.get(entry.station.serial);
+        if (!child || !parent || inventoryBindingChanged(entry.device, child)
+          || inventoryBindingChanged(entry.station, parent)) throw new NvrTrialError("state", "state_binding_changed");
+        if (Date.now() < startedAt || Date.now() - startedAt > 45_000) throw new NvrTrialError("state", "state_inventory_expired");
+      };
+      const freshInventory = async (): Promise<MegaInventoryDevice> => {
+        current();
+        const inventory = await this.#client.inventory(entry.controller.signal);
+        current();
+        if (inventory.devices.filter(device => device.device_sn === serial).length !== 1
+          || inventory.devices.filter(device => device.device_sn === entry.station.serial).length !== 1) {
+          throw new NvrTrialError("state", "state_binding_changed");
+        }
+        const devices = parseMegaInventory(inventory);
+        const children = devices.filter(device => device.serial === serial);
+        const parents = devices.filter(device => device.serial === entry.station.serial);
+        const child = children[0], parent = parents[0];
+        if (children.length !== 1 || parents.length !== 1 || !child || !parent || !this.#nvrBinding(child, parent)
+          || inventoryBindingChanged(entry.device, child) || inventoryBindingChanged(entry.station, parent)) {
+          throw new NvrTrialError("state", "state_binding_changed");
+        }
+        return parent;
+      };
+      await freshInventory();
+      const result = await (await this.#nvrTrialSession(serial)).readState();
+      current();
+      const station = await freshInventory();
+      current();
+      const configured = station.reads.guardMode ?? null;
+      return { ...result,
+        configuredGuardMode: validGuardMode(configured) ? configured : null,
+        configuredGuardModeSource: validGuardMode(configured) ? "inventory" : null,
+        inventoryQueriedAt: new Date().toISOString(),
+        effectiveGuardMode: entry.station.model === "T8N00" ? null : result.effectiveGuardMode,
+        cameraPowerSource: result.cameraPower === null ? null : "query",
+      };
     } catch (error) {
-      const failure = error instanceof NvrTrialError ? error : new NvrTrialError("state");
+      const failure = error instanceof NvrTrialError ? error : new NvrTrialError(signal.aborted ? "cancelled" : "state");
       logger.warn("nvr_state_trial_failed", `stage=${failure.stage} reason=${failure.reason}`);
       throw failure;
     } finally {

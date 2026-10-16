@@ -23,7 +23,7 @@ const nvrTrialReasons = [
   "ptcs_packet_geometry", "ptcs_magic", "ptcs_type", "ptcs_flags", "ptcs_length", "ptcs_index",
   "ptcs_final_marker", "ptcs_channel", "ptcs_frame_too_large", "ptcs_metadata_conflict",
   "ptcs_duplicate_conflict", "ptcs_decompression", "ptcs_replay", "ptcs_capacity", "ptcs_poisoned",
-  "frame_sequence_gap", "frame_reorder_limit", "frame_reorder_timeout", "clock_reversed",
+  "frame_sequence_gap", "frame_reorder_limit", "frame_reorder_timeout", "clock_reversed", "state_binding_changed", "state_inventory_expired",
 ] as const;
 
 /** Fixed failure reasons distinguish setup failures without retaining received values. */
@@ -100,6 +100,15 @@ export interface NvrStateSummary {
   readonly effectiveGuardMode: number | null;
   readonly cameraPower: "on" | "off" | null;
   readonly parameterCount: number;
+
+  /** Configured policy comes from a new cloud inventory read, separate from local settings. */
+  readonly configuredGuardModeSource?: "inventory" | "query" | null;
+
+  /** Receipt time of the inventory used by this explicit diagnostic operation. */
+  readonly inventoryQueriedAt?: string;
+
+  /** Camera power is reported only by the correlated, selected-channel local query. */
+  readonly cameraPowerSource?: "query" | null;
 
   /** Gateway receipt time, not proof that the appliance refreshed its own cache. */
   readonly queriedAt: string;

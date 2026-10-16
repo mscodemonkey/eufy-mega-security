@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.161
+
+- Correct experimental NVR test-clip timing when the camera declares a different frame rate from the video it sends. Successful clip completion no longer carries a cancelled-stage label.
+- Limit the bitrate and encoder buffer of the H.265 browser fallback to reduce oversized H.264 output and delivery backpressure. Browser playback on the reporting setup still needs confirmation.
+- Show which fixed cloud operation rejected startup, while keeping account and response details private. Error 26108 remains an unclassified server rejection, with no automatic sign-in or retry added.
+- Recheck NVR child, station and account bindings against new inventory reads around the read-only settings test. Identify configured mode as cloud inventory, preserve independently queried camera power, and keep missing local effective-mode readings unknown. Cancelled, expired or changed bindings cannot return stale results.
+- Keep NVR arming, camera-power and privacy writes disabled. Reporter hardware playback and control behaviour remain unconfirmed.
+
 ## 0.1.160
 
 - Accept the reported T8223 Video Doorbell C31 device type 95 variant behind HomeBase 2 without widening admission to other models.

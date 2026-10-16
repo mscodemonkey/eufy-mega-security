@@ -1062,7 +1062,9 @@ export class LiveStreamManager extends EventEmitter {
     else {
       const elapsed = recording.firstVideoAtMilliseconds === null || recording.lastVideoAtMilliseconds === null
         ? 0 : recording.lastVideoAtMilliseconds - recording.firstVideoAtMilliseconds;
-      const frameRate = elapsed > 0 && recording.chunks.length > 1
+
+      // Short or burst-only captures do not establish a trustworthy arrival rate.
+      const frameRate = elapsed >= 500 && recording.chunks.length >= 10
         ? (recording.chunks.length - 1) * 1000 / elapsed : undefined;
       recording.resolve({
         video: Buffer.concat(recording.chunks, recording.size),
@@ -1444,7 +1446,7 @@ export function terminateMediaProcess(
   forceTimer.unref?.();
 }
 
-/** Build FFmpeg arguments for the shared low-latency H.265 viewer fallback. */
+/** Bound H.265 browser conversion to 3 Mbit/s with a half-second encoder buffer. */
 export function h265ViewerTranscoderArguments(fixedResolution = false): string[] {
   return [
     "-hide_banner",
@@ -1463,6 +1465,12 @@ export function h265ViewerTranscoderArguments(fixedResolution = false): string[]
     "zerolatency",
     "-pix_fmt",
     "yuv420p",
+    "-crf",
+    "26",
+    "-maxrate",
+    "3M",
+    "-bufsize",
+    "1.5M",
     ...(fixedResolution ? [
       "-vf",
       "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
@@ -1516,7 +1524,7 @@ export async function remuxVideoToMp4(video: Buffer, codec: VideoCodec, audio?: 
       "+genpts",
       "-f",
       codec === "h265" ? "hevc" : "h264",
-      ...(frameRate === undefined ? [] : ["-framerate", `${frameRate}`]),
+      ...(frameRate === undefined ? [] : ["-r", `${frameRate}`]),
       "-i",
       "pipe:0",
       ...(audio?.length ? ["-f", "aac", "-i", "pipe:3", "-map", "0:v:0", "-map", "1:a:0", "-c:a", "copy", "-bsf:a", "aac_adtstoasc"] : []),

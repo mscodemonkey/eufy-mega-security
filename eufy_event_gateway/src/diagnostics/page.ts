@@ -209,11 +209,11 @@ action('nvr-state-test', async () => {
     const value = await result.json();
     if(!result.ok) throw Error(value.error || 'NVR state test failed.');
     const modes = { 0: 'Away', 1: 'Home', 2: 'Schedule', 3: 'Custom 1', 4: 'Custom 2', 5: 'Custom 3', 47: 'Geofencing', 63: 'Disarmed' };
-    el('nvr-status').textContent = 'Configured guard mode: ' + (modes[value.configuredGuardMode] || 'Unknown') +
+    el('nvr-status').textContent = 'Configured guard mode' + (value.configuredGuardModeSource === 'inventory' ? ' (cloud inventory)' : ' (local query)') + ': ' + (modes[value.configuredGuardMode] || 'Unknown') +
       '\\nCurrent guard mode: ' + (modes[value.effectiveGuardMode] || 'Unknown') +
       '\\nCamera power: ' + (value.cameraPower || 'Unknown') +
       '\\nUnknown means this read returned no value or an unrecognised one.' +
-      '\\nInventory state may appear separately in Home Assistant. It is not a fresh local read.' +
+      '\\nCloud inventory is checked during this test. It is not local confirmation. The effective-mode sensor uses separate reported updates.' +
       '\\nCompare these readings with the Eufy app. No settings were changed.';
   } catch(error) { el('nvr-status').textContent = job.signal.aborted ? 'NVR test cancelled.' : error.message + ' Please send only the nvr_state_trial_failed log line if it failed.'; }
   finally { nvrJob = null; el('nvr-test').disabled = false; el('nvr-state-test').disabled = false; el('device').disabled = false; }

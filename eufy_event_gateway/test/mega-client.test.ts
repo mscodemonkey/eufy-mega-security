@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { beforeEach, afterEach } from "node:test";
 
-import { MegaClient } from "../src/mega/client.js";
+import { MegaClient, megaOperation } from "../src/mega/client.js";
 import { decryptEnvelope, encryptEnvelope, credentialVerifier, presetKey, sharedAesKey } from "../src/mega/crypto.js";
 
 const unhandled: unknown[] = [];
@@ -259,7 +259,7 @@ test("keeps login limits and unrelated responses terminal", async () => {
   const host = "app-openapi-eu-pr.eufy.com";
   const sharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
   const cases = [
-    { status: 200, body: JSON.stringify({ code: 100028, msg: "PRIVATE RESPONSE MESSAGE", data: {} }), error: "Mega request failed (100028: application error)" },
+    { status: 200, body: JSON.stringify({ code: 100028, msg: "PRIVATE RESPONSE MESSAGE", data: {} }), error: "Mega request failed (100028: application error) operation=inventory" },
     { status: 463, body: JSON.stringify({ code: 100028, msg: "PRIVATE RESPONSE MESSAGE", data: {} }), error: "Mega request failed (HTTP 463 code 100028)" },
     { body: JSON.stringify({ code: 9999, msg: "PRIVATE RESPONSE MESSAGE", data: {} }), error: "Mega request failed (HTTP 463 code 9999)" },
     { body: JSON.stringify({ code: "9999", msg: "PRIVATE RESPONSE MESSAGE", data: {} }), error: "Mega request failed (HTTP 463 response json_without_numeric_code)" },
@@ -594,5 +594,40 @@ test("restored inventory and media HTTP401 retain distinct recovery decisions", 
       return true;
     });
     assert.equal(urls.length, 2);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+
+test("cloud operation labels never disclose endpoints or prototype properties", () => {
+  assert.equal(megaOperation("/passport/login"), "login");
+  assert.equal(megaOperation("/app/house/get_devs_list"), "inventory");
+  for (const path of ["__proto__", "constructor", "/private/unknown?account=fixture"]) assert.equal(megaOperation(path), "unknown");
+});
+
+for (const region of ["us", "ie"]) test(`inventory rejection identifies its phase without disclosing server data in ${region}`, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mega-inventory-operation-"));
+  const sharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
+  const openHost = `app-openapi-${region}-pr.eufy.com`;
+  try {
+    await writeFile(join(directory, "mega-session.json"), JSON.stringify({
+      version: 2, country: "gb", openUdid: "device", credentialVerifier: credentialVerifier("device", "user@example.invalid", "redacted"),
+      authToken: "synthetic-token", tokenExpiresAt: 2_000_000_000, userId: "synthetic-user", verificationPending: false,
+      megaDomain: `mega-${region}-pr.eufy.com`, domains: {}, identities: { [openHost]: { keyIdent: "identity", sharedKey, clientPublicKey: "public" } },
+    }));
+    let requests = 0;
+    const client = new MegaClient({ email: "user@example.invalid", password: "redacted", country: "GB", persistentDirectory: directory,
+      minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000,
+      fetch: async (input) => {
+        requests++;
+        assert.equal(new URL(String(input)).pathname, "/app/house/get_devs_list");
+        return new Response(JSON.stringify({ code: 26108, msg: "PRIVATE_SERVER_BODY user@example.invalid", data: {} }));
+      },
+    });
+    assert.equal((await client.connect()).state, "authenticated");
+    await assert.rejects(client.inventory(), error => {
+      assert.equal((error as Error).message, "Mega request failed (26108: application error) operation=inventory");
+      return true;
+    });
+    assert.equal(requests, 1, "an unknown application error must not cause sign-in or retries");
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

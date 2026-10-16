@@ -49,6 +49,26 @@ const MEDIA_OBJECT_HOST = /^zhixin-security-[a-z0-9]+(?:-[a-z0-9]+)*\.s3(?:\.[a-
 const MEDIA_NOT_READY_DELAYS_MS = [1_000, 2_000] as const;
 const CIPHER_IDENTITY_RECOVERY_INTERVAL_MS = 10 * 60_000;
 
+/** Fixed operation names may cross the logging boundary without request data. */
+type MegaOperation = "login" | "inventory" | "lock_credentials" | "cloud_history" | "cloud_playback" | "cipher" | "dsk" | "push" | "captcha" | "unknown";
+
+/** Project a known internal endpoint into a fixed, privacy-safe diagnostic label. */
+export function megaOperation(path: string): MegaOperation {
+  const operations: Readonly<Record<string, MegaOperation>> = {
+    "/app/house/get_devs_list": "inventory",
+    "/passport/login": "login",
+    "/app/devicemanage/get_user_mqtt_info": "lock_credentials",
+    "/v3/event/app/get_all_video_record": "cloud_history",
+    "/v3/app/cipher/get_ciphers": "cipher",
+    "/v3/web/cipher/dec_aes_keys": "cipher",
+    "/app/devicerelation/get_dsk_keys": "dsk",
+    "/app/push/register_push_token": "push",
+    "/passport/generate/captcha": "captcha",
+    "/v3/event/app/get_kvs_urls": "cloud_playback",
+  };
+  return Object.hasOwn(operations, path) ? operations[path]! : "unknown";
+}
+
 /**
  * Carries an unclassified HTTP rejection without treating it as an expired login.
  * The request caller owns any narrowly scoped read retry. This error retains
@@ -114,6 +134,7 @@ export class MegaClient {
   readonly #identityRecoveryFlights = new Map<string, Promise<MegaIdentity>>();
   readonly #cipherIdentityRecoveryAt = new Map<string, number>();
   readonly #responseIdentities = new WeakMap<MegaResult, MegaIdentity>();
+  readonly #responseOperations = new WeakMap<MegaResult, MegaOperation>();
   #session: MegaSession | null = null;
   #pendingCaptcha: MegaCaptcha | null = null;
 
@@ -249,15 +270,15 @@ export class MegaClient {
       createHash("sha256").update(session.openUdid).digest("hex").slice(0, 16));
   }
 
-  /** Fetch the account's devices and groups after authentication. */
-  async inventory(): Promise<MegaInventory> {
+  /** Fetch current account inventory, cancelling only this read when its caller retires. */
+  async inventory(cancellation?: AbortSignal): Promise<MegaInventory> {
     this.#requireAuthentication();
-    const lifetime = this.#requestLifetime.signal;
-    const result = await this.#call("house", "/app/house/get_devs_list", { house_id: "", device_sns: {} });
+    const lifetime = cancellation ? AbortSignal.any([this.#requestLifetime.signal, cancellation]) : this.#requestLifetime.signal;
+    const result = await this.#call("house", "/app/house/get_devs_list", { house_id: "", device_sns: {} }, true, undefined, cancellation);
     const value = this.#decodeResult(result);
     if (!isRecord(value) || !Array.isArray(value.devices)) throw new Error("Mega returned an invalid device inventory");
     lifetime.throwIfAborted();
-    const chargingDays = await this.#legacyChargingDays().catch(() => new Map<string, unknown>());
+    const chargingDays = await this.#legacyChargingDays(cancellation).catch(() => new Map<string, unknown>());
     lifetime.throwIfAborted();
     return {
       devices: value.devices.filter(isMegaDevice).map((device) => {
@@ -346,7 +367,7 @@ export class MegaClient {
   }
 
   /** Read the established Security inventory field without retaining its other device data. */
-  async #legacyChargingDays(): Promise<ReadonlyMap<string, unknown>> {
+  async #legacyChargingDays(cancellation?: AbortSignal): Promise<ReadonlyMap<string, unknown>> {
     const result = await this.#call("security", "/v2/house/device_list", {
       device_sn: "",
       num: 1_000,
@@ -355,7 +376,7 @@ export class MegaClient {
       station_sn: "",
       time_zone: new Date(this.#now()).getTimezoneOffset() * -60_000,
       transaction: `${this.#now()}`,
-    });
+    }, true, undefined, cancellation);
     const decoded = this.#decodeResult(result);
     const rows = Array.isArray(decoded)
       ? decoded
@@ -803,6 +824,7 @@ export class MegaClient {
       }
       if (appScope) headers["app-name"] = appScope;
       const result = await this.#post(host, path, body, headers, signal);
+      this.#responseOperations.set(result, megaOperation(path));
       if (identity) {
 
         // Only the normal general-client family has an established response
@@ -937,9 +959,10 @@ export class MegaClient {
   }
 
   #decodeResult(result: MegaResult): unknown {
+    const operation = this.#responseOperations.get(result) ?? "unknown";
     if (!isSuccess(result.code)) {
       if (result.code === VERIFICATION_REQUIRED || CAPTCHA_REQUIRED.has(result.code)) return result.data;
-      throw new Error(`Mega request failed (${result.code}: ${safeMegaMessage(result.msg)})`);
+      throw new Error(`Mega request failed (${result.code}: ${safeMegaMessage(result.msg)}) operation=${operation}`);
     }
     if (typeof result.data !== "string") return result.data;
     const identity = this.#responseIdentities.get(result);
@@ -947,7 +970,7 @@ export class MegaClient {
     try {
       return JSON.parse(decryptEnvelope(result.data, sharedAesKey(identity.sharedKey)));
     } catch {
-      throw new Error("Mega response validation failed (encrypted data)");
+      throw new Error(`Mega response validation failed (encrypted data) operation=${operation}`);
     }
   }
 

@@ -88,7 +88,7 @@ test('pre-aborted private recording never starts and collection cancellation rem
   } finally { await manager.close(); }
 });
 
-test('private recording passes its observed frame cadence to the remuxer', async context => {
+for (const [frameCount, interval, expectedRate] of [[2, 100, undefined], [10, 100, 10], [10, 1, undefined]] as const) test(`private recording trusts sustained cadence only: ${frameCount} frames at ${interval} ms`, async context => {
   const state = new GatewayState();
   state.registerCamera({ serial: 'synthetic', name: 'Synthetic', model: 'T8E00', stationSerial: 'synthetic-station', streamSupported: false, doorbellSupported: false });
   let source = new PassThrough(), now = 0, receivedFrameRate: number | undefined;
@@ -96,9 +96,10 @@ test('private recording passes its observed frame cadence to the remuxer', async
   manager = new LiveStreamManager(state, {} as never, {
     async startStream() {
       source = new PassThrough(); manager.attachSource('synthetic', source);
-      source.write(Buffer.from('frame-one'));
-      now = 100;
-      source.write(Buffer.from('frame-two'));
+      for (let frame = 0; frame < frameCount; frame++) {
+        now = frame * interval;
+        source.write(Buffer.from(`frame-${frame}`));
+      }
     },
     async stopStream() { source.end(); },
   }, 1, async (_video, _codec, _audio, _signal, frameRate) => {
@@ -111,6 +112,6 @@ test('private recording passes its observed frame cadence to the remuxer', async
     await Promise.resolve();
     context.mock.timers.tick(1000);
     assert.equal((await pending).toString(), 'mp4');
-    assert.equal(receivedFrameRate, 10);
+    assert.equal(receivedFrameRate, expectedRate);
   } finally { await manager.close(); }
 });

@@ -125,3 +125,81 @@ for (const mode of [...additional.keys(), 'state-read', 'state-read-failure', 's
     const retry = provider.reserveNvrLiveTrial('synthetic-camera', new AbortController().signal); await retry();
   } finally { stopObserving(); finishSign(); finishRead(); finishClose(); await provider.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+
+for (const scenario of ["fresh", "child_channel", "child_model", "child_type", "child_parent", "child_owner", "child_category", "station_model", "station_type", "station_owner", "removed", "duplicate", "after_read", "abort_inventory", "abort_read", "expired", "cleanup"]) {
+  test(`read-only NVR state rejects retired or rebound inventory: ${scenario}`, async context => {
+    const directory = await mkdtemp(join(tmpdir(), "nvr-state-contract-"));
+    context.mock.method(globalThis, "fetch", async () => { assert.fail("Network forbidden"); });
+    context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
+    context.mock.getter(MegaClient.prototype, "isAuthenticated", () => true);
+    context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
+    const controller = new AbortController();
+    let inventories = 0, joins = 0, closes = 0;
+    const baseline = () => [
+      { device_sn: "synthetic-station", device_model: "T8N00", device_type: 300, category: "eufy_security",
+        member: { admin_user_id: "synthetic-owner" }, params: [{ param_type: 1224, param_value: "2" }] },
+      { device_sn: "synthetic-camera", device_model: "T8E00", device_type: 301, category: "eufy_security",
+        parent_sn: "synthetic-station", device_channel: 3, member: { admin_user_id: "synthetic-owner" } },
+    ];
+    context.mock.method(MegaClient.prototype, "inventory", async (signal?: AbortSignal) => {
+      inventories++;
+      const rows = baseline();
+      if (inventories > 1) {
+        assert.ok(signal instanceof AbortSignal);
+        if (scenario === "abort_inventory") controller.abort();
+        if (scenario === "fresh") rows[0]!.params![0]!.param_value = inventories === 2 ? "1" : "3";
+        const change = inventories === 2 || scenario === "after_read";
+        if (change) {
+          if (scenario === "child_channel" || scenario === "after_read" && inventories === 3) rows[1]!.device_channel = 4;
+          if (scenario === "child_model") rows[1]!.device_model = "T8416";
+          if (scenario === "child_type") rows[1]!.device_type = 105;
+          if (scenario === "child_parent") rows[1]!.parent_sn = "synthetic-other";
+          if (scenario === "child_owner") rows[1]!.member.admin_user_id = "synthetic-other";
+          if (scenario === "child_category") rows[1]!.category = "other";
+          if (scenario === "station_model") rows[0]!.device_model = "T9000";
+          if (scenario === "station_type") rows[0]!.device_type = 27;
+          if (scenario === "station_owner") rows[0]!.member.admin_user_id = "synthetic-other";
+          if (scenario === "removed") rows.pop();
+          if (scenario === "duplicate") rows.push({ ...rows[1]! });
+        }
+      }
+      return { devices: rows };
+    });
+    context.mock.method(MegaClient.prototype, "nvrSignallingContext", async () => {
+      joins++;
+      return { host: "security-smart-ie.eufylife.com", region: "IE", authToken: "synthetic", gtoken: "synthetic", sign: "synthetic" };
+    });
+    context.mock.method(NvrRtcSession.prototype, "readState", async () => {
+      if (scenario === "abort_read") controller.abort();
+      if (scenario === "expired") { const later = Date.now() + 46_000; context.mock.method(Date, "now", () => later); }
+      return { configuredGuardMode: 0, effectiveGuardMode: 1, cameraPower: "on" as const, parameterCount: 101, queriedAt: new Date().toISOString() };
+    });
+    context.mock.method(NvrRtcSession.prototype, "close", async () => { closes++; if (scenario === "cleanup") throw Error("Synthetic cleanup failure"); });
+    const events = new Proxy({}, { get: () => () => {} }) as ProviderEvents;
+    const provider = new EufyProvider({ username: "fixture", password: "redacted", country: "AU", persistentDirectory: directory,
+      maxStreamSeconds: 120, experimentalNvrLive: true });
+    try {
+      await provider.start(events);
+      const result = provider.readNvrStateTrial("synthetic-camera", controller.signal);
+      if (scenario === "fresh") {
+        const value = await result;
+        assert.equal(value.configuredGuardMode, 3, "the final inventory overrides both startup and query policy values");
+        assert.equal(value.configuredGuardModeSource, "inventory");
+        assert.equal(value.cameraPowerSource, "query");
+        assert.equal(value.effectiveGuardMode, null, "camera-only query must not masquerade as effective station state");
+        assert.equal(inventories, 3);
+      } else {
+        await assert.rejects(result, error => {
+          assert.ok(error instanceof NvrTrialError);
+          assert.equal(error.stage, scenario.startsWith("abort") ? "cancelled" : "state");
+          if (!["abort_inventory", "abort_read", "cleanup"].includes(scenario)) assert.equal(error.reason, scenario === "expired" ? "state_inventory_expired" : "state_binding_changed");
+          return true;
+        });
+      }
+      assert.equal(joins, ["fresh", "after_read", "abort_read", "expired", "cleanup"].includes(scenario) ? 1 : 0);
+      if (joins) assert.ok(closes >= 1);
+      if (!controller.signal.aborted) { const release = provider.reserveNvrLiveTrial("synthetic-camera", new AbortController().signal); await release(); }
+    } finally { await provider.close(); await rm(directory, { recursive: true, force: true }); }
+  });
+}

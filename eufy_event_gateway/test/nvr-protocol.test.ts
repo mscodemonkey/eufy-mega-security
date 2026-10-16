@@ -308,5 +308,5 @@ test('NVR diagnostics distinguish custom labels and unknown local readings', () 
   }
   assert.equal(page.includes("3: 'Geofence'"), false);
   assert.ok(page.includes('Unknown means this read returned no value or an unrecognised one.'));
-  assert.ok(page.includes('Inventory state may appear separately in Home Assistant. It is not a fresh local read.'));
+  assert.ok(page.includes('Cloud inventory is checked during this test. It is not local confirmation. The effective-mode sensor uses separate reported updates.'));
 });
