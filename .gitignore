@@ -24,3 +24,6 @@ docs/TODO.md
 
 # Private diagnostic exports.
 *diagnostics*.json.gz
+
+# Local project notes.
+/docs/project-memory/

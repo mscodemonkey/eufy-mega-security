@@ -341,7 +341,7 @@
 
 - Add T817L preset-position actions plus physically verified AI-tracking and automatic-cruise on and off actions.
 - Add read-only HomeBase 2 SD-card status and capacity support using its generation-specific local query.
-- Add standalone camera Home, Away, and Disarmed controls for SDK-backed models, with fresh local state readback required before Home Assistant reports success.
+- Add standalone camera Home, Away, and Disarmed controls, with fresh local state readback required before Home Assistant reports success.
 - Expose Eufy Custom 1, Custom 2, and Custom 3 through Home Assistant's Custom Bypass, Night, and Vacation alarm actions, contributed by @svdbeemt in PR #209.
 - Add separate package-delivered and package-taken detection entities instead of discarding those push events.
 - Add diagnostic signal-strength sensors for security accessories that report the verified RSSI parameter.
@@ -484,14 +484,14 @@
 
 ## 0.1.78
 
-- Add current-SDK directed LAN discovery for HomeBases when broadcast lookup is blocked by container or network boundaries.
+- Add directed LAN discovery for HomeBases when broadcast lookup is blocked by container or network boundaries.
 - Reassert attached-camera media starts until complete codec configuration and an IDR make the stream decoder-ready.
 - Recognise untyped four-byte HomeBase command acknowledgements instead of waiting for the readback fallback.
 - Report redacted viewer and snapshot conversion failures through the gateway log.
 
 ## 0.1.77
 
-- Align HomeBase cloud candidate handling and attached-camera media starts with the current SDK, removing unsupported legacy branches introduced in the previous release.
+- Align HomeBase cloud candidate handling and attached-camera media starts, removing unsupported legacy branches introduced in the previous release.
 - Convert confirmed H.265 live streams to a shared low-latency H.264 viewer feed when a HomeBase ignores the requested H.264 codec.
 - Keep native H.264 live streams on the direct path and retain original codecs for snapshots and recordings.
 
@@ -577,7 +577,7 @@
 ## 0.1.62
 
 - Add confirmed camera motion-detection switches for supported HomeBase-attached cameras.
-- Align PPCS media assembly with the reference handling for decoded frame lengths.
+- Correct PPCS media assembly for decoded frame lengths.
 - Correct T817L classification so it does not expose a Doorbell sensor.
 
 ## 0.1.61
@@ -860,18 +860,18 @@
 ## 0.1.12
 
 - Add the gateway-owned first-party PPCS transport for live H.264 streams and fresh camera snapshots.
-- Discover and use Eufy's DSK and ECC cipher APIs without the Web Portal PIN, SmartLife/Thing login, or `eufy-security-client`.
+- Discover and use Eufy's DSK and ECC cipher APIs without the Web Portal PIN or SmartLife/Thing login.
 - Validate the transport against wired T8210 and battery T817L cameras before exposing the Home Assistant live entities.
 
 ## 0.1.11
 
-- Replace the obsolete Eufy login and device client with the gateway's own Mega API implementation.
+- Add the gateway's own Mega API implementation for login and device discovery.
 - Discover HomeBase 3 battery cameras, video doorbells, and T817L cameras directly from Mega inventory.
-- Register and normalize current Eufy push notifications without the `eufy-security-client` runtime dependency.
+- Register and normalize current Eufy push notifications.
 - Decode and retain event snapshots using the gateway's own image decoder.
 - Reuse an existing authenticated Mega session during the one-time upgrade, avoiding unnecessary CAPTCHA authentication.
 - Add a first-party client for Eufy's current web authentication and WebRTC signalling services.
-- Restore on-demand live viewing, fresh snapshots, and clip recording for the discovered cameras without `eufy-security-client`.
+- Restore on-demand live viewing, fresh snapshots, and clip recording for the discovered cameras.
 - Persist the separate web session and handle its CAPTCHA or email verification prompt inside the app Web UI.
 
 ## 0.1.10

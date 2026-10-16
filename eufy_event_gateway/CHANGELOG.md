@@ -341,7 +341,7 @@
 
 - Add T817L preset-position actions plus physically verified AI-tracking and automatic-cruise on and off actions.
 - Add read-only HomeBase 2 SD-card status and capacity support using its generation-specific local query.
-- Add standalone camera Home, Away, and Disarmed controls for SDK-backed models, with fresh local state readback required before Home Assistant reports success.
+- Add standalone camera Home, Away, and Disarmed controls, with fresh local state readback required before Home Assistant reports success.
 - Expose Eufy Custom 1, Custom 2, and Custom 3 through Home Assistant's Custom Bypass, Night, and Vacation alarm actions, contributed by @svdbeemt in PR #209.
 - Add separate package-delivered and package-taken detection entities instead of discarding those push events.
 - Add diagnostic signal-strength sensors for security accessories that report the verified RSSI parameter.
@@ -486,14 +486,14 @@
 
 ## 0.1.78
 
-- Add current-SDK directed LAN discovery for HomeBases when broadcast lookup is blocked by container or network boundaries.
+- Add directed LAN discovery for HomeBases when broadcast lookup is blocked by container or network boundaries.
 - Reassert attached-camera media starts until complete codec configuration and an IDR make the stream decoder-ready.
 - Recognise untyped four-byte HomeBase command acknowledgements instead of waiting for the readback fallback.
 - Report redacted viewer and snapshot conversion failures through the gateway log.
 
 ## 0.1.77
 
-- Align HomeBase cloud candidate handling and attached-camera media starts with the current SDK, removing unsupported legacy branches introduced in the previous release.
+- Align HomeBase cloud candidate handling and attached-camera media starts, removing unsupported legacy branches introduced in the previous release.
 - Convert confirmed H.265 live streams to a shared low-latency H.264 viewer feed when a HomeBase ignores the requested H.264 codec.
 - Keep native H.264 live streams on the direct path and retain original codecs for snapshots and recordings.
 
@@ -579,7 +579,7 @@
 ## 0.1.62
 
 - Add confirmed camera motion-detection switches for supported HomeBase-attached cameras.
-- Align PPCS media assembly with the reference handling for decoded frame lengths.
+- Correct PPCS media assembly for decoded frame lengths.
 - Correct T817L classification so it does not expose a Doorbell sensor.
 
 ## 0.1.61
@@ -867,7 +867,7 @@
 
 - Use the gateway's first-party Mega authentication, inventory, push, and event-image implementations.
 - Register camera types 7, 8, and 10031 from the current Mega inventory.
-- Migrate an existing authenticated Mega session without retaining the obsolete client dependency.
+- Migrate an existing authenticated Mega session.
 - Disable unsupported live-stream actions instead of routing them through the retired legacy API.
 
 ## 0.1.10

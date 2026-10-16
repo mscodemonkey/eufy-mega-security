@@ -237,7 +237,7 @@ The reuse contract is intentionally conservative:
 - consume normalized return values instead of reaching into private client state;
 - keep a physical-camera proof or fixture for every newly supported model.
 
-This is reusable implementation code, not a guaranteed stable Eufy SDK. A future consumer should pin a project release and expect protocol maintenance.
+This implementation can be reused, but its API can change between releases. A future consumer should pin a project release and expect protocol maintenance.
 
 ## Debugging checklist
 

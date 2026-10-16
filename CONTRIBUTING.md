@@ -13,7 +13,7 @@ The repository contains two cooperating pieces:
 
 Keep Eufy protocol work in the gateway. The Home Assistant integration should not contain Eufy credentials, Eufy cryptography, device polling logic, or a second copy of the camera protocol.
 
-The gateway deliberately does not use `eufy-security-client`, the SmartLife/Thing login, or the expiring Web Portal Access PIN. Please do not add any of those back as a shortcut. If a camera or account path is missing, document the missing protocol step and add a focused test or probe result.
+The gateway deliberately does not use the SmartLife/Thing login or the expiring Web Portal Access PIN. Please do not add any of those back as a shortcut. If a camera or account path is missing, document the missing protocol step and add a focused test or probe result.
 
 ## Device capability data
 
@@ -112,7 +112,7 @@ When Eufy asks for a CAPTCHA or an email verification code, use the gateway Web 
 2. Read the relevant source and tests before changing a protocol or entity contract.
 3. Add or update a test with the change. Prefer a fixture that proves the smallest protocol or state transition involved.
 4. Keep diagnostics safe. Redact serials when they are not needed to identify a test camera, and never print secrets.
-5. Update the README, file map, or project memory when a user-visible behaviour or architecture boundary changes.
+5. Update the README or file map when a user-visible behaviour or architecture boundary changes.
 6. Run the local checks above and include the result in the pull request.
 
 Protocol code should explain the packet layout, byte order, encryption boundary, and the reason for any magic number. State code should explain ownership and lifecycle. A short comment that says why a field exists is more useful than a comment that repeats its name.
@@ -135,4 +135,4 @@ Only maintainers should cut a release. A release updates the gateway package, ap
 
 ## Where to look first
 
-The [file map](docs/FILE_MAP.md) describes each source file and the direction of dependencies. The checked-in [project memory](docs/project-memory/README.md) records the current protocol boundary and delivery state. Read both before proposing a large change.
+The [file map](docs/FILE_MAP.md) describes each source file and the direction of dependencies. Read it before proposing a large change.

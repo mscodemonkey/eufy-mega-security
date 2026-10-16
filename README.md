@@ -162,7 +162,7 @@ The integration also defines three Home Assistant actions for on-demand streamin
 - `eufy_event_gateway.record_clip` records from a camera with a supported live transport;
 - `eufy_event_gateway.get_stream_url` starts Home Assistant's HLS provider and returns a temporary URL for an automation, local restreamer, or compatible player.
 
-Live viewing uses the gateway-owned Eufy Mega/PPCS transport. The gateway does not use `eufy-security-client`, the separate SmartLife/Thing login, or an expiring Web Portal Access PIN. The transport has produced real stream and snapshot bytes from both a wired T8210 and USB-C-powered T817L, and v0.1.14 exposes it through the Home Assistant camera entities.
+Live viewing uses the gateway-owned Eufy Mega/PPCS transport. The gateway does not use the separate SmartLife/Thing login or an expiring Web Portal Access PIN. The transport has produced real stream and snapshot bytes from both a wired T8210 and USB-C-powered T817L, and v0.1.14 exposes it through the Home Assistant camera entities.
 
 Home Assistant should have direct network reachability to the HomeBase. On one
 tested isolated-VLAN setup, allowing Home Assistant to reach the HomeBase was
