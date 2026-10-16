@@ -7,6 +7,18 @@
  * and retries failed cameras on later inventory refreshes with a bounded budget.
  */
 
+import type { CameraIdentity } from "./domain/types.js";
+
+/**
+ * Decide whether discovery may open a camera solely to seed its first image.
+ *
+ * Providers can suppress this side effect for routes whose scarce media lease
+ * should remain available for an explicit viewer request.
+ */
+export function supportsStartupSnapshot(identity: CameraIdentity): boolean {
+  return identity.streamSupported && identity.startupSnapshotSupported !== false;
+}
+
 type SnapshotCapture = (serial: string) => Promise<unknown>;
 type SnapshotLookup = (serial: string) => boolean;
 type SnapshotFailureReporter = (error: unknown) => void;

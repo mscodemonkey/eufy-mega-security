@@ -19,7 +19,7 @@ import type { CameraProvider, ProviderEvents } from "./provider/provider.js";
 import type { CaptchaProvider } from "./provider/provider.js";
 import { SimulatedProvider } from "./provider/simulated-provider.js";
 import { GatewayServer } from "./server.js";
-import { StartupSnapshotWarmup } from "./startup-snapshot-warmup.js";
+import { StartupSnapshotWarmup, supportsStartupSnapshot } from "./startup-snapshot-warmup.js";
 import { SnapshotStore } from "./storage/snapshot-store.js";
 import {
   LiveStreamManager,
@@ -70,8 +70,9 @@ if (config.provider === "simulated") {
     persistentDirectory: join(config.dataDirectory, "eufy-client"),
     maxStreamSeconds: config.maxStreamSeconds,
     experimentalModelControls: config.experimentalModelControls,
-      experimentalE30Locks: config.experimentalE30Locks,
+    experimentalE30Locks: config.experimentalE30Locks,
     experimentalNvrLive: config.experimentalNvrLive,
+    normalNvrLive: config.experimentalNvrLive,
     experimentalDoorbellRtc: config.experimentalDoorbellRtc,
     experimentalCloudRecordings: config.experimentalCloudRecordings,
     experimentalNvrRegion: config.experimentalNvrRegion,
@@ -192,7 +193,7 @@ const providerEvents: ProviderEvents = {
     state.registerCamera(identity);
     const stored = snapshots.getInfo(identity.serial);
     if (stored) state.restoreSnapshot(identity.serial, stored);
-    else if (identity.streamSupported) startupSnapshots.enqueue(identity.serial);
+    else if (supportsStartupSnapshot(identity)) startupSnapshots.enqueue(identity.serial);
     const storedEventImage = snapshots.getEventInfo(identity.serial);
     if (storedEventImage) state.restoreEventImage(identity.serial, storedEventImage);
   },

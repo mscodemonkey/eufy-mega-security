@@ -441,6 +441,9 @@ export interface CameraIdentity {
   readonly stationSerial: string;
   readonly streamSupported: boolean;
 
+  /** Whether provider startup may open this stream to seed a retained snapshot. */
+  readonly startupSnapshotSupported?: boolean;
+
   /** The provider owns validated SD event retrieval on this route, not card formatting or deletion. */
   readonly storedRecordingsSupported?: boolean;
 

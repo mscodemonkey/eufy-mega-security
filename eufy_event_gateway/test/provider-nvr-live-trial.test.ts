@@ -126,6 +126,90 @@ for (const mode of [...additional.keys(), 'state-read', 'state-read-failure', 's
   } finally { stopObserving(); finishSign(); finishRead(); finishClose(); await provider.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+for (const route of [
+  { cameraModel: "T8E00", cameraType: 301, stationModel: "T8N00", stationType: 300 },
+  { cameraModel: "T8140-Z", cameraType: 14, stationModel: "T9000", stationType: 27 },
+]) {
+  test(`NVR provider promotes hardware-confirmed ${route.cameraModel} live view without startup capture`, async context => {
+    const directory = await mkdtemp(join(tmpdir(), "nvr-normal-live-"));
+    context.mock.method(globalThis, "fetch", async () => { assert.fail("Network forbidden"); });
+    context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
+    context.mock.getter(MegaClient.prototype, "isAuthenticated", () => true);
+    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [
+      { device_sn: "synthetic-station", device_model: route.stationModel, device_type: route.stationType,
+        category: "eufy_security", member: { admin_user_id: "synthetic-owner" } },
+      { device_sn: "synthetic-camera", device_model: route.cameraModel, device_type: route.cameraType,
+        category: "eufy_security", parent_sn: "synthetic-station", device_channel: 3,
+        member: { admin_user_id: "synthetic-owner" } },
+    ] }));
+    context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
+    context.mock.method(globalThis, "setInterval", () => ({ unref() {} }) as unknown as NodeJS.Timeout);
+    let contexts = 0;
+    context.mock.method(MegaClient.prototype, "nvrSignallingContext", async () => {
+      contexts++;
+      return { host: "security-smart-ie.eufylife.com", region: "IE", authToken: "synthetic", gtoken: "synthetic", sign: "synthetic" };
+    });
+    let starts = 0;
+    let closes = 0;
+    context.mock.method(NvrRtcSession.prototype, "start", async () => { starts++; });
+    context.mock.method(NvrRtcSession.prototype, "close", async () => { closes++; });
+    const state = new GatewayState();
+    let discovered: Parameters<ProviderEvents["camera"]>[0] | undefined;
+    const events = new Proxy({ camera: (value: Parameters<ProviderEvents["camera"]>[0]) => {
+      discovered = value;
+      state.registerCamera(value);
+    } },
+      { get: (target, key) => Reflect.get(target, key) ?? (() => {}) }) as unknown as ProviderEvents;
+    const provider = new EufyProvider({ username: "fixture", password: "redacted", country: "AU",
+      persistentDirectory: directory, maxStreamSeconds: 120, experimentalNvrLive: true, normalNvrLive: true });
+    try {
+      await provider.start(events);
+      assert.equal(state.getCamera("synthetic-camera").streamSupported, true);
+      assert.equal(discovered?.startupSnapshotSupported, false);
+      await provider.startStream("synthetic-camera");
+      assert.equal(contexts, 1);
+      assert.equal(starts, 1);
+      await provider.stopStream("synthetic-camera");
+      assert.ok(closes >= 1);
+    } finally {
+      await provider.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+}
+
+test("NVR provider leaves an unconfirmed camera and station pairing diagnostic-only", async context => {
+  const directory = await mkdtemp(join(tmpdir(), "nvr-normal-rejected-"));
+  context.mock.method(globalThis, "fetch", async () => { assert.fail("Network forbidden"); });
+  context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
+  context.mock.getter(MegaClient.prototype, "isAuthenticated", () => true);
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [
+    { device_sn: "synthetic-station", device_model: "T9000", device_type: 27,
+      category: "eufy_security", member: { admin_user_id: "synthetic-owner" } },
+    { device_sn: "synthetic-camera", device_model: "T8E00", device_type: 301,
+      category: "eufy_security", parent_sn: "synthetic-station", device_channel: 3,
+      member: { admin_user_id: "synthetic-owner" } },
+  ] }));
+  context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
+  context.mock.method(globalThis, "setInterval", () => ({ unref() {} }) as unknown as NodeJS.Timeout);
+  let contexts = 0;
+  context.mock.method(MegaClient.prototype, "nvrSignallingContext", async () => { contexts++; assert.fail("No normal stream should sign"); });
+  const state = new GatewayState();
+  const events = new Proxy({ camera: (value: Parameters<ProviderEvents["camera"]>[0]) => state.registerCamera(value) },
+    { get: (target, key) => Reflect.get(target, key) ?? (() => {}) }) as unknown as ProviderEvents;
+  const provider = new EufyProvider({ username: "fixture", password: "redacted", country: "AU",
+    persistentDirectory: directory, maxStreamSeconds: 120, experimentalNvrLive: true, normalNvrLive: true });
+  try {
+    await provider.start(events);
+    assert.equal(state.getCamera("synthetic-camera").streamSupported, false);
+    await assert.rejects(provider.startStream("synthetic-camera"));
+    assert.equal(contexts, 0);
+  } finally {
+    await provider.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 
 for (const scenario of ["fresh", "child_channel", "child_model", "child_type", "child_parent", "child_owner", "child_category", "station_model", "station_type", "station_owner", "removed", "duplicate", "after_read", "abort_inventory", "abort_read", "expired", "cleanup"]) {
   test(`read-only NVR state rejects retired or rebound inventory: ${scenario}`, async context => {

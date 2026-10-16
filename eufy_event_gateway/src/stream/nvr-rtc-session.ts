@@ -48,6 +48,9 @@ export interface NvrRtcOptions {
   readonly signal: AbortSignal;
   readonly current: () => boolean;
   readonly ready: (output: PassThrough, codec: () => VideoCodec | null) => void;
+
+  /** Total owned session lifetime, including signalling and media delivery. */
+  readonly maximumLifetimeMilliseconds?: number;
 }
 
 interface PendingRequest {
@@ -145,6 +148,7 @@ export class NvrRtcSession {
   #deadline: NodeJS.Timeout | null = null;
   #firstFrame: NodeJS.Timeout | null = null;
   #lastNow = 0;
+  readonly #maximumLifetimeMilliseconds: number;
   readonly #externalAbort: () => void;
 
   constructor(private readonly options: NvrRtcOptions, private readonly dependencies: NvrRtcDependencies = {
@@ -152,6 +156,9 @@ export class NvrRtcSession {
     peer: servers => new RTCPeerConnection({ iceServers: servers }),
   }) {
     if (!["security-smart.eufylife.com", "security-smart-eu.eufylife.com", "security-smart-ie.eufylife.com"].includes(options.context.host)) throw new NvrTrialError("admission");
+    this.#maximumLifetimeMilliseconds = options.maximumLifetimeMilliseconds ?? 75_000;
+    if (!Number.isSafeInteger(this.#maximumLifetimeMilliseconds) || this.#maximumLifetimeMilliseconds < 1_000
+      || this.#maximumLifetimeMilliseconds > 2_147_483_647) throw new NvrTrialError("admission");
     this.#externalAbort = () => this.#fail("cancelled");
     options.signal.addEventListener("abort", this.#externalAbort, { once: true });
     this.output.on("error", () => {});
@@ -184,7 +191,7 @@ export class NvrRtcSession {
   async #connectAndDiscover(): Promise<void> {
     if (this.#started || this.options.signal.aborted) throw new NvrTrialError("cancelled");
     this.#started = true;
-    this.#deadline = setTimeout(() => this.#fail("deadline"), 75_000);
+    this.#deadline = setTimeout(() => this.#fail("deadline"), this.#maximumLifetimeMilliseconds);
     const ready = new Promise<void>((resolve, reject) => { this.#readyResolve = resolve; this.#readyReject = reject; });
     const timer = setTimeout(() => this.#fail(this.#stage), 30_000);
     try {
