@@ -8,7 +8,7 @@
  */
 
 import type { CameraCapability, CameraCapabilityManifest, CapabilityMatrixRow, DeviceCapabilityManifest } from "../domain/types.js";
-import { CAMERA_CAPABILITY_CORE, hasMainsBatterySentinel, KNOWN_CAMERA_DEVICE_TYPES, megaDeviceRole, NON_CAMERA_DEVICE_TYPES } from "./camera-capability-core.js";
+import { CAMERA_CAPABILITY_CORE, catalogueIntegrationStatus, hasMainsBatterySentinel, KNOWN_CAMERA_DEVICE_TYPES, megaDeviceRole, NON_CAMERA_DEVICE_TYPES } from "./camera-capability-core.js";
 import type { CoreCapabilityEntry } from "./device-capability-core.js";
 import { DOORBELL_CAPABILITY_CORE } from "./doorbell-capability-core.js";
 import { HOMEBASE_CAPABILITY_CORE, HOMEBASE_DEVICE_TYPES } from "./homebase-capability-core.js";
@@ -33,8 +33,12 @@ export interface DeviceCapabilityOptions {
 }
 
 /** Check the existing camera admission boundary before offering camera paths. */
-export function isSupportedCameraType(device: { readonly category: string | null; readonly deviceType: number | null }): boolean {
-  return device.category === "eufy_security" && megaDeviceRole(device.deviceType) === "camera";
+export function isSupportedCameraType(device: { readonly category: string | null; readonly model: string; readonly deviceType: number | null }): boolean {
+  if (device.category !== "eufy_security" || megaDeviceRole(device.deviceType) !== "camera") return false;
+
+  // Type 95 is also declared for T8224 without hardware confirmation, so only
+  // the reported T8223 pairing may cross the existing camera boundary.
+  return device.deviceType !== 95 || catalogueIntegrationStatus(device.model, device.deviceType) === "ready_to_test";
 }
 
 /** Build one camera's shape-only manifest from reported inventory and route facts. */

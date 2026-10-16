@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.160
+
+- Accept the reported T8223 Video Doorbell C31 device type 95 variant behind HomeBase 2 without widening admission to other models.
+- Preserve the observed NVR diagnostic video cadence when packaging private test clips, and report successful video delivery as completed instead of failed cancellation.
+- Show working feature indicators and separate support-site update dates more clearly.
+
 ## 0.1.159
 
 - Correct two receive checks that rejected valid T8E00 keyframe fragments and video replies in the experimental T8N00 NVR video test. Preserve camera selection and bounded receive validation. Hardware playback still needs reporter confirmation.

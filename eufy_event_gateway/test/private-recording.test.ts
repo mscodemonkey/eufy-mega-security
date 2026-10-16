@@ -87,3 +87,30 @@ test('pre-aborted private recording never starts and collection cancellation rem
     await assert.rejects(pending, { name: 'AbortError', code: 'ABORT_ERR' }); assert.equal(manager.hasActiveSession('synthetic'), false);
   } finally { await manager.close(); }
 });
+
+test('private recording passes its observed frame cadence to the remuxer', async context => {
+  const state = new GatewayState();
+  state.registerCamera({ serial: 'synthetic', name: 'Synthetic', model: 'T8E00', stationSerial: 'synthetic-station', streamSupported: false, doorbellSupported: false });
+  let source = new PassThrough(), now = 0, receivedFrameRate: number | undefined;
+  let manager: LiveStreamManager;
+  manager = new LiveStreamManager(state, {} as never, {
+    async startStream() {
+      source = new PassThrough(); manager.attachSource('synthetic', source);
+      source.write(Buffer.from('frame-one'));
+      now = 100;
+      source.write(Buffer.from('frame-two'));
+    },
+    async stopStream() { source.end(); },
+  }, 1, async (_video, _codec, _audio, _signal, frameRate) => {
+    receivedFrameRate = frameRate;
+    return Buffer.from('mp4');
+  }, undefined, undefined, 30_000, () => now);
+  context.mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const pending = manager.recordClip('synthetic', 1, 1000, true);
+    await Promise.resolve();
+    context.mock.timers.tick(1000);
+    assert.equal((await pending).toString(), 'mp4');
+    assert.equal(receivedFrameRate, 10);
+  } finally { await manager.close(); }
+});

@@ -196,13 +196,15 @@ interface Recording {
   readonly durationMilliseconds: number;
   size: number;
   started: boolean;
+  firstVideoAtMilliseconds: number | null;
+  lastVideoAtMilliseconds: number | null;
   startTimer: NodeJS.Timeout;
   durationTimer: NodeJS.Timeout | null;
-  resolve: (data: { video: Buffer; audio: Buffer }) => void;
+  resolve: (data: { video: Buffer; audio: Buffer; frameRate?: number }) => void;
   reject: (error: Error) => void;
 }
 
-type ClipRemuxer = (video: Buffer, codec: VideoCodec, audio?: Buffer, signal?: AbortSignal) => Promise<Buffer>;
+type ClipRemuxer = (video: Buffer, codec: VideoCodec, audio?: Buffer, signal?: AbortSignal, frameRate?: number) => Promise<Buffer>;
 type ViewerTranscoderFactory = () => ChildProcessWithoutNullStreams;
 type SnapshotExtractorFactory = (codec: VideoCodec) => ChildProcessWithoutNullStreams;
 
@@ -697,7 +699,7 @@ export class LiveStreamManager extends EventEmitter {
     }
     if (privateTrial) session.privateTrial = true;
     let leased = false, startSettled = true, abandoned = false;
-    let recording: { promise: Promise<{ video: Buffer; audio: Buffer }>; cancel: () => void } | undefined;
+    let recording: { promise: Promise<{ video: Buffer; audio: Buffer; frameRate?: number }>; cancel: () => void } | undefined;
     let rejectAbort!: (error: Error) => void;
     const aborted = new Promise<never>((_, reject) => { rejectAbort = reject; });
     void aborted.catch(() => {});
@@ -728,8 +730,8 @@ export class LiveStreamManager extends EventEmitter {
       const recorded = await Promise.race([recording.promise, aborted]);
       if (signal?.aborted) throw mediaAbortError();
       const codec = session.parameterSets.codec ?? "h264";
-      const clip = signal ? await this.remuxClip(recorded.video, codec, recorded.audio, signal)
-        : await this.remuxClip(recorded.video, codec, recorded.audio);
+      const clip = signal ? await this.remuxClip(recorded.video, codec, recorded.audio, signal, recorded.frameRate)
+        : await this.remuxClip(recorded.video, codec, recorded.audio, undefined, recorded.frameRate);
       if (signal?.aborted) throw mediaAbortError();
       return clip;
     } finally {
@@ -1006,9 +1008,9 @@ export class LiveStreamManager extends EventEmitter {
     session: Session,
     durationMilliseconds: number,
     startTimeoutMilliseconds: number,
-  ): { promise: Promise<{ video: Buffer; audio: Buffer }>; cancel: () => void } {
+  ): { promise: Promise<{ video: Buffer; audio: Buffer; frameRate?: number }>; cancel: () => void } {
     let recording!: Recording;
-    const promise = new Promise<{ video: Buffer; audio: Buffer }>((resolve, reject) => {
+    const promise = new Promise<{ video: Buffer; audio: Buffer; frameRate?: number }>((resolve, reject) => {
       recording = {
         chunks: [],
         audioChunks: [],
@@ -1016,6 +1018,8 @@ export class LiveStreamManager extends EventEmitter {
         durationMilliseconds,
         size: 0,
         started: false,
+        firstVideoAtMilliseconds: null,
+        lastVideoAtMilliseconds: null,
         startTimer: setTimeout(() => {
           this.#settleRecording(session, recording, new Error("Timed out waiting for camera video"));
         }, startTimeoutMilliseconds),
@@ -1032,14 +1036,17 @@ export class LiveStreamManager extends EventEmitter {
   }
 
   #appendRecordingChunk(session: Session, recording: Recording, chunk: Buffer): void {
+    const arrival = this.nowMilliseconds();
     if (!recording.started) {
       recording.started = true;
+      recording.firstVideoAtMilliseconds = arrival;
       clearTimeout(recording.startTimer);
       recording.durationTimer = setTimeout(
         () => this.#settleRecording(session, recording),
         recording.durationMilliseconds,
       );
     }
+    recording.lastVideoAtMilliseconds = arrival;
     recording.chunks.push(Buffer.from(chunk));
     recording.size += chunk.length;
     if (recording.size + recording.audioSize > MAX_RECORDING_BYTES) {
@@ -1052,7 +1059,17 @@ export class LiveStreamManager extends EventEmitter {
     clearTimeout(recording.startTimer);
     if (recording.durationTimer) clearTimeout(recording.durationTimer);
     if (error) recording.reject(error);
-    else recording.resolve({ video: Buffer.concat(recording.chunks, recording.size), audio: Buffer.concat(recording.audioChunks, recording.audioSize) });
+    else {
+      const elapsed = recording.firstVideoAtMilliseconds === null || recording.lastVideoAtMilliseconds === null
+        ? 0 : recording.lastVideoAtMilliseconds - recording.firstVideoAtMilliseconds;
+      const frameRate = elapsed > 0 && recording.chunks.length > 1
+        ? (recording.chunks.length - 1) * 1000 / elapsed : undefined;
+      recording.resolve({
+        video: Buffer.concat(recording.chunks, recording.size),
+        audio: Buffer.concat(recording.audioChunks, recording.audioSize),
+        ...(frameRate !== undefined && frameRate >= 1 && frameRate <= 60 ? { frameRate } : {}),
+      });
+    }
   }
 
   #cancelRecording(session: Session, recording: Recording): void {

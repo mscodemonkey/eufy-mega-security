@@ -943,8 +943,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const entry = this.#nvrTrials.get(serial)!;
     try {
       const session = await this.#nvrTrialSession(serial);
-      session.output.once("error", error => logger.warn("nvr_live_trial_failed",
-        `stage=${error instanceof NvrTrialError ? error.stage : "video"} reason=${error instanceof NvrTrialError ? error.reason : "unspecified"} ${nvrTrialCounters(session)}`));
+      session.output.once("error", error => {
+        const failure = error instanceof NvrTrialError ? error : new NvrTrialError("video");
+        const details = `stage=${failure.stage} reason=${failure.reason} ${nvrTrialCounters(session)}`;
+        if (failure.stage === "cancelled" && session.stats.video > 0) logger.info("nvr_live_trial_completed", details);
+        else logger.warn("nvr_live_trial_failed", details);
+      });
       await session.start();
     }
     catch (error) {
@@ -3963,8 +3967,8 @@ export function inventoryLogSummaries(
 }
 
 /** Return whether Mega metadata identifies a device as a supported camera. */
-export function isSupportedMegaCamera(device: Pick<MegaInventoryDevice, "category" | "deviceType">): boolean {
-  return isSupportedCameraType(device);
+export function isSupportedMegaCamera(device: Pick<MegaInventoryDevice, "category" | "deviceType"> & Partial<Pick<MegaInventoryDevice, "model">>): boolean {
+  return isSupportedCameraType({ ...device, model: device.model ?? "" });
 }
 
 /** Retain only bounded numeric parameter IDs, never provider values or blobs. */
