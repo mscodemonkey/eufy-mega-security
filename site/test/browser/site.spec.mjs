@@ -88,6 +88,7 @@ test('desktop and mobile browsing, evidence and reviewed help work accessibly', 
     await page.locator('[data-category="locks"][aria-current]').waitFor();
     assert.equal(await page.locator('#locks [data-device]').first().getAttribute('data-device'), 't85f1');
     assert.match(await page.locator('[data-device="t85f1"] .eyebrow').textContent(), /Experimental/);
+    assert.match(await page.locator('[data-device="t85p1"] .eyebrow').textContent(), /Own this lock\? Help with testing\./);
     await loaded();
     await page.screenshot({ path: join(output, 'eufy-site-locks.png'), fullPage: false });
     await page.goto(origin + base + 'devices/t85f1/');
@@ -96,6 +97,24 @@ test('desktop and mobile browsing, evidence and reviewed help work accessibly', 
     assert.match(await page.locator('.admission-note').textContent(), /tested off-door/);
     assert.match(await page.locator('[data-feature="controls:unlock"] [data-evidence]').textContent(), /Confirmed/);
     await page.screenshot({ path: join(output, 'eufy-site-e30-lock.png'), fullPage: true });
+    await page.goto(origin + base + 'devices/t85p1/');
+    assert.equal(await page.locator('.device-summary .eyebrow').textContent(), 'Own this lock? Help with testing.');
+    await checkA11y();
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(origin + base);
+      await page.locator('[data-category="locks"]').click();
+      await page.locator('[data-device="t85p1"]').scrollIntoViewIfNeeded();
+      const badge = page.locator('[data-device="t85p1"] .evidence-badge');
+      assert.equal(await badge.evaluate(node => node.scrollWidth <= node.clientWidth), true);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      await loaded();
+      await page.locator('[data-device="t85p1"]').screenshot({ path: join(output, `eufy-site-e35-card-${width}.png`) });
+      await page.goto(origin + base + 'devices/t85p1/');
+      assert.equal(await page.locator('.device-summary .eyebrow').evaluate(node => node.scrollWidth <= node.clientWidth), true);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    }
+    await page.setViewportSize({ width: 1440, height: 1100 });
     await page.goto(origin + base + 'devices/t8170/');
     await checkA11y();
     await page.setViewportSize({ width: 390, height: 844 });

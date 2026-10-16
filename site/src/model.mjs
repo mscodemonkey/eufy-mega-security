@@ -32,6 +32,12 @@ export const ADMISSION = Object.freeze({
 /** User-facing sections for device features. */
 export const GROUPS = Object.freeze({ media: 'Pictures & video', events: 'Events', controls: 'Settings & actions', readable: 'Device information' });
 
+const deviceTypeNames = Object.freeze({
+  camera: 'camera', doorbell: 'doorbell', homebase: 'HomeBase', hub_adjacent: 'hub', nvr: 'NVR',
+  smart_lock: 'lock', security_sensor: 'sensor', siren: 'siren', keypad: 'keypad', remote: 'remote',
+  smart_drop: 'delivery box', smart_safe: 'safe', tracker: 'tracker', chime: 'chime', passive_accessory: 'accessory',
+});
+
 const labels = {
   lock_state: 'Lock status', lock: 'Lock', unlock: 'Unlock', auto_lock: 'Auto-lock', auto_lock_timer: 'Auto-lock delay',
   sound_volume: 'Sound volume', notifications: 'Notifications', locked_notifications: 'Lock notifications', unlocked_notifications: 'Unlock notifications',
@@ -133,7 +139,10 @@ export function statusDescription(pair) {
 /** Describe tested features separately from entity creation and opt-in trials. */
 export function deviceStatus(device) {
   if (device.id === 't85f1') return { label: 'Experimental', symbol: '!', style: 'experimental' };
-  if (device.admission === 'recognised') return { label: 'Catalogue only', symbol: '−', style: 'unsupported' };
+  if (device.admission === 'recognised') {
+    const type = Object.hasOwn(deviceTypeNames, device.category) ? deviceTypeNames[device.category] : 'device';
+    return { label: `Own this ${type}? Help with testing.`, symbol: '−', style: 'unsupported' };
+  }
   if (device.features.some(feature => feature.connections.some(pair => pair.status === 'tested'))) return { label: 'Tested features', symbol: '✓', style: 'tested' };
   return { label: 'Needs testing', symbol: '!', style: 'declared' };
 }

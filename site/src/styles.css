@@ -113,6 +113,8 @@ td[data-description] { color: var(--muted); }
 tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
 .evidence-badge { display: inline-flex; gap: 6px; white-space: nowrap; align-items: center; font-size: 12px; }
 .evidence-badge > span { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; width: 17px; height: 17px; background: #ececf0; font-weight: 650; }
+.evidence-unsupported { white-space: normal; min-width: 0; line-height: 1.5; }
+.evidence-unsupported > span { flex-shrink: 0; }
 .evidence-tested > span { background: #147a2f; color: white; }
 .evidence-failing > span { background: #a82e2e; color: white; }
 .evidence-reported > span { background: #0071e3; color: white; }

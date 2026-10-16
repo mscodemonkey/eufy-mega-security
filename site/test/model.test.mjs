@@ -16,7 +16,17 @@ test('public projection removes protocol, contributor and private-note fields', 
 
 test('every category maps and unfamiliar categories fail rather than disappear', () => {
   assert.equal(CATEGORIES.flatMap(category => category.types).length, 15);
-  for (const category of CATEGORIES.flatMap(item => item.types)) assert.ok(projectDevice(source({ category })).categoryId);
+  const names = { camera: 'camera', doorbell: 'doorbell', homebase: 'HomeBase', hub_adjacent: 'hub', nvr: 'NVR',
+    smart_lock: 'lock', security_sensor: 'sensor', siren: 'siren', keypad: 'keypad', remote: 'remote',
+    smart_drop: 'delivery box', smart_safe: 'safe', tracker: 'tracker', chime: 'chime', passive_accessory: 'accessory' };
+  for (const category of CATEGORIES.flatMap(item => item.types)) {
+    const projected = projectDevice(source({ category, integration: { status: 'recognised' } }));
+    assert.ok(projected.categoryId);
+    assert.equal(deviceStatus(projected).label, `Own this ${names[category]}? Help with testing.`);
+  }
+  for (const category of ['future', 'constructor']) {
+    assert.equal(deviceStatus({ ...device, category, admission: 'recognised' }).label, 'Own this device? Help with testing.');
+  }
   assert.throws(() => projectDevice(source({ category: 'future' })));
 });
 
@@ -86,7 +96,7 @@ test('long encoded reports use the full copy fallback without truncating text', 
 
 test('device badges distinguish admission, confirmed features and the E30 trial', () => {
   assert.equal(deviceStatus(device).label, 'Tested features');
-  assert.equal(deviceStatus({ ...device, admission: 'recognised' }).label, 'Catalogue only');
+  assert.equal(deviceStatus({ ...device, admission: 'recognised' }).label, 'Own this camera? Help with testing.');
   assert.equal(deviceStatus({ ...device, features: [] }).label, 'Needs testing');
   assert.equal(deviceStatus({ ...device, id: 't85f1', admission: 'recognised' }).label, 'Experimental');
   assert.match(statusDescription({ status: 'reported', testedOn: '2026-10-16' }), /Last reported/);
