@@ -13,6 +13,9 @@ const COMPRESSED_FLAG = 0x0800;
 const FINAL_FLAG = 0x0400;
 const REQUIRED_FLAG = 0x4000;
 
+// Reporter observations mark every fragment of a keyframe with this bit.
+const KEYFRAME_FLAG = 0x2000;
+
 /** Independent allocation and replay-history budgets for one owned session. */
 export interface NvrPtcsReassemblyLimits {
   readonly maxFrameBytes: number;
@@ -57,6 +60,7 @@ interface PendingFrame {
   readonly total: number;
   readonly firstArrival: number;
   readonly compressed: boolean;
+  readonly keyframe: boolean;
   readonly fragments: Map<number, { readonly bytes: Buffer; readonly final: boolean }>;
   receivedBytes: number;
   finalIndex: number | null;
@@ -133,8 +137,9 @@ export class NvrPtcsReassembler {
     if (channel > 5) return this.#reject("channel");
     const sequence = packet.readUInt16LE(6), timestamp = packet.readUInt32LE(8);
     const total = packet.readUInt32LE(12), index = packet.readUInt16LE(16), flags = packet.readUInt16LE(18);
-    if ((flags & ~0x4fff) !== 0 || (flags & REQUIRED_FLAG) === 0) return this.#reject("flags");
+    if ((flags & ~0x6fff) !== 0 || (flags & REQUIRED_FLAG) === 0) return this.#reject("flags");
     const length = flags & 0x03ff, final = Boolean(flags & FINAL_FLAG), compressed = Boolean(flags & COMPRESSED_FLAG);
+    const keyframe = Boolean(flags & KEYFRAME_FLAG);
     if (length > FRAGMENT_BYTES) return this.#reject("length");
     const exactReceivePacket = packet.length === HEADER_BYTES + length;
     if (!exactReceivePacket && packet.length !== PACKET_BYTES) return this.#reject("packet-geometry");
@@ -146,14 +151,14 @@ export class NvrPtcsReassembler {
     const tombstone = this.#tombstones.get(key);
     if (tombstone) return this.#reject(tombstone.reason);
     let pending = this.#pending.get(key);
-    if (pending && (pending.total !== total || pending.compressed !== compressed)) {
+    if (pending && (pending.total !== total || pending.compressed !== compressed || pending.keyframe !== keyframe)) {
       return this.#poison(key, pending, "metadata-conflict");
     }
     if (!pending) {
       if (this.#pending.size >= this.#limits.maxPendingFrames
         || total > this.#limits.maxBufferedBytes - this.#bufferedBytes
         || this.#retainedFragments >= this.#limits.maxRetainedFragments) return this.#reject("capacity");
-      pending = { total, firstArrival: nowMilliseconds, compressed, fragments: new Map(),
+      pending = { total, firstArrival: nowMilliseconds, compressed, keyframe, fragments: new Map(),
         receivedBytes: 0, finalIndex: null };
       this.#pending.set(key, pending);
       this.#bufferedBytes += total;

@@ -13,7 +13,7 @@ import { LiveStreamManager } from '../src/stream/live-stream-manager.js';
 import WebSocket, { WebSocketServer } from 'ws';
 import { RTCPeerConnection, RTCSessionDescription } from 'werift';
 import { NvrRtcSession } from '../src/stream/nvr-rtc-session.js';
-import { nvrApplication, nvrPackets, NvrTrialError } from '../src/stream/nvr-protocol.js';
+import { nvrApplication, nvrHeartbeat, nvrPackets, NvrTrialError } from '../src/stream/nvr-protocol.js';
 import { NvrPtcsReassembler } from '../src/stream/nvr-ptcs-reassembly.js';
 
 function application(command: number, segment: number, body: Buffer): Buffer {
@@ -38,7 +38,19 @@ function receivePackets(frame: Buffer, sequence: number, channel: number): Buffe
   });
 }
 
-for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async () => {
+function keyframePackets(frame: Buffer, sequence: number): Buffer[] {
+  const count = Math.ceil(frame.length / 800);
+  return Array.from({ length: count }, (_, index) => {
+    const data = frame.subarray(index * 800, (index + 1) * 800), packet = Buffer.alloc(28 + data.length);
+    packet.write('PTCS'); packet[4] = 3; packet[5] = 5;
+    packet.writeUInt16LE(sequence, 6); packet.writeUInt32LE(77, 8);
+    packet.writeUInt32LE(frame.length, 12); packet.writeUInt16LE(index, 16);
+    packet.writeUInt16LE(0x6000 | (index === count - 1 ? 0x0400 : 0) | data.length, 18);
+    data.copy(packet, 28); return packet;
+  });
+}
+
+for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async () => {
   const codec = scenario === 'h265' ? 'h265' : 'h264';
   const server = new WebSocketServer({ port: 0 });
   await once(server, 'listening');
@@ -53,6 +65,10 @@ for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'stat
   peer.onDataChannel.subscribe(channel => {
     if (channel.label !== 'WebrtcDataChannel') return;
     channel.onmessage = event => {
+      if (Buffer.isBuffer(event.data) && event.data.equals(nvrHeartbeat())) {
+        if (scenario === 'h265') for (let index = 0; index < 40; index++) channel.send(event.data);
+        return;
+      }
       if (!Buffer.isBuffer(event.data) || event.data[4] !== 3) return;
       const assembled = receiver.push(event.data, Math.floor(performance.now()));
       if (assembled.status !== 'complete') return;
@@ -66,6 +82,9 @@ for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'stat
         for (const packet of nvrPackets(ack, sequence++, 1)) channel.send(packet);
         const wrong = application(1351, request.segment, Buffer.from(JSON.stringify({ cmd: 9100, params: [] })));
         for (const packet of nvrPackets(wrong, sequence++, 1)) channel.send(packet);
+        const wrongChannel = application(1351, request.segment, Buffer.from(JSON.stringify({ cmd: 1103, params: [] })));
+        wrongChannel[12] = 101;
+        for (const packet of nvrPackets(wrongChannel, sequence++, 1)) channel.send(packet);
         if (scenario === 'state-cancel') { controller.abort(); return; }
         setTimeout(() => {
           const data = application(1351, request.segment, Buffer.from(JSON.stringify({ cmd: 1103, params: [
@@ -90,6 +109,14 @@ for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'stat
         for (let index = 0; index < 32; index++) channel.send(malformed);
         return;
       }
+      if (scenario.startsWith('heartbeat-') && body.cmd === 9100) {
+        let malformed = nvrHeartbeat();
+        if (scenario === 'heartbeat-changed') malformed[35] = 3;
+        else if (scenario === 'heartbeat-short') malformed = malformed.subarray(0, 27);
+        else malformed = Buffer.concat([malformed, Buffer.from([0])]);
+        for (let index = 0; index < 32; index++) channel.send(malformed);
+        return;
+      }
       for (const packet of responsePackets) channel.send(packet);
       if (body.cmd === 1003) {
         assert.equal(body.payload.chn_list[0].sensor, scenario === 'legacy-first-lens' ? 0 : 1);
@@ -98,8 +125,9 @@ for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'stat
         media[4] = 1; media[5] = codec === 'h264' ? 0 : 1; media.writeUInt16LE(videoSequence, 6);
         media[8] = 10; media.writeUInt16LE(320, 10); media.writeUInt16LE(180, 12); media.writeBigUInt64LE(BigInt(videoSequence) * 2000n, 14);
         generated.stdout.copy(media, 22);
-        const frame = application(1300, 0, media); frame[12] = 3; frame[14] = 1;
-        for (const packet of nvrPackets(frame, videoSequence++, 1, 1)) channel.send(packet);
+        const frame = application(1300, 0, media); frame[12] = scenario === 'h265' ? 101 : 3; frame[14] = 1;
+        const parts = scenario === 'h265' ? keyframePackets(frame, videoSequence++) : nvrPackets(frame, videoSequence++, 1, 1);
+        for (const packet of parts) channel.send(packet);
       }, 100);
       }
       if (body.cmd === 1004 && sendVideo) clearInterval(sendVideo);
@@ -142,13 +170,18 @@ for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'stat
     }, peer: () => new RTCPeerConnection({ iceServers: [], iceUseIpv6: false }),
   });
   try {
-    if (['identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags'].includes(scenario)) {
+    if (['identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags'].includes(scenario) || scenario.startsWith('heartbeat-')) {
       const deadline = setTimeout(() => controller.abort(), 5000);
       try { await assert.rejects(session.start(), error => {
-        assert.equal((error as { stage: string }).stage, ['identity', 'wrong-channel', 'wrong-type'].includes(scenario) ? 'identity_unmatched' : scenario === 'unknown-channel' ? 'channel' : scenario === 'cancel-start' ? 'cancelled' : scenario === 'framing-flags' ? 'framing' : 'negotiation');
+        assert.equal((error as { stage: string }).stage, ['identity', 'wrong-channel', 'wrong-type'].includes(scenario) ? 'identity_unmatched' : scenario === 'unknown-channel' ? 'channel' : scenario === 'cancel-start' ? 'cancelled' : scenario === 'framing-flags' || scenario.startsWith('heartbeat-') ? 'framing' : 'negotiation');
         if (scenario === 'framing-flags') {
           assert.equal((error as NvrTrialError).reason, 'ptcs_flags');
           assert.deepEqual(session.framingRejections, { flags: 32 });
+        }
+        if (scenario.startsWith('heartbeat-')) {
+          assert.equal((error as NvrTrialError).reason, scenario === 'heartbeat-short' ? 'ptcs_packet_geometry' : 'ptcs_magic');
+          assert.equal(session.stats.rejected, 32);
+          assert.equal(session.stats.controlPackets, 0);
         }
         return true;
       }); } finally { clearTimeout(deadline); }
@@ -161,7 +194,7 @@ for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'stat
       else {
         const result = await session.readState();
         assert.equal(result.configuredGuardMode, 2); assert.equal(result.effectiveGuardMode, 1); assert.equal(result.cameraPower, 'on');
-        assert.equal(session.stats.staleReplies, scenario === 'state-bad-ack-padding' ? 2 : 1);
+        assert.equal(session.stats.staleReplies, scenario === 'state-bad-ack-padding' ? 3 : 2);
       }
       assert.deepEqual(commands, [9100, 1103]); assert.equal(attached, 0); assert.equal(snapshots, 0); assert.equal(diagnosticMedia, 0);
       await session.close(); return;
@@ -171,6 +204,12 @@ for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'stat
     assert.equal(decoded.status, 0, decoded.stderr.toString()); assert.ok(clip.length > 1000); assert.equal(session.codec, codec); assert.equal(snapshots, 0); assert.equal(extractors, 0); assert.equal(diagnosticMedia, 0); assert.equal(attached, 1); assert.deepEqual(commands, [9100, 1003, 1004]);
     controller.abort(); await session.close(); await session.close();
     assert.deepEqual(commands, [9100, 1003, 1004]); assert.equal(session.stats.stopUnconfirmed, 0);
+    if (scenario === 'h265') {
+      assert.ok(session.stats.channel5Frames > 0);
+      assert.ok(session.stats.controlPackets >= 40);
+      assert.equal(session.stats.rejected, 0);
+      assert.deepEqual(session.framingRejections, {});
+    }
   } finally {
     if (sendVideo) clearInterval(sendVideo); await session.close(); await manager.close(); socket?.terminate(); await peer.close(); await new Promise<void>(resolve => server.close(() => resolve()));
   }

@@ -68,6 +68,19 @@ test('NVR video requires the selected stream and preserves 64-bit timestamps', (
   assert.throws(() => nvrVideo(nvrApplication(frame.subarray(0, 20)), 3));
 });
 
+test('NVR video accepts the observed media envelope without accepting other channels or commands', () => {
+  const frame = video(); frame[12] = 101;
+  assert.equal(nvrVideo(nvrApplication(frame), 3).codec, 'h265');
+  for (const channel of [100, 102, 4, 0]) {
+    const wrong = Buffer.from(frame); wrong[12] = channel;
+    assert.throws(() => nvrVideo(nvrApplication(wrong), 3));
+  }
+  const wrongStream = Buffer.from(frame); wrongStream[14] = 2;
+  assert.throws(() => nvrVideo(nvrApplication(wrongStream), 3));
+  const audio = Buffer.from(frame); audio.writeUInt16LE(1301, 4);
+  assert.throws(() => nvrVideo(nvrApplication(audio), 3));
+});
+
 test('NVR discovery refuses missing, ambiguous and wrong camera bindings', () => {
   const row = { sn: 'synthetic-camera', ch: 3, dev_type: 301 };
   nvrMatchCamera({ payload: { dev_list: [row] } }, 'synthetic-camera', 3);

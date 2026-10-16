@@ -15,6 +15,8 @@ import { installNvrIceTiming } from "./nvr-ice-timing.js";
 import { NvrTrialError, nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrJson,
   nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrRecord, nvrVideo, nvrStateSummary, type NvrStateSummary, type NvrTrialStage, type NvrTrialReason } from "./nvr-protocol.js";
 
+const HEARTBEAT_ECHO = nvrHeartbeat();
+
 /** Private join credentials are short-lived and must never enter diagnostics. */
 export interface NvrSignallingContext {
   readonly host: string;
@@ -400,6 +402,9 @@ export class NvrRtcSession {
 
   #packet(packet: Buffer): void {
     this.stats.packets++;
+
+    // Exact heartbeat echoes carry no camera identity and may arrive on any channel.
+    if (packet.equals(HEARTBEAT_ECHO)) { this.stats.controlPackets++; return; }
     if (packet.length >= 5 && packet.subarray(0, 4).toString() === "PTCS" && packet[4] !== 3) { this.stats.controlPackets++; return; }
     const result = this.#reassembler.push(packet, this.#now());
     if (result.status === "rejected") {

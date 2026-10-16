@@ -197,11 +197,15 @@ export interface NvrVideoFrame {
   readonly bytes: Buffer;
 }
 
-/** Only documented 1300 video may reach the media pipeline. */
+/**
+ * Validate 1300 video for the owning single-camera session. Header channel 101
+ * is an observed media-envelope value with unknown meaning, not a camera ID.
+ * The session binds camera selection through fresh discovery and its start request.
+ */
 export function nvrVideo(frame: NvrApplicationFrame, channel: number): NvrVideoFrame {
   const body = frame.payload;
   if (frame.command !== 1300 || body.length < 23 || body.length > 4 * 1024 * 1024 + 22
-    || ![channel, 255].includes(frame.channel) || frame.stream !== 1 || body.readUInt32LE(0) !== body.length - 22
+    || ![channel, 255, 101].includes(frame.channel) || frame.stream !== 1 || body.readUInt32LE(0) !== body.length - 22
     || ![0, 1].includes(body[5]!) || body.readUInt16LE(10) < 16 || body.readUInt16LE(10) > 8192
     || body.readUInt16LE(12) < 16 || body.readUInt16LE(12) > 8192) throw new NvrTrialError("video");
   const bytes = body.subarray(22);

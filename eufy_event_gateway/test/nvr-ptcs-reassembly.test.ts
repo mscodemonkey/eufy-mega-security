@@ -10,6 +10,8 @@ import { NvrPtcsReassembler, type NvrPtcsRejection } from "../src/stream/nvr-ptc
 
 interface PacketOptions {
   readonly compressed?: boolean;
+  readonly keyframe?: boolean;
+  readonly fragmentBytes?: number;
   readonly exact?: boolean;
   readonly metadata?: Buffer;
   readonly sequence?: number;
@@ -19,9 +21,10 @@ interface PacketOptions {
 
 function packets(frame: Buffer, options: PacketOptions = {}): Buffer[] {
   const wire = options.compressed ? zstdCompressSync(frame) : frame;
-  const count = Math.max(1, Math.ceil(wire.length / 1000));
+  const fragmentBytes = options.fragmentBytes ?? 1000;
+  const count = Math.max(1, Math.ceil(wire.length / fragmentBytes));
   return Array.from({ length: count }, (_, index) => {
-    const length = Math.min(1000, Math.max(0, wire.length - index * 1000));
+    const length = Math.min(fragmentBytes, Math.max(0, wire.length - index * fragmentBytes));
     const output = Buffer.alloc(options.exact ? 28 + length : 1028, 0xaa);
     output.write("PTCS");
     output[4] = 3;
@@ -30,10 +33,10 @@ function packets(frame: Buffer, options: PacketOptions = {}): Buffer[] {
     output.writeUInt32LE(options.timestamp ?? 7, 8);
     output.writeUInt32LE(wire.length, 12);
     output.writeUInt16LE(index, 16);
-    output.writeUInt16LE(0x4000 | (options.compressed ? 0x0800 : 0)
+    output.writeUInt16LE(0x4000 | (options.compressed ? 0x0800 : 0) | (options.keyframe ? 0x2000 : 0)
       | (index === count - 1 ? 0x0400 : 0) | length, 18);
     (options.metadata ?? Buffer.alloc(8)).copy(output, 20, 0, 8);
-    wire.copy(output, 28, index * 1000, index * 1000 + length);
+    wire.copy(output, 28, index * fragmentBytes, index * fragmentBytes + length);
     return output;
   });
 }
@@ -41,6 +44,40 @@ function packets(frame: Buffer, options: PacketOptions = {}): Buffer[] {
 function rejection(receiver: NvrPtcsReassembler, input: Buffer, reason: NvrPtcsRejection, now = 0): void {
   assert.deepEqual(receiver.push(input, now), { status: "rejected", reason });
 }
+
+test("reassembles reordered keyframes beyond the session rejection budget", () => {
+  const source = Buffer.alloc(40 * 800, 0x65);
+  const parts = packets(source, { exact: true, fragmentBytes: 800, keyframe: true, channel: 5 });
+  const receiver = new NvrPtcsReassembler();
+  let result;
+  for (const part of parts.reverse()) result = receiver.push(part, 0);
+  assert.equal(result!.status, "complete");
+  if (result!.status === "complete") assert.deepEqual(result!.frame, source);
+  assert.equal(receiver.stats.bufferedBytes, 0);
+  assert.deepEqual(receiver.stats.rejected, {});
+  rejection(receiver, parts[0]!, "replay");
+});
+
+test("keyframe metadata cannot change within a pending frame", () => {
+  for (const keyframe of [false, true]) {
+    const parts = packets(Buffer.alloc(2400), { exact: true, fragmentBytes: 800, keyframe });
+    parts[1]!.writeUInt16LE(parts[1]!.readUInt16LE(18) ^ 0x2000, 18);
+    const receiver = new NvrPtcsReassembler();
+    assert.equal(receiver.push(parts[0]!, 0).status, "incomplete");
+    rejection(receiver, parts[1]!, "metadata-conflict");
+    rejection(receiver, parts[2]!, "poisoned");
+    assert.equal(receiver.stats.bufferedBytes, 0);
+    assert.equal(receiver.stats.pendingFrames, 0);
+  }
+});
+
+test("keyframe support preserves unknown and required flag rejection", () => {
+  for (const flags of [0x5401, 0xc401, 0x2401]) {
+    const packet = packets(Buffer.from([1]), { exact: true })[0]!;
+    packet.writeUInt16LE(flags, 18);
+    rejection(new NvrPtcsReassembler(), packet, "flags");
+  }
+});
 
 test("accepts exact receive fragments with metadata out of order and transfers ownership", () => {
   const source = Buffer.from(Array.from({ length: 2351 }, (_, index) => index % 251));
