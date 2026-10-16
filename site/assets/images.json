@@ -1,0 +1,119 @@
+{
+  "solocam-s340": {
+    "deviceId": "t8170",
+    "file": "products/solocam-s340.png",
+    "alt": "SoloCam S340",
+    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/1500_1500.png?v=1764640751",
+    "page": "https://www.eufy.com/products/t81701w1",
+    "sha256": "21eb5afacad2b964418cd30d29b4ffba174ee5554a6b5929ae5ef44cd8d01c2c",
+    "bytes": 286372
+  },
+  "indoor-s350": {
+    "deviceId": "t8416",
+    "file": "products/indoor-s350.png",
+    "alt": "Indoor Cam S350",
+    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/T8416-01-V1_1_1.png?v=1789458557",
+    "page": "https://www.eufy.com/products/t8416121",
+    "sha256": "8bef9e5d841ef3bc0bb6c1e1796f4f9eb2cb69fddd811118f39fe46b916f78cd",
+    "bytes": 99845
+  },
+  "homebase-3": {
+    "deviceId": "t8030",
+    "file": "products/homebase-3.png",
+    "alt": "HomeBase 3",
+    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/Frame_51.png?v=1754561181",
+    "page": "https://www.eufy.com/products/t80301d1",
+    "sha256": "0ef50af4adcf5e7107b47efaf822b4156974d94755640bb25bb6ef87ff21bf2c",
+    "bytes": 187549
+  },
+  "doorbell-e340": {
+    "deviceId": "t8214",
+    "file": "products/doorbell-e340.png",
+    "alt": "Video Doorbell E340",
+    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/T8214.png?v=1755066896",
+    "page": "https://www.eufy.com/products/t8214111",
+    "sha256": "64fd93394ef5f854d9c24cca11e6e7746db79ebaa98a615912cfecb24272d7a4",
+    "bytes": 62095
+  },
+  "motion-sensor": {
+    "deviceId": "t8910",
+    "file": "products/motion-sensor.png",
+    "alt": "Motion Sensor",
+    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/motion-sensor-800px-removebg-preview.png?v=1700830750",
+    "page": "https://www.eufy.com/products/t8910021",
+    "sha256": "3165c1c18caa08199d6ffc9489a0a8a87b65fafc1d09e4435b2fedfa448888da",
+    "bytes": 45254
+  },
+  "minibase-chime": {
+    "deviceId": "t8023",
+    "file": "products/minibase-chime.png",
+    "alt": "Minibase Chime",
+    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/20231018-173547.png?v=1697622773",
+    "page": "https://www.eufy.com/products/t8023121",
+    "sha256": "aab182678aba1a0cf515f173cca47394afd1e35b0699ae8e4358dc5462603dc1",
+    "bytes": 146033
+  },
+  "eufycam-3": {
+    "deviceId": "t8160",
+    "file": "products/eufycam-3.png",
+    "alt": "eufyCam 3",
+    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/Frame_186.png?v=1754560630",
+    "page": "https://www.eufy.com/products/t81601w1",
+    "sha256": "8cb1ff3e92055b2de5d1a2c100e8747a5bfabb93223bb0356bb0a74bd34c0c6d",
+    "bytes": 293242
+  },
+  "indoor-e220": {
+    "deviceId": "t8410",
+    "file": "products/indoor-e220.png",
+    "alt": "Indoor Cam E220",
+    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/Indoor_Cam_E220_d63583c9-a6dd-45ef-842a-c0afe2e059d5.png?v=1786955303",
+    "page": "https://www.eufy.com/products/t8410121",
+    "sha256": "91b1317608872bb4b56efbf5b3bbd63c037994b48588fee113c96ff2c11bb39b",
+    "bytes": 154454
+  },
+  "category-lock": {
+    "deviceId": null,
+    "file": "products/category-lock.png",
+    "alt": "Example Eufy smart lock",
+    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/smartlock_3840x.png?v=1742380592",
+    "page": "https://www.eufy.com/collections/smart-lock",
+    "sha256": "97e7b6d8e35a5e0392f2edc15fa63a0bd2edc2b17866ab4b3a6f154324457b90",
+    "bytes": 11434
+  },
+  "category-camera": {
+    "deviceId": null,
+    "file": "products/category-camera.png",
+    "alt": "Example Eufy security camera",
+    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/96_96_1_3840x.png?v=1762175083",
+    "page": "https://www.eufy.com/collections/security",
+    "sha256": "a4ef303d77e3c59b38e879b7509066f62899cee3bc7d09ea0ea6362c8b0b28c4",
+    "bytes": 5723
+  },
+  "wired-c31": {
+    "deviceId": "t817l",
+    "file": "products/wired-c31.png",
+    "alt": "Wired Cam C31",
+    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/T817L121_US_TD001_Solo_V2.png?v=1780911558",
+    "page": "https://www.eufy.com/products/t817l111",
+    "sha256": "3022c6776a3d8e154e88645267bdb344a5c8787f87b144c655cafd1fc66e33da",
+    "bytes": 313277
+  },
+  "solocam-e30": {
+    "deviceId": "t8171",
+    "file": "products/solocam-e30.png",
+    "alt": "SoloCam E30",
+    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/T8171121_T8171121-11_T8171321_T8171C21_T8171J21_Richimage_01_US.png?v=1731038598",
+    "page": "https://www.eufy.com/products/t8171121",
+    "sha256": "f5587598291626431930aab38e26360f9ee97dc8f006bd9e803db17c464901b9",
+    "bytes": 347435
+  },
+  "eufycam-2c": {
+    "deviceId": "t8113",
+    "file": "products/eufycam-2c.png",
+    "alt": "eufyCam 2C kit with HomeBase",
+    "source": "https://cdn.shopify.com/s/files/1/0504/1094/6753/files/T8831-eufyCam2C_kit__E4_B8_BB_E5_9B_BE-removebg-preview.png?v=1721973383",
+    "page": "https://www.eufy.com/uk/products/t88313d2",
+    "sha256": "00a854fe16c6f791b6abe6fa2846ff1012437674ddb6a488c157581d9f7bc57e",
+    "bytes": 46295
+  }
+}

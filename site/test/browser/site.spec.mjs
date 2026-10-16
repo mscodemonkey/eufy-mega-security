@@ -1,0 +1,113 @@
+/** Rendered checks exercise the real static site without submitting any issue. */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { readFile, mkdir } from 'node:fs/promises';
+import { dirname, join, resolve, extname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const output = process.env.SITE_SCREENSHOT_DIR ?? join(root, 'test-results');
+const base = '/eufy-mega-security/';
+const mime = { '.html': 'text/html', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png' };
+
+test('desktop and mobile browsing, evidence and reviewed help work accessibly', { timeout: 120000 }, async () => {
+  await mkdir(output, { recursive: true });
+  const server = createServer(async (req, res) => {
+    const path = new URL(req.url, 'http://localhost').pathname;
+    const relative = decodeURIComponent(path).slice(base.length);
+    const target = resolve(root, 'dist', relative + (path.endsWith('/') ? 'index.html' : ''));
+    if (!path.startsWith(base) || !target.startsWith(join(root, 'dist') + '/')) { res.writeHead(404).end(); return; }
+    try { res.setHeader('Content-Type', mime[extname(target)] ?? 'text/plain'); res.end(await readFile(target)); }
+    catch { res.writeHead(404).end(); }
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
+    const page = await context.newPage();
+    const errors = []; const external = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('request', req => { if (!req.url().startsWith(origin)) external.push(req.url()); });
+    await page.goto(origin + base);
+    await page.locator('[data-category="cameras"][aria-current]').waitFor();
+    const loaded = () => page.waitForFunction(() => [...document.images].filter(img => { const box = img.getBoundingClientRect(); return box.height && box.top < innerHeight && box.bottom > 0; }).every(img => img.complete && img.naturalWidth > 0));
+    await loaded();
+    assert.equal(await page.locator('.menu-toggle').isVisible(), false);
+    assert.equal(await page.locator('#open-filters').isVisible(), false);
+    const expectedCount = JSON.parse(await page.locator('#page-data').textContent()).devices.length;
+    await page.screenshot({ path: join(output, 'eufy-site-desktop.png'), fullPage: false });
+    await page.locator('#search').fill('S340');
+    assert.equal(await page.locator('[data-device]:visible').count(), 1);
+    await page.locator('#connection-filter').selectOption('T9000');
+    await page.locator('#feature-filter').selectOption('media:live_view');
+    await page.locator('#evidence-filter').selectOption('tested');
+    await page.locator('#no-results').waitFor({ state: 'visible' });
+    await page.locator('#reset-search').click();
+    assert.ok(await page.locator('[data-device]:visible').count() > 1);
+    await page.goto(origin + base + 'devices/t8170/');
+    await page.locator('#device-connection').selectOption('T9000');
+    await loaded();
+    assert.match(await page.locator('[data-feature="media:live_view"] [data-evidence]').textContent(), /Not working/);
+    await page.screenshot({ path: join(output, 'eufy-site-device.png'), fullPage: true });
+    await page.locator('#device-help').click();
+    assert.equal(await page.locator('[name="device"]').inputValue(), 't8170');
+    assert.equal(await page.locator('[name="connection"]').inputValue(), 'T9000');
+    await page.locator('[name="symptom"]').selectOption('Live view problem');
+    await page.locator('#encryption-field').waitFor({ state: 'visible' });
+    await page.locator('[name="integrationVersion"]').fill('0.1.158');
+    await page.locator('[name="gatewayVersion"]').fill('0.1.158');
+    await page.locator('[name="actual"]').fill('Live view never starts.');
+    const before = page.url();
+    await page.locator('[name="integrationVersion"]').press('Enter');
+    assert.equal(page.url(), before);
+    await page.locator('#review-report').click();
+    await page.locator('#privacy-confirm').check();
+    assert.equal(await page.locator('#open-github').isEnabled(), true);
+    await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('Unavailable'); } } }));
+    await page.locator('#copy-report').click();
+    assert.match(await page.locator('#copy-status').textContent(), /complete report is selected/);
+    await page.screenshot({ path: join(output, 'eufy-site-help.png'), fullPage: true });
+    await page.locator('[name="actual"]').fill('Changed after review.');
+    assert.equal(await page.locator('#open-github').isEnabled(), false);
+    await page.locator('[name="actual"]').fill('password' + '=do-not-share');
+    await page.locator('#review-report').click();
+    assert.match(await page.locator('#report-errors').textContent(), /private information/);
+    const axe = await readFile(join(root, 'node_modules/axe-core/axe.min.js'), 'utf8');
+    const checkA11y = async () => {
+      await page.evaluate(axe);
+      const findings = await page.evaluate(async () => (await axe.run(document)).violations.filter(item => ['critical', 'serious'].includes(item.impact)).map(item => ({ id: item.id, nodes: item.nodes.map(node => node.target) })));
+      assert.deepEqual(findings, []);
+    };
+    await checkA11y();
+    await page.goto(origin + base);
+    await checkA11y();
+    await page.goto(origin + base + 'devices/t8170/');
+    await checkA11y();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(origin + base);
+    await page.locator('[data-category="cameras"][aria-current]').waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await page.screenshot({ path: join(output, 'eufy-site-mobile.png'), fullPage: false });
+    await page.locator('#open-filters').click();
+    assert.equal(await page.locator('#filter-dialog').evaluate(node => node.matches(':modal')), true);
+    await page.screenshot({ path: join(output, 'eufy-site-mobile-filters.png'), fullPage: false });
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#open-filters').evaluate(node => node === document.activeElement), true);
+    await page.setViewportSize({ width: 320, height: 700 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await page.goto(origin + base + 'devices/t8170/');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(external, []);
+    const plain = await browser.newContext({ javaScriptEnabled: false });
+    const noJs = await plain.newPage();
+    await noJs.goto(origin + base);
+    assert.equal(await noJs.locator('[data-device]:visible').count(), expectedCount);
+    assert.equal(await noJs.locator('#search').isVisible(), false);
+    await plain.close();
+    await context.close();
+  } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
+});

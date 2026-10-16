@@ -27,3 +27,8 @@ docs/TODO.md
 
 # Local project notes.
 /docs/project-memory/
+
+# Website build staging and browser-check artifacts.
+/site/.build-output/
+/site/test-results/
+/site/playwright-report/

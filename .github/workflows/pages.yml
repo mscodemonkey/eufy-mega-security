@@ -1,0 +1,62 @@
+name: Catalogue website
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: catalogue-pages-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  website:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            eufy_event_gateway/package-lock.json
+            site/package-lock.json
+      - name: Install catalogue build dependencies
+        run: npm ci --prefix eufy_event_gateway
+      - name: Validate maintained catalogue
+        run: npm run catalogue:check --prefix eufy_event_gateway
+      - name: Install website check tools
+        run: npm ci --prefix site
+      - name: Unit and generated-page contracts
+        run: npm run site:test --prefix eufy_event_gateway
+      - name: Build the public artifact
+        run: npm run site:build --prefix eufy_event_gateway
+      - name: Install browser for rendered checks
+        working-directory: site
+        run: npx playwright install --with-deps chromium
+      - name: Check desktop, mobile, accessibility and help
+        run: npm run test:browser --prefix site
+      - name: Package only the public website
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: site/dist
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: website
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

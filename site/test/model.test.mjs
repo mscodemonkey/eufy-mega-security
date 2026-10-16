@@ -1,0 +1,85 @@
+/** Website contract tests keep catalogue declarations separate from evidence. */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { CATEGORIES, EVIDENCE, projectDevice, matchesDevice, featureEvidence, escapeHtml, safeJson, compareDevices } from '../src/model.mjs';
+import { prepareReport, privacyFindings, MAX_ISSUE_URL_BYTES, ISSUE_URL } from '../src/support.mjs';
+
+const source = (extra = {}) => ({ id: 'example', name: 'Example camera', category: 'camera', models: ['T8170'], aliases: ['Friendly camera'], integration: { status: 'supported', handler: 'camera' }, capabilities: { media: { live_view: { connections: { direct: { status: 'tested', tested_on: '2026-10-16', tested_by: 'PRIVATE_CANARY' }, T8030: { status: 'failing' } }, read: { parameter: 999888777 }, notes: 'PRIVATE_CANARY' }, snapshot: { connections: { T8030: { status: 'tested' } } } } }, notes: 'PRIVATE_CANARY', source: 'PRIVATE_CANARY', ...extra });
+const device = projectDevice(source());
+const draft = (extra = {}) => ({ symptom: 'Live view problem', connection: 'direct', integrationVersion: '0.1.158', gatewayVersion: 'unknown', firmware: '', hubFirmware: '', official: 'Yes', encryption: 'Not sure', expected: 'A picture', actual: 'The stream never starts.', steps: 'Open the device.', ...extra });
+
+test('public projection removes protocol, contributor and private-note fields', () => {
+  const text = JSON.stringify(device);
+  for (const forbidden of ['PRIVATE_CANARY', '999888777', 'tested_by', 'handler', 'parameter', 'source', 'notes']) assert.ok(!text.includes(forbidden), forbidden);
+  assert.equal(device.features[0].connections[0].testedOn, '2026-10-16');
+});
+
+test('every category maps and unfamiliar categories fail rather than disappear', () => {
+  assert.equal(CATEGORIES.flatMap(category => category.types).length, 15);
+  for (const category of CATEGORIES.flatMap(item => item.types)) assert.ok(projectDevice(source({ category })).categoryId);
+  assert.throws(() => projectDevice(source({ category: 'future' })));
+});
+
+test('all seven evidence statuses remain distinct and malformed evidence fails', () => {
+  assert.equal(new Set(Object.values(EVIDENCE).map(item => item.label)).size, 7);
+  assert.match(EVIDENCE.declared.description, /Not confirmed/);
+  const invalid = source(); invalid.capabilities.media.live_view.connections.direct.status = 'supported';
+  assert.throws(() => projectDevice(invalid));
+  const date = source(); date.capabilities.media.live_view.connections.direct.tested_on = '2026-02-30';
+  assert.throws(() => projectDevice(date));
+});
+
+test('facets must match the same feature and connection, not unrelated evidence', () => {
+  assert.equal(matchesDevice(device, { connection: 'direct', feature: 'media:snapshot', evidence: 'tested' }), false);
+  assert.equal(matchesDevice(device, { connection: 'T8030', feature: 'media:live_view', evidence: 'tested' }), false);
+  assert.equal(matchesDevice(device, { connection: 'T8030', feature: 'media:live_view', evidence: 'failing' }), true);
+  assert.equal(matchesDevice(device, { query: 'ＦＲＩＥＮＤＬＹ T8170' }), true);
+  assert.equal(featureEvidence(device.features[1], 'direct').status, 'unknown');
+  assert.equal(matchesDevice(device, { connection: 'direct', evidence: 'unsupported' }), false);
+});
+
+test('catalogue text cannot inject HTML, attributes or JSON islands', () => {
+  const text = '</script><script>alert("x")</script>&\u2028';
+  assert.ok(!escapeHtml(text).includes('<'));
+  assert.ok(!safeJson({ text }).includes('<'));
+  assert.deepEqual(JSON.parse(safeJson({ text })), { text });
+});
+
+test('admission and evidence sorting is deterministic', () => {
+  const only = projectDevice(source({ id: 'only', integration: { status: 'recognised' } }));
+  const admitted = projectDevice(source({ id: 'admitted', capabilities: {} }));
+  assert.ok(compareDevices(admitted, only) < 0);
+  assert.ok(compareDevices(device, admitted) < 0);
+  assert.equal(compareDevices(device, device), 0);
+});
+
+test('reports validate enums and contain no automatic GitHub mentions', () => {
+  const report = prepareReport(device, draft({ actual: '@someone #12\n# Heading\n```\n</script>' }));
+  assert.deepEqual(report.errors, []);
+  assert.match(report.body, /````text/);
+  assert.equal(new URL(report.url).origin + new URL(report.url).pathname, ISSUE_URL);
+  assert.ok(prepareReport(device, draft({ connection: 'invented' })).errors.length);
+  assert.ok(prepareReport(device, draft({ symptom: '<script>' })).errors.length);
+  assert.ok(prepareReport(device, draft({ actual: 'x'.repeat(1001) })).errors.length);
+});
+
+test('private material blocks every prepared outgoing URL but model/version text passes', () => {
+  assert.deepEqual(privacyFindings('T8170 0.1.158 HomeBase 3'), []);
+  for (const value of ['192.168.1.20', 'aa:bb:cc:dd:ee:ff', 'person@example.com', '123456', 'T8010P12345678901', '-----BEGIN PRIVATE KEY-----', 'password' + '=private-value', 'ghp_' + 'a'.repeat(30)]) {
+    const report = prepareReport(device, draft({ actual: value }));
+    assert.ok(report.errors.length, value);
+    assert.equal(report.url, null);
+  }
+  assert.ok(privacyFindings('pass\u200bword' + '=private-value').length);
+});
+
+test('long encoded reports use the full copy fallback without truncating text', () => {
+  const text = '🙂'.repeat(900);
+  const report = prepareReport(device, draft({ actual: text, expected: text, steps: text }));
+  assert.deepEqual(report.errors, []);
+  assert.equal(report.requiresCopy, true);
+  assert.equal(report.url, ISSUE_URL);
+  assert.equal(report.body.split(text).length, 4);
+  const short = prepareReport(device, draft());
+  assert.ok(new TextEncoder().encode(short.url).length <= MAX_ISSUE_URL_BYTES);
+});

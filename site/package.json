@@ -1,0 +1,14 @@
+{
+  "name": "eufy-mega-security-site-checks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test 'test/*.test.mjs'",
+    "test:browser": "node --test 'test/browser/*.spec.mjs'"
+  },
+  "devDependencies": {
+    "axe-core": "4.11.1",
+    "playwright": "1.58.2"
+  }
+}
