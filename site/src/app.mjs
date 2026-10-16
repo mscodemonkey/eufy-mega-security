@@ -114,7 +114,10 @@ if (data?.page === 'device' && $('#device-connection')) {
       row.querySelector('[data-evidence]').replaceChildren(badge(pair));
       row.querySelector('[data-description]').textContent = `${EVIDENCE[pair.status].description}${pair.testedOn ? ` Recorded ${pair.testedOn}.` : ''}`;
     }
-    for (const id of ['device-help', 'bottom-device-help']) $(`#${id}`).href = `${data.base}help/?device=${encodeURIComponent(data.device.id)}&connection=${encodeURIComponent(connection)}`;
+    const helpUrl = new URL('../help/', import.meta.url);
+    helpUrl.searchParams.set('device', data.device.id);
+    helpUrl.searchParams.set('connection', connection);
+    for (const id of ['device-help', 'bottom-device-help']) $(`#${id}`).href = helpUrl.href;
   }
   $('#device-connection').addEventListener('change', updateConnection);
   updateConnection();
