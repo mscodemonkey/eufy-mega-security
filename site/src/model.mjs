@@ -15,13 +15,13 @@ export const CATEGORIES = Object.freeze([
 
 /** Evidence labels preserve the distinction between declaration and testing. */
 export const EVIDENCE = Object.freeze({
-  tested: { label: 'Tested', symbol: '✓', description: 'Confirmed on real hardware through this gateway.' },
-  reported: { label: 'Reported', symbol: '↗', description: 'Reported by a user, not independently reproduced.' },
-  mixed: { label: 'Mixed results', symbol: '±', description: 'Real-world reports disagree for this connection.' },
-  declared: { label: 'Device-declared', symbol: '○', description: 'Device data says it exists. Not confirmed in this integration.' },
-  failing: { label: 'Not working', symbol: '!', description: 'Attempted on this connection and currently not working.' },
-  unsupported: { label: 'Unavailable', symbol: '−', description: 'This connection is known not to offer this feature.' },
-  unknown: { label: 'Unconfirmed', symbol: '?', description: 'An unconfirmed lead. More evidence is needed.' },
+  tested: { label: 'Confirmed', symbol: '✓', description: 'This feature has been tested on a real device with this connection.' },
+  reported: { label: 'Reported', symbol: '≡', description: "Someone has reported that this works with their setup. We haven't checked it ourselves yet." },
+  mixed: { label: 'Mixed results', symbol: '±', description: 'This works for some people, but others have had problems with this connection.' },
+  declared: { label: 'Needs testing', symbol: '!', description: "This feature is listed for this device, but we haven't checked it with Home Assistant yet." },
+  failing: { label: 'Not working', symbol: '!', description: 'This feature was tried with this connection and did not work.' },
+  unsupported: { label: 'Not available', symbol: '−', description: 'This feature is not available with this connection.' },
+  unknown: { label: 'Unconfirmed', symbol: '?', description: "We don't yet know whether this feature works with this connection." },
 });
 
 /** Admission labels describe entity creation without promising all features. */
@@ -33,6 +33,8 @@ export const ADMISSION = Object.freeze({
 export const GROUPS = Object.freeze({ media: 'Pictures & video', events: 'Events', controls: 'Settings & actions', readable: 'Device information' });
 
 const labels = {
+  lock_state: 'Lock status', lock: 'Lock', unlock: 'Unlock', auto_lock: 'Auto-lock', auto_lock_timer: 'Auto-lock delay',
+  sound_volume: 'Sound volume', notifications: 'Notifications', locked_notifications: 'Lock notifications', unlocked_notifications: 'Unlock notifications',
   live_view: 'Live view', snapshot: 'Snapshots', recording: 'Recordings', recordings: 'Recordings',
   clip: 'Video clips', motion: 'Motion events', person: 'Person events', pet: 'Pet events',
   vehicle: 'Vehicle events', doorbell: 'Doorbell presses', battery_level: 'Battery level',
@@ -88,7 +90,7 @@ export function projectDevice(record) {
 
 /** Source-listed connection choices; absence never invents a supported route. */
 export function deviceConnections(device) {
-  return [...new Set(device.features.flatMap(feature => feature.connections.map(connection => connection.id)))].sort();
+  return [...new Set(device.features.flatMap(feature => feature.connections.map(connection => connection.id)))].sort((a, b) => a === 'direct' ? -1 : b === 'direct' ? 1 : a.localeCompare(b));
 }
 
 /** Label hubs from catalogue identities, retaining model codes for precision. */
@@ -112,7 +114,7 @@ export function matchesDevice(device, filters = {}) {
 
 /** Stable catalogue order puts admitted devices first and tested evidence next. */
 export function compareDevices(a, b) {
-  const admission = device => device.admission === 'recognised' ? 1 : 0;
+  const admission = device => device.admission === 'recognised' && device.id !== 't85f1' ? 1 : 0;
   const tested = device => device.features.flatMap(item => item.connections).filter(item => item.status === 'tested').length;
   return admission(a) - admission(b) || tested(b) - tested(a) || (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
@@ -120,4 +122,18 @@ export function compareDevices(a, b) {
 /** Absent evidence is unconfirmed, and distinct from explicit unavailability. */
 export function featureEvidence(feature, connection) {
   return feature.connections.find(pair => pair.id === connection) ?? { id: connection, status: 'unknown' };
+}
+
+/** Keep static and interactive feature explanations and date labels identical. */
+export function statusDescription(pair) {
+  const dateLabel = pair.status === 'tested' ? 'Last checked' : pair.status === 'reported' ? 'Last reported' : 'Last updated';
+  return `${EVIDENCE[pair.status].description}${pair.testedOn ? ` ${dateLabel} ${pair.testedOn}.` : ''}`;
+}
+
+/** Describe tested features separately from entity creation and opt-in trials. */
+export function deviceStatus(device) {
+  if (device.id === 't85f1') return { label: 'Experimental', symbol: '!', style: 'experimental' };
+  if (device.admission === 'recognised') return { label: 'Catalogue only', symbol: '−', style: 'unsupported' };
+  if (device.features.some(feature => feature.connections.some(pair => pair.status === 'tested'))) return { label: 'Tested features', symbol: '✓', style: 'tested' };
+  return { label: 'Needs testing', symbol: '!', style: 'declared' };
 }

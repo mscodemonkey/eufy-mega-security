@@ -3,7 +3,7 @@
  * Page state and report drafts live only in this document's lifetime.
  */
 
-import { CATEGORIES, EVIDENCE, GROUPS, matchesDevice, featureEvidence, connectionLabel } from './model.mjs';
+import { CATEGORIES, EVIDENCE, GROUPS, matchesDevice, featureEvidence, connectionLabel, statusDescription } from './model.mjs';
 import { ISSUE_URL, SYMPTOMS, prepareReport } from './support.mjs';
 
 document.documentElement.classList.add('js');
@@ -106,13 +106,13 @@ if (data?.page === 'catalogue') {
 
 if (data?.page === 'device' && $('#device-connection')) {
   function updateConnection() {
-    const connection = $('#device-connection').value;
+    const connection = $('input[name="device-connection"]:checked').value;
     $('#selected-connection').textContent = data.connectionLabels[connection];
     for (const feature of data.device.features) {
       const row = [...document.querySelectorAll('[data-feature]')].find(item => item.dataset.feature === feature.key);
       const pair = featureEvidence(feature, connection);
       row.querySelector('[data-evidence]').replaceChildren(badge(pair));
-      row.querySelector('[data-description]').textContent = `${EVIDENCE[pair.status].description}${pair.testedOn ? ` Recorded ${pair.testedOn}.` : ''}`;
+      row.querySelector('[data-description]').textContent = statusDescription(pair);
     }
     const helpUrl = new URL('../help/', import.meta.url);
     helpUrl.searchParams.set('device', data.device.id);

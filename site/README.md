@@ -77,3 +77,15 @@ To undo a website change, revert its source commit and let `main` rebuild and
 publish. A prior workflow can be rerun while its artifact is still available.
 Disabling Pages is the fallback if the site must be taken offline. Website
 updates do not require a gateway release or a Home Assistant deployment.
+
+The E30 is handled by a separate opt-in provider, so its generic catalogue admission
+remains `recognised`. Its feature results are maintained in the catalogue YAML.
+The website gives that exact model an Experimental badge and links to the README
+trial instructions. A tested feature never implies that every feature or connection
+works. Card badges distinguish confirmed features, untested routes and catalogue-only
+records.
+
+Product images come from official public Eufy support and store pages. The image
+manifest records exact product identity, source URL, source page, hash and byte count.
+Missing verified photos are listed in `assets/image-gaps.json` and shown as explicit
+placeholders. Category photos are used only in category navigation.

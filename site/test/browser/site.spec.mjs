@@ -10,7 +10,7 @@ import { chromium } from 'playwright';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const output = process.env.SITE_SCREENSHOT_DIR ?? join(root, 'test-results');
 const base = '/eufy-mega-security/';
-const mime = { '.html': 'text/html', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png' };
+const mime = { '.html': 'text/html', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp' };
 
 test('desktop and mobile browsing, evidence and reviewed help work accessibly', { timeout: 120000 }, async () => {
   await mkdir(output, { recursive: true });
@@ -48,7 +48,7 @@ test('desktop and mobile browsing, evidence and reviewed help work accessibly', 
     await page.locator('#reset-search').click();
     assert.ok(await page.locator('[data-device]:visible').count() > 1);
     await page.goto(origin + base + 'devices/t8170/');
-    await page.locator('#device-connection').selectOption('T9000');
+    await page.locator('input[name="device-connection"][value="T9000"]').check();
     await loaded();
     assert.match(await page.locator('[data-feature="media:live_view"] [data-evidence]').textContent(), /Not working/);
     await page.screenshot({ path: join(output, 'eufy-site-device.png'), fullPage: true });
@@ -84,6 +84,18 @@ test('desktop and mobile browsing, evidence and reviewed help work accessibly', 
     await checkA11y();
     await page.goto(origin + base);
     await checkA11y();
+    await page.locator('[data-category="locks"]').click();
+    await page.locator('[data-category="locks"][aria-current]').waitFor();
+    assert.equal(await page.locator('#locks [data-device]').first().getAttribute('data-device'), 't85f1');
+    assert.match(await page.locator('[data-device="t85f1"] .eyebrow').textContent(), /Experimental/);
+    await loaded();
+    await page.screenshot({ path: join(output, 'eufy-site-locks.png'), fullPage: false });
+    await page.goto(origin + base + 'devices/t85f1/');
+    await loaded();
+    await checkA11y();
+    assert.match(await page.locator('.admission-note').textContent(), /tested off-door/);
+    assert.match(await page.locator('[data-feature="controls:unlock"] [data-evidence]').textContent(), /Confirmed/);
+    await page.screenshot({ path: join(output, 'eufy-site-e30-lock.png'), fullPage: true });
     await page.goto(origin + base + 'devices/t8170/');
     await checkA11y();
     await page.setViewportSize({ width: 390, height: 844 });

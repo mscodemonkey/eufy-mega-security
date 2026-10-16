@@ -16,7 +16,7 @@ test('build contains exactly the catalogue routes, local links and permitted ass
   const entries = await readdir(join(root, 'dist'), { recursive: true, withFileTypes: true });
   for (const entry of entries.filter(entry => entry.isFile())) {
     const path = join(entry.parentPath, entry.name);
-    assert.match(entry.name, /(?:\.html|\.css|\.mjs|\.png|sitemap\.xml|\.nojekyll)$/);
+    assert.match(entry.name, /(?:\.html|\.css|\.mjs|\.png|\.jpg|\.webp|sitemap\.xml|\.nojekyll)$/);
     if (!entry.name.endsWith('.html')) continue;
     const html = await readFile(path, 'utf8');
     assert.ok(!html.includes('PRIVATE_CANARY'));
@@ -33,6 +33,14 @@ test('build contains exactly the catalogue routes, local links and permitted ass
   assert.match(home, /connect-src 'none'/);
   assert.match(home, /https:\/\/ko-fi.com\/mscodemonkey/);
   assert.ok(!home.includes('amazon.'));
+  const e30 = await readFile(join(root, 'dist/devices/t85f1/index.html'), 'utf8');
+  assert.match(e30, /Experimental, off by default/);
+  assert.match(e30, /tested off-door/);
+  assert.match(e30, /US cloud route/);
+  assert.match(e30, /data-feature="controls:unlock"/);
+  assert.ok(!e30.includes('It does not have Home Assistant entities yet'));
+  assert.ok(!home.includes('Device-declared'));
+  assert.ok(!home.includes('Category image for'));
   const missing = await readFile(join(root, 'dist/404.html'), 'utf8');
   assert.match(missing, /href="\/eufy-mega-security\/"/);
 });

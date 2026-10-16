@@ -236,3 +236,32 @@ tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
   .review-actions .button { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; } }
+
+/* Native radio inputs provide arrow-key navigation within the connection group. */
+.connection-choice { border: 0; padding: 0; margin: 0; width: 100%; min-width: 0; }
+.connection-choice legend { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+.connection-segments { display: flex; flex-wrap: wrap; border: 1px solid #d6dce6; border-radius: 12px; background: white; overflow: hidden; }
+.connection-segments label { flex: 1 1 130px; position: relative; text-align: center; font-weight: 400; }
+.connection-segments input { position: absolute; opacity: 0; width: 1px; height: 1px; min-height: 0; padding: 0; }
+.connection-segments span { padding: 12px 14px; min-height: 44px; display: grid; place-items: center; border-radius: 10px; font-size: 13px; }
+.connection-segments input:checked + span { background: #0071e3; color: white; }
+.connection-segments input:focus-visible + span { outline: 3px solid #1d1d1f; outline-offset: -4px; }
+.filters .inline-filter { flex-direction: row; align-items: center; gap: 4px; border: 1px solid #d6dce6; border-radius: 12px; background: white; padding-left: 16px; font-size: 13px; color: #303746; }
+.inline-filter select { border: 0; background: transparent; min-width: 74px; padding-left: 2px; min-height: 44px; }
+input, select, textarea { border-color: #d6dce6; border-radius: 12px; }
+.evidence-declared > span { background: #a85b00; color: white; }
+.evidence-unsupported > span { background: #6b7280; color: white; }
+.evidence-experimental > span { background: #7750a2; color: white; }
+.evidence-reported > span { border-radius: 5px 5px 5px 0; }
+.status-legend { display: flex; flex-wrap: wrap; gap: 16px 24px; color: var(--muted); margin: 0 0 28px; }
+.eyebrow .evidence-badge { text-transform: none; letter-spacing: 0; font-weight: 500; }
+
+.photo-unavailable { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: #626268; background: #f8f8fa; border-radius: 12px; }
+.photo-unavailable > span { font-size: 40px; }
+.photo-unavailable small { font-size: 12px; font-weight: 400; }
+
+@media (min-width: 721px) {
+  .inline-filter select { width: 112px; }
+  .filters { flex-wrap: wrap; }
+  .catalogue-tools { flex-wrap: wrap; }
+}

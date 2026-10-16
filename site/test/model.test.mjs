@@ -1,7 +1,7 @@
 /** Website contract tests keep catalogue declarations separate from evidence. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CATEGORIES, EVIDENCE, projectDevice, matchesDevice, featureEvidence, escapeHtml, safeJson, compareDevices } from '../src/model.mjs';
+import { CATEGORIES, EVIDENCE, projectDevice, matchesDevice, featureEvidence, escapeHtml, safeJson, compareDevices, deviceStatus, statusDescription } from '../src/model.mjs';
 import { prepareReport, privacyFindings, MAX_ISSUE_URL_BYTES, ISSUE_URL } from '../src/support.mjs';
 
 const source = (extra = {}) => ({ id: 'example', name: 'Example camera', category: 'camera', models: ['T8170'], aliases: ['Friendly camera'], integration: { status: 'supported', handler: 'camera' }, capabilities: { media: { live_view: { connections: { direct: { status: 'tested', tested_on: '2026-10-16', tested_by: 'PRIVATE_CANARY' }, T8030: { status: 'failing' } }, read: { parameter: 999888777 }, notes: 'PRIVATE_CANARY' }, snapshot: { connections: { T8030: { status: 'tested' } } } } }, notes: 'PRIVATE_CANARY', source: 'PRIVATE_CANARY', ...extra });
@@ -22,7 +22,7 @@ test('every category maps and unfamiliar categories fail rather than disappear',
 
 test('all seven evidence statuses remain distinct and malformed evidence fails', () => {
   assert.equal(new Set(Object.values(EVIDENCE).map(item => item.label)).size, 7);
-  assert.match(EVIDENCE.declared.description, /Not confirmed/);
+  assert.match(EVIDENCE.declared.description, /haven.t checked/);
   const invalid = source(); invalid.capabilities.media.live_view.connections.direct.status = 'supported';
   assert.throws(() => projectDevice(invalid));
   const date = source(); date.capabilities.media.live_view.connections.direct.tested_on = '2026-02-30';
@@ -82,4 +82,13 @@ test('long encoded reports use the full copy fallback without truncating text', 
   assert.equal(report.body.split(text).length, 4);
   const short = prepareReport(device, draft());
   assert.ok(new TextEncoder().encode(short.url).length <= MAX_ISSUE_URL_BYTES);
+});
+
+test('device badges distinguish admission, confirmed features and the E30 trial', () => {
+  assert.equal(deviceStatus(device).label, 'Tested features');
+  assert.equal(deviceStatus({ ...device, admission: 'recognised' }).label, 'Catalogue only');
+  assert.equal(deviceStatus({ ...device, features: [] }).label, 'Needs testing');
+  assert.equal(deviceStatus({ ...device, id: 't85f1', admission: 'recognised' }).label, 'Experimental');
+  assert.match(statusDescription({ status: 'reported', testedOn: '2026-10-16' }), /Last reported/);
+  assert.match(statusDescription({ status: 'declared', testedOn: '2026-10-16' }), /Last updated/);
 });

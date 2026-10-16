@@ -2,47 +2,52 @@
   "solocam-s340": {
     "deviceId": "t8170",
     "file": "products/solocam-s340.png",
-    "alt": "SoloCam S340",
-    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/1500_1500.png?v=1764640751",
-    "page": "https://www.eufy.com/products/t81701w1",
-    "sha256": "21eb5afacad2b964418cd30d29b4ffba174ee5554a6b5929ae5ef44cd8d01c2c",
-    "bytes": 286372
+    "alt": "SoloCam S340 (T8170)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g00000GxlDi&operationContext=CHATTER&contentId=05T5g00000w6wx2",
+    "page": "https://service.eufy.com/product-description/a085g00000EHUMDAA5",
+    "sha256": "077a7321e2205e46ee4e287a1af3ea4e787f4df401241d218bfc634a57c9f238",
+    "bytes": 228009,
+    "sourceProduct": "SoloCam S340 (T8170)"
   },
   "indoor-s350": {
     "deviceId": "t8416",
     "file": "products/indoor-s350.png",
     "alt": "Indoor Cam S350",
-    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/T8416-01-V1_1_1.png?v=1789458557",
-    "page": "https://www.eufy.com/products/t8416121",
-    "sha256": "8bef9e5d841ef3bc0bb6c1e1796f4f9eb2cb69fddd811118f39fe46b916f78cd",
-    "bytes": 99845
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g00000FRWrB&operationContext=CHATTER&contentId=05T5g00000pEAAT",
+    "page": "https://service.eufy.com/product-description/a085g0000050Pj7AAE",
+    "sha256": "a9915e75ea8889102b38e7cc3fc668d73057b91c18c68d9a05185852c0dd585a",
+    "bytes": 63263,
+    "sourceProduct": "Indoor Cam S350"
   },
   "homebase-3": {
     "deviceId": "t8030",
     "file": "products/homebase-3.png",
-    "alt": "HomeBase 3",
-    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/Frame_51.png?v=1754561181",
-    "page": "https://www.eufy.com/products/t80301d1",
-    "sha256": "0ef50af4adcf5e7107b47efaf822b4156974d94755640bb25bb6ef87ff21bf2c",
-    "bytes": 187549
+    "alt": "Homebase S380",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g00000FSLoA&operationContext=CHATTER&contentId=05T5g00000poO63",
+    "page": "https://service.eufy.com/product-description/a085g0000050ICxAAM",
+    "sha256": "3f92b2d8547dbba5008f317035b24db5e196c59e553a03ce73b8befeb97d47c8",
+    "bytes": 71142,
+    "sourceProduct": "Homebase S380"
   },
   "doorbell-e340": {
     "deviceId": "t8214",
     "file": "products/doorbell-e340.png",
     "alt": "Video Doorbell E340",
-    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/T8214.png?v=1755066896",
-    "page": "https://www.eufy.com/products/t8214111",
-    "sha256": "64fd93394ef5f854d9c24cca11e6e7746db79ebaa98a615912cfecb24272d7a4",
-    "bytes": 62095
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g00000GxklC&operationContext=CHATTER&contentId=05T5g00000w6uXj",
+    "page": "https://service.eufy.com/product-description/a085g00000EHUIVAA5",
+    "sha256": "faf696c00abcc4b42cc405f9fb6e2e7eee3de45dee378150b5107bde94a909e7",
+    "bytes": 144947,
+    "sourceProduct": "Video Doorbell E340"
   },
   "motion-sensor": {
     "deviceId": "t8910",
-    "file": "products/motion-sensor.png",
+    "file": "products/motion-sensor.jpg",
     "alt": "Motion Sensor",
-    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/motion-sensor-800px-removebg-preview.png?v=1700830750",
-    "page": "https://www.eufy.com/products/t8910021",
-    "sha256": "3165c1c18caa08199d6ffc9489a0a8a87b65fafc1d09e4435b2fedfa448888da",
-    "bytes": 45254
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g0000008z4O&operationContext=CHATTER&contentId=05T5g0000006NTx",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm4KAAS",
+    "sha256": "a2bde4b0d27da9cafb74c3fb93db83f8cdbb5ff945add1131a6ec6628ede2366",
+    "bytes": 16315,
+    "sourceProduct": "Motion Sensor"
   },
   "minibase-chime": {
     "deviceId": "t8023",
@@ -56,20 +61,22 @@
   "eufycam-3": {
     "deviceId": "t8160",
     "file": "products/eufycam-3.png",
-    "alt": "eufyCam 3",
-    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/Frame_186.png?v=1754560630",
-    "page": "https://www.eufy.com/products/t81601w1",
-    "sha256": "8cb1ff3e92055b2de5d1a2c100e8747a5bfabb93223bb0356bb0a74bd34c0c6d",
-    "bytes": 293242
+    "alt": "S330 eufyCam(eufyCam 3)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g000009vn9n&operationContext=CHATTER&contentId=05T5g00000WnaeQ",
+    "page": "https://service.eufy.com/product-description/a085g000004yDlGAAU",
+    "sha256": "36292916ce604de678bd85afd18090b47d3a74bde59d28655d00a3ee3975b87e",
+    "bytes": 160206,
+    "sourceProduct": "S330 eufyCam(eufyCam 3)"
   },
   "indoor-e220": {
     "deviceId": "t8410",
-    "file": "products/indoor-e220.png",
-    "alt": "Indoor Cam E220",
-    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/Indoor_Cam_E220_d63583c9-a6dd-45ef-842a-c0afe2e059d5.png?v=1786955303",
-    "page": "https://www.eufy.com/products/t8410121",
-    "sha256": "91b1317608872bb4b56efbf5b3bbd63c037994b48588fee113c96ff2c11bb39b",
-    "bytes": 154454
+    "file": "products/indoor-e220.jpg",
+    "alt": "Indoor Cam 2K Pan & Tilt (Solo IndoorCam P24)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g0000008z4L&operationContext=CHATTER&contentId=05T5g0000006NSz",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm4BAAS",
+    "sha256": "9e2eab54d87fbd1320446ae3e9f7c6d4fa87f09f88aef9b83974a4bffddff1d3",
+    "bytes": 22230,
+    "sourceProduct": "Indoor Cam 2K Pan & Tilt (Solo IndoorCam P24)"
   },
   "category-lock": {
     "deviceId": null,
@@ -80,40 +87,1114 @@
     "sha256": "97e7b6d8e35a5e0392f2edc15fa63a0bd2edc2b17866ab4b3a6f154324457b90",
     "bytes": 11434
   },
-  "category-camera": {
-    "deviceId": null,
-    "file": "products/category-camera.png",
-    "alt": "Example Eufy security camera",
-    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/96_96_1_3840x.png?v=1762175083",
-    "page": "https://www.eufy.com/collections/security",
-    "sha256": "a4ef303d77e3c59b38e879b7509066f62899cee3bc7d09ea0ea6362c8b0b28c4",
-    "bytes": 5723
-  },
   "wired-c31": {
     "deviceId": "t817l",
-    "file": "products/wired-c31.png",
-    "alt": "Wired Cam C31",
-    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/T817L121_US_TD001_Solo_V2.png?v=1780911558",
-    "page": "https://www.eufy.com/products/t817l111",
-    "sha256": "3022c6776a3d8e154e88645267bdb344a5c8787f87b144c655cafd1fc66e33da",
-    "bytes": 313277
+    "file": "products/wired-c31.jpg",
+    "alt": "eufy Wired Cam C31",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e2000006QUX1&operationContext=CHATTER&contentId=05Te20000097uyB",
+    "page": "https://service.eufy.com/product-description/a08e200000UFdPqAAL",
+    "sha256": "63a2c14271c730692c396073b77dffed8a96e80e7ad7f3ec7daa811de8f40cb1",
+    "bytes": 38725,
+    "sourceProduct": "eufy Wired Cam C31"
   },
   "solocam-e30": {
     "deviceId": "t8171",
-    "file": "products/solocam-e30.png",
-    "alt": "SoloCam E30",
-    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/T8171121_T8171121-11_T8171321_T8171C21_T8171J21_Richimage_01_US.png?v=1731038598",
-    "page": "https://www.eufy.com/products/t8171121",
-    "sha256": "f5587598291626431930aab38e26360f9ee97dc8f006bd9e803db17c464901b9",
-    "bytes": 347435
+    "file": "products/solocam-e30.jpg",
+    "alt": "eufy SoloCam E30",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068J1000006W645&operationContext=CHATTER&contentId=05TJ100000M22db",
+    "page": "https://service.eufy.com/product-description/a08J1000000YQfyIAG",
+    "sha256": "3c74d4d5c2c589182ffbf495657e8f8dfad7f6d6501382c94380d5e299abe963",
+    "bytes": 69233,
+    "sourceProduct": "eufy SoloCam E30"
   },
   "eufycam-2c": {
     "deviceId": "t8113",
-    "file": "products/eufycam-2c.png",
-    "alt": "eufyCam 2C kit with HomeBase",
-    "source": "https://cdn.shopify.com/s/files/1/0504/1094/6753/files/T8831-eufyCam2C_kit__E4_B8_BB_E5_9B_BE-removebg-preview.png?v=1721973383",
-    "page": "https://www.eufy.com/uk/products/t88313d2",
-    "sha256": "00a854fe16c6f791b6abe6fa2846ff1012437674ddb6a488c157581d9f7bc57e",
-    "bytes": 46295
+    "file": "products/eufycam-2c.jpg",
+    "alt": "eufyCam 2C",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g0000008z46&operationContext=CHATTER&contentId=05T5g0000006NRh",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm5JAAS",
+    "sha256": "bc7a8ea1bbf4f19f76e775472ba3762c9d519d730dbd44547fc2f3b8330c5345",
+    "bytes": 21450,
+    "sourceProduct": "eufyCam 2C"
+  },
+  "t8210": {
+    "deviceId": "t8210",
+    "file": "products/t8210.jpg",
+    "alt": "Video Doorbell 2K (Battery-Powered)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpeg&versionId=0685g000002quPE&operationContext=CHATTER&contentId=05T5g000009WA6c",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm5NAAS",
+    "sha256": "d32b224a9ad9fff23615263fbcc190038be158e820916afdb5d0f7ece4ced6e9",
+    "bytes": 23853,
+    "sourceProduct": "Video Doorbell 2K (Battery-Powered)"
+  },
+  "t8172": {
+    "deviceId": "t8172",
+    "file": "products/t8172.jpg",
+    "alt": "eufyCam S4",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e200000An650&operationContext=CHATTER&contentId=05Te200000FqqnP",
+    "page": "https://service.eufy.com/product-description/a08J10000018Mc4IAE",
+    "sha256": "d20e1e444840e74be2454df6d138d8b2a2d31723410650912b674aeb541c4508",
+    "bytes": 64442,
+    "sourceProduct": "eufyCam S4"
+  },
+  "t8123": {
+    "deviceId": "t8123",
+    "file": "products/t8123.png",
+    "alt": "SoloCam L40",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g000000AbNQ&operationContext=CHATTER&contentId=05T5g000006VkRD",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm46AAC",
+    "sha256": "025904702665f95eb11b0d447c790a5b0c29dae1bbb02d10234d5670ec265a22",
+    "bytes": 691592,
+    "sourceProduct": "SoloCam L40"
+  },
+  "t8425": {
+    "deviceId": "t8425",
+    "file": "products/t8425.png",
+    "alt": "Floodlight Cam E340",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g00000Gxk6R&operationContext=CHATTER&contentId=05T5g00000w6sUC",
+    "page": "https://service.eufy.com/product-description/a085g00000EHUGPAA5",
+    "sha256": "08fe93b5f53fb769a22454ba74a319620ab9a15f68c5f7152aadf1f4a41ed7fc",
+    "bytes": 209005,
+    "sourceProduct": "Floodlight Cam E340"
+  },
+  "t8426": {
+    "deviceId": "t8426",
+    "file": "products/t8426.jpg",
+    "alt": "eufy Floodlight Camera E30",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068J1000006W65w&operationContext=CHATTER&contentId=05TJ100000M22i2",
+    "page": "https://service.eufy.com/product-description/a08J1000000YQd9IAG",
+    "sha256": "a861060eb2c7dbedbc2b9cc6297448756b4c3afe61dc67b4b8e17aecc42f8ef7",
+    "bytes": 33330,
+    "sourceProduct": "eufy Floodlight Camera E30"
+  },
+  "t814x": {
+    "deviceId": "t814x",
+    "file": "products/t814x.jpg",
+    "alt": "eufyCam C37 with Solar Panel",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e200000WZpte&operationContext=CHATTER&contentId=05Te200000muT9C",
+    "page": "https://service.eufy.com/product-description/a08e200000LL5FDAA1",
+    "sha256": "79b6dfc7bcd09159c4e9f813caecb3140238b47295a7d9bab8cfe348b8a8a288",
+    "bytes": 116191,
+    "sourceProduct": "eufyCam C37 with Solar Panel"
+  },
+  "t8144": {
+    "deviceId": "t8144",
+    "file": "products/t8144.jpg",
+    "alt": "eufyCam E40",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068J1000009haIr&operationContext=CHATTER&contentId=05TJ100000Yb3xG",
+    "page": "https://service.eufy.com/product-description/a08J1000000YlIQIA0",
+    "sha256": "b6c9b7ba18762a9469d3a4f12dcaab416d45e078743808a5a3d78f577f9f7aa7",
+    "bytes": 31496,
+    "sourceProduct": "eufyCam E40"
+  },
+  "t8900": {
+    "deviceId": "t8900",
+    "file": "products/t8900.jpg",
+    "alt": "Entry Sensor",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g0000008z4N&operationContext=CHATTER&contentId=05T5g0000006NTn",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm4LAAS",
+    "sha256": "abe0f64731e5a77bc4f1e309f9f0cf5aea765b70fb6563a100d06501bd8bbf69",
+    "bytes": 17013,
+    "sourceProduct": "Entry Sensor"
+  },
+  "t8419": {
+    "deviceId": "t8419",
+    "file": "products/t8419.jpg",
+    "alt": "eufy Security Indoor Cam C210",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068J100000CObaa&operationContext=CHATTER&contentId=05TJ100000hROt6",
+    "page": "https://service.eufy.com/product-description/a08J10000018N2EIAU",
+    "sha256": "c1f245f67566b642b3705133ab5958e338c895768cdc1dde51478f72120739c2",
+    "bytes": 38030,
+    "sourceProduct": "eufy Security Indoor Cam C210"
+  },
+  "t8111": {
+    "deviceId": "t8111",
+    "file": "products/t8111.png",
+    "alt": "eufyCam",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g0000008z40&operationContext=CHATTER&contentId=05T5g0000006NNM",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm5KAAS",
+    "sha256": "31d90d53bf53b0308c945f9340cfecaebe1e8d44c9a83c4e2ff28a13bf15ba08",
+    "bytes": 233487,
+    "sourceProduct": "eufyCam"
+  },
+  "t8141": {
+    "deviceId": "t8141",
+    "file": "products/t8141.jpg",
+    "alt": "eufyCam 2C Pro",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g0000008z49&operationContext=CHATTER&contentId=05T5g0000006NRw",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm5HAAS",
+    "sha256": "25efe0e11ff43c7009270125eb40744b9900e8b9ea6a3ff899556844b2feb7aa",
+    "bytes": 20983,
+    "sourceProduct": "eufyCam 2C Pro"
+  },
+  "t90e0": {
+    "deviceId": "t90e0",
+    "file": "products/t90e0.jpg",
+    "alt": "eufy Entry Sensor E20",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e20000088KBV&operationContext=CHATTER&contentId=05Te200000Bym7H",
+    "page": "https://service.eufy.com/product-description/a08e2000007nIO1AAM",
+    "sha256": "d8da3e1d8b240a8e2bc4f501f7c8a54eedf849c0ca3c6b7e6c933560e7afb4af",
+    "bytes": 18194,
+    "sourceProduct": "eufy Entry Sensor E20"
+  },
+  "t85v0": {
+    "deviceId": "t85v0",
+    "file": "products/t85v0.jpg",
+    "alt": "eufy Familock S3 Max",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068J100000AxrqE&operationContext=CHATTER&contentId=05TJ100000cSwdP",
+    "page": "https://service.eufy.com/product-description/a08J1000000YMWDIA4",
+    "sha256": "523164e58281a40a0a67c285d9c67e18c135dc525b9a5a80dff17e7d183d9736",
+    "bytes": 54758,
+    "sourceProduct": "eufy Familock S3 Max"
+  },
+  "t8420-standard": {
+    "deviceId": "t8420-standard",
+    "file": "products/t8420-standard.jpg",
+    "alt": "Floodlight Cam 1080p",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpeg&versionId=0685g000002qwcG&operationContext=CHATTER&contentId=05T5g000009WIfN",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm5SAAS",
+    "sha256": "faf49739710150dac8773d986c9df0744731a944276c568e6dbe08e0b3b26699",
+    "bytes": 21458,
+    "sourceProduct": "Floodlight Cam 1080p"
+  },
+  "t8423": {
+    "deviceId": "t8423",
+    "file": "products/t8423.jpg",
+    "alt": "Floodlight Cam 2 Pro",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g000002qwao&operationContext=CHATTER&contentId=05T5g000009WIYb",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm5ZAAS",
+    "sha256": "bde56c93016df20e9704362785ada929abda56c88d7a37cfcff834970572236c",
+    "bytes": 59221,
+    "sourceProduct": "Floodlight Cam 2 Pro"
+  },
+  "t8010": {
+    "deviceId": "t8010",
+    "file": "products/t8010.png",
+    "alt": "HomeBase 2",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g00000FSKrR&operationContext=CHATTER&contentId=05T5g00000poPEH",
+    "page": "https://service.eufy.com/product-description/a085g0000050ID2AAM",
+    "sha256": "83d895e85d52a0431602382d190ee0dfa1a5a765338c05f010c948d64730d22c",
+    "bytes": 24060,
+    "sourceProduct": "HomeBase 2"
+  },
+  "t8400": {
+    "deviceId": "t8400",
+    "file": "products/t8400.jpg",
+    "alt": "Indoor Cam 2K (Solo IndoorCam C24)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g0000008z4E&operationContext=CHATTER&contentId=05T5g0000006NSk",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm4AAAS",
+    "sha256": "9c800a58013aed152ece9f21b2c58f9e09c3516413a3185f6456d626e57a8fe3",
+    "bytes": 19088,
+    "sourceProduct": "Indoor Cam 2K (Solo IndoorCam C24)"
+  },
+  "t8w11c-v2": {
+    "deviceId": "t8w11c-v2",
+    "file": "products/t8w11c-v2.jpg",
+    "alt": "Indoor Cam C220",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpeg&versionId=0685g00000JfnLB&operationContext=CHATTER&contentId=05T5g000017TOR1",
+    "page": "https://service.eufy.com/product-description/a085g00000BdG5pAAF",
+    "sha256": "eebe28a652286b24ba065ed2d8a091d4a3a036c8cbadf54d1e656a8c779cc211",
+    "bytes": 28386,
+    "sourceProduct": "Indoor Cam C220"
+  },
+  "t8417": {
+    "deviceId": "t8417",
+    "file": "products/t8417.jpg",
+    "alt": "eufy Indoor Cam E30",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068J1000007OhDD&operationContext=CHATTER&contentId=05TJ100000PL4PM",
+    "page": "https://service.eufy.com/product-description/a08J1000000YShNIAW",
+    "sha256": "51ce28d4106eb350fe36d798ad124679a7028482b46c5055f04e6f891d64574f",
+    "bytes": 36777,
+    "sourceProduct": "eufy Indoor Cam E30"
+  },
+  "t8410c": {
+    "deviceId": "t8410c",
+    "file": "products/t8410c.jpg",
+    "alt": "Indoor Cam 2K Pan & Tilt (Solo IndoorCam P24)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g0000008z4L&operationContext=CHATTER&contentId=05T5g0000006NSz",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm4BAAS",
+    "sha256": "9e2eab54d87fbd1320446ae3e9f7c6d4fa87f09f88aef9b83974a4bffddff1d3",
+    "bytes": 22230,
+    "sourceProduct": "Indoor Cam 2K Pan & Tilt (Solo IndoorCam P24)"
+  },
+  "t90m0": {
+    "deviceId": "t90m0",
+    "file": "products/t90m0.jpg",
+    "alt": "eufy Motion Sensor E20",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e20000088bVg&operationContext=CHATTER&contentId=05Te200000Bz4VM",
+    "page": "https://service.eufy.com/product-description/a08e2000007nUAcAAM",
+    "sha256": "b1f6ae9936c202e4273fced9ca224db03218df28e1c820c69f9ae671a007e490",
+    "bytes": 16186,
+    "sourceProduct": "eufy Motion Sensor E20"
+  },
+  "t84a0": {
+    "deviceId": "t84a0",
+    "file": "products/t84a0.png",
+    "alt": "Wall Light Cam (Battery)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g00000DYKVV&operationContext=CHATTER&contentId=05T5g00000hwXo2",
+    "page": "https://service.eufy.com/product-description/a085g000004zqKtAAI",
+    "sha256": "8b85c61a4be5034f508cb0742717f661b2c5eadc87e7597125e176f827c04081",
+    "bytes": 85966,
+    "sourceProduct": "Wall Light Cam (Battery)"
+  },
+  "t8b00": {
+    "deviceId": "t8b00",
+    "file": "products/t8b00.png",
+    "alt": "SoloCam C210",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g00000Ejw2k&operationContext=CHATTER&contentId=05T5g00000o7fWm",
+    "page": "https://service.eufy.com/product-description/a085g0000050PNUAA2",
+    "sha256": "bcc7872443750ccf1c752e58145aab73b456243e2e698abb7fd607ab39207a0d",
+    "bytes": 4091804,
+    "sourceProduct": "SoloCam C210"
+  },
+  "t8130": {
+    "deviceId": "t8130",
+    "file": "products/t8130.jpg",
+    "alt": "SoloCam E20",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpeg&versionId=0685g000002quKN&operationContext=CHATTER&contentId=05T5g000009WA4W",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm43AAC",
+    "sha256": "1ac1b51f646075e6371d8ec7cf55521c0e832428c766fd6fbbf1c13988a926f5",
+    "bytes": 23254,
+    "sourceProduct": "SoloCam E20"
+  },
+  "t8131": {
+    "deviceId": "t8131",
+    "file": "products/t8131.jpg",
+    "alt": "SoloCam E40",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g000000AabH&operationContext=CHATTER&contentId=05T5g000006VdVl",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm44AAC",
+    "sha256": "07f23d7ce35f00a261b6083e66f9ba855a35214992f4bd7f29f4c19918fe41ab",
+    "bytes": 57953,
+    "sourceProduct": "SoloCam E40"
+  },
+  "t8134": {
+    "deviceId": "t8134",
+    "file": "products/t8134.png",
+    "alt": "S220 SoloCam",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g00000DaYvS&operationContext=CHATTER&contentId=05T5g00000kUsm8",
+    "page": "https://service.eufy.com/product-description/a085g000004zutUAAQ",
+    "sha256": "48712bfa6c0f1bdc4ea23d7375a829b2405912ca2c8f1b88bcd062830bc2b7c3",
+    "bytes": 192932,
+    "sourceProduct": "S220 SoloCam"
+  },
+  "t8124": {
+    "deviceId": "t8124",
+    "file": "products/t8124.png",
+    "alt": "SoloCam S230",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g000000AabI&operationContext=CHATTER&contentId=05T5g000006Vdjh",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm47AAC",
+    "sha256": "080dfc414b093dba66162ea31e5f6f5f572237a355adc48b22f5fde6f51eb145",
+    "bytes": 538801,
+    "sourceProduct": "SoloCam S230"
+  },
+  "t8200-standard": {
+    "deviceId": "t8200-standard",
+    "file": "products/t8200-standard.jpg",
+    "alt": "Video Doorbell 2K (Wired)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g0000008z4B&operationContext=CHATTER&contentId=05T5g0000006NS6",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm5MAAS",
+    "sha256": "e58c25ea78f96c3ebe4f5c84611d7d5c23ee47c50c8ec403093191dbdcbfa39c",
+    "bytes": 23077,
+    "sourceProduct": "Video Doorbell 2K (Wired)"
+  },
+  "t8224": {
+    "deviceId": "t8224",
+    "file": "products/t8224.jpg",
+    "alt": "Video Doorbell C30",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068J1000005a4Hv&operationContext=CHATTER&contentId=05TJ100000Ji1zs",
+    "page": "https://service.eufy.com/product-description/a08J1000000YA4QIAW",
+    "sha256": "37211f3453f35ffc33d70ac53ea69adb1158bd89a3f4558df63ca78be252760d",
+    "bytes": 25685,
+    "sourceProduct": "Video Doorbell C30"
+  },
+  "t8223": {
+    "deviceId": "t8223",
+    "file": "products/t8223.jpg",
+    "alt": "Video Doorbell C31",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068J1000005a486&operationContext=CHATTER&contentId=05TJ100000Ji1zi",
+    "page": "https://service.eufy.com/product-description/a08J1000000YA4KIAW",
+    "sha256": "30e6026315500d4a69cb8dbb1fe17b39006a098e56734908855a97ead63ff4a7",
+    "bytes": 26553,
+    "sourceProduct": "Video Doorbell C31"
+  },
+  "t8213": {
+    "deviceId": "t8213",
+    "file": "products/t8213.jpg",
+    "alt": "Video Doorbell Dual 2K (Battery-Powered)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g0000063Cx3&operationContext=CHATTER&contentId=05T5g00000I8ccz",
+    "page": "https://service.eufy.com/product-description/a085g000004wZdhAAE",
+    "sha256": "cea2c744bce6f1b3e50f0de148f695344e2b5002fca9612bbfa8cfcc5a4d0342",
+    "bytes": 58015,
+    "sourceProduct": "Video Doorbell Dual 2K (Battery-Powered)"
+  },
+  "t8220": {
+    "deviceId": "t8220",
+    "file": "products/t8220.jpg",
+    "alt": "Video Doorbell Slim",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g0000008z3G&operationContext=CHATTER&contentId=05T5g0000006NL0",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm5RAAS",
+    "sha256": "d54f91bcbb7de880b825e773236d2d050266f3b8c1fca4e7e154b7d0c3e8066c",
+    "bytes": 42759,
+    "sourceProduct": "Video Doorbell Slim"
+  },
+  "t8920": {
+    "deviceId": "t8920",
+    "file": "products/t8920.png",
+    "alt": "Water and Freeze Sensor",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g00000KkK3d&operationContext=CHATTER&contentId=05T5g00001BVZJq",
+    "page": "https://service.eufy.com/product-description/a085g000004zZD4AAM",
+    "sha256": "7e1e1cab944d50211dd5fe3cd5a497c5c03d0dca0501362cb790e43d343d163f",
+    "bytes": 63746,
+    "sourceProduct": "Water and Freeze Sensor"
+  },
+  "t84a1": {
+    "deviceId": "t84a1",
+    "file": "products/t84a1.png",
+    "alt": "S100 Wall Light Cam",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g00000BG768&operationContext=CHATTER&contentId=05T5g00000a35QT",
+    "page": "https://service.eufy.com/product-description/a085g000004zRiqAAE",
+    "sha256": "9f95eb3091d75ee59f5696b0401faed45344468b977522193d707e78618509ef",
+    "bytes": 46647,
+    "sourceProduct": "S100 Wall Light Cam"
+  },
+  "t8114": {
+    "deviceId": "t8114",
+    "file": "products/t8114.jpg",
+    "alt": "eufyCam 2",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g0000008z47&operationContext=CHATTER&contentId=05T5g0000006NRr",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm5IAAS",
+    "sha256": "c69610df74cde017ab0450ba3fc22899dc63883196cb3687380aabea58fef674",
+    "bytes": 19930,
+    "sourceProduct": "eufyCam 2"
+  },
+  "t8140": {
+    "deviceId": "t8140",
+    "file": "products/t8140.jpg",
+    "alt": "eufyCam 2 Pro",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g0000008z48&operationContext=CHATTER&contentId=05T5g0000006NM9",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm5GAAS",
+    "sha256": "5be46e2e9243629e880d590be74f16da72d5187f480e2e600b93e3a680afb2de",
+    "bytes": 20025,
+    "sourceProduct": "eufyCam 2 Pro"
+  },
+  "t8161": {
+    "deviceId": "t8161",
+    "file": "products/t8161.png",
+    "alt": "S300 eufyCam(eufyCam 3C)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g000009vnBe&operationContext=CHATTER&contentId=05T5g00000Wnal7",
+    "page": "https://service.eufy.com/product-description/a085g000004yGWzAAM",
+    "sha256": "f53329a99f9805f0c4c17e9a7b18a8fcee5fe43ee43c2e2cbdd4f642d29a11ed",
+    "bytes": 139428,
+    "sourceProduct": "S300 eufyCam(eufyCam 3C)"
+  },
+  "t8110": {
+    "deviceId": "t8110",
+    "file": "products/t8110.jpg",
+    "alt": "eufyCam C35",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e200000CYpdw&operationContext=CHATTER&contentId=05Te200000IRL1M",
+    "page": "https://service.eufy.com/product-description/a08e2000003BUkHAAW",
+    "sha256": "cae737bbcb018433207afb5f72ef45ceab3ff4e6fa63fa3e902bf858248a0cff",
+    "bytes": 39687,
+    "sourceProduct": "eufyCam C35"
+  },
+  "t8600": {
+    "deviceId": "t8600",
+    "file": "products/t8600.png",
+    "alt": "eufyCam E330 (Professional)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g00000GwXOK&operationContext=CHATTER&contentId=05T5g00000v6SxO",
+    "page": "https://service.eufy.com/product-description/a085g0000050X7GAAU",
+    "sha256": "6f851a674c5f25f1d5c0e96270e9a273d06b3396eb5a8ac226015b31a4d48c90",
+    "bytes": 171622,
+    "sourceProduct": "eufyCam E330 (Professional)"
+  },
+  "t8162": {
+    "deviceId": "t8162",
+    "file": "products/t8162.jpg",
+    "alt": "eufyCam S3 Pro Add-on Camera",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068J1000004e58F&operationContext=CHATTER&contentId=05TJ100000GofYq",
+    "page": "https://service.eufy.com/product-description/a08J1000000Y7PaIAK",
+    "sha256": "6412d9a0a972c00b460469e998821fd26c70617616220effe4e6fee7714c5dd1",
+    "bytes": 41855,
+    "sourceProduct": "eufyCam S3 Pro Add-on Camera"
+  },
+  "t85f1": {
+    "deviceId": "t85f1",
+    "file": "products/t85f1.jpg",
+    "alt": "eufy Smart Lock E30",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e20000090zMb&operationContext=CHATTER&contentId=05Te200000DJIEL",
+    "page": "https://service.eufy.com/product-description/a08J1000000Y1DPIA0",
+    "sha256": "9a049a7f5a81204f849cbd8cee2f480769b04024ae5f3dff57059357ef47af08",
+    "bytes": 64853,
+    "sourceProduct": "eufy Smart Lock E30"
+  },
+  "t86p2": {
+    "deviceId": "t86p2",
+    "file": "products/t86p2.jpg",
+    "alt": "4G LTE Cam S330",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g00000KlV6B&operationContext=CHATTER&contentId=05T5g00001CeNQr",
+    "page": "https://service.eufy.com/product-description/a085g0000050UFEAA2",
+    "sha256": "202331672369893feb00b0f18b9b07f908ffd273ba88ddfa25e10b22a2feee79",
+    "bytes": 44312,
+    "sourceProduct": "4G LTE Cam S330"
+  },
+  "t8150": {
+    "deviceId": "t8150",
+    "file": "products/t8150.png",
+    "alt": "4G Camera S230",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g000006xTVn&operationContext=CHATTER&contentId=05T5g00000LJiS1",
+    "page": "https://service.eufy.com/product-description/a085g000000PDGdAAO",
+    "sha256": "74eb8b3522a0adcaf46566b57d5c04ddecb4edf2d19616eb2a2faf63e9313d14",
+    "bytes": 174700,
+    "sourceProduct": "4G Camera S230"
+  },
+  "t85p0": {
+    "deviceId": "t85p0",
+    "file": "products/t85p0.jpg",
+    "alt": "eufy FamiLock E34",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068J100000COJnc&operationContext=CHATTER&contentId=05TJ100000hQBNy",
+    "page": "https://service.eufy.com/product-description/a08J1000000YbW4IAK",
+    "sha256": "2627295d9c9c678ef3a2872e21b0006cadbb028b679184df2de4e58082e4c8e9",
+    "bytes": 46508,
+    "sourceProduct": "eufy FamiLock E34"
+  },
+  "t85p1": {
+    "deviceId": "t85p1",
+    "file": "products/t85p1.jpg",
+    "alt": "eufy FamiLock E35",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068J100000COJnc&operationContext=CHATTER&contentId=05TJ100000hQBNy",
+    "page": "https://service.eufy.com/product-description/a08J1000000YbW9IAK",
+    "sha256": "2627295d9c9c678ef3a2872e21b0006cadbb028b679184df2de4e58082e4c8e9",
+    "bytes": 46508,
+    "sourceProduct": "eufy FamiLock E35"
+  },
+  "t90f0": {
+    "deviceId": "t90f0",
+    "file": "products/t90f0.jpg",
+    "alt": "eufy Flood &Freeze Sensor E20",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e20000088VLQ&operationContext=CHATTER&contentId=05Te200000ByZYO",
+    "page": "https://service.eufy.com/product-description/a08e2000007mvlCAAQ",
+    "sha256": "851393b231ecb9eb7a6f9993c0c7f761fcc9fa25cc7059f3db4be47a4bc449fb",
+    "bytes": 15488,
+    "sourceProduct": "eufy Flood &Freeze Sensor E20"
+  },
+  "t8424": {
+    "deviceId": "t8424",
+    "file": "products/t8424.jpg",
+    "alt": "Floodlight Cam 2K",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpeg&versionId=0685g000002qwdT&operationContext=CHATTER&contentId=05T5g000009WIiH",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm5XAAS",
+    "sha256": "4c627152c13fed06a6ac292d6b169bc60a827d452ce37307bf3207883fe148d7",
+    "bytes": 15375,
+    "sourceProduct": "Floodlight Cam 2K"
+  },
+  "t8422": {
+    "deviceId": "t8422",
+    "file": "products/t8422.jpg",
+    "alt": "Floodlight Cam E 2K",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpeg&versionId=0685g000002rIkT&operationContext=CHATTER&contentId=05T5g00000AlE12",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm5YAAS",
+    "sha256": "2a016401ffa9d76331c82cb7add989e111e9cfd2d6a35a44e393cdc2df8e911f",
+    "bytes": 71212,
+    "sourceProduct": "Floodlight Cam E 2K"
+  },
+  "t8453-e120": {
+    "deviceId": "t8453-e120",
+    "file": "products/t8453-e120.jpg",
+    "alt": "Garage-Control Cam Plus",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g000009tA3O&operationContext=CHATTER&contentId=05T5g00000TjQti",
+    "page": "https://service.eufy.com/product-description/a085g000004wogRAAQ",
+    "sha256": "d6544f0ebf93617579f7cb55ee1cb7b526b5a04b3c55235158e8fbc1dc4a4755",
+    "bytes": 41261,
+    "sourceProduct": "Garage-Control Cam Plus"
+  },
+  "t8452": {
+    "deviceId": "t8452",
+    "file": "products/t8452.jpg",
+    "alt": "Garage-Control Cam",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g000009tA3J&operationContext=CHATTER&contentId=05T5g00000TjQtd",
+    "page": "https://service.eufy.com/product-description/a085g000004xgF8AAI",
+    "sha256": "1a71150c5dd89d3c66eef4071f296c172fd2c637eec130c01a7c9d509679a3dc",
+    "bytes": 42686,
+    "sourceProduct": "Garage-Control Cam"
+  },
+  "t8025": {
+    "deviceId": "t8025",
+    "file": "products/t8025.jpg",
+    "alt": "HomeBase Mini",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e200000CYiiu&operationContext=CHATTER&contentId=05Te200000IRRLK",
+    "page": "https://service.eufy.com/product-description/a08e200000bDwtiAAC",
+    "sha256": "4e8ae596c3914c64dcc3da8264cc28f8997305a872bdd84aac73987cf3e74071",
+    "bytes": 31810,
+    "sourceProduct": "HomeBase Mini"
+  },
+  "t9000": {
+    "deviceId": "t9000",
+    "file": "products/t9000.jpg",
+    "alt": "eufy HomeBase Professional S1",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e20000092Wt6&operationContext=CHATTER&contentId=05Te200000DL2CZ",
+    "page": "https://service.eufy.com/product-description/a08e2000007j2L6AAI",
+    "sha256": "2c0d2d83a44804154ae7514826dc1f37801ad52d17bc1c06d1b2be74d8771690",
+    "bytes": 50882,
+    "sourceProduct": "eufy HomeBase Professional S1"
+  },
+  "t8401": {
+    "deviceId": "t8401",
+    "file": "products/t8401.jpg",
+    "alt": "Indoor Cam 1080p (Solo IndoorCam C22)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g0000008z4F&operationContext=CHATTER&contentId=05T5g0000006NSu",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm4CAAS",
+    "sha256": "370043a0f54c564cb5e45aeca7ba3b42a2d68f48675a81d55834abe4cdb43321",
+    "bytes": 19833,
+    "sourceProduct": "Indoor Cam 1080p (Solo IndoorCam C22)"
+  },
+  "t8411": {
+    "deviceId": "t8411",
+    "file": "products/t8411.jpg",
+    "alt": "Indoor Cam 1080p Pan & Tilt (Solo IndoorCam P22)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g0000008z4Q&operationContext=CHATTER&contentId=05T5g0000006NMJ",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm4DAAS",
+    "sha256": "130a5a0ae9f3c18810d88e1632b6df5e88325c66a3e4ccfd6ce3e9944845881e",
+    "bytes": 22851,
+    "sourceProduct": "Indoor Cam 1080p Pan & Tilt (Solo IndoorCam P22)"
+  },
+  "t8w11c-original": {
+    "deviceId": "t8w11c-original",
+    "file": "products/t8w11c-original.jpg",
+    "alt": "Indoor Cam C220",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpeg&versionId=0685g00000JfnLB&operationContext=CHATTER&contentId=05T5g000017TOR1",
+    "page": "https://service.eufy.com/product-description/a085g00000BdG5pAAF",
+    "sha256": "eebe28a652286b24ba065ed2d8a091d4a3a036c8cbadf54d1e656a8c779cc211",
+    "bytes": 28386,
+    "sourceProduct": "Indoor Cam C220"
+  },
+  "t8414": {
+    "deviceId": "t8414",
+    "file": "products/t8414.jpg",
+    "alt": "Indoor Cam Mini 2K",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g000003j4rT&operationContext=CHATTER&contentId=05T5g00000C7ejh",
+    "page": "https://service.eufy.com/product-description/a085g000000ObCBAA0",
+    "sha256": "a3c5d1c09ac44894206ccde34cd70b99275fe2eb9b6e66ed6fd52277126008bd",
+    "bytes": 22061,
+    "sourceProduct": "Indoor Cam Mini 2K"
+  },
+  "t90r0": {
+    "deviceId": "t90r0",
+    "file": "products/t90r0.jpg",
+    "alt": "eufy Indoor Siren E20",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e20000088I4u&operationContext=CHATTER&contentId=05Te200000Bz52r",
+    "page": "https://service.eufy.com/product-description/a08e2000007mXnKAAU",
+    "sha256": "480aa080a23f8bb359abeb8cc41ae0e38d29d60cc21e70089b56a155f5f558e0",
+    "bytes": 19538,
+    "sourceProduct": "eufy Indoor Siren E20"
+  },
+  "t90k0": {
+    "deviceId": "t90k0",
+    "file": "products/t90k0.jpg",
+    "alt": "eufy Key Fob E10",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e20000088UVp&operationContext=CHATTER&contentId=05Te200000ByuzN",
+    "page": "https://service.eufy.com/product-description/a08e2000007nGAvAAM",
+    "sha256": "981254606c92a4375de67590aa56c97c0e1c2027a8849286b5af61d7a7cfbe8d",
+    "bytes": 20320,
+    "sourceProduct": "eufy Key Fob E10"
+  },
+  "t8960": {
+    "deviceId": "t8960",
+    "file": "products/t8960.jpg",
+    "alt": "Keypad",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g0000008z4U&operationContext=CHATTER&contentId=05T5g0000006NU2",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm4MAAS",
+    "sha256": "15aa8fb954f902e7f43e89e270450e3d4318d338984511ad96e7b6fee00e490d",
+    "bytes": 20862,
+    "sourceProduct": "Keypad"
+  },
+  "t85l0": {
+    "deviceId": "t85l0",
+    "file": "products/t85l0.jpg",
+    "alt": "Smart Lever Lock C33",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068J1000003Atos&operationContext=CHATTER&contentId=05TJ100000BwHbx",
+    "page": "https://service.eufy.com/product-description/a08J1000000XrAdIAK",
+    "sha256": "738b3b23fcf5ccd968ef2af5e4f4085d535c851b913d43f2f5a36f79ab12c93b",
+    "bytes": 34778,
+    "sourceProduct": "Smart Lever Lock C33"
+  },
+  "t8e00": {
+    "deviceId": "t8e00",
+    "file": "products/t8e00.jpg",
+    "alt": "PoE Cam S4",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068J100000BuFTa&operationContext=CHATTER&contentId=05TJ100000ggvAy",
+    "page": "https://service.eufy.com/product-description/a08J10000018IsvIAE",
+    "sha256": "7c986059c53903311b6ed9be184b423ac9b360a5d3d1a5bda6725a929f6f8191",
+    "bytes": 40212,
+    "sourceProduct": "PoE Cam S4"
+  },
+  "t8p00": {
+    "deviceId": "t8p00",
+    "file": "products/t8p00.jpg",
+    "alt": "PoE Cam E40",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068J100000BuDu9&operationContext=CHATTER&contentId=05TJ100000ggoAc",
+    "page": "https://service.eufy.com/product-description/a08J10000018It5IAE",
+    "sha256": "434bd5cbe2d963adf25978c5fe365e595b01360de219e6fd021b9025faf1bbce",
+    "bytes": 38591,
+    "sourceProduct": "PoE Cam E40"
+  },
+  "t8p10": {
+    "deviceId": "t8p10",
+    "file": "products/t8p10.jpg",
+    "alt": "PoE Cam E41",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068J100000BuFUT&operationContext=CHATTER&contentId=05TJ100000ggu76",
+    "page": "https://service.eufy.com/product-description/a08J10000018ItFIAU",
+    "sha256": "dfb555a6fb8fe013bf0e7ebcbbf54616d6bfb931473b6c894341c3c85c61928b",
+    "bytes": 41671,
+    "sourceProduct": "PoE Cam E41"
+  },
+  "t8503": {
+    "deviceId": "t8503",
+    "file": "products/t8503.png",
+    "alt": "Retrofit Smart Lock E110",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g000007fDIk&operationContext=CHATTER&contentId=05T5g00000LheRO",
+    "page": "https://service.eufy.com/product-description/a085g000004x1gbAAA",
+    "sha256": "276e90096bf859b3fca6903eba6fb50d0f0c299077fb15c7720e916266a998f3",
+    "bytes": 304769,
+    "sourceProduct": "Retrofit Smart Lock E110"
+  },
+  "t8504": {
+    "deviceId": "t8504",
+    "file": "products/t8504.png",
+    "alt": "Retrofit Smart Lock E130",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g0000064nHN&operationContext=CHATTER&contentId=05T5g00000IZIwA",
+    "page": "https://service.eufy.com/product-description/a085g000004wcU9AAI",
+    "sha256": "3eb64a721f88727d1faa32b732d7d62d9522ec5a95e41e6ce709012e510e9cfb",
+    "bytes": 490307,
+    "sourceProduct": "Retrofit Smart Lock E130"
+  },
+  "t8970": {
+    "deviceId": "t8970",
+    "file": "products/t8970.png",
+    "alt": "Siren",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g00000KkJuL&operationContext=CHATTER&contentId=05T5g00001BVZ7H",
+    "page": "https://service.eufy.com/product-description/a085g000004zZD9AAM",
+    "sha256": "708d4e2b4a802997dc8b8b1271bd0518b25e954f07734ef9678356a717bd9a49",
+    "bytes": 70102,
+    "sourceProduct": "Siren"
+  },
+  "t87a0": {
+    "deviceId": "t87a0",
+    "file": "products/t87a0.jpg",
+    "alt": "eufy Smart Display E10",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068J100000COIuY&operationContext=CHATTER&contentId=05TJ100000hQ7yC",
+    "page": "https://service.eufy.com/product-description/a08J1000000YShcIAG",
+    "sha256": "963637415e7fea5130345c6b96131f1e63592cbf7147da6bb212d72f4da4ae56",
+    "bytes": 66997,
+    "sourceProduct": "eufy Smart Display E10"
+  },
+  "t8502": {
+    "deviceId": "t8502",
+    "file": "products/t8502.jpg",
+    "alt": "Smart Lock C210",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g00000CPz4r&operationContext=CHATTER&contentId=05T5g00000e7yey",
+    "page": "https://service.eufy.com/product-description/a085g000004zjxAAAQ",
+    "sha256": "2c07c41e7d14932ed7035ed7f55fcd50866069bc28d8c782dad86b734c280622",
+    "bytes": 61031,
+    "sourceProduct": "Smart Lock C210"
+  },
+  "t8506": {
+    "deviceId": "t8506",
+    "file": "products/t8506.png",
+    "alt": "Smart Lock C220",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g00000EkgEd&operationContext=CHATTER&contentId=05T5g00000pB6M5",
+    "page": "https://service.eufy.com/product-description/a085g0000050Q4kAAE",
+    "sha256": "41eef07e020828532a4e10e69b421701845eb8b537299ee5c5b0333b954b9e6f",
+    "bytes": 137323,
+    "sourceProduct": "Smart Lock C220"
+  },
+  "t85d0": {
+    "deviceId": "t85d0",
+    "file": "products/t85d0.jpg",
+    "alt": "eufy Smart Lock C30",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068J1000003ptn9&operationContext=CHATTER&contentId=05TJ100000EQ9kB",
+    "page": "https://service.eufy.com/product-description/a08J1000000Y916IAC",
+    "sha256": "79cd71bcf1061b1c16162d662c9ecf11c5cbec0d2d8eeb7ff4911a7605a3f980",
+    "bytes": 48771,
+    "sourceProduct": "eufy Smart Lock C30"
+  },
+  "t85l1": {
+    "deviceId": "t85l1",
+    "file": "products/t85l1.jpg",
+    "alt": "eufy FamiLock C32",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e200000WZwBo&operationContext=CHATTER&contentId=05Te200000muZHc",
+    "page": "https://service.eufy.com/product-description/a08e200000UFVgeAAH",
+    "sha256": "ea71972398112f722d6ac8a83319678b263ff6acd5dda9de7f62f7b1c19f88a8",
+    "bytes": 44621,
+    "sourceProduct": "eufy FamiLock C32"
+  },
+  "t85d2": {
+    "deviceId": "t85d2",
+    "file": "products/t85d2.jpg",
+    "alt": "eufy Smart Lock C34",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e200000915qB&operationContext=CHATTER&contentId=05Te200000DJsrx",
+    "page": "https://service.eufy.com/product-description/a08J1000000Y1D5IAK",
+    "sha256": "d8b59c05d436701487b14121698c8b8e845038048ac4ce5822bcd471ceb78946",
+    "bytes": 56885,
+    "sourceProduct": "eufy Smart Lock C34"
+  },
+  "t85f2": {
+    "deviceId": "t85f2",
+    "file": "products/t85f2.jpg",
+    "alt": "eufy FamiLock E32",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e200000bkjmZ&operationContext=CHATTER&contentId=05Te200000uy3Ky",
+    "page": "https://service.eufy.com/product-description/a08e200000GWYFAAA5",
+    "sha256": "8da50967d7db51dffb90a472374f6b3f788677f917f2262cedf54e41118f44f1",
+    "bytes": 74939,
+    "sourceProduct": "eufy FamiLock E32"
+  },
+  "t85m0": {
+    "deviceId": "t85m0",
+    "file": "products/t85m0.jpg",
+    "alt": "eufy FamiLock E40",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e200000bkr9A&operationContext=CHATTER&contentId=05Te200000uxBcm",
+    "page": "https://service.eufy.com/product-description/a08e200000ZOJjjAAH",
+    "sha256": "643878f740bf7b2a9e5de3bef9391512a019744919cf8f5e28e3f8b5620671d0",
+    "bytes": 59320,
+    "sourceProduct": "eufy FamiLock E40"
+  },
+  "t8520": {
+    "deviceId": "t8520",
+    "file": "products/t8520.jpg",
+    "alt": "Smart Lock S230&S231",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpeg&versionId=0685g0000008z4SAAQ&operationContext=CHATTER&contentId=05T5g0000006NTTEA2",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm4IAAS",
+    "sha256": "7173fd31640d6d50b96ad27172cb86cb43e1a9007de1744775d8b20ec103c3b6",
+    "bytes": 34557,
+    "sourceProduct": "Smart Lock S230&S231"
+  },
+  "t7400": {
+    "deviceId": "t7400",
+    "file": "products/t7400.jpg",
+    "alt": "Smart Safe S10",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g00000BHDyo&operationContext=CHATTER&contentId=05T5g00000bBTo5",
+    "page": "https://service.eufy.com/product-description/a085g000004zXZGAA2",
+    "sha256": "c30f370543d5112540d748adb6829dc80cd6a2725a129d27b4371c108cee2d26",
+    "bytes": 135226,
+    "sourceProduct": "Smart Safe S10"
+  },
+  "t7401": {
+    "deviceId": "t7401",
+    "file": "products/t7401.png",
+    "alt": "Smart Safe S12",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g00000BHDzi&operationContext=CHATTER&contentId=05T5g00000bBTqu",
+    "page": "https://service.eufy.com/product-description/a085g000004xEAhAAM",
+    "sha256": "1e0e8c07f041eb3de8931d44123527091d0e38a1577d86564f3abb15a8d43c92",
+    "bytes": 379647,
+    "sourceProduct": "Smart Safe S12"
+  },
+  "t8790": {
+    "deviceId": "t8790",
+    "file": "products/t8790.jpg",
+    "alt": "SmartDrop",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g000004GBh1&operationContext=CHATTER&contentId=05T5g00000ELzfN",
+    "page": "https://service.eufy.com/product-description/a085g000000OqmbAAC",
+    "sha256": "b20af17486b0d4ac79d403fe1fcb378fc720b375a6b70103561ac939e558898c",
+    "bytes": 164880,
+    "sourceProduct": "SmartDrop"
+  },
+  "t87b2": {
+    "deviceId": "t87b2",
+    "file": "products/t87b2.png",
+    "alt": "SmartTrack Card",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g00000CPpV9&operationContext=CHATTER&contentId=05T5g00000e7X7n",
+    "page": "https://service.eufy.com/product-description/a085g000004zY3mAAE",
+    "sha256": "292ff7f15b5bf6193bbc53799ffac059f011b3678fa64a19f22181c878ac7030",
+    "bytes": 519616,
+    "sourceProduct": "SmartTrack Card"
+  },
+  "t87b1": {
+    "deviceId": "t87b1",
+    "file": "products/t87b1.jpg",
+    "alt": "eufy SmartTrack Card E30",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068J1000005bs98&operationContext=CHATTER&contentId=05TJ100000KVBbC",
+    "page": "https://service.eufy.com/product-description/a08J1000000YST0IAO",
+    "sha256": "348c6052ceced14b2dafa50deaa3e78b6c50e84bb3c0bda7c2db3d2a1142bd07",
+    "bytes": 47077,
+    "sourceProduct": "eufy SmartTrack Card E30"
+  },
+  "t87b0": {
+    "deviceId": "t87b0",
+    "file": "products/t87b0.png",
+    "alt": "SmartTrack Link",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g00000CPpQx&operationContext=CHATTER&contentId=05T5g00000e7XFw",
+    "page": "https://service.eufy.com/product-description/a085g000004xKsdAAE",
+    "sha256": "f9182d3a325c5821d96c4a9cf50cfe860b90f155ec106d9f721e0483965a98f0",
+    "bytes": 220721,
+    "sourceProduct": "SmartTrack Link"
+  },
+  "t87b4": {
+    "deviceId": "t87b4",
+    "file": "products/t87b4.jpg",
+    "alt": "SmartTrack Link (Android)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e2000003xD5z&operationContext=CHATTER&contentId=05Te2000005GrFC",
+    "page": "https://service.eufy.com/product-description/a08e2000002zx3kAAA",
+    "sha256": "b67c3d0689937cad98891142abdf1e7891e961be2149e589c244d628c0011b7d",
+    "bytes": 115654,
+    "sourceProduct": "SmartTrack Link (Android)"
+  },
+  "t8931": {
+    "deviceId": "t8931",
+    "file": "products/t8931.png",
+    "alt": "Universal Smoke Alarm Listener",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g00000KkK2V&operationContext=CHATTER&contentId=05T5g00001BVZHu",
+    "page": "https://service.eufy.com/product-description/a085g000004zZDJAA2",
+    "sha256": "9577b6b203fa0e732869d615f4a19c2f0dea4b4d42ea3ac6422b6e5cd6b22d18",
+    "bytes": 60917,
+    "sourceProduct": "Universal Smoke Alarm Listener"
+  },
+  "t8700": {
+    "deviceId": "t8700",
+    "file": "products/t8700.jpg",
+    "alt": "eufyCam Solar Panel",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g0000008z4T&operationContext=CHATTER&contentId=05T5g0000006NTi",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm4NAAS",
+    "sha256": "546c69b0cc4c560aabce58e4015fb9620ea1553ce6ee11c86399c1a3373a1f3e",
+    "bytes": 47050,
+    "sourceProduct": "eufyCam Solar Panel"
+  },
+  "t8173": {
+    "deviceId": "t8173",
+    "file": "products/t8173.jpg",
+    "alt": "SoloCam E42",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e2000005EUhp&operationContext=CHATTER&contentId=05Te20000079Hw1",
+    "page": "https://service.eufy.com/product-description/a08J10000018MkPIAU",
+    "sha256": "237e8b2329f864028d23e81ab1c5e976655674ea5858f631a244f2dba7ee30d7",
+    "bytes": 44100,
+    "sourceProduct": "SoloCam E42"
+  },
+  "t8122": {
+    "deviceId": "t8122",
+    "file": "products/t8122.png",
+    "alt": "SoloCam L20",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g000000AabJ&operationContext=CHATTER&contentId=05T5g000006Vdjm",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm45AAC",
+    "sha256": "025904702665f95eb11b0d447c790a5b0c29dae1bbb02d10234d5670ec265a22",
+    "bytes": 691592,
+    "sourceProduct": "SoloCam L20"
+  },
+  "t8203": {
+    "deviceId": "t8203",
+    "file": "products/t8203.png",
+    "alt": "Video Doorbell Dual 2K (Wired)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g000006xYXE&operationContext=CHATTER&contentId=05T5g00000LK0HB",
+    "page": "https://service.eufy.com/product-description/a085g000004wyaUAAQ",
+    "sha256": "446915180fdcbbf4c40f29d4a5ad3bc4a0f8b3c3a978bd2840711b2a14f6a257",
+    "bytes": 372855,
+    "sourceProduct": "Video Doorbell Dual 2K (Wired)"
+  },
+  "t8212": {
+    "deviceId": "t8212",
+    "file": "products/t8212.jpg",
+    "alt": "Video Doorbell 2C (Battery-Powered)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpeg&versionId=0685g000002quRA&operationContext=CHATTER&contentId=05T5g000009WAC1",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm5aAAC",
+    "sha256": "9f84ef09eb1b42ab102536d2a130bb6e172c02a9190becceb8a8fbc3e162fb2d",
+    "bytes": 29009,
+    "sourceProduct": "Video Doorbell 2C (Battery-Powered)"
+  },
+  "t8221": {
+    "deviceId": "t8221",
+    "file": "products/t8221.jpg",
+    "alt": "Video Doorbell 2E (Battery-Powered)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g000008MBRY&operationContext=CHATTER&contentId=05T5g00000OvBRX",
+    "page": "https://service.eufy.com/product-description/a085g000004xCCHAA2",
+    "sha256": "b4b51f1f5648c3b0d835426cb3ae2064eba9968a3157db75a70d664161a30fd3",
+    "bytes": 32574,
+    "sourceProduct": "Video Doorbell 2E (Battery-Powered)"
+  },
+  "t8202": {
+    "deviceId": "t8202",
+    "file": "products/t8202.jpg",
+    "alt": "Video Doorbell 2K Pro (Wired)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g0000008z3F&operationContext=CHATTER&contentId=05T5g0000006NKq",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm5PAAS",
+    "sha256": "fac5ec544d935a3c01870652a05ec51a0a951aca5ac5cbd0801f6722132e2bd4",
+    "bytes": 54820,
+    "sourceProduct": "Video Doorbell 2K Pro (Wired)"
+  },
+  "t8222": {
+    "deviceId": "t8222",
+    "file": "products/t8222.jpg",
+    "alt": "Video Doorbell 1080p (Battery-Powered)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g0000008z3I&operationContext=CHATTER&contentId=05T5g0000006NL5",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm5QAAS",
+    "sha256": "4391d6d1771206f836b577a5bfd6555d779cca12c7f03fcd6962362f2183bc88",
+    "bytes": 29068,
+    "sourceProduct": "Video Doorbell 1080p (Battery-Powered)"
+  },
+  "t8026": {
+    "deviceId": "t8026",
+    "file": "products/t8026.jpg",
+    "alt": "Doorbell Chime2",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e200000JB0mX&operationContext=CHATTER&contentId=05Te200000SuY8Z",
+    "page": "https://service.eufy.com/product-description/a08e200000H9f9PAAR",
+    "sha256": "842b9c9a5ae090eb771e6df72bd948e9569307f16c9ecbf051f721b867fbffc5",
+    "bytes": 52901,
+    "sourceProduct": "Doorbell Chime2"
+  },
+  "t8531": {
+    "deviceId": "t8531",
+    "file": "products/t8531.jpg",
+    "alt": "Video Smart Lock E330",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g00000HjIpn&operationContext=CHATTER&contentId=05T5g0000115bkd",
+    "page": "https://service.eufy.com/product-description/a085g0000050au5AAA",
+    "sha256": "e80f48860181209376506b863715dd7f54dedfe6ab90fc0cff16358092c6f735",
+    "bytes": 31073,
+    "sourceProduct": "Video Smart Lock E330"
+  },
+  "t8530": {
+    "deviceId": "t8530",
+    "file": "products/t8530.png",
+    "alt": "Video Smart Lock S330",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g00000CPpo9&operationContext=CHATTER&contentId=05T5g00000e7XdM",
+    "page": "https://service.eufy.com/product-description/a085g000004xt7kAAA",
+    "sha256": "c008b7096033681a4d81ea3f196eb2a0df2f8e77d0da648fb0d7ea7520450c0f",
+    "bytes": 105894,
+    "sourceProduct": "Video Smart Lock S330"
+  },
+  "t86c1": {
+    "deviceId": "t86c1",
+    "file": "products/t86c1.jpg",
+    "alt": "eufy Wall Light Cam S4",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e200000blYde&operationContext=CHATTER&contentId=05Te200000uyGcn",
+    "page": "https://service.eufy.com/product-description/a08e200000LSuKvAAL",
+    "sha256": "e96b95ecb3a3e068ef6937d603a47bc50eb00b15ad831697d053fca3450312cc",
+    "bytes": 47380,
+    "sourceProduct": "eufy Wall Light Cam S4"
+  },
+  "t8112": {
+    "deviceId": "t8112",
+    "file": "products/t8112.png",
+    "alt": "eufyCam E",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Png&versionId=0685g0000008z43&operationContext=CHATTER&contentId=05T5g0000006NRc",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm5LAAS",
+    "sha256": "1a4434ef5dbe2299d2ca798e1d120b228f72e03fa6a48a2467f2eeddf4ec9706",
+    "bytes": 243765,
+    "sourceProduct": "eufyCam E"
+  },
+  "t8441": {
+    "deviceId": "t8441",
+    "file": "products/t8441.jpg",
+    "alt": "Outdoor Cam Pro (Solo OutdoorCam C24)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpeg&versionId=0685g000002qhzB&operationContext=CHATTER&contentId=05T5g000009VX54",
+    "page": "https://service.eufy.com/product-description/a085g000000MKDGAA4",
+    "sha256": "5d7d2d0954c57cda69221b48d622b59f2bd14b789bd4b8e634fc8cbbaf4eb017",
+    "bytes": 26810,
+    "sourceProduct": "Outdoor Cam Pro (Solo OutdoorCam C24)"
+  },
+  "t8442": {
+    "deviceId": "t8442",
+    "file": "products/t8442.jpg",
+    "alt": "Outdoor Cam (Solo OutdoorCam C22)",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g000002qi5M&operationContext=CHATTER&contentId=05T5g000009VXG2",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm5WAAS",
+    "sha256": "9b795c6c4f42818c5d4f0bee33c7dcb7fe5b9d0057ad1ee93980dc03d1dfa4ea",
+    "bytes": 29380,
+    "sourceProduct": "Outdoor Cam (Solo OutdoorCam C22)"
+  },
+  "t90p0": {
+    "deviceId": "t90p0",
+    "file": "products/t90p0.jpg",
+    "alt": "eufy Panic Button E10",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e2000008887C&operationContext=CHATTER&contentId=05Te200000ByzPB",
+    "page": "https://service.eufy.com/product-description/a08e2000007lCMpAAM",
+    "sha256": "b9d435ed4cf9a22c0f139cb70056dccc3d592f76890a01bdc0bc95ad68ef5349",
+    "bytes": 23288,
+    "sourceProduct": "eufy Panic Button E10"
+  },
+  "t90s0": {
+    "deviceId": "t90s0",
+    "file": "products/t90s0.jpg",
+    "alt": "eufy Smoke Alarm E10",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068e20000087tL5&operationContext=CHATTER&contentId=05Te200000ByyD2",
+    "page": "https://service.eufy.com/product-description/a08e2000007mpaqAAA",
+    "sha256": "a257afc08f0ee7b319c1b6e6754743d1ce021e66c281d779b77965785e533216",
+    "bytes": 22749,
+    "sourceProduct": "eufy Smoke Alarm E10"
+  },
+  "t8n00": {
+    "deviceId": "t8n00",
+    "file": "products/t8n00.jpg",
+    "alt": "Network Video Recorder S4",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=068J100000BuDjG&operationContext=CHATTER&contentId=05TJ100000ggmvW",
+    "page": "https://service.eufy.com/product-description/a08J10000018ISGIA2",
+    "sha256": "0ae742a98455a938b9132cd0682eac669f72bd58888294b6eee304fdb0aa3993",
+    "bytes": 18486,
+    "sourceProduct": "Network Video Recorder S4"
+  },
+  "window-camera-e10": {
+    "deviceId": "window-camera-e10",
+    "file": "products/window-camera-e10.png",
+    "alt": "Window Camera E10",
+    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/b58ce7b99582c961375527c3c6b27ebb_f9651c45-7fe4-4589-a7f3-8fda2d87c24e.png?v=1790755949&width=800",
+    "page": "https://us.eufy.com/products/t8404121",
+    "sha256": "60fcfd8cc19d3e45b7c651bdb3cd753f8e163d01af55dcffaf040fa915aa4a03",
+    "bytes": 125865,
+    "sourceProduct": "Window Camera E10"
+  },
+  "video-doorbell-s4": {
+    "deviceId": "video-doorbell-s4",
+    "file": "products/video-doorbell-s4.png",
+    "alt": "eufy Video Doorbell S4 with Chime 2",
+    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/Group1_2.png?v=1773284827&width=800",
+    "page": "https://us.eufy.com/products/e82151f2",
+    "sha256": "bb394e6d5eeeee1840fb8e2c8b9514e72ab4c0644a5f71a571733848720ce64b",
+    "bytes": 167493,
+    "sourceProduct": "eufy Video Doorbell S4 with Chime 2"
+  },
+  "t7100120": {
+    "deviceId": "t7100120",
+    "file": "products/t7100120.png",
+    "alt": "eufy PoE  Bullet-PTZ Cam E50",
+    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/T7100_21a8491f-e3ea-4679-8ab6-1fa6a1b16417.png?v=1786422000&width=800",
+    "page": "https://us.eufy.com/products/t7100120",
+    "sha256": "91f848c099b7d8660d431d0bc56635cd1887b46ff0ada28868528dbeb01ba205",
+    "bytes": 185537,
+    "sourceProduct": "eufy PoE  Bullet-PTZ Cam E50"
+  },
+  "e7100121": {
+    "deviceId": "e7100121",
+    "file": "products/e7100121.png",
+    "alt": "eufy Security NVR System E50-4-Cam Kit",
+    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/E7100_0032d988-3393-4fc4-b315-7b87f7bbda5c.png?v=1788408734&width=800",
+    "page": "https://us.eufy.com/products/e7100121",
+    "sha256": "3feabf70881ad27437b9ef68e93f4faec8ebc1a04a5e214e61be429685160d20",
+    "bytes": 281253,
+    "sourceProduct": "eufy Security NVR System E50-4-Cam Kit"
+  },
+  "t87b3": {
+    "deviceId": "t87b3",
+    "file": "products/t87b3.png",
+    "alt": "eufy SmartTrack Card E40",
+    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/1-T87B3_E40___1200x1500_c22b095b-7f30-41ea-9412-7f7582f280a7.png?v=1782815362&width=800",
+    "page": "https://us.eufy.com/products/t87b3010",
+    "sha256": "a0d197f0080f6f5f0e680b3da3a46f8a0f3177ec82f12b8d27d3e8c5b90f3419",
+    "bytes": 171572,
+    "sourceProduct": "eufy SmartTrack Card E40"
+  },
+  "glass-break-sensor-e10": {
+    "deviceId": "glass-break-sensor-e10",
+    "file": "products/glass-break-sensor-e10.png",
+    "alt": "eufy Glass Break Sensor E10",
+    "source": "https://cdn.shopify.com/s/files/1/0504/7094/4954/files/T90G0321_US_1200x1200_23bce4af-b602-4a21-87d2-6b74ff633136.png?v=1785137405&width=800",
+    "page": "https://www.eufy.com/products/t90g0121",
+    "sha256": "bb7b30f379625dcc31a2302711bb3ae2e301277cd8f8f133841fabd9156251f7",
+    "bytes": 105696,
+    "sourceProduct": "eufy Glass Break Sensor E10"
+  },
+  "t85f0": {
+    "deviceId": "t85f0",
+    "file": "products/t85f0.png",
+    "alt": "eufy Smart Lock E31",
+    "source": "https://cdn.shopify.com/s/files/1/0737/0027/8551/files/Group_2121235280.png?v=1756089392&width=800",
+    "page": "https://www.eufy.com/au/products/t85f0t11",
+    "sha256": "66a9e741fdc57d633156798d56b77ba928cf57174c6f58a1e56df31e0ba4ba10",
+    "bytes": 318845,
+    "sourceProduct": "eufy Smart Lock E31"
   }
 }

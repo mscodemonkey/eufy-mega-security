@@ -1089,6 +1089,17 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
     "handler": "camera"
   },
   {
+    "id": "t85f1",
+    "name": "Smart Lock E30",
+    "category": "smart_lock",
+    "models": [
+      "T85F1"
+    ],
+    "deviceType": 206,
+    "status": "recognised",
+    "handler": null
+  },
+  {
     "id": "t85p0",
     "name": "FamiLock E34",
     "category": "smart_lock",
@@ -1281,4 +1292,4 @@ export const GENERATED_HOMEBASE_DEVICE_TYPES: ReadonlySet<number> = new Set([0,1
 export const GENERATED_KNOWN_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([1,3,4,5,7,8,9,14,15,16,19,23,24,26,30,31,32,33,34,35,37,38,39,44,45,46,47,48,49,60,61,62,63,64,87,88,89,91,93,94,95,96,98,100,104,105,110,111,131,132,133,151,301,303,10005,10008,10009,10010,10011,10031,10034,10035,10037,10039]);
 
 /** Known non-camera types that must not enter camera review or admission. */
-export const GENERATED_NON_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([0,2,10,11,18,20,25,27,28,51,54,55,58,90,123,126,127,140,141,142,143,157,159,161,180,184,189,201,202,203,209,211,300]);
+export const GENERATED_NON_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([0,2,10,11,18,20,25,27,28,51,54,55,58,90,123,126,127,140,141,142,143,157,159,161,180,184,189,201,202,203,206,209,211,300]);
