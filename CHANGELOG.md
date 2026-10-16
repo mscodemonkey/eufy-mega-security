@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.162
+
+- Match the official Eufy login request shape for accounts that previously failed at startup with application error 26108.
+- Recover experimental NVR video after a forward sequence discontinuity instead of ending the whole trial.
+
 ## 0.1.161
 
 - Correct experimental NVR test-clip timing when the camera declares a different frame rate from the video it sends. Successful clip completion no longer carries a cancelled-stage label.
