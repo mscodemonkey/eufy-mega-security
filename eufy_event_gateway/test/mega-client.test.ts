@@ -375,11 +375,12 @@ test("retains the limited verification session across an app restart", async () 
     authToken: "", tokenExpiresAt: 0, userId: "", megaDomain: "mega-eu-pr.eufy.com", domains: {},
     identities: { [host]: { keyIdent: "identity", sharedKey, clientPublicKey: "public" } },
   }));
-  const requests: Array<{ path: string; token: string | null }> = [];
+  const requests: Array<{ path: string; token: string | null; body: Record<string, unknown> }> = [];
   const fakeFetch: typeof fetch = async (input, init) => {
     const path = new URL(String(input)).pathname;
     const token = new Headers(init?.headers).get("x-auth-token");
-    requests.push({ path, token });
+    const body = JSON.parse(decryptEnvelope(String(init?.body), sharedAesKey(sharedKey))) as Record<string, unknown>;
+    requests.push({ path, token, body });
     if (path === "/passport/login" && !token) {
       return new Response(JSON.stringify({
         code: 26052,
@@ -409,6 +410,8 @@ test("retains the limited verification session across an app restart", async () 
     });
     assert.deepEqual(await firstProcess.connect(), { state: "verification-required" });
     assert.equal(requests[1]?.token, "limited-token");
+    assert.equal(requests[0]?.body.enc, 0);
+    assert.equal(requests[0]?.body.time_zone, new Date(1_700_000_000_000).getTimezoneOffset() * -60_000);
     assert.equal(JSON.parse(await readFile(sessionPath, "utf8")).authToken, "limited-token");
     assert.equal(JSON.parse(await readFile(sessionPath, "utf8")).verificationPending, true);
 
@@ -418,6 +421,8 @@ test("retains the limited verification session across an app restart", async () 
     });
     assert.deepEqual(await restartedProcess.connect("123456"), { state: "authenticated" });
     assert.equal(requests.at(-1)?.token, "limited-token");
+    assert.equal(requests.at(-1)?.body.enc, 0);
+    assert.equal(requests.at(-1)?.body.time_zone, new Date(1_700_000_000_000).getTimezoneOffset() * -60_000);
     assert.equal(JSON.parse(await readFile(sessionPath, "utf8")).authToken, "full-token");
     assert.equal(JSON.parse(await readFile(sessionPath, "utf8")).verificationPending, false);
   } finally {

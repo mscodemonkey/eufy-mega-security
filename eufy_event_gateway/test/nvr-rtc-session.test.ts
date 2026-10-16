@@ -50,8 +50,8 @@ function keyframePackets(frame: Buffer, sequence: number): Buffer[] {
   });
 }
 
-for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async () => {
-  const codec = scenario === 'h265' ? 'h265' : 'h264';
+for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async () => {
+  const codec = scenario === 'h265' || scenario === 'sequence-gap' ? 'h265' : 'h264';
   const server = new WebSocketServer({ port: 0 });
   await once(server, 'listening');
   const address = server.address(); assert.equal(typeof address, 'object');
@@ -121,12 +121,13 @@ for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'stat
       if (body.cmd === 1003) {
         assert.equal(body.payload.chn_list[0].sensor, scenario === 'legacy-first-lens' ? 0 : 1);
         sendVideo = setInterval(() => {
+        if (scenario === 'sequence-gap' && videoSequence === 3) videoSequence += 20;
         const media = Buffer.alloc(22 + generated.stdout.length); media.writeUInt32LE(generated.stdout.length, 0);
         media[4] = 1; media[5] = codec === 'h264' ? 0 : 1; media.writeUInt16LE(videoSequence, 6);
         media[8] = 10; media.writeUInt16LE(320, 10); media.writeUInt16LE(180, 12); media.writeBigUInt64LE(BigInt(videoSequence) * 2000n, 14);
         generated.stdout.copy(media, 22);
-        const frame = application(1300, 0, media); frame[12] = scenario === 'h265' ? 101 : 3; frame[14] = 1;
-        const parts = scenario === 'h265' ? keyframePackets(frame, videoSequence++) : nvrPackets(frame, videoSequence++, 1, 1);
+        const frame = application(1300, 0, media); frame[12] = codec === 'h265' ? 101 : 3; frame[14] = 1;
+        const parts = codec === 'h265' ? keyframePackets(frame, videoSequence++) : nvrPackets(frame, videoSequence++, 1, 1);
         for (const packet of parts) channel.send(packet);
       }, 100);
       }
@@ -204,11 +205,15 @@ for (const scenario of ['h264', 'h265', 'legacy-first-lens', 'state-read', 'stat
     assert.equal(decoded.status, 0, decoded.stderr.toString()); assert.ok(clip.length > 1000); assert.equal(session.codec, codec); assert.equal(snapshots, 0); assert.equal(extractors, 0); assert.equal(diagnosticMedia, 0); assert.equal(attached, 1); assert.deepEqual(commands, [9100, 1003, 1004]);
     controller.abort(); await session.close(); await session.close();
     assert.deepEqual(commands, [9100, 1003, 1004]); assert.equal(session.stats.stopUnconfirmed, 0);
-    if (scenario === 'h265') {
+    if (scenario === 'h265' || scenario === 'sequence-gap') {
       assert.ok(session.stats.channel5Frames > 0);
-      assert.ok(session.stats.controlPackets >= 40);
+      if (scenario === 'h265') assert.ok(session.stats.controlPackets >= 40);
       assert.equal(session.stats.rejected, 0);
       assert.deepEqual(session.framingRejections, {});
+    }
+    if (scenario === 'sequence-gap') {
+      assert.equal(session.stats.applicationSequenceRecoveries, 1);
+      assert.equal(session.stats.videoSequenceRecoveries, 1);
     }
   } finally {
     if (sendVideo) clearInterval(sendVideo); await session.close(); await manager.close(); socket?.terminate(); await peer.close(); await new Promise<void>(resolve => server.close(() => resolve()));

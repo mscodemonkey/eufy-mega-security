@@ -69,6 +69,12 @@ export interface NvrRtcStats {
   staleReplies: number;
   ignoredAudio: number;
   ignoredUnknownMedia: number;
+
+  /** Forward application-frame gaps recovered within the owning channel. */
+  applicationSequenceRecoveries: number;
+
+  /** Video sequence gaps that forced decoder bootstrap to restart. */
+  videoSequenceRecoveries: number;
   stopUnconfirmed: number;
   channel0Frames: number;
   channel1Frames: number;
@@ -87,7 +93,9 @@ export interface NvrRtcStats {
 export class NvrRtcSession {
   readonly output = new PassThrough({ highWaterMark: 4 * 1024 * 1024 + 64 });
   readonly stats: NvrRtcStats = { packets: 0, frames: 0, video: 0, controlPackets: 0, rejected: 0,
-    segmentNotEchoed: 0, staleReplies: 0, ignoredAudio: 0, ignoredUnknownMedia: 0, stopUnconfirmed: 0, channel0Frames: 0, channel1Frames: 0, channel2Frames: 0, channel3Frames: 0, channel4Frames: 0, channel5Frames: 0 };
+    segmentNotEchoed: 0, staleReplies: 0, ignoredAudio: 0, ignoredUnknownMedia: 0,
+    applicationSequenceRecoveries: 0, videoSequenceRecoveries: 0, stopUnconfirmed: 0,
+    channel0Frames: 0, channel1Frames: 0, channel2Frames: 0, channel3Frames: 0, channel4Frames: 0, channel5Frames: 0 };
   readonly #abort = new AbortController();
   readonly #negotiation = new AbortController();
   readonly #reassembler = new NvrPtcsReassembler({ maxFrameBytes: 4 * 1024 * 1024 + 64,
@@ -97,7 +105,7 @@ export class NvrRtcSession {
   get framingRejections(): NvrPtcsReassemblyStats["rejected"] {
     return this.#reassembler.stats.rejected;
   }
-  readonly #cache = new VideoParameterSetCache();
+  #cache = new VideoParameterSetCache();
   readonly #channels = new Map<string, RTCDataChannel>();
   readonly #pendingCandidates: string[] = [];
   readonly #localCandidates = new Set<string>();
@@ -420,7 +428,15 @@ export class NvrRtcSession {
     if (previous !== undefined) {
       const distance = (result.sequence - previous + 65536) % 65536;
       if (distance === 0 || distance >= 32768) return;
-      if (distance > 16) throw new NvrTrialError("framing", "frame_sequence_gap");
+      if (distance > 16) {
+        for (const [queuedKey, queued] of this.#reorder) {
+          if (queued.channel !== result.channel) continue;
+          this.#reorder.delete(queuedKey);
+          this.#reorderBytes -= queued.frame.length;
+        }
+        this.#lastSequence.set(result.channel, (result.sequence + 65535) % 65536);
+        this.stats.applicationSequenceRecoveries++;
+      }
     }
     const key = `${result.channel}:${result.sequence}`;
     if (this.#reorder.has(key)) return;
@@ -450,7 +466,11 @@ export class NvrRtcSession {
     if (frame.command === 1300) {
       if (!this.#startSent || this.#retired) return;
       const video = nvrVideo(frame, this.options.channel);
-      if (this.#videoSequence !== null && video.sequence !== (this.#videoSequence + 1) % 65536) throw new NvrTrialError("video");
+      if (this.#videoSequence !== null && video.sequence !== (this.#videoSequence + 1) % 65536) {
+        this.#cache = new VideoParameterSetCache();
+        this.#bootstrapped = false;
+        this.stats.videoSequenceRecoveries++;
+      }
       if (this.#codec && this.#codec !== video.codec) throw new NvrTrialError("video");
       this.#videoSequence = video.sequence; this.#codec = video.codec; this.stats.video++;
       this.#cache.push(video.bytes, video.codec);

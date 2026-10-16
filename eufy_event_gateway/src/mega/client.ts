@@ -220,6 +220,8 @@ export class MegaClient {
       email: this.#email,
       password: password.encrypted,
       ab: this.#country,
+      enc: 0,
+      time_zone: new Date(this.#now()).getTimezoneOffset() * -60_000,
       client_secret_info: { public_key: password.clientPublicKey },
       answer: captchaAnswer ?? "",
       captcha_id: captchaAnswer ? this.#pendingCaptcha?.id ?? "" : "",
