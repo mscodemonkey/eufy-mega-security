@@ -15,8 +15,8 @@ export const CATEGORIES = Object.freeze([
 
 /** Evidence labels preserve the distinction between declaration and testing. */
 export const EVIDENCE = Object.freeze({
-  tested: { label: 'Confirmed', symbol: '✓', description: 'This feature has been tested on a real device with this connection.' },
-  reported: { label: 'Reported', symbol: '≡', description: "Someone has reported that this works with their setup. We haven't checked it ourselves yet." },
+  tested: { label: 'Working', symbol: '✓', description: 'Tested and working with this connection.' },
+  reported: { label: 'Working', symbol: '✓', description: 'Reported working by the community with this connection.' },
   mixed: { label: 'Mixed results', symbol: '±', description: 'This works for some people, but others have had problems with this connection.' },
   declared: { label: 'Needs testing', symbol: '!', description: "This feature is listed for this device, but we haven't checked it with Home Assistant yet." },
   failing: { label: 'Not working', symbol: '!', description: 'This feature was tried with this connection and did not work.' },
@@ -130,19 +130,35 @@ export function featureEvidence(feature, connection) {
   return feature.connections.find(pair => pair.id === connection) ?? { id: connection, status: 'unknown' };
 }
 
-/** Keep static and interactive feature explanations and date labels identical. */
+/** Keep static and interactive explanations separate from their Updated column. */
 export function statusDescription(pair) {
-  const dateLabel = pair.status === 'tested' ? 'Last checked' : pair.status === 'reported' ? 'Last reported' : 'Last updated';
-  return `${EVIDENCE[pair.status].description}${pair.testedOn ? ` ${dateLabel} ${pair.testedOn}.` : ''}`;
+  return EVIDENCE[pair.status].description;
 }
 
-/** Describe tested features separately from entity creation and opt-in trials. */
+const shortMonths = Object.freeze(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']);
+
+/** Format evidence dates without locale or timezone drift, leaving absent dates unknown. */
+export function updatedDate(pair) {
+  const raw = pair?.testedOn;
+  const match = typeof raw === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw) : null;
+  if (!match) return 'Not recorded';
+  const year = Number(match[1]), month = Number(match[2]), day = Number(match[3]);
+
+  // A 400-year offset preserves leap years and avoids Date.UTC's 1900 offset for years below 100.
+  const date = new Date(Date.UTC(year < 100 ? year + 400 : year, month - 1, day));
+  if (year < 100) date.setUTCFullYear(date.getUTCFullYear() - 400);
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return 'Not recorded';
+  return `${match[3]} ${shortMonths[month - 1]} ${match[1]}`;
+}
+
+/** Recognise working features from either evidence origin, keeping admission and trials separate. */
 export function deviceStatus(device) {
   if (device.id === 't85f1') return { label: 'Experimental', symbol: '!', style: 'experimental' };
   if (device.admission === 'recognised') {
     const type = Object.hasOwn(deviceTypeNames, device.category) ? deviceTypeNames[device.category] : 'device';
     return { label: `Own this ${type}? Help with testing.`, symbol: '−', style: 'unsupported' };
   }
-  if (device.features.some(feature => feature.connections.some(pair => pair.status === 'tested'))) return { label: 'Tested features', symbol: '✓', style: 'tested' };
+  if (device.features.some(feature => feature.connections.some(pair => pair.status === 'tested'))) return { label: 'Working features', symbol: '✓', style: 'tested' };
+  if (device.features.some(feature => feature.connections.some(pair => pair.status === 'reported'))) return { label: 'Working features', symbol: '✓', style: 'reported' };
   return { label: 'Needs testing', symbol: '!', style: 'declared' };
 }

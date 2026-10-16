@@ -24,6 +24,7 @@ test('build contains exactly the catalogue routes, local links and permitted ass
     assert.ok(!html.includes('source_repo'));
     assert.ok(!html.includes('/Users/'));
     assert.ok(!html.includes('project-memory'));
+    assert.doesNotMatch(html, /Last checked|Last reported|Last updated|Tested features|>Confirmed</);
     for (const [, raw] of html.matchAll(/(?:src|href)="(\/eufy-mega-security\/[^"?#]*)/g)) {
       const relative = raw.slice('/eufy-mega-security/'.length);
       await access(join(root, 'dist', relative.endsWith('/') || !relative ? relative + 'index.html' : relative));
@@ -33,6 +34,19 @@ test('build contains exactly the catalogue routes, local links and permitted ass
   assert.match(home, /connect-src 'none'/);
   assert.match(home, /https:\/\/ko-fi.com\/mscodemonkey/);
   assert.ok(!home.includes('amazon.'));
+  assert.match(home, /<option value="tested">Working \(tested\)<\/option>/);
+  assert.match(home, /<option value="reported">Working \(community reported\)<\/option>/);
+  assert.doesNotMatch(home, />Working<\/option>/);
+  assert.match(home, /<dt>Working \(tested\)<\/dt>/);
+  assert.match(home, /<dt>Working \(community reported\)<\/dt>/);
+  assert.match(home, /A tick means some features are working, either tested or reported by the community/);
+  const reported = await readFile(join(root, 'dist/devices/t8124/index.html'), 'utf8');
+  assert.match(reported, /<th scope="col">Feature<\/th><th scope="col">Status<\/th><th scope="col">What to expect<\/th><th scope="col">Updated<\/th>/);
+  assert.match(reported, /class="feature-table" role="region" tabindex="0"/);
+  assert.match(reported, /Working, community reported/);
+  for (const [, row] of reported.matchAll(/<tr data-feature="[^"]+">(.*?)<\/tr>/g)) {
+    assert.match(row, /<td data-updated>(?:Not recorded|<time datetime="\d{4}-\d{2}-\d{2}">\d{2} [A-Z][a-z]{2} \d{4}<\/time>)<\/td>/);
+  }
   const e30 = await readFile(join(root, 'dist/devices/t85f1/index.html'), 'utf8');
   assert.match(e30, /Experimental, off by default/);
   assert.match(e30, /tested off-door/);

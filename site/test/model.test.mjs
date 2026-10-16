@@ -1,7 +1,7 @@
 /** Website contract tests keep catalogue declarations separate from evidence. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CATEGORIES, EVIDENCE, projectDevice, matchesDevice, featureEvidence, escapeHtml, safeJson, compareDevices, deviceStatus, statusDescription } from '../src/model.mjs';
+import { CATEGORIES, EVIDENCE, projectDevice, matchesDevice, featureEvidence, escapeHtml, safeJson, compareDevices, deviceStatus, statusDescription, updatedDate } from '../src/model.mjs';
 import { prepareReport, privacyFindings, MAX_ISSUE_URL_BYTES, ISSUE_URL } from '../src/support.mjs';
 
 const source = (extra = {}) => ({ id: 'example', name: 'Example camera', category: 'camera', models: ['T8170'], aliases: ['Friendly camera'], integration: { status: 'supported', handler: 'camera' }, capabilities: { media: { live_view: { connections: { direct: { status: 'tested', tested_on: '2026-10-16', tested_by: 'PRIVATE_CANARY' }, T8030: { status: 'failing' } }, read: { parameter: 999888777 }, notes: 'PRIVATE_CANARY' }, snapshot: { connections: { T8030: { status: 'tested' } } } } }, notes: 'PRIVATE_CANARY', source: 'PRIVATE_CANARY', ...extra });
@@ -31,7 +31,13 @@ test('every category maps and unfamiliar categories fail rather than disappear',
 });
 
 test('all seven evidence statuses remain distinct and malformed evidence fails', () => {
-  assert.equal(new Set(Object.values(EVIDENCE).map(item => item.label)).size, 7);
+  assert.deepEqual(Object.keys(EVIDENCE), ['tested', 'reported', 'mixed', 'declared', 'failing', 'unsupported', 'unknown']);
+  assert.equal(new Set(Object.values(EVIDENCE).map(item => item.label)).size, 6);
+  for (const status of ['tested', 'reported']) {
+    assert.equal(EVIDENCE[status].label, 'Working');
+    assert.equal(EVIDENCE[status].symbol, '✓');
+  }
+  assert.notEqual(EVIDENCE.tested.description, EVIDENCE.reported.description);
   assert.match(EVIDENCE.declared.description, /haven.t checked/);
   const invalid = source(); invalid.capabilities.media.live_view.connections.direct.status = 'supported';
   assert.throws(() => projectDevice(invalid));
@@ -95,10 +101,24 @@ test('long encoded reports use the full copy fallback without truncating text', 
 });
 
 test('device badges distinguish admission, confirmed features and the E30 trial', () => {
-  assert.equal(deviceStatus(device).label, 'Tested features');
+  assert.equal(deviceStatus(device).label, 'Working features');
   assert.equal(deviceStatus({ ...device, admission: 'recognised' }).label, 'Own this camera? Help with testing.');
   assert.equal(deviceStatus({ ...device, features: [] }).label, 'Needs testing');
   assert.equal(deviceStatus({ ...device, id: 't85f1', admission: 'recognised' }).label, 'Experimental');
-  assert.match(statusDescription({ status: 'reported', testedOn: '2026-10-16' }), /Last reported/);
-  assert.match(statusDescription({ status: 'declared', testedOn: '2026-10-16' }), /Last updated/);
+  assert.equal(deviceStatus(device).style, 'tested');
+  const only = status => ({ ...device, features: [{ connections: [{ id: 'direct', status }] }] });
+  assert.deepEqual(deviceStatus(only('reported')), { label: 'Working features', symbol: '✓', style: 'reported' });
+  for (const status of ['declared', 'unknown', 'failing', 'mixed', 'unsupported']) {
+    assert.equal(deviceStatus(only(status)).label, 'Needs testing');
+  }
+  for (const [testedOn, expected] of [['2026-09-18', '18 Sep 2026'], ['2026-01-05', '05 Jan 2026'],
+    ['2024-02-29', '29 Feb 2024'], ['0000-02-29', '29 Feb 0000'], [undefined, 'Not recorded'],
+    ['invalid', 'Not recorded'], ['2026-02-30', 'Not recorded'], [42, 'Not recorded']]) {
+    const pair = Object.freeze({ status: 'reported', testedOn });
+    assert.equal(updatedDate(pair), expected);
+    assert.equal(pair.testedOn, testedOn);
+  }
+  for (const status of Object.keys(EVIDENCE)) {
+    assert.doesNotMatch(statusDescription({ status, testedOn: '2026-09-18' }), /Last (checked|reported|updated)|\d{4}-\d{2}-\d{2}/);
+  }
 });

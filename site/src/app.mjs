@@ -3,7 +3,7 @@
  * Page state and report drafts live only in this document's lifetime.
  */
 
-import { CATEGORIES, EVIDENCE, GROUPS, matchesDevice, featureEvidence, connectionLabel, statusDescription } from './model.mjs';
+import { CATEGORIES, EVIDENCE, GROUPS, matchesDevice, featureEvidence, connectionLabel, statusDescription, updatedDate } from './model.mjs';
 import { ISSUE_URL, SYMPTOMS, prepareReport } from './support.mjs';
 
 document.documentElement.classList.add('js');
@@ -113,6 +113,13 @@ if (data?.page === 'device' && $('#device-connection')) {
       const pair = featureEvidence(feature, connection);
       row.querySelector('[data-evidence]').replaceChildren(badge(pair));
       row.querySelector('[data-description]').textContent = statusDescription(pair);
+      const updated = updatedDate(pair);
+      if (updated !== 'Not recorded') {
+        const time = document.createElement('time');
+        time.dateTime = pair.testedOn;
+        time.textContent = updated;
+        row.querySelector('[data-updated]').replaceChildren(time);
+      } else row.querySelector('[data-updated]').replaceChildren(document.createTextNode(updated));
     }
     const helpUrl = new URL('../help/', import.meta.url);
     helpUrl.searchParams.set('device', data.device.id);

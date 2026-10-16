@@ -47,6 +47,14 @@ test('desktop and mobile browsing, evidence and reviewed help work accessibly', 
     await page.locator('#no-results').waitFor({ state: 'visible' });
     await page.locator('#reset-search').click();
     assert.ok(await page.locator('[data-device]:visible').count() > 1);
+    assert.equal(await page.locator('#evidence-filter option[value="tested"]').textContent(), 'Working (tested)');
+    assert.equal(await page.locator('#evidence-filter option[value="reported"]').textContent(), 'Working (community reported)');
+    await page.locator('#evidence-filter').selectOption('reported');
+    const catalogue = JSON.parse(await page.locator('#page-data').textContent()).devices;
+    const visibleIds = await page.locator('[data-device]:visible').evaluateAll(nodes => nodes.map(node => node.dataset.device));
+    assert.ok(visibleIds.length > 0);
+    for (const id of visibleIds) assert.ok(catalogue.find(device => device.id === id).features.some(feature => feature.connections.some(pair => pair.status === 'reported')));
+    await page.locator('#evidence-filter').selectOption('');
     await page.goto(origin + base + 'devices/t8170/');
     await page.locator('input[name="device-connection"][value="T9000"]').check();
     await loaded();
@@ -95,7 +103,7 @@ test('desktop and mobile browsing, evidence and reviewed help work accessibly', 
     await loaded();
     await checkA11y();
     assert.match(await page.locator('.admission-note').textContent(), /tested off-door/);
-    assert.match(await page.locator('[data-feature="controls:unlock"] [data-evidence]').textContent(), /Confirmed/);
+    assert.match(await page.locator('[data-feature="controls:unlock"] [data-evidence]').textContent(), /Working/);
     await page.screenshot({ path: join(output, 'eufy-site-e30-lock.png'), fullPage: true });
     await page.goto(origin + base + 'devices/t85p1/');
     assert.equal(await page.locator('.device-summary .eyebrow').textContent(), 'Own this lock? Help with testing.');
@@ -113,6 +121,39 @@ test('desktop and mobile browsing, evidence and reviewed help work accessibly', 
       await page.goto(origin + base + 'devices/t85p1/');
       assert.equal(await page.locator('.device-summary .eyebrow').evaluate(node => node.scrollWidth <= node.clientWidth), true);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    }
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    await page.goto(origin + base + 'devices/t8124/');
+    const sourceDevice = JSON.parse(await page.locator('#page-data').textContent()).device;
+    assert.equal(sourceDevice.id, 't8124');
+    assert.equal(sourceDevice.features.find(feature => feature.key === 'media:live_view').connections.find(pair => pair.id === 'T8030').status, 'reported');
+    const row = page.locator('[data-feature="media:live_view"]');
+    await page.locator('input[name="device-connection"][value="T8030"]').check();
+    assert.match(await row.locator('[data-evidence]').textContent(), /✓ Working/);
+    assert.equal(await row.locator('.evidence-reported > span').evaluate(node => getComputedStyle(node).backgroundColor), 'rgb(0, 113, 227)');
+    assert.equal(await row.locator('[data-updated] time').textContent(), '18 Sep 2026');
+    assert.equal(await row.locator('[data-updated] time').getAttribute('datetime'), '2026-09-18');
+    assert.equal(await row.locator('[data-description]').textContent(), 'Reported working by the community with this connection.');
+    assert.equal(await page.locator('thead').first().textContent(), 'FeatureStatusWhat to expectUpdated');
+    await loaded();
+    await page.locator('.feature-group').filter({ has: row }).screenshot({ path: join(output, 'eufy-site-working-updated-desktop.png') });
+    await page.locator('input[name="device-connection"][value="direct"]').check();
+    assert.equal(await row.locator('[data-updated]').textContent(), 'Not recorded');
+    assert.equal(await row.locator('[data-updated] time').count(), 0);
+    await page.locator('input[name="device-connection"][value="T8030"]').check();
+    const regionLabels = await page.locator('.feature-table').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label')));
+    assert.equal(new Set(regionLabels).size, regionLabels.length);
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      await checkA11y();
+      const region = page.locator('.feature-table').first();
+      assert.equal(await region.getAttribute('role'), 'region');
+      assert.equal(await region.getAttribute('tabindex'), '0');
+      assert.equal(await region.evaluate(node => node.scrollWidth > node.clientWidth), true);
+      await region.focus();
+      assert.equal(await region.evaluate(node => node === document.activeElement), true);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      await region.screenshot({ path: join(output, `eufy-site-working-updated-${width}.png`) });
     }
     await page.setViewportSize({ width: 1440, height: 1100 });
     await page.goto(origin + base + 'devices/t8170/');
