@@ -1,13 +1,5 @@
 [
   {
-    "deviceId": "t8420-variant-6",
-    "name": "Floodlight Cam (T8420X hardware variant)",
-    "models": [
-      "T8420"
-    ],
-    "reason": "The exact hardware variant has not been matched to a verified official product photo."
-  },
-  {
     "deviceId": "t8200-variant-6",
     "name": "Video Doorbell 2K (T8200X variant)",
     "models": [
@@ -107,14 +99,6 @@
     "name": "Smart Lock T8500",
     "models": [
       "T8500"
-    ],
-    "reason": "No verified standalone product photo in the official support product index or current US product feed."
-  },
-  {
-    "deviceId": "t8510",
-    "name": "Smart Lock Touch",
-    "models": [
-      "T8510"
     ],
     "reason": "No verified standalone product photo in the official support product index or current US product feed."
   },

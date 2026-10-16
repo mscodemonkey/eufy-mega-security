@@ -1196,5 +1196,27 @@
     "sha256": "66a9e741fdc57d633156798d56b77ba928cf57174c6f58a1e56df31e0ba4ba10",
     "bytes": 318845,
     "sourceProduct": "eufy Smart Lock E31"
+  },
+  "t8510": {
+    "deviceId": "t8510",
+    "file": "products/t8510.jpg",
+    "alt": "Smart Lock Touch / E130",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpg&versionId=0685g000002sm1C&operationContext=CHATTER&contentId=05T5g00000BKEYB",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm4EAAS",
+    "sha256": "e0306305bdbbe35e42e62f1ab52676c5f90cda2bf14064d56a6f91af01e47222",
+    "bytes": 110089,
+    "sourceProduct": "E130 Smart Lock",
+    "identitySource": "https://service.eufy.com/article-description/Which-eufy-Smart-Lock-Supports-WiFi-Bridge"
+  },
+  "t8420-variant-6": {
+    "deviceId": "t8420-variant-6",
+    "file": "products/t8420-standard.jpg",
+    "alt": "Floodlight Cam 1080p",
+    "source": "https://support.eufy.com/sfc/servlet.shepherd/version/renditionDownload?rendition=ORIGINAL_Jpeg&versionId=0685g000002qwcG&operationContext=CHATTER&contentId=05T5g000009WIfN",
+    "page": "https://service.eufy.com/product-description/a085g000000Nm5SAAS",
+    "sha256": "faf49739710150dac8773d986c9df0744731a944276c568e6dbe08e0b3b26699",
+    "bytes": 21458,
+    "sourceProduct": "Floodlight Cam 1080p",
+    "identitySource": "https://service.eufy.com/article-description/Eufy-Smart-Display-E10-T87A0-Compatibility-List"
   }
 }
