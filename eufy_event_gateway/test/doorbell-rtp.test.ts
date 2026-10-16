@@ -81,11 +81,12 @@ test("selects H.264 and rejects unused audio and SCTP", () => {
 });
 
 test("offer failures contain no received values", () => {
-  for (const invalid of [offer().replace("H264/90000", "H265/90000"), offer().replace("a=sendonly", "a=sendrecv"),
-    offer().replace("packetization-mode=1", "packetization-mode=2"), offer().replaceAll("a=ice-ufrag:abcd", "a=ice-ufrag:PRIVATE VALUE"),
-    offer().replace("a=mid:1", "a=mid:0"), offer().replace("a=rtcp-mux", "a=rtcp-mux\r\na=candidate:PRIVATE VALUE"), "x".repeat(32769)]) {
+  for (const [invalid, reason] of [[offer().replace("H264/90000", "H265/90000"), "codec"], [offer().replace("a=sendonly", "a=sendrecv"), "video_shape"],
+    [offer().replace("packetization-mode=1", "packetization-mode=2"), "fmtp"], [offer().replaceAll("a=ice-ufrag:abcd", "a=ice-ufrag:PRIVATE VALUE"), "transport_field"],
+    [offer().replace("a=mid:1", "a=mid:0"), "mid"], [offer().replace("a=rtcp-mux", "a=rtcp-mux\r\na=candidate:PRIVATE VALUE"), "candidate"], ["x".repeat(32769), "offer_text"]] as const) {
     assert.throws(() => doorbellRtcOffer(invalid), error => {
       assert.ok(error instanceof DoorbellRtcError); assert.equal(error.stage, "offer");
+      assert.equal(error.reason, reason);
       assert.equal(error.message.includes("PRIVATE"), false); return true;
     });
   }

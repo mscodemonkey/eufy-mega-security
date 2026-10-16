@@ -843,11 +843,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         },
       });
       session.output.once("error", error => logger.warn("doorbell_rtc_trial_failed",
-        `stage=${error instanceof DoorbellRtcError ? error.stage : "video"}`));
+        `stage=${error instanceof DoorbellRtcError ? error.stage : "video"} reason=${error instanceof DoorbellRtcError ? error.reason : "unspecified"}`));
       await session.start();
     } catch (error) {
       const failure = error instanceof DoorbellRtcError ? error : new DoorbellRtcError(entry.controller.signal.aborted ? "cancelled" : "sign");
-      logger.warn("doorbell_rtc_trial_failed", `stage=${failure.stage}`);
+      logger.warn("doorbell_rtc_trial_failed", `stage=${failure.stage} reason=${failure.reason}`);
       await entry.release(); throw failure;
     }
   }

@@ -4,6 +4,7 @@
 
 - Accept the reported T8223 Video Doorbell C31 device type 95 variant behind HomeBase 2 without widening admission to other models.
 - Preserve the observed NVR diagnostic video cadence when packaging private test clips, and report successful video delivery as completed instead of failed cancellation.
+- Add privacy-safe failure reasons when a standalone T8224 diagnostic call rejects the received video offer.
 - Show working feature indicators and separate support-site update dates more clearly.
 
 ## 0.1.159

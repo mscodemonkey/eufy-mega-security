@@ -10,12 +10,17 @@ import { nvrCandidate } from "./nvr-protocol.js";
 export type DoorbellRtcStage = "admission" | "sign" | "join" | "call" | "busy" | "offer"
   | "peer" | "video" | "cancelled" | "deadline";
 
+/** Content-free reason categories for offer validation and support follow-up. */
+export type DoorbellRtcReason = "unspecified" | "offer_text" | "media_sections" | "media_kinds"
+  | "media_shape" | "mid" | "video_count" | "video_shape" | "transport_field"
+  | "payloads" | "codec" | "fmtp" | "candidate_limit" | "candidate" | "connection";
+
 /**
  * Carries one fixed stage across the trial's cleanup and HTTP boundary.
  * Received messages, SDP, credentials and causes must never enter this error.
  */
 export class DoorbellRtcError extends Error {
-  constructor(readonly stage: DoorbellRtcStage) {
+  constructor(readonly stage: DoorbellRtcStage, readonly reason: DoorbellRtcReason = "unspecified") {
     super(`Standalone doorbell video test failed at ${stage}`);
   }
 }
@@ -34,60 +39,60 @@ export interface DoorbellRtcOffer {
 
 /** Select H.264 and reject unused sections without allowing an unbounded SDP parser input. */
 export function doorbellRtcOffer(value: unknown): DoorbellRtcOffer {
-  if (typeof value !== "string" || Buffer.byteLength(value) > 32768 || /[^\x09\x0a\x0d\x20-\x7e]/.test(value)) throw new DoorbellRtcError("offer");
+  if (typeof value !== "string" || Buffer.byteLength(value) > 32768 || /[^\x09\x0a\x0d\x20-\x7e]/.test(value)) throw new DoorbellRtcError("offer", "offer_text");
   const lines = value.split(/\r?\n/).filter(Boolean);
-  if (lines.length > 256 || lines.some(line => line.length > 8192) || lines[0] !== "v=0") throw new DoorbellRtcError("offer");
+  if (lines.length > 256 || lines.some(line => line.length > 8192) || lines[0] !== "v=0") throw new DoorbellRtcError("offer", "offer_text");
   const sections: string[][] = [], session: string[] = [];
   for (const line of lines) {
     if (line.startsWith("m=")) sections.push([line]);
     else (sections.at(-1) ?? session).push(line);
   }
-  if (sections.length < 1 || sections.length > 3) throw new DoorbellRtcError("offer");
+  if (sections.length < 1 || sections.length > 3) throw new DoorbellRtcError("offer", "media_sections");
   const kinds = sections.map(section => section[0]!.split(" ")[0]!);
   if (new Set(kinds).size !== kinds.length || kinds.some(kind => !["m=audio", "m=video", "m=application"].includes(kind))) {
-    throw new DoorbellRtcError("offer");
+    throw new DoorbellRtcError("offer", "media_kinds");
   }
   for (const section of sections) {
     if (section[0]!.startsWith("m=audio ") && !/^m=audio \d{1,5} UDP\/TLS\/RTP\/SAVPF(?: \d{1,3})+$/.test(section[0]!)
       || section[0]!.startsWith("m=application ") && !/^m=application \d{1,5} UDP\/DTLS\/SCTP webrtc-datachannel$/.test(section[0]!)) {
-      throw new DoorbellRtcError("offer");
+      throw new DoorbellRtcError("offer", "media_shape");
     }
   }
   const mids = sections.map(section => section.filter(line => line.startsWith("a=mid:")));
   if (mids.some(mid => mid.length !== 1 || !/^a=mid:[A-Za-z0-9_-]{1,32}$/.test(mid[0]!))
-    || new Set(mids.map(mid => mid[0])).size !== sections.length) throw new DoorbellRtcError("offer");
+    || new Set(mids.map(mid => mid[0])).size !== sections.length) throw new DoorbellRtcError("offer", "mid");
   const videos = sections.map((section, index) => ({ section, index })).filter(row => row.section[0]!.startsWith("m=video "));
-  if (videos.length !== 1) throw new DoorbellRtcError("offer");
+  if (videos.length !== 1) throw new DoorbellRtcError("offer", "video_count");
   const { section: video, index } = videos[0]!;
   if (!/^m=video [1-9]\d{0,4} UDP\/TLS\/RTP\/SAVPF(?: \d{1,3})+$/.test(video[0]!)
-    || Number(video[0]!.split(" ")[1]) > 65535 || !video.includes("a=sendonly") || !video.includes("a=rtcp-mux")) throw new DoorbellRtcError("offer");
+    || Number(video[0]!.split(" ")[1]) > 65535 || !video.includes("a=sendonly") || !video.includes("a=rtcp-mux")) throw new DoorbellRtcError("offer", "video_shape");
   const inherited = [...session, ...video];
   for (const [prefix, pattern] of [["a=ice-ufrag:", /^a=ice-ufrag:[A-Za-z0-9+/]{4,256}$/],
     ["a=ice-pwd:", /^a=ice-pwd:[A-Za-z0-9+/]{22,256}$/],
     ["a=fingerprint:", /^a=fingerprint:sha-256 (?:[a-fA-F0-9]{2}:){31}[a-fA-F0-9]{2}$/],
     ["a=setup:", /^a=setup:(?:actpass|active)$/]] as const) {
     const found = inherited.filter(line => line.startsWith(prefix));
-    if (found.length !== 1 || !pattern.test(found[0]!)) throw new DoorbellRtcError("offer");
+    if (found.length !== 1 || !pattern.test(found[0]!)) throw new DoorbellRtcError("offer", "transport_field");
   }
   const payloads = video[0]!.split(" ").slice(3).map(Number);
-  if (payloads.some(payload => payload > 127) || new Set(payloads).size !== payloads.length) throw new DoorbellRtcError("offer");
+  if (payloads.some(payload => payload > 127) || new Set(payloads).size !== payloads.length) throw new DoorbellRtcError("offer", "payloads");
   const h264 = video.filter(line => /^a=rtpmap:\d{1,3} H264\/90000$/i.test(line));
-  if (h264.length !== 1) throw new DoorbellRtcError("offer");
+  if (h264.length !== 1) throw new DoorbellRtcError("offer", "codec");
   const payloadType = Number(h264[0]!.split(":")[1]!.split(" ")[0]);
-  if (!payloads.includes(payloadType) || payloadType < 96 || payloadType > 127) throw new DoorbellRtcError("offer");
+  if (!payloads.includes(payloadType) || payloadType < 96 || payloadType > 127) throw new DoorbellRtcError("offer", "payloads");
   const fmtp = video.filter(line => line.startsWith(`a=fmtp:${payloadType} `));
-  if (fmtp.length !== 1) throw new DoorbellRtcError("offer");
+  if (fmtp.length !== 1) throw new DoorbellRtcError("offer", "fmtp");
   const parameters = fmtp[0]!.slice(fmtp[0]!.indexOf(" ") + 1);
   if (parameters.length > 512 || !/(?:^|;)\s*packetization-mode=1(?:;|$)/.test(parameters)
-    || !/^[A-Za-z0-9+/=;., -]+$/.test(parameters)) throw new DoorbellRtcError("offer");
+    || !/^[A-Za-z0-9+/=;., -]+$/.test(parameters)) throw new DoorbellRtcError("offer", "fmtp");
   const mid = mids[index]![0]!.slice(6);
   const candidates = video.filter(line => line.startsWith("a=candidate:"));
-  if (candidates.length > 64) throw new DoorbellRtcError("offer");
+  if (candidates.length > 64) throw new DoorbellRtcError("offer", "candidate_limit");
   try { for (const candidate of candidates) nvrCandidate(candidate.slice(2)); }
-  catch { throw new DoorbellRtcError("offer"); }
+  catch { throw new DoorbellRtcError("offer", "candidate"); }
   for (const line of lines.filter(line => line.startsWith("c="))) {
     if (!/^c=IN IP[46] \S+$/.test(line) || isIP(line.split(" ")[2]!) !== (line.startsWith("c=IN IP4") ? 4 : 6)) {
-      throw new DoorbellRtcError("offer");
+      throw new DoorbellRtcError("offer", "connection");
     }
   }
 

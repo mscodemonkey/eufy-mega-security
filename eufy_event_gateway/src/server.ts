@@ -541,7 +541,7 @@ export class GatewayServer {
             ? error instanceof DoorbellRtcError ? error : new DoorbellRtcError(controller.signal.aborted ? "cancelled" : "video")
             : error instanceof NvrTrialError ? error : new NvrTrialError(controller.signal.aborted ? "cancelled" : "video");
           logger.warn(doorbell ? "doorbell_rtc_trial_failed" : "nvr_live_trial_failed",
-            `stage=${failure.stage}${failure instanceof NvrTrialError ? ` reason=${failure.reason}` : ""}`);
+            `stage=${failure.stage}${failure instanceof NvrTrialError || failure instanceof DoorbellRtcError ? ` reason=${failure.reason}` : ""}`);
           if (!response.destroyed) json(response, 409, { error: failure.message, stage: failure.stage });
         } finally {
           controller.abort(); clearTimeout(deadline);
