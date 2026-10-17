@@ -75,6 +75,8 @@ export function diagnosticsPage(): string {
 <details><summary>Experimental cloud recording preview</summary>
 <p>Enable this test in the app options first. Select one camera and a day, then choose an existing cloud recording. This does not list local HomeBase recordings or change your subscription.</p>
 <label>Recording day <input id="cloud-date" type="date"></label><button id="cloud-list">Load cloud recordings</button>
+<button id="cloud-month" type="button">Load month</button>
+<p id="cloud-calendar" role="status"></p>
 <label>Recording <select id="cloud-record"><option value="">Load a day first</option></select></label>
 <label><input id="cloud-consent" type="checkbox"> I agree to download and process the selected private recording for a video-only preview.</label>
 <button id="cloud-test">Preview selected recording</button><button id="cloud-stop">Cancel cloud test</button>
@@ -96,6 +98,7 @@ const el = id => document.getElementById(id);
 let targets = [], stream = null, poll = null, activeTrialSerial = null, nvrJob = null, nvrClip = null, doorbellJob = null, doorbellClip = null;
 let indexJob = null, motionJob = null, lockStatusJob = null, nvrPowerJob = null;
 let cloudJob = null, cloudLoadJob = null, cloudClip = null, cloudSelection = null, cloudGeneration = 0;
+let cloudCalendarKey = null;
 const show = value => { el('status').textContent = value; };
 const abortStream = () => { if(stream) stream.abort(); stream = null; };
 async function api(path, method = 'GET', body) {
@@ -368,12 +371,24 @@ action('doorbell-test', async () => {
   finally { doorbellJob = null; el('doorbell-test').disabled = false; el('device').disabled = false; }
 });
 function cloudControls(busy) {
-  for(const id of ['cloud-list','cloud-test','cloud-date','cloud-record']) el(id).disabled = busy;
+  for(const id of ['cloud-list','cloud-month','cloud-test','cloud-date','cloud-record']) el(id).disabled = busy;
   for(const id of ['device','load']) el(id).disabled = busy || activeTrialSerial !== null || !!nvrJob || !!doorbellJob;
 }
 function clearCloudClip() {
   if(cloudClip) URL.revokeObjectURL(cloudClip);
   cloudClip = null; el('cloud-video').removeAttribute('src'); el('cloud-video').hidden = true; el('cloud-download').hidden = true;
+}
+function calendarInput() {
+  const month = el('cloud-date').value.slice(0,7), serial = el('device').value;
+  if(!serial || !/^\\d{4}-(0[1-9]|1[0-2])$/.test(month)) return null;
+  const year = Number(month.slice(0,4)), index = Number(month.slice(5))-1;
+  if(year < 2000 || year > 2100) return null;
+  const offset = -new Date(year,index,1).getTimezoneOffset()*60 || 0;
+  return { serial, month, offset, key: serial + '|' + month + '|' + offset,
+    length: new Date(Date.UTC(year,index+1,0)).getUTCDate() };
+}
+function clearCalendar() {
+  cloudCalendarKey = null; el('cloud-calendar').textContent = '';
 }
 function resetCloud() {
   cloudGeneration++;
@@ -382,12 +397,49 @@ function resetCloud() {
   cloudControls(false); clearCloudClip(); el('cloud-consent').checked = false;
   el('cloud-record').replaceChildren(new Option('Load a day first', ''));
   el('cloud-status').textContent = 'No cloud recording selected.';
+  if(cloudCalendarKey !== (calendarInput() || {}).key) clearCalendar();
 }
 el('cloud-date').value = new Date(Date.now() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
 el('device').addEventListener('change', resetCloud);
 el('cloud-date').addEventListener('change', resetCloud);
 el('cloud-record').addEventListener('change', () => { clearCloudClip(); el('cloud-consent').checked = false; });
 action('cloud-stop', async () => { if(cloudJob) cloudJob.abort(); if(cloudLoadJob) cloudLoadJob.abort(); });
+action('cloud-month', async () => {
+  if(cloudJob || cloudLoadJob || nvrJob || doorbellJob || activeTrialSerial !== null) return;
+  const input = calendarInput();
+  if(!input) throw Error('Select one camera and a month from 2000 to 2100.');
+  resetCloud();
+  const generation = cloudGeneration, job = cloudLoadJob = new AbortController();
+  const current = () => generation === cloudGeneration && !job.signal.aborted;
+  let failure = 'Cloud calendar unavailable. No recordings have been changed.';
+  cloudControls(true); el('cloud-calendar').textContent = 'Loading unconfirmed cloud calendar hints.';
+  try {
+    const params = new URLSearchParams({ month: input.month, offset: String(input.offset) });
+    const result = await fetch('api/cameras/' + encodeURIComponent(input.serial) + '/cloud-calendar?' + params, {
+      signal: job.signal, cache:'no-store', headers: { Authorization:'Bearer ' + el('token').value } });
+    if(!current()) return;
+    if(!result.ok) { failure = result.status === 401 ? 'Cloud calendar needs the API token.'
+      : result.status === 409 ? 'Enable the experimental cloud recording option first.'
+      : 'Cloud calendar unavailable. No recordings have been changed.'; throw Error(); }
+    const value = await result.json();
+    if(!current()) return;
+    if(!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== 2
+      || Object.keys(value).some(key => key !== 'month' && key !== 'days')
+      || value.month !== input.month || !Array.isArray(value.days) || value.days.length > input.length
+      || value.days.some((day,index) => !Number.isInteger(day) || day < 1 || day > input.length
+        || index > 0 && day <= value.days[index-1])) { failure = 'Cloud calendar returned invalid hints.'; throw Error(); }
+    if(!current()) return;
+    cloudCalendarKey = input.key;
+    el('cloud-calendar').textContent = value.days.length
+      ? 'Calendar hints, not playable recordings, unconfirmed on hardware: ' + value.days.join(', ')
+      : 'No cloud dates listed. Calendar hints are unconfirmed on hardware.';
+  } catch {
+    if(generation === cloudGeneration) el('cloud-calendar').textContent = job.signal.aborted
+      ? 'Cloud calendar cancelled.' : failure;
+  } finally {
+    if(generation === cloudGeneration) { cloudLoadJob = null; cloudControls(false); }
+  }
+});
 action('cloud-list', async () => {
   if(cloudJob || cloudLoadJob || nvrJob || doorbellJob || activeTrialSerial !== null) return;
   const serial = el('device').value, day = el('cloud-date').value;
@@ -437,6 +489,6 @@ action('cloud-test', async () => {
   } catch(error) { if(generation === cloudGeneration) el('cloud-status').textContent = job.signal.aborted ? 'Cloud preview cancelled.' : error.message + ' Please send only the cloud_recording_trial_failed line if it failed.'; }
   finally { if(generation === cloudGeneration) { cloudJob = null; cloudControls(false); } }
 });
-window.addEventListener('pagehide', () => { resetCloud(); abortStream(); if(nvrJob) nvrJob.abort(); if(nvrClip) URL.revokeObjectURL(nvrClip); if(doorbellJob) doorbellJob.abort(); if(doorbellClip) URL.revokeObjectURL(doorbellClip); });
+window.addEventListener('pagehide', () => { resetCloud(); clearCalendar(); abortStream(); if(nvrJob) nvrJob.abort(); if(nvrClip) URL.revokeObjectURL(nvrClip); if(doorbellJob) doorbellJob.abort(); if(doorbellClip) URL.revokeObjectURL(doorbellClip); });
 </script></html>`;
 }

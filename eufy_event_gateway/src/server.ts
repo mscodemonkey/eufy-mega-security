@@ -39,6 +39,7 @@ import { NvrTrialError } from "./stream/nvr-protocol.js";
 import { c31TalkbackFrames } from "./stream/c31-talkback.js";
 import { validateRecordingDate } from "./stream/stored-recordings.js";
 import { validateCloudHistoryQuery } from "./mega/cloud-history.js";
+import { CloudCalendarError, validateCloudCalendarQuery, type CloudCalendarQuery } from "./mega/cloud-calendar.js";
 import { waitingImage } from "./mega/waiting-image.js";
 import { LiveStreamManager } from "./stream/live-stream-manager.js";
 
@@ -61,6 +62,7 @@ export class GatewayServer {
   #sampleBundleTransport: (() => void) | null = null;
   readonly #recordings = new RecordingCache();
   readonly #recordingIndexJobs = new Set<AbortController>();
+  readonly #cloudCalendarJobs = new Set<AbortController>();
   readonly #nvrTrialJobs = new Set<AbortController>();
   readonly #speakerJobs = new Map<string, AbortController>();
   readonly #recordingJobs = new Map<string, { promise: Promise<Buffer | null>; controller: AbortController; users: Set<ServerResponse> }>();
@@ -79,6 +81,7 @@ export class GatewayServer {
     private readonly captchaProvider: CaptchaProvider | null = null,
     private readonly eventImageCapture: EventImageCapture | null = null,
     private readonly nvrTrialDeadlineMilliseconds = 82_000,
+    private readonly cloudCalendarDeadlineMilliseconds = 30_000,
   ) {}
 
   /** Bind the configured host and port and begin accepting requests. */
@@ -93,6 +96,7 @@ export class GatewayServer {
 
   /** Stop accepting requests and wait for the HTTP server to close. */
   async close(): Promise<void> {
+    for (const controller of this.#cloudCalendarJobs) controller.abort();
     for (const controller of this.#nvrTrialJobs) controller.abort();
     for (const controller of this.#recordingIndexJobs) controller.abort();
     this.#clearBundle();
@@ -280,6 +284,9 @@ export class GatewayServer {
         return json(response, 200, this.eventImageCapture.status());
       }
       const segments = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+      const calendarRoute = request.method === "GET" && segments[0] === "api" && segments[1] === "cameras"
+        && segments[3] === "cloud-calendar" && segments.length === 4;
+      if (calendarRoute) response.setHeader("cache-control", "no-store");
 
       if (segments[0] === "api" && this.config.apiToken) {
         const streamAuthorized =
@@ -457,6 +464,43 @@ export class GatewayServer {
         } finally {
           controller.abort(); clearTimeout(deadline);
           response.removeListener("close", abort); request.removeListener("aborted", abort); this.#nvrTrialJobs.delete(controller);
+        }
+        return;
+      }
+      if (calendarRoute) {
+        if (!this.provider.cloudCalendar) return json(response, 501, { error: "Cloud calendar unavailable" });
+        if (!this.config.apiToken || !this.config.experimentalCloudRecordings) return json(response, 409, { error: "Cloud calendar unavailable" });
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
+        let query: CloudCalendarQuery;
+        try {
+          const month = url.searchParams.get("month"), offset = url.searchParams.get("offset") ?? "0";
+          if (url.searchParams.getAll("month").length !== 1 || url.searchParams.getAll("offset").length > 1
+            || [...url.searchParams.keys()].some(key => key !== "month" && key !== "offset")
+            || month === null || !/^(0|-?[1-9]\d{0,4})$/.test(offset)) throw new SyntaxError();
+          query = { month, timezoneOffset: Number(offset) };
+          validateCloudCalendarQuery(query);
+        } catch { return json(response, 400, { error: "Invalid cloud calendar query" }); }
+        if (this.#cloudCalendarJobs.size >= 2) return json(response, 502, { error: "Cloud calendar unavailable", stage: "admission" });
+        const controller = new AbortController(); this.#cloudCalendarJobs.add(controller);
+        let timedOut = false;
+        const deadline = setTimeout(() => { timedOut = true; controller.abort(); }, Math.min(30_000, Math.max(1, this.cloudCalendarDeadlineMilliseconds)));
+        const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", abort);
+        let rejectAbort: () => void = () => undefined;
+        const cancelled = new Promise<never>((_resolve, reject) => {
+          rejectAbort = () => reject(new CloudCalendarError(timedOut ? "request" : "cancelled"));
+          controller.signal.addEventListener("abort", rejectAbort, { once: true });
+        });
+        try {
+          const result = await Promise.race([this.provider.cloudCalendar(segments[2]!, query, controller.signal), cancelled]);
+          if (!response.destroyed) json(response, 200, { month: result.month, days: result.days });
+        } catch (error) {
+          const stage = error instanceof CloudCalendarError ? error.stage : "request";
+          logger.warn("cloud_calendar_failed", `stage=${stage}`);
+          if (!response.destroyed) json(response, 502, { error: "Cloud calendar unavailable", stage });
+        } finally {
+          clearTimeout(deadline); response.removeListener("close", abort);
+          controller.signal.removeEventListener("abort", rejectAbort); this.#cloudCalendarJobs.delete(controller);
         }
         return;
       }

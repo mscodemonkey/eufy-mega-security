@@ -35,6 +35,8 @@ import { validateRecordingDate, type CameraStoredRecord, type StoredRecordingSum
 import type { BatteryState, CameraIdentity, CameraPresetPosition, DetectionKind, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
 import { createLogger } from "../logging.js";
 import type { CloudHistoryQuery, CloudHistoryRecord } from "../mega/cloud-history.js";
+import { CloudCalendarError, type CloudCalendarQuery, type CloudCalendarResult } from "../mega/cloud-calendar.js";
+import type { MegaInventory } from "../mega/types.js";
 import { guardModeCustomNames, guardModeMetadataShape, guardModeMetadataStructure } from "../mega/guard-mode-metadata.js";
 import { MegaClient } from "../mega/client.js";
 import { decodeEventImage, isJpeg } from "../mega/image.js";
@@ -668,6 +670,35 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const camera = this.#devices.get(serial);
     if (!camera || !isSupportedCameraType(camera)) throw new Error("Camera not found");
     return this.#client.cloudHistory(serial, query);
+  }
+
+  /** Read unconfirmed calendar hints without modifying inventory or retained media. */
+  async cloudCalendar(serial: string, query: CloudCalendarQuery, signal: AbortSignal): Promise<CloudCalendarResult> {
+    const original = this.#devices.get(serial), generation = this.#startupGeneration;
+    if (!this.config.experimentalCloudRecordings || !original || !isSupportedCameraType(original)
+      || !this.#client.isAuthenticated || this.#recordingClosing || signal.aborted) throw new CloudCalendarError("admission");
+    const current = (): void => {
+      if (signal.aborted || this.#recordingClosing || generation !== this.#startupGeneration) throw new CloudCalendarError("cancelled");
+      if (!this.#client.isAuthenticated) throw new CloudCalendarError("auth");
+      const live = this.#devices.get(serial);
+      if (!live || inventoryBindingChanged(original, live)) throw new CloudCalendarError("inventory");
+    };
+    const fresh = async (): Promise<void> => {
+      current();
+      let inventory: MegaInventory;
+      try { inventory = await this.#client.inventory(signal); }
+      catch { throw new CloudCalendarError(signal.aborted ? "cancelled" : "inventory"); }
+      current();
+      if (!inventory || !Array.isArray(inventory.devices)) throw new CloudCalendarError("inventory");
+      if (inventory.devices.filter(row => safeValue(row.device_sn, 128) === serial).length !== 1) throw new CloudCalendarError("inventory");
+      const device = parseMegaInventory(inventory).find(row => row.serial === serial);
+      if (!device || inventoryBindingChanged(original, device)) throw new CloudCalendarError("inventory");
+    };
+    await fresh();
+    const result = await this.#client.cloudCalendar(serial, original.parentSerial || serial, query, signal);
+    current(); await fresh(); current();
+    logger.info("cloud_calendar_read", `days=${result.days.length} dropped_rows=${result.droppedRows}`);
+    return { month: result.month, days: result.days };
   }
 
   /** Prepare existing cloud video for one currently admitted camera without waking or controlling it. */

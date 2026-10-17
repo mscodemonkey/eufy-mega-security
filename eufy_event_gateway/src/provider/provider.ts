@@ -19,6 +19,7 @@ import type { NvrStateSummary } from "../stream/nvr-protocol.js";
 import type { SmartLockState } from "../domain/types.js";
 import type { ModelControlTrial, ModelControlTrialResult } from "./model-control-trials.js";
 import type { CloudHistoryQuery, CloudHistoryRecord } from "../mega/cloud-history.js";
+import type { CloudCalendarQuery, CloudCalendarResult } from "../mega/cloud-calendar.js";
 import type { Readable } from "node:stream";
 import type { StoredRecordingSummary } from "../stream/stored-recordings.js";
 
@@ -104,6 +105,9 @@ export interface CameraProvider {
   downloadStoredRecording?(serial: string, id: string, signal?: AbortSignal): Promise<Buffer | null>;
   /** Optional read-only cloud metadata, independent of local station storage. */
   cloudHistory?(serial: string, query: CloudHistoryQuery): Promise<readonly CloudHistoryRecord[]>;
+
+  /** Read unconfirmed calendar hints under fresh camera binding without media or key access. */
+  cloudCalendar?(serial: string, query: CloudCalendarQuery, signal: AbortSignal): Promise<CloudCalendarResult>;
 
   /** Prepare one consented private cloud recording, without any camera or account writes. */
   cloudRecordingTrial?(serial: string, id: string, query: CloudHistoryQuery, signal: AbortSignal): Promise<Buffer>;

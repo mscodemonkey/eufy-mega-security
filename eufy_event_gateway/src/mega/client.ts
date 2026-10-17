@@ -36,6 +36,7 @@ import {
 import { CloudRecordingError, type CloudRecordingStage, prepareCloudRecording } from "../stream/cloud-recordings.js";
 import { selectCloudRecording, cloudRecordingUrl, cloudRecordingKey, projectCloudHistory, validateCloudHistoryQuery, type CloudHistoryQuery, type CloudHistoryRecord } from "./cloud-history.js";
 import { readBoundedResponse } from "./bounded-response.js";
+import { CloudCalendarError, cloudCalendarBounds, projectCloudCalendar, type CloudCalendarQuery, type CloudCalendarProjection } from "./cloud-calendar.js";
 import { MegaSessionStore } from "./session-store.js";
 import type { MegaAuthResult, MegaCaptcha, MegaIdentity, MegaInventory, MegaResult, MegaSession } from "./types.js";
 
@@ -313,6 +314,29 @@ export class MegaClient {
       pullup: true, shared: true, storage: 2,
     });
     return projectCloudHistory(this.#decodeResult(result), cameraSerial, query.count ?? 100);
+  }
+
+  /** Read unconfirmed calendar hints without retries, media access or account changes. */
+  async cloudCalendar(camera: string, station: string, query: CloudCalendarQuery, signal: AbortSignal): Promise<CloudCalendarProjection> {
+    const session = this.#session;
+    if (!this.isAuthenticated || !session) throw new CloudCalendarError("auth");
+    if (!camera || !station) throw new CloudCalendarError("admission");
+    let start: number, end: number;
+    try { ({ start, end } = cloudCalendarBounds(query)); }
+    catch { throw new CloudCalendarError("request"); }
+    if (signal.aborted) throw new CloudCalendarError("cancelled");
+    let result: MegaResult;
+    try {
+      result = await this.#call("security", "/v3/event/web/get_history_by_time", {
+        device_sn: camera, station_sn: station, start_time: start, end_time: end,
+        offset: query.timezoneOffset, storage: 2, shared: true,
+      }, false, undefined, signal);
+    } catch { throw new CloudCalendarError(signal.aborted ? "cancelled" : "request"); }
+    if (signal.aborted) throw new CloudCalendarError("cancelled");
+    if (!this.isAuthenticated || this.#session?.userId !== session.userId || this.#session?.authToken !== session.authToken) throw new CloudCalendarError("auth");
+    if (result.code !== 0) throw new CloudCalendarError("response");
+    try { return projectCloudCalendar(this.#decodeResult(result), query, camera, station); }
+    catch { throw new CloudCalendarError("response"); }
   }
 
   /**
