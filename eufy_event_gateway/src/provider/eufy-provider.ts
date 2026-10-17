@@ -12,6 +12,7 @@
  * forwarding private event fields into the logger. Periodic cloud refreshes admit
  * newly added devices without replacing push receivers or active media sessions.
  */
+import { C31IndexError, type C31IndexSummary } from "../stream/c31-recording-index.js";
 import type { E30LockSettingChange, SmartLockState } from "../domain/types.js";
 import { runS100SirenTrial, S100SirenTrialError, type S100SirenFailureStage } from "./s100-siren-trial.js";
 import { E30LockProvider } from "./e30-lock-provider.js";
@@ -498,6 +499,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #recordingReferences = new Map<string, { serial: string; record: CameraStoredRecord; expiresAt: number }>();
   readonly #recordingIdSecret = randomBytes(32);
   #recordingClosing = false;
+  #recordingIndexActive = false;
+  readonly #recordingIndexCooldowns = new Map<string, number>();
   readonly #recordingReservations = new Set<string>();
   readonly #trialPeers = new Set<string>();
   readonly #trialSessions = new Map<string, FirstPartyPpcsSession>();
@@ -657,6 +660,66 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       media.fill(0); throw new CloudRecordingError("cancelled");
     }
     return media;
+  }
+
+  /**
+   * Reserve one exact direct C31 for a manual index test without changing settings.
+   * Fresh cloud bindings bracket the source-defined query. The result contains
+   * no recording references, and its success does not establish playback.
+   */
+  async readRecordingIndexTrial(serial: string, signal: AbortSignal): Promise<C31IndexSummary> {
+    const device = this.#devices.get(serial), generation = this.#startupGeneration;
+    const route = device ? ppcsStreamRoute(device, this.#devices) : null;
+    if (!this.config.experimentalModelControls || !device || device.model !== "T817L"
+      || device.deviceType !== 10031 || device.channel !== 0 || !device.adminUserId
+      || !route || route.homeBaseAttached || route.peer.serial !== device.serial
+      || !isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys()))) throw new C31IndexError("admission");
+    if (this.#recordingIndexActive || this.#panControlOperations.has(serial) || this.#recordingPeerReserved(serial)
+      || this.#ppcsStreams.has(serial) || this.#streamStarts.has(serial)
+      || (this.#recordingIndexCooldowns.get(serial) ?? 0) > Date.now()) throw new C31IndexError("busy");
+    const current = (): void => {
+      const fresh = this.#devices.get(serial);
+      if (signal.aborted || this.#recordingClosing || generation !== this.#startupGeneration) throw new C31IndexError("cancelled");
+      if (!fresh || inventoryBindingChanged(device, fresh) || fresh.adminUserId !== device.adminUserId) throw new C31IndexError("admission");
+    };
+    const freshBinding = async (): Promise<void> => {
+      current();
+      const inventory = await this.#client.inventory(signal);
+      current();
+      if (inventory.devices.filter(row => row.device_sn === serial).length !== 1) throw new C31IndexError("admission");
+      const fresh = parseMegaInventory(inventory).find(row => row.serial === serial);
+      if (!fresh || inventoryBindingChanged(device, fresh) || fresh.adminUserId !== device.adminUserId) throw new C31IndexError("admission");
+    };
+    this.#recordingIndexActive = true;
+    this.#recordingReservations.add(serial);
+    let session: FirstPartyPpcsSession | null = null;
+    const abort = (): void => { session?.close(); };
+    signal.addEventListener("abort", abort, { once: true });
+    try {
+      await freshBinding();
+      const peer = route.peer, dsk = await this.#dskKey(peer.serial);
+      current();
+      if (!dsk) throw new C31IndexError("admission");
+      session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!,
+        appConnection: peer.p2pConnection!, localAddress: peer.localAddress, dskKey: dsk.key,
+        channel: 0, cameraModel: "T817L", stationModel: peer.model, recordingCameraSerial: device.serial,
+        accountId: device.adminUserId, homeBaseAttached: false, purpose: "control", maxSeconds: 45,
+        resolveCipherKey: id => this.#resolveCipherKey(id, peer) });
+      this.#recordingSessions.set(serial, session);
+      await session.start(); current();
+      const end = Math.floor(Date.now() / 1000);
+      const result = await session.readC31RecordingIndex(end - 1800, end, current);
+      current(); await freshBinding(); current();
+      return result;
+    } catch (error) {
+      throw error instanceof C31IndexError ? error : new C31IndexError(signal.aborted ? "cancelled" : "session");
+    } finally {
+      signal.removeEventListener("abort", abort); session?.close();
+      if (this.#recordingSessions.get(serial) === session) this.#recordingSessions.delete(serial);
+      this.#recordingReservations.delete(serial); this.#recordingIndexActive = false;
+      this.#recordingIndexCooldowns.delete(serial); this.#recordingIndexCooldowns.set(serial, Date.now() + 10_000);
+      while (this.#recordingIndexCooldowns.size > 100) this.#recordingIndexCooldowns.delete(this.#recordingIndexCooldowns.keys().next().value!);
+    }
   }
 
   /** List validated, completed SoloCam event clips through its currently verified storage route. */

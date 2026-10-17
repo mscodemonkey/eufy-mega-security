@@ -11,6 +11,7 @@
  * packet layout or camera encryption directly.
  */
 import { cameraSettingProfile, cameraSettingWireValue, type CameraSettingChange } from "../provider/camera-settings.js";
+import { C31IndexError, summarizeC31Index, validateC31IndexWindow, type C31IndexSummary } from "./c31-recording-index.js";
 import { buildS100SirenCommand } from "./s100-siren-command.js";
 import { S100SirenTrialError, type S100SirenTrialTransport, type S100SirenFailureStage } from "../provider/s100-siren-trial.js";
 import { createCipheriv, createDecipheriv, createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes } from "node:crypto";
@@ -1573,6 +1574,9 @@ export class FirstPartyPpcsSession {
   #selfAddress: { host: string; port: number } | null = null;
   #pendingControl: PendingControl | null = null;
   #pendingControlQuery: PendingControlQuery | null = null;
+  #c31Index: { readonly begin: number; readonly end: number; readonly owner: string; readonly transaction: string;
+    readonly resolve: (value: C31IndexSummary) => void; readonly reject: (error: C31IndexError) => void;
+    readonly timer: NodeJS.Timeout } | null = null;
   #pendingCameraInfo: PendingCameraInfo | null = null;
 
   /** Own correlated card reads separately from live media and camera-setting requests. */
@@ -2228,6 +2232,44 @@ export class FirstPartyPpcsSession {
     await delay(500);
   }
 
+  /**
+   * Send the source-defined C31 index query once on this exclusive control session.
+   * The owner rechecks binding after key negotiation. Hardware effects remain
+   * unconfirmed, and a timeout never establishes an empty recording list.
+   */
+  async readC31RecordingIndex(begin: number, end: number, current: () => void): Promise<C31IndexSummary> {
+    validateC31IndexWindow(begin, end, Math.floor(Date.now() / 1000));
+    if (this.#options.purpose !== "control" || this.#closed || !this.#remote
+      || this.#options.cameraModel !== "T817L" || this.#options.homeBaseAttached !== false
+      || this.#options.channel !== 0 || !this.#options.accountId || this.#c31Index
+      || this.#pendingControl || this.#pendingControlQuery || this.#pendingCameraInfo || this.#recordings) {
+      throw new C31IndexError("admission");
+    }
+    await this.#waitForLevel2Key();
+    current();
+    if (this.#closed || !this.#level2Key) throw new C31IndexError("cancelled");
+    const transaction = `${Date.now()}`;
+    const value = buildCameraControlQueryValue(6003, { begin_time: begin, end_time: end,
+      device_sn: this.#options.stationSerial, transaction });
+    return new Promise<C31IndexSummary>((resolve, reject) => {
+      const timer = setTimeout(() => this.#finishC31Index(new C31IndexError("timeout")), 15_000);
+      this.#c31Index = { begin, end, owner: this.#options.accountId!, transaction, resolve, reject, timer };
+      try {
+        current();
+        const encrypted = encryptLevel2(Buffer.from(value), this.#level2Key!, this.#level2Seq++);
+        this.#sendCommand(1700, rawPayload(encrypted, 0, 8, [8, 0], 0));
+      } catch (error) { this.#finishC31Index(error instanceof C31IndexError ? error : new C31IndexError(this.#closed ? "cancelled" : "session")); }
+    });
+  }
+
+  #finishC31Index(result: C31IndexSummary | C31IndexError): void {
+    const pending = this.#c31Index;
+    if (!pending) return;
+    this.#c31Index = null;
+    clearTimeout(pending.timer);
+    if (result instanceof C31IndexError) pending.reject(result); else pending.resolve(result);
+  }
+
   /** Read completed SoloCam event clips through the provider-validated standalone or HomeBase route. */
   async listStoredRecordings(date: string, signal?: AbortSignal): Promise<readonly CameraStoredRecord[]> {
     const reader = this.#recordingReader();
@@ -2330,6 +2372,7 @@ export class FirstPartyPpcsSession {
     this.#lookupCancel?.();
     this.#lookupCancel = null;
     this.stats.closeReason = reason;
+    this.#finishC31Index(new C31IndexError("cancelled"));
     this.#recordings?.close();
     if (this.#maximumDurationTimer) clearTimeout(this.#maximumDurationTimer);
     if (this.#firstFrameTimer) clearTimeout(this.#firstFrameTimer);
@@ -2582,6 +2625,28 @@ export class FirstPartyPpcsSession {
       }
       if (clear) {
         for (const observation of decodeSensorContactNotification(clear)) this.#options.onSensorContact(observation);
+      }
+    }
+
+    if (this.#c31Index && command === 1300) {
+      this.#finishC31Index(new C31IndexError("malformed"));
+      return;
+    }
+    if (this.#c31Index && command === 1351) {
+      if (payload.length > 256 * 1024) {
+        this.#finishC31Index(new C31IndexError("malformed")); return;
+      }
+      const decoded = decodePpcsControlRecord(payload, signCode,
+        commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key);
+      if (decoded?.cmd === 6003) {
+        const pending = this.#c31Index, body = jsonRecord(decoded.payload);
+        if ((decoded.transaction !== undefined && decoded.transaction !== pending.transaction)
+          || (body?.transaction !== undefined && body.transaction !== pending.transaction)) return;
+        if (!body || !["begin_time", "beginTime", "end_time", "endTime", "videos"].some(key => Object.hasOwn(body, key))) return;
+        try { this.#finishC31Index(summarizeC31Index(body, pending.begin, pending.end, pending.owner)); }
+        catch { this.#finishC31Index(new C31IndexError("malformed")); }
+        finally { payload.fill(0); }
+        return;
       }
     }
 
@@ -3371,7 +3436,8 @@ export function decodePpcsControlRecord(
   } else if (signCode === 1 && payload.length > 0 && payload.length % 16 === 0) {
     try { clear = decryptEcb(payload, level1Key); } catch { return undefined; }
   }
-  return clear ? parsePpcsControlRecord(clear) : undefined;
+  try { return clear ? parsePpcsControlRecord(clear) : undefined; }
+  finally { if (clear && clear !== payload) clear.fill(0); }
 }
 
 /** Parse one decrypted control reply, accepting only complete JSON with validated NUL or PKCS7 padding. */

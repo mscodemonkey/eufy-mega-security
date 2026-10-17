@@ -8,6 +8,7 @@
  * module owns request authentication, response framing, and route selection;
  * it does not parse Mega payloads or open camera sockets.
  */
+import { C31IndexError } from "./stream/c31-recording-index.js";
 import { CloudRecordingError } from "./stream/cloud-recordings.js";
 import { DoorbellRtcError } from "./stream/doorbell-rtc-offer.js";
 import { validateStoredMedia } from "./stream/stored-recordings.js";
@@ -56,6 +57,7 @@ export class GatewayServer {
   #bundleCleanup: (() => void) | null = null;
   #sampleBundleTransport: (() => void) | null = null;
   readonly #recordings = new RecordingCache();
+  readonly #recordingIndexJobs = new Set<AbortController>();
   readonly #nvrTrialJobs = new Set<AbortController>();
   readonly #speakerJobs = new Map<string, AbortController>();
   readonly #recordingJobs = new Map<string, { promise: Promise<Buffer | null>; controller: AbortController; users: Set<ServerResponse> }>();
@@ -89,6 +91,7 @@ export class GatewayServer {
   /** Stop accepting requests and wait for the HTTP server to close. */
   async close(): Promise<void> {
     for (const controller of this.#nvrTrialJobs) controller.abort();
+    for (const controller of this.#recordingIndexJobs) controller.abort();
     this.#clearBundle();
     for (const controller of this.#speakerJobs.values()) controller.abort();
     for (const job of this.#recordingJobs.values()) job.controller.abort();
@@ -484,6 +487,34 @@ export class GatewayServer {
         segments[0] === "api" && segments[1] === "cameras" && segments[3] === "motion-detection" && segments.length === 4
       ) {
         return await this.#cameraMotionDetection(request, segments[2]!, response);
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras"
+        && segments[3] === "recording-index-trial" && segments.length === 4) {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !this.config.experimentalModelControls || !this.provider.readRecordingIndexTrial) return json(response, 409, { stage: "admission" });
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { stage: "admission" });
+        if ((request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase() !== "application/json") return json(response, 400, { stage: "admission" });
+        const body = await readJson(request);
+        if (Object.keys(body).length !== 1 || body.consentReadRecordingIndex !== true) return json(response, 400, { stage: "admission" });
+        if (this.#recordingIndexJobs.size || this.#nvrTrialJobs.size || this.streams.hasActiveSession(segments[2]!)) return json(response, 409, { stage: "busy" });
+        const controller = new AbortController(); this.#recordingIndexJobs.add(controller);
+        const deadline = setTimeout(() => controller.abort(), Math.min(45_000, this.nvrTrialDeadlineMilliseconds));
+        const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", abort); request.once("aborted", abort);
+        try {
+          const result = await this.provider.readRecordingIndexTrial(segments[2]!, controller.signal);
+          if (controller.signal.aborted) throw new C31IndexError("cancelled");
+          json(response, 200, { outcome: result.outcome, windowMatches: result.windowMatches,
+            ownerMatches: result.ownerMatches, valid: result.valid, invalid: result.invalid, overlapping: result.overlapping });
+        } catch (error) {
+          const failure = error instanceof C31IndexError ? error : new C31IndexError(controller.signal.aborted ? "cancelled" : "session");
+          logger.warn("recording_index_trial_failed", `stage=${failure.stage}`);
+          if (!response.destroyed) json(response, 409, { stage: failure.stage });
+        } finally {
+          controller.abort(); clearTimeout(deadline); response.removeListener("close", abort);
+          request.removeListener("aborted", abort); this.#recordingIndexJobs.delete(controller);
+        }
+        return;
       }
       if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras"
         && segments[3] === "nvr-state-trial" && segments.length === 4) {

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.163
+
+- Expose normal Home Assistant live view for the reporter-confirmed T8E00 through T8N00 and T8140-Z through T9000 pairings when experimental NVR support is enabled. Other pairings remain limited to Diagnostics, and automatic startup snapshots do not consume these NVR sessions.
+- Add a manual, default-off standalone C31 continuous-recording index test in Diagnostics. It sends one source-defined query, checks current device and account bindings, and returns structural counts without footage, recording times or encryption identifiers. Hardware behaviour is unconfirmed, and a timeout remains inconclusive.
+- Require explicit index-test consent, bounded replies, exclusive session ownership and cancellation on disconnect or page departure. Recording settings, playback support, arming, locks and destructive storage operations are not enabled by this test.
+
 ## 0.1.162
 
 - Match the official Eufy login request shape for accounts that previously failed at startup with application error 26108.

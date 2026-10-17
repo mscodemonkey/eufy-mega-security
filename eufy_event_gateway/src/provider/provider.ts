@@ -9,6 +9,7 @@
  * tests; the production provider is the only implementation allowed to know
  * Mega and PPCS details.
  */
+import type { C31IndexSummary } from "../stream/c31-recording-index.js";
 import type { CameraSettingChange } from "./camera-settings.js";
 import type { E30LockSettingChange } from "../domain/types.js";
 import type { NvrStateSummary } from "../stream/nvr-protocol.js";
@@ -68,6 +69,9 @@ export interface CameraProvider {
 
   /** Reserve one explicit NVR video trial until its awaited cleanup completes. */
   reserveNvrLiveTrial?(serial: string, signal: AbortSignal): () => Promise<void>;
+
+  /** Run one explicitly consented source-defined C31 index query, returning structural counts only. */
+  readRecordingIndexTrial?(serial: string, signal: AbortSignal): Promise<C31IndexSummary>;
 
   /** Query private NVR settings once, retiring the exclusive session before returning. */
   readNvrStateTrial?(serial: string, signal: AbortSignal): Promise<NvrStateSummary>;

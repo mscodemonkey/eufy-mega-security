@@ -45,6 +45,11 @@ export function diagnosticsPage(): string {
 <video id="doorbell-video" controls hidden style="max-width:100%"></video>
 <a id="doorbell-download" hidden download="eufy-doorbell-test.mp4">Download private test clip</a>
 <p>The clip stays in this browser and is never uploaded automatically. Keep it private. If the test fails, share only the doorbell_rtc_trial_failed log line.</p></details>
+<details><summary>Experimental C31 continuous-recording index test</summary>
+<p>Enable experimental model controls first, then select a standalone C31. Use this only if the camera already has continuous recordings. Stop its live viewers first. This experimental test asks the camera for its recent recording periods. We have not confirmed its behaviour on hardware. It sends no commands to change recording settings or download footage.</p>
+<label><input id="index-consent" type="checkbox"> I agree to one experimental index query for the last thirty minutes. I understand that hardware behaviour is unconfirmed.</label>
+<button id="index-start">Check recording index once</button><button id="index-cancel">Cancel index test</button>
+<pre id="index-status" role="status">No index test started. A timeout is inconclusive.</pre></details>
 <details><summary>Experimental cloud recording preview</summary>
 <p>Enable this test in the app options first. Select one camera and a day, then choose an existing cloud recording. This does not list local HomeBase recordings or change your subscription.</p>
 <label>Recording day <input id="cloud-date" type="date"></label><button id="cloud-list">Load cloud recordings</button>
@@ -67,6 +72,7 @@ export function diagnosticsPage(): string {
 <script>
 const el = id => document.getElementById(id);
 let targets = [], stream = null, poll = null, activeTrialSerial = null, nvrJob = null, nvrClip = null, doorbellJob = null, doorbellClip = null;
+let indexJob = null;
 let cloudJob = null, cloudLoadJob = null, cloudClip = null, cloudSelection = null, cloudGeneration = 0;
 const show = value => { el('status').textContent = value; };
 const abortStream = () => { if(stream) stream.abort(); stream = null; };
@@ -193,6 +199,28 @@ action('nvr-test', async () => {
     el('nvr-status').textContent = 'Clip received. Does the picture play and show the selected camera? You can also download it to a compatible player. Keep it private.';
   } catch(error) { el('nvr-status').textContent = job.signal.aborted ? 'NVR test cancelled.' : error.message + ' Please send only the nvr_live_trial_failed log line if it failed.'; }
   finally { nvrJob = null; el('nvr-test').disabled = false; el('nvr-state-test').disabled = false; el('device').disabled = false; }
+});
+const cancelIndex = () => { if(indexJob) indexJob.abort(); };
+el('index-cancel').addEventListener('click', cancelIndex);
+el('device').addEventListener('change', () => { cancelIndex(); el('index-consent').checked = false; });
+window.addEventListener('pagehide', cancelIndex);
+action('index-start', async () => {
+  const selected = el('device').value;
+  if(indexJob || !selected || !el('index-consent').checked) throw Error('Select one C31 and confirm index-test consent.');
+  const job = new AbortController(); indexJob = job; el('index-start').disabled = true;
+  el('index-status').textContent = 'Checking the recent index once. No footage is downloaded.';
+  try {
+    const response = await fetch('api/cameras/' + encodeURIComponent(selected) + '/recording-index-trial', {
+      method:'POST', headers:{Authorization:'Bearer ' + el('token').value,'Content-Type':'application/json'},
+      body:JSON.stringify({consentReadRecordingIndex:true}), cache:'no-store', signal:job.signal });
+    const result = await response.json();
+    if(job.signal.aborted || el('device').value !== selected) return;
+    if(!response.ok) throw Error('Index test did not complete: ' + (['admission','busy','cancelled','timeout','malformed','session'].includes(result.stage) ? result.stage : 'session') + '. A failed test does not mean there are no recordings.');
+    el('index-status').textContent = 'Index reply: ' + result.outcome + '. Valid intervals: ' + result.valid +
+      ', invalid intervals: ' + result.invalid + ', intervals in the requested window: ' + result.overlapping +
+      '. This does not confirm that recordings can be played. Please share only this summary, without device details.';
+  } catch(error) { el('index-status').textContent = job.signal.aborted ? 'Index test cancelled.' : error.message + ' If it failed, share only the recording_index_trial_failed log line.'; }
+  finally { if(indexJob === job) indexJob = null; el('index-start').disabled = false; el('index-consent').checked = false; }
 });
 action('nvr-state-test', async () => {
   const selected = el('device').value;
