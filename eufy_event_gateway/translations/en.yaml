@@ -5,6 +5,9 @@ configuration:
   experimental_doorbell_rtc:
     name: Experimental standalone doorbell video test
     description: Enable a consented ten-second private video test in Diagnostics for a standalone Video Doorbell C30. Normal streaming stays unchanged. Hardware behaviour is unconfirmed. Off by default.
+  experimental_nvr_controls:
+    name: Experimental NVR camera-power test
+    description: Temporarily change and restore one T8E00 camera through T8N00 in Diagnostics. Requires the other experimental options and explicit observation consent. A lost connection can require manual restoration. Off by default.
   experimental_nvr_live:
     name: Experimental NVR video test
     description: Enable a consented ten-second private video test in Diagnostics for T8E00 cameras through T8N00 or T9000. Hardware behaviour is unconfirmed. Off by default.

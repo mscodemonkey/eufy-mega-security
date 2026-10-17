@@ -77,3 +77,10 @@ test("cloud recording trial is default-off and requires a token with strict flag
   assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS: "maybe" }), /must be true or false/);
   assert.equal(loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS: "true", EUFY_GATEWAY_API_TOKEN: "x".repeat(32) }).experimentalCloudRecordings, true);
 });
+
+
+test("NVR camera-power trials need a separate default-off authenticated option",()=>{
+  assert.equal(loadConfig({}).experimentalNvrControls,false);
+  assert.throws(()=>loadConfig({EUFY_GATEWAY_EXPERIMENTAL_NVR_CONTROLS:"true"}),/API_TOKEN/);
+  assert.equal(loadConfig({EUFY_GATEWAY_EXPERIMENTAL_NVR_CONTROLS:"true",EUFY_GATEWAY_API_TOKEN:"x".repeat(32)}).experimentalNvrControls,true);
+});

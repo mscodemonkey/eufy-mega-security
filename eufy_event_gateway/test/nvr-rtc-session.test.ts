@@ -50,7 +50,7 @@ function keyframePackets(frame: Buffer, sequence: number): Buffer[] {
   });
 }
 
-for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async () => {
+for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
   const codec = scenario === 'h265' || scenario === 'sequence-gap' ? 'h265' : 'h264';
   const server = new WebSocketServer({ port: 0 });
   await once(server, 'listening');
@@ -61,6 +61,8 @@ for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'st
   const generated = spawnSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=10', '-t', '2', '-c:v', codec === 'h264' ? 'libx264' : 'libx265', '-preset', 'ultrafast', '-g', '10', '-f', codec === 'h264' ? 'h264' : 'hevc', 'pipe:1'], { maxBuffer: 4 * 1024 * 1024 });
   assert.equal(generated.status, 0, generated.stderr.toString());
   const commands: number[] = [], receiver = new NvrPtcsReassembler();
+  let powerValue = 0;
+  let cancelPower = (): void => {};
   let sequence = 0, videoSequence = 0, socket: WebSocket | undefined, sendVideo: NodeJS.Timeout | undefined;
   peer.onDataChannel.subscribe(channel => {
     if (channel.label !== 'WebrtcDataChannel') return;
@@ -74,6 +76,26 @@ for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'st
       if (assembled.status !== 'complete') return;
       const request = nvrApplication(assembled.frame), body = JSON.parse(request.payload.toString());
       commands.push(body.cmd);
+      if (body.cmd === 6250) {
+        assert.ok(scenario.startsWith('power'));
+        assert.equal(request.channel,3); assert.ok(request.segment > 0);
+        assert.deepEqual(Object.keys(body).sort(),['account_id','cmd','payload']);
+        assert.deepEqual(Object.keys(body.payload),['switch']); assert.ok([0,1].includes(body.payload.switch));
+        assert.equal(body.payload.switch, commands.filter(command=>command===6250).length === 1 && scenario !== 'power-noop' ? 1 : 0);
+        powerValue=body.payload.switch;
+        if(scenario === 'power-cancel' && commands.filter(command=>command===6250).length===1) cancelPower();
+        for(const [length,ch,seg] of [[131,3,request.segment],[132,255,request.segment],[132,3,0],[132,3,request.segment-1]]) {
+          const wrong=application(1350,seg!,Buffer.alloc(length!,0x55));wrong[12]=ch!;
+          for(const packet of nvrPackets(wrong,sequence++,1))channel.send(packet);
+        }
+        const jsonReceipt=application(1350,request.segment,Buffer.from(JSON.stringify({status:0}).padEnd(132,' ')));jsonReceipt[12]=3;
+        for(const packet of nvrPackets(jsonReceipt,sequence++,1))channel.send(packet);
+        setTimeout(()=>{
+          const receipt=application(1350,request.segment,Buffer.alloc(132,0x55));receipt[12]=3;
+          for(const packet of nvrPackets(receipt,sequence++,1))channel.send(packet);
+        },20);
+        return;
+      }
       if (body.cmd === 1103) {
         assert.deepEqual(body.payload.channel_info, { array_size: 2, channel_array: [255, 3] });
         if (scenario === 'state-matching-error') {
@@ -104,11 +126,17 @@ for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'st
         const wrongChannel = application(1351, request.segment, Buffer.from(JSON.stringify({ cmd: 1103, params: [] })));
         wrongChannel[12] = 101;
         for (const packet of nvrPackets(wrongChannel, sequence++, 1)) channel.send(packet);
+        if(scenario.startsWith('power')) {
+          for(const segment of [0,request.segment-1]) {
+            const stale=application(1351,segment,Buffer.from(JSON.stringify({cmd:1103,params:[{channel:3,param_type:6250,param_value:1-powerValue}]})));
+            for(const packet of nvrPackets(stale,sequence++,1))channel.send(packet);
+          }
+        }
         if (scenario === 'state-cancel') { controller.abort(); return; }
         setTimeout(() => {
           const data = application(1351, request.segment, Buffer.from(JSON.stringify({ cmd: 1103, params: [
             { dev_type: 255, param_type: 1224, param_value: '2' }, { channel: 255, param_type: 1151, param_value: 1 },
-            { channel: 3, param_type: 6250, param_value: 'MA==' },
+            { channel: 3, param_type: 6250, param_value: Buffer.from(String(powerValue)).toString('base64') },
           ] })));
           for (const packet of nvrPackets(data, sequence++, 1)) channel.send(packet);
         }, 20);
@@ -119,6 +147,7 @@ for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'st
         ? application(1351, replySegment, Buffer.from(JSON.stringify({ cmd: 9100,
           payload: { dev_list: [{ sn: scenario === 'identity' ? 'synthetic-other' : 'synthetic-camera', ch: scenario === 'wrong-channel' ? 4 : 3, dev_type: scenario === 'legacy-first-lens' ? 14 : scenario === 'wrong-type' ? 302 : 301 }] } })))
         : application(1350, replySegment, Buffer.alloc(4));
+      if (scenario === 'legacy-zero-segment') response[11] = 0;
       if ((scenario === 'state-read' || scenario === 'state-bad-ack-padding') && body.cmd === 9100) response[10] = 1;
       const responsePackets = (scenario === 'state-read' || scenario === 'state-bad-ack-padding') && body.cmd === 9100
         ? receivePackets(response, sequence++, 1)
@@ -179,7 +208,16 @@ for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'st
   const manager = new LiveStreamManager(state, { write: async () => { snapshots++; } } as never, { startStream: async () => session.start(), stopStream: async () => session.close() }, 5, undefined, undefined, (() => { extractors++; throw new Error("Unexpected snapshot extractor"); }) as never);
   manager.on("diagnostic-media", () => diagnosticMedia++);
   manager.on('warning', () => {});
+  if (scenario === 'power-unordered' || scenario === 'power-undefined') {
+    const create = RTCPeerConnection.prototype.createDataChannel;
+    context.mock.method(RTCPeerConnection.prototype, 'createDataChannel', function (this: RTCPeerConnection, label: string, options: Parameters<RTCPeerConnection["createDataChannel"]>[1]) {
+      const channel = create.call(this, label, { ...options, ordered: false });
+      if (scenario === 'power-undefined') Object.defineProperty(channel, 'ordered', { value: undefined });
+      return channel;
+    });
+  }
   const session = new NvrRtcSession({ station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
+    powerTrial: scenario.startsWith('power'),
     cameraType: scenario === 'legacy-first-lens' ? 14 : 301, sensor: scenario === 'legacy-first-lens' ? 0 : 1,
     administrator: 'synthetic-administrator', context: { host: 'security-smart-ie.eufylife.com', region: 'IE',
       authToken: 'synthetic-token', gtoken: 'synthetic-gtoken', sign: 'synthetic-sign' },
@@ -207,6 +245,27 @@ for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'st
         return true;
       }); } finally { clearTimeout(deadline); }
       assert.equal(commands.includes(1003), false); return;
+    }
+    if(scenario.startsWith('power')) {
+      if(scenario === 'power-unordered' || scenario === 'power-undefined') {
+        await assert.rejects(session.preparePowerTrial(), /identity/);
+        assert.equal(commands.includes(6250), false); await session.close(); return;
+      }
+      await session.preparePowerTrial();
+      let dispatched=0;
+      let phase=new AbortController();
+      cancelPower=()=>phase.abort();
+      if(scenario === 'power-cancel') {
+        await assert.rejects(session.writePowerTrial('off',phase.signal,()=>{dispatched++;}),/cancelled/);
+        phase=new AbortController();
+      } else await session.writePowerTrial(scenario === 'power-noop' ? 'on' : 'off',phase.signal,()=>{dispatched++;});
+      assert.equal(await session.readPowerTrial(phase.signal),scenario === 'power-noop' ? 'on' : 'off');
+      await session.writePowerTrial('on',phase.signal,()=>{dispatched++;});
+      assert.equal(await session.readPowerTrial(phase.signal),'on');
+      assert.equal(dispatched,2);assert.deepEqual(commands,[9100,6250,1103,6250,1103]);
+      assert.equal(attached,0);assert.equal(snapshots,0);assert.equal(diagnosticMedia,0);
+      assert.ok(session.stats.staleReplies >= 14);
+      await session.close();return;
     }
     if (scenario.startsWith('state-')) {
       if (['state-cancel', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'state-matching-error'].includes(scenario)) {

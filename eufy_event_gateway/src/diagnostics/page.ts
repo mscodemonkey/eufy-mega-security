@@ -37,6 +37,16 @@ export function diagnosticsPage(): string {
 <video id="nvr-video" controls hidden style="max-width:100%"></video>
 <a id="nvr-download" hidden download="eufy-nvr-test.mp4">Download private test clip</a>
 <p>The clip stays in this browser and is never uploaded automatically. HEVC may require a compatible player. If the picture does not play, keep the clip private and share only the nvr_live_trial_failed log line publicly.</p></details>
+<details><summary>Experimental NVR camera-power test</summary>
+<p>For a T8E00 camera through T8N00 only. Enable Experimental NVR video, Experimental model controls and Experimental NVR camera-power test in the app options. Close all viewers first.</p>
+<p>This temporarily changes the camera's power/privacy state and attempts to restore it. Turning it off can interrupt recording and notifications. Hardware behaviour in this gateway is unconfirmed. Use this only while you can observe the camera and restore its original state in the Eufy app if needed.</p>
+<label>Original state, checked in Eufy <select id="nvr-power-original"><option value="">Choose the recorded original</option><option value="on">On</option><option value="off">Off</option></select></label>
+<label>Temporary test state <select id="nvr-power-target"><option value="">Choose the temporary state</option><option value="off">Off</option><option value="on">On</option></select></label>
+<label><input id="nvr-power-consent" type="checkbox"> I recorded the original state, can observe the camera, and agree to the temporary change and restoration attempts.</label>
+<p>The power mapping is hardware-unconfirmed. A mismatch or lost connection can leave the camera off. A browser or proxy timeout requests cancellation, so check and restore the recorded original in Eufy.</p>
+<button id="nvr-power-start">Test and restore camera power</button><button id="nvr-power-cancel">Cancel and request restoration</button>
+<p>Cancelling or leaving this page requests restoration on the gateway, but cannot show its final result. It is not an immediate stop. Check the camera against your recorded original state and restore it manually if needed. A lost connection or gateway restart can prevent automatic restoration.</p>
+<pre id="nvr-power-status" role="status">No power test started. If you left an earlier test, check and restore its recorded original state in Eufy.</pre></details>
 <details><summary>Experimental standalone doorbell video test</summary>
 <p>Enable this test in the app options first, then select one standalone Video Doorbell C30. Stop other viewers before testing. Normal Home Assistant live view stays unchanged.</p>
 <label><input id="doorbell-consent" type="checkbox"> I agree to request a ten-second private video clip from the selected doorbell.</label>
@@ -84,7 +94,7 @@ export function diagnosticsPage(): string {
 <script>
 const el = id => document.getElementById(id);
 let targets = [], stream = null, poll = null, activeTrialSerial = null, nvrJob = null, nvrClip = null, doorbellJob = null, doorbellClip = null;
-let indexJob = null, motionJob = null, lockStatusJob = null;
+let indexJob = null, motionJob = null, lockStatusJob = null, nvrPowerJob = null;
 let cloudJob = null, cloudLoadJob = null, cloudClip = null, cloudSelection = null, cloudGeneration = 0;
 const show = value => { el('status').textContent = value; };
 const abortStream = () => { if(stream) stream.abort(); stream = null; };
@@ -213,6 +223,34 @@ action('nvr-test', async () => {
     el('nvr-status').textContent = 'Clip received. Does the picture play and show the selected camera? You can also download it to a compatible player. Keep it private.';
   } catch(error) { el('nvr-status').textContent = job.signal.aborted ? 'NVR test cancelled.' : error.message + ' Please send only the nvr_live_trial_failed log line if it failed.'; }
   finally { nvrJob = null; el('nvr-test').disabled = false; el('nvr-state-test').disabled = false; el('device').disabled = false; }
+});
+const cancelNvrPower = () => { const active = Boolean(nvrPowerJob); if(nvrPowerJob) nvrPowerJob.abort(); el('nvr-power-consent').checked = false; el('nvr-power-status').textContent = active ? 'Check the recorded original state. Cancellation requests restoration but cannot show its final result here.' : 'No power test running. Confirm observation consent before starting.'; };
+el('nvr-power-cancel').addEventListener('click', cancelNvrPower);
+el('device').addEventListener('change', cancelNvrPower);
+el('nvr-power-original').addEventListener('change', cancelNvrPower);
+el('nvr-power-target').addEventListener('change', cancelNvrPower);
+window.addEventListener('pagehide', cancelNvrPower);
+action('nvr-power-start', async () => {
+  const selected = el('device').value, original = el('nvr-power-original').value, target = el('nvr-power-target').value;
+  if(nvrPowerJob || !selected || !['on','off'].includes(original) || !['on','off'].includes(target) || !el('nvr-power-consent').checked) throw Error('Select one T8E00, record the original state, choose the temporary state and confirm observation consent.');
+  const job = new AbortController(); nvrPowerJob = job; el('nvr-power-start').disabled = true;
+  let failureMessage = 'Power test could not be completed. Check and restore your recorded original (' + original + ') in Eufy if needed.';
+  el('nvr-power-status').textContent = 'Testing and restoring. Keep watching the camera. The full operation can take up to two minutes. Your recorded original is ' + original + '.';
+  try {
+    const response = await fetch('api/cameras/' + encodeURIComponent(selected) + '/nvr-power-trial', {
+      method:'POST',headers:{Authorization:'Bearer ' + el('token').value,'Content-Type':'application/json'},
+      body:JSON.stringify({consent:true,originalPower:original,target}),cache:'no-store',signal:job.signal });
+    const result = await response.json();
+    if(job.signal.aborted || el('device').value !== selected) return;
+    if(!response.ok) {
+      const stage = ['admission','busy','inventory','identity','baseline','send','receipt','readback','restore','cleanup','cancelled','shutdown','timeout'].includes(result.stage) ? result.stage : 'restore';
+      failureMessage = 'Power test did not complete: ' + stage + '. Check the camera and restore your recorded original (' + original + ') in Eufy if needed.';
+      throw Error('Power test failed');
+    }
+    if(!['target_confirmed','no_change_confirmed','target_unconfirmed_restored'].includes(result.outcome) || result.restored !== true) throw Error('Invalid power summary');
+    el('nvr-power-status').textContent = 'Power test: ' + result.outcome + '. Reported original restored. Did the physical camera match the temporary state and return to ' + original + '? Hardware confirmation is still required. Share only this summary and what you observed.';
+  } catch { el('nvr-power-status').textContent = job.signal.aborted ? 'Cancellation requested. Gateway restoration may still be running. No final result is available here. Check and restore your recorded original (' + original + ') in Eufy if needed.' : failureMessage + ' If it failed, share only the nvr_power_trial_failed line.'; }
+  finally { if(nvrPowerJob === job) nvrPowerJob = null; el('nvr-power-start').disabled = false; el('nvr-power-consent').checked = false; }
 });
 const cancelLockStatus = () => { if(lockStatusJob) lockStatusJob.abort(); el('lock-status-consent').checked = false; };
 el('lock-status-cancel').addEventListener('click', cancelLockStatus);

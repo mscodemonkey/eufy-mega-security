@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.168
+
+- Add a separately enabled, owner-only NVR camera-power diagnostic that checks the original state, tests one temporary value and attempts verified restoration. It stays off by default and needs observed hardware confirmation.
+- Recognise type-95 C31/C30 doorbells in the existing ring-event and Home Assistant doorbell-sensor path. Physical presses and absence of false rings still need reporter confirmation.
+
 ## 0.1.167
 
 - Picture download failures now include redacted request paths, the failing request hop and attempt count, making persistent cloud 404 errors easier to investigate without sharing signed URLs.

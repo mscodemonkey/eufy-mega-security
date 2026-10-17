@@ -1,8 +1,9 @@
 /**
  * Owns one default-off NVR diagnostic connection from join through bounded close.
  * The provider owns the station lease and supplies private Mega credentials.
- * Only checked video reaches its output. No vendor assets, captures or settings
- * writes are used, and this candidate does not establish hardware support.
+ * Only checked video reaches its output. A separately admitted manual power
+ * trial can write and restore one child value, with no media or normal controls.
+ * Vendor assets and captures are not dependencies, and hardware needs testing.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { PassThrough } from "node:stream";
@@ -12,7 +13,8 @@ import type { VideoCodec } from "../domain/types.js";
 import { NvrPtcsReassembler, type NvrPtcsReassemblyStats } from "./nvr-ptcs-reassembly.js";
 import { VideoParameterSetCache } from "./live-stream-manager.js";
 import { installNvrIceTiming } from "./nvr-ice-timing.js";
-import { NvrTrialError, nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrJson,
+import { NvrPowerError, type NvrCameraPower } from "../provider/nvr-power-trial.js";
+import { NvrTrialError, nvrCameraPowerCommand, nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrJson,
   nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrRecord, nvrVideo, nvrStateSummary, type NvrStateSummary, type NvrTrialStage, type NvrTrialReason } from "./nvr-protocol.js";
 
 const HEARTBEAT_ECHO = nvrHeartbeat();
@@ -51,6 +53,9 @@ export interface NvrRtcOptions {
 
   /** Total owned session lifetime, including signalling and media delivery. */
   readonly maximumLifetimeMilliseconds?: number;
+
+  /** Separate provider admission for the manual camera-power trial, never ordinary live view. */
+  readonly powerTrial?: boolean;
 }
 
 interface PendingRequest {
@@ -59,6 +64,7 @@ interface PendingRequest {
   readonly resolve: (value: Record<string, unknown>) => void;
   readonly reject: (error: Error) => void;
   readonly timer: NodeJS.Timeout;
+  readonly deadline: number;
 }
 
 /** Content-free counters explain an unconfirmed trial without exposing its route. */
@@ -124,6 +130,9 @@ export class NvrRtcSession {
   #peer: RTCPeerConnection | null = null;
   #pending: PendingRequest | null = null;
   #segment = 0;
+  #powerMode = false;
+  #powerReceipt: { readonly segment: number; readonly deadline: number; readonly resolve: () => void;
+    readonly reject: (error: NvrPowerError) => void; readonly timer: NodeJS.Timeout; readonly detach: () => void } | null = null;
   #outSequence = 0;
   #operations = 0;
   #chain: Promise<void> = Promise.resolve();
@@ -169,6 +178,7 @@ export class NvrRtcSession {
 
   /** Negotiate, correlate fresh discovery, attach the sink, and request video once. */
   async start(): Promise<void> {
+    if (this.options.powerTrial) throw new NvrPowerError("admission");
     await this.#connectAndDiscover();
     this.options.ready(this.output, () => this.#codec);
     this.#stage = "start";
@@ -190,6 +200,84 @@ export class NvrRtcSession {
       this.#guard();
       return nvrStateSummary(response, this.options.channel);
     } finally { await this.close(); }
+  }
+
+  /** Open one power-only connection after the provider's separate consent and admission. */
+  async preparePowerTrial(): Promise<void> {
+    if (!this.options.powerTrial || this.options.cameraType !== 301 || this.#started) throw new NvrPowerError("admission");
+    this.#powerMode = true;
+    await this.#connectAndDiscover();
+    if (this.#channels.get("WebrtcDataChannel")?.ordered !== true) throw new NvrPowerError("identity");
+  }
+
+  /** Reconfirm the selected child on the same connection before a recovery write. */
+  async validatePowerTrial(signal: AbortSignal): Promise<void> {
+    this.#powerGuard();
+    const response = await this.#powerQuery(9100, signal);
+    nvrMatchCamera(response, this.options.camera, this.options.channel, 301);
+    this.#powerGuard();
+  }
+
+  /** Project only the freshly correlated camera-power field, keeping all other state private. */
+  async readPowerTrial(signal: AbortSignal): Promise<NvrCameraPower | null> {
+    this.#powerGuard();
+    const response = await this.#powerQuery(1103, signal);
+    this.#powerGuard();
+    return nvrStateSummary(response, this.options.channel).cameraPower;
+  }
+
+  /** Send one absolute power command. A receipt is not a reported or physical state. */
+  async writePowerTrial(value: NvrCameraPower, signal: AbortSignal, dispatched: () => void): Promise<void> {
+    this.#powerGuard(); signal.throwIfAborted();
+    if (this.#pending || this.#powerReceipt || this.#segment >= 254 || !["on", "off"].includes(value)) throw new NvrPowerError("send");
+    const channel = this.#channels.get("WebrtcDataChannel");
+    if (!channel || channel.readyState !== "open" || channel.bufferedAmount > 1024 * 1024) throw new NvrPowerError("send");
+    const segment = ++this.#segment;
+    const frame = nvrCameraPowerCommand(this.options.administrator, segment, this.options.channel, value === "off" ? 1 : 0);
+    const packets = nvrPackets(frame, this.#outSequence++ % 65536, Date.now());
+    return await new Promise<void>((resolve, reject) => {
+      const abort = (): void => this.#finishPowerReceipt(new NvrPowerError("cancelled"));
+      const timer = setTimeout(() => this.#finishPowerReceipt(new NvrPowerError("receipt")), 15_000);
+      this.#powerReceipt = { segment, deadline: performance.now() + 15_000, resolve, reject, timer,
+        detach: () => signal.removeEventListener("abort", abort) };
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) { abort(); return; }
+      try {
+        this.#powerGuard(); signal.throwIfAborted(); dispatched();
+        for (const packet of packets) channel.send(packet);
+      } catch { this.#finishPowerReceipt(new NvrPowerError("send")); }
+      finally { frame.fill(0); }
+    });
+  }
+
+  #powerGuard(): void {
+    this.#guard();
+    if (!this.#powerMode || !this.options.powerTrial || this.#startSent || this.#channels.get("WebrtcDataChannel")?.ordered !== true) throw new NvrPowerError("identity");
+  }
+
+  async #powerQuery(command: 9100 | 1103, signal: AbortSignal): Promise<Record<string, unknown>> {
+    signal.throwIfAborted();
+    if (this.#pending || this.#powerReceipt) throw new NvrPowerError("busy");
+    const operation = this.#request(command, 5_000);
+
+    // The request installs its pending owner synchronously despite the preceding null guard.
+    const pending = this.#pending as PendingRequest | null;
+    const abort = (): void => {
+      if (pending && this.#pending === pending) {
+        clearTimeout(pending.timer); this.#pending = null; pending.reject(new NvrPowerError("cancelled"));
+      }
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+    try { const result = await operation; signal.throwIfAborted(); return result; }
+    finally { signal.removeEventListener("abort", abort); }
+  }
+
+  #finishPowerReceipt(error?: NvrPowerError): void {
+    const pending = this.#powerReceipt;
+    if (!pending) return;
+    this.#powerReceipt = null; clearTimeout(pending.timer); pending.detach();
+    if (error) pending.reject(error); else pending.resolve();
   }
 
   async #connectAndDiscover(): Promise<void> {
@@ -234,6 +322,7 @@ export class NvrRtcSession {
   close(): Promise<void> {
     if (this.#closing) return this.#closing;
     this.#retired = true;
+    this.#finishPowerReceipt(new NvrPowerError("shutdown"));
     this.#negotiation.abort();
     this.#abort.abort();
     this.options.signal.removeEventListener("abort", this.#externalAbort);
@@ -494,8 +583,20 @@ export class NvrRtcSession {
       } else if (!this.output.write(video.bytes)) throw new NvrTrialError("video");
       return;
     }
+    if (this.#powerReceipt && frame.command === 1350) {
+      const pending = this.#powerReceipt;
+      if (frame.channel === this.options.channel && frame.segment === pending.segment && frame.payload.length === 132
+        && performance.now() < pending.deadline) {
+        let json = false;
+        try { JSON.parse(frame.payload.toString("utf8")); json = true; } catch { /* The source receipt is binary. */ }
+        if (!json) this.#finishPowerReceipt(); else this.stats.staleReplies++;
+      } else this.stats.staleReplies++;
+      return;
+    }
     const pending = this.#pending;
     if (!pending || frame.channel !== 255 || frame.segment !== pending.segment && (frame.segment !== 0 || pending.command === 1103)) { this.stats.staleReplies++; return; }
+    if ((pending.command === 1103 || this.#powerMode && pending.command === 9100)
+      && (frame.segment !== pending.segment || performance.now() >= pending.deadline)) { this.stats.staleReplies++; return; }
     if (frame.segment === 0) this.stats.segmentNotEchoed++;
     if (frame.command === 1350 && frame.payload.length >= 4
       && frame.payload.subarray(4).every((byte) => byte === 0)) {
@@ -519,7 +620,7 @@ export class NvrRtcSession {
     return new Promise((resolve, reject) => {
       const segment = ++this.#segment;
       const timer = setTimeout(() => { this.#pending = null; reject(new NvrTrialError(command === 1004 ? "stop" : this.#stage)); }, timeout);
-      this.#pending = { command, segment, resolve, reject, timer };
+      this.#pending = { command, segment, resolve, reject, timer, deadline: performance.now() + timeout };
       if (command === 1003) this.#startSent = true;
       try {
         for (const packet of nvrPackets(nvrCommand(this.options.administrator, command, segment, this.options.channel, this.options.sensor ?? 1), this.#outSequence++ % 65536, Date.now())) channel.send(packet);

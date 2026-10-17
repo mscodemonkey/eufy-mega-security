@@ -581,6 +581,12 @@ Do not include camera identifiers or private diagnostics in public issue comment
 
 ### Experimental NVR video test
 
+The separate [NVR camera-power test](docs/NVR_CAMERA_POWER_TEST.md) is off by
+default and limited to T8E00/type 301 through T8N00/type 300. It requires
+observation consent, a recorded original state and its own app option. It
+attempts restoration, but a lost connection can require manual restoration.
+Hardware behaviour is unconfirmed, and normal controls stay unavailable.
+
 `experimental_nvr_live` is off by default. Enabling it adds a consented,
 ten-second private video test to Diagnostics through exact T8N00/type 300 or
 T9000/type 27 parents. The exact camera/model pairs are T8E00/type 301,

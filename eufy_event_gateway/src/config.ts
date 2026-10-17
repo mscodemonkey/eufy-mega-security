@@ -32,6 +32,9 @@ export interface GatewayConfig {
   /** Default-off, consented NVR video trials. Normal capabilities remain unchanged. */
   readonly experimentalNvrLive: boolean;
 
+  /** Separate default-off physical camera-power trial, requiring explicit observation consent. */
+  readonly experimentalNvrControls: boolean;
+
   /** Default-off native standalone doorbell video test, requiring private-media consent. */
   readonly experimentalDoorbellRtc: boolean;
 
@@ -73,6 +76,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
   if (experimentalDoorbellRtc && !apiToken) throw new Error("Experimental doorbell video requires EUFY_GATEWAY_API_TOKEN");
   const experimentalCloudRecordings = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS, "EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS");
   if (experimentalCloudRecordings && !apiToken) throw new Error("Experimental cloud recordings require EUFY_GATEWAY_API_TOKEN");
+  const experimentalNvrControls = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_NVR_CONTROLS, "EUFY_GATEWAY_EXPERIMENTAL_NVR_CONTROLS");
+  if (experimentalNvrControls && !apiToken) throw new Error("Experimental NVR controls require EUFY_GATEWAY_API_TOKEN");
   const experimentalNvrLive = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_NVR_LIVE, "EUFY_GATEWAY_EXPERIMENTAL_NVR_LIVE");
   const experimentalFixedH265Resolution = captureBoolean(
     environment.EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION,
@@ -103,6 +108,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
     experimentalModelControls,
     experimentalE30Locks,
     experimentalNvrLive,
+    experimentalNvrControls,
     experimentalDoorbellRtc,
     experimentalCloudRecordings,
     experimentalFixedH265Resolution,

@@ -90,6 +90,18 @@ export function nvrCommand(account: string, command: 9100 | 1003 | 1004 | 1103, 
   return Buffer.concat([header, body]);
 }
 
+/** Encode only the consented camera-power value on its selected child channel. */
+export function nvrCameraPowerCommand(account: string, segment: number, channel: number, value: 0 | 1): Buffer {
+  if (typeof account !== "string" || !/^[A-Za-z0-9_-]{1,255}$/.test(account)
+    || !Number.isInteger(segment) || segment < 1 || segment > 254
+    || !Number.isInteger(channel) || channel < 0 || channel > 254 || (value !== 0 && value !== 1)) throw new NvrTrialError("framing");
+  const body = Buffer.from(JSON.stringify({ account_id: account, cmd: 6250, payload: { switch: value } }));
+  const header = Buffer.alloc(16);
+  header.write("XZYH"); header.writeUInt16LE(1350, 4); header.writeUInt32LE(body.length, 6);
+  header[11] = segment; header[12] = channel; header[15] = 2;
+  return Buffer.concat([header, body]);
+}
+
 /**
  * A single explicit query result, separate from inventory or confirmed controls.
  * Missing or unsupported settings stay unknown. No identity or received text
