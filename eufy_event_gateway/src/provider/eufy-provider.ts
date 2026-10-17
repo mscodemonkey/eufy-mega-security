@@ -12,6 +12,8 @@
  * forwarding private event fields into the logger. Periodic cloud refreshes admit
  * newly added devices without replacing push receivers or active media sessions.
  */
+import { InventoryMotionClock, type InventoryMotionOutcome } from "./inventory-motion.js";
+
 import { LocalMotionCollector, LocalMotionError, type LocalMotionSummary } from "../stream/local-motion-trial.js";
 import { C31IndexError, type C31IndexSummary } from "../stream/c31-recording-index.js";
 import type { E30LockSettingChange, SmartLockState } from "../domain/types.js";
@@ -49,6 +51,9 @@ import { resolveDeviceRoute } from "./device-routing.js";
 
 import { CameraSettingError, cameraSettingProfile, cameraSettingWireValue, parseCameraSettingChange, readCameraSetting, runConfirmedCameraSetting, type CameraSettingChange } from "./camera-settings.js";
 import { c31PreferenceNames, c31PreferenceValue, c31PreferenceReadField, validateC31Preference } from "./c31-preferences.js";
+
+/** Classify a fresh cloud motion advance without retaining a sensor baseline. */
+export { inventoryMotionOutcome } from "./inventory-motion.js";
 
 const logger = createLogger("provider");
 const DSK_REFRESH_SKEW_MILLISECONDS = 60_000;
@@ -532,7 +537,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #cameraSirenOperations = new Map<string, Promise<void>>();
   readonly #cameraSirenAborters = new Map<string, AbortController>();
   readonly #panControlOperations = new Map<string, Promise<void>>();
-  readonly #pendingSensorMotionCloudConfirmations = new Set<string>();
+  readonly #pendingSensorMotionCloudConfirmations = new Map<string, { receivedAt: number }>();
+  readonly #sensorMotionClocks = new Map<string, { device: MegaInventoryDevice; clock: InventoryMotionClock }>();
   readonly #liveDeviceReads = new Map<string, MegaInventoryReads>();
   readonly #liveDeviceParamTypes = new Map<string, readonly number[]>();
   #push: MegaPushReceiver | null = null;
@@ -2244,6 +2250,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     await Promise.allSettled(this.#panControlOperations.values());
     this.#panControlOperations.clear();
     this.#pendingSensorMotionCloudConfirmations.clear();
+    this.#sensorMotionClocks.clear();
     this.#liveDeviceReads.clear();
     this.#liveDeviceParamTypes.clear();
     this.#events = null;
@@ -2324,10 +2331,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#locks?.inventory(inventory.devices, true);
     this.#devices.clear();
     this.#pendingSensorMotionCloudConfirmations.clear();
+    this.#sensorMotionClocks.clear();
     this.#liveDeviceReads.clear();
     this.#liveDeviceParamTypes.clear();
-    for (const device of devices) {
-      this.#devices.set(device.serial, device);
+    const sensorReceivedAt = Date.now();
+    for (const [index, device] of devices.entries()) {
+      const clock = this.#inventoryMotionClock(device, undefined, sensorReceivedAt);
+      clock?.observe(device.reads.motionEventSeconds, false, sensorReceivedAt);
+      const observed = clock ? this.#motionBaselineReads(device, clock) : device;
+      devices[index] = observed;
+      this.#devices.set(device.serial, observed);
     }
     this.#dskKeys.clear();
     this.#cipherKeys.clear();
@@ -2520,11 +2533,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   /** Merge routing peers before publishing additive discovery through the captured generation. */
   async #runInventoryRefresh(events: ProviderEvents, generation: number): Promise<void> {
     const inventory = await this.#client.inventory();
+    const receivedAt = Date.now();
+    const pushesAtReceipt = new Map(this.#pendingSensorMotionCloudConfirmations);
     const refreshed = parseMegaInventory(inventory);
     if (generation !== this.#startupGeneration) throw new Error("Inventory refresh cancelled");
     this.#locks?.inventory(inventory.devices);
     if (refreshed.length === 0) return;
     const previous = new Map(this.#devices);
+    const motionOutcomes = new Map<string, InventoryMotionOutcome>();
     for (const device of refreshed) {
       const known = this.#devices.get(device.serial);
       const refreshedDevice = known ? mergeInventoryMetadata(known, device) : device;
@@ -2541,12 +2557,19 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         this.#liveDeviceReads.delete(device.serial);
         this.#liveDeviceParamTypes.delete(device.serial);
       }
+      const clock = this.#inventoryMotionClock(device, known, receivedAt);
+      const pendingAt = this.#pendingSensorMotionCloudConfirmations.get(device.serial);
+      const recentPush = pendingAt !== undefined && receivedAt >= pendingAt.receivedAt && receivedAt - pendingAt.receivedAt <= 60_000;
+      if (!recentPush) this.#pendingSensorMotionCloudConfirmations.delete(device.serial);
+      const outcome = clock?.observe(device.reads.motionEventSeconds, false, receivedAt) ?? "none";
+      motionOutcomes.set(device.serial, outcome);
+      const observed = clock ? this.#motionBaselineReads(refreshedDevice, clock) : refreshedDevice;
       const liveReads = this.#liveDeviceReads.get(device.serial);
       const liveParamTypes = this.#liveDeviceParamTypes.get(device.serial) ?? [];
       this.#devices.set(device.serial, {
-        ...refreshedDevice,
+        ...observed,
         paramTypes: [...new Set([...device.paramTypes, ...liveParamTypes])].sort((left, right) => left - right),
-        reads: liveReads ? { ...device.reads, ...liveReads } : device.reads,
+        reads: liveReads ? { ...observed.reads, ...liveReads } : observed.reads,
       });
     }
     const missingPeers = [...this.#devices.values()].filter((device) =>
@@ -2617,16 +2640,48 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         const summary = privacyParameterLogSummary(merged, known?.reads.privacy6250Value);
         if (summary) logger.info("camera_privacy_parameter_observed", summary);
       }
-      const motionOutcome = inventoryMotionOutcome(
-        known?.reads.motionEventSeconds, device.reads.motionEventSeconds,
-        this.#pendingSensorMotionCloudConfirmations.has(device.serial),
-      );
+      let motionOutcome = motionOutcomes.get(device.serial) ?? "none";
       if (motionOutcome === "none") continue;
-      this.#pendingSensorMotionCloudConfirmations.delete(device.serial);
+      const publishedAt = Date.now(), timestamp = device.reads.motionEventSeconds;
+      if (timestamp === undefined || publishedAt - Math.round(timestamp * 1_000) > 60_000
+        || Math.round(timestamp * 1_000) - publishedAt > 2_000) continue;
+      const pendingAt = this.#pendingSensorMotionCloudConfirmations.get(device.serial);
+      if (pendingAt !== undefined && publishedAt >= pendingAt.receivedAt && publishedAt - pendingAt.receivedAt <= 60_000) {
+        motionOutcome = "push-confirmed";
+        if (pendingAt === pushesAtReceipt.get(device.serial)) this.#pendingSensorMotionCloudConfirmations.delete(device.serial);
+      } else this.#pendingSensorMotionCloudConfirmations.delete(device.serial);
       logger.info("sensor_motion_cloud_observed",
         `model=${safeLogModel(device.model)} outcome=${motionOutcome}`);
       if (motionOutcome === "cloud-motion") events.sensorMotion(device.serial, true);
     }
+  }
+
+  #inventoryMotionClock(device: MegaInventoryDevice, previous: MegaInventoryDevice | undefined,
+    receivedAt: number): InventoryMotionClock | null {
+    if (device.deviceType !== 10 && device.deviceType !== 127) return null;
+    const entry = this.#sensorMotionClocks.get(device.serial);
+    if (entry && !inventoryBindingChanged(entry.device, device)) return entry.clock;
+    const sameBinding = previous && !inventoryBindingChanged(previous, device);
+    const clock = new InventoryMotionClock(sameBinding ? previous.reads.motionEventSeconds : undefined, receivedAt);
+    this.#sensorMotionClocks.delete(device.serial);
+    this.#sensorMotionClocks.set(device.serial, { device, clock });
+    while (this.#sensorMotionClocks.size > 1_000) this.#sensorMotionClocks.delete(this.#sensorMotionClocks.keys().next().value!);
+    return clock;
+  }
+
+  #motionBaselineReads(device: MegaInventoryDevice, clock: InventoryMotionClock): MegaInventoryDevice {
+    const reads = { ...device.reads };
+    delete reads.motionEventSeconds;
+    const fromMotion = device.reads.motionEventSeconds !== undefined
+      && device.reads.lastSeen === new Date(device.reads.motionEventSeconds * 1_000).toISOString();
+    const replaceLastSeen = fromMotion || reads.lastSeen === undefined;
+    if (replaceLastSeen) delete reads.lastSeen;
+    const seconds = clock.baselineSeconds;
+    if (seconds !== undefined) {
+      reads.motionEventSeconds = seconds;
+      if (replaceLastSeen) reads.lastSeen = new Date(seconds * 1_000).toISOString();
+    }
+    return { ...device, reads };
   }
 
   /** Limit repeated missing-key warnings while discovery remains available. */
@@ -3206,7 +3261,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       return;
     }
     if ((device.deviceType === 10 || device.deviceType === 127) && event.eventType === 14) {
-      this.#pendingSensorMotionCloudConfirmations.add(event.cameraSerial);
+      this.#pendingSensorMotionCloudConfirmations.set(event.cameraSerial, { receivedAt: Date.now() });
       events.sensorMotion(event.cameraSerial, true);
       return;
     }
@@ -3701,8 +3756,13 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const contact = finiteNumber(params.get(1550));
   const rssi = finiteNumber(params.get(1141));
   const contactLastSeen = validUnixSeconds(params.get(1551));
+  const motionValue = params.get(1605);
+  const milliseconds = deviceType === 10 && model === "T8910"
+    && (typeof motionValue === "number" || typeof motionValue === "string" && /^\d+$/.test(motionValue))
+    && Number.isSafeInteger(Number(motionValue)) && Number(motionValue) >= 946_684_800_000
+    ? Number(motionValue) / 1_000 : undefined;
   const motionEventSeconds = deviceType === 10 || deviceType === 127
-    ? validUnixSeconds(params.get(1605))
+    ? validUnixSeconds(milliseconds ?? motionValue)
     : undefined;
   const lastSeen = contactLastSeen ?? motionEventSeconds;
   const batteryLevel = percentage(1101);
@@ -3887,23 +3947,6 @@ function activeRecordingQuality(value: unknown, minimum = 1): number | undefined
   if (!isRecord(selected)) return undefined;
   const tier = selected.quality;
   return typeof tier === "number" && Number.isInteger(tier) && tier >= minimum && tier <= 3 ? tier : undefined;
-}
-
-/**
- * Decide whether a cloud PIR timestamp is a new fallback event or confirms a push already emitted.
- *
- * The first observed timestamp establishes a baseline unless a push is waiting for confirmation.
- * Equal or older values never replay historical motion after startup or a cloud rollback.
- */
-export function inventoryMotionOutcome(
-  previous: number | undefined,
-  current: number | undefined,
-  pushPending: boolean,
-): "none" | "push-confirmed" | "cloud-motion" {
-  if (current === undefined) return "none";
-  if (previous === undefined) return pushPending ? "push-confirmed" : "none";
-  if (current <= previous) return "none";
-  return pushPending ? "push-confirmed" : "cloud-motion";
 }
 
 /** Resolve the family-specific raw 1035 value for a desired camera state. */

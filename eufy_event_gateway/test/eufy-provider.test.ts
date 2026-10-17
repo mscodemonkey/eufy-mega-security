@@ -690,12 +690,12 @@ test("decodes a motion sensor cloud event timestamp without applying it to camer
 });
 
 test("uses advancing cloud motion only when push did not already emit it", () => {
-  assert.equal(inventoryMotionOutcome(undefined, 1_789_500_000, false), "none");
-  assert.equal(inventoryMotionOutcome(1_789_500_000, 1_789_500_000, false), "none");
-  assert.equal(inventoryMotionOutcome(1_789_500_001, 1_789_500_000, false), "none");
-  assert.equal(inventoryMotionOutcome(1_789_500_000, 1_789_500_001, false), "cloud-motion");
-  assert.equal(inventoryMotionOutcome(1_789_500_000, 1_789_500_001, true), "push-confirmed");
-  assert.equal(inventoryMotionOutcome(undefined, 1_789_500_001, true), "push-confirmed");
+  assert.equal(inventoryMotionOutcome(undefined, 1_789_500_000, false, 1_789_500_002_000), "none");
+  assert.equal(inventoryMotionOutcome(1_789_500_000, 1_789_500_000, false, 1_789_500_002_000), "none");
+  assert.equal(inventoryMotionOutcome(1_789_500_001, 1_789_500_000, false, 1_789_500_002_000), "none");
+  assert.equal(inventoryMotionOutcome(1_789_500_000, 1_789_500_001, false, 1_789_500_002_000), "cloud-motion");
+  assert.equal(inventoryMotionOutcome(1_789_500_000, 1_789_500_001, true, 1_789_500_002_000), "push-confirmed");
+  assert.equal(inventoryMotionOutcome(undefined, 1_789_500_001, true, 1_789_500_002_000), "push-confirmed");
 });
 
 test("decodes reported camera enablement with family-specific polarity", () => {

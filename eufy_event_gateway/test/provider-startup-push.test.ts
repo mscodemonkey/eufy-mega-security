@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 import { GatewayState } from "../src/domain/gateway-state.js";
 import { MegaClient } from "../src/mega/client.js";
-import { MegaPushReceiver } from "../src/mega/push.js";
+import { MegaPushReceiver, parsePushEvent, type MegaPushEvent } from "../src/mega/push.js";
 import { PushClient } from "../src/mega/android-push/push-client.js";
 import { EufyProvider } from "../src/provider/eufy-provider.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
@@ -754,7 +754,7 @@ test("new PIR inventory establishes a motion baseline then publishes newer motio
   const f = discoveryFixture(context);
   try {
     await f.provider.start(f.events);
-    let timestamp = 1_789_500_000;
+    let timestamp = Math.floor(Date.now() / 1_000) - 2;
     context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{
       device_sn: "pir", device_model: "T8910", device_type: 10, category: "eufy_security",
       params: [{ param_type: 1605, param_value: String(timestamp) }],
@@ -1012,3 +1012,110 @@ for (const scenario of ["separate-owners", "wrong-id", "duplicate-id"] as const)
     } finally { await f.provider.close(); }
   });
 }
+
+
+for (const milliseconds of [false, true]) test(`motion cloud clock consumes stale, rollback and future values, milliseconds=${milliseconds}`, async context => {
+  let now = 1_800_000_000_000;
+  context.mock.method(Date, "now", () => now);
+  const f = discoveryFixture(context);
+  let timestamp = now - 1_000, channel = 3, missing = false;
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{
+    device_sn: "pir", device_model: "T8910", device_type: 10, device_channel: channel, parent_sn: "peer", category: "eufy_security",
+    params: missing ? [] : [{ param_type: 1605, param_value: String(milliseconds ? timestamp : timestamp / 1_000) }],
+  }] }));
+  const poll = async (): Promise<void> => {
+    const timer = f.intervals.mock.calls.at(-1)!;
+    assert.equal(timer.arguments[1], 60_000);
+    (timer.arguments[0] as () => void)();
+    await settleDiscovery();
+  };
+  try {
+    await f.provider.start(f.events);
+    await poll(); assert.deepEqual(f.observations.motion, []);
+    timestamp = now; await poll(); assert.deepEqual(f.observations.motion, ["pir"]);
+    now += 180_000; timestamp = now - 90_000; await poll(); assert.equal(f.observations.motion.length, 1);
+    timestamp = now + 10_000; await poll(); const seen = f.state.listSensors()[0]!.lastSeen;
+    now += 10_000; await poll(); assert.equal(f.observations.motion.length, 1);
+    assert.equal(f.state.listSensors()[0]!.lastSeen, seen);
+    timestamp = now + 1_000; await poll(); assert.equal(f.observations.motion.length, 2);
+    const latest = timestamp; timestamp = now - 1_000; await poll(); timestamp = latest; await poll();
+    assert.equal(f.observations.motion.length, 2);
+    missing = true; await poll(); missing = false; await poll(); assert.equal(f.observations.motion.length, 2);
+    channel = 4; timestamp += 1_000; await poll(); assert.equal(f.observations.motion.length, 2);
+    timestamp += 1_000; now += 1_000; await poll(); assert.equal(f.observations.motion.length, 3);
+    await f.provider.start(f.events); await poll(); assert.equal(f.observations.motion.length, 3);
+  } finally { await f.provider.close(); }
+});
+
+for (const expired of [false, true]) test(`a ${expired ? "stale" : "recent"} normalized push cannot incorrectly replay or suppress cloud motion`, async context => {
+  let now = 1_800_000_000_000;
+  context.mock.method(Date, "now", () => now);
+  const f = discoveryFixture(context);
+  let timestamp = now - 1_000;
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{
+    device_sn: "pir", device_model: "T8910", device_type: 10, parent_sn: "peer", category: "eufy_security",
+    params: [{ param_type: 1605, param_value: String(timestamp) }],
+  }] }));
+  let deliver!: (event: MegaPushEvent) => void;
+  context.mock.method(MegaPushReceiver.prototype, "start", async function(this: MegaPushReceiver) {
+    deliver = Reflect.get(this, "onEvent") as (event: MegaPushEvent) => void;
+  });
+  try {
+    await f.provider.start(f.events);
+    const event = parsePushEvent({ device_sn: "pir", station_sn: "peer", a: 14 }); assert.ok(event);
+    deliver(event); assert.equal(f.observations.motion.length, 1);
+    if (expired) now += 61_000;
+    timestamp = now; pollDiscovery(f); await settleDiscovery();
+    assert.equal(f.observations.motion.length, expired ? 2 : 1);
+    pollDiscovery(f); await settleDiscovery(); assert.equal(f.observations.motion.length, expired ? 2 : 1);
+  } finally { await f.provider.close(); }
+});
+
+
+test("a push arriving during peer discovery remains pending for its later cloud confirmation", async context => {
+  const now = 1_800_000_000_000;
+  context.mock.method(Date, "now", () => now);
+  const f = discoveryFixture(context);
+  let timestamp = now - 1_000, peerPresent = false;
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [
+    { device_sn: "pir", device_model: "T8910", device_type: 10, parent_sn: "peer", category: "eufy_security",
+      params: [{ param_type: 1605, param_value: String(timestamp) }] },
+    ...(peerPresent ? [{ device_sn: "peer", device_model: "T8030", device_type: 18,
+      category: "eufy_security", p2p_did: "fixture-peer", p2p_conn: "fixture-route" }] : []),
+  ] }));
+  let deliver!: (event: MegaPushEvent) => void;
+  context.mock.method(MegaPushReceiver.prototype, "start", async function(this: MegaPushReceiver) {
+    deliver = Reflect.get(this, "onEvent") as (event: MegaPushEvent) => void;
+  });
+  context.mock.method(MegaClient.prototype, "dskKeys", async () => {
+    const event = parsePushEvent({ device_sn: "pir", station_sn: "peer", a: 14 }); assert.ok(event);
+    deliver(event);
+    return { peer: { key: "fixture-key", expiresAt: null } };
+  });
+  try {
+    await f.provider.start(f.events);
+    timestamp = now; peerPresent = true; pollDiscovery(f); await settleDiscovery();
+    assert.equal(f.observations.motion.length, 1);
+    timestamp = now + 1_000; pollDiscovery(f); await settleDiscovery();
+    assert.equal(f.observations.motion.length, 1);
+  } finally { await f.provider.close(); }
+});
+
+
+for (const validContact of [false, true]) test(`future motion cannot become lastSeen, independent contact valid=${validContact}`, async context => {
+  const now = 1_800_000_000_000;
+  context.mock.method(Date, "now", () => now);
+  const f = discoveryFixture(context);
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{
+    device_sn: "pir", device_model: "T8910", device_type: 10, category: "eufy_security",
+    params: [{ param_type: 1605, param_value: String(now + 10_000) },
+      { param_type: 1551, param_value: validContact ? String(now / 1_000 - 5) : "invalid" }],
+  }] }));
+  try {
+    await f.provider.start(f.events);
+    assert.equal(f.state.listSensors()[0]!.lastSeen, validContact ? new Date(now - 5_000).toISOString() : null);
+    pollDiscovery(f); await settleDiscovery();
+    assert.deepEqual(f.observations.motion, []);
+    assert.equal(f.state.listSensors()[0]!.lastSeen, validContact ? new Date(now - 5_000).toISOString() : null);
+  } finally { await f.provider.close(); }
+});
