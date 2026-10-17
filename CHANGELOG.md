@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.165
+
+- Add an optional read-only FamiLock S3 / S3 Max status check for exact T85V0 devices through HomeBase 3. Diagnostics requests the reported state and battery once without locking, unlocking or changing settings. Hardware confirmation is still needed.
+- Keep the new check separate from existing E30 controls, with owner and connection checks, an exclusive HomeBase session, strict encrypted reply matching, cancellation and a cooldown.
+
 ## 0.1.164
 
 - Recognise T8910 motion timestamps in milliseconds as well as seconds. Cloud motion fallback consumes cached and rolled-back readings without replay, ignores stale or future events, and expires old push confirmations so they cannot suppress later motion indefinitely. Actual delivery with phone notifications disabled still needs hardware confirmation.

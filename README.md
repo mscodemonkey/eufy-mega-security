@@ -106,7 +106,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 - 🟠 Video Doorbell Slim T8220: discovery and live video through HomeBase 2 are reporter-confirmed. Slow startup and continued streaming after the view closes are reported. Events, fresh snapshots, and battery values still await confirmation.
 - 🟠 Video Doorbell E340 T8214: discovery and Home Assistant entities are confirmed through a T9000. A separate T8030 report confirms live video, motion, person, familiar-person updates, and restored doorbell presses, but reports intermittent frame jumps. T9000 live video remains blocked at lookup, and missing push deliveries are under investigation separately.
 - 🟠 Video Doorbell C30 T8224: Mega type 96 admission and Home Assistant entities are reporter-confirmed. A physical button press is confirmed as push event 3103, and the latest event handler awaits reporter testing. The default-off standalone video trial is available in Diagnostics, with corrected service joining in v0.1.158. Physical playback remains unconfirmed and normal Home Assistant live view is unavailable.
-- 🟠 Familock S3 Max T85V0: discovery and the main rechargeable battery are confirmed. HomeBase media arrives with H.265 startup headers, but visible playback remains unconfirmed. Backup AA battery reporting, snapshots, and doorbell events need separate evidence. Lock controls are not exposed.
+- 🟠 Familock S3 Max T85V0: discovery and the main rechargeable battery are confirmed. HomeBase media arrives with H.265 startup headers, but visible playback remains unconfirmed. Backup AA battery reporting, snapshots, and doorbell events need separate evidence. Lock controls are not exposed. An optional [read-only status check](docs/T85V0_STATUS_TEST.md) is available for T85V0/type 203 through HomeBase 3. Its physical behaviour remains unconfirmed.
 
 ### Standalone sensors
 
@@ -525,6 +525,11 @@ open `/diagnostics`, enter your gateway token, select one camera and expand
 **Experimental model controls**. Choose **Check available controls**, select
 one operation and its value, confirm you can observe the camera, then **Try once**.
 Stop live views first. Record the original setting and restore it after testing.
+
+The separate [FamiLock S3 / S3 Max status check](docs/T85V0_STATUS_TEST.md) is a
+read-only, source-derived test for exact T85V0/type 203 through HomeBase 3.
+Its reported state and battery need comparison on actual hardware. It neither
+operates the lock nor adds a normal Home Assistant lock control.
 
 The initial exact-model trials are standalone T84A1 (type 151), T8417 (type 105)
 and T8423 (type 38) motion detection, standalone T8423 spotlight enablement,

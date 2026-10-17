@@ -9,6 +9,7 @@
  * tests; the production provider is the only implementation allowed to know
  * Mega and PPCS details.
  */
+import type { T85V0StatusSummary } from "./t85v0-status.js";
 import type { LocalMotionSummary } from "../stream/local-motion-trial.js";
 import type { C31IndexSummary } from "../stream/c31-recording-index.js";
 import type { CameraSettingChange } from "./camera-settings.js";
@@ -70,6 +71,9 @@ export interface CameraProvider {
 
   /** Reserve one explicit NVR video trial until its awaited cleanup completes. */
   reserveNvrLiveTrial?(serial: string, signal: AbortSignal): () => Promise<void>;
+
+  /** Query one exact attached FamiLock without registering or operating a lock. */
+  readT85V0StatusTrial?(serial: string, signal: AbortSignal): Promise<T85V0StatusSummary>;
 
   /** Passively observe one consented T8910 channel without publishing motion events. */
   readLocalMotionTrial?(serial: string, signal: AbortSignal): Promise<LocalMotionSummary>;

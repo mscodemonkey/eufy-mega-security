@@ -11,6 +11,7 @@
  * packet layout or camera encryption directly.
  */
 import { cameraSettingProfile, cameraSettingWireValue, type CameraSettingChange } from "../provider/camera-settings.js";
+import { buildT85V0StatusQuery, decodeT85V0StatusReply, T85V0StatusError, type T85V0StatusIdentity, type T85V0StatusSummary } from "../provider/t85v0-status.js";
 import { C31IndexError, summarizeC31Index, validateC31IndexWindow, type C31IndexSummary } from "./c31-recording-index.js";
 import { buildS100SirenCommand } from "./s100-siren-command.js";
 import { S100SirenTrialError, type S100SirenTrialTransport, type S100SirenFailureStage } from "../provider/s100-siren-trial.js";
@@ -1584,6 +1585,9 @@ export class FirstPartyPpcsSession {
     readonly resolve: (value: C31IndexSummary) => void; readonly reject: (error: C31IndexError) => void;
     readonly timer: NodeJS.Timeout } | null = null;
   #pendingCameraInfo: PendingCameraInfo | null = null;
+  #lockStatus: { readonly identity: T85V0StatusIdentity; readonly keyTime: number; readonly sequence: number;
+    readonly resolve: (value: T85V0StatusSummary) => void; readonly reject: (error: T85V0StatusError) => void;
+    readonly timer: NodeJS.Timeout } | null = null;
 
   /** Own correlated card reads separately from live media and camera-setting requests. */
   #recordings: SoloCamRecordingReader | HomeBaseRecordingReader | null = null;
@@ -2280,6 +2284,34 @@ export class FirstPartyPpcsSession {
     if (result instanceof C31IndexError) pending.reject(result); else pending.resolve(result);
   }
 
+  /** Query an admitted attached FamiLock once, requiring a correlated authenticated reply. */
+  async readT85V0Status(identity: T85V0StatusIdentity, keyTime: number, sequence: number, current: () => void): Promise<T85V0StatusSummary> {
+    if (this.#options.purpose !== "control" || this.#closed || !this.#remote || this.#options.cameraModel !== "T85V0"
+      || this.#options.stationModel !== "T8030" || !this.#options.homeBaseAttached || identity.channel !== this.#options.channel
+      || identity.accountId !== this.#options.accountId || this.#lockStatus || this.#c31Index || this.#pendingControl
+      || this.#pendingControlQuery || this.#pendingCameraInfo || this.#recordings) throw new T85V0StatusError("admission");
+    await this.#waitForLevel2Key(); current();
+    if (this.#closed || !this.#level2Key) throw new T85V0StatusError("cancelled");
+    const query = buildT85V0StatusQuery(identity, keyTime, sequence, Math.floor(Date.now() / 1000));
+    return new Promise<T85V0StatusSummary>((resolve, reject) => {
+      const timer = setTimeout(() => this.#finishLockStatus(new T85V0StatusError("timeout")), 15_000);
+      this.#lockStatus = { identity, keyTime, sequence, resolve, reject, timer };
+      try {
+        current();
+        const encrypted = encryptLevel2(query, this.#level2Key!, this.#level2Seq++);
+        this.#sendCommand(1350, rawPayload(encrypted, identity.channel, 8, [8, 0], 0));
+      } catch (error) { this.#finishLockStatus(error instanceof T85V0StatusError ? error : new T85V0StatusError("session")); }
+      finally { query.fill(0); }
+    });
+  }
+
+  #finishLockStatus(result: T85V0StatusSummary | T85V0StatusError): void {
+    const pending = this.#lockStatus;
+    if (!pending) return;
+    this.#lockStatus = null; clearTimeout(pending.timer);
+    if (result instanceof T85V0StatusError) pending.reject(result); else pending.resolve(result);
+  }
+
   /** Read completed SoloCam event clips through the provider-validated standalone or HomeBase route. */
   async listStoredRecordings(date: string, signal?: AbortSignal): Promise<readonly CameraStoredRecord[]> {
     const reader = this.#recordingReader();
@@ -2383,6 +2415,7 @@ export class FirstPartyPpcsSession {
     this.#lookupCancel = null;
     this.stats.closeReason = reason;
     this.#finishC31Index(new C31IndexError("cancelled"));
+    this.#finishLockStatus(new T85V0StatusError("cancelled"));
     this.#recordings?.close();
     if (this.#maximumDurationTimer) clearTimeout(this.#maximumDurationTimer);
     if (this.#firstFrameTimer) clearTimeout(this.#firstFrameTimer);
@@ -2644,6 +2677,22 @@ export class FirstPartyPpcsSession {
           if (this.#options.onSensorMotion) for (const observation of decodeSensorMotionNotification(clear)) this.#options.onSensorMotion(observation);
         } finally { if (clear !== payload) clear.fill(0); }
       }
+    }
+
+    if (this.#lockStatus && command === 1300) {
+      this.#finishLockStatus(new T85V0StatusError("malformed")); this.close("client_stop"); return;
+    }
+    if (this.#lockStatus && command === 1351 && frameChannel === this.#lockStatus.identity.channel && signCode === 8 && this.#level2Key) {
+      if (payload.length > 16_384 + 32) { this.#finishLockStatus(new T85V0StatusError("malformed")); return; }
+      const clear = decryptLevel2(payload, this.#level2Key, signCode);
+      if (!clear) return;
+      try {
+        const pending = this.#lockStatus;
+        const result = decodeT85V0StatusReply(clear, pending.identity, pending.keyTime, pending.sequence);
+        if (result) this.#finishLockStatus(result);
+      } catch (error) { this.#finishLockStatus(error instanceof T85V0StatusError ? error : new T85V0StatusError("malformed")); }
+      finally { clear.fill(0); }
+      return;
     }
 
     if (this.#c31Index && command === 1300) {

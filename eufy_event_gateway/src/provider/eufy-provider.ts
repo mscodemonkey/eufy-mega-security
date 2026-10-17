@@ -14,6 +14,7 @@
  */
 import { InventoryMotionClock, type InventoryMotionOutcome } from "./inventory-motion.js";
 
+import { T85V0StatusError, validT85V0StatusIdentity, type T85V0StatusSummary } from "./t85v0-status.js";
 import { LocalMotionCollector, LocalMotionError, type LocalMotionSummary } from "../stream/local-motion-trial.js";
 import { C31IndexError, type C31IndexSummary } from "../stream/c31-recording-index.js";
 import type { E30LockSettingChange, SmartLockState } from "../domain/types.js";
@@ -510,6 +511,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #recordingReservations = new Set<string>();
   readonly #trialPeers = new Set<string>();
   readonly #localMotionAborters = new Map<string, AbortController>();
+  readonly #lockStatusAborters = new Map<string, AbortController>();
+  readonly #lockStatusCooldowns = new Map<string, number>();
+  #lockStatusTime = 0;
+  #lockStatusSequence = 0;
   readonly #manualLightAborters = new Map<string, AbortController>();
   readonly #localMotionCooldowns = new Map<string, number>();
   readonly #trialSessions = new Map<string, FirstPartyPpcsSession>();
@@ -833,6 +838,113 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#localMotionAborters.delete(station.serial); this.#trialPeers.delete(station.serial);
       this.#localMotionCooldowns.delete(station.serial); this.#localMotionCooldowns.set(station.serial, Date.now() + 10_000);
       while (this.#localMotionCooldowns.size > 100) this.#localMotionCooldowns.delete(this.#localMotionCooldowns.keys().next().value!);
+    }
+  }
+
+
+  /** Read source-derived attached FamiLock status under a fresh, exclusive parent lease. */
+  async readT85V0StatusTrial(serial: string, signal: AbortSignal): Promise<T85V0StatusSummary> {
+    const device = this.#devices.get(serial), generation = this.#startupGeneration;
+    const peer = device ? this.#devices.get(device.parentSerial) : undefined;
+    const admitted = (rows: readonly MegaInventoryDevice[]): boolean => {
+      if (!device || !peer || device.model !== "T85V0" || device.deviceType !== 203
+        || device.channel === null || !Number.isInteger(device.channel) || device.channel < 0 || device.channel > 254
+        || !device.adminUserId || device.adminUserId !== peer.adminUserId
+        || !(peer.model === "T8030" && peer.deviceType === 18)
+        || !validT85V0StatusIdentity({ serial, accountId: device.adminUserId, channel: device.channel })
+        || !this.#client.isAuthenticatedUser(device.adminUserId) || device.parentSerial === device.serial || !peer.p2pDid || !peer.p2pConnection
+        || !this.#dskKeys.has(peer.serial)) return false;
+      const children = rows.filter(row => row.serial === serial);
+      const parents = rows.filter(row => row.serial === peer.serial);
+      return children.length === 1 && parents.length === 1
+        && rows.filter(row => row.parentSerial === peer.serial && row.channel === device.channel).length === 1
+        && !inventoryBindingChanged(device, children[0]!) && children[0]!.adminUserId === device.adminUserId
+        && !inventoryBindingChanged(peer, parents[0]!) && parents[0]!.adminUserId === peer.adminUserId
+        && parents[0]!.p2pDid === peer.p2pDid && parents[0]!.p2pConnection === peer.p2pConnection;
+    };
+    if (!this.config.experimentalModelControls || !admitted([...this.#devices.values()]) || signal.aborted || this.#recordingClosing) throw new T85V0StatusError("admission");
+    const station = peer!;
+    const related = [...this.#devices.values()].filter(row => row.serial === station.serial || row.parentSerial === station.serial);
+    const controls = [this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations,
+      this.#audioRecordingOperations, this.#motionOperations, this.#nightVisionOperations, this.#guardModeOperations,
+      this.#lightOperations, this.#panControlOperations, this.#cameraSirenOperations];
+    if (this.#trialPeers.size || this.#recordingIndexActive || this.#localMotionAborters.size
+      || this.#recordingPeerReserved(serial) || this.#stationOperations.has(station.serial) || this.#stationHasActiveMedia(station.serial)
+      || related.some(row => this.#streamStarts.has(row.serial) || controls.some(map => map.has(row.serial)))
+      || (this.#lockStatusCooldowns.get(station.serial) ?? 0) > Date.now()) throw new T85V0StatusError("busy");
+    const controller = new AbortController();
+    this.#trialPeers.add(station.serial); this.#lockStatusAborters.set(station.serial, controller);
+    let session: FirstPartyPpcsSession | null = null;
+    let started = false;
+    let failure: T85V0StatusError | null = null, finished = false;
+    const abort = (): void => { controller.abort(); session?.close(); };
+    const deadline = setTimeout(() => { failure = new T85V0StatusError("timeout"); abort(); }, 60_000);
+    const bindingTimer = setInterval(() => {
+      if (!admitted([...this.#devices.values()]) || generation !== this.#startupGeneration || this.#recordingClosing) {
+        failure = new T85V0StatusError("cancelled"); abort();
+      }
+    }, 1_000);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+    const current = (): void => {
+      if (controller.signal.aborted || signal.aborted || this.#recordingClosing || generation !== this.#startupGeneration || (session !== null && session.stats.closeReason !== "open")) {
+        throw failure ?? new T85V0StatusError("cancelled");
+      }
+      if (!admitted([...this.#devices.values()])) throw new T85V0StatusError("admission");
+    };
+    const owned = async <T>(operation: () => Promise<T>): Promise<T> => {
+      current();
+      let cancel!: () => void;
+      const aborted = new Promise<never>((_resolve, reject) => {
+        cancel = () => reject(failure ?? new T85V0StatusError("cancelled"));
+        controller.signal.addEventListener("abort", cancel, { once: true });
+        if (controller.signal.aborted) cancel();
+      });
+      try { const result = await Promise.race([operation(), aborted]); current(); return result; }
+      finally { controller.signal.removeEventListener("abort", cancel); }
+    };
+    const fresh = async (): Promise<void> => {
+      const inventory = await owned(() => this.#client.inventory(controller.signal));
+      if (inventory.devices.filter(row => row.device_sn === serial).length !== 1
+        || inventory.devices.filter(row => row.device_sn === station.serial).length !== 1
+        || !admitted(parseMegaInventory(inventory))) throw new T85V0StatusError("admission");
+    };
+    try {
+      await fresh();
+      const dsk = await owned(() => this.#dskKey(station.serial));
+      if (!dsk) throw new T85V0StatusError("admission");
+      session = new FirstPartyPpcsSession({ stationSerial: station.serial, p2pDid: station.p2pDid!,
+        appConnection: station.p2pConnection!, localAddress: station.localAddress, dskKey: dsk.key,
+        channel: device!.channel!, cameraModel: "T85V0", stationModel: station.model,
+        accountId: station.adminUserId!, homeBaseAttached: true, purpose: "control", maxSeconds: 45,
+        resolveCipherKey: id => this.#resolveCipherKey(id, station) });
+      this.#trialSessions.set(station.serial, session);
+      const closed = (): void => { if (!finished) { failure ??= new T85V0StatusError("session"); controller.abort(); } };
+      session.output.once("end", closed); session.output.resume();
+      await owned(() => { started = true; return session!.start(); });
+      if (session.stats.closeReason !== "open") throw new T85V0StatusError("session");
+      await fresh(); current();
+      const now = Math.floor(Date.now() / 1000);
+      const keyTime = Math.max(now, this.#lockStatusTime + 1);
+      if (keyTime > 0xffffffff || this.#lockStatusSequence >= 0xffffffff) throw new T85V0StatusError("admission");
+      this.#lockStatusTime = keyTime;
+      const sequence = ++this.#lockStatusSequence;
+      const summary = await owned(() => session!.readT85V0Status({ serial, accountId: device!.adminUserId!, channel: device!.channel! }, keyTime, sequence, current));
+      await fresh(); current();
+      return summary;
+    } catch (error) {
+      throw error instanceof T85V0StatusError ? error : failure ?? new T85V0StatusError(controller.signal.aborted ? "cancelled" : "session");
+    } finally {
+      finished = true; clearTimeout(deadline); clearInterval(bindingTimer); signal.removeEventListener("abort", abort);
+      controller.abort(); session?.close();
+      if (this.#trialSessions.get(station.serial) === session) this.#trialSessions.delete(station.serial);
+      this.#lockStatusAborters.delete(station.serial); this.#trialPeers.delete(station.serial);
+      if (started) {
+        const now = Date.now();
+        for (const [key, until] of this.#lockStatusCooldowns) if (until <= now) this.#lockStatusCooldowns.delete(key);
+        this.#lockStatusCooldowns.delete(station.serial); this.#lockStatusCooldowns.set(station.serial, now + 10_000);
+        while (this.#lockStatusCooldowns.size > 100) this.#lockStatusCooldowns.delete(this.#lockStatusCooldowns.keys().next().value!);
+      }
     }
   }
 
@@ -2219,6 +2331,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#client.cancelPendingRequests();
     for (const controller of this.#localMotionAborters.values()) controller.abort();
     for (const controller of this.#manualLightAborters.values()) controller.abort();
+    for (const controller of this.#lockStatusAborters.values()) controller.abort();
     if (this.#stationRefreshTimer) clearInterval(this.#stationRefreshTimer);
     this.#stationRefreshTimer = null;
     if (this.#inventoryRefreshTimer) clearInterval(this.#inventoryRefreshTimer);

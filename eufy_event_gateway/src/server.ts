@@ -8,6 +8,7 @@
  * module owns request authentication, response framing, and route selection;
  * it does not parse Mega payloads or open camera sockets.
  */
+import { T85V0StatusError } from "./provider/t85v0-status.js";
 import { LocalMotionError } from "./stream/local-motion-trial.js";
 import { C31IndexError } from "./stream/c31-recording-index.js";
 import { CloudRecordingError } from "./stream/cloud-recordings.js";
@@ -488,6 +489,35 @@ export class GatewayServer {
         segments[0] === "api" && segments[1] === "cameras" && segments[3] === "motion-detection" && segments.length === 4
       ) {
         return await this.#cameraMotionDetection(request, segments[2]!, response);
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "locks"
+        && segments[3] === "status-trial" && segments.length === 4) {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !this.config.experimentalModelControls || !this.provider.readT85V0StatusTrial) return json(response, 409, { stage: "admission" });
+        if (url.search) return json(response, 400, { stage: "admission" });
+        if ((request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase() !== "application/json") return json(response, 415, { stage: "admission" });
+        let body: Record<string, unknown>;
+        try { body = await readJson(request); } catch { return json(response, 400, { stage: "admission" }); }
+        if (Object.keys(body).length !== 1 || body.consent !== true) return json(response, 400, { stage: "admission" });
+        if (this.#recordingIndexJobs.size || this.#nvrTrialJobs.size) return json(response, 409, { stage: "busy" });
+        const controller = new AbortController(); this.#recordingIndexJobs.add(controller);
+        const deadline = setTimeout(() => controller.abort(), 65_000);
+        const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", abort); request.once("aborted", abort);
+        if (request.aborted || response.destroyed) controller.abort();
+        try {
+          const result = await this.provider.readT85V0StatusTrial(segments[2]!, controller.signal);
+          if (controller.signal.aborted) throw new T85V0StatusError("cancelled");
+          json(response, 200, { reportedState: result.reportedState, batteryPercent: result.batteryPercent, physicalConfirmationRequired: true });
+        } catch (error) {
+          const failure = error instanceof T85V0StatusError ? error : new T85V0StatusError(controller.signal.aborted ? "cancelled" : "session");
+          logger.warn("lock_status_trial_failed", `stage=${failure.stage}`);
+          if (!response.destroyed) json(response, 409, { stage: failure.stage });
+        } finally {
+          controller.abort(); clearTimeout(deadline); response.removeListener("close", abort);
+          request.removeListener("aborted", abort); this.#recordingIndexJobs.delete(controller);
+        }
+        return;
       }
       if (request.method === "POST" && segments[0] === "api" && segments[1] === "sensors"
         && segments[3] === "local-motion-trial" && segments.length === 4) {

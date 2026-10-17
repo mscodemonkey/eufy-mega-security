@@ -45,6 +45,12 @@ export function diagnosticsPage(): string {
 <video id="doorbell-video" controls hidden style="max-width:100%"></video>
 <a id="doorbell-download" hidden download="eufy-doorbell-test.mp4">Download private test clip</a>
 <p>The clip stays in this browser and is never uploaded automatically. Keep it private. If the test fails, share only the doorbell_rtc_trial_failed log line.</p></details>
+<details><summary>Experimental FamiLock status check</summary>
+<p>Enable experimental model controls, then select a FamiLock S3 or S3 Max (T85V0) connected to HomeBase 3. Close live viewers first. This requests the reported lock state and battery once. It does not lock, unlock or change any settings.</p>
+<p>This check has not been confirmed on hardware. Compare its answer with the lock's existing physical state and the Eufy app, without operating the lock. A timeout is inconclusive. This does not add a Home Assistant lock control.</p>
+<label><input id="lock-status-consent" type="checkbox"> I agree to one experimental read-only FamiLock status check.</label>
+<button id="lock-status-start">Check FamiLock status once</button><button id="lock-status-cancel">Cancel status check</button>
+<pre id="lock-status-result" role="status">No FamiLock status check started.</pre></details>
 <details><summary>Experimental T8910 local motion test</summary>
 <p>Enable experimental model controls, then select one T8910 motion sensor connected to HomeBase 2 or 3. This listens for 45 seconds without changing sensor settings. Keep your current phone notification and security settings. Walk past the sensor while the test runs.</p>
 <p>We have not confirmed local delivery on hardware. This test does not add phone-independent Home Assistant motion yet. It checks cloud device information and may contact Eufy to find the HomeBase. Its connection may briefly compete with viewing in the Eufy app. Close live viewers first.</p>
@@ -78,7 +84,7 @@ export function diagnosticsPage(): string {
 <script>
 const el = id => document.getElementById(id);
 let targets = [], stream = null, poll = null, activeTrialSerial = null, nvrJob = null, nvrClip = null, doorbellJob = null, doorbellClip = null;
-let indexJob = null, motionJob = null;
+let indexJob = null, motionJob = null, lockStatusJob = null;
 let cloudJob = null, cloudLoadJob = null, cloudClip = null, cloudSelection = null, cloudGeneration = 0;
 const show = value => { el('status').textContent = value; };
 const abortStream = () => { if(stream) stream.abort(); stream = null; };
@@ -207,6 +213,28 @@ action('nvr-test', async () => {
     el('nvr-status').textContent = 'Clip received. Does the picture play and show the selected camera? You can also download it to a compatible player. Keep it private.';
   } catch(error) { el('nvr-status').textContent = job.signal.aborted ? 'NVR test cancelled.' : error.message + ' Please send only the nvr_live_trial_failed log line if it failed.'; }
   finally { nvrJob = null; el('nvr-test').disabled = false; el('nvr-state-test').disabled = false; el('device').disabled = false; }
+});
+const cancelLockStatus = () => { if(lockStatusJob) lockStatusJob.abort(); el('lock-status-consent').checked = false; };
+el('lock-status-cancel').addEventListener('click', cancelLockStatus);
+el('device').addEventListener('change', cancelLockStatus);
+window.addEventListener('pagehide', cancelLockStatus);
+action('lock-status-start', async () => {
+  const selected = el('device').value;
+  if(lockStatusJob || !selected || !el('lock-status-consent').checked) throw Error('Select one T85V0 and confirm status-check consent.');
+  const job = new AbortController(); lockStatusJob = job; el('lock-status-start').disabled = true;
+  el('lock-status-result').textContent = 'Checking the reported state once. The lock will not be operated.';
+  try {
+    const response = await fetch('api/locks/' + encodeURIComponent(selected) + '/status-trial', {
+      method:'POST', headers:{Authorization:'Bearer ' + el('token').value,'Content-Type':'application/json'},
+      body:JSON.stringify({consent:true}), cache:'no-store', signal:job.signal });
+    const result = await response.json();
+    if(job.signal.aborted || el('device').value !== selected) return;
+    if(!response.ok) throw Error('Status check did not complete: ' + (['admission','busy','cancelled','timeout','session','malformed','rejected'].includes(result.stage) ? result.stage : 'session') + '. A timeout is inconclusive.');
+    if(!['locked','unlocked','unknown'].includes(result.reportedState) || !Number.isInteger(result.batteryPercent) || result.batteryPercent < 0 || result.batteryPercent > 100) throw Error('Status reply could not be displayed.');
+    el('lock-status-result').textContent = 'Reported state: ' + result.reportedState + '. Battery: ' + result.batteryPercent +
+      '%. Compare with the existing physical state and Eufy app without operating the lock. Hardware behaviour is unconfirmed. Share only this summary and whether it matches.';
+  } catch(error) { el('lock-status-result').textContent = job.signal.aborted ? 'Status check cancelled.' : error.message + ' If it failed, share only the lock_status_trial_failed log line.'; }
+  finally { if(lockStatusJob === job) lockStatusJob = null; el('lock-status-start').disabled = false; el('lock-status-consent').checked = false; }
 });
 const cancelMotion = () => { if(motionJob) motionJob.abort(); el('motion-consent').checked = false; };
 el('motion-cancel').addEventListener('click', cancelMotion);
