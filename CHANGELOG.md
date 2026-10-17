@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.169
+
+- Add explicit Home Assistant camera actions for cloud recording day lists and calendar hints. Responses omit recording IDs, owner details and playable links.
+- Add a manual cloud calendar check in Diagnostics, behind the existing default-off cloud-recording option. Calendar filtering and real-account behaviour remain unconfirmed.
+- Add an exact-model S100 connection check that prepares one session without sending a siren command. It separates connection, key-negotiation and counter failures, while audible siren behaviour remains unconfirmed.
+- Preserve all normal camera routes and default-off experimental controls. The new metadata actions make cloud requests only when explicitly called.
+
 ## 0.1.168
 
 - Add a separately enabled, owner-only NVR camera-power diagnostic that checks the original state, tests one temporary value and attempts verified restoration. It stays off by default and needs observed hardware confirmation.
