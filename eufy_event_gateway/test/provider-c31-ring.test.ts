@@ -50,13 +50,16 @@ for (const attached of [false, true]) test(`type95 C31 rings through the provide
     assert.deepEqual(rings, [true]);
     deliver({ a: 3103, notification_style: 3, f: "Synthetic person", unique_id: "person" });
     assert.deepEqual(rings, [true]); assert.deepEqual(people, [true]);
+    deliver({ a: 3111, notification_style: 3, f: "Synthetic person", unique_id: "shared" });
+    deliver({ a: 3103, notification_style: 1, unique_id: "shared" });
+    assert.deepEqual(rings, [true, true]);
     deliver({ a: 3103, notification_style: 3, person_count: 1, unique_id: "detected" });
-    assert.deepEqual(rings, [true]);
+    assert.deepEqual(rings, [true, true]);
     deliver({ a: 3101, unique_id: "motion" });
     deliver({ a: 1, unique_id: "generic" });
-    assert.deepEqual(rings, [true]); assert.ok(motions.length >= 3);
+    assert.deepEqual(rings, [true, true]); assert.ok(motions.length >= 3);
     deliver({ a: 3103, notification_style: 3, unique_id: "ambiguous" });
-    assert.deepEqual(rings, [true, true]);
+    assert.deepEqual(rings, [true, true, true]);
     assert.equal(network.mock.callCount(), 0);
   } finally { await provider.close(); state.close(); await rm(directory, { recursive: true, force: true }); }
 });

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.170
+
+- Keep distinct push meanings separate when Eufy reuses one event identifier. A doorbell press arriving immediately after a person event now reaches the Home Assistant doorbell sensor, while repeated delivery of the same event remains suppressed.
+
 ## 0.1.169
 
 - Add explicit Home Assistant camera actions for cloud recording day lists and calendar hints. Responses omit recording IDs, owner details and playable links.

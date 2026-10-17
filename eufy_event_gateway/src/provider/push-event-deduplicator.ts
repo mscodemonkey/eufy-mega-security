@@ -26,12 +26,12 @@ export class PushEventDeduplicator {
   constructor(private readonly windowMilliseconds = 60_000) {}
 
   /** Classify state and picture work for one normalized push delivery. */
-  observe(cameraSerial: string, eventId: string | null, hasPicture: boolean, now = Date.now()): PushDeliveryDecision {
+  observe(cameraSerial: string, eventId: string | null, eventType: number | null, hasPicture: boolean, now = Date.now()): PushDeliveryDecision {
     if (!eventId) return { handleState: true, retainPicture: hasPicture };
     for (const [key, observation] of this.#recent) {
       if (now - observation.observedAt > this.windowMilliseconds) this.#recent.delete(key);
     }
-    const key = `${cameraSerial}:${eventId}`;
+    const key = `${cameraSerial}:${eventId}:${eventType}`;
     const previous = this.#recent.get(key);
     this.#recent.set(key, { observedAt: now, pictureSeen: hasPicture || previous?.pictureSeen === true });
     return {

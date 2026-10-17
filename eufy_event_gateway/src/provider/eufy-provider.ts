@@ -3544,7 +3544,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     );
     const device = this.#devices.get(event.cameraSerial);
     if (!device) return;
-    const delivery = this.#pushDeduplicator.observe(event.cameraSerial, event.eventId, event.pictureUrl !== null);
+    const delivery = this.#pushDeduplicator.observe(
+      event.cameraSerial,
+      event.eventId,
+      event.eventType,
+      event.pictureUrl !== null,
+    );
     if (delivery.retainPicture && isSupportedMegaCamera(device)) this.#queuePushSnapshot(events, event);
     if (!delivery.handleState) return;
     if ((device.deviceType === 2 || device.deviceType === 126) && event.eventType === 3 && event.sensorOpen !== null) {
