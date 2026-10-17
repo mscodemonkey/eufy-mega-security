@@ -64,3 +64,34 @@ play_audio:
       example: /media/eufy/announcement.aac
       selector:
         text:
+
+list_cloud_recordings:
+  name: List cloud recording metadata
+  description: Read activity times for one day. Returns metadata only, without playable media.
+  target:
+    entity:
+      integration: eufy_event_gateway
+      domain: camera
+  fields:
+    day:
+      name: Day
+      description: Calendar day in Home Assistant's configured time zone.
+      required: true
+      example: "2026-10-18"
+      selector:
+        text:
+get_cloud_recording_dates:
+  name: Get cloud recording dates
+  description: Read day hints only. Requires experimental_cloud_recordings on the gateway. Hints cannot play a clip.
+  target:
+    entity:
+      integration: eufy_event_gateway
+      domain: camera
+  fields:
+    month:
+      name: Month
+      description: Calendar month in Home Assistant's configured time zone.
+      required: true
+      example: "2026-10"
+      selector:
+        text:

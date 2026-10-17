@@ -9,9 +9,10 @@ a signed stream path, or a bounded capture/recording action.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import logging
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -34,6 +35,7 @@ from homeassistant.helpers.entity_platform import (
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.network import get_url
+from homeassistant.util import dt as dt_util
 
 from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
@@ -49,6 +51,43 @@ _LOGGER = logging.getLogger(__name__)
 
 CONF_DURATION = "duration"
 STREAM_SOURCE_REFRESH_INTERVAL = timedelta(minutes=5)
+
+
+def _cloud_day_window(day: str, zone: Any) -> tuple[int, int, int]:
+    """Use true local midnights, resolving a gap's offset at its converted instant."""
+    try:
+        if type(day) is not str or re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", day) is None or zone is None:
+            raise ValueError
+        selected = date.fromisoformat(day)
+        if not 2000 <= selected.year <= 2100:
+            raise ValueError
+        following = selected + timedelta(days=1)
+        start = int(datetime(selected.year, selected.month, selected.day, tzinfo=zone, fold=0).timestamp())
+        end = int(datetime(following.year, following.month, following.day, tzinfo=zone, fold=0).timestamp())
+        if not 0 <= start < end <= 2**53 - 1 or end - start > 26 * 3600:
+            raise ValueError
+        offset = _cloud_local_offset(start, zone)
+    except (ValueError, TypeError, OverflowError):
+        raise HomeAssistantError("Invalid cloud metadata date or time zone") from None
+    return start, end, offset
+
+
+def _cloud_month_offset(month: str, zone: Any) -> int:
+    """Keep the month hint offset fixed at its first local midnight."""
+    if type(month) is not str or re.fullmatch(r"[0-9]{4}-[0-9]{2}", month) is None:
+        raise HomeAssistantError("Invalid cloud metadata month")
+    return _cloud_day_window(month + "-01", zone)[2]
+
+
+def _cloud_local_offset(timestamp: int, zone: Any) -> int:
+    """Return seconds east of UTC without loading a zone in the event loop."""
+    delta = datetime.fromtimestamp(timestamp, zone).utcoffset()
+    if delta is None:
+        raise ValueError
+    offset = int(delta.total_seconds())
+    if abs(offset) > 50400 or offset % 60:
+        raise ValueError
+    return offset
 
 
 async def async_setup_entry(
@@ -113,6 +152,19 @@ async def async_setup_entry(
         supports_response=SupportsResponse.ONLY,
     )
 
+    platform.async_register_entity_service(
+        "list_cloud_recordings",
+        {vol.Required("day"): cv.string},
+        "async_list_cloud_recordings",
+        supports_response=SupportsResponse.ONLY,
+    )
+    platform.async_register_entity_service(
+        "get_cloud_recording_dates",
+        {vol.Required("month"): cv.string},
+        "async_get_cloud_recording_dates",
+        supports_response=SupportsResponse.ONLY,
+    )
+
 
 class EufyGatewayCamera(EufyGatewayEntity, Camera):
     """Represent one camera with retained imagery and explicit media actions.
@@ -137,12 +189,46 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         self._published_snapshot_revision = self._snapshot_revision
         self._short_hls_idle = short_hls_idle
         self._hls_idle_stream: Stream | None = None
+        self._cloud_metadata_busy = False
 
         # Raw Annex-B needs arrival timestamps. MPEG-TS already supplies a
         # shared video/audio clock, which must survive Home Assistant's remux.
         self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = (
             self.camera.get("liveAudioSupported") is not True
         )
+
+    async def async_list_cloud_recordings(self, day: str) -> dict[str, Any]:
+        """Return activity times only, leaving media access to explicit Diagnostics."""
+        if self._cloud_metadata_busy:
+            raise HomeAssistantError("Cloud metadata request already in progress")
+        self._cloud_metadata_busy = True
+        try:
+            start, end, offset = _cloud_day_window(day, dt_util.get_default_time_zone())
+            try:
+                result = await self.coordinator.client.cloud_recordings(self.serial, start, end, offset)
+            except GatewayClientError as error:
+                raise HomeAssistantError(str(error)) from None
+            return {"day": day, "time_zone": self.hass.config.time_zone, "utc_offset_seconds": offset,
+                    "window_start": start, "window_end": end, "recordings": result["records"],
+                    "truncated": result["truncated"], "metadata_only": True}
+        finally:
+            self._cloud_metadata_busy = False
+
+    async def async_get_cloud_recording_dates(self, month: str) -> dict[str, Any]:
+        """Return unconfirmed day hints without starting media or refreshing inventory."""
+        if self._cloud_metadata_busy:
+            raise HomeAssistantError("Cloud metadata request already in progress")
+        self._cloud_metadata_busy = True
+        try:
+            offset = _cloud_month_offset(month, dt_util.get_default_time_zone())
+            try:
+                result = await self.coordinator.client.cloud_recording_dates(self.serial, month, offset)
+            except GatewayClientError as error:
+                raise HomeAssistantError(str(error)) from None
+            return {"month": month, "time_zone": self.hass.config.time_zone, "utc_offset_seconds": offset,
+                    "days": result["days"], "hint_only": True}
+        finally:
+            self._cloud_metadata_busy = False
 
     async def async_create_stream(self) -> Stream | None:
         """Start the HLS startup deadline, with an optional shorter idle timeout.

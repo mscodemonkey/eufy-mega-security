@@ -9,13 +9,25 @@ PPCS packets, or camera media work inside the gateway process.
 
 from __future__ import annotations
 
+import calendar
 import json
 import re
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from collections.abc import AsyncIterator
 from typing import Any
 
 from aiohttp import ClientError, ClientResponseError, ClientSession, ClientTimeout
+
+
+def _cloud_offset_valid(value: Any) -> bool:
+    """Admit only whole-minute UTC offsets, including negative offsets."""
+    return type(value) is int and abs(value) <= 50400 and value % 60 == 0
+
+
+def _cloud_month_valid(value: Any) -> bool:
+    """Reject coerced or non-ASCII calendar inputs before an HTTP request."""
+    return (type(value) is str and re.fullmatch(r"[0-9]{4}-[0-9]{2}", value) is not None
+            and 2000 <= int(value[:4]) <= 2100 and 1 <= int(value[5:]) <= 12)
 
 
 class GatewayClientError(Exception):
@@ -48,6 +60,70 @@ class GatewayClient:
         self._session = session
         self.base_url = base_url.rstrip("/")
         self._headers = {"Authorization": f"Bearer {api_token}"} if api_token else {}
+
+    async def cloud_recordings(self, serial: str, start: int, end: int, offset: int) -> dict[str, Any]:
+        """Read one local day's metadata, dropping vendor identities and media references."""
+        if (type(serial) is not str or not serial or type(start) is not int
+                or type(end) is not int or not 0 <= start < end <= 2**53 - 1
+                or end - start > 26 * 3600 or not _cloud_offset_valid(offset)):
+            raise GatewayClientError("Invalid cloud metadata request")
+        query = urlencode({"start": start, "end": end, "timezone_offset": offset, "count": 1000})
+        payload = await self._cloud_metadata_request(f"/api/cameras/{quote(serial, safe='')}/cloud-history?{query}")
+        if (not isinstance(payload, dict) or set(payload) != {"records", "mediaPlaybackAvailable"}
+                or payload["mediaPlaybackAvailable"] is not False or not isinstance(payload["records"], list)
+                or len(payload["records"]) > 1000):
+            raise GatewayClientError("Gateway returned invalid cloud metadata")
+        seen: set[str] = set()
+        rows: list[tuple[int, int, str, bool]] = []
+        for row in payload["records"]:
+            if (not isinstance(row, dict) or type(row.get("id")) is not str
+                    or not 1 <= len(row["id"]) <= 128 or row["id"] in seen
+                    or type(row.get("startTime")) is not int or type(row.get("endTime")) is not int
+                    or not 0 <= row["startTime"] <= row["endTime"] <= 2**53 - 1
+                    or type(row.get("hasCloudMedia")) is not bool):
+                raise GatewayClientError("Gateway returned invalid cloud metadata")
+            seen.add(row["id"])
+            if row["startTime"] < end and row["endTime"] >= start:
+                rows.append((row["startTime"], row["endTime"], row["id"], row["hasCloudMedia"]))
+        return {"records": [{"start_time": begin, "end_time": finish, "has_cloud_media": media}
+                            for begin, finish, _identity, media in sorted(rows)],
+                "truncated": len(payload["records"]) == 1000}
+
+    async def cloud_recording_dates(self, serial: str, month: str, offset: int) -> dict[str, Any]:
+        """Read unconfirmed calendar hints without returning recording references."""
+        if type(serial) is not str or not serial or not _cloud_month_valid(month) or not _cloud_offset_valid(offset):
+            raise GatewayClientError("Invalid cloud metadata request")
+        query = urlencode({"month": month, "offset": offset})
+        payload = await self._cloud_metadata_request(f"/api/cameras/{quote(serial, safe='')}/cloud-calendar?{query}")
+        if (not isinstance(payload, dict) or set(payload) != {"month", "days"}
+                or payload["month"] != month or not isinstance(payload["days"], list)):
+            raise GatewayClientError("Gateway returned invalid cloud metadata")
+        maximum = calendar.monthrange(int(month[:4]), int(month[5:]))[1]
+        previous = 0
+        for day in payload["days"]:
+            if type(day) is not int or not previous < day <= maximum:
+                raise GatewayClientError("Gateway returned invalid cloud metadata")
+            previous = day
+        return {"month": month, "days": list(payload["days"])}
+
+    async def _cloud_metadata_request(self, path: str) -> dict[str, Any]:
+        """Keep transport details private while preserving gateway authentication failures."""
+        try:
+            return await self._json(path, timeout=45)
+        except (GatewayClientError, ClientError, TimeoutError, ValueError) as error:
+            status = getattr(error, "status", None)
+            status = status if type(status) is int and 100 <= status <= 599 else None
+            code = getattr(error, "code", None)
+            code = code if code in ("unavailable", "busy", "rate_limited", "outcome_unknown", "disabled") else None
+            if status == 401:
+                raise GatewayAuthenticationError("Gateway rejected the API token", status=401) from None
+            if status in (404, 501) or code == "disabled":
+                message = "Cloud metadata is unavailable on this gateway"
+            elif status in (409, 502) or code in ("busy", "rate_limited"):
+                message = "Cloud metadata is not available now, try again later"
+            else:
+                message = "Cloud metadata request failed"
+            raise GatewayClientError(message, status=status, code=code) from None
 
     async def cameras(self) -> list[dict[str, Any]]:
         """Fetch every normalized camera state used to create or update entities."""
