@@ -1320,6 +1320,9 @@ export interface PpcsCameraOptions {
 interface PendingControl {
   readonly command: number;
   readonly strictChannel?: number;
+
+  /** Require an authenticated level-two reply for new momentary light trials. */
+  readonly authenticatedOnly?: boolean;
   readonly resolve: () => void;
   readonly reject: (error: Error) => void;
   readonly timer: ReturnType<typeof setTimeout>;
@@ -1905,15 +1908,19 @@ export class FirstPartyPpcsSession {
     };
   }
 
-  /** Submit one exact-model experimental command, with no application-level replay. */
-  async writeModelControlTrial(request: ModelControlTrial, route: ModelControlRoute): Promise<void> {
+  /**
+   * Submit one exact-model experimental command, with no application-level replay.
+   * The caller can recheck ownership after key negotiation and before dispatch.
+   */
+  async writeModelControlTrial(request: ModelControlTrial, route: ModelControlRoute, current: () => void = () => undefined): Promise<void> {
     if (this.#closed || this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
       || this.#options.cameraModel !== route.model || this.#options.channel !== route.channel
       || this.#options.homeBaseAttached !== route.homeBaseAttached) throw new Error("Invalid model trial session");
     if (request.action === "spotlight" || request.action === "ptz" || route.homeBaseAttached) await this.#waitForLevel2Key();
+    current();
     const frame = buildModelControlTrialPayload(request, route, this.#options.accountId,
       commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key, this.#level2Seq++, Date.now());
-    const acknowledgement = this.#waitForControlResult(frame.command, this.#options.channel);
+    const acknowledgement = this.#waitForControlResult(frame.command, this.#options.channel, CONTROL_TIMEOUT_MILLISECONDS, request.action === "manualLight");
     try { this.#sendCommand(frame.command, frame.payload); }
     catch (error) { void acknowledgement.catch(() => undefined); throw error; }
     await acknowledgement;
@@ -2596,6 +2603,7 @@ export class FirstPartyPpcsSession {
     }
 
     if (header[14] === 1 && this.#pendingControl?.command === command) {
+      if (this.#pendingControl.authenticatedOnly && signCode !== 8) return;
       if (this.#pendingControl.strictChannel !== undefined) {
         const result = decodeModelControlTrialAcknowledgement(header, payload, this.#pendingControl.command, this.#pendingControl.strictChannel,
           commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key);
@@ -2895,14 +2903,14 @@ export class FirstPartyPpcsSession {
    * error lets the provider choose a readback rather than blindly retrying a
    * potentially non-idempotent operation.
    */
-  #waitForControlResult(command: number, strictChannel?: number, timeoutMilliseconds = CONTROL_TIMEOUT_MILLISECONDS): Promise<void> {
+  #waitForControlResult(command: number, strictChannel?: number, timeoutMilliseconds = CONTROL_TIMEOUT_MILLISECONDS, authenticatedOnly = false): Promise<void> {
     if (this.#pendingControl) return Promise.reject(new Error("Camera already has a control command in flight"));
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#pendingControl = null;
         reject(new CameraControlAcknowledgementTimeoutError());
       }, timeoutMilliseconds);
-      this.#pendingControl = { command, resolve, reject, timer, ...(strictChannel === undefined ? {} : { strictChannel }) };
+      this.#pendingControl = { command, resolve, reject, timer, authenticatedOnly, ...(strictChannel === undefined ? {} : { strictChannel }) };
     });
   }
 

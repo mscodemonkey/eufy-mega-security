@@ -9,6 +9,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 /** Only these operations may cross the experimental control boundary. */
 export type ModelControlTrial =
+  | { readonly action: "manualLight"; readonly enabled: boolean }
   | { readonly action: "motion"; readonly enabled: boolean }
   | { readonly action: "spotlight"; readonly enabled: boolean }
   | { readonly action: "siren"; readonly enabled: boolean }
@@ -33,6 +34,9 @@ export interface ModelControlRoute {
   readonly channel: number | null;
   readonly homeBaseAttached: boolean;
   readonly peerModel: string;
+
+  /** Exact parent type for trials that require a specific HomeBase generation. */
+  readonly peerDeviceType?: number | null;
   readonly selfPeer: boolean;
 }
 
@@ -41,7 +45,7 @@ export function parseModelControlTrial(value: unknown): ModelControlTrial {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new SyntaxError("Invalid model control trial");
   const row = value as Record<string, unknown>;
   if (Object.keys(row).length !== 2) throw new SyntaxError("Model control trial requires exactly two fields");
-  if ((row.action === "motion" || row.action === "spotlight" || row.action === "siren") && typeof row.enabled === "boolean") {
+  if ((row.action === "manualLight" || row.action === "motion" || row.action === "spotlight" || row.action === "siren") && typeof row.enabled === "boolean") {
     return { action: row.action, enabled: row.enabled };
   }
   if (row.action === "ptz" && ["left", "right", "up", "down"].includes(String(row.direction))) {
@@ -54,6 +58,9 @@ export function parseModelControlTrial(value: unknown): ModelControlTrial {
 /** Admit exact model/type/topology combinations without changing verified capabilities. */
 export function modelControlTrialActions(route: ModelControlRoute): readonly ModelControlTrial["action"][] {
   if (route.homeBaseAttached) {
+    if (route.model === "T81A0" && route.deviceType === 10005 && route.peerModel === "T8030"
+      && route.peerDeviceType === 18 && !route.selfPeer && route.channel !== null
+      && Number.isInteger(route.channel) && route.channel >= 0 && route.channel <= 254) return ["manualLight"];
     return route.model === "T8410" && route.deviceType === 31 && route.peerModel === "T8030"
       && !route.selfPeer && route.channel !== null && Number.isInteger(route.channel)
       && route.channel >= 0 && route.channel <= 255 ? ["ptz"] : [];
@@ -76,6 +83,7 @@ export function modelControlTrialCommand(
   if (request.action === "siren") throw new Error("S100 siren requires its dedicated encrypted trial session");
   if (!accountId || !modelControlTrialActions(route).includes(request.action)) throw new Error("Model control trial route unavailable");
   if (!Number.isSafeInteger(transaction) || transaction < 1_000_000_000_000) throw new Error("Invalid control transaction");
+  if (request.action === "manualLight") return { command: 1400, value: request.enabled };
   if (request.action === "spotlight") return { command: 1403, value: request.enabled };
   const data = request.action === "motion" ? { status: request.enabled ? 1 : 0, transaction: `${transaction}` }
     : { cmd_type: 1, rotate_type: { left: 1, right: 2, up: 3, down: 4 }[request.direction],
@@ -101,7 +109,7 @@ export async function runModelControlTrial(
 ): Promise<ModelControlTrialResult> {
   checkOwnership();
   if (request.action === "siren") throw new Error("S100 siren requires its dedicated pulse runner");
-  if (request.action === "ptz") {
+  if (request.action === "ptz" || request.action === "manualLight") {
     await session.write(request);
     checkOwnership();
     return { outcome: "acknowledged", physicalConfirmationRequired: true };

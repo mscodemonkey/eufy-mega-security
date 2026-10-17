@@ -56,7 +56,11 @@ test("E30 credential scope uses the existing session and never persists credenti
         assert.equal(path, "/app/house/get_devs_list");
         return new Response(JSON.stringify({ code: 0, data: { devices: [], groups: [] } }));
       } });
+    assert.equal(client.isAuthenticatedUser("synthetic-user"), false);
     assert.equal((await client.connect()).state, "authenticated");
+    assert.equal(client.isAuthenticatedUser("synthetic-user"), true);
+    assert.equal(client.isAuthenticatedUser("shared-account"), false);
+    assert.equal(client.isAuthenticatedUser(""), false);
     await assert.rejects(client.e30MqttCredentials(), /Lock operation unavailable/);
     await client.inventory();
     assert.equal(scopes[0], "eufy_security");

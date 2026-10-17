@@ -100,3 +100,24 @@ test("S100 HTTP client disconnect leaves provider-owned stop cleanup running", a
     assert.equal(stops, 1);
   } finally { pulse.abort(); await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+
+test("manual light HTTP returns only an acknowledgement and masks unknown failure details", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "light-http-"));
+  const state = new GatewayState(); state.registerCamera({ serial: "synthetic", name: "Synthetic", model: "T81A0", stationSerial: "station", streamSupported: false, doorbellSupported: false });
+  let fail = false;
+  const provider = { modelControlTrials: () => ["manualLight"], performModelControlTrial: async (_id: string, _request: unknown, signal: AbortSignal) => {
+    assert.equal(signal.aborted, false);
+    if (fail) throw Error("PRIVATE-CANARY");
+    return { outcome: "acknowledged", physicalConfirmationRequired: true, privateValue: "PRIVATE-CANARY" };
+  } } as unknown as CameraProvider;
+  const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "synthetic-secret", experimentalModelControls: true }, state, new SnapshotStore(directory), {} as LiveStreamManager, provider, null);
+  try {
+    await server.listen(); const url = `http://127.0.0.1:${server.port}/api/cameras/synthetic/model-control-trial`;
+    const options = {method:"POST",headers:{authorization:"Bearer synthetic-secret","content-type":"application/json"},body:JSON.stringify({action:"manualLight",enabled:true})};
+    assert.deepEqual(await (await fetch(url,options)).json(), {outcome:"acknowledged",physicalConfirmationRequired:true});
+    assert.equal("spotlightEnabled" in state.getCamera("synthetic"),false);
+    fail=true;const response=await fetch(url,options);assert.equal(response.status,409);
+    const error=await response.text();assert.doesNotMatch(error,/PRIVATE/);assert.match(error,/Check the light and restore it/);
+  } finally { await server.close();await rm(directory,{recursive:true,force:true}); }
+});

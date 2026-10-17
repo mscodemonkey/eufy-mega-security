@@ -159,6 +159,11 @@ export class MegaClient {
     this.#identityRecoveryFlights.clear();
   }
 
+  /** Check the current authenticated user without exposing stored account identity. */
+  isAuthenticatedUser(userId: string): boolean {
+    return this.isAuthenticated && !!userId && this.#session?.userId === userId;
+  }
+
   /** Return the pending image challenge, if login requested one. */
   get captcha(): MegaCaptcha | null {
     return this.#pendingCaptcha;

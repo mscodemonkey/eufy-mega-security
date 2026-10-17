@@ -84,7 +84,7 @@ export interface CameraProvider {
   modelControlTrials?(serial: string): readonly ModelControlTrial["action"][];
 
   /** Submit one experimental command with fresh state confirmation for settings. */
-  performModelControlTrial?(serial: string, request: ModelControlTrial): Promise<ModelControlTrialResult>;
+  performModelControlTrial?(serial: string, request: ModelControlTrial, signal?: AbortSignal): Promise<ModelControlTrialResult>;
 
   /** Project active source counters synchronously, without opening a connection. */
   streamDiagnostic?(serial: string): StreamDiagnostic | null;

@@ -620,6 +620,22 @@ export class GatewayServer {
         if (request.method === "GET") return json(response, 200, { actions, experimental: true });
         const trial = parseModelControlTrial(await readJson(request));
         if (!actions.includes(trial.action) || !this.provider.performModelControlTrial) return json(response, 409, { error: "Model control trial unavailable" });
+        if (trial.action === "manualLight") {
+          const controller = new AbortController();
+          const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+          response.once("close", abort); request.once("aborted", abort);
+          try {
+            const result = await this.provider.performModelControlTrial(segments[2]!, trial, controller.signal);
+            if (controller.signal.aborted || result.outcome !== "acknowledged") throw new Error("Manual light state unknown");
+            return json(response, 200, { outcome: "acknowledged", physicalConfirmationRequired: true });
+          }
+          catch {
+            logger.warn("model_control_trial_failed", "Model control trial failed: model=T81A0 action=manualLight state=unknown");
+            if (!response.destroyed) return json(response, 409, { error: "Manual light test did not confirm the light state. Check the light and restore it before trying again." });
+          }
+          finally { controller.abort(); response.removeListener("close", abort); request.removeListener("aborted", abort); }
+          return;
+        }
         const result = await this.provider.performModelControlTrial(segments[2]!, trial);
         return json(response, 200, result);
       }

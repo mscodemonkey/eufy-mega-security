@@ -505,6 +505,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #recordingReservations = new Set<string>();
   readonly #trialPeers = new Set<string>();
   readonly #localMotionAborters = new Map<string, AbortController>();
+  readonly #manualLightAborters = new Map<string, AbortController>();
   readonly #localMotionCooldowns = new Map<string, number>();
   readonly #trialSessions = new Map<string, FirstPartyPpcsSession>();
   readonly #trialSirenStops = new Map<string, { readonly cameraId: string; readonly stop: () => Promise<void>; readonly finished: Promise<void> }>();
@@ -1567,12 +1568,17 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const device = this.#devices.get(serial);
     const route = device ? ppcsStreamRoute(device, this.#devices) : null;
     if (!device || !route || !device.adminUserId || !route.peer.p2pDid || !route.peer.p2pConnection) return [];
-    return modelControlTrialActions(this.#modelTrialRoute(device, route));
+    const actions = modelControlTrialActions(this.#modelTrialRoute(device, route));
+    if (actions.includes("manualLight") && (route.peer.adminUserId !== device.adminUserId
+      || !this.#client.isAuthenticatedUser(device.adminUserId)
+      || [...this.#devices.values()].filter(row => row.parentSerial === route.peer.serial && row.channel === device.channel).length !== 1)) return [];
+    return actions;
   }
 
   /** Own one peer exclusively for an explicit trial, publishing only fresh native state. */
-  async performModelControlTrial(serial: string, input: ModelControlTrial): Promise<ModelControlTrialResult> {
+  async performModelControlTrial(serial: string, input: ModelControlTrial, signal?: AbortSignal): Promise<ModelControlTrialResult> {
     const request = parseModelControlTrial(input);
+    if (request.action === "manualLight") return await this.#performS120LightTrial(serial, request, signal);
     if (!this.modelControlTrials(serial).includes(request.action)) throw new Error("Experimental model control is unavailable");
     const device = this.#devices.get(serial)!;
     const route = ppcsStreamRoute(device, this.#devices)!;
@@ -1666,6 +1672,81 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
+  async #performS120LightTrial(serial: string, request: Extract<ModelControlTrial, { action: "manualLight" }>,
+    signal?: AbortSignal): Promise<ModelControlTrialResult> {
+    const unknown = (): Error => new Error("Manual light test did not confirm the light state. Check the light and restore it before trying again.");
+    const device = this.#devices.get(serial), peer = device ? this.#devices.get(device.parentSerial) : undefined;
+    const route = device ? ppcsStreamRoute(device, this.#devices) : null;
+    if (!this.config.experimentalModelControls || !device || !peer || !route
+      || !modelControlTrialActions(this.#modelTrialRoute(device, route)).includes("manualLight")
+      || !device.adminUserId || device.adminUserId !== peer.adminUserId
+      || !this.#client.isAuthenticatedUser(device.adminUserId) || signal?.aborted || this.#recordingClosing
+      || !isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys()))) throw unknown();
+    const controls = [this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations,
+      this.#audioRecordingOperations, this.#motionOperations, this.#nightVisionOperations, this.#guardModeOperations,
+      this.#lightOperations, this.#panControlOperations, this.#cameraSirenOperations];
+    const related = [...this.#devices.values()].filter(row => row.serial === peer.serial || row.parentSerial === peer.serial);
+    if (this.#localMotionAborters.size || this.#trialPeers.has(peer.serial) || this.#recordingPeerReserved(serial)
+      || this.#stationOperations.has(peer.serial) || related.some(row => this.#ppcsStreams.has(row.serial)
+        || this.#streamStarts.has(row.serial) || controls.some(map => map.has(row.serial)))) throw unknown();
+    const controller = new AbortController(), generation = this.#startupGeneration;
+    this.#trialPeers.add(peer.serial); this.#manualLightAborters.set(peer.serial, controller);
+    let session: FirstPartyPpcsSession | null = null;
+    const abort = (): void => { controller.abort(); session?.close(); };
+    const deadline = setTimeout(abort, 60_000);
+    signal?.addEventListener("abort", abort, { once: true });
+    const valid = (rows: readonly MegaInventoryDevice[]): boolean => {
+      const child = rows.filter(row => row.serial === serial), parent = rows.filter(row => row.serial === peer.serial);
+      return child.length === 1 && parent.length === 1
+        && rows.filter(row => row.parentSerial === peer.serial && row.channel === device.channel).length === 1
+        && !inventoryBindingChanged(device, child[0]!) && !inventoryBindingChanged(peer, parent[0]!)
+        && parent[0]!.p2pDid === peer.p2pDid && parent[0]!.p2pConnection === peer.p2pConnection
+        && child[0]!.adminUserId === device.adminUserId && parent[0]!.adminUserId === device.adminUserId;
+    };
+    const current = (): void => {
+      if (controller.signal.aborted || signal?.aborted || this.#recordingClosing || generation !== this.#startupGeneration
+        || (session !== null && session.stats.closeReason !== "open") || !this.#client.isAuthenticatedUser(device.adminUserId!) || !valid([...this.#devices.values()])) throw unknown();
+    };
+    const owned = async <T>(operation: () => Promise<T>): Promise<T> => {
+      current();
+      let cancel!: () => void;
+      const cancelled = new Promise<never>((_resolve, reject) => {
+        cancel = () => reject(unknown()); controller.signal.addEventListener("abort", cancel, { once: true });
+        if (controller.signal.aborted) cancel();
+      });
+      try { const result = await Promise.race([operation(), cancelled]); current(); return result; }
+      finally { controller.signal.removeEventListener("abort", cancel); }
+    };
+    const fresh = async (): Promise<void> => {
+      const inventory = await owned(() => this.#client.inventory(controller.signal));
+      if (inventory.devices.filter(row => row.device_sn === serial).length !== 1
+        || inventory.devices.filter(row => row.device_sn === peer.serial).length !== 1
+        || !valid(parseMegaInventory(inventory))) throw unknown();
+    };
+    try {
+      await fresh();
+      const dsk = await owned(() => this.#dskKey(peer.serial));
+      if (!dsk) throw unknown();
+      session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!, appConnection: peer.p2pConnection!,
+        localAddress: peer.localAddress, dskKey: dsk.key, channel: device.channel!, cameraModel: device.model,
+        stationModel: peer.model, accountId: device.adminUserId!, homeBaseAttached: true, purpose: "control",
+        modelControlTrial: true, maxSeconds: 40, resolveCipherKey: id => this.#resolveCipherKey(id, peer) });
+      this.#trialSessions.set(peer.serial, session); session.output.once("end", abort); session.output.resume();
+      await owned(() => session!.start()); await fresh();
+      await owned(() => session!.writeModelControlTrial(request, this.#modelTrialRoute(device, route), current));
+      current();
+      logger.info("model_control_trial_result", "Model control trial: model=T81A0 action=manualLight outcome=acknowledged physical_confirmation_required=true");
+      return { outcome: "acknowledged", physicalConfirmationRequired: true };
+    } catch {
+      throw unknown();
+    } finally {
+      clearTimeout(deadline); signal?.removeEventListener("abort", abort);
+      session?.output.removeListener("end", abort); controller.abort(); session?.close();
+      if (this.#trialSessions.get(peer.serial) === session) this.#trialSessions.delete(peer.serial);
+      this.#manualLightAborters.delete(peer.serial); this.#trialPeers.delete(peer.serial);
+    }
+  }
+
   #assertNoModelTrial(serial: string): void {
     const peer = this.#devices.get(serial)?.parentSerial || serial;
     if (this.#trialPeers.has(peer) || this.#trialPeers.has(serial)) throw new Error("Wait for the model control trial to finish");
@@ -1673,7 +1754,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   #modelTrialRoute(device: MegaInventoryDevice, route: NonNullable<ReturnType<typeof ppcsStreamRoute>>): ModelControlRoute {
     return { model: device.model, deviceType: device.deviceType, channel: device.channel,
-      homeBaseAttached: route.homeBaseAttached, peerModel: route.peer.model, selfPeer: route.peer.serial === device.serial };
+      homeBaseAttached: route.homeBaseAttached, peerModel: route.peer.model, peerDeviceType: route.peer.deviceType, selfPeer: route.peer.serial === device.serial };
   }
 
   /** Write the model's verified motion command and require fresh inventory confirmation. */
@@ -2131,6 +2212,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     await Promise.allSettled([...this.#doorbellTrials.values()].map(trial => trial.release()));
     this.#client.cancelPendingRequests();
     for (const controller of this.#localMotionAborters.values()) controller.abort();
+    for (const controller of this.#manualLightAborters.values()) controller.abort();
     if (this.#stationRefreshTimer) clearInterval(this.#stationRefreshTimer);
     this.#stationRefreshTimer = null;
     if (this.#inventoryRefreshTimer) clearInterval(this.#inventoryRefreshTimer);

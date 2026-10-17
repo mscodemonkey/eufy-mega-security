@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.164
+
+- Add a manual, default-off T8910 local-motion test through HomeBase 2 or 3. It listens for fresh local messages without changing sensor or phone notification settings, rejects competing HomeBase activity and returns candidate counts only. Phone-independent Home Assistant motion remains unconfirmed and is not enabled by this diagnostic.
+- Add an explicit On/Off light test for T81A0 Solar Wall Light Cam S120 through HomeBase 3. It requires an owner account and fresh device bindings, sends once and accepts only an authenticated matching acknowledgement. Physical light behaviour remains unconfirmed, and no normal Home Assistant light control or cached light state is added.
+- Keep both experiments manual and off by default, with cancellation, bounded lifetimes, privacy-safe results and separate instructions for the smallest useful hardware check.
+
 ## 0.1.163
 
 - Expose normal Home Assistant live view for the reporter-confirmed T8E00 through T8N00 and T8140-Z through T9000 pairings when experimental NVR support is enabled. Other pairings remain limited to Diagnostics, and automatic startup snapshots do not consume these NVR sessions.
