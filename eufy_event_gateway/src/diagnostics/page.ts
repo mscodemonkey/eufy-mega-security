@@ -118,7 +118,7 @@ function trialValues() {
   for(const pair of values) el('trial-value').add(new Option(pair[1], pair[0]));
   el('trial-siren-stop').hidden = action !== 'siren';
   el('trial-consent-label').textContent = action === 'manualLight' ? 'I have noted the light’s starting state and am ready to watch it and restore that state.' : 'I am ready to observe the camera, stop the siren if needed and restore changed settings.';
-  el('trial-consent').checked = false;
+  if(action === 'manualLight') el('trial-consent').checked = false;
   el('trial-help').textContent = action === 'manualLight' ? 'A reply acknowledges receipt only. Watch the light and restore its starting state after testing.' : action === 'siren' ? 'Listen and be ready to stop the siren. The start command requests a 30-second limit, but device enforcement is unverified. If it keeps sounding, stop it in the Eufy app.' : '';
 }
 el('trial-action').onchange = trialValues;
