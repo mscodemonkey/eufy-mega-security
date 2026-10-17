@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.166
+
+- Handle event notifications containing several picture links by selecting the first nonempty link for the retained snapshot. Literal commas separate links, as in the Android app. Invalid or oversized lists leave the last good image intact.
+- Give not-yet-ready cloud pictures a longer, bounded retry window, while preserving motion delivery independently of picture downloads. Cancel discarded responses and stop retries promptly when the gateway closes. These changes still need confirmation against the reported picture failures.
+
 ## 0.1.165
 
 - Add an optional read-only FamiLock S3 / S3 Max status check for exact T85V0 devices through HomeBase 3. Diagnostics requests the reported state and battery once without locking, unlocking or changing settings. Hardware confirmation is still needed.

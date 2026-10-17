@@ -46,7 +46,9 @@ const TRANSIENT_IDENTITY_ERRORS = new Set([4404, 4406, 100030]);
 const AUTH_SESSION_INVALID_CODES = new Set([4404, 26084, 26884]);
 const MEDIA_HOST = /^security-app(?:-(?:eu|ie))?\.eufylife\.com$/;
 const MEDIA_OBJECT_HOST = /^zhixin-security-[a-z0-9]+(?:-[a-z0-9]+)*\.s3(?:\.[a-z]{2}(?:-[a-z0-9]+)+-\d)?\.amazonaws\.com$/;
-const MEDIA_NOT_READY_DELAYS_MS = [1_000, 2_000] as const;
+
+// Android thumbnail processing retries at one, three, five and ten seconds.
+const MEDIA_NOT_READY_DELAYS_MS = [1_000, 2_000, 2_000, 5_000] as const;
 const CIPHER_IDENTITY_RECOVERY_INTERVAL_MS = 10 * 60_000;
 
 /** Fixed operation names may cross the logging boundary without request data. */
@@ -124,7 +126,7 @@ export class MegaClient {
   readonly #store: MegaSessionStore;
   readonly #fetch: typeof fetch;
   readonly #now: () => number;
-  readonly #wait: (milliseconds: number) => Promise<void>;
+  readonly #wait: ((milliseconds: number) => Promise<void>) | undefined;
   readonly #minimumRequestIntervalMs: number;
   #lastRequestAt = 0;
   #connectionFlight: { readonly arguments: string; readonly promise: Promise<MegaAuthResult> } | null = null;
@@ -144,7 +146,7 @@ export class MegaClient {
     this.#country = options.country.toLowerCase();
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#now = options.now ?? Date.now;
-    this.#wait = options.wait ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+    this.#wait = options.wait;
     this.#minimumRequestIntervalMs = options.minimumRequestIntervalMs ?? 3_000;
     this.#store = new MegaSessionStore(join(options.persistentDirectory, "mega-session.json"));
   }
@@ -559,34 +561,82 @@ export class MegaClient {
     return (await this.downloadWithMetadata(url, maximumBytes)).data;
   }
 
-  /** Preserve safe final-response metadata without changing media integrity or redirect rules. */
+  /**
+   * Read allowlisted media within one 30-second lifetime, retrying only404 while
+   * a cloud object becomes ready. Discarded bodies and delay timers retire on
+   * shutdown. Metadata contains no private headers or object-store URL.
+   */
   async downloadWithMetadata(url: string, maximumBytes = 20 * 1024 * 1024): Promise<{ data: Buffer } & EventImageResponseMetadata> {
     const parsed = allowedMediaUrl(url, MEDIA_HOST);
     const signal = AbortSignal.any([this.#requestLifetime.signal, AbortSignal.timeout(30_000)]);
     let response: Response | null = null;
     for (let attempt = 0; attempt <= MEDIA_NOT_READY_DELAYS_MS.length; attempt += 1) {
+      signal.throwIfAborted();
       response = await this.#fetchMedia(parsed, signal);
       if (response.status !== 404 || attempt === MEDIA_NOT_READY_DELAYS_MS.length) break;
       const delay = MEDIA_NOT_READY_DELAYS_MS[attempt];
       if (delay === undefined) break;
-      await this.#wait(delay);
+      await this.#discardMediaResponse(response, signal);
+      await this.#waitForMediaRetry(delay, signal);
     }
     if (!response) throw new Error("Mega media download failed");
-    if (!response.ok) throw new Error(`Mega media download failed (HTTP ${response.status})`);
+    if (!response.ok) {
+      await this.#discardMediaResponse(response, signal);
+      signal.throwIfAborted();
+      throw new Error(`Mega media download failed (HTTP ${response.status})`);
+    }
     const data = await readBoundedResponse(response, maximumBytes, signal);
     return { data, ...eventImageResponseMetadata(response) };
   }
 
+  async #discardMediaResponse(response: Response, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    let abort!: () => void;
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      abort = () => reject(signal.reason ?? new Error("Media request cancelled"));
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) abort();
+    });
+    try {
+      await Promise.race([Promise.resolve().then(() => response.body?.cancel()).catch(() => undefined), cancelled]);
+      signal.throwIfAborted();
+    } finally { signal.removeEventListener("abort", abort); }
+  }
+
+  #waitForMediaRetry(milliseconds: number, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    return new Promise<void>((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let settled = false;
+      const finish = (error?: unknown): void => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        signal.removeEventListener("abort", abort);
+        if (error !== undefined) reject(error); else resolve();
+      };
+      const abort = (): void => finish(signal.reason ?? new Error("Media request cancelled"));
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) { abort(); return; }
+      if (this.#wait) {
+        try { void this.#wait(milliseconds).then(() => finish(), error => finish(error)); }
+        catch (error) { finish(error); }
+      } else timer = setTimeout(() => finish(), milliseconds);
+    });
+  }
+
   /** Perform one authenticated media lookup and its optional credential-free object-store redirect. */
   async #fetchMedia(url: URL, signal: AbortSignal): Promise<Response> {
+    signal.throwIfAborted();
     let response = await this.#fetch(url, {
       headers: this.#mediaHeaders(), redirect: "manual", signal,
     });
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
-      await response.body?.cancel();
+      await this.#discardMediaResponse(response, signal);
       if (!location) throw new Error("Mega media download rejected");
       const target = allowedMediaUrl(location, MEDIA_OBJECT_HOST);
+      signal.throwIfAborted();
       response = await this.#fetch(target, { redirect: "manual", signal });
     }
     return response;

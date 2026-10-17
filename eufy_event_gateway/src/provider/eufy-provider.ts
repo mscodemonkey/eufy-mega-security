@@ -14,6 +14,7 @@
  */
 import { InventoryMotionClock, type InventoryMotionOutcome } from "./inventory-motion.js";
 
+import { eventPictureUrl } from "./event-picture-url.js";
 import { T85V0StatusError, validT85V0StatusIdentity, type T85V0StatusSummary } from "./t85v0-status.js";
 import { LocalMotionCollector, LocalMotionError, type LocalMotionSummary } from "../stream/local-motion-trial.js";
 import { C31IndexError, type C31IndexSummary } from "../stream/c31-recording-index.js";
@@ -3627,9 +3628,10 @@ export async function downloadPushSnapshot(
   capture?: EventImageCapture,
   context: EventImageContext = {},
 ): Promise<{ data: Buffer } | null> {
-  if (!event.pictureUrl) return null;
-  const response = capture && client.downloadWithMetadata ? await client.downloadWithMetadata(event.pictureUrl) : null;
-  const encoded = response?.data ?? await client.download(event.pictureUrl);
+  const pictureUrl = eventPictureUrl(event.pictureUrl);
+  if (!pictureUrl) return null;
+  const response = capture && client.downloadWithMetadata ? await client.downloadWithMetadata(pictureUrl) : null;
+  const encoded = response?.data ?? await client.download(pictureUrl);
   if (isJpeg(encoded)) return { data: encoded };
   let original: Buffer | null = null;
   try { original = capture?.prepare(encoded) ?? null; } catch {
