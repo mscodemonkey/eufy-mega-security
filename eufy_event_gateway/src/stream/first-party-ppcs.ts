@@ -733,10 +733,12 @@ export interface S100SirenTrialFrame {
 export function buildS100SirenTrialFrames(
   route: ModelControlRoute, enabled: boolean, key: Buffer | null, sequence: number,
 ): readonly S100SirenTrialFrame[] {
-  const primary = buildS100SirenCommand(route, enabled);
-  if (!key || key.length !== 32) throw new S100SirenTrialError(["session_prepare"]);
+  let primary: ReturnType<typeof buildS100SirenCommand>;
+  try { primary = buildS100SirenCommand(route, enabled); }
+  catch (error) { throw error instanceof S100SirenTrialError ? error : new S100SirenTrialError(["session_identity"]); }
+  if (!key || key.length !== 32) throw new S100SirenTrialError(["session_cipher"]);
   if (!Number.isInteger(sequence) || sequence < 0 || sequence > (enabled ? 253 : 254)) {
-    throw new S100SirenTrialError(["session_prepare"]);
+    throw new S100SirenTrialError(["session_counter"]);
   }
   const seal = (command: 1201 | 1202, wireChannel: 0 | 255, stage: S100SirenTrialFrame["stage"], body: Uint8Array): S100SirenTrialFrame =>
     ({ command, wireChannel, stage, payload: rawPayload(encryptLevel2(Buffer.from(body), key, sequence++), wireChannel, 8, [8, 0], 0) });
@@ -1552,6 +1554,7 @@ export class FirstPartyPpcsSession {
   #maximumDurationTimer: ReturnType<typeof setTimeout> | null = null;
   #firstFrameTimer: ReturnType<typeof setTimeout> | null = null;
   #pendingByType = new Map<number, PendingPpcsFrame>();
+  #s100GatewayFrames = 0;
   #level2Key: Buffer | null = null;
   #level2Seq = 0;
   #gatewayPromise: Promise<void> | null = null;
@@ -1863,14 +1866,19 @@ export class FirstPartyPpcsSession {
    * this original session after provider cancellation or inventory replacement.
    */
   async prepareS100SirenTrial(route: ModelControlRoute, enabled: boolean): Promise<S100SirenTrialTransport> {
-    if (this.#closed || this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
-      || this.#pendingControl || this.#pendingControlQuery
-      || !this.#options.modelControlTrial || this.#options.cameraModel !== route.model
-      || this.#options.channel !== route.channel || this.#options.homeBaseAttached !== route.homeBaseAttached) {
+    if (this.#closed || !this.#remote || this.#pendingControl || this.#pendingControlQuery) {
       throw new S100SirenTrialError(["session_prepare"]);
     }
+    if (this.#options.purpose !== "control" || !this.#options.accountId
+      || !this.#options.modelControlTrial || this.#options.cameraModel !== route.model
+      || this.#options.channel !== route.channel || this.#options.homeBaseAttached !== route.homeBaseAttached) {
+      throw new S100SirenTrialError(["session_identity"]);
+    }
     try { await this.#waitForLevel2Key(); }
-    catch { throw new S100SirenTrialError(["session_prepare"]); }
+    catch {
+      throw new S100SirenTrialError([this.#closed ? "session_prepare"
+        : this.#s100GatewayFrames === 0 ? "session_gateway" : "session_cipher"]);
+    }
     if (this.#closed) throw new S100SirenTrialError(["session_prepare"]);
     const frames = buildS100SirenTrialFrames(route, enabled, this.#level2Key, this.#level2Seq);
     this.#level2Seq += frames.length;
@@ -2734,6 +2742,7 @@ export class FirstPartyPpcsSession {
 
     // 1100 carries the encrypted HomeBase gateway details. 1300 carries
     // media frames after the level-2 request has been accepted.
+    if (command === 1100) this.#s100GatewayFrames++;
     if (command === 1100 && signCode === 1) { this.stats.gatewayInfo++; void this.#handleGatewayInfo(payload); }
     else if (command === 1103 && (!this.#options.modelControlTrial || frameChannel === this.#options.channel)) {
       this.#inspectCameraInfo(payload, signCode);

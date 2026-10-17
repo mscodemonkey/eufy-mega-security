@@ -33,6 +33,7 @@ test("S100 Stop button remains available while the pulse form is locked and targ
   new Function("document", "fetch", "Option", "window", script)(
     { getElementById: element }, fetch, function(this: { value: string }, _text: string, value: string) { this.value = value; }, { addEventListener() {} });
   element("trial-action").onchange!();
+  element("trial-consent").checked = true;
   const pulse = element("trial-send").onclick!();
   await Promise.resolve();
   assert.equal(element("trial-send").disabled, true);

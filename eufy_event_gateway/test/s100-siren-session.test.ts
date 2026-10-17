@@ -12,7 +12,7 @@ import { S100SirenTrialError } from "../src/provider/s100-siren-trial.js";
 
 const route = { model: "T84A1", deviceType: 151, peerModel: "T84A1", selfPeer: true, homeBaseAttached: false, channel: 0 };
 
-async function syntheticSession(context: TestContext, negotiated = true) {
+async function syntheticSession(context: TestContext, negotiated: boolean | "missing" | "short" | "resolver-throws" | "unwrap" = true) {
   let socket!: Socket, sequence = 0;
   const controls: { command: number; channel: number }[] = [];
   const remote = { address: "127.0.0.1", port: 12345 };
@@ -41,7 +41,7 @@ async function syntheticSession(context: TestContext, negotiated = true) {
   });
   const session = new FirstPartyPpcsSession({ stationSerial: "test fixture 1234567", p2pDid: "TEST-12345678-TEST", appConnection: "", dskKey: "synthetic", channel: 0,
     homeBaseAttached: false, cameraModel: "T84A1", accountId: "synthetic-owner", purpose: "control", modelControlTrial: true, maxSeconds: 40,
-    resolveCipherKey: async () => negotiated ? recipient.getPrivateKey().toString("hex") : undefined });
+    resolveCipherKey: async () => { if (negotiated === "resolver-throws") throw Error("private-resolver"); return negotiated === false ? undefined : recipient.getPrivateKey().toString("hex"); } });
   await session.start();
   const ephemeral = createECDH("prime256v1"); ephemeral.generateKeys();
   const shared = ephemeral.computeSecret(recipient.getPublicKey()), label = Buffer.from("ECIES");
@@ -54,7 +54,8 @@ async function syntheticSession(context: TestContext, negotiated = true) {
   Buffer.concat([cipher.update(Buffer.alloc(32, 7)), cipher.final()]).copy(envelope, 49);
   const gateway = Buffer.alloc(144); gateway.writeUInt16LE(1); envelope.copy(gateway, 4);
   const legacy = createCipheriv("aes-128-ecb", Buffer.from("1234567-12345678"), null); legacy.setAutoPadding(false);
-  incoming(1100, 0, Buffer.concat([legacy.update(gateway), legacy.final()]), 1, 0);
+  if (negotiated === "unwrap") gateway.fill(0);
+  if (negotiated !== "missing") incoming(1100, 0, negotiated === "short" ? Buffer.alloc(16) : Buffer.concat([legacy.update(gateway), legacy.final()]), 1, 0);
   await new Promise(resolve => setImmediate(resolve));
   return { session, controls, callbacks, respond };
 }
@@ -128,3 +129,26 @@ for (const mode of ["send-throws", "start-rejected"]) {
     } finally { h.session.close(); }
   });
 }
+
+
+for (const mode of ["missing", "short", "resolver-throws", "unwrap", false] as const) {
+  test(`connection preflight ${mode} reports a fixed stage and sends no controls`, async context => {
+    const h = await syntheticSession(context, mode);
+    try {
+      context.mock.timers.enable({ apis: ["Date", "setTimeout"] });
+      const running = h.session.prepareS100SirenTrial(route, false);
+      const failure = assert.rejects(running, (error: unknown) => error instanceof S100SirenTrialError && error.stages.join() === (mode === "missing" ? "session_gateway" : "session_cipher"));
+      context.mock.timers.tick(20_000);
+      await failure;
+      assert.deepEqual(h.controls, []);
+    } finally { h.session.close(); }
+  });
+}
+
+test("closed negotiation is preparation failure rather than a missing gateway", async context => {
+  const h = await syntheticSession(context, "missing");
+  const running = h.session.prepareS100SirenTrial(route, false);
+  h.session.close();
+  await assert.rejects(running, (error: unknown) => error instanceof S100SirenTrialError && error.stages.join() === "session_prepare");
+  assert.deepEqual(h.controls, []);
+});

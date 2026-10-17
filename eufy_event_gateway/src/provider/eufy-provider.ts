@@ -1894,7 +1894,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const currentPeer = this.#devices.get(peer.serial);
       if (this.#recordingClosing || !current || !currentPeer || inventoryBindingChanged(device, current)
         || inventoryBindingChanged(peer, currentPeer) || currentPeer.p2pDid !== peer.p2pDid
-        || currentPeer.p2pConnection !== peer.p2pConnection) throw new Error("Model control route changed or closed");
+        || currentPeer.p2pConnection !== peer.p2pConnection) {
+        if (request.action === "sirenConnection") throw new S100SirenTrialError(["session_prepare"]);
+        throw new Error("Model control route changed or closed");
+      }
     };
     try {
       const dsk = await this.#dskKey(peer.serial);
@@ -1915,7 +1918,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const owned = session;
       const profile = this.#modelTrialRoute(device, route);
       let result: ModelControlTrialResult;
-      if (request.action === "siren") {
+      if (request.action === "sirenConnection") {
+
+        // HTTP cancellation cannot authorize a stop or sound command. Provider shutdown closes the session.
+        await owned.prepareS100SirenTrial(profile, false);
+        checkOwnership();
+        result = { outcome: "prepared", physicalConfirmationRequired: true };
+      } else if (request.action === "siren") {
         const transport = await owned.prepareS100SirenTrial(profile, request.enabled);
         checkOwnership();
         const controller = new AbortController();
@@ -1944,8 +1953,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       logger.info("model_control_trial_result", `Model control trial: model=${safeLogModel(device.model)} action=${request.action} outcome=${result.outcome} physical_confirmation_required=true`);
       return result;
     } catch (error) {
-      logger.warn("model_control_trial_failed", `Model control trial failed: model=${safeLogModel(device.model)} action=${request.action}${request.action === "siren" ? ` stages=${error instanceof S100SirenTrialError ? error.stages.join(",") : sirenSetupStage}` : ""}`);
-      throw request.action === "siren" && !(error instanceof S100SirenTrialError) ? new S100SirenTrialError([sirenSetupStage]) : error;
+      const s100 = request.action === "siren" || request.action === "sirenConnection";
+      const stages = error instanceof S100SirenTrialError ? error.stages : [sirenSetupStage];
+      logger.warn("model_control_trial_failed", `Model control trial failed: model=${safeLogModel(device.model)} action=${request.action}${s100 ? ` stages=${stages.join(",")}` : ""}`);
+      if (s100) throw new S100SirenTrialError(stages, request.action === "sirenConnection");
+      throw error;
     } finally {
       session?.close();
       this.#trialSirenStops.delete(peer.serial);

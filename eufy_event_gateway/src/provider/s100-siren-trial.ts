@@ -8,7 +8,8 @@ import { setTimeout as delay } from "node:timers/promises";
 
 /** Closed failure stages safe for HTTP responses and aggregate diagnostics. */
 export type S100SirenFailureStage = "start" | "primary_stop" | "secondary_stop" | "ownership"
-  | "session_key" | "session_connect" | "session_prepare";
+  | "session_key" | "session_connect" | "session_prepare"
+  | "session_identity" | "session_gateway" | "session_cipher" | "session_counter";
 
 /** Carries only fixed stage names, excluding transport errors and private inputs. */
 export class S100SirenTrialError extends Error {
@@ -16,8 +17,10 @@ export class S100SirenTrialError extends Error {
   /** Failure order preserves an ambiguous start before any cleanup failures. */
   readonly stages: readonly S100SirenFailureStage[];
 
-  constructor(stages: readonly S100SirenFailureStage[]) {
-    super(`S100 siren trial failed: ${stages.join(", ")}. Check the camera in the Eufy app before retrying`);
+  /** Select the no-command wording only for the connection-check boundary. */
+  constructor(stages: readonly S100SirenFailureStage[], connectionOnly = false) {
+    super(connectionOnly ? `S100 connection check failed: ${stages.join(", ")}. No siren command was sent.`
+      : `S100 siren trial failed: ${stages.join(", ")}. Check the camera in the Eufy app before retrying`);
     this.stages = [...stages];
   }
 }

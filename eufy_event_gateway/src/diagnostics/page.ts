@@ -133,14 +133,15 @@ function trialValues() {
   const action = el('trial-action').value;
   el('trial-value').replaceChildren();
   const values = action === 'ptz' ? [['left','Left'],['right','Right'],['up','Up'],['down','Down']]
-    : action === 'siren' ? [['true','Five-second sound test'],['false','Stop siren']] : [['true','On'],['false','Off']];
+    : action === 'sirenConnection' ? [['false','Connection check only']] : action === 'siren' ? [['true','Five-second sound test'],['false','Stop siren']] : [['true','On'],['false','Off']];
   for(const pair of values) el('trial-value').add(new Option(pair[1], pair[0]));
   el('trial-siren-stop').hidden = action !== 'siren';
-  el('trial-consent-label').textContent = action === 'manualLight' ? 'I have noted the light’s starting state and am ready to watch it and restore that state.' : 'I am ready to observe the camera, stop the siren if needed and restore changed settings.';
-  if(action === 'manualLight') el('trial-consent').checked = false;
-  el('trial-help').textContent = action === 'manualLight' ? 'A reply acknowledges receipt only. Watch the light and restore its starting state after testing.' : action === 'siren' ? 'Listen and be ready to stop the siren. The start command requests a 30-second limit, but device enforcement is unverified. If it keeps sounding, stop it in the Eufy app.' : '';
+  el('trial-consent-label').textContent = action === 'sirenConnection' ? 'I am ready for one connection check. No siren command will be sent.' : action === 'manualLight' ? 'I have noted the light’s starting state and am ready to watch it and restore that state.' : 'I am ready to observe the camera, stop the siren if needed and restore changed settings.';
+  el('trial-consent').checked = false;
+  el('trial-help').textContent = action === 'sirenConnection' ? 'Connects once without sending a siren command. Prepared does not confirm audible behaviour. Try once and share the result.' : action === 'manualLight' ? 'A reply acknowledges receipt only. Watch the light and restore its starting state after testing.' : action === 'siren' ? 'Listen and be ready to stop the siren. The start command requests a 30-second limit, but device enforcement is unverified. If it keeps sounding, stop it in the Eufy app.' : '';
 }
 el('trial-action').onchange = trialValues;
+el('device').addEventListener('change', () => { el('trial-consent').checked = false; });
 action('trial-siren-stop', async () => {
   await trialApi('POST', { action: 'siren', enabled: false }, activeTrialSerial || el('device').value);
   el('trial-status').textContent = 'Stop commands acknowledged. Check that the siren is silent.';
@@ -148,7 +149,7 @@ action('trial-siren-stop', async () => {
 action('trial-load', async () => {
   const value = await trialApi('GET');
   el('trial-action').replaceChildren();
-  for(const name of value.actions) el('trial-action').add(new Option(name === 'manualLight' ? 'Manual light (S120 through HomeBase 3)' : name, name));
+  for(const name of value.actions) el('trial-action').add(new Option(name === 'sirenConnection' ? 'Check S100 connection (no sound)' : name === 'manualLight' ? 'Manual light (S120 through HomeBase 3)' : name, name));
   trialValues();
   el('trial-status').textContent = value.actions.length ? 'Choose one control and observe the camera.' : 'No exact model control trials available.';
 });
@@ -166,10 +167,10 @@ action('trial-send', async () => {
   el('trial-status').textContent = 'Trying once. Do not retry until the result is known.';
   try {
     const result = await trialApi('POST', action === 'ptz' ? { action, direction: value } : { action, enabled: value === 'true' });
-    el('trial-status').textContent = action === 'manualLight' ? 'Light command acknowledged. Did the light change? Check it and restore the starting state. This does not confirm its physical behaviour.' : action === 'siren' ? 'Commands acknowledged. Did the siren sound and stop? This result does not confirm audible behaviour.' : result.outcome === 'acknowledged' ? 'Command acknowledged. Check whether the camera moved.'
+    el('trial-status').textContent = action === 'sirenConnection' ? (result.outcome === 'prepared' ? 'Connection prepared. No siren command was sent. Whether it will sound is still unconfirmed.' : 'Connection preparation was not confirmed.') : action === 'manualLight' ? 'Light command acknowledged. Did the light change? Check it and restore the starting state. This does not confirm its physical behaviour.' : action === 'siren' ? 'Commands acknowledged. Did the siren sound and stop? This result does not confirm audible behaviour.' : result.outcome === 'acknowledged' ? 'Command acknowledged. Check whether the camera moved.'
       : result.outcome === 'unchanged' ? 'Camera already reports this setting. No command sent.' : 'Camera reports the requested setting. Check its behaviour and restore the original setting when finished.';
-  } catch(error) { el('trial-status').textContent = error.message + (action === 'manualLight' ? ' The light state is unknown. Check the light and restore its starting state before trying again. Share only the model_control_trial_failed line.' : ' Check the camera before retrying. If it keeps sounding, stop it in the Eufy app. Send the model_control_trial_failed log line if the test failed.'); }
-  finally { if(action === 'manualLight') el('trial-consent').checked = false; el('trial-send').disabled = false; el('device').disabled = false; el('trial-action').disabled = false; el('trial-load').disabled = false; el('trial-value').disabled = false; activeTrialSerial = null; }
+  } catch(error) { el('trial-status').textContent = error.message + (action === 'sirenConnection' ? ' No siren command was sent. Share only the model_control_trial_failed line.' : action === 'manualLight' ? ' The light state is unknown. Check the light and restore its starting state before trying again. Share only the model_control_trial_failed line.' : ' Check the camera before retrying. If it keeps sounding, stop it in the Eufy app. Send the model_control_trial_failed log line if the test failed.'); }
+  finally { if(action === 'manualLight' || action === 'sirenConnection') el('trial-consent').checked = false; el('trial-send').disabled = false; el('device').disabled = false; el('trial-action').disabled = false; el('trial-load').disabled = false; el('trial-value').disabled = false; activeTrialSerial = null; }
 });
 action('start', async () => {
   const target = el('device').value || null;

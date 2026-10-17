@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { createDecipheriv } from "node:crypto";
 import test from "node:test";
 import { buildS100SirenTrialFrames, dispatchS100SirenStops, decodeModelControlTrialAcknowledgement } from "../src/stream/first-party-ppcs.js";
-import { modelControlTrialActions, modelControlTrialCommand, parseModelControlTrial } from "../src/provider/model-control-trials.js";
+import { modelControlTrialActions, modelControlTrialCommand, parseModelControlTrial, runModelControlTrial } from "../src/provider/model-control-trials.js";
 import { runS100SirenTrial, S100SirenTrialError } from "../src/provider/s100-siren-trial.js";
 
 const route = { model: "T84A1", deviceType: 151, peerModel: "T84A1", selfPeer: true, homeBaseAttached: false, channel: 0 };
@@ -23,7 +23,7 @@ function clear(payload: Buffer): string {
 }
 
 test("S100 trial admission is exact and never reaches generic or legacy commands", () => {
-  assert.deepEqual(modelControlTrialActions(route), ["motion", "siren"]);
+  assert.deepEqual(modelControlTrialActions(route), ["motion", "siren", "sirenConnection"]);
   for (const patch of [{ model: "T84A1X" }, { deviceType: 150 }, { peerModel: "T8423" }, { selfPeer: false },
     { channel: 1 }, { channel: null }, { homeBaseAttached: true }]) {
     assert.equal(modelControlTrialActions({ ...route, ...patch }).includes("siren"), false);
@@ -134,4 +134,27 @@ test("S100 pulse uses monotonic time when wall time jumps", async context => {
   assert.equal(stops, 0);
   monotonic = 5000; context.mock.timers.tick(100); await running;
   assert.equal(stops, 1);
+});
+
+
+test("connection request is strict and can never enter a generic writer", async () => {
+  const request = { action: "sirenConnection", enabled: false } as const;
+  assert.deepEqual(parseModelControlTrial(request), request);
+  for (const value of [true, "false", 0, null, undefined]) assert.throws(() => parseModelControlTrial({ action: request.action, enabled: value }));
+  for (const value of [{ ...request, direction: "left" }, { ...request, raw: 1201 }, [request], { action: request.action }]) assert.throws(() => parseModelControlTrial(value));
+  for (const patch of [{ model: "T84A1X" }, { deviceType: 150 }, { peerModel: "T8423" }, { selfPeer: false }, { channel: 1 }, { channel: null }, { homeBaseAttached: true }]) {
+    assert.equal(modelControlTrialActions({ ...route, ...patch }).includes("sirenConnection"), false);
+  }
+  assert.throws(() => modelControlTrialCommand(request, route, "", 0), /cannot dispatch/);
+  await assert.rejects(runModelControlTrial({ read: async () => { assert.fail("read forbidden"); }, write: async () => { assert.fail("write forbidden"); } }, request, () => { assert.fail("ownership must not be checked"); }), /cannot dispatch/);
+});
+
+test("preparation stages preserve route, key and counter precedence", () => {
+  const stage = (run: () => unknown, expected: string) => assert.throws(run, (error: unknown) => error instanceof S100SirenTrialError && error.stages.join() === expected);
+  stage(() => buildS100SirenTrialFrames({ ...route, channel: 1 }, false, null, -1), "session_identity");
+  for (const invalid of [null, Buffer.alloc(0), Buffer.alloc(16)]) stage(() => buildS100SirenTrialFrames(route, false, invalid, -1), "session_cipher");
+  for (const sequence of [-1, 1.5, NaN, 255, 65536]) stage(() => buildS100SirenTrialFrames(route, false, key, sequence), "session_counter");
+  for (const stageName of ["session_identity", "session_gateway", "session_cipher", "session_counter"] as const) {
+    assert.equal(new S100SirenTrialError([stageName], true).message, `S100 connection check failed: ${stageName}. No siren command was sent.`);
+  }
 });
