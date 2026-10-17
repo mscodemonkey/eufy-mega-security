@@ -28,7 +28,7 @@ import { C31TalkbackSender, c31TalkbackBody } from "./c31-talkback.js";
 import { decodePpcsAac } from "./ppcs-audio.js";
 import { ppcsCandidatePorts, ppcsLocalLookupTargets } from "./ppcs-lookup.js";
 import { PpcsLookupSocketPool } from "./ppcs-lookup-sockets.js";
-import { decodeSensorContactNotification, type SensorContactObservation } from "./sensor-status-notification.js";
+import { decodeSensorContactNotification, decodeSensorMotionNotification, type SensorContactObservation, type SensorMotionObservation } from "./sensor-status-notification.js";
 
 // PPCS wraps command payloads in an XZYH header. The outer F1 D0 UDP envelope,
 // the inner D1 data channel, and the XZYH command frame have separate sequence
@@ -152,7 +152,7 @@ export function acceptsSoloCamAudio(cameraModel: string, homeBaseAttached: boole
   frameChannel: number, purpose: string | undefined): boolean {
   return (cameraModel === "T8171" || (cameraModel === "T817L" && !homeBaseAttached))
     && Number.isSafeInteger(requestedChannel) && requestedChannel >= 0
-    && frameChannel === requestedChannel && (homeBaseAttached || requestedChannel === 0) && purpose !== "control";
+    && frameChannel === requestedChannel && (homeBaseAttached || requestedChannel === 0) && purpose !== "control" && purpose !== "passive";
 }
 
 /**
@@ -1303,14 +1303,17 @@ export interface PpcsCameraOptions {
   /** Hard session lifetime, defaulting to 30 seconds when omitted. */
   readonly maxSeconds?: number;
 
-  /** Limit the session to one control write instead of starting camera media. */
-  readonly purpose?: "media" | "control";
+  /** Select media, explicit controls, or a handshake-only passive notification watch. */
+  readonly purpose?: "media" | "control" | "passive";
 
   /** Require direct parameter replies on the exact experimental trial channel. */
   readonly modelControlTrial?: boolean;
 
   /** Passive child-contact observations while an already requested HomeBase session is open. */
   readonly onSensorContact?: (observation: SensorContactObservation) => void;
+
+  /** Passive motion candidates, consumed only by an explicitly reserved diagnostic. */
+  readonly onSensorMotion?: (observation: SensorMotionObservation) => void;
 }
 
 /** One in-flight control command and the promise settled by its result frame. */
@@ -1600,7 +1603,7 @@ export class FirstPartyPpcsSession {
       this.stats.incompleteAccessUnitBytes += drop.carriedBytes;
       this.#recordVideoResult("incomplete-access-unit-dropped");
     }, {
-      emitChunks: options.cameraModel === "T8200" && options.homeBaseAttached !== true && options.purpose !== "control",
+      emitChunks: options.cameraModel === "T8200" && options.homeBaseAttached !== true && options.purpose !== "control" && options.purpose !== "passive",
     });
 
     // Capture the session rather than the stats object's receiver. Failure
@@ -1677,7 +1680,7 @@ export class FirstPartyPpcsSession {
       () => this.close("max_duration"),
       (this.#options.maxSeconds ?? 30) * 1_000,
     );
-    if (this.#options.purpose !== "control") {
+    if (this.#options.purpose !== "control" && this.#options.purpose !== "passive") {
       this.#firstFrameTimer = setTimeout(
         () => this.close("first_frame_timeout"),
         FIRST_VIDEO_FRAME_TIMEOUT_MILLISECONDS,
@@ -1686,7 +1689,7 @@ export class FirstPartyPpcsSession {
     this.#heartbeat = setInterval(() => {
       if (!this.#remote) return;
       this.#send(REQ.ping, Buffer.alloc(0), this.#remote);
-      if (this.#options.purpose === "control" && this.stats.mediaStartAttempts === 0) return;
+      if ((this.#options.purpose === "control" || this.#options.purpose === "passive") && this.stats.mediaStartAttempts === 0) return;
       if (this.#options.homeBaseAttached && this.#level2Key) {
         const recovery = attachedMediaStallRecoveryAction(
           this.#lastDeliveredMediaFrameAt,
@@ -2093,7 +2096,7 @@ export class FirstPartyPpcsSession {
 
   /** Play admitted AAC on this existing C31 media session and always close its speaker path. */
   async playC31Audio(audio: Buffer, signal?: AbortSignal): Promise<void> {
-    if (this.#closed || !this.#remote || this.#speaker || this.#options.purpose === "control"
+    if (this.#closed || !this.#remote || this.#speaker || (this.#options.purpose === "control" || this.#options.purpose === "passive")
       || this.#options.cameraModel !== "T817L" || this.#options.homeBaseAttached || this.#options.channel !== 0) {
       throw new Error("Speaker playback requires an idle owned standalone C31 media session");
     }
@@ -2399,7 +2402,7 @@ export class FirstPartyPpcsSession {
     this.#datagramOrder.close();
     this.#pendingByType.clear();
     this.#updatePendingBytes();
-    if (this.#options.purpose !== "control" && this.#options.homeBaseAttached) {
+    if (this.#options.purpose !== "control" && this.#options.purpose !== "passive" && this.#options.homeBaseAttached) {
       this.#stopAttachedMedia();
     }
     if (this.#remote) this.#send(REQ.end, Buffer.alloc(0), this.#remote);
@@ -2442,6 +2445,8 @@ export class FirstPartyPpcsSession {
    */
   #handle(message: Buffer, info: RemoteInfo, socket: Socket): boolean {
     if (this.#closed || (this.#remote && socket !== this.#socket)) return false;
+    if (this.#options.purpose === "passive" && this.#remote
+      && (info.address !== this.#remote.host || info.port !== this.#remote.port)) return false;
     if (has(message, RESP.localLookup)) {
       this.stats.localLookupCandidates++;
       const source = { host: info.address, port: info.port };
@@ -2470,7 +2475,7 @@ export class FirstPartyPpcsSession {
       this.#remote = { host: info.address, port: info.port };
       this.#send(REQ.ping, Buffer.alloc(0), this.#remote);
       this.#sendCommand(1100, voidPayload(255));
-      if (!this.#options.homeBaseAttached && this.#options.purpose !== "control") this.#startOwnMedia();
+      if (!this.#options.homeBaseAttached && this.#options.purpose !== "control" && this.#options.purpose !== "passive") this.#startOwnMedia();
       return true;
     }
     if (has(message, RESP.pong)) return false;
@@ -2580,6 +2585,7 @@ export class FirstPartyPpcsSession {
   #handleFrame(header: Buffer, payload: Buffer, type: number): void {
     if (this.#recordings?.handleFrame(header, payload, type)) return;
     const command = header.readUInt16LE(4);
+    if (this.#options.purpose === "passive" && command === 1300) { this.close("client_stop"); return; }
     const size = header.readUInt32LE(6);
     const frameChannel = ppcsFrameChannel(header);
     const signCode = header[13] ?? 0;
@@ -2615,7 +2621,8 @@ export class FirstPartyPpcsSession {
       return;
     }
 
-    if (command === 1351 && this.#options.homeBaseAttached && this.#options.onSensorContact) {
+    if (command === 1351 && payload.length <= 65_536 && this.#options.homeBaseAttached
+      && (this.#options.onSensorContact || this.#options.onSensorMotion)) {
       let clear: Buffer | undefined;
       if (signCode === 0) clear = payload;
       else if ((signCode === 2 || signCode === 8) && this.#level2Key) {
@@ -2624,7 +2631,10 @@ export class FirstPartyPpcsSession {
         try { clear = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); } catch { clear = undefined; }
       }
       if (clear) {
-        for (const observation of decodeSensorContactNotification(clear)) this.#options.onSensorContact(observation);
+        try {
+          if (this.#options.onSensorContact) for (const observation of decodeSensorContactNotification(clear)) this.#options.onSensorContact(observation);
+          if (this.#options.onSensorMotion) for (const observation of decodeSensorMotionNotification(clear)) this.#options.onSensorMotion(observation);
+        } finally { if (clear !== payload) clear.fill(0); }
       }
     }
 
@@ -2859,7 +2869,7 @@ export class FirstPartyPpcsSession {
     if (!plain || plain.length < 32) { this.stats.level2Error = "gateway info ECIES unwrap failed"; return; }
     this.#level2Key = plain.subarray(0, 32);
     this.stats.level2++;
-    if (this.#options.purpose !== "control") {
+    if (this.#options.purpose !== "control" && this.#options.purpose !== "passive") {
       if (this.#options.homeBaseAttached) this.#startAttachedMedia();
       else this.#startOwnMedia();
     }
@@ -2956,7 +2966,7 @@ export class FirstPartyPpcsSession {
       throw new Error("Camera preset wake requires a connected session");
     }
     await this.#waitForLevel2Key();
-    if (this.#options.purpose !== "control") {
+    if (this.#options.purpose !== "control" && this.#options.purpose !== "passive") {
       if (this.stats.videoOutputFrames === 0) throw new Error("Camera viewer has not confirmed a live camera wake");
       return;
     }

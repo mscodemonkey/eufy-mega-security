@@ -12,6 +12,7 @@
  * forwarding private event fields into the logger. Periodic cloud refreshes admit
  * newly added devices without replacing push receivers or active media sessions.
  */
+import { LocalMotionCollector, LocalMotionError, type LocalMotionSummary } from "../stream/local-motion-trial.js";
 import { C31IndexError, type C31IndexSummary } from "../stream/c31-recording-index.js";
 import type { E30LockSettingChange, SmartLockState } from "../domain/types.js";
 import { runS100SirenTrial, S100SirenTrialError, type S100SirenFailureStage } from "./s100-siren-trial.js";
@@ -503,6 +504,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #recordingIndexCooldowns = new Map<string, number>();
   readonly #recordingReservations = new Set<string>();
   readonly #trialPeers = new Set<string>();
+  readonly #localMotionAborters = new Map<string, AbortController>();
+  readonly #localMotionCooldowns = new Map<string, number>();
   readonly #trialSessions = new Map<string, FirstPartyPpcsSession>();
   readonly #trialSirenStops = new Map<string, { readonly cameraId: string; readonly stop: () => Promise<void>; readonly finished: Promise<void> }>();
   readonly #recordingSessions = new Map<string, FirstPartyPpcsSession>();
@@ -674,7 +677,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       || device.deviceType !== 10031 || device.channel !== 0 || !device.adminUserId
       || !route || route.homeBaseAttached || route.peer.serial !== device.serial
       || !isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys()))) throw new C31IndexError("admission");
-    if (this.#recordingIndexActive || this.#panControlOperations.has(serial) || this.#recordingPeerReserved(serial)
+    if (this.#localMotionAborters.size || this.#recordingIndexActive || this.#panControlOperations.has(serial) || this.#recordingPeerReserved(serial)
       || this.#ppcsStreams.has(serial) || this.#streamStarts.has(serial)
       || (this.#recordingIndexCooldowns.get(serial) ?? 0) > Date.now()) throw new C31IndexError("busy");
     const current = (): void => {
@@ -719,6 +722,110 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#recordingReservations.delete(serial); this.#recordingIndexActive = false;
       this.#recordingIndexCooldowns.delete(serial); this.#recordingIndexCooldowns.set(serial, Date.now() + 10_000);
       while (this.#recordingIndexCooldowns.size > 100) this.#recordingIndexCooldowns.delete(this.#recordingIndexCooldowns.keys().next().value!);
+    }
+  }
+
+  /**
+   * Watch one exact T8910 channel without changing sensor or phone settings.
+   * A parent-wide lease excludes local controls and media. Results are candidate
+   * counts only and are discarded if the fresh binding cannot be rechecked.
+   */
+  async readLocalMotionTrial(serial: string, signal: AbortSignal): Promise<LocalMotionSummary> {
+    const device = this.#devices.get(serial), generation = this.#startupGeneration;
+    const peer = device ? this.#devices.get(device.parentSerial) : undefined;
+    const admitted = (rows: readonly MegaInventoryDevice[]): boolean => {
+      if (!device || !peer || device.model !== "T8910" || device.deviceType !== 10
+        || device.channel === null || !Number.isInteger(device.channel) || device.channel < 0 || device.channel > 254
+        || !device.adminUserId || device.adminUserId !== peer.adminUserId
+        || !((peer.model === "T8010" && peer.deviceType === 0) || (peer.model === "T8030" && peer.deviceType === 18))
+        || device.parentSerial === device.serial || !peer.p2pDid || !peer.p2pConnection
+        || !this.#dskKeys.has(peer.serial)) return false;
+      const children = rows.filter(row => row.serial === serial);
+      const parents = rows.filter(row => row.serial === peer.serial);
+      return children.length === 1 && parents.length === 1
+        && rows.filter(row => row.parentSerial === peer.serial && row.channel === device.channel).length === 1
+        && !inventoryBindingChanged(device, children[0]!) && children[0]!.adminUserId === device.adminUserId
+        && !inventoryBindingChanged(peer, parents[0]!) && parents[0]!.adminUserId === peer.adminUserId
+        && parents[0]!.p2pDid === peer.p2pDid && parents[0]!.p2pConnection === peer.p2pConnection;
+    };
+    if (!this.config.experimentalModelControls || !admitted([...this.#devices.values()]) || signal.aborted || this.#recordingClosing) throw new LocalMotionError("admission");
+    const station = peer!;
+    const related = [...this.#devices.values()].filter(row => row.serial === station.serial || row.parentSerial === station.serial);
+    const controls = [this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations,
+      this.#audioRecordingOperations, this.#motionOperations, this.#nightVisionOperations, this.#guardModeOperations,
+      this.#lightOperations, this.#panControlOperations, this.#cameraSirenOperations];
+    if (this.#trialPeers.size || this.#recordingIndexActive || this.#localMotionAborters.size
+      || this.#stationOperations.has(station.serial) || this.#stationHasActiveMedia(station.serial)
+      || related.some(row => this.#streamStarts.has(row.serial) || controls.some(map => map.has(row.serial)))
+      || (this.#localMotionCooldowns.get(station.serial) ?? 0) > Date.now()) throw new LocalMotionError("busy");
+    const controller = new AbortController();
+    this.#trialPeers.add(station.serial); this.#localMotionAborters.set(station.serial, controller);
+    let session: FirstPartyPpcsSession | null = null, collector: LocalMotionCollector | null = null;
+    let failure: LocalMotionError | null = null, finished = false;
+    let watchTimer: ReturnType<typeof setTimeout> | undefined;
+    const abort = (): void => { controller.abort(); session?.close(); };
+    const deadline = setTimeout(() => { failure = new LocalMotionError("timeout"); abort(); }, 90_000);
+    const bindingTimer = setInterval(() => {
+      if (!admitted([...this.#devices.values()]) || generation !== this.#startupGeneration || this.#recordingClosing) {
+        failure = new LocalMotionError("cancelled"); abort();
+      }
+    }, 1_000);
+    signal.addEventListener("abort", abort, { once: true });
+    const current = (): void => {
+      if (controller.signal.aborted || signal.aborted || this.#recordingClosing || generation !== this.#startupGeneration) {
+        throw failure ?? new LocalMotionError("cancelled");
+      }
+      if (!admitted([...this.#devices.values()])) throw new LocalMotionError("admission");
+    };
+    const owned = async <T>(operation: () => Promise<T>): Promise<T> => {
+      current();
+      let cancel!: () => void;
+      const aborted = new Promise<never>((_resolve, reject) => {
+        cancel = () => reject(failure ?? new LocalMotionError("cancelled"));
+        controller.signal.addEventListener("abort", cancel, { once: true });
+        if (controller.signal.aborted) cancel();
+      });
+      try { const result = await Promise.race([operation(), aborted]); current(); return result; }
+      finally { controller.signal.removeEventListener("abort", cancel); }
+    };
+    const fresh = async (): Promise<void> => {
+      const inventory = await owned(() => this.#client.inventory(controller.signal));
+      if (inventory.devices.filter(row => row.device_sn === serial).length !== 1
+        || inventory.devices.filter(row => row.device_sn === station.serial).length !== 1
+        || !admitted(parseMegaInventory(inventory))) throw new LocalMotionError("admission");
+    };
+    try {
+      await fresh();
+      const dsk = await owned(() => this.#dskKey(station.serial));
+      if (!dsk) throw new LocalMotionError("admission");
+      session = new FirstPartyPpcsSession({ stationSerial: station.serial, p2pDid: station.p2pDid!,
+        appConnection: station.p2pConnection!, localAddress: station.localAddress, dskKey: dsk.key,
+        channel: device!.channel!, cameraModel: "T8910", stationModel: station.model,
+        accountId: station.adminUserId!, homeBaseAttached: true, purpose: "passive", maxSeconds: 65,
+        resolveCipherKey: id => this.#resolveCipherKey(id, station),
+        onSensorMotion: observation => {
+          if (!collector || finished || controller.signal.aborted) return;
+          try { current(); collector.observe(observation, Date.now()); }
+          catch { failure = new LocalMotionError("admission"); abort(); }
+        } });
+      this.#trialSessions.set(station.serial, session);
+      const closed = (): void => { if (!finished) { failure ??= new LocalMotionError("session"); controller.abort(); } };
+      session.output.once("end", closed); session.output.resume();
+      await owned(() => session!.start());
+      if (session.stats.closeReason !== "open") throw new LocalMotionError("session");
+      collector = new LocalMotionCollector(device!.channel!, Date.now());
+      await owned(() => new Promise<void>(resolve => { watchTimer = setTimeout(resolve, 45_000); }));
+      await fresh(); current();
+      return collector.finish();
+    } catch (error) {
+      throw error instanceof LocalMotionError ? error : failure ?? new LocalMotionError(controller.signal.aborted ? "cancelled" : "session");
+    } finally {
+      finished = true; collector?.finish(); clearTimeout(deadline); clearInterval(bindingTimer); if (watchTimer) clearTimeout(watchTimer); signal.removeEventListener("abort", abort);
+      controller.abort(); session?.close();
+      if (this.#trialSessions.get(station.serial) === session) this.#trialSessions.delete(station.serial);
+      this.#localMotionAborters.delete(station.serial); this.#trialPeers.delete(station.serial);
+      this.#localMotionCooldowns.delete(station.serial); this.#localMotionCooldowns.set(station.serial, Date.now() + 10_000);
+      while (this.#localMotionCooldowns.size > 100) this.#localMotionCooldowns.delete(this.#localMotionCooldowns.keys().next().value!);
     }
   }
 
@@ -857,7 +964,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   reserveDoorbellRtcTrial(serial: string, signal: AbortSignal): () => Promise<void> {
     const device = this.#devices.get(serial);
     if (!this.#doorbellRtcBinding(device) || !device || signal.aborted || this.#recordingClosing
-      || !this.#client.isAuthenticated || this.#doorbellTrials.size || this.#nvrTrials.size
+      || !this.#client.isAuthenticated || this.#localMotionAborters.size || this.#doorbellTrials.size || this.#nvrTrials.size
       || this.#trialPeers.has(serial) || this.#recordingPeerReserved(serial) || this.#stationHasActiveMedia(serial)) {
       throw new DoorbellRtcError("admission");
     }
@@ -956,7 +1063,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #reserveNvrTrial(serial: string, signal: AbortSignal, stateOnly: boolean, diagnostic: boolean): () => Promise<void> {
     const device = this.#devices.get(serial), station = device ? this.#devices.get(device.parentSerial) : undefined;
     if (!this.config.experimentalNvrLive || this.#recordingClosing || signal.aborted || !this.#client.isAuthenticated
-      || this.#nvrTrials.size || !device || !station || !this.#nvrBinding(device, station) || this.#recordingPeerReserved(serial) || this.#stationHasActiveMedia(station.serial)) throw new NvrTrialError("admission");
+      || this.#localMotionAborters.size || this.#nvrTrials.size || !device || !station || !this.#nvrBinding(device, station) || this.#recordingPeerReserved(serial) || this.#stationHasActiveMedia(station.serial)) throw new NvrTrialError("admission");
     const controller = new AbortController();
     let closed: Promise<void> | null = null;
     const deadline = diagnostic
@@ -1486,7 +1593,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#audioRecordingOperations, this.#motionOperations, this.#nightVisionOperations, this.#guardModeOperations,
       this.#lightOperations, this.#panControlOperations, this.#cameraSirenOperations];
     const related = [...this.#devices.values()].filter(row => (row.parentSerial || row.serial) === peer.serial || row.serial === peer.serial);
-    if (this.#trialPeers.has(peer.serial) || this.#recordingPeerReserved(serial)
+    if (this.#localMotionAborters.size || this.#trialPeers.has(peer.serial) || this.#recordingPeerReserved(serial)
       || this.#stationOperations.has(peer.serial) || related.some(row => this.#ppcsStreams.has(row.serial)
         || controlMaps.some(map => map.has(row.serial)))) throw new Error("Stop live view and wait for other device operations before a control trial");
     this.#trialPeers.add(peer.serial);
@@ -2023,6 +2130,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     await Promise.allSettled([...this.#nvrTrials.values()].map(trial => trial.release()));
     await Promise.allSettled([...this.#doorbellTrials.values()].map(trial => trial.release()));
     this.#client.cancelPendingRequests();
+    for (const controller of this.#localMotionAborters.values()) controller.abort();
     if (this.#stationRefreshTimer) clearInterval(this.#stationRefreshTimer);
     this.#stationRefreshTimer = null;
     if (this.#inventoryRefreshTimer) clearInterval(this.#inventoryRefreshTimer);

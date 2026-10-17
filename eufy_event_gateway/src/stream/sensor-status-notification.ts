@@ -12,6 +12,32 @@ export interface SensorContactObservation {
   readonly open: boolean;
 }
 
+/** A HomeBase child channel and its source-reported epoch-millisecond trigger. */
+export interface SensorMotionObservation {
+  readonly channel: number;
+  readonly triggeredAt: number;
+}
+
+/** Decode native 1605 motion timestamps, discarding conflicting channels within one frame. */
+export function decodeSensorMotionNotification(clear: Buffer): readonly SensorMotionObservation[] {
+  if (clear.length === 0 || clear.length > 65_536) return [];
+  let decoded: unknown;
+  try { decoded = JSON.parse(clear.toString("utf8").replace(/\0+$/g, "")); } catch { return []; }
+  if (!record(decoded) || decoded.cmd !== 1829 || !record(decoded.payload)) return [];
+  const params = decoded.payload.params;
+  if (!Array.isArray(params) || params.length > 256) return [];
+  const values = new Map<number, number | null>();
+  for (const row of params) {
+    if (!record(row) || scalar(row.param_type) !== 1605) continue;
+    const channel = scalar(row.dev_type), timestamp = scalar(row.param_value);
+    if (channel === null || channel < 0 || channel >= 255 || timestamp === null
+      || timestamp < 946_684_800_000) continue;
+    if (!values.has(channel)) values.set(channel, timestamp);
+    else if (values.get(channel) !== timestamp) values.set(channel, null);
+  }
+  return [...values].flatMap(([channel, triggeredAt]) => triggeredAt === null ? [] : [{ channel, triggeredAt }]);
+}
+
 /** Decode bounded command-1829 contact rows, omitting malformed or conflicting channels. */
 export function decodeSensorContactNotification(clear: Buffer): readonly SensorContactObservation[] {
   if (clear.length === 0 || clear.length > 65_536) return [];

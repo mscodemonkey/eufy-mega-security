@@ -8,6 +8,7 @@
  * module owns request authentication, response framing, and route selection;
  * it does not parse Mega payloads or open camera sockets.
  */
+import { LocalMotionError } from "./stream/local-motion-trial.js";
 import { C31IndexError } from "./stream/c31-recording-index.js";
 import { CloudRecordingError } from "./stream/cloud-recordings.js";
 import { DoorbellRtcError } from "./stream/doorbell-rtc-offer.js";
@@ -487,6 +488,34 @@ export class GatewayServer {
         segments[0] === "api" && segments[1] === "cameras" && segments[3] === "motion-detection" && segments.length === 4
       ) {
         return await this.#cameraMotionDetection(request, segments[2]!, response);
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "sensors"
+        && segments[3] === "local-motion-trial" && segments.length === 4) {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !this.config.experimentalModelControls || !this.provider.readLocalMotionTrial) return json(response, 409, { stage: "admission" });
+        if (!this.state.hasSensor(segments[2]!)) return json(response, 404, { stage: "admission" });
+        if (url.search || (request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase() !== "application/json") return json(response, 400, { stage: "admission" });
+        let body: Record<string, unknown>;
+        try { body = await readJson(request); } catch { return json(response, 400, { stage: "admission" }); }
+        if (Object.keys(body).length !== 1 || body.consent !== true) return json(response, 400, { stage: "admission" });
+        if (this.#recordingIndexJobs.size || this.#nvrTrialJobs.size) return json(response, 409, { stage: "busy" });
+        const controller = new AbortController(); this.#recordingIndexJobs.add(controller);
+        const deadline = setTimeout(() => controller.abort(), 95_000);
+        const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", abort); request.once("aborted", abort);
+        try {
+          const result = await this.provider.readLocalMotionTrial(segments[2]!, controller.signal);
+          if (controller.signal.aborted) throw new LocalMotionError("cancelled");
+          json(response, 200, { outcome: result.outcome, candidates: result.candidates });
+        } catch (error) {
+          const failure = error instanceof LocalMotionError ? error : new LocalMotionError(controller.signal.aborted ? "cancelled" : "session");
+          logger.warn("local_motion_trial_failed", `stage=${failure.stage}`);
+          if (!response.destroyed) json(response, 409, { stage: failure.stage });
+        } finally {
+          controller.abort(); clearTimeout(deadline); response.removeListener("close", abort);
+          request.removeListener("aborted", abort); this.#recordingIndexJobs.delete(controller);
+        }
+        return;
       }
       if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras"
         && segments[3] === "recording-index-trial" && segments.length === 4) {

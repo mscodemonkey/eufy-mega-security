@@ -45,6 +45,12 @@ export function diagnosticsPage(): string {
 <video id="doorbell-video" controls hidden style="max-width:100%"></video>
 <a id="doorbell-download" hidden download="eufy-doorbell-test.mp4">Download private test clip</a>
 <p>The clip stays in this browser and is never uploaded automatically. Keep it private. If the test fails, share only the doorbell_rtc_trial_failed log line.</p></details>
+<details><summary>Experimental T8910 local motion test</summary>
+<p>Enable experimental model controls, then select one T8910 motion sensor connected to HomeBase 2 or 3. This listens for 45 seconds without changing sensor settings. Keep your current phone notification and security settings. Walk past the sensor while the test runs.</p>
+<p>We have not confirmed local delivery on hardware. This test does not add phone-independent Home Assistant motion yet. It checks cloud device information and may contact Eufy to find the HomeBase. Its connection may briefly compete with viewing in the Eufy app. Close live viewers first.</p>
+<label><input id="motion-consent" type="checkbox"> I agree to a brief local-motion test with my existing settings.</label>
+<button id="motion-start">Listen for local motion</button><button id="motion-cancel">Cancel motion test</button>
+<pre id="motion-status" role="status">No local motion test started. No observations is inconclusive.</pre></details>
 <details><summary>Experimental C31 continuous-recording index test</summary>
 <p>Enable experimental model controls first, then select a standalone C31. Use this only if the camera already has continuous recordings. Stop its live viewers first. This experimental test asks the camera for its recent recording periods. We have not confirmed its behaviour on hardware. It sends no commands to change recording settings or download footage.</p>
 <label><input id="index-consent" type="checkbox"> I agree to one experimental index query for the last thirty minutes. I understand that hardware behaviour is unconfirmed.</label>
@@ -72,7 +78,7 @@ export function diagnosticsPage(): string {
 <script>
 const el = id => document.getElementById(id);
 let targets = [], stream = null, poll = null, activeTrialSerial = null, nvrJob = null, nvrClip = null, doorbellJob = null, doorbellClip = null;
-let indexJob = null;
+let indexJob = null, motionJob = null;
 let cloudJob = null, cloudLoadJob = null, cloudClip = null, cloudSelection = null, cloudGeneration = 0;
 const show = value => { el('status').textContent = value; };
 const abortStream = () => { if(stream) stream.abort(); stream = null; };
@@ -199,6 +205,27 @@ action('nvr-test', async () => {
     el('nvr-status').textContent = 'Clip received. Does the picture play and show the selected camera? You can also download it to a compatible player. Keep it private.';
   } catch(error) { el('nvr-status').textContent = job.signal.aborted ? 'NVR test cancelled.' : error.message + ' Please send only the nvr_live_trial_failed log line if it failed.'; }
   finally { nvrJob = null; el('nvr-test').disabled = false; el('nvr-state-test').disabled = false; el('device').disabled = false; }
+});
+const cancelMotion = () => { if(motionJob) motionJob.abort(); el('motion-consent').checked = false; };
+el('motion-cancel').addEventListener('click', cancelMotion);
+el('device').addEventListener('change', cancelMotion);
+window.addEventListener('pagehide', cancelMotion);
+action('motion-start', async () => {
+  const selected = el('device').value;
+  if(motionJob || !selected || !el('motion-consent').checked) throw Error('Select one T8910 and confirm motion-test consent.');
+  const job = new AbortController(); motionJob = job; el('motion-start').disabled = true;
+  el('motion-status').textContent = 'Connecting, then listening for 45 seconds. Walk past the sensor with your existing settings.';
+  try {
+    const response = await fetch('api/sensors/' + encodeURIComponent(selected) + '/local-motion-trial', {
+      method:'POST', headers:{Authorization:'Bearer ' + el('token').value,'Content-Type':'application/json'},
+      body:JSON.stringify({consent:true}), cache:'no-store', signal:job.signal });
+    const result = await response.json();
+    if(job.signal.aborted || el('device').value !== selected) return;
+    if(!response.ok) throw Error('Local motion test did not complete: ' + (['admission','busy','cancelled','timeout','session'].includes(result.stage) ? result.stage : 'session') + '.');
+    el('motion-status').textContent = 'Local motion test: ' + result.outcome + '. Candidate observations: ' + result.candidates +
+      '. This does not confirm phone-independent Home Assistant motion. Share only this summary. No observations can also mean stale values or a clock difference.';
+  } catch(error) { el('motion-status').textContent = job.signal.aborted ? 'Local motion test cancelled.' : error.message + ' If it failed, share only the local_motion_trial_failed log line.'; }
+  finally { if(motionJob === job) motionJob = null; el('motion-start').disabled = false; el('motion-consent').checked = false; }
 });
 const cancelIndex = () => { if(indexJob) indexJob.abort(); };
 el('index-cancel').addEventListener('click', cancelIndex);
