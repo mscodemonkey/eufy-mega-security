@@ -9,6 +9,7 @@
  * SSE, or the PPCS packet stream. Keeping those concerns out of this class is
  * what makes the Mega layer reusable by a probe or another application.
  */
+import { MEDIA_HOST, MEDIA_OBJECT_HOST, mediaRequestDiagnostic } from "./media-request-diagnostic.js";
 import type { NvrSignallingContext } from "../stream/nvr-rtc-session.js";
 import { NvrTrialError } from "../stream/nvr-protocol.js";
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -44,8 +45,6 @@ const CAPTCHA_REQUIRED = new Set([100032, 100033]);
 const VERIFICATION_REQUIRED = 26052;
 const TRANSIENT_IDENTITY_ERRORS = new Set([4404, 4406, 100030]);
 const AUTH_SESSION_INVALID_CODES = new Set([4404, 26084, 26884]);
-const MEDIA_HOST = /^security-app(?:-(?:eu|ie))?\.eufylife\.com$/;
-const MEDIA_OBJECT_HOST = /^zhixin-security-[a-z0-9]+(?:-[a-z0-9]+)*\.s3(?:\.[a-z]{2}(?:-[a-z0-9]+)+-\d)?\.amazonaws\.com$/;
 
 // Android thumbnail processing retries at one, three, five and ten seconds.
 const MEDIA_NOT_READY_DELAYS_MS = [1_000, 2_000, 2_000, 5_000] as const;
@@ -369,7 +368,7 @@ export class MegaClient {
   /** Download only the selected native media location, with no account headers to object storage. */
   async #downloadCloudRecording(value: string, signal: AbortSignal): Promise<Buffer> {
     const url = allowedMediaUrl(value, new RegExp(`${MEDIA_HOST.source}|${MEDIA_OBJECT_HOST.source}`));
-    const response = MEDIA_HOST.test(url.hostname) ? await this.#fetchMedia(url, signal)
+    const response = MEDIA_HOST.test(url.hostname) ? (await this.#fetchMedia(url, signal)).response
       : await this.#fetch(url, { redirect: "manual", signal });
     if (!response.ok) { await response.body?.cancel(); throw new CloudRecordingError("download"); }
     return await readBoundedResponse(response, 32 * 1024 * 1024, signal);
@@ -570,9 +569,13 @@ export class MegaClient {
     const parsed = allowedMediaUrl(url, MEDIA_HOST);
     const signal = AbortSignal.any([this.#requestLifetime.signal, AbortSignal.timeout(30_000)]);
     let response: Response | null = null;
+    let request: { response: Response; initial: string; redirect?: string } | null = null;
+    let attempts = 0;
     for (let attempt = 0; attempt <= MEDIA_NOT_READY_DELAYS_MS.length; attempt += 1) {
       signal.throwIfAborted();
-      response = await this.#fetchMedia(parsed, signal);
+      request = await this.#fetchMedia(parsed, signal);
+      response = request.response;
+      attempts += 1;
       if (response.status !== 404 || attempt === MEDIA_NOT_READY_DELAYS_MS.length) break;
       const delay = MEDIA_NOT_READY_DELAYS_MS[attempt];
       if (delay === undefined) break;
@@ -583,7 +586,7 @@ export class MegaClient {
     if (!response.ok) {
       await this.#discardMediaResponse(response, signal);
       signal.throwIfAborted();
-      throw new Error(`Mega media download failed (HTTP ${response.status})`);
+      throw new Error(`Mega media download failed (HTTP ${response.status}); attempts=${attempts}; hop=${request?.redirect ? "redirect" : "initial"}; initial=${request?.initial}${request?.redirect ? `; redirect=${request.redirect}` : ""}`);
     }
     const data = await readBoundedResponse(response, maximumBytes, signal);
     return { data, ...eventImageResponseMetadata(response) };
@@ -626,7 +629,7 @@ export class MegaClient {
   }
 
   /** Perform one authenticated media lookup and its optional credential-free object-store redirect. */
-  async #fetchMedia(url: URL, signal: AbortSignal): Promise<Response> {
+  async #fetchMedia(url: URL, signal: AbortSignal): Promise<{ response: Response; initial: string; redirect?: string }> {
     signal.throwIfAborted();
     let response = await this.#fetch(url, {
       headers: this.#mediaHeaders(), redirect: "manual", signal,
@@ -638,8 +641,9 @@ export class MegaClient {
       const target = allowedMediaUrl(location, MEDIA_OBJECT_HOST);
       signal.throwIfAborted();
       response = await this.#fetch(target, { redirect: "manual", signal });
+      return { response, initial: mediaRequestDiagnostic(url), redirect: mediaRequestDiagnostic(target) };
     }
-    return response;
+    return { response, initial: mediaRequestDiagnostic(url) };
   }
 
   /** Obtain a transient, private NVR join context without another login or session bypass. */

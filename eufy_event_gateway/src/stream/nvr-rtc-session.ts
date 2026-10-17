@@ -177,7 +177,11 @@ export class NvrRtcSession {
     if (!this.#bootstrapped) this.#firstFrame = setTimeout(() => this.#fail("video"), 20_000);
   }
 
-  /** Query one scoped parameter response without starting media or changing settings. */
+  /**
+   * Query scoped state without starting media or changing settings.
+   * Only a reply echoing this request's segment can satisfy the query, so an
+   * unsolicited or uncorrelated state push cannot become fresh readback.
+   */
   async readState(): Promise<NvrStateSummary> {
     try {
       await this.#connectAndDiscover();
@@ -491,7 +495,7 @@ export class NvrRtcSession {
       return;
     }
     const pending = this.#pending;
-    if (!pending || frame.channel !== 255 || frame.segment !== 0 && frame.segment !== pending.segment) { this.stats.staleReplies++; return; }
+    if (!pending || frame.channel !== 255 || frame.segment !== pending.segment && (frame.segment !== 0 || pending.command === 1103)) { this.stats.staleReplies++; return; }
     if (frame.segment === 0) this.stats.segmentNotEchoed++;
     if (frame.command === 1350 && frame.payload.length >= 4
       && frame.payload.subarray(4).every((byte) => byte === 0)) {

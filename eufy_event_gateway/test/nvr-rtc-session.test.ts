@@ -50,7 +50,7 @@ function keyframePackets(frame: Buffer, sequence: number): Buffer[] {
   });
 }
 
-for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async () => {
+for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async () => {
   const codec = scenario === 'h265' || scenario === 'sequence-gap' ? 'h265' : 'h264';
   const server = new WebSocketServer({ port: 0 });
   await once(server, 'listening');
@@ -76,6 +76,25 @@ for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'st
       commands.push(body.cmd);
       if (body.cmd === 1103) {
         assert.deepEqual(body.payload.channel_info, { array_size: 2, channel_array: [255, 3] });
+        if (scenario === 'state-matching-error') {
+          const negative = Buffer.alloc(132); negative.writeInt32LE(-1);
+          for (const packet of nvrPackets(application(1350, request.segment, negative), sequence++, 1)) channel.send(packet);
+          return;
+        }
+        if (scenario === 'state-uncorrelated-error') {
+          const negative = Buffer.alloc(132); negative.writeInt32LE(-1);
+          for (const packet of nvrPackets(application(1350, 0, negative), sequence++, 1)) channel.send(packet);
+          for (const packet of nvrPackets(application(1351, 0, Buffer.from(JSON.stringify({ cmd: 1103, mIntRet: -1 }))), sequence++, 1)) channel.send(packet);
+        }
+        if (['state-uncorrelated-push', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout'].includes(scenario)) {
+          const unsolicited = application(1351, 0, Buffer.from(JSON.stringify({ cmd: 1103, params: [
+            { dev_type: 255, param_type: 1224, param_value: '1' }, { channel: 255, param_type: 1151, param_value: 0 },
+            { channel: 3, param_type: 6250, param_value: 'MQ==' },
+          ] })));
+          for (const packet of nvrPackets(unsolicited, sequence++, 1)) channel.send(packet);
+          if (scenario === 'state-uncorrelated-cancel') { setTimeout(() => controller.abort(), 100); return; }
+          if (scenario === 'state-uncorrelated-timeout') return;
+        }
         const ackBody = Buffer.alloc(132);
         if (scenario === 'state-bad-ack-padding') ackBody[131] = 1;
         const ack = application(1350, request.segment, ackBody);
@@ -95,10 +114,11 @@ for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'st
         }, 20);
         return;
       }
+      const replySegment = scenario === 'zero-segment-lifecycle' ? 0 : request.segment;
       const response = body.cmd === 9100
-        ? application(1351, request.segment, Buffer.from(JSON.stringify({ cmd: 9100,
+        ? application(1351, replySegment, Buffer.from(JSON.stringify({ cmd: 9100,
           payload: { dev_list: [{ sn: scenario === 'identity' ? 'synthetic-other' : 'synthetic-camera', ch: scenario === 'wrong-channel' ? 4 : 3, dev_type: scenario === 'legacy-first-lens' ? 14 : scenario === 'wrong-type' ? 302 : 301 }] } })))
-        : application(1350, request.segment, Buffer.alloc(4));
+        : application(1350, replySegment, Buffer.alloc(4));
       if ((scenario === 'state-read' || scenario === 'state-bad-ack-padding') && body.cmd === 9100) response[10] = 1;
       const responsePackets = (scenario === 'state-read' || scenario === 'state-bad-ack-padding') && body.cmd === 9100
         ? receivePackets(response, sequence++, 1)
@@ -188,15 +208,20 @@ for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'st
       }); } finally { clearTimeout(deadline); }
       assert.equal(commands.includes(1003), false); return;
     }
-    if (scenario === 'state-read' || scenario === 'state-bad-ack-padding' || scenario === 'state-cancel') {
-      if (scenario === 'state-cancel') await assert.rejects(session.readState(), error => {
-        assert.equal((error as { stage: string }).stage, 'cancelled'); return true;
-      });
+    if (scenario.startsWith('state-')) {
+      if (['state-cancel', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'state-matching-error'].includes(scenario)) {
+        await assert.rejects(session.readState(), error => {
+          assert.equal((error as { stage: string }).stage, scenario.includes('cancel') ? 'cancelled' : 'state'); return true;
+        });
+        assert.equal(session.stats.staleReplies, scenario === 'state-matching-error' ? 0 : scenario === 'state-cancel' ? 0 : 1);
+      }
       else {
         const result = await session.readState();
         assert.equal(result.configuredGuardMode, 2); assert.equal(result.effectiveGuardMode, 1); assert.equal(result.cameraPower, 'on');
-        assert.equal(session.stats.staleReplies, scenario === 'state-bad-ack-padding' ? 3 : 2);
+        assert.equal(session.stats.staleReplies, scenario === 'state-bad-ack-padding' || scenario === 'state-uncorrelated-push' ? 3 : scenario === 'state-uncorrelated-error' ? 4 : 2);
       }
+      assert.equal(session.stats.segmentNotEchoed, 0);
+      assert.ok(session.output.writableEnded || session.output.destroyed);
       assert.deepEqual(commands, [9100, 1103]); assert.equal(attached, 0); assert.equal(snapshots, 0); assert.equal(diagnosticMedia, 0);
       await session.close(); return;
     }
@@ -205,6 +230,7 @@ for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'st
     assert.equal(decoded.status, 0, decoded.stderr.toString()); assert.ok(clip.length > 1000); assert.equal(session.codec, codec); assert.equal(snapshots, 0); assert.equal(extractors, 0); assert.equal(diagnosticMedia, 0); assert.equal(attached, 1); assert.deepEqual(commands, [9100, 1003, 1004]);
     controller.abort(); await session.close(); await session.close();
     assert.deepEqual(commands, [9100, 1003, 1004]); assert.equal(session.stats.stopUnconfirmed, 0);
+    if (scenario === 'zero-segment-lifecycle') assert.equal(session.stats.segmentNotEchoed, 3);
     if (scenario === 'h265' || scenario === 'sequence-gap') {
       assert.ok(session.stats.channel5Frames > 0);
       if (scenario === 'h265') assert.ok(session.stats.controlPackets >= 40);

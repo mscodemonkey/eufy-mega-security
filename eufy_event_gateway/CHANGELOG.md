@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.167
+
+- Picture download failures now include redacted request paths, the failing request hop and attempt count, making persistent cloud 404 errors easier to investigate without sharing signed URLs.
+- Read-only NVR state queries now require a matching reply instead of accepting unsolicited state updates. NVR security writes and restoration remain unavailable.
+
 ## 0.1.166
 
 - Handle event notifications containing several picture links by selecting the first nonempty link for the retained snapshot. Literal commas separate links, as in the Android app. Invalid or oversized lists leave the last good image intact.

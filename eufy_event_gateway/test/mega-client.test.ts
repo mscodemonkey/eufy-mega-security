@@ -598,7 +598,7 @@ test("restored inventory and media HTTP401 retain distinct recovery decisions", 
     });
     await assert.rejects(client.download("https://security-app.eufylife.com/fixture.jpg"), (error: unknown) => {
       assert.ok(error instanceof Error);
-      assert.equal(error.message, "Mega media download failed (HTTP 401)");
+      assert.equal(error.message, "Mega media download failed (HTTP 401); attempts=1; hop=initial; initial=eufy-us /[redacted].jpg segments=1 q=absent");
       assert.equal(client.isSessionInvalidError(error), false);
       return true;
     });
