@@ -520,7 +520,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #nvrSettings = new Map<string, { binding: string; values: NvrLiveSettings; nightAt: number; qualityAt: number; timer: NodeJS.Timeout | null }>();
   #nvrMediaChecks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean } | null = null;
   readonly #nvrTrials = new Map<string, { controller: AbortController; device: MegaInventoryDevice;
-    station: MegaInventoryDevice; stateOnly: boolean; diagnostic: boolean; generation: number; sensor: 0 | 1; connecting: boolean;
+    station: MegaInventoryDevice; stateOnly: boolean; diagnostic: boolean; generation: number; sensor: 0 | 1; connecting: boolean; retiring: boolean; terminalRetirement: boolean;
     session: NvrRtcSession | null; release: () => Promise<void> }>();
 
   /** Private card references expire in memory and are never published as filesystem paths. */
@@ -1252,17 +1252,30 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       ? setTimeout(() => { controller.abort(); void entry.session?.close().catch(() => {}); }, 85_000)
       : null;
     const entry = { controller, device, station, stateOnly, diagnostic, generation: this.#startupGeneration,
-      sensor: diagnostic ? nvrTrialSensor(device.model, device.deviceType)! : this.#nvrView(device), connecting: false,
+      sensor: diagnostic ? nvrTrialSensor(device.model, device.deviceType)! : this.#nvrView(device), connecting: false, retiring: false, terminalRetirement: false,
       session: null as NvrRtcSession | null, release: (): Promise<void> => {
       if (closed) return closed;
+      entry.retiring = true;
+
+      // The media manager detaches its source listeners before stopping it.
+      // Cancellation must still have an error sink during transport retirement.
+      if (entry.session && entry.session.output.listenerCount("error") === 0) entry.session.output.on("error", () => {});
       controller.abort();
       closed = (async () => {
         if (deadline) clearTimeout(deadline);
         try { await entry.session?.close(); }
         finally {
           signal.removeEventListener("abort", abort);
-          if (this.#nvrTrials.get(serial) === entry) this.#nvrTrials.delete(serial);
-          releaseTrialPeer(); this.#events?.streamStopped(serial);
+          const owned = this.#nvrTrials.get(serial) === entry;
+          if (owned) this.#nvrTrials.delete(serial);
+          releaseTrialPeer();
+          const waiting = this.#streamStarts.get(serial);
+
+          // The manager already observed the terminal source. Its replacement
+          // viewer may now be waiting here, so old cleanup must not stop it.
+          const handingOff = entry.terminalRetirement && waiting && !waiting.cancelled
+            && entry.generation === this.#startupGeneration;
+          if (owned && !handingOff) this.#events?.streamStopped(serial);
         }
       })();
       return closed;
@@ -1307,17 +1320,35 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const entry = this.#nvrTrials.get(serial)!;
     try {
       const session = await this.#nvrTrialSession(serial);
-      session.output.once("error", error => {
+      let terminalHandled = false;
+      const retire = (): void => {
+        if (terminalHandled || entry.retiring) return;
+        terminalHandled = true;
+        entry.terminalRetirement = true;
+        void entry.release().catch(() => {});
+      };
+      const failure = (error: unknown): void => {
+        if (terminalHandled) return;
         const failure = error instanceof NvrTrialError ? error : new NvrTrialError("video");
         const details = `stage=${failure.stage} reason=${failure.reason} ${nvrTrialCounters(session)}`;
         if (failure.stage === "cancelled" && session.stats.video > 0) {
           logger.info(entry.diagnostic ? "nvr_live_trial_completed" : "nvr_live_stream_completed", `stage=completed ${nvrTrialCounters(session)}`);
         } else logger.warn(entry.diagnostic ? "nvr_live_trial_failed" : "nvr_live_stream_failed", details);
-      });
+        if (!entry.diagnostic && !entry.stateOnly) retire();
+      };
+      if (entry.diagnostic || entry.stateOnly) session.output.once("error", failure);
+      else {
+        session.output.on("error", failure);
+        session.output.once("end", retire);
+        session.output.once("close", retire);
+
+        // PassThrough finishes even when no reader consumes its readable side.
+        session.output.once("finish", retire);
+      }
       await session.start();
       if (!entry.diagnostic && this.#nvrLiveAdmitted(entry.device, entry.station)) {
         void session.initialLiveSettings().then(values => {
-          if (this.#nvrTrials.get(serial) === entry && !entry.controller.signal.aborted) this.#publishNvrSettings(entry.device, values);
+          if (this.#nvrTrials.get(serial) === entry && !entry.retiring && !entry.controller.signal.aborted) this.#publishNvrSettings(entry.device, values);
         }).catch(() => {});
       }
     }
@@ -1695,7 +1726,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (this.#doorbellTrials.has(serial)) return this.#startDoorbellRtcTrial(serial);
     const nvrTrial = this.#nvrTrials.get(serial);
     if (nvrTrial?.stateOnly) throw new NvrTrialError("admission");
-    if (nvrTrial) return this.#startNvrTrial(serial);
+    if (nvrTrial?.diagnostic && nvrTrial.retiring) throw new NvrTrialError("cancelled");
+    if (nvrTrial && !nvrTrial.retiring) return this.#startNvrTrial(serial);
     const pending = this.#streamStarts.get(serial);
     if (pending && !pending.cancelled) return pending.promise;
     const ticket = { promise: Promise.resolve(), cancelled: false };
@@ -1708,6 +1740,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     };
     ticket.promise = Promise.resolve().then(async () => {
       current();
+      if (nvrTrial?.retiring) {
+        await nvrTrial.release().catch(() => {});
+        current();
+        if (this.#nvrTrials.has(serial)) throw new NvrTrialError("admission");
+      }
       const nvrDevice = this.#devices.get(serial);
       const nvrStation = nvrDevice ? this.#devices.get(nvrDevice.parentSerial) : undefined;
       if (nvrStation && this.#nvrControlReserved(nvrStation.serial)) throw new NvrTrialError("admission");
