@@ -228,3 +228,12 @@ test("controls are not advertised when the normal route is disabled", async cont
   assert.equal(camera.nvrPanControlSupported, false); assert.equal(camera.nvrOpticalZoomControlSupported, false);
   assert.deepEqual(camera.nvrViewOptions, []); assert.equal(camera.reportedSettings, null);
 });
+
+
+test("a restarted provider cannot write through a session from an older generation", async context => {
+  const value = await fixture(context); await value.provider.startStream("synthetic-camera");
+  await value.provider.start(value.events);
+  await assert.rejects(value.provider.performNvrLiveControl("synthetic-camera", { kind: "pan", direction: "left" }), { code: "unavailable" });
+  await assert.rejects(value.provider.refreshCameraCapabilities("synthetic-camera"), { code: "busy" });
+  assert.equal(value.writes.length, 0);
+});

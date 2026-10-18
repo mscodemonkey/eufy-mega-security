@@ -520,7 +520,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #nvrSettings = new Map<string, { binding: string; values: NvrLiveSettings; nightAt: number; qualityAt: number; timer: NodeJS.Timeout | null }>();
   #nvrMediaChecks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean } | null = null;
   readonly #nvrTrials = new Map<string, { controller: AbortController; device: MegaInventoryDevice;
-    station: MegaInventoryDevice; stateOnly: boolean; diagnostic: boolean; connecting: boolean;
+    station: MegaInventoryDevice; stateOnly: boolean; diagnostic: boolean; generation: number; sensor: 0 | 1; connecting: boolean;
     session: NvrRtcSession | null; release: () => Promise<void> }>();
 
   /** Private card references expire in memory and are never published as filesystem paths. */
@@ -1251,7 +1251,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const deadline = diagnostic
       ? setTimeout(() => { controller.abort(); void entry.session?.close().catch(() => {}); }, 85_000)
       : null;
-    const entry = { controller, device, station, stateOnly, diagnostic, connecting: false,
+    const entry = { controller, device, station, stateOnly, diagnostic, generation: this.#startupGeneration,
+      sensor: diagnostic ? nvrTrialSensor(device.model, device.deviceType)! : this.#nvrView(device), connecting: false,
       session: null as NvrRtcSession | null, release: (): Promise<void> => {
       if (closed) return closed;
       controller.abort();
@@ -1278,7 +1279,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     entry.connecting = true;
     const current = (): boolean => {
       const device = this.#devices.get(serial), station = this.#devices.get(entry.station.serial);
-      return this.#nvrTrials.get(serial) === entry && !this.#recordingClosing && !entry.controller.signal.aborted
+      return this.#nvrTrials.get(serial) === entry && entry.generation === this.#startupGeneration
+        && (entry.diagnostic || this.#nvrView(entry.device) === entry.sensor) && !this.#recordingClosing && !entry.controller.signal.aborted
         && !!device && !!station && (entry.diagnostic ? this.#nvrBinding(device, station) : this.#normalNvrLiveBinding(device, station)) && !inventoryBindingChanged(entry.device, device)
         && station.deviceType === entry.station.deviceType && station.model === entry.station.model && station.adminUserId === entry.station.adminUserId;
     };
@@ -1291,7 +1293,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       ]);
       if (!current()) throw new NvrTrialError("cancelled");
       const session = new NvrRtcSession({ station: entry.station.serial, camera: serial, channel: entry.device.channel!,
-        cameraType: entry.device.deviceType!, sensor: entry.diagnostic ? nvrTrialSensor(entry.device.model, entry.device.deviceType)! : this.#nvrView(entry.device),
+        cameraType: entry.device.deviceType!, sensor: entry.sensor,
         liveControls: !entry.diagnostic && this.#nvrLiveAdmitted(entry.device, entry.station),
         administrator: entry.station.adminUserId!, context, signal: entry.controller.signal, current,
         maximumLifetimeMilliseconds: entry.diagnostic ? 75_000 : this.config.maxStreamSeconds * 1_000,
@@ -1851,7 +1853,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const current = (): void => {
       const child = this.#devices.get(serial), parent = this.#devices.get(station.serial);
       if (signal.aborted || this.#recordingClosing || !child || !parent || this.#nvrBindingKey(child) !== binding
-        || !this.#nvrLiveAdmitted(child, parent) || this.#nvrView(child) !== view || this.#nvrTrials.get(serial) !== entry || entry?.controller.signal.aborted) throw new NvrLiveControlError("unavailable");
+        || !this.#nvrLiveAdmitted(child, parent) || this.#nvrView(child) !== view || this.#nvrTrials.get(serial) !== entry || entry?.generation !== this.#startupGeneration || entry?.sensor !== view || entry?.controller.signal.aborted) throw new NvrLiveControlError("unavailable");
       if (!entry || entry.diagnostic || entry.stateOnly || !entry.session || !this.#nvrMediaChecks
         || [...this.#devices.values()].some(row => row.parentSerial === station.serial && this.#nvrMediaChecks!.recording(row.serial)) || movement && !this.#nvrMediaChecks.viewer(serial)
         || this.#nvrControlReserved(station.serial) || this.#recordingIndexActive || this.#recordingReservations.size) throw new NvrLiveControlError("busy");
@@ -1929,13 +1931,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     let release: (() => Promise<void>) | undefined;
     try {
       let entry = this.#nvrTrials.get(serial);
-      if (entry && (entry.diagnostic || entry.stateOnly || !entry.session)) throw new NvrLiveControlError("busy");
+      if (entry && (entry.generation !== this.#startupGeneration || entry.diagnostic || entry.stateOnly || !entry.session)) throw new NvrLiveControlError("busy");
       if (!entry) { release = this.#reserveNvrTrial(serial, AbortSignal.timeout(30000), true, false); entry = this.#nvrTrials.get(serial)!; }
       const session = entry.session ?? await this.#nvrTrialSession(serial);
       let values: NvrLiveSettings;
       try { await session.initialLiveSettings(); values = await session.readLiveSettings(entry.controller.signal); }
       catch { this.#publishNvrSettings(device, { night: null, quality: null }); throw new NvrLiveControlError("unavailable", "reply"); }
-      if (this.#nvrTrials.get(serial) !== entry || entry.controller.signal.aborted) throw new NvrLiveControlError("unavailable");
+      if (this.#nvrTrials.get(serial) !== entry || entry.generation !== this.#startupGeneration || entry.controller.signal.aborted) throw new NvrLiveControlError("unavailable");
       this.#publishNvrSettings(device, values); return this.#nvrTrialIdentity(device)!;
     } catch (error) {
       if (error instanceof NvrLiveControlError) throw error;
