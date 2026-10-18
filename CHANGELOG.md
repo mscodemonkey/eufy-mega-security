@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.173
+
+- Fix NVR live video reopening after a previous stream ends, including overlapping viewer cleanup. The reported remote stream closure still needs investigation.
+- Match the official app's login CAPTCHA request. Account-specific sign-in outcomes still need confirmation.
+- Clarify how to open the gateway diagnostics page from Home Assistant app settings.
+
 ## 0.1.172
 
 - Add default-off normal NVR camera controls for exact T8E00/type301 and T8416/type104 cameras on an explicitly owned T8N00. Home Assistant offers model-specific view, night-vision and live-quality choices, plus single-step movement and limited optical zoom where admitted.
