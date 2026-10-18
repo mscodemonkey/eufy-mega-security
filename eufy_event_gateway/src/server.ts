@@ -10,6 +10,7 @@
  */
 import { NvrPowerError, type NvrPowerRequest } from "./provider/nvr-power-trial.js";
 import { NvrGuardError, type NvrGuardRequest } from "./provider/nvr-guard-trial.js";
+import { nvrGuardTimeZone } from "./provider/nvr-guard-schedule.js";
 import { T85V0StatusError } from "./provider/t85v0-status.js";
 import { LocalMotionError } from "./stream/local-motion-trial.js";
 import { C31IndexError } from "./stream/c31-recording-index.js";
@@ -668,7 +669,7 @@ export class GatewayServer {
           return json(response, 409, { stage: "busy", manualRestoreRequired: false });
         }
         const controller = new AbortController(); this.#nvrTrialJobs.add(controller);
-        const deadline = setTimeout(() => controller.abort(), 120_000);
+        const deadline = setTimeout(() => controller.abort(), 185_000);
         const abort = (): void => { if (!response.writableEnded) controller.abort(); };
         response.once("close", abort); request.once("aborted", abort);
         if (request.aborted || response.destroyed) controller.abort();
@@ -1377,16 +1378,16 @@ async function readNvrGuardBody(request: IncomingMessage): Promise<NvrGuardReque
   const body: unknown = JSON.parse(text);
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new SyntaxError("Invalid guard consent");
   const value = body as Record<string, unknown>;
-  if (Object.keys(value).length !== 2 || value.consent !== true || value.target !== "home") {
+  if (Object.keys(value).length !== 3 || value.consent !== true || value.target !== "home" || typeof value.timeZone !== "string") {
     throw new SyntaxError("Invalid guard consent");
   }
 
   // Accepted values are flat, so every property token must be one unique allowed key.
   const keys = [...text.matchAll(/"(?:\\.|[^"\\])*"\s*:/g)].map(match => JSON.parse(match[0].slice(0, match[0].lastIndexOf(":"))));
-  if (keys.length !== 2 || new Set(keys).size !== 2 || !keys.every(key => ["consent", "target"].includes(key))) {
+  if (keys.length !== 3 || new Set(keys).size !== 3 || !keys.every(key => ["consent", "target", "timeZone"].includes(key))) {
     throw new SyntaxError("Duplicate or unknown guard key");
   }
-  return { target: "home" };
+  return { target: "home", timeZone: nvrGuardTimeZone(value.timeZone) };
 }
 
 async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {

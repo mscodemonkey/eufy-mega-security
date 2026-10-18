@@ -590,9 +590,12 @@ Hardware behaviour is unconfirmed, and normal controls stay unavailable.
 The [NVR Schedule guard-mode test](docs/NVR_GUARD_MODE_TEST.md) is also off by
 default and limited to the same exact pairing. It temporarily changes the whole
 T8N00 from Schedule to Home, confirms fresh cloud state, and restores Schedule
-with the NVR's fresh effective-mode report and byte-identical schedule data. A lost connection can still require manual
-restoration, hardware behaviour is unconfirmed, and no normal alarm control is
-enabled.
+with correlated state reads matching the schedule in the operator-entered NVR
+timezone and byte-identical schedule data. It refuses unsafe schedule windows.
+An unconfirmed restore blocks further NVR tests and live starts until restart,
+and restarting does not restore the NVR. A lost connection can still require
+manual restoration. Hardware behaviour is unconfirmed, and no normal alarm
+control is enabled.
 
 `experimental_nvr_live` is off by default. Enabling it adds a consented,
 ten-second private video test to Diagnostics through exact T8N00/type 300 or

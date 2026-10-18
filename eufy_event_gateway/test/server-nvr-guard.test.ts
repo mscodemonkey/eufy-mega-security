@@ -22,9 +22,10 @@ test("NVR guard endpoint requires exact consent and returns only fixed fields", 
   const state = new GatewayState();
   state.registerCamera({ serial: "synthetic", name: "Synthetic", model: "T8E00", stationSerial: "station",
     streamSupported: true, doorbellSupported: false });
-  let calls = 0;
+  let calls = 0, fail = false;
   const provider = { testNvrGuardMode: async (serial: string, input: unknown, signal: AbortSignal) => {
-    calls++; assert.equal(serial, "synthetic"); assert.deepEqual(input, { target: "home" }); assert.equal(signal.aborted, false);
+    if (fail) throw Error("PRIVATE-CANARY");
+    calls++; assert.equal(serial, "synthetic"); assert.deepEqual(input, { target: "home", timeZone: "UTC" }); assert.equal(signal.aborted, false);
     return { outcome: "home_confirmed" as const, restored: true as const, scheduleUnchanged: true as const,
       physicalConfirmationRequired: true as const, privateCanary: "PRIVATE-CANARY" };
   } } as unknown as CameraProvider;
@@ -34,19 +35,26 @@ test("NVR guard endpoint requires exact consent and returns only fixed fields", 
   try {
     await server.listen();
     const url = `http://127.0.0.1:${server.port}/api/cameras/synthetic/nvr-guard-trial`;
-    const request = { method: "POST", headers, body: JSON.stringify({ consent: true, target: "home" }) };
+    const request = { method: "POST", headers, body: JSON.stringify({ consent: true, target: "home", timeZone: "UTC" }) };
     assert.equal((await fetch(url, { ...request, headers: {} })).status, 401);
     for (const body of [{}, { consent: false, target: "home" }, { consent: true, target: "away" },
-      { consent: true, target: "home", extra: true }]) {
+      { consent: true, target: "home", timeZone: "PRIVATE-CANARY" },
+      { consent: true, target: "home", timeZone: "UTC", extra: true }]) {
       assert.equal((await fetch(url, { ...request, body: JSON.stringify(body) })).status, 400);
     }
     assert.equal((await fetch(url, { ...request,
-      body: '{"consent":true,"target":"home","target":"home"}' })).status, 400);
+      body: '{"consent":true,"target":"home","timeZone":"UTC","timeZone":"UTC"}' })).status, 400);
     const response = await fetch(url, request);
     assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "no-store");
     assert.deepEqual(await response.json(), { outcome: "home_confirmed", restored: true,
       scheduleUnchanged: true, physicalConfirmationRequired: true });
     assert.equal(calls, 1);
+    assert.equal((await fetch(url + "?unexpected=1", request)).status, 400);
+    assert.equal((await fetch(url, { ...request, headers: { ...headers, "content-type": "text/plain" } })).status, 415);
+    fail = true;
+    const failure = await fetch(url, request);
+    assert.equal(failure.status, 409);
+    assert.deepEqual(await failure.json(), { stage: "restore", manualRestoreRequired: true });
   } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -55,6 +63,9 @@ test("Diagnostics warns that the whole NVR can arm during the guard trial", () =
   assert.match(page, /id="nvr-guard-consent" type="checkbox"/);
   assert.doesNotMatch(page, /id="nvr-guard-consent"[^>]*checked/);
   assert.match(page, /temporarily changes the whole NVR to Home, which may arm cameras or alarms/);
-  assert.match(page, /pagehide', cancelNvrGuard/);
+  assert.match(page, /pagehide', \(\) => \{ cancelNvrGuard/);
+  assert.match(page, /id="nvr-guard-timezone"[^>]*autocomplete="off"/);
+  assert.doesNotMatch(page, /id="nvr-guard-timezone"[^>]*value=/);
+  assert.match(page, /el\('nvr-guard-timezone'\).value = ''/);
   new Function(page.split("<script>")[1]!.split("</script>")[0]!);
 });

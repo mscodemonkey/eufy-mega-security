@@ -13,6 +13,7 @@ import type { ProviderEvents } from "../src/provider/provider.js";
 import { MegaClient } from "../src/mega/client.js";
 import { MegaPushReceiver } from "../src/mega/push.js";
 import { NvrRtcSession } from "../src/stream/nvr-rtc-session.js";
+import { NvrGuardError } from "../src/provider/nvr-guard-trial.js";
 import { NvrPowerError, type NvrCameraPower } from "../src/provider/nvr-power-trial.js";
 
 for(const mode of ["valid","busy","controls-disabled","model-disabled","video-disabled","model","type","parent","parent-type","owner","shared","duplicate","changed","cloud-restore-failure","malformed-restore","cancel","shutdown"])
@@ -70,6 +71,14 @@ for(const mode of ["valid","busy","controls-disabled","model-disabled","video-di
         assert.equal(stateRegistry.getCamera("synthetic-camera").enableControlSupported,false);assert.deepEqual(writes,["off","on"]);
         assert.equal(prepare.mock.callCount(),1);assert.ok(identities.mock.callCount()>=2);assert.ok(close.mock.callCount()>=1);
         await assert.rejects(provider.testNvrCameraPower("synthetic-camera",{originalPower:"on",target:"off"},new AbortController().signal),/busy/);
+        if(mode === "valid") {
+          const afterCooldown = performance.now() + 61_000, before = reads;
+          context.mock.method(performance, "now", () => afterCooldown);
+          await assert.rejects(provider.testNvrGuardMode("synthetic-camera", { target: "home", timeZone: "UTC" }, new AbortController().signal),
+            error => error instanceof NvrGuardError && error.stage === "inventory");
+          assert.ok(reads > before);
+          assert.deepEqual(writes, ["off", "on"]);
+        }
       } else {
         await expected;
         assert.deepEqual(writes,["changed","shutdown","malformed-restore"].includes(mode)?["off"]:[]);

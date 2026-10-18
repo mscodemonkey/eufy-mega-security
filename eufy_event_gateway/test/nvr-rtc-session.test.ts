@@ -61,7 +61,7 @@ for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'po
   const generated = spawnSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=10', '-t', '2', '-c:v', codec === 'h264' ? 'libx264' : 'libx265', '-preset', 'ultrafast', '-g', '10', '-f', codec === 'h264' ? 'h264' : 'hevc', 'pipe:1'], { maxBuffer: 4 * 1024 * 1024 });
   assert.equal(generated.status, 0, generated.stderr.toString());
   const commands: number[] = [], receiver = new NvrPtcsReassembler();
-  let powerValue = 0;
+  let powerValue = 0, guardReadVariant = 0;
   let cancelPower = (): void => {};
   let sequence = 0, videoSequence = 0, socket: WebSocket | undefined, sendVideo: NodeJS.Timeout | undefined;
   peer.onDataChannel.subscribe(channel => {
@@ -111,6 +111,25 @@ for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'po
         return;
       }
       if (body.cmd === 1103) {
+        assert.deepEqual(body.payload.channel_info, { array_size: 2, channel_array: [255, 3] });
+        if (scenario === 'guard') {
+          const effective = commands.filter(command => command === 1224).length === 1 ? 1 : 0;
+          const params: Array<Record<string, number>> = [{ dev_type: 255, param_type: 1151, param_value: effective }];
+          if (guardReadVariant === 0) params.push({ ...params[0]! });
+          if (guardReadVariant === 1) params.push({ dev_type: 3, param_type: 6250, param_value: 0 }, { dev_type: 3, param_type: 6250, param_value: 0 });
+          if (guardReadVariant === 2) params.push({ dev_type: 3.5, channel: 3, param_type: 6250, param_value: 0 });
+          guardReadVariant++;
+          const result = { cmd: 1103, payload: { params } };
+          for (const segment of [0, request.segment - 1]) {
+            const stale = application(1351, segment, Buffer.from(JSON.stringify({ cmd: 1103,
+              payload: { params: [{ dev_type: 255, param_type: 1151, param_value: 1 }] } })));
+            for (const packet of nvrPackets(stale, sequence++, 1)) channel.send(packet);
+          }
+          const wrongChannel = application(1351, request.segment, Buffer.from(JSON.stringify(result))); wrongChannel[12] = 3;
+          for (const packet of nvrPackets(wrongChannel, sequence++, 1)) channel.send(packet);
+          for (const packet of nvrPackets(application(1351, request.segment, Buffer.from(JSON.stringify(result))), sequence++, 1)) channel.send(packet);
+          return;
+        }
         assert.deepEqual(body.payload.channel_info, { array_size: 2, channel_array: [255, 3] });
         if (scenario === 'state-matching-error') {
           const negative = Buffer.alloc(132); negative.writeInt32LE(-1);
@@ -287,11 +306,17 @@ for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'po
       const phase = new AbortController(); let dispatched = 0;
       await session.validateGuardTrial(phase.signal);
       await session.writeGuardTrial(1, phase.signal, () => { dispatched++; });
+      for (let index = 0; index < 3; index++) await assert.rejects(session.confirmGuardEffectiveTrial(1, phase.signal));
       await session.confirmGuardEffectiveTrial(1, phase.signal);
-      await session.validateGuardTrial(phase.signal);
+      for (let index = 0; index < 27; index++) await session.confirmGuardEffectiveTrial(1, phase.signal);
+      await assert.rejects(session.confirmGuardEffectiveTrial(1, phase.signal));
+      await session.validateGuardTrial(phase.signal, true);
       await session.writeGuardTrial(2, phase.signal, () => { dispatched++; });
-      await session.confirmGuardEffectiveTrial(2, phase.signal);
-      assert.equal(dispatched, 2); assert.deepEqual(commands, [9100, 9100, 1224, 9100, 1224]);
+      await session.confirmGuardEffectiveTrial(0, phase.signal);
+      for (let index = 0; index < 186; index++) await session.confirmGuardEffectiveTrial(0, phase.signal);
+      await assert.rejects(session.confirmGuardEffectiveTrial(0, phase.signal));
+      assert.equal(dispatched, 2); assert.equal(commands.filter(command => command === 1224).length, 2);
+      assert.equal(commands.filter(command => command === 1103).length, 218);
       assert.equal(attached, 0); assert.equal(snapshots, 0); assert.equal(diagnosticMedia, 0);
       assert.ok(session.stats.staleReplies >= 2);
       await session.close(); return;

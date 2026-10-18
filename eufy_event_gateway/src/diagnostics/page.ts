@@ -50,6 +50,7 @@ export function diagnosticsPage(): string {
 <details><summary>Experimental NVR Schedule guard-mode test</summary>
 <p>For a T8E00 camera through T8N00 only. Enable Experimental NVR video, Experimental model controls and Experimental NVR controls in the app options. Close all viewers first.</p>
 <p>This station-wide test is available only while the NVR is configured for Schedule. It temporarily changes the whole NVR to Home, which may arm cameras or alarms, then attempts to restore Schedule without changing its schedule.</p>
+<label>NVR IANA timezone <input id="nvr-guard-timezone" type="text" maxlength="64" autocomplete="off" placeholder="Enter the NVR timezone"></label>
 <label><input id="nvr-guard-consent" type="checkbox"> I can observe the NVR, agree to the temporary Home mode, and can restore Schedule in the Eufy app if needed.</label>
 <button id="nvr-guard-start">Test Home and restore Schedule</button><button id="nvr-guard-cancel">Cancel and request restoration</button>
 <p>Cancelling or leaving this page requests restoration but cannot show its final result. A lost connection or gateway restart can prevent automatic restoration. Check the whole NVR in Eufy if the result is uncertain.</p>
@@ -266,17 +267,18 @@ action('nvr-power-start', async () => {
 const cancelNvrGuard = () => { const active = Boolean(nvrGuardJob); if(nvrGuardJob) nvrGuardJob.abort(); el('nvr-guard-consent').checked = false; el('nvr-guard-status').textContent = active ? 'Cancellation requested. Check the NVR and restore Schedule in Eufy if needed.' : 'No guard-mode test running. Confirm Schedule and observation consent before starting.'; };
 el('nvr-guard-cancel').addEventListener('click', cancelNvrGuard);
 el('device').addEventListener('change', cancelNvrGuard);
-window.addEventListener('pagehide', cancelNvrGuard);
+el('nvr-guard-timezone').addEventListener('input', () => { el('nvr-guard-consent').checked = false; });
+window.addEventListener('pagehide', () => { cancelNvrGuard(); el('nvr-guard-timezone').value = ''; });
 action('nvr-guard-start', async () => {
   const selected = el('device').value;
-  if(nvrGuardJob || !selected || !el('nvr-guard-consent').checked) throw Error('Select one T8E00, confirm the NVR is on Schedule, and agree to the temporary station-wide change.');
+  if(nvrGuardJob || !selected || !el('nvr-guard-consent').checked || !el('nvr-guard-timezone').value) throw Error('Select one T8E00, confirm the NVR is on Schedule, and agree to the temporary station-wide change.');
   const job = new AbortController(); nvrGuardJob = job; el('nvr-guard-start').disabled = true;
   let failureMessage = 'Guard-mode test could not be completed. Check the whole NVR and restore Schedule in Eufy if needed.';
   el('nvr-guard-status').textContent = 'Testing Home and restoring Schedule. Keep observing the NVR. The full operation can take over two minutes.';
   try {
     const response = await fetch('api/cameras/' + encodeURIComponent(selected) + '/nvr-guard-trial', {
       method:'POST',headers:{Authorization:'Bearer ' + el('token').value,'Content-Type':'application/json'},
-      body:JSON.stringify({consent:true,target:'home'}),cache:'no-store',signal:job.signal });
+      body:JSON.stringify({consent:true,target:'home',timeZone:el('nvr-guard-timezone').value}),cache:'no-store',signal:job.signal });
     const result = await response.json();
     if(job.signal.aborted || el('device').value !== selected) return;
     if(!response.ok) {
@@ -287,7 +289,7 @@ action('nvr-guard-start', async () => {
     if(!['home_confirmed','home_unconfirmed_restored'].includes(result.outcome) || result.restored !== true || result.scheduleUnchanged !== true) throw Error('Invalid guard summary');
     el('nvr-guard-status').textContent = 'Guard-mode test: ' + result.outcome + '. Schedule and its original schedule data were reported restored. Did the NVR enter Home and return to Schedule? Hardware confirmation is still required. Share only this summary and what you observed.';
   } catch { el('nvr-guard-status').textContent = job.signal.aborted ? 'Cancellation requested. Gateway restoration may still be running. Check the NVR and restore Schedule in Eufy if needed.' : failureMessage + ' If it failed, share only the nvr_guard_trial_failed line.'; }
-  finally { if(nvrGuardJob === job) nvrGuardJob = null; el('nvr-guard-start').disabled = false; el('nvr-guard-consent').checked = false; }
+  finally { if(nvrGuardJob === job) nvrGuardJob = null; el('nvr-guard-timezone').value = ''; el('nvr-guard-consent').checked = false; el('nvr-guard-start').disabled = false; el('nvr-guard-consent').checked = false; }
 });
 const cancelLockStatus = () => { if(lockStatusJob) lockStatusJob.abort(); el('lock-status-consent').checked = false; };
 el('lock-status-cancel').addEventListener('click', cancelLockStatus);

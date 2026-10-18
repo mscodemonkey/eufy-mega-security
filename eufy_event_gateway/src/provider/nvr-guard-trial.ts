@@ -5,6 +5,7 @@
  * policy and never exposes the recorded schedule or device identity.
  */
 import { performance } from "node:perf_hooks";
+import { nvrGuardSchedule, nvrGuardTimeZone, type NvrGuardEffective } from "./nvr-guard-schedule.js";
 
 /** Fixed failure categories safe for the authenticated diagnostics boundary. */
 export type NvrGuardStage = "admission" | "busy" | "inventory" | "identity" | "baseline" | "send" | "receipt"
@@ -23,6 +24,9 @@ export class NvrGuardError extends Error {
 /** The only admitted temporary transition is Schedule to Home. */
 export interface NvrGuardRequest {
   readonly target: "home";
+
+  /** Operator-confirmed NVR timezone, never inferred from the gateway clock. */
+  readonly timeZone: string;
 }
 
 /** A software-confirmed restore still requires observation on the real NVR. */
@@ -54,8 +58,8 @@ export interface NvrGuardTransport {
   /** Send one closed absolute mode, marking dispatch before the first packet. */
   write(mode: 1 | 2, signal: AbortSignal, dispatched: () => void): Promise<void>;
 
-  /** Confirm a fresh NVR-reported effective mode after the matching write. */
-  effective(mode: 1 | 2, signal: AbortSignal): Promise<void>;
+  /** Confirm the station's effective mode with a fresh correlated query. */
+  effective(expected: NvrGuardEffective, signal: AbortSignal): Promise<void>;
 
   /** Retire callbacks and resources once while the provider retains its lease. */
   close(): Promise<void>;
@@ -64,6 +68,9 @@ export interface NvrGuardTransport {
 /** Injectable clock and delay allow complete offline recovery tests. */
 export interface NvrGuardRuntime {
   readonly now: () => number;
+
+  /** Wall clock for schedule evaluation, separate from monotonic budgets. */
+  readonly wallNow?: () => number;
   readonly sleep: (milliseconds: number, signal: AbortSignal) => Promise<void>;
 }
 
@@ -76,76 +83,95 @@ export interface NvrGuardRuntime {
 export async function runNvrGuardTrial(transport: NvrGuardTransport, request: NvrGuardRequest,
   caller: AbortSignal, runtime: NvrGuardRuntime = { now: () => performance.now(), sleep: wait }): Promise<NvrGuardSummary> {
   if (request.target !== "home") throw new NvrGuardError("admission");
+  const zone = nvrGuardTimeZone(request.timeZone);
+  const wallNow = runtime.wallNow ?? Date.now;
   const normal = new AbortController();
   let attempted = false, targetConfirmed = false, restored = false, originalSchedule: string | null = null;
+  let expected: Exclude<NvrGuardEffective, 1> | undefined;
   let failure: NvrGuardError | null = null;
   const cancel = (): void => normal.abort(new NvrGuardError("cancelled"));
   caller.addEventListener("abort", cancel, { once: true });
   if (caller.aborted) cancel();
   const timer = setTimeout(() => normal.abort(new NvrGuardError("timeout")), 40_000);
-  const started = runtime.now();
-  const mark = (): void => { attempted = true; };
   try {
     try {
       await owned(() => transport.prepare(normal.signal), normal.signal);
       const baseline = await owned(() => transport.read(normal.signal), normal.signal);
-      if (baseline.mode !== 2 || typeof baseline.schedule !== "string" || baseline.schedule.length < 1
-        || baseline.schedule.length > 65_536) throw new NvrGuardError("baseline");
+      if (baseline.mode !== 2 || typeof baseline.schedule !== "string") throw new NvrGuardError("baseline");
       originalSchedule = baseline.schedule;
+      expected = nvrGuardSchedule(originalSchedule, zone, wallNow());
+      await owned(() => transport.effective(expected!, normal.signal), normal.signal);
       await owned(() => transport.validate(false, normal.signal), normal.signal);
-      try { await owned(() => transport.write(1, normal.signal, mark), normal.signal); }
-      catch (error) {
+      let receipt = false;
+      try {
+        await owned(() => transport.write(1, normal.signal, () => { attempted = true; }), normal.signal);
+        receipt = true;
+      } catch (error) {
         if (!attempted) throw fixed(error, "send");
         failure = fixed(error, "receipt");
       }
-      if (!normal.signal.aborted && attempted) {
-        let effective = false;
-        try { await owned(() => transport.effective(1, normal.signal), normal.signal); effective = true; }
-        catch (error) { failure ??= fixed(error, "readback"); }
-        const end = Math.min(started + 40_000, runtime.now() + 15_000);
-        do {
+      const targetEnd = runtime.now() + 15_000;
+      while (attempted && !normal.signal.aborted && runtime.now() < targetEnd) {
+        try {
           const state = await owned(() => transport.read(normal.signal), normal.signal);
-          if (state.mode === 1 && effective) { targetConfirmed = true; break; }
-          if (runtime.now() >= end) break;
-          await runtime.sleep(1_000, normal.signal);
-        } while (runtime.now() < end);
+          if (state.schedule !== originalSchedule) throw new NvrGuardError("baseline");
+          await owned(() => transport.effective(1, normal.signal), normal.signal);
+          if (state.mode === 1 && receipt) { targetConfirmed = true; break; }
+          if (!receipt) break;
+        } catch (error) {
+          const reason = fixed(error, "readback");
+          if (reason.stage === "identity" || reason.stage === "shutdown" || reason.stage === "baseline") throw reason;
+        }
+        await runtime.sleep(1_000, normal.signal);
       }
-      if (!targetConfirmed) failure ??= new NvrGuardError("readback");
     } catch (error) { failure = fixed(error, normal.signal.aborted ? "cancelled" : attempted ? "readback" : "identity"); }
     finally {
       clearTimeout(timer); caller.removeEventListener("abort", cancel);
-      if (attempted && originalSchedule !== null) {
+      if (attempted && originalSchedule !== null && expected !== undefined) {
         const recovery = new AbortController();
-        const recoveryTimer = setTimeout(() => recovery.abort(new NvrGuardError("restore", true)), 75_000);
-        let restoredEffective = false;
+        const recoveryTimer = setTimeout(() => recovery.abort(new NvrGuardError("restore", true)), 120_000);
+        const end = runtime.now() + 120_000;
+        let writes = 0, lastDispatch = -Infinity, firstPairAt: number | null = null;
         try {
-          for (let attempt = 0; !restored && attempt < 2; attempt++) {
-            await owned(() => transport.validate(true, recovery.signal), recovery.signal);
-            if (attempt > 0) {
-              const beforeRetry = await owned(() => transport.read(recovery.signal), recovery.signal);
-              if (beforeRetry.mode === 2 && beforeRetry.schedule === originalSchedule && restoredEffective) {
-                await runtime.sleep(1_000, recovery.signal);
-                const confirmed = await owned(() => transport.read(recovery.signal), recovery.signal);
-                restored = confirmed.mode === 2 && confirmed.schedule === originalSchedule;
-                if (restored) break;
-              }
-              if (beforeRetry.mode === 2 && beforeRetry.schedule === originalSchedule) break;
-            }
-            let restoreDispatched = false;
+          while (!restored && runtime.now() < end) {
             try {
-              await owned(() => transport.write(2, recovery.signal, () => { restoreDispatched = true; }), recovery.signal);
-            } catch { recovery.signal.throwIfAborted(); }
-            if (!restoreDispatched) continue;
-            let effective = false;
-            try { await owned(() => transport.effective(2, recovery.signal), recovery.signal); effective = true; restoredEffective = true; }
-            catch { recovery.signal.throwIfAborted(); }
-            let state = await owned(() => transport.read(recovery.signal), recovery.signal);
-            if (effective && state.mode === 2 && state.schedule === originalSchedule) {
-              await runtime.sleep(1_000, recovery.signal);
-              state = await owned(() => transport.read(recovery.signal), recovery.signal);
-              restored = state.mode === 2 && state.schedule === originalSchedule;
+              await owned(() => transport.validate(true, recovery.signal), recovery.signal);
+              if (writes === 0 || writes < 2 && lastDispatch === -Infinity) {
+                writes++;
+                try {
+                  await owned(() => transport.write(2, recovery.signal, () => { lastDispatch = runtime.now(); }), recovery.signal);
+                } catch (error) {
+                  const reason = fixed(error, "receipt");
+                  if (["identity", "shutdown", "admission"].includes(reason.stage)) throw reason;
+                }
+              }
+              const state = await owned(() => transport.read(recovery.signal), recovery.signal);
+              if (state.schedule !== originalSchedule) throw new NvrGuardError("baseline", true);
+              const scheduled = nvrGuardSchedule(originalSchedule, zone, wallNow(), true);
+              if (scheduled !== expected) throw new NvrGuardError("baseline", true);
+              if (state.mode === 2) {
+                await owned(() => transport.effective(scheduled, recovery.signal), recovery.signal);
+                if (firstPairAt !== null && runtime.now() - firstPairAt >= 1_000) { restored = true; break; }
+                firstPairAt = runtime.now();
+              } else {
+                firstPairAt = null;
+                if (writes < 2 && state.mode === 1 && runtime.now() - lastDispatch >= 15_000) {
+                  await owned(() => transport.validate(true, recovery.signal), recovery.signal);
+                  writes++;
+                  try {
+                    await owned(() => transport.write(2, recovery.signal, () => { lastDispatch = runtime.now(); }), recovery.signal);
+                  } catch (error) {
+                    const reason = fixed(error, "receipt");
+                    if (["identity", "shutdown", "admission"].includes(reason.stage)) throw reason;
+                  }
+                }
+              }
+            } catch (error) {
+              firstPairAt = null;
+              const reason = fixed(error, "readback");
+              if (["identity", "shutdown", "admission", "baseline"].includes(reason.stage)) throw reason;
             }
-            if (state.mode === null || state.schedule === null) break;
+            await runtime.sleep(2_000, recovery.signal);
           }
           if (!restored) failure = new NvrGuardError("restore", true);
         } catch (error) { failure = new NvrGuardError(fixed(error, "restore").stage, true); }
@@ -155,9 +181,9 @@ export async function runNvrGuardTrial(transport: NvrGuardTransport, request: Nv
   } finally {
     clearTimeout(timer); caller.removeEventListener("abort", cancel); normal.abort();
     const cleanup = new AbortController();
-    const cleanupTimer = setTimeout(() => cleanup.abort(new NvrGuardError("cleanup", attempted)), 5_000);
+    const cleanupTimer = setTimeout(() => cleanup.abort(new NvrGuardError("cleanup", attempted && !restored)), 5_000);
     try { await owned(() => transport.close(), cleanup.signal); }
-    catch { if (attempted || !failure) failure = new NvrGuardError("cleanup", attempted && !restored); }
+    catch { failure = new NvrGuardError("cleanup", attempted && !restored); }
     finally { clearTimeout(cleanupTimer); cleanup.abort(); }
   }
   if (!attempted) throw failure ?? new NvrGuardError("send");

@@ -15,6 +15,7 @@ import { VideoParameterSetCache } from "./live-stream-manager.js";
 import { installNvrIceTiming } from "./nvr-ice-timing.js";
 import { NvrPowerError, type NvrCameraPower } from "../provider/nvr-power-trial.js";
 import { NvrGuardError } from "../provider/nvr-guard-trial.js";
+import type { NvrGuardEffective } from "../provider/nvr-guard-schedule.js";
 import { NvrTrialError, nvrCameraPowerCommand, nvrGuardModeCommand, nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrJson,
   nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrRecord, nvrVideo, nvrStateSummary, type NvrStateSummary, type NvrTrialStage, type NvrTrialReason } from "./nvr-protocol.js";
 
@@ -140,12 +141,11 @@ export class NvrRtcSession {
   #powerMode = false;
   #powerReceipt: { readonly segment: number; readonly deadline: number; readonly resolve: () => void;
     readonly reject: (error: NvrPowerError) => void; readonly timer: NodeJS.Timeout; readonly detach: () => void } | null = null;
+  #guardQueryCount = 0;
+  #guardRecovering = false;
   #guardMode = false;
   #guardReceipt: { readonly segment: number; readonly deadline: number; readonly resolve: () => void;
     readonly reject: (error: NvrGuardError) => void; readonly timer: NodeJS.Timeout; readonly detach: () => void } | null = null;
-  #guardExpectedEffective: 1 | 2 | null = null;
-  #guardEffectiveValue: number | null = null;
-  #guardEffectiveDeadline = 0;
   #outSequence = 0;
   #operations = 0;
   #chain: Promise<void> = Promise.resolve();
@@ -274,8 +274,9 @@ export class NvrRtcSession {
   }
 
   /** Reconfirm the selected child on the same connection before a guard write. */
-  async validateGuardTrial(signal: AbortSignal): Promise<void> {
+  async validateGuardTrial(signal: AbortSignal, recovery = false): Promise<void> {
     this.#guardTrialGuard();
+    if (recovery) this.#guardRecovering = true;
     const response = await this.#guardQuery(9100, signal);
     nvrMatchCamera(response, this.options.camera, this.options.channel, 301);
     this.#guardTrialGuard();
@@ -284,6 +285,7 @@ export class NvrRtcSession {
   /** Send Home or Schedule once. Its receipt is not independent state confirmation. */
   async writeGuardTrial(mode: 1 | 2, signal: AbortSignal, dispatched: () => void): Promise<void> {
     this.#guardTrialGuard(); signal.throwIfAborted();
+    if (mode === 2) this.#guardRecovering = true;
     if (this.#pending || this.#powerReceipt || this.#guardReceipt || this.#segment >= 254
       || mode !== 1 && mode !== 2) throw new NvrGuardError("send");
     const channel = this.#channels.get("WebrtcDataChannel");
@@ -300,29 +302,17 @@ export class NvrRtcSession {
       if (signal.aborted) { abort(); return; }
       try {
         this.#guardTrialGuard(); signal.throwIfAborted(); dispatched();
-        this.#guardExpectedEffective = mode; this.#guardEffectiveValue = null;
-        this.#guardEffectiveDeadline = performance.now() + 15_000;
         for (const packet of packets) channel.send(packet);
-      } catch { this.#finishGuardReceipt(new NvrGuardError("send")); }
+      } catch (error) { this.#finishGuardReceipt(error instanceof NvrGuardError ? error : new NvrGuardError("send")); }
       finally { frame.fill(0); }
     });
   }
 
-  /** Require the NVR's own fresh effective-mode signal after the matching write. */
-  async confirmGuardEffectiveTrial(mode: 1 | 2, signal: AbortSignal): Promise<void> {
+  /** Query station-scoped effective state on a fresh, correlated request. */
+  async confirmGuardEffectiveTrial(expected: NvrGuardEffective, signal: AbortSignal): Promise<void> {
     this.#guardTrialGuard(); signal.throwIfAborted();
-    if (this.#guardExpectedEffective !== mode || this.#guardEffectiveDeadline <= 0) throw new NvrGuardError("readback");
-    while (this.#guardEffectiveValue === null && performance.now() < this.#guardEffectiveDeadline) {
-      await new Promise<void>((resolve, reject) => {
-        const done = (): void => { signal.removeEventListener("abort", abort); resolve(); };
-        const timer = setTimeout(done, 50);
-        const abort = (): void => { clearTimeout(timer); signal.removeEventListener("abort", abort); reject(new NvrGuardError("cancelled")); };
-        signal.addEventListener("abort", abort, { once: true });
-        if (signal.aborted) abort();
-      });
-      this.#guardTrialGuard(); signal.throwIfAborted();
-    }
-    if (this.#guardEffectiveValue === null) throw new NvrGuardError("readback");
+    const response = await this.#guardQuery(1103, signal);
+    if (nvrStateSummary(response, this.options.channel).effectiveGuardMode !== expected) throw new NvrGuardError("readback");
   }
 
   #powerGuard(): void {
@@ -331,14 +321,19 @@ export class NvrRtcSession {
   }
 
   #guardTrialGuard(): void {
-    this.#guard();
+    try { this.#guard(); }
+    catch { throw new NvrGuardError(this.#retired || this.options.signal.aborted ? "shutdown" : "identity"); }
     if (!this.#guardMode || !this.options.guardTrial || this.#startSent
       || this.#channels.get("WebrtcDataChannel")?.ordered !== true) throw new NvrGuardError("identity");
   }
 
-  async #guardQuery(command: 9100, signal: AbortSignal): Promise<Record<string, unknown>> {
+  async #guardQuery(command: 9100 | 1103, signal: AbortSignal): Promise<Record<string, unknown>> {
     signal.throwIfAborted();
     if (this.#pending || this.#powerReceipt || this.#guardReceipt) throw new NvrGuardError("busy");
+
+    // Leave more than eight wire segments for restore writes and final proof.
+    if (this.#guardQueryCount >= (this.#guardRecovering ? 220 : 32)) throw new NvrGuardError("readback");
+    this.#guardQueryCount++;
     const operation = this.#request(command, 5_000);
     const pending = this.#pending as PendingRequest | null;
     const abort = (): void => {
@@ -428,7 +423,6 @@ export class NvrRtcSession {
     this.#retired = true;
     this.#finishPowerReceipt(new NvrPowerError("shutdown"));
     this.#finishGuardReceipt(new NvrGuardError("shutdown"));
-    this.#guardExpectedEffective = null; this.#guardEffectiveValue = null; this.#guardEffectiveDeadline = 0;
     this.#negotiation.abort();
     this.#abort.abort();
     this.options.signal.removeEventListener("abort", this.#externalAbort);
@@ -687,15 +681,6 @@ export class NvrRtcSession {
         if (this.#firstFrame) clearTimeout(this.#firstFrame);
         if (!this.output.write(startup)) throw new NvrTrialError("video");
       } else if (!this.output.write(video.bytes)) throw new NvrTrialError("video");
-      return;
-    }
-    if (this.#guardMode && frame.command === 1151 && frame.payload.length >= 4 && frame.payload.length <= 132
-      && performance.now() < this.#guardEffectiveDeadline) {
-      const value = frame.payload.readInt32LE(0);
-      if (this.#guardExpectedEffective === 1 && value === 1
-        || this.#guardExpectedEffective === 2 && [0, 1, 3, 4, 5, 47].includes(value)) {
-        this.#guardEffectiveValue = value;
-      } else this.stats.staleReplies++;
       return;
     }
     if (this.#powerReceipt && frame.command === 1350) {

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.171
+
+- Add the default-off NVR Schedule-to-Home trial with an operator-confirmed NVR timezone, schedule-aware preflight and correlated state checks.
+- Keep restoration independent of browser cancellation, retry transient read failures and block further NVR operations after an unconfirmed restore.
+- Preserve ownership of diagnostic station reservations and enforce NVR cooldowns before new live sessions.
+- This trial temporarily changes the whole NVR and may arm cameras or alarms. Hardware behaviour remains unconfirmed, and manual restoration in Eufy may be required.
+
 ## 0.1.170
 
 - Keep distinct push meanings separate when Eufy reuses one event identifier. A doorbell press arriving immediately after a person event now reaches the Home Assistant doorbell sensor, while repeated delivery of the same event remains suppressed.
