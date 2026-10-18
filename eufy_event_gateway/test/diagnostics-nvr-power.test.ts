@@ -27,8 +27,8 @@ for(const mode of ["success","cancel","selection","pagehide","private-error","no
       return {ok:!["non-ok","unknown-stage"].includes(mode),json:async()=>{if(mode==="private-error")throw Error("PRIVATE-CANARY");return {outcome:"target_confirmed",restored:true,stage:mode==="unknown-stage"?"PRIVATE-CANARY":"identity",privateCanary:"PRIVATE-CANARY"};}};
     };
     const script=diagnosticsPage().split("<script>")[1]!.split("</script>")[0]!;
-    new Function("document","fetch","Option","window",script)({getElementById:element},fetch,function(){},
-      {addEventListener:(name:string,callback:()=>void)=>{if(name==="pagehide")departures.push(callback);}});
+    new Function("document","fetch","Option","window","location",script)({getElementById:element},fetch,function(){},
+      {addEventListener:(name:string,callback:()=>void)=>{if(name==="pagehide")departures.push(callback);}}, {protocol:"https:"});
     element("device").value="synthetic";element("token").value="synthetic";
     element("nvr-power-original").value="on";element("nvr-power-target").value="off";
     await element("nvr-power-start").onclick!();assert.equal(calls.length,0);

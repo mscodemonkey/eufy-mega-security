@@ -17,6 +17,9 @@ import { LocalMotionError } from "./stream/local-motion-trial.js";
 import { C31IndexError } from "./stream/c31-recording-index.js";
 import { CloudRecordingError } from "./stream/cloud-recordings.js";
 import { DoorbellRtcError } from "./stream/doorbell-rtc-offer.js";
+import { GeneralRtcError, generalRtcSubmission } from "./stream/general-rtc-protocol.js";
+import { recordGeneralRtcClip } from "./stream/general-rtc-recording.js";
+import type { GeneralRtcTrialLease } from "./provider/general-rtc-trial.js";
 import { validateStoredMedia } from "./stream/stored-recordings.js";
 import { isE30LockSettingChange } from "./domain/types.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -85,6 +88,7 @@ export class GatewayServer {
     private readonly eventImageCapture: EventImageCapture | null = null,
     private readonly nvrTrialDeadlineMilliseconds = 82_000,
     private readonly cloudCalendarDeadlineMilliseconds = 30_000,
+    private readonly generalRtcRecorder: typeof recordGeneralRtcClip = recordGeneralRtcClip,
   ) {}
 
   /** Bind the configured host and port and begin accepting requests. */
@@ -291,6 +295,9 @@ export class GatewayServer {
         && segments[3] === "cloud-calendar" && segments.length === 4;
       if (calendarRoute) response.setHeader("cache-control", "no-store");
 
+      const generalTrial = request.method === "POST" && segments.length === 4 && segments[0] === "api"
+        && segments[1] === "cameras" && segments[3] === "general-rtc-trial";
+      if (generalTrial) response.setHeader("Cache-Control", "no-store");
       if (segments[0] === "api" && this.config.apiToken) {
         const streamAuthorized =
           request.method === "GET" &&
@@ -299,10 +306,54 @@ export class GatewayServer {
           segments.length === 4 &&
           validateStreamToken(segments[2]!, url.searchParams.get("access_token"), this.config.apiToken);
         if (!streamAuthorized && !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) {
-          return json(response, 401, { error: "Unauthorized" });
+          return json(response, 401, generalTrial ? { stage: "admission" } : { error: "Unauthorized" });
         }
       }
 
+      if (generalTrial) {
+        try {
+          if (!this.config.experimentalGeneralRtc || !this.config.apiToken || !this.provider.reserveGeneralRtcTrial) return json(response, 409, { stage: "admission" });
+          const serial = segments[2]!;
+          if (!this.state.hasCamera(serial)) return json(response, 404, { stage: "admission" });
+          if (request.url?.includes("?")) return json(response, 400, { stage: "admission" });
+          if (request.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") return json(response, 415, { stage: "admission" });
+          let submission;
+          try {
+            const bytes = await readGeneralRtcBody(request);
+            if (bytes === null) return json(response, 413, { stage: "admission" });
+            submission = generalRtcSubmission(bytes);
+          } catch { return json(response, 400, { stage: "admission" }); }
+          if (this.#nvrTrialJobs.size || this.#recordingIndexJobs.size || this.streams.hasActiveSession(serial)) return json(response, 409, { stage: "busy" });
+          const controller = new AbortController(); this.#nvrTrialJobs.add(controller);
+          const deadline = setTimeout(() => controller.abort(new GeneralRtcError("deadline")), 170_000);
+          const abort = (): void => { if (!response.writableEnded) controller.abort(new GeneralRtcError("cancelled")); };
+          response.once("close", abort); request.once("aborted", abort);
+          let lease: GeneralRtcTrialLease | undefined;
+          try {
+            lease = this.provider.reserveGeneralRtcTrial(serial, controller.signal);
+            const clip = await this.generalRtcRecorder(lease, submission.pin, controller.signal);
+            if (controller.signal.aborted) throw controller.signal.reason;
+            if (clip.length > 32 * 1024 * 1024) throw new GeneralRtcError("video", "media");
+            response.writeHead(200, { "Content-Type": "video/mp4", "Content-Length": clip.length, "Cache-Control": "no-store" });
+            response.end(clip);
+            logger.info("general_rtc_trial_completed", "completed");
+          } catch (error) {
+            const failure = controller.signal.aborted && controller.signal.reason instanceof GeneralRtcError ? controller.signal.reason
+              : error instanceof GeneralRtcError ? error : new GeneralRtcError("video", "media");
+            logger.warn("general_rtc_trial_failed", `stage=${failure.stage} reason=${failure.reason}`);
+            if (!response.destroyed) json(response, 409, { stage: failure.stage });
+          } finally {
+            submission = undefined;
+            controller.abort(); clearTimeout(deadline);
+            try { await lease?.release(); } catch { logger.warn("general_rtc_trial_failed", "stage=cancelled reason=unspecified"); }
+            finally { response.removeListener("close", abort); request.removeListener("aborted", abort); this.#nvrTrialJobs.delete(controller); }
+          }
+          return;
+        } catch {
+          if (!response.destroyed) json(response, 409, { stage: "admission" });
+          return;
+        }
+      }
       if (request.method === "GET" && url.pathname === "/live") {
         return json(response, 200, { status: "ok" });
       }
@@ -1393,6 +1444,30 @@ async function readBody(request: IncomingMessage): Promise<string> {
     chunks.push(buffer);
   }
   return Buffer.concat(chunks).toString("utf8");
+}
+
+async function readGeneralRtcBody(request: IncomingMessage): Promise<Buffer | null> {
+  return await new Promise<Buffer | null>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0, finished = false;
+    const finish = (value: Buffer | null, failed = false): void => {
+      if (finished) return;
+      finished = true;
+      request.removeListener("data", data); request.removeListener("end", end); request.removeListener("error", error);
+      request.removeListener("aborted", error);
+      request.once("error", () => undefined);
+      if (failed) reject(new SyntaxError("Invalid trial input"));
+      else resolve(value);
+    };
+    const data = (chunk: Buffer): void => {
+      size += chunk.length;
+      if (size > 16_384) { chunks.length = 0; finish(null); request.resume(); }
+      else chunks.push(Buffer.from(chunk));
+    };
+    const end = (): void => { finish(Buffer.concat(chunks)); };
+    const error = (): void => { finish(null, true); };
+    request.on("data", data); request.once("end", end); request.once("error", error); request.once("aborted", error);
+  });
 }
 
 /** Convert a Mega CAPTCHA payload into an image URI safe for the auth page. */

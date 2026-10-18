@@ -194,6 +194,7 @@ interface Recording {
   readonly audioChunks: Buffer[];
   audioSize: number;
   readonly durationMilliseconds: number;
+  readonly maximumBytes: number;
   size: number;
   started: boolean;
   firstVideoAtMilliseconds: number | null;
@@ -706,11 +707,14 @@ export class LiveStreamManager extends EventEmitter {
     startTimeoutMilliseconds = 20_000,
     privateTrial = false,
     signal?: AbortSignal,
+    options?: { readonly maximumRecordingBytes?: number },
   ): Promise<Buffer> {
     if (!Number.isInteger(durationSeconds) || durationSeconds < 1 || durationSeconds > 120) {
       throw new Error("Recording duration must be between 1 and 120 seconds");
     }
     if (signal?.aborted) throw mediaAbortError();
+    const maximumBytes = options?.maximumRecordingBytes ?? MAX_RECORDING_BYTES;
+    if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1 || maximumBytes > MAX_RECORDING_BYTES) throw new Error("Invalid recording byte limit");
     const session = this.#session(serial);
     this.#assertShareable(session);
     if (privateTrial && (session.source || session.owned || !["idle", "error"].includes(session.state)
@@ -733,7 +737,7 @@ export class LiveStreamManager extends EventEmitter {
       this.#cancelStop(session);
       session.leases += 1; leased = true;
       this.#updateState(serial, session);
-      recording = this.#collectRecording(session, durationSeconds * 1_000, startTimeoutMilliseconds);
+      recording = this.#collectRecording(session, durationSeconds * 1_000, startTimeoutMilliseconds, maximumBytes);
       void recording.promise.catch(() => undefined);
       startSettled = false;
       const startup = this.#ensureStarted(serial, session);
@@ -782,11 +786,13 @@ export class LiveStreamManager extends EventEmitter {
       for (const consume of session.audioConsumers) consume(chunk);
       for (const recording of [...session.recordings]) {
         if (!recording.started) continue;
+        if (recording.audioSize + recording.size + chunk.length > recording.maximumBytes) {
+          this.#settleRecording(session, recording, new Error(recording.maximumBytes === MAX_RECORDING_BYTES
+            ? "Recording exceeded the 256 MB safety limit" : "Recording exceeded its byte limit"));
+          continue;
+        }
         recording.audioChunks.push(Buffer.from(chunk));
         recording.audioSize += chunk.length;
-        if (recording.audioSize + recording.size > MAX_RECORDING_BYTES) {
-          this.#settleRecording(session, recording, new Error("Recording exceeded the 256 MB safety limit"));
-        }
       }
     });
     audio?.on("error", (error) => {
@@ -1028,6 +1034,7 @@ export class LiveStreamManager extends EventEmitter {
     session: Session,
     durationMilliseconds: number,
     startTimeoutMilliseconds: number,
+    maximumBytes: number,
   ): { promise: Promise<{ video: Buffer; audio: Buffer; frameRate?: number }>; cancel: () => void } {
     let recording!: Recording;
     const promise = new Promise<{ video: Buffer; audio: Buffer; frameRate?: number }>((resolve, reject) => {
@@ -1036,6 +1043,7 @@ export class LiveStreamManager extends EventEmitter {
         audioChunks: [],
         audioSize: 0,
         durationMilliseconds,
+        maximumBytes,
         size: 0,
         started: false,
         firstVideoAtMilliseconds: null,
@@ -1056,6 +1064,11 @@ export class LiveStreamManager extends EventEmitter {
   }
 
   #appendRecordingChunk(session: Session, recording: Recording, chunk: Buffer): void {
+    if (recording.size + recording.audioSize + chunk.length > recording.maximumBytes) {
+      this.#settleRecording(session, recording, new Error(recording.maximumBytes === MAX_RECORDING_BYTES
+        ? "Recording exceeded the 256 MB safety limit" : "Recording exceeded its byte limit"));
+      return;
+    }
     const arrival = this.nowMilliseconds();
     if (!recording.started) {
       recording.started = true;
@@ -1069,9 +1082,6 @@ export class LiveStreamManager extends EventEmitter {
     recording.lastVideoAtMilliseconds = arrival;
     recording.chunks.push(Buffer.from(chunk));
     recording.size += chunk.length;
-    if (recording.size + recording.audioSize > MAX_RECORDING_BYTES) {
-      this.#settleRecording(session, recording, new Error("Recording exceeded the 256 MB safety limit"));
-    }
   }
 
   #settleRecording(session: Session, recording: Recording, error?: Error): void {

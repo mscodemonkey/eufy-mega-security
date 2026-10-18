@@ -55,6 +55,19 @@ export function diagnosticsPage(): string {
 <button id="nvr-guard-start">Test Home and restore Schedule</button><button id="nvr-guard-cancel">Cancel and request restoration</button>
 <p>Cancelling or leaving this page requests restoration but cannot show its final result. A lost connection or gateway restart can prevent automatic restoration. Check the whole NVR in Eufy if the result is uncertain.</p>
 <pre id="nvr-guard-status" role="status">No guard-mode test started. Confirm the NVR is on Schedule before starting.</pre></details>
+<details id="general-rtc"><summary>Experimental general camera video test</summary>
+<p>Enable Experimental general camera video test in the app options. This requests one ten-second private clip and takes about three minutes. Hardware behaviour is unconfirmed. Normal Home Assistant live view stays unchanged.</p>
+<p>The configured Eufy account must own the camera. Guest accounts are refused. Only cameras whose camera or HomeBase reports portal video support qualify. NVR cameras and the T8224 doorbell are excluded.</p>
+<p>Your Eufy live-view PIN is sent to Eufy and is not stored. A rejected or interrupted PIN request counts towards a three-attempt lockout until gateway restart. Wait at least 60 seconds between attempts.</p>
+<p>The test wakes the camera and uses battery. It can stay awake for about 40 seconds after capture. Connection checks may reach local network addresses supplied by Eufy.</p>
+<p>A saved sign-in may not include the required video identity. The test waits for the next natural sign-in. A restart helps only if the saved sign-in has expired. Normal gateway refreshes can also interrupt a trial, including after capture.</p>
+<p id="general-https" role="alert" hidden>Use HTTPS before entering your live-view PIN. This page is using an unencrypted connection.</p>
+<label>Eufy live-view PIN <input id="general-pin" type="password" autocomplete="new-password" spellcheck="false" maxlength="32"></label>
+<label><input id="general-consent" type="checkbox"> I agree to send my live-view PIN to Eufy and request a ten-second private video clip.</label>
+<button id="general-run">Run video test once</button><button id="general-cancel">Cancel video test</button>
+<pre id="general-status" role="status">No general camera video test started.</pre>
+<a id="general-download" hidden download="eufy-private-video-test.mp4">Download private test clip</a>
+<p>The clip stays in this browser. Keep it private. If the test fails, share only the general_rtc_trial_failed log line.</p></details>
 <details><summary>Experimental standalone doorbell video test</summary>
 <p>Enable this test in the app options first, then select one standalone Video Doorbell C30. Stop other viewers before testing. Normal Home Assistant live view stays unchanged.</p>
 <label><input id="doorbell-consent" type="checkbox"> I agree to request a ten-second private video clip from the selected doorbell.</label>
@@ -107,6 +120,7 @@ let targets = [], stream = null, poll = null, activeTrialSerial = null, nvrJob =
 let indexJob = null, motionJob = null, lockStatusJob = null, nvrPowerJob = null, nvrGuardJob = null;
 let cloudJob = null, cloudLoadJob = null, cloudClip = null, cloudSelection = null, cloudGeneration = 0;
 let cloudCalendarKey = null;
+let generalJob = null, generalClip = null, generalDisabled = null;
 const show = value => { el('status').textContent = value; };
 const abortStream = () => { if(stream) stream.abort(); stream = null; };
 async function api(path, method = 'GET', body) {
@@ -121,7 +135,10 @@ async function status() {
   show(JSON.stringify(value, null, 2));
   if(value.state !== 'active') { abortStream(); clearInterval(poll); poll = null; }
 }
-function action(id, fn) { el(id).onclick = async () => { try { await fn(); } catch(error) { show(error.message); } }; }
+function action(id, fn) { el(id).onclick = async () => { try {
+  if(generalJob && !['general-cancel','trial-siren-stop','nvr-power-cancel','nvr-guard-cancel'].includes(id)) throw Error('Finish or cancel the general video test first.');
+  await fn();
+} catch(error) { show(error.message); } }; }
 action('load', async () => {
   targets = (await (await api('bundle/targets')).json()).devices;
   el('device').replaceChildren(new Option('All devices', ''));
@@ -379,6 +396,81 @@ action('nvr-state-test', async () => {
       '\\nCompare these readings with the Eufy app. No settings were changed.';
   } catch(error) { el('nvr-status').textContent = job.signal.aborted ? 'NVR test cancelled.' : error.message + ' Please send only the nvr_state_trial_failed log line if it failed.'; }
   finally { nvrJob = null; el('nvr-test').disabled = false; el('nvr-state-test').disabled = false; el('device').disabled = false; }
+});
+function clearGeneralClip() {
+  if(generalClip) URL.revokeObjectURL(generalClip);
+  generalClip = null; el('general-download').removeAttribute('href'); el('general-download').hidden = true;
+}
+function cancelGeneral() {
+  el('general-pin').value = ''; el('general-consent').checked = false;
+  if(generalJob) generalJob.abort();
+  clearGeneralClip();
+}
+function generalControls(busy) {
+  if(busy) {
+    generalDisabled = new Map();
+    for(const button of document.querySelectorAll('button')) {
+      if(['general-cancel','trial-siren-stop','nvr-power-cancel','nvr-guard-cancel'].includes(button.id)) continue;
+      generalDisabled.set(button, button.disabled); button.disabled = true;
+    }
+    for(const id of ['device','general-pin','general-consent']) { const input = el(id); generalDisabled.set(input, input.disabled); input.disabled = true; }
+  } else if(generalDisabled) {
+    for(const [input, disabled] of generalDisabled) input.disabled = disabled;
+    generalDisabled = null;
+  }
+}
+const generalMessages = {
+  admission: 'This trial is unavailable. Check the owner account and app option. Try again shortly. The gateway refreshes this on its own.',
+  reconnect_required: 'The saved sign-in has no video identity. Wait for the next natural sign-in. A restart helps only if the saved sign-in has expired.',
+  busy: 'Finish other camera activity before testing.', cooldown: 'Wait at least 60 seconds after the previous PIN request.',
+  locked: 'The advisory PIN attempt limit has been reached. No further PIN was sent.',
+  preflight_required: 'This camera needs a start command that this trial does not send.', preflight: 'The camera preparation check could not be completed.',
+  inventory: 'Camera ownership or portal video support could not be confirmed.', binding: 'The camera or account changed during the test. The clip was discarded.',
+  pin: 'Eufy did not confirm the PIN request. Pause before trying again.', sign: 'The video service did not provide a usable session.',
+  budget: 'Preparation or the final camera check took too long.', join: 'The video connection could not be opened.',
+  call: 'The camera call did not complete.', turn: 'The video relay did not meet the requirements for this trial.',
+  offer: 'The camera did not offer a supported video stream.', peer: 'The video connection did not complete.',
+  video: 'The trial did not produce a valid private clip.', cancelled: 'Video test cancelled.', deadline: 'The video test took too long.', shutdown: 'The gateway stopped the video test.'
+};
+el('general-https').hidden = location.protocol === 'https:';
+el('device').addEventListener('change', cancelGeneral);
+window.addEventListener('pagehide', cancelGeneral);
+action('general-cancel', async () => { cancelGeneral(); });
+action('general-run', async () => {
+  const selected = el('device').value, pin = el('general-pin').value;
+  el('general-pin').value = '';
+  if(generalJob || activeTrialSerial !== null || nvrJob || doorbellJob || cloudJob || cloudLoadJob || indexJob || motionJob || lockStatusJob || nvrPowerJob || nvrGuardJob || poll || stream) {
+    el('general-status').textContent = generalMessages.busy; return;
+  }
+  if(!selected || !el('general-consent').checked || pin.length < 1 || pin.length > 32 || [...pin].some(c => c.charCodeAt(0) < 32 || c.charCodeAt(0) > 126)) {
+    el('general-status').textContent = 'Select one camera, enter the live-view PIN and confirm consent.'; return;
+  }
+  clearGeneralClip();
+  const job = generalJob = new AbortController(); generalControls(true);
+  el('general-consent').checked = false;
+  let failure = generalMessages.video;
+  el('general-status').textContent = 'Preparing and checking one private clip. This can take about three minutes.';
+  try {
+    const result = await fetch('api/cameras/' + encodeURIComponent(selected) + '/general-rtc-trial', {
+      method: 'POST', signal: job.signal, cache: 'no-store', headers: { Authorization: 'Bearer ' + el('token').value, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ consent: true, pin }) });
+    if(!result.ok) {
+      const value = await result.json();
+      if(Object.prototype.hasOwnProperty.call(generalMessages, value.stage)) failure = generalMessages[value.stage];
+      throw Error('Video test failed');
+    }
+    if(result.headers.get('content-type') !== 'video/mp4' || !result.body) throw Error('Invalid clip');
+    const reader = result.body.getReader(), chunks = []; let size = 0;
+    try {
+      for(;;) { const next = await reader.read(); if(next.done) break; size += next.value.byteLength;
+        if(size > 32 * 1024 * 1024) throw Error('Clip limit'); chunks.push(next.value); }
+    } finally { await reader.cancel().catch(() => {}); }
+    if(job.signal.aborted) return;
+    generalClip = URL.createObjectURL(new Blob(chunks, { type: 'video/mp4' }));
+    el('general-download').href = generalClip; el('general-download').hidden = false;
+    el('general-status').textContent = 'Private clip ready. Does it play and show the selected camera? Keep it private.';
+  } catch { el('general-status').textContent = job.signal.aborted ? generalMessages.cancelled : failure; }
+  finally { if(generalJob === job) { generalJob = null; generalControls(false); el('general-pin').value = ''; el('general-consent').checked = false; } }
 });
 action('doorbell-stop', async () => { if(doorbellJob) doorbellJob.abort(); });
 action('doorbell-test', async () => {

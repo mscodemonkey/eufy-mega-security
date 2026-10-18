@@ -84,6 +84,9 @@ export interface CameraProvider {
   /** Write one closed E30 setting and return independently confirmed facts. */
   setLockSetting?(serial: string, change: E30LockSettingChange, signal?: AbortSignal, onDispatch?: () => void): Promise<SmartLockState>;
 
+  /** Reserve one owner-account clip whose preparation never changes normal routing. */
+  reserveGeneralRtcTrial?(serial: string, signal: AbortSignal): import("./general-rtc-trial.js").GeneralRtcTrialLease;
+
   /** Reserve one consented native doorbell clip without enabling normal streaming. */
   reserveDoorbellRtcTrial?(serial: string, signal: AbortSignal): () => Promise<void>;
 

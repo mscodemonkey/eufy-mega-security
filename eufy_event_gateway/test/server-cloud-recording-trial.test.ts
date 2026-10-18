@@ -89,7 +89,7 @@ test("cloud preview browser selection owns consent, cancellation and object URLs
   let late = false, finish!: (response: Response) => void, entered!: () => void, pendingSignal: AbortSignal | null = null;
   const waiting = new Promise<void>(resolve => { entered = resolve; });
   const pending = new Promise<Response>(resolve => { finish = resolve; });
-  new Script(script).runInNewContext({ document: { getElementById: node }, window: { addEventListener: () => {} },
+  new Script(script).runInNewContext({ document: { getElementById: node }, window: { addEventListener: () => {} }, location: { protocol: "https:" },
     Option: class { constructor(readonly text: string, readonly value: string) {} }, Date, AbortController, URLSearchParams,
     URL: { revokeObjectURL: (url: string) => { revoked.push(url); }, createObjectURL: () => "blob:private" },
     setInterval, clearInterval,

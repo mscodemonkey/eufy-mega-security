@@ -38,6 +38,9 @@ import { selectCloudRecording, cloudRecordingUrl, cloudRecordingKey, projectClou
 import { readBoundedResponse } from "./bounded-response.js";
 import { CloudCalendarError, cloudCalendarBounds, projectCloudCalendar, type CloudCalendarQuery, type CloudCalendarProjection } from "./cloud-calendar.js";
 import { MegaSessionStore } from "./session-store.js";
+import { captureGeneralRtcIdentity, generalRtcCipher, type GeneralRtcCipher } from "./general-rtc-identity.js";
+import { createLogger } from "../logging.js";
+import { GeneralRtcError, generalRtcSmartHost, generalRtcAwait, type GeneralRtcStage } from "../stream/general-rtc-protocol.js";
 import type { MegaAuthResult, MegaCaptcha, MegaIdentity, MegaInventory, MegaResult, MegaSession } from "./types.js";
 
 // These codes are handled at the transport boundary so every caller gets the
@@ -51,8 +54,14 @@ const AUTH_SESSION_INVALID_CODES = new Set([4404, 26084, 26884]);
 const MEDIA_NOT_READY_DELAYS_MS = [1_000, 2_000, 2_000, 5_000] as const;
 const CIPHER_IDENTITY_RECOVERY_INTERVAL_MS = 10 * 60_000;
 
+/** Internal request controls used only by the isolated general RTC experiment. */
+interface GeneralRtcCallOptions {
+  readonly cachedIdentityOnly?: true;
+  readonly onDispatch?: () => void;
+}
+
 /** Fixed operation names may cross the logging boundary without request data. */
-type MegaOperation = "login" | "inventory" | "lock_credentials" | "cloud_history" | "cloud_playback" | "cipher" | "dsk" | "push" | "captcha" | "unknown";
+type MegaOperation = "login" | "inventory" | "lock_credentials" | "cloud_history" | "cloud_playback" | "cipher" | "dsk" | "push" | "captcha" | "general_rtc_hubs" | "general_rtc_params" | "general_rtc_pin" | "general_rtc_sign" | "unknown";
 
 /** Project a known internal endpoint into a fixed, privacy-safe diagnostic label. */
 export function megaOperation(path: string): MegaOperation {
@@ -67,6 +76,10 @@ export function megaOperation(path: string): MegaOperation {
     "/app/push/register_push_token": "push",
     "/passport/generate/captcha": "captcha",
     "/v3/event/app/get_kvs_urls": "cloud_playback",
+    "/v3/web/get_hub_list": "general_rtc_hubs",
+    "/v3/app/overall/get_params": "general_rtc_params",
+    "/v3/web/wp/verify_captcha": "general_rtc_pin",
+    "/v1/smart/ws/sign": "general_rtc_sign",
   };
   return Object.hasOwn(operations, path) ? operations[path]! : "unknown";
 }
@@ -108,6 +121,9 @@ export interface MegaClientOptions {
   readonly fetch?: typeof fetch;
   readonly now?: () => number;
   readonly wait?: (milliseconds: number) => Promise<void>;
+
+  /** Permit capture during natural login, without renewing a valid saved session. */
+  readonly experimentalGeneralRtc?: boolean;
 }
 
 /**
@@ -128,6 +144,7 @@ export class MegaClient {
   readonly #now: () => number;
   readonly #wait: ((milliseconds: number) => Promise<void>) | undefined;
   readonly #minimumRequestIntervalMs: number;
+  readonly #experimentalGeneralRtc: boolean;
   #lastRequestAt = 0;
   #connectionFlight: { readonly arguments: string; readonly promise: Promise<MegaAuthResult> } | null = null;
   #requestTail: Promise<unknown> = Promise.resolve();
@@ -148,6 +165,7 @@ export class MegaClient {
     this.#now = options.now ?? Date.now;
     this.#wait = options.wait;
     this.#minimumRequestIntervalMs = options.minimumRequestIntervalMs ?? 3_000;
+    this.#experimentalGeneralRtc = options.experimentalGeneralRtc === true;
     this.#store = new MegaSessionStore(join(options.persistentDirectory, "mega-session.json"));
   }
 
@@ -164,6 +182,103 @@ export class MegaClient {
   /** Check the current authenticated user without exposing stored account identity. */
   isAuthenticatedUser(userId: string): boolean {
     return this.isAuthenticated && !!userId && this.#session?.userId === userId;
+  }
+
+  /** Return only a currently bound RTC cipher, without initiating authentication. */
+  generalRtcCipher(): GeneralRtcCipher | null {
+    if (!this.#experimentalGeneralRtc || !this.isAuthenticated || !this.#session) return null;
+    return generalRtcCipher(this.#session, this.#clusterHost("security"));
+  }
+
+  /** Read the existing account binding without authentication, renewal or network I/O. */
+  generalRtcAccount(): { userId: string; securityHost: string; smartHost: string | null; country: string; token: string; cipher: GeneralRtcCipher | null } | null {
+    if (!this.#experimentalGeneralRtc || !this.isAuthenticated || !this.#session) return null;
+    const securityHost = this.#clusterHost("security");
+    return { userId: this.#session.userId, securityHost, smartHost: generalRtcSmartHost(securityHost),
+      country: this.#country.toUpperCase(), token: this.#session.authToken, cipher: this.generalRtcCipher() };
+  }
+
+  /** Check both required native identities without waiting for or starting an exchange. */
+  generalRtcHasNativeIdentities(): boolean {
+    return !!this.#session && !!this.#cachedNativeIdentity(this.#clusterHost("openapi"))
+      && !!this.#cachedNativeIdentity(this.#clusterHost("security"));
+  }
+
+  /** Fetch both native inventory lists with no identity recovery or suppressed failure. */
+  async generalRtcInventory(signal: AbortSignal): Promise<MegaInventory> {
+    if (!this.#experimentalGeneralRtc || !this.isAuthenticated) throw new GeneralRtcError("admission");
+    try {
+      const first = await this.#call("house", "/app/house/get_devs_list", { house_id: "", device_sns: {} }, false,
+        undefined, AbortSignal.any([signal, AbortSignal.timeout(10_000)]), { cachedIdentityOnly: true });
+      const value = this.#generalRtcResult(first, "inventory");
+      if (!isRecord(value) || !Array.isArray(value.devices)) throw new GeneralRtcError("inventory", "response");
+      const second = await this.#call("security", "/v2/house/device_list", {
+        device_sn: "", num: 1000, orderby: "", page: 0, station_sn: "",
+        time_zone: new Date(this.#now()).getTimezoneOffset() * -60_000, transaction: `${this.#now()}`,
+      }, false, undefined, AbortSignal.any([signal, AbortSignal.timeout(10_000)]), { cachedIdentityOnly: true });
+      const legacy = this.#generalRtcResult(second, "inventory");
+      const rows = Array.isArray(legacy) ? legacy : isRecord(legacy) && Array.isArray(legacy.devices) ? legacy.devices : null;
+      if (!rows) throw new GeneralRtcError("inventory", "response");
+      return projectMegaInventory(value, chargingDaysFromRows(rows));
+    } catch (error) { throw generalRtcRequestFailure(error, "inventory"); }
+  }
+
+  /** Read one bounded portal hub page through the existing native request queue. */
+  async generalRtcHubs(page: number, signal: AbortSignal): Promise<readonly unknown[]> {
+    if (!this.#experimentalGeneralRtc || !this.isAuthenticated || !Number.isInteger(page) || page < 0 || page > 4) throw new GeneralRtcError("admission");
+    try {
+      const result = await this.#call("security", "/v3/web/get_hub_list",
+        { page, num: 100, station_sn: "", device_sn: "" }, false, undefined,
+        AbortSignal.any([signal, AbortSignal.timeout(10_000)]), { cachedIdentityOnly: true });
+      const data = this.#generalRtcResult(result, "inventory");
+      if (!Array.isArray(data)) throw new GeneralRtcError("inventory", "response");
+      return data;
+    } catch (error) { throw generalRtcRequestFailure(error, "inventory"); }
+  }
+
+  /** Read the portal's start-stream preflight configuration without issuing its commands. */
+  async generalRtcParams(signal: AbortSignal): Promise<readonly unknown[]> {
+    if (!this.#experimentalGeneralRtc || !this.isAuthenticated) throw new GeneralRtcError("admission");
+    try {
+      const result = await this.#call("security", "/v3/app/overall/get_params",
+        { param_name: "common.start_stream.config" }, false, undefined,
+        AbortSignal.any([signal, AbortSignal.timeout(10_000)]), { cachedIdentityOnly: true });
+      const data = this.#generalRtcResult(result, "preflight");
+      if (!Array.isArray(data)) throw new GeneralRtcError("preflight", "response");
+      return data;
+    } catch (error) { throw generalRtcRequestFailure(error, "preflight"); }
+  }
+
+  /** Send one PIN verification with no identity retry and exact dispatch accounting. */
+  async generalRtcVerifyPin(pin: string, signal: AbortSignal, onDispatch: () => void): Promise<void> {
+    if (!this.#experimentalGeneralRtc || !this.isAuthenticated || !/^[\x20-\x7e]{1,32}$/.test(pin)) throw new GeneralRtcError("admission");
+    try {
+      const result = await this.#call("security", "/v3/web/wp/verify_captcha", { captcha: pin }, false,
+        undefined, AbortSignal.any([signal, AbortSignal.timeout(10_000)]), { cachedIdentityOnly: true, onDispatch });
+      this.#generalRtcResult(result, "pin");
+    } catch (error) { throw generalRtcRequestFailure(error, "pin"); }
+  }
+
+  /** Fetch only the allowlisted smart sign with native token/country headers and no redirects. */
+  async generalRtcSign(signal: AbortSignal): Promise<string> {
+    const account = this.generalRtcAccount();
+    if (!account?.smartHost || !account.cipher) throw new GeneralRtcError("sign", "identity");
+    try {
+      const deadline = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
+      return await generalRtcAwait(this.#enqueue(async lifetime => {
+        const current = this.generalRtcAccount();
+        if (!current || current.token !== account.token || current.cipher?.bindingKey !== account.cipher!.bindingKey) throw new GeneralRtcError("binding");
+        const scoped = AbortSignal.any([lifetime, deadline]);
+        scoped.throwIfAborted();
+        const response = await this.#fetch(`https://${account.smartHost}/v1/smart/ws/sign`, {
+          method: "GET", headers: { "X-Auth-Token": account.token, "Web-Country": account.country }, redirect: "error", signal: scoped,
+        });
+        if (response.status !== 200) throw new GeneralRtcError("sign", "response");
+        const value: unknown = JSON.parse((await readBoundedResponse(response, 65536, scoped)).toString("utf8"));
+        if (!isRecord(value) || value.code !== 0 || typeof value.data !== "string" || !/^[\x21-\x7e]{1,8192}$/.test(value.data)) throw new GeneralRtcError("sign", "response");
+        return value.data;
+      }), deadline, "sign");
+    } catch { throw new GeneralRtcError("sign", "response"); }
   }
 
   /** Return the pending image challenge, if login requested one. */
@@ -202,7 +317,15 @@ export class MegaClient {
     if (forceLogin) this.cancelPendingRequests();
     if (this.#requestLifetime.signal.aborted) this.#requestLifetime = new AbortController();
     const lifetime = this.#requestLifetime.signal;
-    if (forceLogin) this.#session = null;
+    if (forceLogin) {
+      const previous = this.#session;
+      this.#session = null;
+      const stored = previous ?? await this.#store.load();
+      if (stored?.generalRtcIdentity) {
+        await this.#store.save(nativeOnlySession(stored));
+        createLogger("mega").info("general_rtc_identity_dropped", "reason=binding");
+      }
+    }
     if (!this.#session && !forceLogin) await this.#restore();
     lifetime.throwIfAborted();
     if (!forceLogin && this.#session?.verificationPending && !verificationCode && !captchaAnswer) {
@@ -265,6 +388,13 @@ export class MegaClient {
       throw new Error(`Mega login failed (${result.code}: ${safeMegaMessage(result.msg)})`);
     }
     this.#pendingCaptcha = null;
+    if (this.#experimentalGeneralRtc && this.#session) {
+      const secretInfo = isRecord(decoded.server_secret_info) ? decoded.server_secret_info : null;
+      const identity = captureGeneralRtcIdentity(this.#session, this.#clusterHost("security"),
+        password.scalar, password.clientPublicKey, secretInfo?.public_key);
+      if (identity) this.#session = { ...this.#session, generalRtcIdentity: identity };
+      else createLogger("mega").info("general_rtc_identity_dropped", "reason=server_key");
+    }
     await this.#save();
     return { state: "authenticated" };
   }
@@ -289,15 +419,7 @@ export class MegaClient {
     lifetime.throwIfAborted();
     const chargingDays = await this.#legacyChargingDays(cancellation).catch(() => new Map<string, unknown>());
     lifetime.throwIfAborted();
-    return {
-      devices: value.devices.filter(isMegaDevice).map((device) => {
-        const { charging_days: _placeholder, ...withoutChargingDays } = device;
-        return chargingDays.has(device.device_sn)
-          ? { ...withoutChargingDays, charging_days: chargingDays.get(device.device_sn) }
-          : withoutChargingDays;
-      }),
-      groups: Array.isArray(value.groups) ? value.groups : [],
-    };
+    return projectMegaInventory(value, chargingDays);
   }
 
   /**
@@ -741,9 +863,19 @@ export class MegaClient {
     const expectedVerifier = credentialVerifier(restored.openUdid, this.#email, this.#password);
     if (restored.country.toLowerCase() !== this.#country || restored.credentialVerifier !== expectedVerifier) {
       this.#session = emptySession(this.#country, restored.openUdid, expectedVerifier);
+      if (restored.generalRtcIdentity) {
+        await this.#store.save(nativeOnlySession(restored));
+        createLogger("mega").info("general_rtc_identity_dropped", "reason=binding");
+      }
       return;
     }
     this.#session = restored;
+    if (restored.generalRtcIdentity && (!this.#experimentalGeneralRtc || !this.generalRtcCipher())) {
+      const nativeSession = nativeOnlySession(restored);
+      this.#session = nativeSession;
+      createLogger("mega").info("general_rtc_identity_dropped", this.#experimentalGeneralRtc ? "reason=binding" : "reason=disabled");
+      await this.#store.save(nativeSession);
+    }
   }
 
   async #ensureDomain(): Promise<void> {
@@ -811,16 +943,40 @@ export class MegaClient {
     return identity;
   }
 
-  async #call(service: string, path: string, payload: unknown, retryIdentity = true, appScope?: "eufy_security", cancellation?: AbortSignal): Promise<MegaResult> {
+  #cachedNativeIdentity(host: string): MegaIdentity | null {
+    const identity = this.#session?.identities[host];
+    return identity && /^[A-Za-z0-9_-]{1,128}$/.test(identity.keyIdent) && /^[a-f0-9]{64}$/i.test(identity.sharedKey)
+      ? identity : null;
+  }
+
+  #generalRtcResult(result: MegaResult, stage: GeneralRtcStage): unknown {
+    if (result.code !== 0) throw new GeneralRtcError(stage, TRANSIENT_IDENTITY_ERRORS.has(result.code) ? "native_identity_rejected" : "response");
+    return this.#decodeResult(result);
+  }
+
+  async #call(service: string, path: string, payload: unknown, retryIdentity = true, appScope?: "eufy_security", cancellation?: AbortSignal,
+    options?: GeneralRtcCallOptions): Promise<MegaResult> {
     const lifetime = cancellation ? AbortSignal.any([this.#requestLifetime.signal, cancellation]) : this.#requestLifetime.signal;
     lifetime.throwIfAborted();
     const host = this.#clusterHost(service);
     const identityHost = host.endsWith(".eufylife.com") ? host : this.#clusterHost("openapi");
-    const identity = await this.#identity(identityHost);
+    const identity = options?.cachedIdentityOnly ? this.#cachedNativeIdentity(identityHost) : await this.#identity(identityHost);
+    if (!identity) throw new GeneralRtcError("admission", "native_identity_missing");
+    if (options?.cachedIdentityOnly) retryIdentity = false;
     lifetime.throwIfAborted();
+    const trialAccount = options?.cachedIdentityOnly ? this.generalRtcAccount() : null;
+    const onDispatch = options?.cachedIdentityOnly ? (): void => {
+      const current = this.generalRtcAccount();
+      const cached = this.#cachedNativeIdentity(identityHost);
+      if (!cached || cached !== identity) throw new GeneralRtcError("admission", cached ? "native_identity_rejected" : "native_identity_missing");
+      if (!current || !trialAccount || current.token !== trialAccount.token || current.userId !== trialAccount.userId
+        || current.cipher?.bindingKey !== trialAccount.cipher?.bindingKey) throw new GeneralRtcError("binding", "binding");
+      options.onDispatch?.();
+    } : undefined;
     let result: MegaResult;
     try {
-      result = await this.#signedPost(host, path, payload, identity, undefined, appScope, cancellation);
+      const pending = this.#signedPost(host, path, payload, identity, undefined, appScope, cancellation, onDispatch);
+      result = options?.cachedIdentityOnly ? await generalRtcAwait(pending, lifetime, "admission") : await pending;
     } catch (error) {
       lifetime.throwIfAborted();
       if (!retryIdentity || path !== "/v3/app/cipher/get_ciphers" || !(error instanceof MegaHttpRejection)
@@ -842,7 +998,7 @@ export class MegaClient {
     if (retryIdentity && TRANSIENT_IDENTITY_ERRORS.has(result.code)) {
       const refreshedIdentity = await this.#renewIdentity(identityHost, identity);
       lifetime.throwIfAborted();
-      const retried = await this.#signedPost(host, path, payload, refreshedIdentity, undefined, appScope, cancellation);
+      const retried = await this.#signedPost(host, path, payload, refreshedIdentity, undefined, appScope, cancellation, options?.onDispatch);
       lifetime.throwIfAborted();
       return retried;
     }
@@ -883,6 +1039,7 @@ export class MegaClient {
     bootstrap?: { readonly keyIdent: string; readonly encryptedPublicKey: string },
     appScope?: "eufy_security",
     cancellation?: AbortSignal,
+    onDispatch?: () => void,
   ): Promise<MegaResult> {
     return this.#enqueue(async (lifetime) => {
       const signal = cancellation ? AbortSignal.any([lifetime, cancellation]) : lifetime;
@@ -908,7 +1065,8 @@ export class MegaClient {
         headers["app-tab"] = "eufy_security";
       }
       if (appScope) headers["app-name"] = appScope;
-      const result = await this.#post(host, path, body, headers, signal);
+      if (path === "/v3/web/wp/verify_captcha") headers["X-Auto-Ts"] = timestamp;
+      const result = await this.#post(host, path, body, headers, signal, onDispatch);
       this.#responseOperations.set(result, megaOperation(path));
       if (identity) {
 
@@ -957,8 +1115,10 @@ export class MegaClient {
     return job;
   }
 
-  async #post(host: string, path: string, body: string, headers: Record<string, string>, signal: AbortSignal): Promise<MegaResult> {
+  async #post(host: string, path: string, body: string, headers: Record<string, string>, signal: AbortSignal, onDispatch?: () => void): Promise<MegaResult> {
     let response: Response;
+    signal.throwIfAborted();
+    onDispatch?.();
     try {
       response = await this.#fetch(`https://${host}${path}`, {
         method: "POST", headers, body, signal, redirect: "error",
@@ -1077,8 +1237,8 @@ export class MegaClient {
     tokenExpiresAt: number | null,
     verificationPending: boolean,
   ): void {
-    const base = this.#session;
-    if (!base) throw new Error("Mega session was not initialized");
+    if (!this.#session) throw new Error("Mega session was not initialized");
+    const base = nativeOnlySession(this.#session);
     this.#session = {
       ...base,
       authToken,
@@ -1096,6 +1256,35 @@ export class MegaClient {
   #requireAuthentication(): void {
     if (!this.isAuthenticated) throw new Error("Mega authentication is required");
   }
+}
+
+function nativeOnlySession(session: MegaSession): MegaSession {
+  const { generalRtcIdentity: retiredIdentity, ...nativeSession } = session;
+  void retiredIdentity;
+  return nativeSession;
+}
+
+function generalRtcRequestFailure(error: unknown, stage: GeneralRtcStage): GeneralRtcError {
+  return new GeneralRtcError(stage, error instanceof GeneralRtcError ? error.reason : "response");
+}
+
+function chargingDaysFromRows(rows: readonly unknown[]): ReadonlyMap<string, unknown> {
+  const values = new Map<string, unknown>();
+  for (const row of rows) {
+    if (isRecord(row) && typeof row.device_sn === "string" && "charging_days" in row) values.set(row.device_sn, row.charging_days);
+  }
+  return values;
+}
+
+function projectMegaInventory(value: Record<string, unknown>, chargingDays: ReadonlyMap<string, unknown>): MegaInventory {
+  if (!Array.isArray(value.devices)) throw new Error("Mega returned an invalid device inventory");
+  return {
+    devices: value.devices.filter(isMegaDevice).map(device => {
+      const { charging_days: _placeholder, ...withoutChargingDays } = device;
+      return chargingDays.has(device.device_sn) ? { ...withoutChargingDays, charging_days: chargingDays.get(device.device_sn) } : withoutChargingDays;
+    }),
+    groups: Array.isArray(value.groups) ? value.groups : [],
+  };
 }
 
 function allowedMediaUrl(value: string, hostPattern: RegExp): URL {

@@ -1,5 +1,5 @@
 name: Eufy Mega Security
-version: "0.1.173"
+version: "0.1.174"
 slug: eufy_event_gateway
 description: Event-first Eufy camera bridge for Home Assistant
 url: https://github.com/mscodemonkey/eufy-mega-security
@@ -32,6 +32,7 @@ options:
   experimental_nvr_controls: false
   experimental_nvr_live: false
   experimental_doorbell_rtc: false
+  experimental_general_rtc: false
   experimental_cloud_recordings: false
   experimental_nvr_region: auto
   experimental_fixed_h265_resolution: false
@@ -46,6 +47,7 @@ schema:
   experimental_nvr_controls: bool?
   experimental_nvr_live: bool
   experimental_doorbell_rtc: bool
+  experimental_general_rtc: bool?
   experimental_cloud_recordings: bool
   experimental_nvr_region: list(auto|us|eu|ie)
   experimental_fixed_h265_resolution: bool?

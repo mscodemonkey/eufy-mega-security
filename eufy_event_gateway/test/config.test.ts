@@ -64,6 +64,13 @@ test("fixed H.265 viewer resolution defaults off and accepts only explicit boole
   }
 });
 
+test("general camera trials default off and require explicit authenticated opt-in", () => {
+  assert.equal(loadConfig({}).experimentalGeneralRtc, false);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_GENERAL_RTC: "true" }), /API_TOKEN/);
+  assert.equal(loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_GENERAL_RTC: "true", EUFY_GATEWAY_API_TOKEN: "x".repeat(32) }).experimentalGeneralRtc, true);
+  for (const value of ["1", "yes", "invalid"]) assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_GENERAL_RTC: value }), /must be true or false/);
+});
+
 test("standalone doorbell trials default off and require explicit authenticated opt-in", () => {
   assert.equal(loadConfig({}).experimentalDoorbellRtc, false);
   assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_DOORBELL_RTC: "true" }), /API_TOKEN/);

@@ -8,6 +8,8 @@
  * merely to mirror an undocumented field that no consumer needs.
  */
 
+import type { GeneralRtcIdentity } from "./general-rtc-identity.js";
+
 /** Per-host ECDH identity cached after a successful key exchange. */
 export interface MegaIdentity {
   readonly keyIdent: string;
@@ -30,6 +32,9 @@ export interface MegaSession {
   readonly megaDomain: string;
   readonly domains: Readonly<Record<string, string>>;
   readonly identities: Readonly<Record<string, MegaIdentity>>;
+
+  /** Optional login key owned solely by the default-off general RTC trial. */
+  readonly generalRtcIdentity?: GeneralRtcIdentity;
 }
 
 /** Minimal envelope returned by every Mega API request. */

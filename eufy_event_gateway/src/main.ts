@@ -76,6 +76,7 @@ if (config.provider === "simulated") {
     normalNvrLive: config.experimentalNvrLive,
     apiAuthenticationConfigured: !!config.apiToken,
     experimentalDoorbellRtc: config.experimentalDoorbellRtc,
+    experimentalGeneralRtc: config.experimentalGeneralRtc,
     experimentalCloudRecordings: config.experimentalCloudRecordings,
     experimentalNvrRegion: config.experimentalNvrRegion,
     ...(eventImageCapture ? { eventImageCapture } : {}),

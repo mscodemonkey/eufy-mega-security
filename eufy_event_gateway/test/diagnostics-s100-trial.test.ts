@@ -30,8 +30,8 @@ test("S100 Stop button remains available while the pulse form is locked and targ
     release(result); return result;
   };
   const script = diagnosticsPage().split("<script>")[1]!.split("</script>")[0]!;
-  new Function("document", "fetch", "Option", "window", script)(
-    { getElementById: element }, fetch, function(this: { value: string }, _text: string, value: string) { this.value = value; }, { addEventListener() {} });
+  new Function("document", "fetch", "Option", "window", "location", script)(
+    { getElementById: element }, fetch, function(this: { value: string }, _text: string, value: string) { this.value = value; }, { addEventListener() {} }, { protocol: "https:" });
   element("trial-action").onchange!();
   element("trial-consent").checked = true;
   const pulse = element("trial-send").onclick!();

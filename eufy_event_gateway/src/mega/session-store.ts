@@ -3,13 +3,14 @@
  *
  * The store validates the current session schema before returning it and writes
  * restrictive, atomically replaced JSON. It stores session metadata and
- * derived host key material only; plaintext passwords, CAPTCHA answers,
+ * derived host key material and the explicit opt-in login identity. Plaintext passwords, CAPTCHA answers,
  * verification codes, and media bytes are never persisted here.
  */
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import type { MegaIdentity, MegaSession } from "./types.js";
+import { parseGeneralRtcIdentity } from "./general-rtc-identity.js";
 
 /**
  * Atomic file store for native Mega sessions.
@@ -24,9 +25,12 @@ export class MegaSessionStore {
   /** Create a store for the current private session path. */
   constructor(private readonly path: string) {}
 
-  /** Load a valid current session or return null for missing, malformed, or retired schemas. */
+  /** Load native auth, removing only a malformed optional RTC identity from an otherwise valid file. */
   async load(): Promise<MegaSession | null> {
-    return parseSession(await readJson(this.path));
+    const raw = await readJson(this.path);
+    const session = parseSession(raw);
+    if (session && isRecord(raw) && Object.hasOwn(raw, "generalRtcIdentity") && !session.generalRtcIdentity) await this.save(session);
+    return session;
   }
 
   /** Recover only the non-secret device identifier from a retired version 1 session. */
@@ -70,6 +74,7 @@ function parseSession(value: unknown): MegaSession | null {
 
 function validatedSession(value: Record<string, unknown>): MegaSession | null {
   const identities = parseIdentities(value.identities);
+  const generalRtcIdentity = parseGeneralRtcIdentity(value.generalRtcIdentity);
   if (
     typeof value.country !== "string" || typeof value.openUdid !== "string" ||
     typeof value.credentialVerifier !== "string" || !/^[0-9a-f]{64}$/i.test(value.credentialVerifier) ||
@@ -90,6 +95,7 @@ function validatedSession(value: Record<string, unknown>): MegaSession | null {
     megaDomain: value.megaDomain,
     domains: value.domains,
     identities,
+    ...(generalRtcIdentity ? { generalRtcIdentity } : {}),
   };
 }
 

@@ -5,6 +5,9 @@ configuration:
   experimental_doorbell_rtc:
     name: Experimental standalone doorbell video test
     description: Enable a consented ten-second private video test in Diagnostics for a standalone Video Doorbell C30. Normal streaming stays unchanged. Hardware behaviour is unconfirmed. Off by default.
+  experimental_general_rtc:
+    name: Experimental general camera video test
+    description: Enable a consented ten-second private video test in Diagnostics for a supported camera on the owner account. A guest account is refused. The Eufy live-view PIN you enter is sent to Eufy and is not stored. Excludes cameras on an NVR and the T8224 doorbell. Hardware behaviour is unconfirmed. Off by default.
   experimental_nvr_controls:
     name: Experimental NVR control tests
     description: Enable separately consented camera-power and Schedule-to-Home restoration tests for T8E00 through T8N00 in Diagnostics. Requires the other experimental options. A lost connection can require manual restoration. Off by default.

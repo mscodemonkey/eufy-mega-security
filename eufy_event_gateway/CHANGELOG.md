@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.174
+
+- Add the default-off `experimental_general_rtc` owner-account video trial in Diagnostics. It requests one consented private H.264 clip without changing normal live view.
+- Keep trial authentication passive, use only cached native request identities, and clear optional stored video identity when disabled. The PIN and clip are not persisted.
+- Check fresh ownership before and after recording, enforce PIN cooldowns and bounded media cleanup, and document unconfirmed hardware and service compatibility.
+
 ## 0.1.173
 
 - Fix NVR live video reopening after a previous stream ends, including overlapping viewer cleanup. The reported remote stream closure still needs investigation.

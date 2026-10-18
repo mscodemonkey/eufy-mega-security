@@ -579,6 +579,12 @@ and configure `EUFY_GATEWAY_API_TOKEN`. The authenticated
 `{"action":"ptz","direction":"left"}` (also right, up and down).
 Do not include camera identifiers or private diagnostics in public issue comments.
 
+### Experimental general camera video test
+
+The default-off `experimental_general_rtc` option adds a separate, consented ten-second private clip test in Diagnostics. It requires the configured account to own the camera and the camera or HomeBase to report portal RTC support. Guest accounts, NVR cameras and the T8224 doorbell are refused. Hardware behaviour is unconfirmed, and normal live view stays unchanged.
+
+Read [the trial guide](docs/GENERAL_RTC_TEST.md) before enabling it. The Eufy live-view PIN is sent to Eufy once per dispatched attempt. The test uses battery, can take about three minutes and may keep the camera awake for about 40 seconds after capture. It does not force sign-in. An eligible video identity is captured only during a future natural sign-in.
+
 ### Experimental NVR video test
 
 The separate [NVR camera-power test](docs/NVR_CAMERA_POWER_TEST.md) is off by

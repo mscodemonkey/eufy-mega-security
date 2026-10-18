@@ -53,6 +53,8 @@ import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, PpcsLo
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBaseChildParam, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
 import type { SensorContactObservation } from "../stream/sensor-status-notification.js";
 import { cameraCapabilityLogSummaries, describeCameraCapabilities, isSupportedCameraType, describeDeviceCapabilities, deviceCapabilityLogSummaries } from "./device-capabilities-core.js";
+import { GeneralRtcTrial, GeneralRtcPinLimiter, type GeneralRtcTrialLease, type GeneralRtcBinding } from "./general-rtc-trial.js";
+import { GeneralRtcError } from "../stream/general-rtc-protocol.js";
 import { catalogueIntegrationStatus, hasMainsBatterySentinel } from "./camera-capability-core.js";
 import type { CameraProvider, CaptchaChallenge, CaptchaProvider, ProviderEvents } from "./provider.js";
 import { PushEventDeduplicator } from "./push-event-deduplicator.js";
@@ -119,6 +121,9 @@ export interface EufyProviderConfig {
 
   /** Default-off, media-only native doorbell diagnostic trial. */
   readonly experimentalDoorbellRtc?: boolean;
+
+  /** Default-off owner-account general portal diagnostic clip. */
+  readonly experimentalGeneralRtc?: boolean;
 
   /** Default-off existing cloud recording download, independent of live camera capabilities. */
   readonly experimentalCloudRecordings?: boolean;
@@ -506,6 +511,9 @@ export interface PpcsStreamRoute {
 export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #client: MegaClient;
   readonly #devices = new Map<string, MegaInventoryDevice>();
+  readonly #generalRtcTrials = new Map<string, { parent: string; trial: GeneralRtcTrial }>();
+  readonly #generalRtcPins = new GeneralRtcPinLimiter();
+  readonly #generalRtcLockOperations = new Map<string, number>();
   readonly #nvrModePushTimes = new Map<string, number>();
   #nvrModePushStartedAt = 0;
   readonly #doorbellTrials = new Map<string, { controller: AbortController; device: MegaInventoryDevice; generation: number;
@@ -592,25 +600,29 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       password: config.password,
       country: config.country,
       persistentDirectory: config.persistentDirectory,
+      experimentalGeneralRtc: config.experimentalGeneralRtc === true,
     });
   }
 
   /** Query one opt-in lock through its separately owned MQTT operation. */
   async refreshLock(serial: string, signal?: AbortSignal): Promise<SmartLockState> {
+    if (this.#generalRtcReserved(serial)) throw new E30LockError("busy");
     if (!this.#locks) throw new E30LockError("unavailable");
-    return this.#locks.refresh(serial, signal);
+    return this.#withGeneralRtcLockOperation(serial, () => this.#locks!.refresh(serial, signal));
   }
 
   /** Change lock state once and require an independent correlated query response. */
   async setLockState(serial: string, locked: boolean, signal?: AbortSignal, onDispatch?: () => void): Promise<SmartLockState> {
+    if (this.#generalRtcReserved(serial)) throw new E30LockError("busy");
     if (!this.#locks) throw new E30LockError("unavailable");
-    return this.#locks.setLocked(serial, locked, signal, onDispatch);
+    return this.#withGeneralRtcLockOperation(serial, () => this.#locks!.setLocked(serial, locked, signal, onDispatch));
   }
 
   /** Forward one closed settings operation through the lock registry's shared lease. */
   async setLockSetting(serial: string, change: E30LockSettingChange, signal?: AbortSignal, onDispatch?: () => void): Promise<SmartLockState> {
+    if (this.#generalRtcReserved(serial)) throw new E30LockError("busy");
     if (!this.#locks) throw new E30LockError("unavailable");
-    return this.#locks.setSetting(serial, change, signal, onDispatch);
+    return this.#withGeneralRtcLockOperation(serial, () => this.#locks!.setSetting(serial, change, signal, onDispatch));
   }
 
 
@@ -1134,6 +1146,57 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       && device.category === "eufy_security" && device.parentSerial === device.serial && !device.p2pConnection
       && !!device.adminUserId && device.channel !== null && Number.isInteger(device.channel)
       && device.channel >= 0 && device.channel <= 254;
+  }
+
+  /** Reserve a default-off owner-account clip without changing normal media admission. */
+  reserveGeneralRtcTrial(serial: string, signal: AbortSignal): GeneralRtcTrialLease {
+    if (!this.config.experimentalGeneralRtc || !this.config.apiAuthenticationConfigured || this.#recordingClosing || signal.aborted) throw new GeneralRtcError("admission");
+    const account = this.#client.generalRtcAccount();
+    if (!account || !this.#client.generalRtcHasNativeIdentities()) throw new GeneralRtcError("admission", "native_identity_missing");
+    const device = this.#devices.get(serial);
+    const parentSerial = device?.parentSerial || serial;
+    const parent = this.#devices.get(parentSerial);
+    if (!device || !parent || !isSupportedMegaCamera(device) || device.deviceType === null || parent.deviceType === null
+      || device.category !== "eufy_security" || parent.category !== "eufy_security"
+      || !/^[A-Za-z0-9_-]{1,128}$/.test(serial) || !/^[A-Za-z0-9_-]{1,128}$/.test(parentSerial)
+      || !device.adminUserId || !/^[A-Za-z0-9_-]{1,255}$/.test(device.adminUserId)
+      || device.adminUserId !== account.userId || parent.adminUserId !== account.userId
+      || device.channel === null || !Number.isInteger(device.channel) || device.channel < 0 || device.channel > 254
+      || parent.model === "T8N00" && parent.deviceType === 300 || parent.model === "T9000" && parent.deviceType === 27
+      || device.model === "T8224" && device.deviceType === 96 || !account.smartHost || !/^[A-Z]{2}$/.test(account.country)
+      || !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]{1,4096}$/.test(account.token)) throw new GeneralRtcError("admission");
+    if (!account.cipher) throw new GeneralRtcError("reconnect_required");
+    this.#generalRtcPins.check(account.userId);
+    const related = new Set([parentSerial, ...[...this.#devices.values()]
+      .filter(row => (row.parentSerial || row.serial) === parentSerial).map(row => row.serial)]);
+    const busyMaps: readonly ReadonlyMap<string, unknown>[] = [this.#ppcsStreams, this.#streamStarts, this.#stationOperations,
+      this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations, this.#audioRecordingOperations,
+      this.#motionOperations, this.#guardModeOperations, this.#nightVisionOperations, this.#lightOperations,
+      this.#cameraSirenOperations, this.#cameraSirenAborters, this.#panControlOperations, this.#nvrTrials, this.#doorbellTrials,
+      this.#localMotionAborters, this.#lockStatusAborters, this.#manualLightAborters, this.#recordingSessions, this.#trialSirenStops,
+      this.#generalRtcLockOperations];
+    if (this.#recordingIndexActive || this.#recordingPeerReserved(serial) || this.#nvrControlReserved(parentSerial)
+      || [...this.#nvrLiveJobs].some(id => related.has(id)) || [...this.#generalRtcTrials.values()].some(entry => entry.parent === parentSerial)
+      || busyMaps.some(map => [...map.keys()].some(id => related.has(id)))) throw new GeneralRtcError("busy");
+    const initial: GeneralRtcBinding = { child: { serial, model: device.model, type: device.deviceType, category: device.category,
+      parent: parentSerial, channel: device.channel, administrator: account.userId }, parent: { serial: parentSerial,
+      model: parent.model, type: parent.deviceType, category: parent.category, administrator: account.userId } };
+    const generation = this.#startupGeneration;
+    const releaseReservation = this.#reserveTrialPeer(parentSerial);
+    let trial: GeneralRtcTrial;
+    try {
+      trial = new GeneralRtcTrial({ client: this.#client, initial, limiter: this.#generalRtcPins, signal,
+        normalize: inventory => parseMegaInventory(inventory), releaseReservation,
+        current: () => {
+          const child = this.#devices.get(serial), station = this.#devices.get(parentSerial);
+          return !this.#recordingClosing && generation === this.#startupGeneration && this.#generalRtcTrials.get(serial)?.trial === trial
+            && !!child && !!station && !inventoryBindingChanged(device, child) && !inventoryBindingChanged(parent, station)
+            && child.adminUserId === account.userId && station.adminUserId === account.userId;
+        }, retired: () => { if (this.#generalRtcTrials.get(serial)?.trial === trial) this.#generalRtcTrials.delete(serial); },
+      });
+    } catch { releaseReservation(); throw new GeneralRtcError("admission"); }
+    this.#generalRtcTrials.set(serial, { parent: parentSerial, trial });
+    return trial;
   }
 
   /** Reserve one exact standalone doorbell for a private, video-only diagnostic clip. */
@@ -2975,6 +3038,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#nvrSettings.clear(); this.#nvrViews.clear(); this.#nvrExplicitOwners.clear();
     await Promise.allSettled([...this.#nvrTrials.values()].map(trial => trial.release()));
     await Promise.allSettled([...this.#doorbellTrials.values()].map(trial => trial.release()));
+    if (this.#generalRtcTrials.size) {
+      await Promise.allSettled([...this.#generalRtcTrials.values()].map(entry => entry.trial.release("shutdown")));
+    }
     this.#client.cancelPendingRequests();
     for (const controller of this.#localMotionAborters.values()) controller.abort();
     for (const controller of this.#manualLightAborters.values()) controller.abort();
@@ -4228,6 +4294,21 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const owner = Symbol();
     this.#trialPeers.set(peer, owner);
     return () => { if (this.#trialPeers.get(peer) === owner) this.#trialPeers.delete(peer); };
+  }
+
+  #generalRtcReserved(serial: string): boolean {
+    const parent = this.#devices.get(serial)?.parentSerial || serial;
+    return [...this.#generalRtcTrials.values()].some(entry => entry.parent === parent);
+  }
+
+  async #withGeneralRtcLockOperation<T>(serial: string, operation: () => Promise<T>): Promise<T> {
+    this.#generalRtcLockOperations.set(serial, (this.#generalRtcLockOperations.get(serial) ?? 0) + 1);
+    try { return await operation(); }
+    finally {
+      const remaining = (this.#generalRtcLockOperations.get(serial) ?? 1) - 1;
+      if (remaining) this.#generalRtcLockOperations.set(serial, remaining);
+      else this.#generalRtcLockOperations.delete(serial);
+    }
   }
 
   #nvrControlReserved(peer: string): boolean {
