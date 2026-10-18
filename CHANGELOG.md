@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.175
+
+- Restore the pre-v0.1.174 default login preparation path. The gateway no longer extracts the optional RTC private scalar unless the default-off general video trial is enabled.
+- Keep opt-in RTC identity capture separate and verify its scalar, public key and encrypted password remain one matching ephemeral key pair.
+
 ## 0.1.174
 
 - Add the default-off `experimental_general_rtc` owner-account video trial in Diagnostics. It requests one consented private H.264 clip without changing normal live view.

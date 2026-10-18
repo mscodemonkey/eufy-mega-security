@@ -6,17 +6,39 @@
  * they reach a live account.
  */
 import assert from "node:assert/strict";
+import { createDecipheriv, createECDH } from "node:crypto";
 import test from "node:test";
 
 import {
+  LOGIN_SERVER_PUBLIC_KEY,
   decryptEnvelope,
   encryptEnvelope,
+  encryptPassword,
   credentialVerifier,
   megaUserToken,
   requestSignature,
   sharedAesKey,
   sharedSigningKey,
 } from "../src/mega/crypto.js";
+
+test("captures the login scalar only for the opt-in RTC path", () => {
+  const normal = encryptPassword("synthetic-password");
+  assert.equal(normal.scalar, undefined);
+
+  const captured = encryptPassword("synthetic-password", true);
+  assert.match(captured.scalar ?? "", /^[0-9a-f]{64}$/);
+  const client = createECDH("prime256v1");
+  client.setPrivateKey(Buffer.from(captured.scalar!, "hex"));
+  assert.equal(client.getPublicKey("hex"), captured.clientPublicKey);
+
+  const secret = client.computeSecret(Buffer.from(LOGIN_SERVER_PUBLIC_KEY, "hex"));
+  const decipher = createDecipheriv("aes-256-cbc", secret, secret.subarray(0, 16));
+  const plaintext = Buffer.concat([
+    decipher.update(Buffer.from(captured.encrypted, "base64")),
+    decipher.final(),
+  ]).toString("utf8");
+  assert.equal(plaintext, "synthetic-password");
+});
 
 test("signs a Mega request using the protocol's exact input order", () => {
   assert.equal(

@@ -345,7 +345,7 @@ export class MegaClient {
     const openApiHost = this.#clusterHost("openapi");
     await this.#identity(openApiHost);
     lifetime.throwIfAborted();
-    const password = encryptPassword(this.#password);
+    const password = encryptPassword(this.#password, this.#experimentalGeneralRtc);
     const result = await this.#call("passport", "/passport/login", {
       email: this.#email,
       password: password.encrypted,
@@ -388,7 +388,7 @@ export class MegaClient {
       throw new Error(`Mega login failed (${result.code}: ${safeMegaMessage(result.msg)})`);
     }
     this.#pendingCaptcha = null;
-    if (this.#experimentalGeneralRtc && this.#session) {
+    if (this.#experimentalGeneralRtc && this.#session && password.scalar) {
       const secretInfo = isRecord(decoded.server_secret_info) ? decoded.server_secret_info : null;
       const identity = captureGeneralRtcIdentity(this.#session, this.#clusterHost("security"),
         password.scalar, password.clientPublicKey, secretInfo?.public_key);

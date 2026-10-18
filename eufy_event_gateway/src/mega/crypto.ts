@@ -102,17 +102,19 @@ export function finishKeyExchange(pending: PendingKeyExchange, encryptedServerPu
   return { keyIdent: pending.keyIdent, sharedKey, clientPublicKey: pending.clientPublicKey };
 }
 
-/** Encrypt a login password and return its ephemeral pair for opt-in identity capture. */
-export function encryptPassword(password: string): { encrypted: string; clientPublicKey: string; scalar: string } {
+/** Encrypt a login password, optionally retaining its ephemeral scalar for the opt-in RTC trial. */
+export function encryptPassword(password: string, captureScalar = false): { encrypted: string; clientPublicKey: string; scalar?: string } {
   const ecdh = createECDH("prime256v1");
   ecdh.generateKeys();
   const secret = ecdh.computeSecret(Buffer.from(LOGIN_SERVER_PUBLIC_KEY, "hex"));
   const cipher = createCipheriv("aes-256-cbc", secret, secret.subarray(0, 16));
   const encrypted = cipher.update(password, "utf8", "base64") + cipher.final("base64");
+  const clientPublicKey = ecdh.getPublicKey("hex");
+  if (!captureScalar) return { encrypted, clientPublicKey };
   const privateBytes = ecdh.getPrivateKey();
   const scalar = privateBytes.toString("hex").padStart(64, "0");
   privateBytes.fill(0);
-  return { encrypted, clientPublicKey: ecdh.getPublicKey("hex"), scalar };
+  return { encrypted, clientPublicKey, scalar };
 }
 
 /** Derive a slow account-bound verifier used to reject sessions saved for different credentials. */
