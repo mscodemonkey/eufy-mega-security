@@ -357,7 +357,7 @@ export class MegaClient {
       captcha_id: captchaAnswer ? this.#pendingCaptcha?.id ?? "" : "",
       verify_code: verificationCode ?? "",
       login_id: "",
-    }, false);
+    });
 
     if (CAPTCHA_REQUIRED.has(result.code)) {
       const challenge = await this.#requestCaptcha();

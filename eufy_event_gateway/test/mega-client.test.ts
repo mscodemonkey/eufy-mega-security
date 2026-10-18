@@ -302,6 +302,59 @@ test("keeps login limits and unrelated responses terminal", async () => {
   }
 });
 
+test("renews a rejected login identity once without looping", async () => {
+  for (const retryCode of [0, 4404]) {
+    const directory = await mkdtemp(join(tmpdir(), "mega-login-identity-recovery-"));
+    const host = "app-openapi-eu-pr.eufy.com";
+    const staleSharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
+    let refreshedSharedKey = "";
+    const requests: Array<{ readonly path: string; readonly keyIdent: string | null }> = [];
+    try {
+      await writeFile(join(directory, "mega-session.json"), JSON.stringify({
+        version: 2, country: "au", openUdid: "device",
+        credentialVerifier: credentialVerifier("device", "user@example.invalid", "password"),
+        authToken: "", tokenExpiresAt: 0, userId: "", verificationPending: false,
+        megaDomain: "mega-eu-pr.eufy.com", domains: {},
+        identities: { [host]: { keyIdent: "stale-identity", sharedKey: staleSharedKey, clientPublicKey: "public" } },
+      }));
+      const client = new MegaClient({
+        email: "user@example.invalid", password: "password", country: "AU", persistentDirectory: directory,
+        minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000,
+        fetch: async (input, init) => {
+          const path = new URL(String(input)).pathname;
+          requests.push({ path, keyIdent: new Headers(init?.headers).get("x-key-ident") });
+          if (path === "/passport/login" && requests.filter(({ path: seen }) => seen === path).length === 1) {
+            return new Response(JSON.stringify({ code: 4404, msg: "get identity error", data: {} }));
+          }
+          if (path === "/openapi/oauth/key/exchange") {
+            const body = JSON.parse(String(init?.body ?? "{}")) as { client_public_key?: string };
+            const clientPublicKey = decryptEnvelope(body.client_public_key ?? "", presetKey());
+            const server = createECDH("prime256v1");
+            server.generateKeys();
+            refreshedSharedKey = server.computeSecret(Buffer.from(clientPublicKey, "hex")).toString("hex");
+            return new Response(JSON.stringify({ code: 0,
+              data: { server_public_key: encryptEnvelope(server.getPublicKey("hex"), presetKey(), Buffer.alloc(16, 2)) } }));
+          }
+          assert.equal(path, "/passport/login");
+          assert.ok(refreshedSharedKey);
+          return new Response(JSON.stringify(retryCode === 0
+            ? { code: 0, data: { auth_token: "fresh-token", user_id: "user", token_expires_at: 2_000_000_000 } }
+            : { code: retryCode, msg: "get identity error", data: {} }));
+        },
+      });
+
+      if (retryCode === 0) assert.deepEqual(await client.connect(), { state: "authenticated" });
+      else await assert.rejects(client.connect(), /Mega request failed \(4404: get identity error\) operation=login/);
+      assert.deepEqual(requests.map(({ path }) => path), [
+        "/passport/login", "/openapi/oauth/key/exchange", "/passport/login",
+      ]);
+      assert.equal(requests[0]?.keyIdent, "stale-identity");
+      assert.notEqual(requests[2]?.keyIdent, "stale-identity");
+      assert.equal(requests[1]?.keyIdent, requests[2]?.keyIdent);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  }
+});
+
 test("authenticates only the Eufy leg of an allowlisted media redirect", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mega-media-"));
   const requests: Headers[] = [];

@@ -1219,6 +1219,7 @@ test("does not offer NVR PPCS media even if its inventory contains legacy-lookin
 
 test("identifies the T8214 doorbell without classifying the T8416 indoor camera as one", () => {
   assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType: 5 }), true);
+  assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType: 16 }), true);
   assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType: 94 }), true);
   assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType: 96 }), true);
   assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType: 203 }), true);

@@ -5471,7 +5471,7 @@ export function cameraDetectionKind(eventType: number | null): "motion" | "perso
 
 /** Identify supported Mega doorbells that should expose a press sensor. */
 export function isDoorbellDevice(device: Pick<MegaInventoryDevice, "deviceType" | "category">): boolean {
-  return device.category === "eufy_security" && [5, 7, 91, 94, 95, 96, 203].includes(device.deviceType ?? -1);
+  return device.category === "eufy_security" && [5, 7, 16, 91, 94, 95, 96, 203].includes(device.deviceType ?? -1);
 }
 
 function isGenericPersonLabel(value: string): boolean {

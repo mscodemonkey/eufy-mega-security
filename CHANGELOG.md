@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.177
+
+- Retry one rejected native login identity so a transient `4404` response cannot leave every Home Assistant entity unavailable.
+- Recognise T8220 and T8222 device type 16 as doorbells, enabling the press entity and delivered ring events through existing routes.
+
 ## 0.1.176
 
 - Add a privacy-safe camera-enable diagnostic that reports whether parameter 1035 is missing, normalized, or an unrecognized value shape.

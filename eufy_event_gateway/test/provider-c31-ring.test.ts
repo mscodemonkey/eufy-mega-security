@@ -1,5 +1,5 @@
 /**
- * Exercises C31 type-95 entity admission and delivered push handling offline.
+ * Exercises known doorbell entity admission and delivered push handling offline.
  * Each test owns the provider, synthetic inventory and event sink. The existing
  * Home Assistant adapter consumes the resulting doorbellSupported capability.
  */
@@ -64,8 +64,43 @@ for (const attached of [false, true]) test(`type95 C31 rings through the provide
   } finally { await provider.close(); state.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test("type16 T8220 rings through its HomeBase 2 route", async context => {
+  const directory = await mkdtemp(join(tmpdir(), "t8220-ring-"));
+  const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
+  context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [
+    { device_sn: "t8220", device_model: "T8220", device_type: 16, category: "eufy_security",
+      parent_sn: "hb2", device_channel: 1 },
+    { device_sn: "hb2", device_model: "T8010", device_type: 0, category: "eufy_security" },
+  ] }));
+  context.mock.method(MegaClient.prototype, "dskKeys", async () => ({}));
+  let receive!: (event: MegaPushEvent) => void;
+  context.mock.method(MegaPushReceiver.prototype, "start", async function (this: MegaPushReceiver) {
+    receive = (this as unknown as { onEvent: (event: MegaPushEvent) => void }).onEvent;
+  });
+  const state = new GatewayState(), rings: boolean[] = [];
+  const events = new Proxy({
+    camera: (camera: Parameters<ProviderEvents["camera"]>[0]) => state.registerCamera(camera),
+    doorbell: (serial: string, active: boolean) => { rings.push(active); state.recordDoorbell(serial, active); },
+  }, { get: (target, key) => Reflect.get(target, key) ?? (() => undefined) }) as unknown as ProviderEvents;
+  const provider = new EufyProvider({ username: "synthetic", password: "synthetic", country: "AU",
+    persistentDirectory: directory, maxStreamSeconds: 120 });
+  try {
+    await provider.start(events);
+    assert.equal(state.getCamera("t8220").doorbellSupported, true);
+    const event = parsePushEvent({ device_sn: "t8220", station_sn: "hb2",
+      payload: JSON.stringify({ a: 3103, notification_style: 1, unique_id: "press" }) });
+    assert.ok(event); receive(event);
+    assert.deepEqual(rings, [true]);
+    assert.match(safePushLogSummary(event, {
+      model: "T8220", category: "eufy_security", deviceType: 16,
+    } as never, true, true), /handling=doorbell_press/);
+    assert.equal(network.mock.callCount(), 0);
+  } finally { await provider.close(); state.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test("doorbell identity and press summaries include only the supported category and types", () => {
-  for (const deviceType of [5, 7, 91, 94, 95, 96, 203]) assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType }), true);
+  for (const deviceType of [5, 7, 16, 91, 94, 95, 96, 203]) assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType }), true);
   for (const deviceType of [2, 10, 93, 97, 104, 126, 127, null]) assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType }), false);
   assert.equal(isDoorbellDevice({ category: "other", deviceType: 95 }), false);
   assert.equal(isDoorbellDevice({ category: undefined, deviceType: 95 } as never), false);
