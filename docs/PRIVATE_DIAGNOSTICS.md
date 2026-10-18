@@ -41,7 +41,7 @@ you no longer need and revoke shared access after the investigation.
 
 ## 1. Open the capture tool
 
-In the Eufy Mega Security app's Web UI, click **Create a diagnostic bundle**.
+In the Eufy Mega Security app's Web UI, click **Open diagnostics**.
 Enter your gateway API token and click **Load devices**. This is the gateway's
 token, not your Eufy password. Keep it private.
 

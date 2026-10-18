@@ -136,7 +136,7 @@ investigation when you no longer need them.
 
 ## Gateway page and ordinary diagnostics
 
-The app's Web UI links to **Create a diagnostic bundle**. Direct gateway users
+The app's Web UI links to **Open diagnostics**. Direct gateway users
 can visit `/diagnostics` on their existing gateway address. The page requires
 the gateway API token, keeps it only in page memory and uses authenticated
 requests. App users who do not have that token should use the utility above.

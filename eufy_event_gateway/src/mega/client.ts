@@ -1060,7 +1060,9 @@ export class MegaClient {
   }
 
   async #requestCaptcha(): Promise<MegaCaptcha> {
-    const result = await this.#call("passport", "/passport/generate/captcha", { captcha_type: "PIC", biz_type: 0 }, false);
+
+    // Login uses the native no-parameter CAPTCHA overload.
+    const result = await this.#call("passport", "/passport/generate/captcha", {}, false);
     const value = this.#decodeResult(result);
     if (!isRecord(value)) throw new Error("Mega returned an invalid CAPTCHA challenge");
     const id = stringValue(value.captcha_id);

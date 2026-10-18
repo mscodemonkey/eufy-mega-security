@@ -6,10 +6,12 @@ The native app selects a different command for this attached connection. The gat
 
 1. Note whether the light is on or off before starting. Close live viewers for this HomeBase.
 2. Enable **Experimental model controls** in the app options.
-3. Open gateway **Diagnostics**, enter the API token, load devices and select the T81A0.
+3. In Home Assistant, open **Settings > Apps > Eufy Mega Security > Open web UI**, then **Open diagnostics**. Enter the API token, load devices and select the T81A0.
 4. Open **Experimental model controls** and choose **Check available controls**.
 5. Choose **Manual light (S120 through HomeBase 3)**, read and tick the observation/restore consent, choose **On** or **Off**, then choose **Try once**.
 6. Watch whether the light changes. Restore its starting state afterward, using the Eufy app if necessary.
+
+The test is in the app's web page, rather than the integration device page. Enabling it does not add a normal Home Assistant light entity.
 
 The gateway sends once and waits up to ten seconds for an authenticated, matching acknowledgement. No reply, a failed reply or a cancelled connection leaves the actual light state unknown. Check the light and restore it before trying again. The complete operation has a one-minute deadline and reserves the HomeBase against competing local controls or streams.
 
