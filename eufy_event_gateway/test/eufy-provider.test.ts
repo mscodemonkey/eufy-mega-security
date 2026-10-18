@@ -704,6 +704,12 @@ test("decodes reported camera enablement with family-specific polarity", () => {
   assert.equal(safeInventoryReads([{ param_type: 1035, param_value: "1" }], 31).enabled, true);
   assert.equal(safeInventoryReads([{ param_type: 2001, param_value: "0" }], 31).enabled, false);
   assert.equal(safeInventoryReads([{ param_type: 1035, param_value: "2" }], 88).enabled, undefined);
+  assert.equal(safeInventoryReads([{ param_type: 1035, param_value: "0" }], 88).cameraSwitch1035, "zero");
+  assert.equal(safeInventoryReads([{ param_type: 1035, param_value: 1 }], 88).cameraSwitch1035, "one");
+  assert.equal(safeInventoryReads([{ param_type: 1035, param_value: "2" }], 88).cameraSwitch1035, "other_number");
+  assert.equal(safeInventoryReads([{ param_type: 1035, param_value: false }], 88).cameraSwitch1035, "boolean");
+  assert.equal(safeInventoryReads([{ param_type: 1035, param_value: "unknown" }], 88).cameraSwitch1035, "text");
+  assert.equal(safeInventoryReads([{ param_type: 1035, param_value: { value: 1 } }], 88).cameraSwitch1035, "structured");
 });
 
 test("decodes the reported motion-detection switch without inventing it", () => {

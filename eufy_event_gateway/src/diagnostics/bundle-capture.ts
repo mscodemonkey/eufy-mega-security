@@ -126,6 +126,10 @@ export class BundleCapture {
           aiTracking: camera.aiTrackingControlSupported, autoCruise: camera.autoCruiseControlSupported,
           talkback: camera.talkbackSupported ?? false, storedRecordings: camera.storedRecordingsSupported ?? false,
         } : null,
+        cameraEnableReport: camera ? {
+          normalized: camera.enabled ?? null,
+          source1035: raw?.cameraSwitch1035 ?? "missing",
+        } : null,
         capabilities: (manifest?.matrix ?? []).slice(0, 256).map((item) => ({
           id: /^[A-Za-z][A-Za-z0-9_-]{0,79}$/.test(item.id) ? item.id : "unknown",
           implemented: item.gatewaySupport === "implemented", offerable: item.offerable === true,

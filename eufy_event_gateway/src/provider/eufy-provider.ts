@@ -220,6 +220,9 @@ export interface MegaInventoryReads {
   readonly audioRecordingEnabled?: boolean;
   readonly speakerVolume?: number;
   readonly enabled?: boolean;
+
+  /** Privacy-safe shape of parameter 1035 for support diagnostics. */
+  readonly cameraSwitch1035?: "zero" | "one" | "other_number" | "boolean" | "text" | "structured" | "other";
   readonly motionDetectionEnabled?: boolean;
 
   /** Exact SoloCam tracking enable bit, independent of app-side cloud bookkeeping. */
@@ -4704,6 +4707,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const batteryHealth = percentage(1198);
   const openDevice = finiteNumber(params.get(2001));
   const cameraSwitch = finiteNumber(params.get(1035));
+  const cameraSwitch1035 = params.has(1035) ? diagnosticCameraSwitch(params.get(1035)) : undefined;
 
   // The selected standalone profiles report detection through their native switch.
   // A conflicting legacy bit must not override that model-specific read.
@@ -4772,6 +4776,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
       : recordMute === 0 || recordMute === 1 ? { audioRecordingEnabled: recordMute === 0 } : {}),
     ...(speakerVolume !== undefined ? { speakerVolume } : {}),
     ...(enabled !== undefined ? { enabled } : {}),
+    ...(cameraSwitch1035 !== undefined ? { cameraSwitch1035 } : {}),
     ...(motionSwitch === 0 || motionSwitch === 1 ? { motionDetectionEnabled: motionSwitch === 1 } : {}),
     ...(soloAiTracking === 0 || soloAiTracking === 1 ? { aiTrackingEnabled: soloAiTracking === 1 } : {}),
     ...(guardMode !== null && [0, 1, 2, 3, 4, 5, 6, 47, 63].includes(guardMode) ? { guardMode } : {}),
@@ -4791,6 +4796,18 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
       : {}),
     ...(motionEventSeconds !== undefined ? { motionEventSeconds } : {}),
   };
+}
+
+/** Classify parameter 1035 without retaining untrusted text or structured values. */
+function diagnosticCameraSwitch(value: unknown): NonNullable<MegaInventoryReads["cameraSwitch1035"]> {
+  const numeric = finiteNumber(value);
+  if (numeric === 0) return "zero";
+  if (numeric === 1) return "one";
+  if (numeric !== null) return "other_number";
+  if (typeof value === "boolean") return "boolean";
+  if (typeof value === "string") return "text";
+  if (Array.isArray(value) || isRecord(value)) return "structured";
+  return "other";
 }
 
 /** Decode plain or canonical base64 JSON and require an explicitly selected recording mode. */
@@ -5153,6 +5170,7 @@ export function inventoryDiagnostics(devices: readonly MegaInventoryDevice[]): I
     acceptedAsCamera: isSupportedMegaCamera(device),
     megaDeviceType: device.deviceType,
     category: device.category,
+    cameraSwitch1035: device.reads.cameraSwitch1035 ?? "missing",
   }));
 }
 

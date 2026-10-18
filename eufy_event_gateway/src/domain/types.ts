@@ -595,6 +595,9 @@ export interface InventoryDiagnostic {
   readonly acceptedAsCamera: boolean;
   readonly megaDeviceType: number | null;
   readonly category: string | null;
+
+  /** Privacy-safe shape of camera power parameter 1035, without its raw payload. */
+  readonly cameraSwitch1035: "zero" | "one" | "other_number" | "boolean" | "text" | "structured" | "other" | "missing";
 }
 
 /** Privacy-safe evidence that can be attached to a device support report. */

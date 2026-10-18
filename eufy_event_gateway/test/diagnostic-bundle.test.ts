@@ -26,9 +26,16 @@ function fixture(): GatewayState {
       firmware: "1.2.3", streamSupported: true, liveAudioSupported: true, doorbellSupported: false });
   }
   state.updateInventoryDiagnostics([
+    { serial: "private-camera", name: "Private label", model: "T8171", sources: ["mega"] as const,
+      upstreamIsCamera: false, acceptedAsCamera: true, megaDeviceType: 88, category: "eufy_security",
+      cameraSwitch1035: "structured" },
+    { serial: "private-standalone", name: "Private label", model: "T8171", sources: ["mega"] as const,
+      upstreamIsCamera: false, acceptedAsCamera: true, megaDeviceType: 88, category: "eufy_security",
+      cameraSwitch1035: "missing" },
     ...[["private-parent", "T8030", 18], ["private-nvr", "T8N00", 300], ["private-sensor", "T8900", 10]].map(([serial, model, type]) => ({
       serial: String(serial), name: "Private label", model: String(model), sources: ["mega"] as const,
       upstreamIsCamera: false, acceptedAsCamera: false, megaDeviceType: Number(type), category: null,
+      cameraSwitch1035: "missing" as const,
     })),
   ]);
   return state;
@@ -45,6 +52,7 @@ test("one metadata projection covers attached and standalone cameras, stations, 
     const archive = decode(capture);
     assert.equal(archive.summary.devices.length, 5);
     const attached = archive.summary.devices.find((row: { topology: string }) => row.topology === "attached");
+    assert.deepEqual(attached.cameraEnableReport, { normalized: null, source1035: "structured" });
     assert.equal(archive.summary.devices.find((row: { model: string }) => row.model === "T8030").id, attached.parent);
     assert.equal(archive.stages.nvrRtc, false);
     assert.doesNotMatch(JSON.stringify(archive), /private-|Private|secret|invalid|serial|personName|token=/);

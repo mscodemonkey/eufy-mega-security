@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.176
+
+- Add a privacy-safe camera-enable diagnostic that reports whether parameter 1035 is missing, normalized, or an unrecognized value shape.
+- Include the existing normalized enabled state beside that classification without exposing raw device payloads or widening camera control admission.
+
 ## 0.1.175
 
 - Restore the pre-v0.1.174 default login preparation path. The gateway no longer extracts the optional RTC private scalar unless the default-off general video trial is enabled.

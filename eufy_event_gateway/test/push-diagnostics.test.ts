@@ -98,6 +98,7 @@ test("catalogue evidence removes local identities while retaining test facts", (
     acceptedAsCamera: true,
     megaDeviceType: 14,
     category: "eufy_security",
+    cameraSwitch1035: "missing",
   }]);
   state.updateCameraCapabilities([describeCameraCapabilities({
     serial: "PRIVATE-SERIAL",

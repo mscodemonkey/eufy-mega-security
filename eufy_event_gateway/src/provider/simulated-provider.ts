@@ -111,6 +111,7 @@ export class SimulatedProvider implements CameraProvider {
       acceptedAsCamera: true,
       megaDeviceType: 8,
       category: "eufy_security",
+      cameraSwitch1035: "missing",
     }]);
     events.cameraCapabilities([describeCameraCapabilities({
       serial: SimulatedProvider.serial,
