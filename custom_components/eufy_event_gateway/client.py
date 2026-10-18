@@ -465,16 +465,16 @@ class GatewayClient:
         return camera
 
     async def set_camera_streaming_quality(
-        self, serial: str, quality: int
+        self, serial: str, quality: int, *, nvr: bool = False
     ) -> dict[str, Any]:
         """Set live quality independently of recorded-video quality, returning confirmed state."""
         camera = await self._json(
             f"/api/cameras/{serial}/streaming-quality",
             method="POST",
-            payload={"quality": quality},
+            payload={"quality": quality}, timeout=120 if nvr else 60, nvr=nvr,
         )
-        if not isinstance(camera.get("serial"), str):
-            raise GatewayClientError("Gateway returned an invalid camera response")
+        if not isinstance(camera.get("serial"), str) or nvr and camera.get("serial") != serial:
+            raise GatewayClientError("Request outcome is unknown. Check Eufy before trying again." if nvr else "Gateway returned an invalid camera response", code="outcome_unknown" if nvr else None)
         return camera
 
     async def set_camera_guard_mode(self, serial: str, mode: int) -> dict[str, Any]:
@@ -498,16 +498,38 @@ class GatewayClient:
         return camera
 
     async def set_camera_night_vision(
-        self, serial: str, mode: int
+        self, serial: str, mode: int, *, nvr: bool = False
     ) -> dict[str, Any]:
         """Set a camera's night-vision mode and return confirmed gateway state."""
         camera = await self._json(
             f"/api/cameras/{serial}/night-vision",
             method="POST",
-            payload={"mode": mode},
+            payload={"mode": mode}, timeout=120 if nvr else 60, nvr=nvr,
         )
-        if not isinstance(camera.get("serial"), str):
-            raise GatewayClientError("Gateway returned an invalid camera response")
+        if not isinstance(camera.get("serial"), str) or nvr and camera.get("serial") != serial:
+            raise GatewayClientError("Request outcome is unknown. Check Eufy before trying again." if nvr else "Gateway returned an invalid camera response", code="outcome_unknown" if nvr else None)
+        return camera
+
+    async def perform_nvr_live_control(self, serial: str, direction: str | None = None, level: int | None = None) -> dict[str, Any]:
+        """Build one finite request, with no retry after an uncertain response."""
+        if direction in ("left", "right", "up", "down") and level is None:
+            payload = {"kind": "pan", "direction": direction}
+        elif direction is None and type(level) is int and level in (1, 2, 3):
+            payload = {"kind": "zoom", "level": level}
+        else:
+            raise GatewayClientError("Unavailable NVR action", code="unavailable")
+        result = await self._json(f"/api/cameras/{serial}/nvr-live-control", method="POST", payload=payload, timeout=120, nvr=True)
+        if result.get("outcome") != "request_accepted" or result.get("physicalConfirmationRequired") is not True:
+            raise GatewayClientError("Request outcome is unknown. Check Eufy before trying again.", code="outcome_unknown")
+        return {"outcome": "request_accepted", "physicalConfirmationRequired": True}
+
+    async def set_nvr_view(self, serial: str, view: int) -> dict[str, Any]:
+        """Change the idle camera's next-stream preference, owned by the gateway."""
+        if type(view) is not int or view not in (0, 1):
+            raise GatewayClientError("Unavailable NVR view", code="unavailable")
+        camera = await self._json(f"/api/cameras/{serial}/nvr-view", method="POST", payload={"view": view}, timeout=120, nvr=True)
+        if camera.get("serial") != serial:
+            raise GatewayClientError("Request outcome is unknown. Check Eufy before trying again.", code="outcome_unknown")
         return camera
 
     async def set_camera_siren(self, serial: str, duration: int) -> None:
@@ -643,7 +665,7 @@ class GatewayClient:
 
     async def _json(
         self, path: str, method: str = "GET", payload: dict[str, Any] | None = None,
-        *, timeout: int = 60,
+        *, timeout: int = 60, nvr: bool = False,
     ) -> dict[str, Any]:
         """Send a JSON request and require an object-shaped response body."""
         try:
@@ -658,6 +680,10 @@ class GatewayClient:
                         error_payload = await response.json()
                     except (ClientError, ValueError):
                         error_payload = None
+                    if nvr:
+                        code = error_payload.get("code") if isinstance(error_payload, dict) else None
+                        code = code if code in ("unavailable", "busy", "rate_limited", "outcome_unknown", "disabled") else "outcome_unknown"
+                        raise GatewayClientError(f"NVR control {code}", status=response.status, code=code) from None
                     detail = (
                         error_payload.get("error")
                         if isinstance(error_payload, dict)
@@ -671,12 +697,19 @@ class GatewayClient:
                 self._raise_for_status(response)
                 payload = await response.json()
                 if not isinstance(payload, dict):
-                    raise GatewayClientError("Gateway returned an invalid response")
+                    raise GatewayClientError("Request outcome is unknown. Check Eufy before trying again." if nvr else "Gateway returned an invalid response", code="outcome_unknown" if nvr else None)
                 return payload
         except (ClientError, TimeoutError) as error:
             if isinstance(error, GatewayClientError):
                 raise
+            if nvr:
+                raise GatewayClientError("Request outcome is unknown. Check Eufy before trying again.", code="outcome_unknown") from None
             raise GatewayClientError(str(error)) from error
+
+        except ValueError:
+            if nvr:
+                raise GatewayClientError("Request outcome is unknown. Check Eufy before trying again.", code="outcome_unknown") from None
+            raise
 
     def _url(self, path: str) -> str:
         """Resolve a gateway-owned absolute API path against the configured URL."""

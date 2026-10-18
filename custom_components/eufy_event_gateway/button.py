@@ -66,6 +66,16 @@ async def async_setup_entry(
     def add_new() -> None:
         entities: list[ButtonEntity] = []
         for serial, camera in sorted(coordinator.cameras.items()):
+            for capability, actions in (
+                ("nvrPanControlSupported", ("left", "right", "up", "down")),
+                ("nvrOpticalZoomControlSupported", ("zoom_1", "zoom_2", "zoom_3")),
+            ):
+                if camera.get(capability) is True:
+                    for action in actions:
+                        key = (serial, f"nvr_{action}")
+                        if key not in known:
+                            known.add(key)
+                            entities.append(EufyNvrControlButton(coordinator, serial, action))
             report_key = (serial, "compatibility_report")
             if (
                 camera.get("catalogueStatus") == "ready_to_test"
@@ -322,3 +332,37 @@ class EufyCameraAutoCruiseButton(EufyGatewayEntity, ButtonEntity):
             raise HomeAssistantError(
                 f"Could not change automatic cruise: {error}"
             ) from error
+
+
+class EufyNvrControlButton(EufyGatewayEntity, ButtonEntity):
+    """Own one stateless HA movement action for the entity lifetime.
+
+    The gateway requires a currently viewed source and owns single dispatch.
+    A response confirms request acceptance only, never physical position.
+    """
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, action: str) -> None:
+        """Bind a closed direction or conservative optical zoom level."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        ButtonEntity.__init__(self)
+        if action not in ("left", "right", "up", "down", "zoom_1", "zoom_2", "zoom_3"):
+            raise ValueError("Unsupported NVR action")
+        self._action = action
+        self._attr_unique_id = f"{serial}_nvr_{action}"
+        self._attr_translation_key = f"nvr_{action}"
+
+    @property
+    def available(self) -> bool:
+        """Withdraw buttons immediately when the model or chosen view changes."""
+        capability = "nvrOpticalZoomControlSupported" if self._action.startswith("zoom_") else "nvrPanControlSupported"
+        return super().available and self.camera.get(capability) is True
+
+    async def async_press(self) -> None:
+        """Send one finite action without retrying an uncertain device outcome."""
+        try:
+            if self._action.startswith("zoom_"):
+                await self.coordinator.client.perform_nvr_live_control(self.serial, level=int(self._action[-1]))
+            else:
+                await self.coordinator.client.perform_nvr_live_control(self.serial, direction=self._action)
+        except GatewayClientError as error:
+            raise HomeAssistantError(str(error)) from error

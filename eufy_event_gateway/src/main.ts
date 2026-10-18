@@ -74,6 +74,7 @@ if (config.provider === "simulated") {
     experimentalNvrLive: config.experimentalNvrLive,
     experimentalNvrControls: config.experimentalNvrControls,
     normalNvrLive: config.experimentalNvrLive,
+    apiAuthenticationConfigured: !!config.apiToken,
     experimentalDoorbellRtc: config.experimentalDoorbellRtc,
     experimentalCloudRecordings: config.experimentalCloudRecordings,
     experimentalNvrRegion: config.experimentalNvrRegion,
@@ -92,6 +93,7 @@ const streams = new LiveStreamManager(
   undefined,
   () => spawnH265ViewerTranscoder(config.experimentalFixedH265Resolution),
 );
+provider.setNvrLiveMediaChecks?.({ viewer: serial => streams.hasActiveViewer(serial), active: serial => streams.hasActiveSession(serial), recording: serial => streams.hasActiveRecording(serial) });
 streams.on("ffmpeg-error", (detail: string) => {
   logger.warn("ffmpeg_error", `Camera media conversion reported an error: ${detail}`);
 });

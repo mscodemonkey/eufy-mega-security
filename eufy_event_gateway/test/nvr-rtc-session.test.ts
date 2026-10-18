@@ -50,7 +50,7 @@ function keyframePackets(frame: Buffer, sequence: number): Buffer[] {
   });
 }
 
-for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
+for (const scenario of ['live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-nonzero', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
   const codec = scenario === 'h265' || scenario === 'sequence-gap' ? 'h265' : 'h264';
   const server = new WebSocketServer({ port: 0 });
   await once(server, 'listening');
@@ -76,6 +76,39 @@ for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'po
       if (assembled.status !== 'complete') return;
       const request = nvrApplication(assembled.frame), body = JSON.parse(request.payload.toString());
       commands.push(body.cmd);
+      if (scenario.startsWith('live-') && [6030, 6203, 1277, 2730].includes(body.cmd)) {
+        assert.equal(request.channel, 3); assert.ok(request.segment > 0);
+        if (body.cmd === 6030) {
+          assert.equal(request.command, 1700); assert.equal(body.data.cmd_type, 1);
+          if (scenario === 'live-abort') {
+            setTimeout(() => {
+              const late = application(1351, request.segment, Buffer.from(JSON.stringify({ cmd: 6030, payload: { limit: -1 } }))); late[12] = 3;
+              for (const packet of nvrPackets(late, sequence++, 1)) channel.send(packet);
+            }, 100); return;
+          }
+          if (scenario === 'live-pan-ackonly' || scenario === 'live-pan-nonzero') {
+            const receipt = application(1700, request.segment, Buffer.alloc(132)); receipt[12] = 3;
+            if (scenario === 'live-pan-nonzero') receipt.writeInt32LE(-1, 16);
+            for (const packet of nvrPackets(receipt, sequence++, 1)) channel.send(packet);
+            return;
+          }
+          if (scenario === 'live-badcontrol') {
+            const bad = application(1351, request.segment, Buffer.from('{')); bad[12] = 3;
+            for (const packet of nvrPackets(bad, sequence++, 1)) channel.send(packet);
+            return;
+          }
+          const wrongAck = application(1700, request.segment, Buffer.alloc(132)); wrongAck[12] = 255; wrongAck.writeInt32LE(-1, 16);
+          for (const packet of nvrPackets(wrongAck, sequence++, 1)) channel.send(packet);
+          for (const [ch, segment] of [[4, request.segment], [3, 0], [3, request.segment - 1], [scenario === 'live-pan-child' ? 3 : 255, request.segment]]) {
+            const data = application(1351, segment!, Buffer.from(JSON.stringify({ cmd: 6030, payload: { limit: -1 } }))); data[12] = ch!;
+            for (const packet of nvrPackets(data, sequence++, 1)) channel.send(packet);
+          }
+        } else {
+          const receipt = application(1350, request.segment, Buffer.alloc(132)); receipt[12] = 3;
+          for (const packet of nvrPackets(receipt, sequence++, 1)) channel.send(packet);
+        }
+        return;
+      }
       if (body.cmd === 6250) {
         assert.ok(scenario.startsWith('power'));
         assert.equal(request.channel,3); assert.ok(request.segment > 0);
@@ -108,6 +141,13 @@ for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'po
         const effective = application(1151, 0, Buffer.alloc(4));
         effective.writeInt32LE(body.payload.mode_type === 1 ? 1 : 0, 16);
         for (const packet of nvrPackets(effective, sequence++, 1)) channel.send(packet);
+        return;
+      }
+      if (body.cmd === 1103 && scenario.startsWith('live-')) {
+        if (scenario === 'live-read-close' && commands.filter(command => command === 1103).length > 1) return;
+        const text = scenario === 'live-malformed-read' ? '{' : scenario === 'live-oversized-read' ? ' '.repeat(65537)
+          : JSON.stringify({ cmd: 1103, payload: { params: [{ dev_type: 3, param_type: 1277, param_value: 1 }] } });
+        for (const packet of nvrPackets(application(1351, request.segment, Buffer.from(text)), sequence++, 1)) channel.send(packet);
         return;
       }
       if (body.cmd === 1103) {
@@ -180,7 +220,7 @@ for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'po
         ? application(1351, replySegment, Buffer.from(JSON.stringify({ cmd: 9100,
           payload: { dev_list: [{ sn: scenario === 'identity' ? 'synthetic-other' : 'synthetic-camera', ch: scenario === 'wrong-channel' ? 4 : 3, dev_type: scenario === 'legacy-first-lens' ? 14 : scenario === 'wrong-type' ? 302 : 301 }] } })))
         : application(1350, replySegment, Buffer.alloc(4));
-      if (scenario === 'legacy-zero-segment') response[11] = 0;
+      if (scenario === 'legacy-zero-segment' || scenario === 'live-zero-identity' && commands.filter(command => command === 9100).length > 1) response[11] = 0;
       if ((scenario === 'state-read' || scenario === 'state-bad-ack-padding') && body.cmd === 9100) response[10] = 1;
       const responsePackets = (scenario === 'state-read' || scenario === 'state-bad-ack-padding') && body.cmd === 9100
         ? receivePackets(response, sequence++, 1)
@@ -250,12 +290,12 @@ for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'po
     });
   }
   const session = new NvrRtcSession({ station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
-    powerTrial: scenario.startsWith('power'),
+    powerTrial: scenario.startsWith('power'), liveControls: scenario.startsWith('live-'),
     guardTrial: scenario === 'guard', ...(scenario === 'guard' ? { userName: 'Synthetic' } : {}),
     cameraType: scenario === 'legacy-first-lens' ? 14 : 301, sensor: scenario === 'legacy-first-lens' ? 0 : 1,
-    administrator: 'synthetic-administrator', context: { host: 'security-smart-ie.eufylife.com', region: 'IE',
+    administrator: scenario === 'live-encode-failure' ? 'invalid owner!' : 'synthetic-administrator', context: { host: 'security-smart-ie.eufylife.com', region: 'IE',
       authToken: 'synthetic-token', gtoken: 'synthetic-gtoken', sign: 'synthetic-sign' },
-    signal: controller.signal, current: () => true, ready: (output, hint) => { attached++; manager.attachSource('synthetic-camera', output, hint); } }, {
+    signal: controller.signal, current: () => true, ready: (output, hint) => { attached++; if (!scenario.startsWith('live-')) manager.attachSource('synthetic-camera', output, hint); } }, {
     socket: (url, protocols, options) => {
       assert.equal(url, 'wss://security-smart-ie.eufylife.com/v1/rtc/ws/join?reqtype=nvr');
       assert.equal(options.followRedirects, false); assert.equal(options.maxPayload, 65536);
@@ -337,6 +377,73 @@ for (const scenario of ['h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'po
       assert.ok(session.output.writableEnded || session.output.destroyed);
       assert.deepEqual(commands, [9100, 1103]); assert.equal(attached, 0); assert.equal(snapshots, 0); assert.equal(diagnosticMedia, 0);
       await session.close(); return;
+    }
+    if (scenario.startsWith('live-')) {
+      session.output.on('data', () => {});
+      await session.start();
+      const values = await session.initialLiveSettings();
+      assert.equal(values.night, ['live-malformed-read', 'live-oversized-read'].includes(scenario) ? null : 1);
+      await new Promise(resolve => setTimeout(resolve, 400)); const before = session.stats.video;
+      if (scenario === 'live-zero-identity') {
+        await assert.rejects(session.prepareLiveControl(true)); assert.equal(commands.filter(command => command === 6030).length, 0);
+        await session.close(); return;
+      }
+      if (scenario === 'live-read-close') {
+        const read = session.readLiveSettings(); const rejected = assert.rejects(read);
+        await new Promise(resolve => setTimeout(resolve, 50)); await session.close(); await rejected;
+        assert.ok(commands.includes(1004)); return;
+      }
+      if (scenario === 'live-encode-failure') {
+        let marked = false;
+        await assert.rejects(session.writeLiveControl({ kind: 'pan', direction: 'left' }, controller.signal, () => { marked = true; }), { code: 'unavailable' });
+        assert.equal(marked, false); await session.close(); return;
+      }
+      if (scenario === 'live-lifetime') {
+        const realNow = performance.now(), initial = session.remainingLifetimeMilliseconds;
+        let remaining = 34000;
+        context.mock.method(performance, 'now', () => realNow + initial - remaining);
+        await assert.rejects(session.writeLiveControl({ kind: 'night', value: 1 }, controller.signal, () => {}), { stage: 'source_lifetime' });
+        remaining = 36000; await session.writeLiveControl({ kind: 'night', value: 1 }, controller.signal, () => {});
+        remaining = 24000;
+        await assert.rejects(session.writeLiveControl({ kind: 'quality', value: 1, sensor: 1 }, controller.signal, () => {}), { stage: 'source_lifetime' });
+        remaining = 26000; await session.writeLiveControl({ kind: 'quality', value: 1, sensor: 1 }, controller.signal, () => {});
+        remaining = 9000;
+        await assert.rejects(session.writeLiveControl({ kind: 'zoom', level: 1 }, controller.signal, () => {}), { stage: 'source_lifetime' });
+        remaining = 11000; await session.writeLiveControl({ kind: 'zoom', level: 1 }, controller.signal, () => {});
+        await session.close(); return;
+      }
+      if (scenario === 'live-abort') {
+        const action = new AbortController();
+        const operation = session.writeLiveControl({ kind: 'pan', direction: 'left' }, action.signal, () => {});
+        setTimeout(() => action.abort(), 20);
+        await assert.rejects(operation, { code: 'outcome_unknown' });
+        await new Promise(resolve => setTimeout(resolve, 200));
+        assert.equal(commands.filter(command => command === 6030).length, 1); assert.equal(session.controlStats.panData, 0);
+        assert.equal(session.output.destroyed, false); await session.close(); return;
+      }
+      if (scenario === 'live-budget') {
+        for (let index = 0; index < 249; index++) await session.readLiveSettings();
+        await assert.rejects(session.prepareLiveControl(true), error => (error as { stage: string }).stage === 'segment_budget');
+        await assert.rejects(session.readLiveSettings());
+        await session.close(); assert.ok(commands.includes(1004)); assert.ok(!commands.includes(6030)); return;
+      }
+      await session.prepareLiveControl(true);
+      if (['live-pan-ackonly', 'live-pan-nonzero', 'live-badcontrol'].includes(scenario)) {
+        await assert.rejects(session.writeLiveControl({ kind: 'pan', direction: 'left' }, controller.signal, () => {}), { code: 'outcome_unknown' });
+        await new Promise(resolve => setTimeout(resolve, 250));
+        assert.ok(session.stats.video > before); assert.equal(session.output.destroyed, false);
+        assert.equal(commands.filter(command => command === 6030).length, 1);
+        if (scenario === 'live-pan-ackonly') assert.equal(session.controlStats.panAcknowledgedWithoutData, 1);
+        await session.close(); return;
+      }
+      await session.writeLiveControl({ kind: 'pan', direction: 'left' }, controller.signal, () => {});
+      await session.writeLiveControl({ kind: 'zoom', level: 2 }, controller.signal, () => {});
+      await new Promise(resolve => setTimeout(resolve, 250));
+      assert.ok(session.stats.video > before); assert.equal(session.output.destroyed, false);
+      assert.equal(session.controlStats.panData, 1);
+      await session.close(); assert.ok(commands.includes(1004));
+      assert.equal(commands.filter(command => command === 6030).length, 1);
+      return;
     }
     const clip = await manager.recordClip('synthetic-camera', 10, 75000, true);
     const decoded = spawnSync('ffmpeg', ['-v', 'error', '-xerror', '-i', 'pipe:0', '-f', 'null', '-'], { input: clip });

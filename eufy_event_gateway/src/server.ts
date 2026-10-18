@@ -8,6 +8,7 @@
  * module owns request authentication, response framing, and route selection;
  * it does not parse Mega payloads or open camera sockets.
  */
+import { NvrLiveControlError, type NvrLiveControl } from "./provider/nvr-live-controls.js";
 import { NvrPowerError, type NvrPowerRequest } from "./provider/nvr-power-trial.js";
 import { NvrGuardError, type NvrGuardRequest } from "./provider/nvr-guard-trial.js";
 import { nvrGuardTimeZone } from "./provider/nvr-guard-schedule.js";
@@ -816,6 +817,11 @@ export class GatewayServer {
       ) {
         return await this.#cameraAudioRecording(request, segments[2]!, response);
       }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras" && segments.length === 4
+        && ["nvr-live-control", "nvr-view"].includes(segments[3]!)) {
+        if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) return json(response, 401, { error: "Unauthorized" });
+        return await this.#nvrLiveAction(request, segments[2]!, segments[3] === "nvr-view", response);
+      }
       if (
         request.method === "POST" &&
         segments[0] === "api" && segments[1] === "cameras" && segments[3] === "streaming-quality" && segments.length === 4
@@ -927,6 +933,7 @@ export class GatewayServer {
       }
       return json(response, 404, { error: "Not found" });
     } catch (error) {
+      if (error instanceof NvrLiveControlError) return json(response, 409, { error: error.code, code: error.code, stage: error.stage });
       const status = error instanceof SyntaxError ? 400 : 500;
       return json(response, status, { error: safeError(error) });
     }
@@ -1060,6 +1067,44 @@ export class GatewayServer {
     return json(response, 404, { error: "Not found" });
   }
 
+  async #withNvrSettingSource<T>(request: IncomingMessage, response: ServerResponse, serial: string, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) throw new NvrLiveControlError("disabled");
+    if (this.streams.hasActiveRecording(serial)) throw new NvrLiveControlError("busy");
+    const controller = new AbortController(); const cancel = (): void => controller.abort();
+    response.once("close", cancel);
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(90000)]);
+    const action = (): Promise<T> => { signal.throwIfAborted(); return operation(signal); };
+    try {
+      return this.streams.hasActiveViewer(serial) ? await this.streams.withActiveViewer(serial, action)
+        : await this.streams.withLiveSource(serial, action);
+    } catch (error) { throw error instanceof NvrLiveControlError ? error : new NvrLiveControlError("unavailable"); }
+  }
+
+  async #nvrLiveAction(request: IncomingMessage, serial: string, view: boolean, response: ServerResponse): Promise<void> {
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    const body = await readClosedNvrBody(request);
+    if (view) {
+      if (Object.keys(body).length !== 1 || !Number.isInteger(body.view) || ![0, 1].includes(Number(body.view))) throw new SyntaxError("Invalid camera view");
+      if (!this.provider.setNvrView) throw new NvrLiveControlError("disabled");
+      if (this.streams.hasActiveSession(serial) || this.streams.hasActiveRecording(serial)) throw new NvrLiveControlError("busy");
+      const identity = await this.provider.setNvrView(serial, body.view as number);
+      return json(response, 200, this.state.registerCamera(identity));
+    }
+    let action: NvrLiveControl;
+    if (Object.keys(body).length === 2 && body.kind === "pan" && typeof body.direction === "string" && ["left", "right", "up", "down"].includes(body.direction)) {
+      action = { kind: "pan", direction: body.direction as "left" | "right" | "up" | "down" };
+    } else if (Object.keys(body).length === 2 && body.kind === "zoom" && typeof body.level === "number" && [1, 2, 3].includes(body.level)) {
+      action = { kind: "zoom", level: body.level as 1 | 2 | 3 };
+    } else throw new SyntaxError("Invalid NVR control");
+    if (!this.provider.performNvrLiveControl) throw new NvrLiveControlError("disabled");
+    if (!this.streams.hasActiveViewer(serial) || this.streams.hasActiveRecording(serial)) throw new NvrLiveControlError("busy");
+    const abort = new AbortController(); const cancel = (): void => abort.abort(); response.once("close", cancel);
+    try {
+      const result = await this.streams.withActiveViewer(serial, () => this.provider.performNvrLiveControl!(serial, action, AbortSignal.any([abort.signal, AbortSignal.timeout(90000)])));
+      return json(response, 200, result);
+    } finally { response.removeListener("close", cancel); }
+  }
+
   async #cameraEnabled(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     const body = await readJson(request);
@@ -1087,9 +1132,13 @@ export class GatewayServer {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     const body = await readJson(request);
     const quality = requiredInteger(body.quality);
-    if (quality < 0 || quality > 3) throw new SyntaxError("Unsupported streaming quality");
+    const nvr = this.provider.nvrLiveSettingAdmitted?.(serial) === true;
+    if (!nvr && this.state.getCamera(serial).nvrViewOptions?.length) throw new NvrLiveControlError("disabled");
+    if (quality < 0 || quality > 4 || quality === 4 && !this.provider.nvrLiveSettingAdmitted?.(serial, quality)
+      || nvr && !this.provider.nvrLiveSettingAdmitted?.(serial, quality)) throw new SyntaxError("Unsupported streaming quality");
     if (!this.provider.setCameraStreamingQuality) return json(response, 409, { error: "Streaming quality control unavailable" });
-    const identity = await this.provider.setCameraStreamingQuality(serial, quality);
+    const operation = (signal?: AbortSignal) => this.provider.setCameraStreamingQuality!(serial, quality, signal);
+    const identity = nvr ? await this.#withNvrSettingSource(request, response, serial, operation) : await operation();
     return json(response, 200, this.state.registerCamera(identity));
   }
 
@@ -1109,7 +1158,11 @@ export class GatewayServer {
   async #cameraNightVision(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     const body = await readJson(request);
-    const identity = await this.provider.setCameraNightVision(serial, requiredInteger(body.mode));
+    const mode = requiredInteger(body.mode);
+    const nvr = this.provider.nvrLiveSettingAdmitted?.(serial) === true;
+    if (!nvr && this.state.getCamera(serial).nvrViewOptions?.length) throw new NvrLiveControlError("disabled");
+    const operation = (signal?: AbortSignal) => this.provider.setCameraNightVision(serial, mode, signal);
+    const identity = nvr ? await this.#withNvrSettingSource(request, response, serial, operation) : await operation();
     return json(response, 200, this.state.registerCamera(identity));
   }
 
@@ -1388,6 +1441,17 @@ async function readNvrGuardBody(request: IncomingMessage): Promise<NvrGuardReque
     throw new SyntaxError("Duplicate or unknown guard key");
   }
   return { target: "home", timeZone: nvrGuardTimeZone(value.timeZone) };
+}
+
+/** Parse a finite flat NVR action, rejecting duplicate and unknown property names. */
+async function readClosedNvrBody(request: IncomingMessage): Promise<Record<string, unknown>> {
+  const text = await readBody(request);
+  if (Buffer.byteLength(text) > 16384) throw new SyntaxError("Request too large");
+  const value: unknown = JSON.parse(text);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new SyntaxError("Expected an object");
+  const keys = [...text.matchAll(/"(?:\\.|[^"\\])*"\s*:/g)].map(match => JSON.parse(match[0].slice(0, match[0].lastIndexOf(":"))));
+  if (new Set(keys).size !== keys.length || keys.some(key => !["kind", "direction", "level", "view"].includes(key))) throw new SyntaxError("Invalid keys");
+  return value as Record<string, unknown>;
 }
 
 async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {

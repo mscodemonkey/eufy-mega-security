@@ -1,8 +1,8 @@
 /**
- * Owns one default-off NVR diagnostic connection from join through bounded close.
+ * Owns one provider-admitted NVR RTC connection from join through bounded close.
  * The provider owns the station lease and supplies private Mega credentials.
- * Only checked video reaches its output. A separately admitted manual power
- * trial can write and restore one child value, with no media or normal controls.
+ * Checked video reaches the media boundary. Normal opt-in controls and separately
+ * consented guard/power trials retain distinct admission and request ownership.
  * Vendor assets and captures are not dependencies, and hardware needs testing.
  */
 import { createHash, randomUUID } from "node:crypto";
@@ -18,6 +18,9 @@ import { NvrGuardError } from "../provider/nvr-guard-trial.js";
 import type { NvrGuardEffective } from "../provider/nvr-guard-schedule.js";
 import { NvrTrialError, nvrCameraPowerCommand, nvrGuardModeCommand, nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrJson,
   nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrRecord, nvrVideo, nvrStateSummary, type NvrStateSummary, type NvrTrialStage, type NvrTrialReason } from "./nvr-protocol.js";
+
+import { NvrLiveControlError } from "../provider/nvr-live-controls.js";
+import { nvrLiveCommand, nvrLiveJson, nvrLiveReceipt, nvrLivePanReply, nvrLiveSettings, type NvrLiveSettings, type NvrLiveWrite } from "./nvr-live-control-protocol.js";
 
 const HEARTBEAT_ECHO = nvrHeartbeat();
 
@@ -64,9 +67,13 @@ export interface NvrRtcOptions {
 
   /** Separate provider admission for the station-wide Schedule recovery trial. */
   readonly guardTrial?: boolean;
+
+  /** Provider admission for default-off exact-model normal controls, never a trial. */
+  readonly liveControls?: boolean;
 }
 
 interface PendingRequest {
+  readonly strict?: boolean;
   readonly command: 9100 | 1003 | 1004 | 1103;
   readonly segment: number;
   readonly resolve: (value: Record<string, unknown>) => void;
@@ -138,6 +145,12 @@ export class NvrRtcSession {
   #peer: RTCPeerConnection | null = null;
   #pending: PendingRequest | null = null;
   #segment = 0;
+  #lifetimeStartedAt = 0;
+  #settingsFlight: Promise<NvrLiveSettings> | null = null;
+  #livePending: { segment: number; pan: boolean; acknowledged: boolean; deadline: number; resolve: () => void; reject: (error: Error) => void; timer: NodeJS.Timeout } | null = null;
+
+  /** Content-free PTZ settlement counters do not contain reply payloads. */
+  readonly controlStats = { panAcknowledgedWithoutData: 0, panTimeouts: 0, panData: 0, rejected: 0 };
   #powerMode = false;
   #powerReceipt: { readonly segment: number; readonly deadline: number; readonly resolve: () => void;
     readonly reject: (error: NvrPowerError) => void; readonly timer: NodeJS.Timeout; readonly detach: () => void } | null = null;
@@ -189,6 +202,11 @@ export class NvrRtcSession {
   /** Report only a checked codec, never a model-derived guess. */
   get codec(): VideoCodec | null { return this.#codec; }
 
+  /** Remaining owned lifetime, including negotiation. Callers cannot extend it. */
+  get remainingLifetimeMilliseconds(): number {
+    return this.#started && !this.#retired ? Math.max(0, this.#maximumLifetimeMilliseconds - (performance.now() - this.#lifetimeStartedAt)) : 0;
+  }
+
   /** Negotiate, correlate fresh discovery, attach the sink, and request video once. */
   async start(): Promise<void> {
     if (this.options.powerTrial || this.options.guardTrial) throw this.options.guardTrial
@@ -198,6 +216,7 @@ export class NvrRtcSession {
     this.#stage = "start";
     await this.#request(1003, 5000);
     this.#stage = "video";
+    if (this.options.liveControls) this.#settingsFlight = this.readLiveSettings().catch(() => ({ night: null, quality: null }));
     if (!this.#bootstrapped) this.#firstFrame = setTimeout(() => this.#fail("video"), 20_000);
   }
 
@@ -214,6 +233,97 @@ export class NvrRtcSession {
       this.#guard();
       return nvrStateSummary(response, this.options.channel);
     } finally { await this.close(); }
+  }
+
+  /** Return one background observation without delaying video startup. */
+  async initialLiveSettings(): Promise<NvrLiveSettings> {
+    return await this.#settingsFlight ?? { night: null, quality: null };
+  }
+
+  /** Query settings on the existing normal connection, or an admitted read-only connection. */
+  async readLiveSettings(signal?: AbortSignal, timeout = 5000): Promise<NvrLiveSettings> {
+    if (!this.options.liveControls || this.options.guardTrial || this.options.powerTrial) throw new NvrLiveControlError("disabled");
+    signal?.throwIfAborted();
+    if (!Number.isInteger(timeout) || timeout < 1 || timeout > 5000) throw new NvrLiveControlError("unavailable");
+    if (!this.#started) await this.#connectAndDiscover();
+    const operation = this.#request(1103, timeout, false, true);
+    const pending = this.#pending as PendingRequest | null;
+    const abort = (): void => {
+      if (pending && this.#pending === pending) {
+        clearTimeout(pending.timer); this.#pending = null; pending.reject(new NvrLiveControlError("unavailable", "reply"));
+      }
+    };
+    signal?.addEventListener("abort", abort, { once: true }); if (signal?.aborted) abort();
+    try { const response = await operation; signal?.throwIfAborted(); return nvrLiveSettings(response, this.options.channel); }
+    finally { signal?.removeEventListener("abort", abort); }
+  }
+
+  /** Reserve lifetime and close segments, then reconfirm the child on this connection. */
+  async prepareLiveControl(movement: boolean): Promise<void> {
+    await this.#settingsFlight;
+    this.#liveGuard(movement);
+    const response = await this.#request(9100, 5000, false, true);
+    nvrMatchCamera(response, this.options.camera, this.options.channel, this.options.cameraType);
+    this.#liveGuard(movement);
+  }
+
+  #liveGuard(movement: boolean): void {
+    this.#guard();
+    if (!this.options.liveControls || this.options.powerTrial || this.options.guardTrial || !this.#startSent
+      || this.#channels.get("WebrtcDataChannel")?.ordered !== true) throw new NvrLiveControlError("disabled");
+    if (performance.now() - this.#lifetimeStartedAt > this.#maximumLifetimeMilliseconds - (movement ? 10000 : 35000)) {
+      throw new NvrLiveControlError("unavailable", "source_lifetime");
+    }
+    if (this.#segment + (movement ? 3 : 16) + 2 > 254) throw new NvrLiveControlError("unavailable", "segment_budget");
+  }
+
+  /** Dispatch once after the provider's synchronous final admission check. No retry occurs. */
+  async writeLiveControl(request: NvrLiveWrite, signal: AbortSignal, beforeDispatch: () => void): Promise<void> {
+    this.#guard();
+    const movement = request.kind === "pan" || request.kind === "zoom";
+    if (performance.now() - this.#lifetimeStartedAt > this.#maximumLifetimeMilliseconds - (movement ? 10000 : request.kind === "quality" && request.sensor === 1 ? 25000 : 35000)) throw new NvrLiveControlError("unavailable", "source_lifetime");
+    if (!this.options.liveControls || !this.#startSent || this.#pending || this.#livePending || this.#segment >= 252) throw new NvrLiveControlError("busy");
+    const channel = this.#channels.get("WebrtcDataChannel");
+    if (!channel || channel.readyState !== "open" || channel.ordered !== true || channel.bufferedAmount > 1024 * 1024) throw new NvrLiveControlError("unavailable");
+    const segment = this.#segment + 1;
+    const packet = nvrLiveCommand(this.options.administrator, segment, this.options.channel, request);
+    let packets: Buffer[];
+    try { packets = nvrPackets(packet, this.#outSequence % 65536, Date.now()); }
+    finally { packet.fill(0); }
+    this.#segment = segment; this.#outSequence++;
+    return new Promise<void>((resolve, reject) => {
+      const finish = (error?: Error): void => {
+        if (this.#livePending?.segment !== segment) return;
+        clearTimeout(this.#livePending.timer); this.#livePending = null;
+        signal.removeEventListener("abort", abort);
+        if (error) reject(error); else resolve();
+      };
+      const abort = (): void => finish(new NvrLiveControlError("outcome_unknown", "dispatch"));
+      const timer = setTimeout(() => {
+        if (request.kind === "pan") {
+          this.controlStats.panTimeouts++;
+          if (this.#livePending?.acknowledged) this.controlStats.panAcknowledgedWithoutData++;
+        }
+        finish(new NvrLiveControlError("outcome_unknown", "dispatch"));
+      }, 5000);
+      this.#livePending = { segment, pan: request.kind === "pan", acknowledged: false, deadline: performance.now() + 5000,
+        resolve: () => finish(), reject: error => finish(error), timer };
+      signal.addEventListener("abort", abort, { once: true });
+      let dispatched = false;
+      try {
+        this.#guard(); signal.throwIfAborted();
+        const floor = movement ? 10000 : request.kind === "quality" && request.sensor === 1 ? 25000 : 35000;
+        if (performance.now() - this.#lifetimeStartedAt > this.#maximumLifetimeMilliseconds - floor) throw new NvrLiveControlError("unavailable", "source_lifetime");
+        if (channel.readyState !== "open" || channel.bufferedAmount > 1024 * 1024) throw new NvrLiveControlError("unavailable");
+        beforeDispatch();
+        dispatched = true;
+        channel.send(packets[0]!);
+        for (let index = 1; index < packets.length; index++) channel.send(packets[index]!);
+      } catch (error) { finish(dispatched ? new NvrLiveControlError("outcome_unknown", "dispatch") : error instanceof NvrLiveControlError ? error : new NvrLiveControlError("unavailable")); }
+
+      // Packet buffers belong to the transport after send and must not be mutated.
+      finally { packet.fill(0); }
+    });
   }
 
   /** Open one power-only connection after the provider's separate consent and admission. */
@@ -382,6 +492,7 @@ export class NvrRtcSession {
   async #connectAndDiscover(): Promise<void> {
     if (this.#started || this.options.signal.aborted) throw new NvrTrialError("cancelled");
     this.#started = true;
+    this.#lifetimeStartedAt = performance.now();
     this.#deadline = setTimeout(() => this.#fail("deadline"), this.#maximumLifetimeMilliseconds);
     const ready = new Promise<void>((resolve, reject) => { this.#readyResolve = resolve; this.#readyReject = reject; });
     const timer = setTimeout(() => this.#fail(this.#stage), 30_000);
@@ -420,6 +531,7 @@ export class NvrRtcSession {
   /** Attempt stream stop and deterministically retire the original connection. */
   close(): Promise<void> {
     if (this.#closing) return this.#closing;
+    this.#livePending?.reject(new NvrLiveControlError("outcome_unknown", "dispatch"));
     this.#retired = true;
     this.#finishPowerReceipt(new NvrPowerError("shutdown"));
     this.#finishGuardReceipt(new NvrGuardError("shutdown"));
@@ -470,6 +582,7 @@ export class NvrRtcSession {
     this.#stage = stage;
     const error = new NvrTrialError(stage, reason);
     this.#readyReject?.(error);
+    this.#livePending?.reject(new NvrLiveControlError("outcome_unknown", "dispatch"));
     this.#pending?.reject(error);
     this.output.destroy(error);
     void this.close().catch(() => {});
@@ -683,6 +796,26 @@ export class NvrRtcSession {
       } else if (!this.output.write(video.bytes)) throw new NvrTrialError("video");
       return;
     }
+    if (this.#livePending) {
+      const pending = this.#livePending;
+      if (frame.segment !== pending.segment || performance.now() >= pending.deadline
+        || frame.channel !== this.options.channel && !(pending.pan && frame.channel === 255)) { this.stats.staleReplies++; return; }
+      if (frame.command === (pending.pan ? 1700 : 1350)) {
+        if (frame.channel !== this.options.channel) { this.stats.staleReplies++; return; }
+        if (nvrLiveReceipt(frame.payload)) { pending.acknowledged = true; if (!pending.pan) pending.resolve(); }
+        else { this.controlStats.rejected++; pending.reject(new NvrLiveControlError("outcome_unknown", "receipt")); }
+        return;
+      }
+      if (pending.pan && frame.command === 1351) {
+        try {
+          const data = nvrLiveJson(frame.payload.toString("utf8"));
+          if (data.cmd !== 6030) { this.stats.staleReplies++; return; }
+          if (!nvrLivePanReply(data)) throw new Error();
+          this.controlStats.panData++; pending.resolve();
+        } catch { this.controlStats.rejected++; pending.reject(new NvrLiveControlError("outcome_unknown", "reply")); }
+      } else this.stats.staleReplies++;
+      return;
+    }
     if (this.#powerReceipt && frame.command === 1350) {
       const pending = this.#powerReceipt;
       if (frame.channel === this.options.channel && frame.segment === pending.segment && frame.payload.length === 132
@@ -704,8 +837,8 @@ export class NvrRtcSession {
       return;
     }
     const pending = this.#pending;
-    if (!pending || frame.channel !== 255 || frame.segment !== pending.segment && (frame.segment !== 0 || pending.command === 1103)) { this.stats.staleReplies++; return; }
-    if ((pending.command === 1103 || (this.#powerMode || this.#guardMode) && pending.command === 9100)
+    if (!pending || frame.channel !== 255 || frame.segment !== pending.segment && (frame.segment !== 0 || pending.command === 1103 || pending.strict)) { this.stats.staleReplies++; return; }
+    if ((pending.strict || pending.command === 1103 || (this.#powerMode || this.#guardMode) && pending.command === 9100)
       && (frame.segment !== pending.segment || performance.now() >= pending.deadline)) { this.stats.staleReplies++; return; }
     if (frame.segment === 0) this.stats.segmentNotEchoed++;
     if (frame.command === 1350 && frame.payload.length >= 4
@@ -715,22 +848,27 @@ export class NvrRtcSession {
       return;
     }
     if (frame.command !== 1351) { this.stats.staleReplies++; return; }
-    const response = nvrJson(frame.payload.toString("utf8"));
+    let response: Record<string, unknown>;
+    try { response = this.options.liveControls ? nvrLiveJson(frame.payload.toString("utf8")) : nvrJson(frame.payload.toString("utf8")); }
+    catch (error) {
+      if (!this.options.liveControls || pending.command !== 1103 && !pending.strict) throw error;
+      clearTimeout(pending.timer); this.#pending = null; pending.reject(new NvrLiveControlError("unavailable", "reply")); return;
+    }
     if (response.cmd !== pending.command) { this.stats.staleReplies++; return; }
     if (response.mIntRet !== undefined && response.mIntRet !== 0) pending.reject(new NvrTrialError(this.#stage));
     else pending.resolve(response);
     clearTimeout(pending.timer); this.#pending = null;
   }
 
-  #request(command: 9100 | 1003 | 1004 | 1103, timeout: number, closing = false): Promise<Record<string, unknown>> {
+  #request(command: 9100 | 1003 | 1004 | 1103, timeout: number, closing = false, strict = false): Promise<Record<string, unknown>> {
     if (!closing) this.#guard();
-    if (this.#pending || this.#segment >= 254) return Promise.reject(new NvrTrialError(this.#stage));
+    if (this.#pending || this.#livePending || this.#segment >= 254 || this.options.liveControls && command !== 1004 && this.#segment >= 252) return Promise.reject(new NvrTrialError(this.#stage));
     const channel = this.#channels.get("WebrtcDataChannel");
     if (!channel || channel.readyState !== "open" || channel.bufferedAmount > 1024 * 1024) return Promise.reject(new NvrTrialError("channel"));
     return new Promise((resolve, reject) => {
       const segment = ++this.#segment;
       const timer = setTimeout(() => { this.#pending = null; reject(new NvrTrialError(command === 1004 ? "stop" : this.#stage)); }, timeout);
-      this.#pending = { command, segment, resolve, reject, timer, deadline: performance.now() + timeout };
+      this.#pending = { command, segment, resolve, reject, timer, strict, deadline: performance.now() + timeout };
       if (command === 1003) this.#startSent = true;
       try {
         for (const packet of nvrPackets(nvrCommand(this.options.administrator, command, segment, this.options.channel, this.options.sensor ?? 1), this.#outSequence++ % 65536, Date.now())) channel.send(packet);

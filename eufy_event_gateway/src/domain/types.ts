@@ -171,6 +171,13 @@ export interface CameraState {
   /** Model-specific streaming choices, used only when control admission is true. */
   readonly streamingQualityModes?: readonly CameraStreamingQualityMode[];
 
+  /** Default-off exact-profile NVR controls, withdrawn when admission changes. */
+  readonly nvrPanControlSupported?: boolean;
+  readonly nvrOpticalZoomControlSupported?: boolean;
+  readonly nvrViewOptions?: readonly string[];
+  readonly nvrSelectedView?: number | null;
+
+
   /** Strictly validated camera-owned settings, with unknown values left absent. */
   readonly reportedSettings: CameraReportedSettings | null;
   readonly serial: string;
@@ -237,13 +244,13 @@ export interface CameraState {
 /** One camera-specific label for a raw night-vision mode value. */
 export interface NightVisionMode {
   readonly value: number;
-  readonly name: "Off" | "Colour" | "Infrared" | "Infrared on" | "Spotlight";
+  readonly name: "Off" | "Colour" | "Infrared" | "Infrared on" | "Spotlight" | "Standard" | "Auto Infrared";
 }
 
 /** One exact model's app-confirmed streaming quality, independent of recorded-video quality. */
 export interface CameraStreamingQualityMode {
   readonly value: number;
-  readonly name: "Auto" | "HD (720P)" | "Full HD (1080P)" | "2K" | "Medium" | "High";
+  readonly name: "Auto" | "HD (720P)" | "Full HD (1080P)" | "2K" | "Medium" | "High" | "Low" | "Highest";
 }
 
 /** Normalized battery reads exposed only when a device reports each field. */
@@ -431,6 +438,13 @@ export interface CameraIdentity {
 
   /** Native choices for this model, separate from recorded-video resolution. */
   readonly streamingQualityModes?: readonly CameraStreamingQualityMode[];
+
+  /** Default-off exact-profile NVR controls, withdrawn when admission changes. */
+  readonly nvrPanControlSupported?: boolean;
+  readonly nvrOpticalZoomControlSupported?: boolean;
+  readonly nvrViewOptions?: readonly string[];
+  readonly nvrSelectedView?: number | null;
+
 
   /** Optional read-only configuration projection from fresh device inventory. */
   readonly reportedSettings?: CameraReportedSettings | null;

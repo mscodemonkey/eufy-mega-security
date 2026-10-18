@@ -117,3 +117,15 @@ test("manual-recovery capacity fails closed and a new provider clears its latch"
     assert.equal(value.writes(), writes + 2);
   } finally { await fresh.close(); }
 });
+
+
+test("guard and power reject inherited raw child membership before any target", async context => {
+  context.mock.method(NvrRtcSession.prototype, "preparePowerTrial", async () => { assert.fail("Owner must be checked before native setup"); });
+  const value = await fixture(context, 1);
+  const raw = await MegaClient.prototype.inventory();
+  const inherited = { ...raw, devices: raw.devices.map(row => row.device_sn === "synthetic-camera-0" ? { ...row, member: {} } : row) };
+  context.mock.method(MegaClient.prototype, "inventory", async () => inherited);
+  await assert.rejects(value.pump(value.provider.testNvrGuardMode("synthetic-camera-0", { target: "home", timeZone: "UTC" }, new AbortController().signal)));
+  await assert.rejects(value.pump(value.provider.testNvrCameraPower("synthetic-camera-0", { originalPower: "on", target: "off" }, new AbortController().signal)));
+  assert.equal(value.writes(), 0);
+});

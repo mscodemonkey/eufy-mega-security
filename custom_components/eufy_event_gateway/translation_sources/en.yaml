@@ -25,6 +25,20 @@ entity:
       name: Start automatic cruise
     camera_auto_cruise_off:
       name: Stop automatic cruise
+    nvr_left:
+      name: Pan left
+    nvr_right:
+      name: Pan right
+    nvr_up:
+      name: Pan up
+    nvr_down:
+      name: Pan down
+    nvr_zoom_1:
+      name: Optical zoom 1x
+    nvr_zoom_2:
+      name: Optical zoom 2x
+    nvr_zoom_3:
+      name: Optical zoom 3x
   alarm_control_panel:
     eufy_home_base_alarm:
       name: Alarm
@@ -120,6 +134,8 @@ entity:
         2k: 2K
         medium: Medium
         high: High
+        low: Low
+        highest: Highest
     camera_night_vision:
       name: Night vision
       state:
@@ -128,6 +144,8 @@ entity:
         infrared: Infrared
         infrared_on: Infrared on
         spotlight: Spotlight
+        standard: Standard
+        auto_infrared: Auto infrared
     camera_sound_type:
       name: Sound detection type
       state:
@@ -144,6 +162,13 @@ entity:
         off: Off
         timestamp: Timestamp
         timestamp_logo: Timestamp and logo
+    nvr_camera_view:
+      name: Camera view
+      state:
+        fixed: Fixed
+        movable: Movable
+        wide: Wide
+        telephoto: Telephoto
   sensor:
     last_recognized_person:
       name: Last recognized person

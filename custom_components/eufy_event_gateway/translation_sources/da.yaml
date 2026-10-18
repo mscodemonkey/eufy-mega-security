@@ -25,6 +25,20 @@ entity:
       name: Start automatisk patruljering
     camera_auto_cruise_off:
       name: Stop automatisk patruljering
+    nvr_left:
+      name: Drej til venstre
+    nvr_right:
+      name: Drej til højre
+    nvr_up:
+      name: Drej op
+    nvr_down:
+      name: Drej ned
+    nvr_zoom_1:
+      name: Optisk zoom 1x
+    nvr_zoom_2:
+      name: Optisk zoom 2x
+    nvr_zoom_3:
+      name: Optisk zoom 3x
   alarm_control_panel:
     eufy_home_base_alarm:
       name: Alarm
@@ -120,6 +134,8 @@ entity:
         2k: 2K
         medium: Mellem
         high: Høj
+        low: Lav
+        highest: Højest
     camera_night_vision:
       name: Night vision
       state:
@@ -128,6 +144,8 @@ entity:
         infrared: Infrarød
         infrared_on: Infrarød slået til
         spotlight: Spotlys
+        standard: Standard
+        auto_infrared: Automatisk infrarød
     camera_sound_type:
       name: Lyddetektionstype
       state:
@@ -144,6 +162,13 @@ entity:
         off: Fra
         timestamp: Tidsstempel
         timestamp_logo: Tidsstempel og logo
+    nvr_camera_view:
+      name: Kameravisning
+      state:
+        fixed: Fast
+        movable: Bevægelig
+        wide: Vidvinkel
+        telephoto: Telefoto
   sensor:
     last_recognized_person:
       name: Sidste genkendte person

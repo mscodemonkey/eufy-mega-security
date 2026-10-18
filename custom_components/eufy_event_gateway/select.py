@@ -31,6 +31,8 @@ NIGHT_VISION_MODE_KEYS = {
     "Infrared": "infrared",
     "Infrared on": "infrared_on",
     "Spotlight": "spotlight",
+    "Standard": "standard",
+    "Auto Infrared": "auto_infrared",
 }
 
 
@@ -67,9 +69,13 @@ async def async_setup_entry(
     known_stations: set[str] = set()
     known_night_vision: set[str] = set()
     known_streaming_quality: set[str] = set()
+    known_nvr_views: set[str] = set()
 
     def add_new() -> None:
         for serial, camera in coordinator.cameras.items():
+            if camera.get("nvrViewOptions") and serial not in known_nvr_views:
+                known_nvr_views.add(serial)
+                async_add_entities([EufyNvrViewSelect(coordinator, serial)])
             if camera.get("autoNightVisionControlSupported") is not True:
                 continue
             obsolete_unique_id = f"{serial}_night_vision"
@@ -138,6 +144,11 @@ class EufyNightVisionSelect(EufyGatewayEntity, SelectEntity):
         self._attr_unique_id = f"{serial}_night_vision"
 
     @property
+    def available(self) -> bool:
+        """Withdraw a discovered select when its gateway admission is withdrawn."""
+        return super().available and self.camera.get("nightVisionControlSupported") is True
+
+    @property
     def current_option(self) -> str | None:
         """Return the camera-reported night-vision mode."""
         mode = self.camera.get("nightVisionMode")
@@ -158,7 +169,8 @@ class EufyNightVisionSelect(EufyGatewayEntity, SelectEntity):
             raise HomeAssistantError(f"Unsupported night-vision mode: {option}")
         try:
             camera = await self.coordinator.client.set_camera_night_vision(
-                self.serial, mode
+                self.serial, mode,
+                **({"nvr": True} if self.camera.get("nvrViewOptions") in (["Fixed", "Movable"], ["Wide", "Telephoto"]) else {}),
             )
             self.coordinator.async_set_camera(camera)
         except GatewayClientError as error:
@@ -204,6 +216,11 @@ class EufyStreamingQualitySelect(EufyGatewayEntity, SelectEntity):
         self._attr_unique_id = f"{serial}_streaming_quality"
 
     @property
+    def available(self) -> bool:
+        """Withdraw a discovered select when its gateway admission is withdrawn."""
+        return super().available and self.camera.get("streamingQualityControlSupported") is True
+
+    @property
     def current_option(self) -> str | None:
         """Return the fresh reported preference rather than an inferred video resolution."""
         settings = self.camera.get("reportedSettings")
@@ -227,7 +244,8 @@ class EufyStreamingQualitySelect(EufyGatewayEntity, SelectEntity):
             raise HomeAssistantError(f"Unsupported streaming quality: {option}")
         try:
             camera = await self.coordinator.client.set_camera_streaming_quality(
-                self.serial, quality
+                self.serial, quality,
+                **({"nvr": True} if self.camera.get("nvrViewOptions") in (["Fixed", "Movable"], ["Wide", "Telephoto"]) else {}),
             )
             self.coordinator.async_set_camera(camera)
         except GatewayClientError as error:
@@ -241,7 +259,7 @@ def _streaming_quality_modes(camera: dict[str, Any]) -> dict[int, str]:
     names = {
         "Auto": "auto", "HD (720P)": "hd",
         "Full HD (1080P)": "full_hd", "2K": "2k",
-        "Medium": "medium", "High": "high",
+        "Medium": "medium", "High": "high", "Low": "low", "Highest": "highest",
     }
     raw_modes = camera.get("streamingQualityModes")
     if not isinstance(raw_modes, list):
@@ -254,7 +272,8 @@ def _streaming_quality_modes(camera: dict[str, Any]) -> dict[int, str]:
         if (
             isinstance(value, int)
             and not isinstance(value, bool)
-            and 0 <= value <= 3
+            and (0 <= value <= 3 or value == 4 and name == "Highest"
+                 and camera.get("model") == "T8416" and bool(camera.get("nvrViewOptions")))
             and isinstance(name, str)
             and name in names
         ):
@@ -443,3 +462,49 @@ class EufyLockAutoLockDelaySelect(EufyLockSettingEntity, SelectEntity):
         if option not in self._attr_options:
             raise HomeAssistantError("Unsupported auto-lock delay")
         await self.async_set_setting(int(option))
+
+
+class EufyNvrViewSelect(EufyGatewayEntity, SelectEntity):
+    """Own the HA choice for the next normal source, never a physical lens state.
+
+    The gateway rejects changes while media or a control owns the camera. The
+    coordinator replaces this in-memory preference only from gateway responses.
+    """
+
+    _attr_translation_key = "nvr_camera_view"
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Bind the preference to one default-off exact model profile."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        SelectEntity.__init__(self)
+        self._attr_unique_id = f"{serial}_nvr_camera_view"
+
+    @property
+    def available(self) -> bool:
+        """Withdraw the choice when its experimental profile is absent."""
+        return super().available and bool(self.options)
+
+    @property
+    def options(self) -> list[str]:
+        """Map only the two admitted model-specific choices."""
+        labels = {"Fixed": "fixed", "Movable": "movable", "Wide": "wide", "Telephoto": "telephoto"}
+        raw = self.camera.get("nvrViewOptions")
+        if raw not in (["Fixed", "Movable"], ["Wide", "Telephoto"]):
+            return []
+        return [labels[value] for value in raw]
+
+    @property
+    def current_option(self) -> str | None:
+        """Return the next-start preference, not an observed physical lens."""
+        selected = self.camera.get("nvrSelectedView")
+        return self.options[selected] if type(selected) is int and 0 <= selected < len(self.options) else None
+
+    async def async_select_option(self, option: str) -> None:
+        """Ask the gateway to change an idle source preference without optimism."""
+        if option not in self.options:
+            raise HomeAssistantError("Unavailable camera view")
+        try:
+            camera = await self.coordinator.client.set_nvr_view(self.serial, self.options.index(option))
+            self.coordinator.async_set_camera(camera)
+        except GatewayClientError as error:
+            raise HomeAssistantError(str(error)) from error

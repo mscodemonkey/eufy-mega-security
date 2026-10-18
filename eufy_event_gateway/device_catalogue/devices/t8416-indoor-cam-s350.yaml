@@ -43,6 +43,11 @@ capabilities:
       connections:
         T9000:
           status: declared
+        T8N00:
+          status: declared
+          notes: Experimental T8N00 only. Exact T8416/type104, excluding T8416121. NVR
+            values 0 Off, 1 Auto Infrared, 3 Infrared on. These differ from the
+            T9000 mapping. Default-off and hardware-unconfirmed.
       read:
         parameter: 1277
       write:
@@ -61,6 +66,10 @@ capabilities:
           tested_on: 2026-09-17
           tested_by: geroh20-source
           notes: The T9000 camera route cannot complete peer lookup.
+        T8N00:
+          status: declared
+          notes: Experimental opt-in normal playback. Source profile and selected lens
+            require hardware confirmation.
     snapshot:
       connections:
         direct:

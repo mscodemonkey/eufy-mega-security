@@ -684,3 +684,5 @@ The T85V0/type203 backup AA battery has a separate read-only sensor when its
 inventory reports that measurement. Missing, invalid and unavailable values
 stay unknown. The primary battery is never used as a substitute, and the sensor
 does not poll or operate the lock. Physical percentage accuracy is unconfirmed.
+
+Experimental exact-model NVR controls are documented in [NVR live controls](docs/NVR_LIVE_CONTROLS.md). They remain off by default and hardware-unconfirmed.

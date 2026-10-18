@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.172
+
+- Add default-off normal NVR camera controls for exact T8E00/type301 and T8416/type104 cameras on an explicitly owned T8N00. Home Assistant offers model-specific view, night-vision and live-quality choices, plus single-step movement and limited optical zoom where admitted.
+- Require an active viewer for movement, fresh administrator and child checks before writes, bounded source lifetime, exclusive control ownership and confirmed setting readback. Malformed control replies leave working video alive.
+- Expire observed NVR settings after 30 minutes and clear them when the binding or selected view changes. Unconfirmed writes remain unknown and are never silently retried or rolled back.
+- Tighten the existing manual NVR guard and camera-power trials to require explicit child membership.
+- All new controls remain experimental and hardware-unconfirmed. Changing a setting without a viewer opens a source and retains an image. See docs/NVR_LIVE_CONTROLS.md for model choices, persistent-setting effects and the reporter retest.
+
 ## 0.1.171
 
 - Add the default-off NVR Schedule-to-Home trial with an operator-confirmed NVR timezone, schedule-aware preflight and correlated state checks.

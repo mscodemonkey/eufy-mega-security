@@ -45,5 +45,16 @@ class StreamingQualityOptionsTest(unittest.TestCase):
                 self.assertEqual(self.map_modes({'streamingQualityModes': modes}), {})
 
 
+class NvrQualityOptionsTest(StreamingQualityOptionsTest):
+    """Keep the unconfirmed Highest tier limited to the advertised NVR profile."""
+
+    def test_highest_requires_exact_profile(self) -> None:
+        """Reject tier four unless T8416 supplies the explicit NVR view choices."""
+        mode = [{"value": 4, "name": "Highest"}]
+        for camera in ({}, {"model": "T8171"}, {"model": "T8416"}):
+            self.assertEqual(self.map_modes({**camera, "streamingQualityModes": mode}), {})
+        self.assertEqual(self.map_modes({"model": "T8416", "nvrViewOptions": ["Wide", "Telephoto"], "streamingQualityModes": mode}), {4: "highest"})
+
+
 if __name__ == '__main__':
     unittest.main()

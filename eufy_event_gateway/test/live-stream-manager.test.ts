@@ -1384,3 +1384,22 @@ test("releases the camera operation lease when movement or source startup fails"
     } finally { await manager.close(); }
   }
 });
+
+test("active-viewer lease never waits for a fresh image or captures a snapshot", async context => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const state = new GatewayState(); state.registerCamera(camera);
+  let snapshots = 0, manager: LiveStreamManager;
+  const source = new PassThrough();
+  manager = new LiveStreamManager(state, { write: async () => { snapshots++; } } as never, {
+    async startStream() { manager.attachSource(camera.serial, source); }, async stopStream() {},
+  }, 5, undefined, undefined, (() => { throw Error("Unexpected snapshot extractor"); }) as never, 90000);
+  try {
+    await assert.rejects(manager.withActiveViewer(camera.serial, async () => true));
+    const viewer = new PassThrough() as unknown as ServerResponse;
+    await manager.addClient(camera.serial, viewer);
+    source.write(Buffer.from([1])); context.mock.timers.tick(31000);
+    assert.equal(manager.hasActiveViewer(camera.serial), true);
+    assert.equal(await manager.withActiveViewer(camera.serial, async () => "accepted"), "accepted");
+    assert.equal(snapshots, 0);
+  } finally { await manager.close(); }
+});

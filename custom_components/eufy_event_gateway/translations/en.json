@@ -38,6 +38,27 @@
       },
       "camera_auto_cruise_off": {
         "name": "Stop automatic cruise"
+      },
+      "nvr_left": {
+        "name": "Pan left"
+      },
+      "nvr_right": {
+        "name": "Pan right"
+      },
+      "nvr_up": {
+        "name": "Pan up"
+      },
+      "nvr_down": {
+        "name": "Pan down"
+      },
+      "nvr_zoom_1": {
+        "name": "Optical zoom 1x"
+      },
+      "nvr_zoom_2": {
+        "name": "Optical zoom 2x"
+      },
+      "nvr_zoom_3": {
+        "name": "Optical zoom 3x"
       }
     },
     "alarm_control_panel": {
@@ -170,7 +191,9 @@
           "full_hd": "Full HD (1080p)",
           "2k": "2K",
           "medium": "Medium",
-          "high": "High"
+          "high": "High",
+          "low": "Low",
+          "highest": "Highest"
         }
       },
       "camera_night_vision": {
@@ -180,7 +203,9 @@
           "colour": "Colour",
           "infrared": "Infrared",
           "infrared_on": "Infrared on",
-          "spotlight": "Spotlight"
+          "spotlight": "Spotlight",
+          "standard": "Standard",
+          "auto_infrared": "Auto infrared"
         }
       },
       "camera_sound_type": {
@@ -203,6 +228,15 @@
           "off": "Off",
           "timestamp": "Timestamp",
           "timestamp_logo": "Timestamp and logo"
+        }
+      },
+      "nvr_camera_view": {
+        "name": "Camera view",
+        "state": {
+          "fixed": "Fixed",
+          "movable": "Movable",
+          "wide": "Wide",
+          "telephoto": "Telephoto"
         }
       }
     },

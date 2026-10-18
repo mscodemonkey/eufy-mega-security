@@ -9,6 +9,7 @@
  * tests; the production provider is the only implementation allowed to know
  * Mega and PPCS details.
  */
+import type { NvrLiveControl, NvrLiveControlResult } from "./nvr-live-controls.js";
 import type { NvrPowerRequest, NvrPowerSummary } from "./nvr-power-trial.js";
 import type { NvrGuardRequest, NvrGuardSummary } from "./nvr-guard-trial.js";
 import type { T85V0StatusSummary } from "./t85v0-status.js";
@@ -56,6 +57,20 @@ export interface ProviderEvents {
 
 /** Lifecycle and stream operations required by the gateway server. */
 export interface CameraProvider {
+
+  /** Read current NVR admission without opening media. Optional quality checks the exact profile. */
+  nvrLiveSettingAdmitted?(serial: string, quality?: number): boolean;
+
+
+  /** Inject media facts without transferring ownership of sources or viewer leases. */
+  setNvrLiveMediaChecks?(checks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean }): void;
+
+  /** Change the idle camera's next-stream view, with no device write. */
+  setNvrView?(serial: string, view: number): Promise<CameraIdentity>;
+
+  /** Submit one finite experimental movement, requiring physical confirmation. */
+  performNvrLiveControl?(serial: string, request: NvrLiveControl, signal?: AbortSignal): Promise<NvrLiveControlResult>;
+
 
   /** Submit one reviewed absolute camera setting and return fresh confirmed state. */
   setCameraSetting?(serial: string, change: CameraSettingChange, signal?: AbortSignal): Promise<CameraIdentity>;
@@ -135,7 +150,7 @@ export interface CameraProvider {
   setCameraAudioRecording?(serial: string, enabled: boolean): Promise<CameraIdentity>;
 
   /** Write a model-reported live quality preference and return fresh confirmed inventory. */
-  setCameraStreamingQuality?(serial: string, quality: number): Promise<CameraIdentity>;
+  setCameraStreamingQuality?(serial: string, quality: number, signal?: AbortSignal): Promise<CameraIdentity>;
 
   /** Refresh one direct camera's safe reads from its on-device parameter table. */
   refreshCameraCapabilities(serial: string): Promise<CameraIdentity>;
@@ -144,7 +159,7 @@ export interface CameraProvider {
   setCameraGuardMode(serial: string, mode: number): Promise<CameraIdentity>;
 
   /** Write a reported night-vision mode and return fresh inventory-backed state. */
-  setCameraNightVision(serial: string, mode: number): Promise<CameraIdentity>;
+  setCameraNightVision(serial: string, mode: number, signal?: AbortSignal): Promise<CameraIdentity>;
 
   /** Send the camera family's momentary manual-light command. */
   setCameraLight(serial: string, enabled: boolean): Promise<void>;

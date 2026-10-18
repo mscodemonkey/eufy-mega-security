@@ -380,7 +380,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         for field, attribute, allowed in (
             ("soundDetectionSensitivity", "reported_sound_detection_sensitivity", (1, 3, 5)),
             ("soundDetectionType", "reported_sound_detection_type", (1, 2)),
-            ("streamingQualityTier", "reported_streaming_quality_tier", (0, 1, 2, 3)),
+            ("streamingQualityTier", "reported_streaming_quality_tier", (0, 1, 2, 3, 4) if self.camera.get("model") == "T8416" and self.camera.get("nvrViewOptions") else (0, 1, 2, 3)),
             ("recordingQualityTier", "reported_recording_quality_tier", (1, 2, 3)),
             ("notificationStyle", "reported_notification_style", (1, 2, 3)),
             ("watermarkMode", "reported_watermark_mode", (0, 1, 2)),

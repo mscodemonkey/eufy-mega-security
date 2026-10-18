@@ -656,6 +656,26 @@ export class LiveStreamManager extends EventEmitter {
     }
   }
 
+  /** True only for a decoded normal source with a real attached viewer. */
+  hasActiveViewer(serial: string): boolean {
+    const session = this.#sessions.get(serial);
+    return !!session && !session.privateTrial && session.state === "streaming" && !!session.source && session.clients.size > 0;
+  }
+
+  /** Identify local clip consumers so control admission can reject recording conflicts. */
+  hasActiveRecording(serial: string): boolean {
+    return (this.#sessions.get(serial)?.recordings.size ?? 0) > 0;
+  }
+
+  /** Retain an existing viewed source without capturing or waiting for a new image. */
+  async withActiveViewer<T>(serial: string, operation: () => Promise<T>): Promise<T> {
+    if (this.#closed || !this.hasActiveViewer(serial)) throw new Error("An active live viewer is required");
+    const session = this.#sessions.get(serial)!;
+    this.#assertShareable(session); this.#cancelStop(session); session.leases++;
+    try { return await operation(); }
+    finally { session.leases--; this.#scheduleStopIfUnused(serial, session); }
+  }
+
   /** Capture one startup image and release its unused source immediately. */
   async captureStartupSnapshot(
     serial: string,
