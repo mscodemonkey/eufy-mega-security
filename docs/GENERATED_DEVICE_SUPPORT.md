@@ -28,6 +28,7 @@ hardware evidence and topology-specific results remain in
 | T8170, T81701W1 | SoloCam S340 | 48 | camera | supported |
 | T8171 | SoloCam E30 | 88 | camera | supported |
 | T8172, T81721W1 | eufyCam S4 | 89 | camera | supported |
+| T8173 | SoloCam E42 | 98 | camera | ready_to_test |
 | T817L, T817L121 | Wired Cam C31 | 10031 | camera | supported |
 | T8200 | Video Doorbell 2K (T8200X variant) | 5 | camera | ready_to_test |
 | T8200 | Video Doorbell 2K (Wired) | 5 | camera | supported |

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.179
+
+- Admit the SoloCam E42 T8173/type 98 through the existing camera handler as a hardware-unconfirmed `ready_to_test` model, including attached HomeBase routes.
+- Expose camera enablement for attached cameras on their reported child channel when the cloud reports a valid state and the existing HomeBase control route is ready. Standalone controls remain limited to channel zero, and every write still requires fresh readback.
+
 ## 0.1.178
 
 - Re-register the Android push token after the Firebase receiver reconnects so event delivery resumes without restarting the gateway.

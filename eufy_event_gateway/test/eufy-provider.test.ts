@@ -24,6 +24,7 @@ import {
   inventoryLogSummaries,
   homeBaseStorageLogSummary,
   homeBaseReadLogSummary,
+  supportsCameraEnablement,
   supportsMotionDetectionControlRoute,
   supportsStandaloneMotionDetection,
   supportsStandaloneNightVision,
@@ -880,6 +881,21 @@ test("writes battery and indoor camera enablement with the matching polarity", (
   assert.equal(cameraEnableRawValue(31, false), 0);
 });
 
+test("offers confirmed enablement on attached channels while retaining the standalone boundary", () => {
+  const device = {
+    channel: 3,
+    adminUserId: "owner",
+    reads: { enabled: true },
+  } as const;
+  assert.equal(supportsCameraEnablement(device, { homeBaseAttached: true }, true), true);
+  assert.equal(supportsCameraEnablement(device, { homeBaseAttached: false }, true), false);
+  assert.equal(supportsCameraEnablement({ ...device, channel: 0 }, { homeBaseAttached: false }, true), true);
+  assert.equal(supportsCameraEnablement({ ...device, reads: {} }, { homeBaseAttached: true }, true), false);
+  assert.equal(supportsCameraEnablement({ ...device, adminUserId: null }, { homeBaseAttached: true }, true), false);
+  assert.equal(supportsCameraEnablement(device, { homeBaseAttached: true }, false), false);
+  assert.equal(supportsCameraEnablement(device, null, true), false);
+});
+
 test("accepts only bounded whole days from the cloud inventory field", () => {
   assert.equal(parseMegaInventory({ devices: [{ device_sn: "valid", charging_days: 44 }] })[0]?.reads.lastChargingDays, 44);
   assert.equal(parseMegaInventory({ devices: [{ device_sn: "negative", charging_days: -1 }] })[0]?.reads.lastChargingDays, undefined);
@@ -1117,6 +1133,25 @@ test("admits a reported T8140-R eufyCam 2 Pro through HomeBase 2", () => {
     {
       device_sn: "station", device_model: "T8010", device_type: 0, device_channel: 255,
       category: "eufy_security", p2p_did: "station-did", p2p_conn: "station-connection",
+    },
+  ] });
+  assert.ok(camera && station);
+  assert.equal(isSupportedMegaCamera(camera), true);
+  assert.equal(isPpcsStreamSupported(camera, new Map([
+    [camera.serial, camera],
+    [station.serial, station],
+  ]), new Set([station.serial])), true);
+});
+
+test("admits the reported T8173 SoloCam E42 through a ready HomeBase 3", () => {
+  const [camera, station] = parseMegaInventory({ devices: [
+    {
+      device_sn: "camera", device_model: "T8173", parent_sn: "station", device_type: 98,
+      device_channel: 2, category: "eufy_security",
+    },
+    {
+      device_sn: "station", device_model: "T8030", device_type: 18,
+      category: "eufy_security", p2p_did: "did", p2p_conn: "connection",
     },
   ] });
   assert.ok(camera && station);

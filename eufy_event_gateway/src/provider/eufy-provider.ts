@@ -296,6 +296,24 @@ export function supportsCameraSiren(
     && device.channel === 0 && Boolean(device.serial) && route.peer?.serial === device.serial && Boolean(device.adminUserId);
 }
 
+/**
+ * Expose camera enablement only when the existing confirmed-write path can verify the result.
+ *
+ * HomeBase sessions address the reported child channel, while standalone
+ * control retains the established channel-zero boundary.
+ */
+export function supportsCameraEnablement(
+  device: Pick<MegaInventoryDevice, "channel" | "adminUserId" | "reads">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached"> | null,
+  routeReady: boolean,
+): boolean {
+  return device.reads.enabled !== undefined
+    && device.channel !== null
+    && device.adminUserId !== null
+    && routeReady
+    && (route?.homeBaseAttached === true || device.channel === 0);
+}
+
 /** Return whether SDK evidence identifies this model as a standalone security endpoint. */
 export function supportsStandaloneGuardMode(
   device: Pick<MegaInventoryDevice, "model">,
@@ -2152,8 +2170,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const route = ppcsStreamRoute(device, this.#devices);
       const peer = route?.peer;
       const dsk = peer ? await this.#dskKey(peer.serial) : null;
+      const routeReady = Boolean(peer?.p2pDid && peer.p2pConnection && dsk);
       if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
         throw new Error("Camera enablement control is unavailable for this camera");
+      }
+      if (!supportsCameraEnablement(device, route, routeReady)) {
+        throw new Error("Camera enablement control requires reported state and a supported route");
       }
       if (device.model === "T817L" && !route.homeBaseAttached
         && (!supportsStandaloneC31Presets(device, route, true)
@@ -3637,10 +3659,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials),
       liveAudioSupported: supportsCameraLiveAudio(device, route, isPpcsStreamSupported(device, this.#devices, dskPeerSerials)),
       enabled: device.reads.enabled ?? null,
-      enableControlSupported: device.reads.enabled !== undefined
-        && device.channel === 0
-        && device.adminUserId !== null
-        && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+      enableControlSupported: supportsCameraEnablement(
+        device,
+        route,
+        isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+      ),
       streamingQualityControlSupported: supportsStandaloneStreamingQuality(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
       streamingQualityModes: supportsStandaloneStreamingQuality(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)) ? device.model === "T817L" ? [
         { value: 0, name: "Auto" }, { value: 2, name: "Medium" }, { value: 3, name: "High" },

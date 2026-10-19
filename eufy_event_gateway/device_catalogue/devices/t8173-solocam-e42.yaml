@@ -5,7 +5,8 @@ id: t8173
 name: SoloCam E42
 category: camera
 integration:
-  status: recognised
+  status: ready_to_test
+  handler: camera
 models:
   - T8173
 device_type: 98
