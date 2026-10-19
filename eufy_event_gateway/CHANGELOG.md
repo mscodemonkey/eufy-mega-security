@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.178
+
+- Re-register the Android push token after the Firebase receiver reconnects so event delivery resumes without restarting the gateway.
+
 ## 0.1.177
 
 - Retry one rejected native login identity so a transient `4404` response cannot leave every Home Assistant entity unavailable.

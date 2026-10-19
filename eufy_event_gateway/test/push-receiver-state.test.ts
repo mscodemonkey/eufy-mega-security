@@ -49,7 +49,7 @@ function retryTimers(context: TestContext) {
   return active;
 }
 
-test("publishes registration once, restores connected after reconnect and leaves stopped last", async () => {
+test("re-registers after reconnect before restoring connected and leaves stopped last", async () => {
   const directory = await mkdtemp(join(tmpdir(), "eufy-push-state-"));
   const path = join(directory, "state.json");
   await writeFile(path, JSON.stringify({ version: 2, persistentIds: [], credentials: {
@@ -61,12 +61,24 @@ test("publishes registration once, restores connected after reconnect and leaves
     close() { queueMicrotask(() => transport.emit("disconnect")); },
   });
   const states: string[] = [];
-  const receiver = new MegaPushReceiver({ registerPushToken: async () => ({ activated: true, code: 0 }) } as never, path,
+  let registrations = 0;
+  let finishReconnect!: () => void;
+  const reconnectRegistration = new Promise<void>((resolve) => { finishReconnect = resolve; });
+  const receiver = new MegaPushReceiver({ registerPushToken: async () => {
+    if (++registrations > 1) await reconnectRegistration;
+    return { activated: true, code: 0 };
+  } } as never, path,
     () => undefined, (state) => states.push(state), undefined, () => transport as unknown as PushClient);
   try {
     await receiver.start();
     transport.emit("disconnect");
     transport.emit("connect");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(registrations, 2);
+    assert.deepEqual(states, ["starting", "connected", "disconnected"]);
+    finishReconnect();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.deepEqual(states, ["starting", "connected", "disconnected", "connected"]);
     await receiver.close();
     await Promise.resolve();
     assert.deepEqual(states, ["starting", "connected", "disconnected", "connected", "stopped"]);
@@ -167,6 +179,8 @@ test("a stale registration rejection cannot clear a replacement receiver", async
     await settled;
     fixture.transports[1]!.emit("disconnect");
     fixture.transports[1]!.emit("connect");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(registrations, 3);
     assert.deepEqual(fixture.states, ["starting", "stopped", "starting", "connected", "disconnected", "connected"]);
   } finally { await fixture.cleanup(); }
 });

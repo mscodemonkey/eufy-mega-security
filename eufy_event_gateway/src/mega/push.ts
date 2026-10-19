@@ -102,11 +102,14 @@ interface StoredPushState {
  * identity and delivered IDs. Camera policy remains with EufyProvider and
  * GatewayState; raw notification fields never reach those neighbours.
  * Registration failures retain the transport and use a finite retry budget.
+ * An established transport reconnect repeats token registration before the
+ * receiver becomes ready again because Eufy can discard the prior binding.
  * Closing or restarting retires all owned waits before transport shutdown.
  */
 export class MegaPushReceiver {
   #receiver: PushClient | null = null;
   #registered = false;
+  #reregisterAfterReconnect = false;
   #connected = false;
   #connectRequested = false;
   #disconnected = false;
@@ -150,6 +153,7 @@ export class MegaPushReceiver {
     this.#loaded = false;
     this.#credentialRequest = null;
     this.#registered = false;
+    this.#reregisterAfterReconnect = false;
     this.#connected = false;
     this.#connectRequested = false;
     this.#disconnected = false;
@@ -263,12 +267,19 @@ export class MegaPushReceiver {
       if (!this.#active(lifetime) || this.#receiver !== receiver) return;
       this.#connected = true;
       this.#disconnected = false;
-      if (this.#registered) this.#publish("connected");
+      if (this.#reregisterAfterReconnect) {
+        this.#reregisterAfterReconnect = false;
+        this.#attempt = 0;
+        this.#failed = false;
+        void this.#runAttempt(lifetime, false).catch(() => undefined);
+      } else if (this.#registered) this.#publish("connected");
       else if (this.#failed) this.#publish("degraded");
       logger.info("push_receiver_connected", "Android FCM receiver login acknowledged");
     });
     receiver.on("disconnect", () => {
       if (!this.#active(lifetime) || this.#receiver !== receiver) return;
+      this.#reregisterAfterReconnect ||= this.#registered;
+      this.#registered = false;
       this.#connected = false;
       this.#disconnected = true;
       this.#publish("disconnected");
@@ -320,6 +331,7 @@ export class MegaPushReceiver {
     const receiver = this.#receiver;
     this.#receiver = null;
     this.#registered = false;
+    this.#reregisterAfterReconnect = false;
     this.#connected = false;
     try { receiver?.close(); } catch {}
   }
