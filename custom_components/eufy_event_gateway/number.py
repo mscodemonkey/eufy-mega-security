@@ -42,7 +42,7 @@ async def async_setup_entry(
             if serial not in known_sensitivity and camera.get("motionSensitivityControlSupported") is True and type(steps) is int and steps in (3, 5, 7) and type(sensitivity) is int and 1 <= sensitivity <= steps:
                 known_sensitivity.add(serial)
                 async_add_entities([EufyMotionSensitivityNumber(coordinator, serial)])
-            for name in ("speakerVolume", "soundSensitivity", "lightBrightness", "notificationInterval"):
+            for name in ("speakerVolume", "soundSensitivity", "lightBrightness", "notificationInterval", "whiteNoiseVolume", "motionSensitivity"):
                 key = (serial, name)
                 if key not in known_cameras and camera_preference_value(camera, name) is not None:
                     known_cameras.add(key)
@@ -125,7 +125,11 @@ class EufyCameraPreferenceNumber(EufyGatewayEntity, NumberEntity):
         self._attr_unique_id = f"{serial}_preference_{name}"
         self._attr_native_min_value = 1 if name in ("speakerVolume", "soundSensitivity") else 0
         self._attr_native_max_value = 100 if name in ("speakerVolume", "lightBrightness") else 5
-        self._attr_translation_key = {"speakerVolume": "camera_speaker_volume", "soundSensitivity": "camera_sound_sensitivity", "lightBrightness": "camera_light_brightness", "notificationInterval": "camera_notification_interval"}[name]
+        if coordinator.cameras.get(serial, {}).get("careMonitor") is True:
+            limits = coordinator.cameras[serial].get("preferenceRanges", {}).get(name, {})
+            self._attr_native_min_value = limits.get("minimum", self._attr_native_min_value)
+            self._attr_native_max_value = limits.get("maximum", self._attr_native_max_value)
+        self._attr_translation_key = {"speakerVolume": "camera_speaker_volume", "soundSensitivity": "camera_sound_sensitivity", "lightBrightness": "camera_light_brightness", "notificationInterval": "camera_notification_interval", "whiteNoiseVolume": "care_white_noise_volume", "motionSensitivity": "camera_motion_sensitivity"}[name]
         self._attr_native_unit_of_measurement = "min" if name == "notificationInterval" else "%" if name == "lightBrightness" else None
 
     @property

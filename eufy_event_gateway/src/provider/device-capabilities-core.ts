@@ -50,6 +50,17 @@ export function describeCameraCapabilities(device: CapabilityInventoryRow, optio
   readonly homeBaseAttached?: boolean;
   readonly standaloneNightVisionSupported?: boolean;
 }): CameraCapabilityManifest {
+  if (isCareBabyMonitor(device)) {
+    const matrix: CapabilityMatrixRow[] = [
+      { id: "camera.retained_image", family: "image", kind: "media", reportedParamIds: [], deviceEvidence: "gateway-baseline", gatewaySupport: "implemented", offerable: true, note: "Attributed care event images use the existing retained-picture pipeline." },
+      { id: "camera.live_video", family: "video", kind: "media", reportedParamIds: [], deviceEvidence: "gateway-baseline", gatewaySupport: "implemented", offerable: options.streamSupported, note: "Default-off exact E21 direct live-view trial. Hardware remains unconfirmed." },
+    ];
+    return { serial: device.serial, model: device.model, deviceType: device.deviceType, acceptedAsCamera: true,
+      reviewCandidate: false, peerRouteReady: options.routeReady ?? options.streamSupported, reason: "exact-e21-profile",
+      capabilities: [{ id: "retainedImage", kind: "image", unit: null, evidence: "gateway" },
+        ...(options.streamSupported ? [{ id: "liveVideo", kind: "stream", unit: null, evidence: "ppcs-route" } as const] : [])],
+      matrix, unmappedParamIds: device.paramTypes.slice(0, 128), unmappedParamCount: device.paramTypes.length };
+  }
   const acceptedAsCamera = isSupportedCameraType(device);
   const reason = acceptedAsCamera ? "supported-camera-type"
     : device.category !== "eufy_security" ? "non-security-category"

@@ -2,12 +2,13 @@
  * Defines the exact, passive E21 baby-monitor notification boundary.
  *
  * Mega inventory owns device identity and the push receiver owns delivery.
- * This module admits no media or controls. The provider consumes its normalized
+ * This sensor adapter opens no media or controls. The provider consumes its normalized
  * sensor state and event predicate, while capability reporting consumes the
  * source-backed matrix rows.
  */
 
 import type { CapabilityMatrixRow, SecuritySensorState } from "../domain/types.js";
+import { e21DetectionKinds, e21PushKind, isE21, type E21DetectionKind, type E21Readings } from "./e21-profile.js";
 
 /** Inventory identity required for the reviewed E21 notification adapter. */
 export interface CareMonitorIdentity {
@@ -19,32 +20,20 @@ export interface CareMonitorIdentity {
 }
 
 /** Source-backed event capabilities exposed only by the exact E21 adapter. */
-export const CARE_MONITOR_CAPABILITY_ROWS: readonly CapabilityMatrixRow[] = [
-  {
-    id: "sensor.crying_event", family: "crying", kind: "event",
-    reportedParamIds: [], deviceEvidence: "gateway-baseline",
-    gatewaySupport: "implemented", offerable: true,
-    note: "Passive message-type 18 push event 3104. Hardware delivery remains unconfirmed.",
-  },
-  {
-    id: "sensor.sound_event", family: "sound", kind: "event",
-    reportedParamIds: [], deviceEvidence: "gateway-baseline",
-    gatewaySupport: "implemented", offerable: true,
-    note: "Passive message-type 18 push event 3105. Hardware delivery remains unconfirmed.",
-  },
-] as const;
+export const CARE_MONITOR_CAPABILITY_ROWS: readonly CapabilityMatrixRow[] = e21DetectionKinds.map((kind) => ({
+  id: `sensor.${kind}_event`, family: kind, kind: "event", reportedParamIds: [], deviceEvidence: "gateway-baseline",
+  gatewaySupport: "implemented", offerable: true, note: "Passive E21 notification. Physical delivery remains unconfirmed.",
+}));
 
-/** Return whether inventory exactly matches the reviewed sensor-only E21 profile. */
+/** Return whether inventory exactly matches the reviewed E21 notification profile. */
 export function isCareBabyMonitor(
   device: Pick<CareMonitorIdentity, "model" | "deviceType" | "category">,
 ): boolean {
-  return device.model === "T8354"
-    && device.deviceType === 86
-    && device.category === "eufy_care";
+  return isE21(device);
 }
 
-/** Build the notification-only sensor baseline for one exact E21 device. */
-export function careMonitorSensorState(device: CareMonitorIdentity): SecuritySensorState | null {
+/** Build the passive sensor baseline for one exact E21 device. */
+export function careMonitorSensorState(device: CareMonitorIdentity & { readonly reads?: { readonly e21?: E21Readings } }): SecuritySensorState | null {
   if (!isCareBabyMonitor(device)) return null;
   return {
     serial: device.serial,
@@ -52,7 +41,8 @@ export function careMonitorSensorState(device: CareMonitorIdentity): SecuritySen
     model: device.model,
     deviceType: 86,
     available: true,
-    capabilities: ["crying", "sound"],
+    capabilities: [...e21DetectionKinds, "roomTemperature", "careDiagnostics"],
+    ...(device.reads?.e21 ? { careSettings: device.reads.e21.careSettings } : {}),
     batteryLevel: null,
     contactOpen: null,
     lastSeen: null,
@@ -68,9 +58,6 @@ export function careMonitorPushKind(
   device: Pick<CareMonitorIdentity, "model" | "deviceType" | "category">,
   messageType: number | null,
   eventType: number | null,
-): "crying" | "sound" | null {
-  if (!isCareBabyMonitor(device) || messageType !== 18) return null;
-  if (eventType === 3104) return "crying";
-  if (eventType === 3105) return "sound";
-  return null;
+): E21DetectionKind | null {
+  return isCareBabyMonitor(device) ? e21PushKind(messageType, eventType) : null;
 }

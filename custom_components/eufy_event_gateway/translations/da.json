@@ -117,6 +117,27 @@
       },
       "eufy_station_camera_route": {
         "name": "Kamera rute"
+      },
+      "baby_left": {
+        "name": "Baby left"
+      },
+      "baby_entered": {
+        "name": "Baby entered"
+      },
+      "temperature_high": {
+        "name": "High temperature notification"
+      },
+      "temperature_low": {
+        "name": "Low temperature notification"
+      },
+      "care_area_left": {
+        "name": "Care area left"
+      },
+      "care_area_entered": {
+        "name": "Care area entered"
+      },
+      "baby_activity": {
+        "name": "Baby activity"
       }
     },
     "number": {
@@ -140,6 +161,9 @@
       },
       "camera_speaker_volume": {
         "name": "Højttalerlydstyrke"
+      },
+      "care_white_noise_volume": {
+        "name": "White noise volume"
       }
     },
     "select": {
@@ -239,6 +263,25 @@
           "wide": "Vidvinkel",
           "telephoto": "Telefoto"
         }
+      },
+      "care_recording_quality": {
+        "name": "Recording quality",
+        "state": {
+          "hd_720p": "HD (720P)",
+          "full_hd_1080p": "Full HD (1080P)",
+          "two_k": "2K",
+          "four_k": "4K"
+        }
+      },
+      "care_streaming_quality": {
+        "name": "Live video quality",
+        "state": {
+          "auto": "Auto",
+          "hd_720p": "HD (720P)",
+          "full_hd_1080p": "Full HD (1080P)",
+          "two_k": "2K",
+          "four_k": "4K"
+        }
       }
     },
     "sensor": {
@@ -315,6 +358,27 @@
           "mounting": "Monterer",
           "reported": "Reporteret"
         }
+      },
+      "care_room_temperature": {
+        "name": "Room temperature"
+      },
+      "care_high_temperature": {
+        "name": "High temperature threshold"
+      },
+      "care_low_temperature": {
+        "name": "Low temperature threshold"
+      },
+      "care_white_noise_volume": {
+        "name": "White noise volume"
+      },
+      "care_white_noise_timer_raw": {
+        "name": "White noise timer (raw)"
+      },
+      "care_temperature_monitoring": {
+        "name": "Temperature monitoring"
+      },
+      "care_rtsp_publication": {
+        "name": "RTSP publication"
       }
     },
     "switch": {
@@ -374,6 +438,15 @@
       },
       "camera_sound_detection": {
         "name": "Lyddetektion"
+      },
+      "camera_temperature_monitoring": {
+        "name": "Temperature monitoring"
+      },
+      "camera_ai_tracking": {
+        "name": "AI tracking"
+      },
+      "camera_auto_cruise": {
+        "name": "Automatic cruise"
       }
     },
     "siren": {

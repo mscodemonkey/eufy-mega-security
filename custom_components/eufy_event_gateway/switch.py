@@ -48,7 +48,7 @@ async def async_setup_entry(
             if serial not in known_chimes and camera.get("homebaseChimeControlSupported") is True and isinstance(settings, dict) and type(settings.get("homebaseChimeEnabled")) is bool:
                 known_chimes.add(serial)
                 async_add_entities([EufyDoorbellChimeSwitch(coordinator, serial)])
-            for name in ("microphone", "speaker", "imageFlipped", "preRecording", "soundDetection", "statusLed", "soundRoundLook", "enhanceLighting", "continuousRecording", "rtspPublication"):
+            for name in ("microphone", "speaker", "imageFlipped", "preRecording", "soundDetection", "statusLed", "soundRoundLook", "enhanceLighting", "continuousRecording", "rtspPublication", "audioRecording", "motionDetection", "aiTracking", "cruise", "temperatureMonitoring"):
                 key = (serial, name)
                 if key not in known_preferences and camera_preference_value(camera, name) is not None:
                     known_preferences.add(key)
@@ -269,7 +269,7 @@ class EufyCameraPreferenceSwitch(EufyGatewayEntity, SwitchEntity):
         SwitchEntity.__init__(self)
         self.preference = name
         self._attr_unique_id = f"{serial}_preference_{name}"
-        translation_name = {"imageFlipped": "image_flipped", "preRecording": "pre_recording", "soundDetection": "sound_detection", "statusLed": "status_led", "soundRoundLook": "sound_round_look", "enhanceLighting": "enhance_lighting", "continuousRecording": "continuous_recording", "rtspPublication": "rtsp_publication"}.get(name, name)
+        translation_name = {"imageFlipped": "image_flipped", "preRecording": "pre_recording", "soundDetection": "sound_detection", "statusLed": "status_led", "soundRoundLook": "sound_round_look", "enhanceLighting": "enhance_lighting", "continuousRecording": "continuous_recording", "rtspPublication": "rtsp_publication", "audioRecording": "audio_recording", "motionDetection": "motion_detection", "aiTracking": "ai_tracking", "cruise": "auto_cruise", "temperatureMonitoring": "temperature_monitoring"}.get(name, name)
         self._attr_translation_key = f"camera_{translation_name}"
 
     @property

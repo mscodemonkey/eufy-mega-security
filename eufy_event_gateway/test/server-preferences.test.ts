@@ -85,3 +85,34 @@ test("reviewed settings distinguish clean rejection, ambiguity and confirmed SSE
     assert.ok(events.some(event => JSON.stringify(event).includes('"motionSensitivityStep":3')));
   } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+test("E21 HTTP preferences require configured API validation and use the dedicated provider boundary", async () => {
+  const { E21ControlError } = await import("../src/provider/e21-profile.js");
+  const directory = await mkdtemp(join(tmpdir(), "e21-preferences-http-")), state = new GatewayState();
+  const identity = { serial:"care",name:"Synthetic",model:"T8354",stationSerial:"care",streamSupported:false,doorbellSupported:false,
+    careMonitor:true,preferenceControls:["speakerVolume"],carePreferences:{speakerVolume:20},preferenceRanges:{speakerVolume:{minimum:0,maximum:100}} };
+  state.registerCamera(identity);
+  let legacy = 0, dedicated = 0, fail = true, emitted = 0;
+  state.on("event",event=>{ if(event.type === "camera-updated") emitted++; });
+  const provider = { setCameraPreference:async()=>{legacy++;throw Error("Wrong provider boundary");},
+    setE21Preference:async(serial:string,name:string,value:number)=>{
+      dedicated++;assert.equal(serial,"care");assert.equal(name,"speakerVolume");assert.equal(value,0);
+      if(fail)throw new E21ControlError("outcome_unknown");return {...identity,carePreferences:{speakerVolume:0}};
+    } } as unknown as CameraProvider;
+  for(const token of ["","synthetic-secret"]) {
+    const server = new GatewayServer({...loadConfig({}),port:0,apiToken:token,experimentalModelControls:true},state,new SnapshotStore(directory),{} as LiveStreamManager,provider,null);
+    try {
+      await server.listen();const url=`http://127.0.0.1:${server.port}/api/cameras/care/preferences`;
+      const options={method:"POST",headers:{authorization:"Bearer synthetic-secret","content-type":"application/json"},body:JSON.stringify({preference:"speakerVolume",value:0})};
+      assert.equal((await fetch(url,{...options,headers:{}})).status,401);
+      if(!token){assert.equal((await fetch(url,options)).status,401);continue;}
+      for(const body of [{preference:"rtspPublication",value:1},{preference:"speakerVolume",value:101},{preference:"microphone",value:2}])assert.equal((await fetch(url,{...options,body:JSON.stringify(body)})).status,409);
+      assert.equal(dedicated,0);
+      const failure = await fetch(url,options);assert.equal(failure.status,503);assert.deepEqual(await failure.json(),{stage:"outcome_unknown"});
+      assert.equal(state.getCamera("care").carePreferences?.speakerVolume,20);assert.equal(emitted,0);
+      fail=false;assert.equal((await fetch(url,options)).status,200);
+      assert.equal(state.getCamera("care").carePreferences?.speakerVolume,0);assert.equal(emitted,1);
+    } finally {await server.close();}
+  }
+  assert.equal(legacy,0);assert.equal(dedicated,2);state.close();await rm(directory,{recursive:true,force:true});
+});

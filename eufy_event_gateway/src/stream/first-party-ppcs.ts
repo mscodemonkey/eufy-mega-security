@@ -10,6 +10,8 @@
  * stream plus safe counters, so the rest of the gateway never handles PPCS
  * packet layout or camera encryption directly.
  */
+import { e21PreferenceContracts, validateE21Preference, type E21Preference } from "../provider/e21-profile.js";
+
 import { cameraSettingProfile, cameraSettingWireValue, type CameraSettingChange } from "../provider/camera-settings.js";
 import { buildT85V0StatusQuery, decodeT85V0StatusReply, T85V0StatusError, type T85V0StatusIdentity, type T85V0StatusSummary } from "../provider/t85v0-status.js";
 import { C31IndexError, summarizeC31Index, validateC31IndexWindow, type C31IndexSummary } from "./c31-recording-index.js";
@@ -151,7 +153,7 @@ export function acceptsAttachedCameraMedia(command: number, frameChannel: number
  */
 export function acceptsSoloCamAudio(cameraModel: string, homeBaseAttached: boolean, requestedChannel: number,
   frameChannel: number, purpose: string | undefined): boolean {
-  return (cameraModel === "T8171" || (cameraModel === "T817L" && !homeBaseAttached))
+  return (cameraModel === "T8171" || (["T817L", "T8354"].includes(cameraModel) && !homeBaseAttached))
     && Number.isSafeInteger(requestedChannel) && requestedChannel >= 0
     && frameChannel === requestedChannel && (homeBaseAttached || requestedChannel === 0) && purpose !== "control" && purpose !== "passive";
 }
@@ -909,6 +911,31 @@ export function buildC31PreferencePayload(name: C31Preference, value: number, ac
     clear = buildCameraEnableBody(0, value, accountId);
   }
   return { command, payload: rawPayload(encryptLevel2(clear, key, sequence), 0, 8, [8, 0], 0) };
+}
+
+/** Build an E21 absolute preference independently of the C31 ranges and envelope choices. */
+export function buildE21PreferencePayload(
+  name: E21Preference, value: number, accountId: string, key: Buffer, sequence: number, now: number, videoMode: 0 | 12 | null,
+): { readonly command: number; readonly payload: Buffer } {
+  validateE21Preference(name, value);
+  if (!accountId || key.length !== 32 || !Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) throw new Error("E21 preference identity unavailable");
+  const contract = e21PreferenceContracts[name];
+  let clear: Buffer;
+  if (contract.outer === "binary") clear = buildCameraEnableBody(0, value, accountId);
+  else {
+    const fields: Record<string, number | string> = { [contract.field]: value, transaction: `${now}` };
+    if (name === "motionSensitivity") Object.assign(fields, { index: value, channel: 0 });
+    if (name === "recordingQuality") Object.assign(fields, { mode: -1, primary_view: -1 });
+    if (name === "streamingQuality") {
+      if (videoMode !== 0 && videoMode !== 12) throw new Error("E21 reported video mode required");
+      Object.assign(fields, { mode: videoMode, primary_view: 0, channel: 0 });
+    }
+    clear = Buffer.from(JSON.stringify(contract.outer === 1700
+      ? { commandType: contract.parameter, data: fields }
+      : { account_id: accountId, cmd: contract.parameter, mChannel: 0, mValue3: 0, payload: fields }));
+  }
+  return { command: contract.outer === "binary" ? contract.parameter : contract.outer,
+    payload: rawPayload(encryptLevel2(clear, key, sequence), 0, 8, [8, 0], 0) };
 }
 
 /** Build one exact-profile encrypted setting frame with native ownership and child routing. */
@@ -1972,6 +1999,22 @@ export class FirstPartyPpcsSession {
     const now = Date.now();
     for (let index = 0; index < 3; index += 1) {
       const frame = buildC31PreferencePayload(name, value, this.#options.accountId, this.#level2Key!, this.#level2Seq++, now);
+      this.#sendCommand(frame.command, frame.payload);
+      await delay(200);
+    }
+  }
+
+  /** Send one E21 absolute operation on the provider-owned control session without opening live media. */
+  async writeE21Preference(name: E21Preference, value: number, videoMode: 0 | 12 | null): Promise<void> {
+    validateE21Preference(name, value);
+    if (this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
+      || this.#options.cameraModel !== "T8354" || this.#options.homeBaseAttached !== false || this.#options.channel !== 0) {
+      throw new Error("E21 preference requires its owned direct control session");
+    }
+    await this.#waitForLevel2Key();
+    const now = Date.now();
+    for (let index = 0; index < 3; index += 1) {
+      const frame = buildE21PreferencePayload(name, value, this.#options.accountId, this.#level2Key!, this.#level2Seq++, now, videoMode);
       this.#sendCommand(frame.command, frame.payload);
       await delay(200);
     }

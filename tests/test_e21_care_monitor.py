@@ -77,6 +77,24 @@ class E21CareMonitorTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(added, [("e21", "crying"), ("e21", "sound")])
         self.assertEqual(len(listeners), 1)
 
+    async def test_camera_admission_preserves_existing_ids_without_duplicate_detections(self) -> None:
+        """Create the care adapter's entities while the matching camera advertises no generic detections."""
+        kinds = ["motion", "crying", "sound", "pet", "babyLeft", "babyEntered", "temperatureHigh", "temperatureLow", "careAreaLeft", "careAreaEntered", "babyActivity"]
+        added = []
+        coordinator = SimpleNamespace(cameras={"e21": {"supportedDetections": []}}, stations={}, sensors={"e21": {"capabilities": kinds}})
+        coordinator.async_add_listener = lambda callback: None
+        entry = SimpleNamespace(runtime_data=SimpleNamespace(coordinator=coordinator), async_on_unload=lambda value: None)
+        namespace = {
+            "er": SimpleNamespace(async_get=lambda hass: SimpleNamespace(async_get_entity_id=lambda *args: None)),
+            "DOMAIN": "synthetic",
+            "EufyStandaloneBinarySensor": lambda coordinator, serial, kind: (serial, kind),
+            "EufyDetectionSensor": lambda *args: self.fail("Duplicate camera detection entity"),
+        }
+        await load_function("async_setup_entry", namespace)(None, entry, added.extend)
+        self.assertEqual(added, [("e21", kind) for kind in kinds])
+        self.assertEqual(added.count(("e21", "crying")), 1)
+        self.assertEqual(added.count(("e21", "sound")), 1)
+
     async def test_states_preserve_unknown_and_use_independent_fields(self) -> None:
         """Avoid turning a missing notification flag into a false claim."""
         getter = load_function("is_on", {}, "EufyStandaloneBinarySensor")
@@ -90,10 +108,15 @@ class E21CareMonitorTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_care_availability_checks_the_live_capability(self) -> None:
         """Require the care capability in addition to base inventory presence."""
-        source = SOURCE.read_text()
-        self.assertIn('if self.kind in ("crying", "sound"):', source)
-        self.assertIn('self.kind in self.sensor.get(', source)
-        self.assertIn('"capabilities", []', source)
+        getter = load_function(
+            "available", {"super": lambda: SimpleNamespace(available=True)},
+            "EufyStandaloneBinarySensor",
+        )
+        for kind in ("crying", "sound", "pet", "babyLeft", "babyEntered", "temperatureHigh", "temperatureLow", "careAreaLeft", "careAreaEntered", "babyActivity"):
+            entity = SimpleNamespace(kind=kind, sensor={"capabilities": [kind]})
+            self.assertIs(getter(entity), True)
+            entity.sensor = {"capabilities": []}
+            self.assertIs(getter(entity), False)
 
 
 if __name__ == "__main__":

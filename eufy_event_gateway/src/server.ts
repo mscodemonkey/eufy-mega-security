@@ -8,6 +8,8 @@
  * module owns request authentication, response framing, and route selection;
  * it does not parse Mega payloads or open camera sockets.
  */
+import { E21ControlError, validateE21Preference } from "./provider/e21-profile.js";
+
 import { NvrLiveControlError, type NvrLiveControl } from "./provider/nvr-live-controls.js";
 import { NvrPowerError, type NvrPowerRequest } from "./provider/nvr-power-trial.js";
 import { NvrGuardError, type NvrGuardRequest } from "./provider/nvr-guard-trial.js";
@@ -857,6 +859,18 @@ export class GatewayServer {
         const body = await readJson(request);
         if (typeof body.preference !== "string") throw new SyntaxError("Missing camera preference");
         const value = requiredInteger(body.value);
+        if (this.state.getCamera(segments[2]!).careMonitor === true) {
+          if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) return json(response, 401, { error: "Unauthorized" });
+          try {
+            validateE21Preference(body.preference, value);
+            if (!this.config.experimentalModelControls || !this.provider.setE21Preference) throw new E21ControlError("admission");
+            const identity = await this.provider.setE21Preference(segments[2]!, body.preference, value);
+            return json(response, 200, this.state.registerCamera(identity));
+          } catch (error) {
+            if (error instanceof E21ControlError) return json(response, error.stage === "outcome_unknown" ? 503 : 409, { stage: error.stage });
+            throw error;
+          }
+        }
         validateC31Preference(body.preference, value);
         if (!this.provider.setCameraPreference) return json(response, 409, { error: "Camera preference unavailable" });
         const identity = await this.provider.setCameraPreference(segments[2]!, body.preference, value);

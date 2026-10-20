@@ -97,7 +97,8 @@ async def async_setup_entry(
             known_cameras.update(serials)
             entities = []
             for serial in sorted(serials):
-                entities.append(EufyRecognizedPersonSensor(coordinator, serial))
+                if coordinator.cameras[serial].get("careMonitor") is not True:
+                    entities.append(EufyRecognizedPersonSensor(coordinator, serial))
                 battery = coordinator.cameras[serial].get("battery") or {}
                 for field in battery.get("supported", []):
                     if field in ("level", "health", "temperature", "lastChargingDays"):
@@ -161,6 +162,9 @@ async def async_setup_entry(
                     entities.append(EufySensorLastSeen(coordinator, serial))
                 if "rssi" in capabilities:
                     entities.append(EufySensorSignalStrength(coordinator, serial))
+                if "careDiagnostics" in capabilities:
+                    for field in ("roomTemperatureCelsius", "highTemperatureCelsius", "lowTemperatureCelsius", "whiteNoiseVolume", "whiteNoiseTimerRaw", "temperatureMonitoringEnabled", "rtspPublicationEnabled"):
+                        entities.append(EufyCareSettingSensor(coordinator, serial, field))
             async_add_entities(entities)
 
     add_new()
@@ -524,3 +528,46 @@ class EufyStorageStatusSensor(EufyStationEntity, SensorEntity):
         medium = storage.get(self.medium) or {}
         value = medium.get("status")
         return value if isinstance(value, str) else None
+
+
+class EufyCareSettingSensor(EufySecuritySensorEntity, SensorEntity):
+    """Expose normalized E21 readings without opening media or inferring room state.
+
+    The gateway owns reported units and freshness. Instances retain their entity
+    identity across unit changes and become unavailable when the reading disappears.
+    The timer remains a disabled diagnostic because its native units are unproven.
+    """
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, field: str) -> None:
+        """Bind one reported setting to the same physical device as the camera."""
+        EufySecuritySensorEntity.__init__(self, coordinator, serial)
+        SensorEntity.__init__(self)
+        self.field = field
+        self._attr_unique_id = f"{serial}_care_{field}"
+        self._attr_translation_key = {
+            "roomTemperatureCelsius": "care_room_temperature", "highTemperatureCelsius": "care_high_temperature",
+            "lowTemperatureCelsius": "care_low_temperature", "whiteNoiseVolume": "care_white_noise_volume",
+            "whiteNoiseTimerRaw": "care_white_noise_timer_raw", "temperatureMonitoringEnabled": "care_temperature_monitoring",
+            "rtspPublicationEnabled": "care_rtsp_publication",
+        }[field]
+        if field.endswith("Celsius"):
+            self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+            self._attr_device_class = SensorDeviceClass.TEMPERATURE
+        if field != "roomTemperatureCelsius":
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        if field == "whiteNoiseTimerRaw":
+            self._attr_entity_registry_enabled_default = False
+
+    @property
+    def available(self) -> bool:
+        """Withdraw stale readings when inventory or the care capability disappears."""
+        return super().available and "careDiagnostics" in self.sensor.get("capabilities", []) and self.native_value is not None
+
+    @property
+    def native_value(self) -> int | float | str | None:
+        """Return normalized values without assigning units to the raw native timer."""
+        settings = self.sensor.get("careSettings")
+        value = settings.get(self.field) if isinstance(settings, dict) else None
+        if self.field.endswith("Enabled"):
+            return ("on" if value else "off") if type(value) is bool else None
+        return value if type(value) in (int, float) else None

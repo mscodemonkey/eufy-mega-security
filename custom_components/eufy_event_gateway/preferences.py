@@ -10,6 +10,20 @@ from typing import Any
 
 def camera_preference_value(camera: dict[str, Any], name: str) -> int | None:
     """Read one admitted preference, retaining unknown and malformed values."""
+    if camera.get("careMonitor") is True:
+        controls = camera.get("preferenceControls")
+        values = camera.get("carePreferences")
+        ranges = camera.get("preferenceRanges")
+        if not isinstance(controls, list) or name not in controls or not isinstance(values, dict) or not isinstance(ranges, dict):
+            return None
+        value = values.get(name)
+        limits = ranges.get(name)
+        if type(value) is not int or not isinstance(limits, dict):
+            return None
+        minimum, maximum = limits.get("minimum"), limits.get("maximum")
+        if type(minimum) is not int or type(maximum) is not int or not minimum <= value <= maximum:
+            return None
+        return value if name != "soundType" or value in (128, 256) else None
     fields = {"microphone": ("audioSettings", "microphoneEnabled"), "speaker": ("audioSettings", "speakerEnabled"), "speakerVolume": ("audioSettings", "speakerVolume"), "imageFlipped": ("reportedSettings", "imageFlipped"), "watermark": ("reportedSettings", "watermarkMode"), "preRecording": ("reportedSettings", "preRecordingEnabled"), "soundDetection": ("reportedSettings", "soundDetectionEnabled"), "statusLed": ("reportedSettings", "statusLedEnabled"), "recordingQuality": ("reportedSettings", "recordingQualityTier"), "soundSensitivity": ("reportedSettings", "soundDetectionSensitivity"), "soundType": ("reportedSettings", "soundDetectionType"), "soundRoundLook": ("reportedSettings", "soundRoundLookEnabled"), "enhanceLighting": ("reportedSettings", "enhanceLightingEnabled"), "lightBrightness": ("reportedSettings", "lightBrightness"), "notificationInterval": ("reportedSettings", "notificationIntervalMinutes"), "continuousRecording": ("reportedSettings", "continuousRecordingEnabled"), "rtspPublication": ("reportedSettings", "rtspPublicationEnabled")}
     controls = camera.get("preferenceControls")
     if name not in fields or not isinstance(controls, list) or name not in controls:

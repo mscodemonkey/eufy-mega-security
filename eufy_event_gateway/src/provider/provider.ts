@@ -44,7 +44,7 @@ export interface ProviderEvents {
   sensorMotion(serial: string, detected: boolean): void;
 
   /** Report one passive care-monitor notification without opening a media path. */
-  sensorDetection(serial: string, kind: "crying" | "sound", detected: boolean): void;
+  sensorDetection(serial: string, kind: import("./e21-profile.js").E21DetectionKind, detected: boolean): void;
   snapshot(serial: string, data: Buffer, contentType: string): void;
   pushDiagnostic(diagnostic: PushDiagnostic): void;
   eventReceiverState(state: EventReceiverState): void;
@@ -151,6 +151,9 @@ export interface CameraProvider {
 
   /** Write one admitted model-specific preference and return fresh confirmed state. */
   setCameraPreference?(serial: string, name: string, value: number): Promise<CameraIdentity>;
+
+  /** Write one exact E21 preference through its authenticated experimental queue and fresh raw confirmation. */
+  setE21Preference?(serial: string, name: string, value: number): Promise<CameraIdentity>;
 
   /** Write recorded audio separately from microphone enablement, returning fresh confirmed state. */
   setCameraAudioRecording?(serial: string, enabled: boolean): Promise<CameraIdentity>;

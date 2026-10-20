@@ -163,6 +163,18 @@ export interface CameraState {
   /** Known preferences with an exact owned and ready control route. */
   readonly preferenceControls?: readonly string[];
 
+  /** Per-model bounds for admitted preferences, absent on older gateways. */
+  /** Strict model-owned preference values, separate from generic camera interpretations. */
+  readonly carePreferences?: Readonly<Record<string, number>>;
+
+  readonly preferenceRanges?: Readonly<Record<string, { readonly minimum: number; readonly maximum: number }>>;
+
+  /** An explicit empty set suppresses generic camera detections for a care adapter. */
+  readonly supportedDetections?: readonly DetectionKind[];
+
+  /** Separate care adapter retains the E21's existing notification entity IDs. */
+  readonly careMonitor?: boolean;
+
   /** Exact-route admission for fresh-state-confirmed sensitivity and HomeBase chime writes. */
   readonly motionSensitivityControlSupported?: boolean;
   readonly motionSensitivitySteps?: number | null;
@@ -250,7 +262,7 @@ export interface NightVisionMode {
 /** One exact model's app-confirmed streaming quality, independent of recorded-video quality. */
 export interface CameraStreamingQualityMode {
   readonly value: number;
-  readonly name: "Auto" | "HD (720P)" | "Full HD (1080P)" | "2K" | "Medium" | "High" | "Low" | "Highest";
+  readonly name: "Auto" | "HD (720P)" | "Full HD (1080P)" | "2K" | "4K" | "Medium" | "High" | "Low" | "Highest";
 }
 
 /** Normalized battery reads exposed only when a device reports each field. */
@@ -273,7 +285,7 @@ export interface SecuritySensorState {
   readonly model: string;
   readonly deviceType: number;
   readonly available: boolean;
-  readonly capabilities: readonly ("battery" | "contact" | "crying" | "lastSeen" | "motion" | "rssi" | "sound")[];
+  readonly capabilities: readonly ("battery" | "contact" | "crying" | "lastSeen" | "motion" | "rssi" | "sound" | "pet" | "babyLeft" | "babyEntered" | "temperatureHigh" | "temperatureLow" | "careAreaLeft" | "careAreaEntered" | "babyActivity" | "roomTemperature" | "careDiagnostics")[];
   readonly batteryLevel: number | null;
   readonly contactOpen: boolean | null;
   readonly lastSeen: string | null;
@@ -284,6 +296,19 @@ export interface SecuritySensorState {
 
   /** A recent sound push was retained; false does not classify current audio. */
   readonly soundDetected?: boolean;
+
+  /** Independent recent E21 notifications, absent on other sensor families. */
+  readonly petDetected?: boolean;
+  readonly babyLeftDetected?: boolean;
+  readonly babyEnteredDetected?: boolean;
+  readonly temperatureHighDetected?: boolean;
+  readonly temperatureLowDetected?: boolean;
+  readonly careAreaLeftDetected?: boolean;
+  readonly careAreaEnteredDetected?: boolean;
+  readonly babyActivityDetected?: boolean;
+
+  /** Strict reported room state, separate from any battery measurement. */
+  readonly careSettings?: import("../provider/e21-profile.js").E21CareSettings;
   readonly rssi: number | null;
 }
 
@@ -437,6 +462,18 @@ export interface CameraIdentity {
   /** Known preferences with an exact owned and ready control route. */
   readonly preferenceControls?: readonly string[];
 
+  /** Per-model bounds for admitted preferences, absent on older gateways. */
+  /** Strict model-owned preference values, separate from generic camera interpretations. */
+  readonly carePreferences?: Readonly<Record<string, number>>;
+
+  readonly preferenceRanges?: Readonly<Record<string, { readonly minimum: number; readonly maximum: number }>>;
+
+  /** An explicit empty set suppresses generic camera detections for a care adapter. */
+  readonly supportedDetections?: readonly DetectionKind[];
+
+  /** Separate care adapter retains the E21's existing notification entity IDs. */
+  readonly careMonitor?: boolean;
+
   /** Exact-route admission for fresh-state-confirmed sensitivity and HomeBase chime writes. */
   readonly motionSensitivityControlSupported?: boolean;
   readonly motionSensitivitySteps?: number | null;
@@ -533,7 +570,7 @@ export interface CameraCapabilityManifest {
   readonly reviewCandidate: boolean;
   /** Peer transport prerequisites, independent of camera-type admission. */
   readonly peerRouteReady: boolean;
-  readonly reason: "supported-camera-type" | "catalogued-camera-type" | "non-security-category" | "unrecognized-camera-type";
+  readonly reason: "exact-e21-profile" | "supported-camera-type" | "catalogued-camera-type" | "non-security-category" | "unrecognized-camera-type";
   readonly capabilities: readonly CameraCapability[];
   readonly matrix: readonly CapabilityMatrixRow[];
   readonly unmappedParamIds: readonly number[];

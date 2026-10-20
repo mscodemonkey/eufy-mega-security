@@ -77,3 +77,29 @@ class CameraPreferencesTest(unittest.TestCase):
         camera["preferenceControls"] = []
         self.assertIsNone(module.camera_preference_value(camera, "rtspPublication"))
         self.assertIsNone(module.camera_preference_value(camera, "continuousRecording"))
+
+
+class E21PreferencesTest(unittest.TestCase):
+    """Verify E21 ranges stay separate from the established C31 controls."""
+
+    def test_e21_native_ranges_and_withdrawal(self):
+        """Accept E21 zero volume and 4K quality only with fresh route admission."""
+        camera = {
+            "careMonitor": True,
+            "preferenceControls": ["speakerVolume", "recordingQuality", "soundType"],
+            "carePreferences": {"speakerVolume": 0, "recordingQuality": 4, "soundType": 128},
+            "preferenceRanges": {
+                "speakerVolume": {"minimum": 0, "maximum": 100},
+                "recordingQuality": {"minimum": 1, "maximum": 4},
+                "soundType": {"minimum": 128, "maximum": 256},
+            },
+        }
+        self.assertEqual(module.camera_preference_value(camera, "speakerVolume"), 0)
+        self.assertEqual(module.camera_preference_value(camera, "recordingQuality"), 4)
+        camera["carePreferences"]["soundType"] = 129
+        self.assertIsNone(module.camera_preference_value(camera, "soundType"))
+        camera["preferenceControls"] = []
+        self.assertIsNone(module.camera_preference_value(camera, "recordingQuality"))
+        camera["preferenceControls"] = ["speakerVolume"]
+        camera["carePreferences"]["speakerVolume"] = True
+        self.assertIsNone(module.camera_preference_value(camera, "speakerVolume"))

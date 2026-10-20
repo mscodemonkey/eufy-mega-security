@@ -1,5 +1,5 @@
 /**
- * Verifies the exact E21 sensor-only boundary and transient state lifecycle.
+ * Verifies the exact E21 care notification boundary and transient state lifecycle.
  *
  * These tests own no account, network, media, or hardware side effects. They
  * protect the inventory predicate, capability shape, and independent timers
@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { GatewayState } from "../src/domain/gateway-state.js";
+import { e21DetectionKinds } from "../src/provider/e21-profile.js";
 import { careMonitorPushKind, careMonitorSensorState, isCareBabyMonitor } from "../src/provider/care-monitor.js";
 import { describeCameraCapabilities, describeDeviceCapabilities } from "../src/provider/device-capabilities-core.js";
 
@@ -43,24 +44,22 @@ test("admits only the exact reviewed E21 identity", () => {
   ]) assert.equal(isCareBabyMonitor(candidate), false);
 });
 
-test("publishes two sensor events without camera admission", () => {
-  assert.deepEqual(careMonitorSensorState(exact)?.capabilities, ["crying", "sound"]);
+test("publishes exact care sensor events and a separate camera profile", () => {
+  assert.deepEqual(careMonitorSensorState(exact)?.capabilities, [...e21DetectionKinds, "roomTemperature", "careDiagnostics"]);
   assert.equal(describeCameraCapabilities({ ...exact, paramTypes: [] }, {
     doorbellSupported: false, streamSupported: false,
-  }).acceptedAsCamera, false);
+  }).acceptedAsCamera, true);
   const manifests = describeDeviceCapabilities({ ...exact, paramTypes: [] }, noSupport);
   assert.equal(manifests.length, 1);
-  assert.deepEqual(manifests[0]?.matrix.map(({ id }) => id), [
-    "sensor.crying_event", "sensor.sound_event",
-  ]);
+  assert.deepEqual(manifests[0]?.matrix.map(({ id }) => id), e21DetectionKinds.map((kind) => `sensor.${kind}_event`));
   assert.equal(manifests[0]?.supported, true);
 });
 
-test("requires message type 18 and maps only crying and sound", () => {
+test("requires message type 18 and preserves the care event namespace", () => {
   assert.equal(careMonitorPushKind(exact, 18, 3104), "crying");
   assert.equal(careMonitorPushKind(exact, 18, 3105), "sound");
   assert.equal(careMonitorPushKind(exact, 17, 3104), null);
-  assert.equal(careMonitorPushKind(exact, 18, 3106), null);
+  assert.equal(careMonitorPushKind(exact, 18, 3106), "pet");
   assert.equal(careMonitorPushKind({ ...exact, model: "T8354A" }, 18, 3104), null);
 });
 

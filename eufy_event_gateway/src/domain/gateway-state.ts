@@ -9,6 +9,7 @@
  * tested without a real camera or cloud account.
  */
 import { EventEmitter } from "node:events";
+import { e21DetectionKinds, type E21DetectionKind } from "../provider/e21-profile.js";
 import { randomUUID } from "node:crypto";
 import { maskSmartLockState, type SmartLockState } from "./types.js";
 
@@ -159,23 +160,24 @@ export class GatewayState extends EventEmitter {
   registerSensor(sensor: SecuritySensorState): SecuritySensorState {
     const existing = this.#sensors.get(sensor.serial);
     const capabilities = new Set(sensor.capabilities);
-    for (const kind of ["crying", "sound"] as const) {
+    for (const kind of e21DetectionKinds) {
       if (capabilities.has(kind)) continue;
       const key = `${sensor.serial}:${kind}`;
       const timer = this.#sensorDetectionClearTimers.get(key);
       if (timer) clearTimeout(timer);
       this.#sensorDetectionClearTimers.delete(key);
     }
-    const snapshot = structuredClone({
-      ...sensor,
-      motionDetected: existing?.motionDetected ?? sensor.motionDetected,
-      ...(capabilities.has("crying")
-        ? { cryingDetected: existing?.cryingDetected ?? sensor.cryingDetected ?? false }
-        : {}),
-      ...(capabilities.has("sound")
-        ? { soundDetected: existing?.soundDetected ?? sensor.soundDetected ?? false }
-        : {}),
-    });
+    const notifications: Partial<Record<`${E21DetectionKind}Detected`, boolean>> = {};
+    for (const kind of e21DetectionKinds) {
+      const field = `${kind}Detected` as const;
+      if (capabilities.has(kind)) notifications[field] = existing?.[field] ?? sensor[field] ?? false;
+    }
+    const snapshot = structuredClone({ ...sensor, motionDetected: existing?.motionDetected ?? sensor.motionDetected, ...notifications });
+    for (const kind of e21DetectionKinds) {
+      if (capabilities.has(kind)) continue;
+      if (kind === "motion") snapshot.motionDetected = false;
+      else delete snapshot[`${kind}Detected`];
+    }
     this.#sensors.set(sensor.serial, snapshot);
     this.emit("event", { type: "sensor-updated", sensor: snapshot } satisfies GatewayEvent);
     return structuredClone(snapshot);
@@ -217,14 +219,14 @@ export class GatewayState extends EventEmitter {
   }
 
   /** Hold one passive care notification independently for the configured event window. */
-  recordSensorDetection(serial: string, kind: "crying" | "sound", detected: boolean): void {
+  recordSensorDetection(serial: string, kind: E21DetectionKind, detected: boolean): void {
     const sensor = this.#sensors.get(serial);
     if (!sensor || !sensor.capabilities.includes(kind)) return;
     const key = `${serial}:${kind}`;
     const existing = this.#sensorDetectionClearTimers.get(key);
     if (existing) clearTimeout(existing);
     this.#sensorDetectionClearTimers.delete(key);
-    const field = kind === "crying" ? "cryingDetected" : "soundDetected";
+    const field = `${kind}Detected` as const;
     const snapshot = structuredClone({ ...sensor, [field]: detected });
     this.#sensors.set(serial, snapshot);
     this.emit("event", { type: "sensor-updated", sensor: structuredClone(snapshot) } satisfies GatewayEvent);
@@ -525,6 +527,10 @@ export class GatewayState extends EventEmitter {
       nvrViewOptions: camera.identity.nvrViewOptions ?? [],
       nvrSelectedView: camera.identity.nvrSelectedView ?? null,
       preferenceControls: camera.identity.preferenceControls ?? [],
+      preferenceRanges: camera.identity.preferenceRanges ?? {},
+      carePreferences: camera.identity.carePreferences ?? {},
+      careMonitor: camera.identity.careMonitor ?? false,
+      ...(camera.identity.supportedDetections !== undefined ? { supportedDetections: camera.identity.supportedDetections } : {}),
       motionSensitivityControlSupported: camera.identity.motionSensitivityControlSupported ?? false,
       motionSensitivitySteps: camera.identity.motionSensitivitySteps ?? null,
       homebaseChimeControlSupported: camera.identity.homebaseChimeControlSupported ?? false,

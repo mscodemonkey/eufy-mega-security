@@ -468,7 +468,7 @@ function discoveryFixture(context: TestContext) {
   return { ...f, events, observations, intervals, push };
 }
 
-test("exact E21 pushes publish sensor flags before every media path", async (context) => {
+test("exact E21 pushes publish care flags and passive pictures without opening live media", async (context) => {
   const f = discoveryFixture(context);
   context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{
     device_sn: "e21", device_name: "Nursery", device_model: "T8354",
@@ -478,13 +478,13 @@ test("exact E21 pushes publish sensor flags before every media path", async (con
   context.mock.method(MegaPushReceiver.prototype, "start", async function(this: MegaPushReceiver) {
     deliver = Reflect.get(this, "onEvent") as (event: MegaPushEvent) => void;
   });
+  context.mock.method(MegaClient.prototype, "download", async () => Buffer.from([255,216,1,2,255,217]));
   try {
     await f.provider.start(f.events);
-    assert.equal(f.state.hasCamera("e21"), false);
-    assert.deepEqual(f.state.listSensors()[0]?.capabilities, ["crying", "sound"]);
-    assert.deepEqual(f.state.listDeviceCapabilities()[0]?.matrix.map(({ id }) => id), [
-      "sensor.crying_event", "sensor.sound_event",
-    ]);
+    assert.equal(f.state.hasCamera("e21"), true);
+    assert.equal(f.state.getCamera("e21").streamSupported, false);
+    assert.deepEqual(f.state.getCamera("e21").supportedDetections, []);
+    assert.deepEqual(f.state.listSensors()[0]?.capabilities, ["motion", "crying", "sound", "pet", "babyLeft", "babyEntered", "temperatureHigh", "temperatureLow", "careAreaLeft", "careAreaEntered", "babyActivity", "roomTemperature", "careDiagnostics"]);
     const crying = parsePushEvent({ device_sn: "e21", payload: Buffer.from(JSON.stringify({
       device_sn: "e21", msg_type: 18, a: 3104, unique_id: "cry-1", pic_url: "https://example.invalid/private.jpg",
       file_path: "private/path", fetch_id: 42,
@@ -504,7 +504,8 @@ test("exact E21 pushes publish sensor flags before every media path", async (con
     const precedence = parsePushEvent({ device_sn: "e21", msg_type: 18, a: 3106, event_type: 3104 });
     assert.ok(wrongMessage && wrongIdentity && precedence);
     deliver(wrongMessage); deliver(wrongIdentity); deliver(precedence);
-    assert.equal(f.observations.care.length, 3);
+    assert.equal(f.observations.care.length, 4);
+    assert.equal(f.observations.care.at(-1), "e21:pet:true");
     assert.equal(f.network.mock.callCount(), 0);
   } finally { await f.provider.close(); f.state.close(); }
 });
