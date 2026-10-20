@@ -9,6 +9,7 @@ a signed stream path, or a bounded capture/recording action.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime, timedelta
 import logging
 import os
@@ -20,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 import voluptuous as vol
 from homeassistant.components.camera import (
     Camera,
+    CAMERA_STREAM_SOURCE_TIMEOUT,
     CameraEntityFeature,
     async_request_stream,
 )
@@ -189,6 +191,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         self._published_snapshot_revision = self._snapshot_revision
         self._short_hls_idle = short_hls_idle
         self._hls_idle_stream: Stream | None = None
+        self._stream_source_refreshing = False
         self._cloud_metadata_busy = False
 
         # Raw Annex-B needs arrival timestamps. MPEG-TS already supplies a
@@ -241,8 +244,24 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         Recorders, explicit timeouts and preload keep HA's own behaviour. The
         entry reload replaces this camera on opt-out.
         """
+        cached = self.stream
         stream = await super().async_create_stream()
-        if stream is None or stream is self._hls_idle_stream:
+        if stream is None:
+            return stream
+        if stream is cached and not stream.outputs() and not stream.dynamic_stream_settings.preload_stream and not self._stream_source_refreshing:
+            self._stream_source_refreshing = True
+            try:
+                source = await asyncio.wait_for(
+                    self.coordinator.client.stream_url(self.serial),
+                    timeout=CAMERA_STREAM_SOURCE_TIMEOUT,
+                )
+                if self.hass is not None and self.stream is stream:
+                    stream.source = source
+            except (GatewayClientError, asyncio.TimeoutError):
+                _LOGGER.debug("Stream URL renewal failed, keeping the previous URL")
+            finally:
+                self._stream_source_refreshing = False
+        if stream is self._hls_idle_stream:
             return stream
         add_provider = stream.add_provider
 
@@ -276,7 +295,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         )
 
     async def _async_refresh_stream_source(self, now: datetime) -> None:
-        """Replace a cached stream URL before its credential expires.
+        """Renew reconnect credentials only while a stream has a consumer.
 
         The gateway checks the signed URL only when a connection opens, so a
         running session does not need it. The new URL is stored for Home
@@ -286,12 +305,21 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         """
         del now
         stream = self.stream
-        if stream is None:
+        if self.hass is None or stream is None or self._stream_source_refreshing:
             return
+        if not stream.outputs() and not stream.dynamic_stream_settings.preload_stream:
+            return
+        self._stream_source_refreshing = True
         try:
-            stream.source = await self.coordinator.client.stream_url(self.serial)
+            source = await self.coordinator.client.stream_url(self.serial)
+            if self.hass is not None and self.stream is stream and (
+                stream.outputs() or stream.dynamic_stream_settings.preload_stream
+            ):
+                stream.source = source
         except GatewayClientError:
             _LOGGER.debug("Stream URL renewal failed, keeping the previous URL")
+        finally:
+            self._stream_source_refreshing = False
 
     @property
     def _snapshot_revision(self) -> int | None:

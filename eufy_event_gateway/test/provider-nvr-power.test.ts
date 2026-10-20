@@ -16,7 +16,7 @@ import { NvrRtcSession } from "../src/stream/nvr-rtc-session.js";
 import { NvrGuardError } from "../src/provider/nvr-guard-trial.js";
 import { NvrPowerError, type NvrCameraPower } from "../src/provider/nvr-power-trial.js";
 
-for(const mode of ["valid","busy","controls-disabled","model-disabled","video-disabled","model","type","parent","parent-type","owner","shared","duplicate","changed","cloud-restore-failure","malformed-restore","cancel","shutdown"])
+for(const mode of ["valid","busy","controls-disabled","model-disabled","video-disabled","model","type","parent","parent-type","owner","shared","duplicate","changed","cloud-restore-failure","malformed-restore","cancel","shutdown","queued-inventory","stalled-prepare","stalled-validate","stalled-signalling","cancel-before","stalled-recovery","stalled-fallback"])
   test(`NVR power provider: ${mode}`,async context=>{
     const directory=await mkdtemp(join(tmpdir(),"nvr-power-provider-"));
     const network=context.mock.method(globalThis,"fetch",async()=>{throw Error("Network forbidden");});
@@ -27,18 +27,29 @@ for(const mode of ["valid","busy","controls-disabled","model-disabled","video-di
     const sibling={...child,device_sn:"synthetic-sibling",device_channel:4};
     let reads=0,recovery=false,state:NvrCameraPower="on";
     const writes:NvrCameraPower[]=[];
-    context.mock.method(MegaClient.prototype,"inventory",async()=>{
+    context.mock.method(MegaClient.prototype,"inventory",async(signal?:AbortSignal)=>{
       reads++;
+      if(mode === "cancel-before" && reads === 3) controller.abort();
+      if(reads > 1 && mode === "queued-inventory") await new Promise(resolve=>setTimeout(resolve,6000));
+      if(reads > 1 && (mode === "stalled-prepare" || mode === "stalled-validate" && reads === 4
+        || ["stalled-recovery","stalled-fallback"].includes(mode) && recovery)) {
+        await new Promise((_resolve,reject)=>{ signal!.addEventListener("abort",()=>reject(signal!.reason),{once:true}); });
+      }
+      signal?.throwIfAborted();
       if(mode==="cloud-restore-failure"&&recovery)throw Error("Synthetic cloud unavailable");
       if(mode==="malformed-restore"&&recovery)return {devices:null} as never;
       return {devices:[parent,sibling,{...child,...(mode==="changed"&&writes.length?{device_channel:5}:{})},
         ...(mode==="duplicate"&&reads>1?[{...child,device_sn:"duplicate-child"}]:[])]};
     });
     context.mock.method(MegaClient.prototype,"dskKeys",async()=>({}));
-    context.mock.method(MegaClient.prototype,"nvrSignallingContext",async()=>({host:"security-smart-ie.eufylife.com",region:"IE",authToken:"synthetic",gtoken:"synthetic",sign:"synthetic"}));
+    context.mock.method(MegaClient.prototype,"nvrSignallingContext",async(_station:string,_region:string,signal:AbortSignal)=>{
+      if(mode === "stalled-signalling") await new Promise((_resolve,reject)=>{signal.addEventListener("abort",()=>reject(signal.reason),{once:true});});
+      return {host:"security-smart-ie.eufylife.com",region:"IE",authToken:"synthetic",gtoken:"synthetic",sign:"synthetic"};});
     context.mock.method(MegaPushReceiver.prototype,"start",async()=>undefined);
     const prepare=context.mock.method(NvrRtcSession.prototype,"preparePowerTrial",async()=>undefined);
-    const identities=context.mock.method(NvrRtcSession.prototype,"validatePowerTrial",async()=>undefined);
+    const identities=context.mock.method(NvrRtcSession.prototype,"validatePowerTrial",async(signal?:AbortSignal)=>{
+      if(mode === "stalled-fallback" && recovery) await new Promise((_resolve,reject)=>{signal!.addEventListener("abort",()=>reject(signal!.reason),{once:true});});
+    });
     context.mock.method(NvrRtcSession.prototype,"readPowerTrial",async()=>state);
     const controller=new AbortController();
     const provider=new EufyProvider({username:"synthetic",password:"synthetic",country:"AU",persistentDirectory:directory,maxStreamSeconds:120,
@@ -53,11 +64,23 @@ for(const mode of ["valid","busy","controls-disabled","model-disabled","video-di
     try {
       await provider.start(events);
       context.mock.timers.enable({apis:["setTimeout"]});
+      const timed = ["queued-inventory","stalled-prepare","stalled-validate","stalled-signalling","cancel-before","stalled-recovery","stalled-fallback"].includes(mode);
+      if(timed) context.mock.method(AbortSignal,"timeout",(milliseconds:number)=>{
+        const deadline=new AbortController();setTimeout(()=>deadline.abort(),milliseconds);return deadline.signal;
+      });
       const operation=provider.testNvrCameraPower("synthetic-camera",{originalPower:"on",target:"off"},controller.signal);
-      const succeeds=["valid","busy","cloud-restore-failure","cancel"].includes(mode);
+      const succeeds=["valid","busy","cloud-restore-failure","cancel","queued-inventory","stalled-recovery"].includes(mode);
       const expected=succeeds?operation:assert.rejects(operation,NvrPowerError);
       void operation.catch(()=>undefined);
+      let elapsed=0,settled=false;void operation.finally(()=>{settled=true;}).catch(()=>undefined);
+      if(timed) for(let tick=0;tick<100&&!settled;tick++){
+        for(let n=0;n<10;n++)await new Promise(resolve=>setImmediate(resolve));
+        context.mock.timers.tick(1000);elapsed+=1000;
+      }
       for(let n=0;n<25;n++)await new Promise(resolve=>setImmediate(resolve));
+      if(mode === "stalled-prepare" || mode === "stalled-validate") assert.ok(elapsed >= 10_000 && elapsed <= 12_000);
+      if(mode === "stalled-signalling") assert.ok(elapsed >= 5_000 && elapsed <= 7_000);
+      if(mode === "stalled-recovery" || mode === "stalled-fallback") assert.ok(elapsed <= 65_000);
       if(mode==="busy") {
         await assert.rejects(provider.testNvrCameraPower("synthetic-camera",{originalPower:"on",target:"off"},new AbortController().signal),/busy/);
         await assert.rejects(provider.startStream("synthetic-sibling"),/recording retrieval|busy|admission/);
@@ -81,7 +104,8 @@ for(const mode of ["valid","busy","controls-disabled","model-disabled","video-di
         }
       } else {
         await expected;
-        assert.deepEqual(writes,["changed","shutdown","malformed-restore"].includes(mode)?["off"]:[]);
+        if(mode === "stalled-fallback") await assert.rejects(operation,error=>error instanceof NvrPowerError && error.manualRestoreRequired);
+        assert.deepEqual(writes,["changed","shutdown","malformed-restore","stalled-fallback"].includes(mode)?["off"]:[]);
       }
       assert.equal(network.mock.callCount(),0);
     } finally {

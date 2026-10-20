@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.180
+
+- Keep experimental control forms disabled until an available control is loaded for the selected camera, discard stale form results and give Diagnostics its own readable background.
+- Stop renewing cached stream credentials with no Home Assistant consumer, and refresh them when an idle camera view is explicitly reopened without restarting a healthy worker.
+- Allow queued NVR camera-power inventory checks ten seconds while preserving the trial deadlines, ownership checks and restoration safeguards. Physical behaviour remains unconfirmed.
+- Correct stale NVR support documentation to distinguish reported RTC video, restricted experimental paths and unavailable station controls.
+
 ## 0.1.179
 
 - Admit the SoloCam E42 T8173/type 98 through the existing camera handler as a hardware-unconfirmed `ready_to_test` model, including attached HomeBase routes.

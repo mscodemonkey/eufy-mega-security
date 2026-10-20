@@ -22,7 +22,7 @@ Last event image uses Home Assistant's `image` domain, so it does not create a s
 
 Camera attributes include reported audio configuration and, when supplied, image rotation, status-indicator and sound-detection settings. These are read-only inventory settings, not live hardware verification. Missing or unrecognized values remain absent. Reading them does not wake a camera or offer a new control.
 
-T9000 Pro HomeBase and T8N00 NVR camera discovery and retained pictures remain separate from live-media support. The gateway does not advertise its PPCS stream or controls through these RTC-only stations, even when inventory includes legacy-looking connection fields. Their alternate media transport is not implemented yet.
+T9000 Pro HomeBase and T8N00 NVR discovery and retained pictures remain separate from live-media support. These stations use the alternate RTC route rather than the gateway's PPCS route. The default-off NVR option enables normal Home Assistant live view for T8E00 through T8N00 and T8140-Z through T9000 when the binding checks pass. T8416 through T8N00 has a separate, hardware-unconfirmed owner-only path requiring the experimental control options. Other pairings remain unavailable or limited to diagnostic tests. See the [NVR video section](#experimental-nvr-video-test) for exact types and conditions.
 
 T8210 and T8214 also expose reported HomeBase chime, mechanical chime, WDR and chime-volume settings when supplied. T8210 exposes live-view quality ranks (0 Auto, 1 Low, 2 Medium, 3 High) and the associated high-compression setting. These attributes report configuration only. They do not change the chime, image processing or stream format, and are not inferred for other doorbells.
 
@@ -59,11 +59,11 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
   station protocol is verified on real hardware.
 - 🟠 HomeBase Professional S1 T9000: confirmed as the inventory parent for
   discovered cameras. The latest reporter retest still times out during PPCS lookup
-  for all seven attached camera models, and it does not receive the T8030 station controls.
+  for all seven attached camera models. The separate RTC path has reporter-confirmed initial and reopened T8140-Z video on v0.1.174, although one reopened session ended after 49 seconds with `peer_failed`. The cause is unresolved, sustained playback is unconfirmed, and the T8030 station controls are unavailable.
 
 ### NVR
 
-- 🟠 NVR S4 Max T8N00: inventory discovery and read-only guard-mode reporting are implemented, with periodic refresh confirmed on hardware. Effective mode, arm/disarm controls, storage diagnostics, fresh snapshots, and live video are not yet implemented.
+- 🟠 NVR S4 Max T8N00: inventory discovery and read-only configured guard-mode reporting are implemented, with periodic refresh confirmed on hardware. A reporter confirmed T8E00 RTC views of about a minute and reopening on v0.1.163, with startup delay and initially accelerated playback still reported. Sustained playback is unconfirmed. T8416 has a separate hardware-unconfirmed owner-only path. Camera-power and Schedule guard-mode trials are implemented but remain default-off and physically unconfirmed. Normal arm/disarm, storage diagnostics and automatic fresh snapshots remain unavailable.
 
 ### Cameras
 
@@ -91,7 +91,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 - 🟠 Indoor Cam 2K T8400: Mega type 30 is admitted through its reported ready route. Discovery, events, snapshots, and live video await reporter testing.
 - 🟠 Indoor Cam 2K Pan & Tilt T8419: Mega type 10009 is admitted through its reported ready route. Discovery, events, snapshots, and live video await reporter testing.
 - 🟠 Indoor Cam C220 T8W11C: Mega type 10010 is admitted as ready to test in v0.1.118. Inventory battery reads are reported. Live media is unavailable without a ready route. Hardware discovery, events and snapshots await confirmation. Type 10008 remains recognised only.
-- 🟠 Indoor Cam S350 T8416: discovery and Home Assistant entities are confirmed on direct Wi-Fi and T9000-attached setups. Live video through T9000 is waiting on that station's PPCS lookup result, and privacy-mode control is not yet exposed.
+- 🟠 Indoor Cam S350 T8416: discovery and Home Assistant entities are confirmed on direct Wi-Fi and T9000-attached setups. There is no normal live binding through T9000. The T8N00 owner-only RTC path requires the experimental options described below and remains hardware-unconfirmed. Privacy-mode control is not exposed.
 - 🟠 Indoor Cam E30 4K T8417: discovery and properties are confirmed. Direct media arrives, but live video remains blank and codec startup is unresolved. Events and snapshots still need confirmation.
 - ✅ eufyCam C37 T814X / T814XS: Mega type 10037 is confirmed through HomeBase 3. The standalone solar variant's type 10039 is confirmed for discovery, person events, fresh snapshots, and reliable live video.
 - 🟠 eufyCam T8111 original: discovery, Home Assistant entities, live video, and manual fresh snapshots are confirmed through HomeBase 3. Motion-driven event images still need confirmation.
@@ -568,7 +568,7 @@ an ambiguous start into a successful trial. Any failed start, including an
 explicit rejection, sends the primary stop without waiting for its reply. The
 expected failure stages are then `start,primary_stop`. A stop requested while
 the connection is still being prepared is refused because no pulse has started. The normal Home Assistant siren
-capability remains unavailable. This release does not enable NVR live video.
+capability remains unavailable. NVR live video uses the separate experimental option and exact pairings documented below.
 
 For standalone installs, set `EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS=true`
 and configure `EUFY_GATEWAY_API_TOKEN`. The authenticated
@@ -607,10 +607,14 @@ control is enabled.
 ten-second private video test to Diagnostics through exact T8N00/type 300 or
 T9000/type 27 parents. The exact camera/model pairs are T8E00/type 301,
 T8140/type 14, T8140-Z/type 14, T8113-V/type 8, T8172/type 89, T8162/type 26,
-T8170/type 48, T81A0/type 10005 and T8425/type 47. Additional models request only
-their first lens. It does not enable normal Home Assistant live
-view, snapshots, events, arming, or camera settings. Hardware playback remains
-unconfirmed.
+T8170/type 48, T81A0/type 10005 and T8425/type 47. Additional diagnostic models request only
+their first lens and remain hardware-unconfirmed, including non-Z T8140.
+
+The same option also enables normal Home Assistant live view for T8E00/type 301 through T8N00/type 300 and T8140-Z/type 14 through T9000/type 27 when the gateway's NVR binding checks pass. Normal live view has no per-view consent step. Anyone with Home Assistant camera access can open these cameras. The reported T8E00 views and reopening on v0.1.163 lasted about a minute, with startup delay and initially accelerated playback. T8140-Z initial and reopened video was reported on v0.1.174, with one reopened session ending after 49 seconds with `peer_failed`. That cause and sustained playback remain unconfirmed.
+
+T8416/type 104 through T8N00/type 300 has a separate hardware-unconfirmed normal live path requiring `experimental_nvr_live`, `experimental_model_controls`, `experimental_nvr_controls`, a configured API token, explicit camera and station ownership, and a unique camera channel. It needs owner credentials, unlike the usual guest-account recommendation. Do not switch a working gateway to your everyday owner account just to enable this experiment. Enabling the NVR controls option also makes the manual physical camera-power and Schedule guard-mode trials available. Those trials remain off by default, require their own consent and observation, and are limited to T8E00/type 301 through T8N00/type 300. Their physical results and the experimental live controls remain unconfirmed. There is no normal T8416 live binding through T9000.
+
+This does not establish support for every NVR camera, automatic fresh snapshots, events, storage, normal station controls or arming. Retained pictures and each diagnostic result remain separate.
 
 Update the app and integration, enable the option, open Diagnostics, enter the
 gateway API token locally and load devices. Select one supported camera, expand
@@ -651,8 +655,7 @@ Unsupported or inconsistent data fails the test instead of being treated as
 working camera support.
 
 The trial admits only the exact camera/model pairs and parents listed above. Enabling it can add an experimental inventory camera
-entry to the gateway and Home Assistant, with normal streaming and controls
-unavailable. Turning the option off and restarting removes it from the gateway.
+entry to the gateway and Home Assistant. Normal streaming is available only for the exact pairings and conditions above. Other entries do not gain normal streaming or controls. Turning the option off and restarting removes it from the gateway.
 Home Assistant may retain an unavailable registry entry. An entry left after an
 inventory change remains a read-only placeholder and cannot start a trial if its
 binding no longer matches.

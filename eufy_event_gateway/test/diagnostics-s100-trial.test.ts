@@ -24,14 +24,16 @@ test("S100 Stop button remains available while the pulse form is locked and targ
   const result = { ok: true, json: async () => ({ outcome: "acknowledged", physicalConfirmationRequired: true }) };
   let release!: (value: typeof result) => void;
   const startReply = new Promise<typeof result>(resolve => { release = resolve; });
-  const fetch = async (path: string, options: { body: string }) => {
-    const request = JSON.parse(options.body); calls.push({ path, enabled: request.enabled });
+  const fetch = async (path: string, options: { body?: string; method?: string }) => {
+    if (options.method === "GET") return { ok: true, json: async () => ({ actions: ["siren"] }) } as never;
+    const request = JSON.parse(options.body!); calls.push({ path, enabled: request.enabled });
     if (request.enabled) return startReply;
     release(result); return result;
   };
   const script = diagnosticsPage().split("<script>")[1]!.split("</script>")[0]!;
   new Function("document", "fetch", "Option", "window", "location", script)(
     { getElementById: element }, fetch, function(this: { value: string }, _text: string, value: string) { this.value = value; }, { addEventListener() {} }, { protocol: "https:" });
+  await element("trial-load").onclick!();
   element("trial-action").onchange!();
   element("trial-consent").checked = true;
   const pulse = element("trial-send").onclick!();
@@ -48,6 +50,6 @@ test("S100 Stop button remains available while the pulse form is locked and targ
   await element("trial-siren-stop").onclick!(); await pulse;
   assert.deepEqual(calls.map(call => call.enabled), [true, false]);
   assert.equal(calls.every(call => call.path.includes("/test/model-control-trial")), true);
-  assert.equal(element("trial-send").disabled, false);
+  assert.equal(element("trial-send").disabled, true);
   assert.equal(element("device").disabled, false);
 });

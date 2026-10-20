@@ -10,7 +10,8 @@ export function diagnosticsPage(): string {
   return `<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Eufy diagnostics</title>
-<style>body{font:17px system-ui;max-width:680px;margin:40px auto;padding:0 20px;color:#243244}label{display:block;margin:20px 0}input,select,button{font:inherit;padding:9px}input[type=password]{width:90%}button{margin:6px 8px 6px 0}pre{white-space:pre-wrap;background:#f2f4f7;padding:16px}small{display:block;margin-top:7px;color:#526070}</style>
+<meta name="color-scheme" content="light">
+<style>html{color-scheme:light;background:#fff}body{background:#fff;font:17px system-ui;max-width:680px;margin:40px auto;padding:0 20px;color:#243244}label{display:block;margin:20px 0}input,select,button{font:inherit;padding:9px}input[type=password]{width:90%}button{margin:6px 8px 6px 0}pre{white-space:pre-wrap;background:#f2f4f7;padding:16px}small{display:block;margin-top:7px;color:#526070}</style>
 <h1>Create a diagnostic bundle</h1>
 <p>For Home Assistant app installs, the support utility can use your saved integration connection without copying a token. See the private diagnostics guide in the project documentation.</p>
 <p>Select a device, start a short session and reproduce the problem in Home Assistant or the Eufy app. HomeBases, standalone cameras, sensors and other discovered devices use the same workflow.</p>
@@ -121,6 +122,20 @@ let indexJob = null, motionJob = null, lockStatusJob = null, nvrPowerJob = null,
 let cloudJob = null, cloudLoadJob = null, cloudClip = null, cloudSelection = null, cloudGeneration = 0;
 let cloudCalendarKey = null;
 let generalJob = null, generalClip = null, generalDisabled = null;
+let trialAdmission = null, trialGeneration = 0, trialGeneralBusy = false, trialCloudBusy = false;
+function syncTrialControls() {
+  const admitted = trialAdmission && trialAdmission.serial === el('device').value && trialAdmission.serial
+    && trialAdmission.actions.includes(el('trial-action').value);
+  const busy = activeTrialSerial !== null || !!generalJob || !!cloudJob || !!cloudLoadJob || trialGeneralBusy || trialCloudBusy;
+  for(const id of ['trial-action','trial-value','trial-consent','trial-send']) el(id).disabled = !admitted || busy;
+  el('trial-load').disabled = busy;
+}
+function clearTrialAdmission(message = 'Choose a camera and check available controls.') {
+  trialAdmission = null; trialGeneration++;
+  el('trial-action').replaceChildren(); el('trial-consent').checked = false;
+  el('trial-status').textContent = message; syncTrialControls();
+}
+const unavailableTrials = 'No exact model control trials available. This can reflect disabled app options, an unready connection or owner-account requirements. No command was sent.';
 const show = value => { el('status').textContent = value; };
 const abortStream = () => { if(stream) stream.abort(); stream = null; };
 async function api(path, method = 'GET', body) {
@@ -143,6 +158,7 @@ action('load', async () => {
   targets = (await (await api('bundle/targets')).json()).devices;
   el('device').replaceChildren(new Option('All devices', ''));
   for(const target of targets) el('device').add(new Option(target.name + ' (' + target.model + ')', target.serial));
+  clearTrialAdmission();
   await status();
 });
 async function trialApi(method, body, serial = el('device').value) {
@@ -165,26 +181,40 @@ function trialValues() {
   el('trial-consent').checked = false;
   el('trial-help').textContent = action === 'sirenConnection' ? 'Connects once without sending a siren command. Prepared does not confirm audible behaviour. Try once and share the result.' : action === 'manualLight' ? 'A reply acknowledges receipt only. Watch the light and restore its starting state after testing.' : action === 'siren' ? 'Listen and be ready to stop the siren. The start command requests a 30-second limit, but device enforcement is unverified. If it keeps sounding, stop it in the Eufy app.' : '';
 }
-el('trial-action').onchange = trialValues;
-el('device').addEventListener('change', () => { el('trial-consent').checked = false; });
+el('trial-action').onchange = () => { trialValues(); el('trial-consent').checked = false; syncTrialControls(); };
+el('device').addEventListener('change', () => clearTrialAdmission());
+window.addEventListener('pagehide', () => clearTrialAdmission());
 action('trial-siren-stop', async () => {
   await trialApi('POST', { action: 'siren', enabled: false }, activeTrialSerial || el('device').value);
   el('trial-status').textContent = 'Stop commands acknowledged. Check that the siren is silent.';
 });
 action('trial-load', async () => {
-  const value = await trialApi('GET');
-  el('trial-action').replaceChildren();
-  for(const name of value.actions) el('trial-action').add(new Option(name === 'sirenConnection' ? 'Check S100 connection (no sound)' : name === 'manualLight' ? 'Manual light (S120 through HomeBase 3)' : name, name));
-  trialValues();
-  el('trial-status').textContent = value.actions.length ? 'Choose one control and observe the camera.' : 'No exact model control trials available.';
+  clearTrialAdmission();
+  const serial = el('device').value, generation = trialGeneration;
+  if(!serial) return;
+  try {
+    const value = await trialApi('GET', undefined, serial);
+    if(generation !== trialGeneration || serial !== el('device').value) return;
+    const names = ['motion','spotlight','siren','sirenConnection','ptz','manualLight'];
+    if(!Array.isArray(value.actions) || value.actions.some(name => !names.includes(name))) throw Error('Invalid control list.');
+    if(!value.actions.length) { clearTrialAdmission(unavailableTrials); return; }
+    trialAdmission = { serial, actions: [...value.actions] };
+    for(const name of value.actions) el('trial-action').add(new Option(name === 'sirenConnection' ? 'Check S100 connection (no sound)' : name === 'manualLight' ? 'Manual light (S120 through HomeBase 3)' : name, name));
+    trialValues(); syncTrialControls();
+    el('trial-status').textContent = 'Choose one control and observe the camera.';
+  } catch(error) {
+    if(generation === trialGeneration && serial === el('device').value) clearTrialAdmission(unavailableTrials);
+  }
 });
 action('trial-send', async () => {
+  if(!trialAdmission || trialAdmission.serial !== el('device').value || !trialAdmission.serial
+    || !trialAdmission.actions.includes(el('trial-action').value)) throw Error('Choose a camera and check available controls first. No command was sent.');
   if(cloudJob || cloudLoadJob) throw Error('Finish the cloud recording test before trying camera controls.');
   if(!el('trial-consent').checked) throw Error('Confirm you are ready to observe and restore the camera.');
   const action = el('trial-action').value, value = el('trial-value').value;
   if(action === 'ptz' ? !['left','right','up','down'].includes(value) : !['true','false'].includes(value)) throw Error('Choose a value matching the control.');
   el('trial-send').disabled = true;
-  activeTrialSerial = el('device').value;
+  activeTrialSerial = el('device').value; syncTrialControls();
   el('device').disabled = true;
   el('trial-action').disabled = true;
   el('trial-load').disabled = true;
@@ -195,7 +225,7 @@ action('trial-send', async () => {
     el('trial-status').textContent = action === 'sirenConnection' ? (result.outcome === 'prepared' ? 'Connection prepared. No siren command was sent. Whether it will sound is still unconfirmed.' : 'Connection preparation was not confirmed.') : action === 'manualLight' ? 'Light command acknowledged. Did the light change? Check it and restore the starting state. This does not confirm its physical behaviour.' : action === 'siren' ? 'Commands acknowledged. Did the siren sound and stop? This result does not confirm audible behaviour.' : result.outcome === 'acknowledged' ? 'Command acknowledged. Check whether the camera moved.'
       : result.outcome === 'unchanged' ? 'Camera already reports this setting. No command sent.' : 'Camera reports the requested setting. Check its behaviour and restore the original setting when finished.';
   } catch(error) { el('trial-status').textContent = error.message + (action === 'sirenConnection' ? ' No siren command was sent. Share only the model_control_trial_failed line.' : action === 'manualLight' ? ' The light state is unknown. Check the light and restore its starting state before trying again. Share only the model_control_trial_failed line.' : ' Check the camera before retrying. If it keeps sounding, stop it in the Eufy app. Send the model_control_trial_failed log line if the test failed.'); }
-  finally { if(action === 'manualLight' || action === 'sirenConnection') el('trial-consent').checked = false; el('trial-send').disabled = false; el('device').disabled = false; el('trial-action').disabled = false; el('trial-load').disabled = false; el('trial-value').disabled = false; activeTrialSerial = null; }
+  finally { if(action === 'manualLight' || action === 'sirenConnection') el('trial-consent').checked = false; el('device').disabled = false; activeTrialSerial = null; syncTrialControls(); }
 });
 action('start', async () => {
   const target = el('device').value || null;
@@ -407,6 +437,7 @@ function cancelGeneral() {
   clearGeneralClip();
 }
 function generalControls(busy) {
+  trialGeneralBusy = busy;
   if(busy) {
     generalDisabled = new Map();
     for(const button of document.querySelectorAll('button')) {
@@ -418,6 +449,7 @@ function generalControls(busy) {
     for(const [input, disabled] of generalDisabled) input.disabled = disabled;
     generalDisabled = null;
   }
+  syncTrialControls();
 }
 const generalMessages = {
   admission: 'This trial is unavailable. Check the owner account and app option. Try again shortly. The gateway refreshes this on its own.',
@@ -499,6 +531,7 @@ action('doorbell-test', async () => {
   finally { doorbellJob = null; el('doorbell-test').disabled = false; el('device').disabled = false; }
 });
 function cloudControls(busy) {
+  trialCloudBusy = busy; syncTrialControls();
   for(const id of ['cloud-list','cloud-month','cloud-test','cloud-date','cloud-record']) el(id).disabled = busy;
   for(const id of ['device','load']) el(id).disabled = busy || activeTrialSerial !== null || !!nvrJob || !!doorbellJob;
 }
@@ -618,5 +651,6 @@ action('cloud-test', async () => {
   finally { if(generation === cloudGeneration) { cloudJob = null; cloudControls(false); } }
 });
 window.addEventListener('pagehide', () => { resetCloud(); clearCalendar(); abortStream(); if(nvrJob) nvrJob.abort(); if(nvrClip) URL.revokeObjectURL(nvrClip); if(doorbellJob) doorbellJob.abort(); if(doorbellClip) URL.revokeObjectURL(doorbellClip); });
+syncTrialControls();
 </script></html>`;
 }

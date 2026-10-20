@@ -7,6 +7,7 @@ Assistant owns viewer timers, checked separately against its actual source.
 from __future__ import annotations
 
 import ast
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -30,15 +31,73 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         cls = ast.ClassDef(name="TestCamera", bases=[ast.Name(id="CameraBase", ctx=ast.Load())],
                            keywords=[], body=[method], decorator_list=[])
         module = ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[]))
-        namespace = {"CameraBase": base, "Stream": object, "StreamOutput": object}
+        namespace = {"CameraBase": base, "Stream": object, "StreamOutput": object, "GatewayClientError": RuntimeError, "_LOGGER": Mock(), "asyncio": asyncio, "CAMERA_STREAM_SOURCE_TIMEOUT": 0.02}
         exec(compile(module, str(SOURCE), "exec"), namespace)
         self.base = base
         self.camera = namespace["TestCamera"]()
         self.camera._short_hls_idle = True
         self.camera._hls_idle_stream = None
+        self.camera._stream_source_refreshing = False
         self.original = Mock(return_value=SimpleNamespace(idle_timer=Mock()))
-        self.stream = SimpleNamespace(add_provider=self.original)
+        self.stream = SimpleNamespace(add_provider=self.original, outputs=Mock(return_value={"hls": object()}),
+                                      source="old", dynamic_stream_settings=SimpleNamespace(preload_stream=False))
+        self.camera.stream = self.stream
+        self.camera.hass = object()
+        self.camera.serial = "demo"
+        self.camera.coordinator = SimpleNamespace(client=SimpleNamespace(stream_url=AsyncMock(return_value="fresh")))
         base.async_create_stream.return_value = self.stream
+
+    async def test_reopen_idle_cached_stream_refreshes_before_return(self):
+        """A returning viewer gets fresh credentials after idle renewal was skipped."""
+        self.stream.outputs.return_value = {}
+        self.assertIs(await self.camera.async_create_stream(), self.stream)
+        self.assertEqual(self.stream.source, "fresh")
+        self.camera.coordinator.client.stream_url.assert_awaited_once_with("demo")
+
+    async def test_reopen_failure_keeps_previous_source(self):
+        """A gateway failure does not erase the cached stream or start a worker."""
+        self.stream.outputs.return_value = {}
+        self.camera.coordinator.client.stream_url.side_effect = RuntimeError("offline")
+        self.assertIs(await self.camera.async_create_stream(), self.stream)
+        self.assertEqual(self.stream.source, "old")
+
+    async def test_reopen_reply_after_replacement_is_discarded(self):
+        """A late explicit reopen cannot mutate a stream removed during its request."""
+        self.stream.outputs.return_value = {}
+        async def reply(_serial):
+            self.camera.stream = None
+            return "late"
+        self.camera.coordinator.client.stream_url.side_effect = reply
+        await self.camera.async_create_stream()
+        self.assertEqual(self.stream.source, "old")
+
+    async def test_cached_wrapped_stream_still_refreshes_on_reopen(self):
+        """The existing form wrapper must not bypass idle credential refresh."""
+        await self.camera.async_create_stream()
+        self.stream.outputs.return_value = {}
+        await self.camera.async_create_stream()
+        self.assertEqual(self.stream.source, "fresh")
+
+    async def test_new_stream_does_not_refresh_twice(self):
+        """HA already minted the source for a newly created stream."""
+        self.camera.stream = None
+        self.stream.outputs.return_value = {}
+        await self.camera.async_create_stream()
+        self.camera.coordinator.client.stream_url.assert_not_awaited()
+
+    async def test_reopen_timeout_and_overlap_preserve_cached_source(self):
+        """Bound explicit renewal and keep concurrent refresh ownership intact."""
+        self.stream.outputs.return_value = {}
+        self.camera._stream_source_refreshing = True
+        await self.camera.async_create_stream()
+        self.camera.coordinator.client.stream_url.assert_not_awaited()
+        self.camera._stream_source_refreshing = False
+        async def stalled(_serial):
+            await asyncio.sleep(5)
+        self.camera.coordinator.client.stream_url.side_effect = stalled
+        await self.camera.async_create_stream()
+        self.assertEqual(self.stream.source, "old")
+        self.assertFalse(self.camera._stream_source_refreshing)
 
     async def test_default_off_arms_startup_without_changing_ha_timeouts(self) -> None:
         """Stop no-frame retries with HA's timer even without the optional setting."""

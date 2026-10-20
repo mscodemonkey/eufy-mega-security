@@ -1543,8 +1543,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (invalid || generation !== this.#startupGeneration || this.#nvrPowerEntries.get(peer.serial) !== entry
         || !valid([...this.#devices.values()])) throw new NvrPowerError("identity", attempted);
     };
-    const bounded = async <T>(operation: (signal: AbortSignal) => Promise<T>, phase: AbortSignal): Promise<T> => {
-      const ownedSignal = AbortSignal.any([phase, entry.controller.signal, AbortSignal.timeout(5_000)]);
+    const bounded = async <T>(operation: (signal: AbortSignal) => Promise<T>, phase: AbortSignal, timeoutMilliseconds = 5_000): Promise<T> => {
+      const ownedSignal = AbortSignal.any([phase, entry.controller.signal, AbortSignal.timeout(timeoutMilliseconds)]);
       current(); ownedSignal.throwIfAborted();
       let abort!: () => void;
       const cancelled = new Promise<never>((_resolve, reject) => {
@@ -1559,7 +1559,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       current(); phase.throwIfAborted();
       let raw: Awaited<ReturnType<MegaClient["inventory"]>>;
       try {
-        raw = await bounded(cancellation => this.#client.inventory(cancellation), phase);
+        raw = await bounded(cancellation => this.#client.inventory(cancellation), phase, 10_000);
       } catch (error) {
         current(); phase.throwIfAborted();
         if (!recovery || invalid || !entry.session) throw error instanceof NvrPowerError ? error : new NvrPowerError("inventory", attempted);
