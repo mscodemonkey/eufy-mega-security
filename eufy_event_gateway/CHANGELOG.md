@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.184
+
+- Add experimental sensor-only support for the exact Baby Monitor E21 T8354, Mega type 86 in the `eufy_care` category. Home Assistant now creates separate transient crying and sound notification sensors without admitting video, audio, pictures, or controls.
+- Treat E21 entities as notification relays only. An off state means no recent push was retained. It does not classify live audio or prove that a child is not crying. These entities are not a safety, medical, or monitoring device and must not be the sole alert for a child.
+- Decode the bounded base64 JSON envelope used by Eufy Care notifications while preserving the existing strict identity, freshness, deduplication, and privacy boundaries. Hardware and cloud delivery for this model still need reporter confirmation.
+
 ## 0.1.183
 
 - Match the T8223/type 95 C31 night-vision choices to the Eufy app: Off and Auto night vision. This changes wording only, with no change to numeric values or commands. Physical behaviour still awaits reporter confirmation.
