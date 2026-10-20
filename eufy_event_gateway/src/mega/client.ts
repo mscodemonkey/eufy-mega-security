@@ -50,6 +50,9 @@ const VERIFICATION_REQUIRED = 26052;
 const TRANSIENT_IDENTITY_ERRORS = new Set([4404, 4406, 100030]);
 const AUTH_SESSION_INVALID_CODES = new Set([4404, 26084, 26884]);
 
+// The native app's login screen interprets this code as a credential rejection.
+const LOGIN_CREDENTIALS_REJECTED = 26108;
+
 // Android thumbnail processing retries at one, three, five and ten seconds.
 const MEDIA_NOT_READY_DELAYS_MS = [1_000, 2_000, 2_000, 5_000] as const;
 const CIPHER_IDENTITY_RECOVERY_INTERVAL_MS = 10 * 60_000;
@@ -1207,6 +1210,9 @@ export class MegaClient {
     const operation = this.#responseOperations.get(result) ?? "unknown";
     if (!isSuccess(result.code)) {
       if (result.code === VERIFICATION_REQUIRED || CAPTCHA_REQUIRED.has(result.code)) return result.data;
+      if (operation === "login" && result.code === LOGIN_CREDENTIALS_REJECTED) {
+        throw new Error("Mega request failed (26108: Eufy rejected the login, which the official app reports as an incorrect email or password) operation=login");
+      }
       throw new Error(`Mega request failed (${result.code}: ${safeMegaMessage(result.msg)}) operation=${operation}`);
     }
     if (typeof result.data !== "string") return result.data;

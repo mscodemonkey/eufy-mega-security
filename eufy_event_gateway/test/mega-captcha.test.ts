@@ -73,14 +73,55 @@ test("26108 remains a terminal login rejection without CAPTCHA or retries", asyn
   const paths: string[] = [];
   const f = await fixture(async url => {
     paths.push(new URL(String(url)).pathname);
-    return new Response(JSON.stringify({ code: 26108, msg: "PRIVATE SERVER MESSAGE", data: {} }));
+    return new Response(JSON.stringify({ code: 26108, msg: "PRIVATE SERVER MESSAGE", data: "PRIVATE_DATA_STRING" }));
   });
   try {
     await assert.rejects(f.client.connect(), (error: unknown) => {
       assert.ok(error instanceof Error);
-      assert.equal(error.message, "Mega request failed (26108: application error) operation=login");
+      assert.equal(error.message, "Mega request failed (26108: Eufy rejected the login, which the official app reports as an incorrect email or password) operation=login");
+      for (const privateValue of ["PRIVATE", "fixture@example.invalid", "redacted"]) {
+        assert.equal(error.message.includes(privateValue), false);
+      }
+      assert.equal(f.client.isSessionInvalidError(error), false);
+      assert.equal(f.client.captcha, null);
       return true;
     });
     assert.deepEqual(paths, ["/passport/login"]);
+  } finally { await f.close(); }
+});
+
+test("other login codes retain the generic safe error", async () => {
+  const paths: string[] = [];
+  const f = await fixture(async url => {
+    paths.push(new URL(String(url)).pathname);
+    return new Response(JSON.stringify({ code: 26109, msg: "PRIVATE SERVER MESSAGE", data: "PRIVATE_DATA_STRING" }));
+  });
+  try {
+    await assert.rejects(f.client.connect(), { message: "Mega request failed (26109: application error) operation=login" });
+    assert.deepEqual(paths, ["/passport/login"]);
+  } finally { await f.close(); }
+});
+
+test("credential-rejection text never depends on the server message", async () => {
+  const f = await fixture(async () => new Response(JSON.stringify({ code: 26108, msg: "Failed to login.", data: {} })));
+  try {
+    await assert.rejects(f.client.connect(), {
+      message: "Mega request failed (26108: Eufy rejected the login, which the official app reports as an incorrect email or password) operation=login",
+    });
+  } finally { await f.close(); }
+});
+
+test("26108 on the CAPTCHA endpoint remains unclassified", async () => {
+  const paths: string[] = [];
+  const f = await fixture(async url => {
+    const path = new URL(String(url)).pathname;
+    paths.push(path);
+    return new Response(JSON.stringify(path === "/passport/login"
+      ? { code: 100032, data: {} }
+      : { code: 26108, msg: "PRIVATE SERVER MESSAGE", data: "PRIVATE_DATA_STRING" }));
+  });
+  try {
+    await assert.rejects(f.client.connect(), { message: "Mega request failed (26108: application error) operation=captcha" });
+    assert.deepEqual(paths, ["/passport/login", "/passport/generate/captcha"]);
   } finally { await f.close(); }
 });
