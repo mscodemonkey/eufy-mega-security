@@ -373,7 +373,7 @@ export function nightVisionModes(
 ): readonly NightVisionMode[] {
   if (device.model === "T8223" && device.deviceType === 95 && isDoorbellDevice(device)) {
     return Number.isSafeInteger(device.reads.nightVisionMode) && [0, 1].includes(device.reads.nightVisionMode!)
-      ? [{ value: 0, name: "Off" }, { value: 1, name: "Infrared" }] : [];
+      ? [{ value: 0, name: "Off" }, { value: 1, name: "Auto night vision" }] : [];
   }
   if (device.reads.nightVisionMode === undefined || isDoorbellDevice(device)) return [];
   if (device.model === "T8171" && device.deviceType === 88) {

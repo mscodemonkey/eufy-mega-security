@@ -146,6 +146,7 @@ entity:
         spotlight: Spotlys
         standard: Standard
         auto_infrared: Automatisk infrarød
+        auto_night_vision: Automatisk nattesyn
     camera_sound_type:
       name: Lyddetektionstype
       state:

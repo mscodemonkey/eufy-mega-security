@@ -54,7 +54,7 @@ test("exact profile requires normalized binary state and ready owned route", () 
     const device = { ...camera!, reads: { nightVisionMode: value } } as typeof camera & {};
     const valid = value === 0 || value === 1;
     assert.equal(supportsAttachedDoorbellNightVision(device, route, true), valid);
-    assert.deepEqual(nightVisionModes(device), valid ? [{ value: 0, name: "Off" }, { value: 1, name: "Infrared" }] : []);
+    assert.deepEqual(nightVisionModes(device), valid ? [{ value: 0, name: "Off" }, { value: 1, name: "Auto night vision" }] : []);
   }
   for (const override of [{ model: "T8224" }, { deviceType: 96 }, { channel: null }, { channel: 255 }, { channel: 1.5 }, { adminUserId: "" }, { parentSerial: "other" }]) assert.equal(supportsAttachedDoorbellNightVision({ ...camera!, ...override }, route, true), false);
   assert.equal(supportsAttachedDoorbellNightVision(camera!, route, false), false);

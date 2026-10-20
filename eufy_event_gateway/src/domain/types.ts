@@ -244,7 +244,7 @@ export interface CameraState {
 /** One camera-specific label for a raw night-vision mode value. */
 export interface NightVisionMode {
   readonly value: number;
-  readonly name: "Off" | "Colour" | "Infrared" | "Infrared on" | "Spotlight" | "Standard" | "Auto Infrared";
+  readonly name: "Off" | "Colour" | "Infrared" | "Infrared on" | "Spotlight" | "Standard" | "Auto Infrared" | "Auto night vision";
 }
 
 /** One exact model's app-confirmed streaming quality, independent of recorded-video quality. */

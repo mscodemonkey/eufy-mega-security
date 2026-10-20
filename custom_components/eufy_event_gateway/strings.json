@@ -205,7 +205,8 @@
           "infrared_on": "Infrared on",
           "spotlight": "Spotlight",
           "standard": "Standard",
-          "auto_infrared": "Auto infrared"
+          "auto_infrared": "Auto infrared",
+          "auto_night_vision": "Auto night vision"
         }
       },
       "camera_sound_type": {

@@ -29,6 +29,7 @@ NIGHT_VISION_MODE_KEYS = {
     "Off": "off",
     "Colour": "colour",
     "Infrared": "infrared",
+    "Auto night vision": "auto_night_vision",
     "Infrared on": "infrared_on",
     "Spotlight": "spotlight",
     "Standard": "standard",

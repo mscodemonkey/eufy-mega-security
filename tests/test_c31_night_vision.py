@@ -6,6 +6,7 @@ executed without importing HA or contacting a gateway.
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -48,7 +49,7 @@ class C31NightVisionTest(unittest.IsolatedAsyncioTestCase):
             raise GatewayError("not confirmed")
 
         camera = {"nightVisionControlSupported": True, "autoNightVisionControlSupported": False,
-                  "nightVisionMode": 1, "nightVisionModes": [{"value": 0, "name": "Off"}, {"value": 1, "name": "Infrared"}]}
+                  "nightVisionMode": 1, "nightVisionModes": [{"value": 0, "name": "Off"}, {"value": 1, "name": "Auto night vision"}]}
         removed, entities = [], []
         registry = SimpleNamespace(async_remove=removed.append)
         coordinator = SimpleNamespace(cameras={"camera": camera}, stations={}, locks={},
@@ -66,9 +67,37 @@ class C31NightVisionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(entities), 1)
         entity = entities[0]
         self.assertEqual(entity._attr_unique_id, "camera_night_vision")
+        self.assertEqual(entity.options, ["off", "auto_night_vision"])
+        self.assertEqual(entity.current_option, "auto_night_vision")
+        calls, published = [], []
+
+        async def succeed(*args, **kwargs):
+            calls.append((args, kwargs))
+            return camera
+
+        coordinator.client.set_camera_night_vision = succeed
+        coordinator.async_set_camera = published.append
+        await entity.async_select_option("auto_night_vision")
+        self.assertEqual(calls, [(("camera", 1), {})])
+        self.assertEqual(published, [camera])
+        coordinator.client.set_camera_night_vision = fail
+        for option in ("off", "auto_night_vision"):
+            with self.assertRaisesRegex(HaError, "not confirmed"):
+                await entity.async_select_option(option)
+        for filename in ("translations/en.json", "strings.json"):
+            translated = json.loads((source.parent / filename).read_text())
+            self.assertEqual(translated["entity"]["select"]["camera_night_vision"]["state"]["auto_night_vision"], "Auto night vision")
+
+        # Older gateways keep their existing option key during staggered updates.
+        camera["nightVisionModes"][1]["name"] = "Infrared"
         self.assertEqual(entity.options, ["off", "infrared"])
         self.assertEqual(entity.current_option, "infrared")
+        coordinator.client.set_camera_night_vision = succeed
+        calls.clear()
+        await entity.async_select_option("infrared")
+        self.assertEqual(calls, [(("camera", 1), {})])
+        coordinator.client.set_camera_night_vision = fail
         with self.assertRaisesRegex(HaError, "not confirmed"):
-            await entity.async_select_option("off")
+            await entity.async_select_option("infrared")
         camera["nightVisionControlSupported"] = False
         self.assertFalse(entity.available)

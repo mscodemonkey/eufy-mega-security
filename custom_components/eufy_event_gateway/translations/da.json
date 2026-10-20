@@ -205,7 +205,8 @@
           "infrared_on": "Infrarød slået til",
           "spotlight": "Spotlys",
           "standard": "Standard",
-          "auto_infrared": "Automatisk infrarød"
+          "auto_infrared": "Automatisk infrarød",
+          "auto_night_vision": "Automatisk nattesyn"
         }
       },
       "camera_sound_type": {
