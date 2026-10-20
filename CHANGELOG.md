@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.188
+
+- Fix the S100 connection-test handoff and report precise preparation failures without exposing private transport details.
+- Add an opt-in, read-only T8170 alarm-state experiment with private results and no arming or siren commands. Hardware behaviour remains unconfirmed.
+- Add passive T8417 inventory-field observations to investigate camera enablement and privacy reporting without changing device settings.
+- Add a disabled-by-default T8172 event-picture request comparison based on the Android app. Preserve ordinary download behaviour and the last retained picture on failure. Hardware benefit remains unconfirmed.
+
 ## 0.1.187
 
 - Add a separate consented Diagnostics action to sign in again for the experimental general camera video test, with visible identity readiness and CAPTCHA or email-code handling.
