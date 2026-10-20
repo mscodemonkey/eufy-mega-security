@@ -37,6 +37,7 @@ for (const mode of ["selected", "off", "model", "type", "category", "unauthentic
       return Buffer.from(jpeg);
     });
     context.mock.method(MegaClient.prototype, "getEventImageKey", async function(this: MegaClient, id: number, owner: string) {
+
       // A real instance's private request state is touched to detect an unbound facade receiver.
       this.cancelPendingRequests(); assert.equal(id, 10); assert.equal(owner, "fixture-owner"); keys++; return Buffer.alloc(32, 1);
     });

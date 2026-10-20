@@ -105,6 +105,7 @@ for (const value of [0, 1, 2, 3, 4, 5, 6, 47, 63, "0", "6", "47", "63", true, "0
   test(`raw guard mode ${JSON.stringify(value)} has strict enum semantics`, async context => {
     const h = await syntheticSession(context);
     try {
+
       // Preserve negative zero in JSON to exercise the decoder rather than JSON.stringify's normalization.
       const body = Object.is(value, -0) ? '{"params":[{"param_type":1224,"param_value":-0}]}' : JSON.stringify({ params: [{ param_type: 1224, param_value: value }] });
       h.onQuery(() => h.incoming(1103, 255, Buffer.from(body), 0, 0));
