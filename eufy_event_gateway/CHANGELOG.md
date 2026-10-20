@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.186
+
+- Preserve crying/sound entities and add the remaining source-defined E21 care notifications, attributed event pictures and normalized room settings.
+- Add default-off direct live video and receive-only audio, plus owner-only preferences confirmed by fresh raw device inventory. No E21 stream starts at boot.
+- Keep unsupported privacy, night vision, RTSP writes, presets, talkback and other unverified commands unavailable. Physical E21 behaviour remains unconfirmed.
+
 ## 0.1.185
 
 - Explain how the official Eufy app interprets login rejection 26108, while keeping account details private and preserving the existing no-retry behaviour.
