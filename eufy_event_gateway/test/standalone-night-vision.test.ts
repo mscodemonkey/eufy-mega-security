@@ -70,17 +70,18 @@ function gatewayKeyFrame(privateKey: Buffer, level2Key: Buffer): Buffer {
   return frame;
 }
 
-test("attached night vision still negotiates level two and ignores the direct flag", async (context) => {
+for (const [model, mode] of [["T8425", 2], ["T8223", 0], ["T8223", 1]] as const) {
+test(`attached ${model} mode ${mode} negotiates level two`, async (context) => {
   const peer = offlinePeer(context);
   const privateKey = Buffer.alloc(32, 1);
   const key = Buffer.alloc(32, 9);
   const resolve = context.mock.fn(async () => privateKey.toString("hex"));
-  const session = new FirstPartyPpcsSession({ ...options, cameraModel: "T8425", channel: 3,
+  const session = new FirstPartyPpcsSession({ ...options, cameraModel: model, channel: 3,
     homeBaseAttached: true, standaloneNightVisionSupported: false, resolveCipherKey: resolve });
   try {
     await session.start();
     peer.receive(gatewayKeyFrame(privateKey, key));
-    await session.writeNightVision(2);
+    await session.writeNightVision(mode);
     assert.equal(resolve.mock.callCount(), 1);
     assert.deepEqual(resolve.mock.calls[0]!.arguments, [7]);
     const writes = peer.packets.filter(({ body }) => body.length >= 14 && body.readUInt16LE(12) === 1350);
@@ -95,8 +96,21 @@ test("attached night vision still negotiates level two and ignores the direct fl
       decrypt.setAAD(Buffer.from("eufy security"));
       decrypt.setAuthTag(encrypted.subarray(0, 16));
       assert.deepEqual(Buffer.concat([decrypt.update(encrypted.subarray(32)), decrypt.final()]),
-        buildNightVisionBody(3, 2, options.accountId));
+        buildNightVisionBody(3, mode, options.accountId));
     }
+  } finally { session.close(); }
+});
+
+}
+
+test("attached C31 refuses Spotlight before sending control packets", async context => {
+  const peer = offlinePeer(context);
+  const session = new FirstPartyPpcsSession({ ...options, cameraModel: "T8223", channel: 3, homeBaseAttached: true });
+  try {
+    await session.start();
+    const before = peer.packets.length;
+    await assert.rejects(session.writeNightVision(2), /not supported/);
+    assert.equal(peer.packets.length, before);
   } finally { session.close(); }
 });
 

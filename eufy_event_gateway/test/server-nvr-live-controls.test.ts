@@ -44,6 +44,9 @@ test("NVR routes reject unauthenticated, duplicate, unknown and conflicting inpu
     assert.equal((await send("synthetic/night-vision", '{"mode":1}', false)).status, 401);
     assert.equal((await send("synthetic/streaming-quality", '{"quality":1}')).status, 409);
     assert.equal((await send("synthetic/night-vision", '{"mode":1}')).status, 409);
+    for (const mode of ["1", true, 1.5, null]) {
+      assert.equal((await send("synthetic/night-vision", JSON.stringify({ mode }))).status, 400);
+    }
     assert.equal(calls, 0); admitted = true;
     assert.equal((await send("synthetic/streaming-quality", '{"quality":4}')).status, 200);
     active = true; assert.equal((await send("synthetic/nvr-view", '{"view":1}')).status, 409);

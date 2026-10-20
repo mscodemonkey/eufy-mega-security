@@ -2060,7 +2060,8 @@ export class FirstPartyPpcsSession {
     if (!accountId) throw new Error("Night vision control account identity is unavailable");
     const maximumMode = this.#options.cameraModel === "T8171" ? 3 : 2;
     if (!Number.isSafeInteger(mode) || mode < 0 || mode > maximumMode
-      || (this.#options.cameraModel === "T8171" && mode === 2)) {
+      || (this.#options.cameraModel === "T8171" && mode === 2)
+      || (this.#options.cameraModel === "T8223" && ![0, 1].includes(mode))) {
       throw new Error("Night vision mode is not supported for this camera model");
     }
     if (standalone && this.#options.cameraModel === "T817L") {

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.181
+
+- Restore the night-vision select for a C31 doorbell reporting T8223/type 95 through a ready HomeBase 2 or HomeBase 3 connection. It offers Off and Infrared only when a known current value is available.
+- Require fresh readback after changing that setting, so a cached value cannot confirm an unsuccessful write.
+
+- The exact C31 hardware behaviour and coexistence with live video still need reporter confirmation. This does not enable other doorbell models, standalone C31 controls, or Spotlight mode.
+
 ## 0.1.180
 
 - Keep experimental control forms disabled until an available control is loaded for the selected camera, discard stale form results and give Diagnostics its own readable background.

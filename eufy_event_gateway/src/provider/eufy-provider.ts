@@ -353,10 +353,28 @@ function isAutoNightVisionDoorbell(
   return isDoorbellDevice(device) && AUTO_NIGHT_VISION_DOORBELL_MODELS.has(device.model);
 }
 
+/** Require the source-verified C31 child profile and its owned, authenticated HomeBase route. */
+export function supportsAttachedDoorbellNightVision(
+  device: Pick<MegaInventoryDevice, "model" | "deviceType" | "category" | "reads" | "channel" | "adminUserId" | "parentSerial">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return device.model === "T8223" && device.deviceType === 95 && isDoorbellDevice(device)
+    && Number.isSafeInteger(device.reads.nightVisionMode) && [0, 1].includes(device.reads.nightVisionMode!)
+    && Number.isInteger(device.channel) && device.channel !== null && device.channel >= 0 && device.channel < 255
+    && Boolean(device.adminUserId?.trim()) && route?.homeBaseAttached === true
+    && ["T8010", "T8030"].includes(route.peer.model) && route.peer.serial === device.parentSerial
+    && Boolean(route.peer.p2pDid && route.peer.p2pConnection) && routeReady;
+}
+
 /** Return model-specific wire values consumed by gateway and Home Assistant selects. */
 export function nightVisionModes(
   device: Pick<MegaInventoryDevice, "model" | "reads" | "deviceType" | "category">,
 ): readonly NightVisionMode[] {
+  if (device.model === "T8223" && device.deviceType === 95 && isDoorbellDevice(device)) {
+    return Number.isSafeInteger(device.reads.nightVisionMode) && [0, 1].includes(device.reads.nightVisionMode!)
+      ? [{ value: 0, name: "Off" }, { value: 1, name: "Infrared" }] : [];
+  }
   if (device.reads.nightVisionMode === undefined || isDoorbellDevice(device)) return [];
   if (device.model === "T8171" && device.deviceType === 88) {
     return [
@@ -2914,6 +2932,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const dsk = peer ? await this.#dskKey(peer.serial) : null;
       const standaloneNightVisionSupported = supportsStandaloneNightVision(device, route,
         isPpcsRouteReady(device, this.#devices, new Set(dsk && peer ? [peer.serial] : [])));
+      const attachedDoorbellNightVisionSupported = supportsAttachedDoorbellNightVision(device, route,
+        isPpcsRouteReady(device, this.#devices, new Set(dsk && peer ? [peer.serial] : [])));
+      if (device.model === "T8223" && !attachedDoorbellNightVisionSupported) {
+        throw new Error("C31 night vision requires a known state and ready owned HomeBase route");
+      }
       if ((!route?.homeBaseAttached && !standaloneNightVisionSupported) || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
         throw new Error("Night vision control requires a ready HomeBase-attached camera route");
       }
@@ -2931,6 +2954,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       let acknowledgementTimedOut = false;
       try {
         await session.start();
+        if (attachedDoorbellNightVisionSupported) this.#invalidateLiveReads(serial, ["nightVisionMode"]);
         try {
           if (autoNightVision) await session.writeAutoNightVision(mode === 1);
           else await session.writeNightVision(mode);
@@ -3695,7 +3719,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       nightVisionMode: device.reads.nightVisionMode ?? null,
       nightVisionModes: nightVisionModes(device),
-      nightVisionControlSupported: supportsStandaloneNightVision(device, route,
+      nightVisionControlSupported: supportsAttachedDoorbellNightVision(device, route,
+        isPpcsRouteReady(device, this.#devices, dskPeerSerials)) || supportsStandaloneNightVision(device, route,
         isPpcsRouteReady(device, this.#devices, dskPeerSerials)) || (device.reads.nightVisionMode !== undefined
         && !isDoorbellDevice(device)
         && device.channel !== null
