@@ -715,6 +715,21 @@ export class MegaClient {
    * shutdown. Metadata contains no private headers or object-store URL.
    */
   async downloadWithMetadata(url: string, maximumBytes = 20 * 1024 * 1024): Promise<{ data: Buffer } & EventImageResponseMetadata> {
+    return this.#downloadMedia(url, maximumBytes, "authenticated");
+  }
+
+  /** Compare an attributed event image without custom request headers, retaining normal media limits. */
+  async downloadNativeEventImage(url: string, maximumBytes = 20 * 1024 * 1024): Promise<Buffer> {
+    return (await this.downloadNativeEventImageWithMetadata(url, maximumBytes)).data;
+  }
+
+  /** Read the same bounded media metadata on the opt-in request style, without persisting its URL. */
+  async downloadNativeEventImageWithMetadata(url: string, maximumBytes = 20 * 1024 * 1024): Promise<{ data: Buffer } & EventImageResponseMetadata> {
+    return this.#downloadMedia(url, maximumBytes, "native");
+  }
+
+  /** Share retry, redirect, body and abort ownership while selecting only the first-hop header policy. */
+  async #downloadMedia(url: string, maximumBytes: number, style: "authenticated" | "native"): Promise<{ data: Buffer } & EventImageResponseMetadata> {
     const parsed = allowedMediaUrl(url, MEDIA_HOST);
     const signal = AbortSignal.any([this.#requestLifetime.signal, AbortSignal.timeout(30_000)]);
     let response: Response | null = null;
@@ -722,7 +737,7 @@ export class MegaClient {
     let attempts = 0;
     for (let attempt = 0; attempt <= MEDIA_NOT_READY_DELAYS_MS.length; attempt += 1) {
       signal.throwIfAborted();
-      request = await this.#fetchMedia(parsed, signal);
+      request = await this.#fetchMedia(parsed, signal, style);
       response = request.response;
       attempts += 1;
       if (response.status !== 404 || attempt === MEDIA_NOT_READY_DELAYS_MS.length) break;
@@ -778,10 +793,11 @@ export class MegaClient {
   }
 
   /** Perform one authenticated media lookup and its optional credential-free object-store redirect. */
-  async #fetchMedia(url: URL, signal: AbortSignal): Promise<{ response: Response; initial: string; redirect?: string }> {
+  async #fetchMedia(url: URL, signal: AbortSignal, style: "authenticated" | "native" = "authenticated"): Promise<{ response: Response; initial: string; redirect?: string }> {
     signal.throwIfAborted();
+    if (style === "native") this.#requireAuthentication();
     let response = await this.#fetch(url, {
-      headers: this.#mediaHeaders(), redirect: "manual", signal,
+      ...(style === "authenticated" ? { headers: this.#mediaHeaders() } : {}), redirect: "manual", signal,
     });
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");

@@ -9,6 +9,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 /** Only these operations may cross the experimental control boundary. */
 export type ModelControlTrial =
+  | { readonly action: "alarmState"; readonly enabled: false }
   | { readonly action: "manualLight"; readonly enabled: boolean }
   | { readonly action: "motion"; readonly enabled: boolean }
   | { readonly action: "spotlight"; readonly enabled: boolean }
@@ -17,7 +18,7 @@ export type ModelControlTrial =
   | { readonly action: "ptz"; readonly direction: "left" | "right" | "up" | "down" };
 
 /** Report acknowledgement separately from fresh reported state and physical movement. */
-export interface ModelControlTrialResult {
+export interface ModelControlWriteTrialResult {
   readonly outcome: "confirmed" | "acknowledged" | "unchanged" | "prepared";
   readonly physicalConfirmationRequired: boolean;
 
@@ -26,6 +27,42 @@ export interface ModelControlTrialResult {
 
   /** Present for changed settings, separating readback proof from a lost result frame. */
   readonly acknowledgementReceived?: boolean;
+}
+
+/**
+ * A private, uncorrelated observation from the explicit T8170 read experiment.
+ * It carries no physical-confirmation flag and never establishes an arming change.
+ */
+export type AlarmStateTrialResult = (
+  | { readonly outcome: "decoded"; readonly parameterCount: number; readonly guardMode?: number }
+  | { readonly outcome: "timeout" | "unavailable"; readonly frames: number;
+      readonly parseStage: "none" | "invalid_json" | "invalid_schema" | "parsed"; readonly keyReady: boolean }
+) & { readonly physicalConfirmationRequired?: never; readonly stoppedEarly?: never; readonly acknowledgementReceived?: never };
+
+/** Separate read observations from the unchanged setting-write contract. */
+export type ModelControlTrialResult = ModelControlWriteTrialResult | AlarmStateTrialResult;
+
+/** Rebuild a private read result at HTTP boundaries, discarding unknown fields. */
+export function closedAlarmStateResult(value: unknown): AlarmStateTrialResult {
+  const unavailable: AlarmStateTrialResult = { outcome: "unavailable", frames: 0, parseStage: "none", keyReady: false };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return unavailable;
+  const row = value as Record<string, unknown>, keys = Object.keys(row);
+  const count = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= 65535 && !Object.is(n, -0);
+  if (row.outcome === "decoded" && keys.every(k => ["outcome", "parameterCount", "guardMode"].includes(k))
+    && keys.length === (Object.hasOwn(row, "guardMode") ? 3 : 2) && count(row.parameterCount)
+    && (!Object.hasOwn(row, "guardMode") || (typeof row.guardMode === "number" && !Object.is(row.guardMode, -0)
+      && [0,1,2,3,4,5,6,47,63].includes(row.guardMode)))) {
+    return { outcome: "decoded", parameterCount: row.parameterCount,
+      ...(typeof row.guardMode === "number" ? { guardMode: row.guardMode } : {}) };
+  }
+  if ((row.outcome === "timeout" || row.outcome === "unavailable") && keys.length === 4
+    && keys.every(k => ["outcome", "frames", "parseStage", "keyReady"].includes(k)) && count(row.frames)
+    && ["none", "invalid_json", "invalid_schema", "parsed"].includes(String(row.parseStage))
+    && typeof row.parseStage === "string" && typeof row.keyReady === "boolean") {
+    return { outcome: row.outcome, frames: row.frames,
+      parseStage: row.parseStage as "none" | "invalid_json" | "invalid_schema" | "parsed", keyReady: row.keyReady };
+  }
+  return unavailable;
 }
 
 /** Exact routing facts required by official handler selection. */
@@ -46,6 +83,7 @@ export function parseModelControlTrial(value: unknown): ModelControlTrial {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new SyntaxError("Invalid model control trial");
   const row = value as Record<string, unknown>;
   if (Object.keys(row).length !== 2) throw new SyntaxError("Model control trial requires exactly two fields");
+  if (row.action === "alarmState" && row.enabled === false) return { action: "alarmState", enabled: false };
   if (row.action === "sirenConnection" && row.enabled === false) return { action: "sirenConnection", enabled: false };
   if ((row.action === "manualLight" || row.action === "motion" || row.action === "spotlight" || row.action === "siren") && typeof row.enabled === "boolean") {
     return { action: row.action, enabled: row.enabled };
@@ -68,6 +106,7 @@ export function modelControlTrialActions(route: ModelControlRoute): readonly Mod
       && route.channel >= 0 && route.channel <= 255 ? ["ptz"] : [];
   }
   if (!route.selfPeer || route.channel !== 0) return [];
+  if (route.model === "T8170" && route.deviceType === 48 && route.peerModel === "T8170") return ["alarmState"];
   if (route.model === "T8423" && route.deviceType === 38) return ["motion", "spotlight", "ptz"];
   if (route.model === "T8417" && route.deviceType === 105) {
     return route.peerModel === "T8417" ? ["motion", "ptz"] : ["motion"];
@@ -82,6 +121,7 @@ export function modelControlTrialActions(route: ModelControlRoute): readonly Mod
 export function modelControlTrialCommand(
   request: ModelControlTrial, route: ModelControlRoute, accountId: string, transaction: number,
 ): { readonly command: number; readonly value: string | boolean } {
+  if (request.action === "alarmState") throw new Error("Alarm state read cannot dispatch controls");
   if (request.action === "sirenConnection") throw new Error("S100 connection check cannot dispatch controls");
   if (request.action === "siren") throw new Error("S100 siren requires its dedicated encrypted trial session");
   if (!accountId || !modelControlTrialActions(route).includes(request.action)) throw new Error("Model control trial route unavailable");
@@ -110,6 +150,7 @@ export async function runModelControlTrial(
   session: ModelControlTrialSession, request: ModelControlTrial, checkOwnership: () => void,
   isAcknowledgementTimeout: (error: unknown) => boolean = () => false,
 ): Promise<ModelControlTrialResult> {
+  if (request.action === "alarmState") throw new Error("Alarm state read cannot dispatch controls");
   if (request.action === "sirenConnection") throw new Error("S100 connection check cannot dispatch controls");
   checkOwnership();
   if (request.action === "siren") throw new Error("S100 siren requires its dedicated pulse runner");

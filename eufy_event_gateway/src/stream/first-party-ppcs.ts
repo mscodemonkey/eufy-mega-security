@@ -19,7 +19,7 @@ import { buildS100SirenCommand } from "./s100-siren-command.js";
 import { S100SirenTrialError, type S100SirenTrialTransport, type S100SirenFailureStage } from "../provider/s100-siren-trial.js";
 import { createCipheriv, createDecipheriv, createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes } from "node:crypto";
 import { unwrapAuthenticatedMediaKey } from "../crypto/media-key.js";
-import { modelControlTrialCommand, type ModelControlRoute, type ModelControlTrial } from "../provider/model-control-trials.js";
+import { modelControlTrialCommand, type ModelControlRoute, type ModelControlTrial, type AlarmStateTrialResult } from "../provider/model-control-trials.js";
 import { validateC31Preference, type C31Preference } from "../provider/c31-preferences.js";
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
@@ -1273,6 +1273,10 @@ interface PendingPpcsFrame {
   readonly payload: Buffer;
 }
 
+/** Closed private lookup facts shared with the provider, excluding raw errors and key identifiers. */
+export type PpcsCipherKeyOutcome = { readonly kind: "key"; readonly value: string }
+  | { readonly kind: "lookup_failed" | "missing_key" | "retired" };
+
 /**
  * Peer, camera, and lifetime values required by one media or control session.
  *
@@ -1330,6 +1334,9 @@ export interface PpcsCameraOptions {
   /** Resolve the private ECC key selected by a HomeBase gateway-info frame. */
   readonly resolveCipherKey?: (cipherId: number) => Promise<string | undefined>;
 
+  /** Supply closed lookup outcomes for S100 preparation only; ordinary media keeps its string adapter. */
+  readonly resolveCipherKeyOutcome?: (cipherId: number) => Promise<PpcsCipherKeyOutcome>;
+
   /** Hard session lifetime, defaulting to 30 seconds when omitted. */
   readonly maxSeconds?: number;
 
@@ -1370,6 +1377,14 @@ interface PendingControlQuery {
 export interface PpcsCameraInfoParam {
   readonly param_type: number;
   readonly param_value: string | number | boolean;
+}
+
+interface AlarmReadOwner {
+  readonly resolve: (result: AlarmStateTrialResult) => void;
+  dispatched: boolean;
+  keyWaitSucceeded: boolean;
+  frames: number;
+  parseStage: "none" | "invalid_json" | "invalid_schema" | "parsed";
 }
 
 interface PendingCameraInfo {
@@ -1582,6 +1597,7 @@ export class FirstPartyPpcsSession {
   #firstFrameTimer: ReturnType<typeof setTimeout> | null = null;
   #pendingByType = new Map<number, PendingPpcsFrame>();
   #s100GatewayFrames = 0;
+  #level2Failure: "gateway_decrypt" | "cipher_lookup_error" | "cipher_missing_key" | "cipher_unwrap_failed" | "retired" | null = null;
   #level2Key: Buffer | null = null;
   #level2Seq = 0;
   #gatewayPromise: Promise<void> | null = null;
@@ -1615,6 +1631,9 @@ export class FirstPartyPpcsSession {
     readonly resolve: (value: C31IndexSummary) => void; readonly reject: (error: C31IndexError) => void;
     readonly timer: NodeJS.Timeout } | null = null;
   #pendingCameraInfo: PendingCameraInfo | null = null;
+  #alarmRead: AlarmReadOwner | null = null;
+  #alarmReadUsed = false;
+  #sessionDeadline = Number.POSITIVE_INFINITY;
   #lockStatus: { readonly identity: T85V0StatusIdentity; readonly keyTime: number; readonly sequence: number;
     readonly resolve: (value: T85V0StatusSummary) => void; readonly reject: (error: T85V0StatusError) => void;
     readonly timer: NodeJS.Timeout } | null = null;
@@ -1713,6 +1732,7 @@ export class FirstPartyPpcsSession {
         this.#lookupTimer.unref?.();
       });
     });
+    this.#sessionDeadline = Date.now() + (this.#options.maxSeconds ?? 30) * 1_000;
     this.#maximumDurationTimer = setTimeout(
       () => this.close("max_duration"),
       (this.#options.maxSeconds ?? 30) * 1_000,
@@ -1761,6 +1781,7 @@ export class FirstPartyPpcsSession {
    * always requires the provider to confirm its state independently.
    */
   async writeCameraEnabled(rawValue: number): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control") throw new Error("Camera control requires a control session");
     if (!this.#remote) throw new Error("Camera control session is not connected");
     const accountId = this.#options.accountId;
@@ -1796,6 +1817,7 @@ export class FirstPartyPpcsSession {
 
   /** Send the standalone 1224 mode command over the camera's direct route. */
   async writeStandaloneGuardMode(mode: number, userName: string): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control") throw new Error("Guard-mode control requires a control session");
     if (!this.#remote) throw new Error("Guard-mode control session is not connected");
     if (this.#options.homeBaseAttached) throw new Error("Standalone guard-mode control requires a direct camera route");
@@ -1847,6 +1869,87 @@ export class FirstPartyPpcsSession {
   }
 
   /**
+   * Own one experimental T8170 read slot through key negotiation and response.
+   * Only the clear read query is dispatched. The result is uncorrelated evidence,
+   * and close retires it without changing ordinary camera-info statistics.
+   */
+  async readT8170AlarmState(): Promise<AlarmStateTrialResult> {
+    const unavailable: AlarmStateTrialResult = { outcome: "unavailable", frames: 0, parseStage: "none", keyReady: false };
+    if (this.#closed || !this.#remote || this.#options.purpose !== "control" || !this.#options.modelControlTrial
+      || this.#options.cameraModel !== "T8170" || this.#options.channel !== 0 || this.#options.homeBaseAttached
+      || this.#pendingCameraInfo || this.#pendingControl || this.#pendingControlQuery || this.#alarmReadUsed) return unavailable;
+    let resolve!: (value: AlarmStateTrialResult) => void;
+    const result = new Promise<AlarmStateTrialResult>(done => { resolve = done; });
+    const owner: AlarmReadOwner = { resolve, dispatched: false, keyWaitSucceeded: false, frames: 0, parseStage: "none" };
+    this.#alarmRead = owner; this.#alarmReadUsed = true;
+    const timer = setTimeout(() => this.#finishAlarmRead("unavailable"), CONTROL_TIMEOUT_MILLISECONDS + 1);
+    this.#pendingCameraInfo = { resolve: () => undefined, reject: () => this.#finishAlarmRead("unavailable"), timer };
+    try {
+      await this.#waitForLevel2Key();
+      if (this.#alarmRead !== owner) return await result;
+      owner.keyWaitSucceeded = true;
+      if (this.#closed || !this.#remote || !this.#pendingCameraInfo) {
+        this.#finishAlarmRead("unavailable"); return await result;
+      }
+      clearTimeout(this.#pendingCameraInfo.timer);
+      const remaining = this.#sessionDeadline - Date.now();
+      if (remaining <= 0) { this.#finishAlarmRead("unavailable"); return await result; }
+      const responseTimer = setTimeout(() => this.#finishAlarmRead("timeout"), Math.min(CONTROL_TIMEOUT_MILLISECONDS, remaining));
+      this.#pendingCameraInfo = { ...this.#pendingCameraInfo, timer: responseTimer };
+      owner.dispatched = true; owner.frames = 0; owner.parseStage = "none";
+      this.#sendCommand(1103, buildC31CameraInfoQueryPayload());
+    } catch { this.#finishAlarmRead("unavailable"); }
+    return await result;
+  }
+
+  #finishAlarmRead(outcome: "timeout" | "unavailable", decoded?: AlarmStateTrialResult): void {
+    const owner = this.#alarmRead;
+    if (!owner) return;
+    if (this.#pendingCameraInfo) clearTimeout(this.#pendingCameraInfo.timer);
+    this.#pendingCameraInfo = null; this.#alarmRead = null;
+    owner.resolve(decoded ?? { outcome, frames: owner.dispatched ? owner.frames : 0,
+      parseStage: owner.dispatched ? owner.parseStage : "none", keyReady: owner.keyWaitSucceeded && this.#level2Key !== null });
+  }
+
+  #inspectAlarmRead(payload: Buffer, signCode: number): void {
+    const owner = this.#alarmRead;
+    if (!owner?.dispatched) return;
+    owner.frames = Math.min(65535, owner.frames + 1);
+    const oversize = (): void => { owner.parseStage = "invalid_schema"; this.#finishAlarmRead("unavailable"); };
+    if (payload.length > 262144 + 32) { oversize(); return; }
+    let clear = payload;
+    if (signCode === 2 || signCode === 8) {
+      if (!this.#level2Key) return;
+      const value = decryptLevel2(payload, this.#level2Key, signCode);
+      if (!value) return;
+      clear = value;
+    } else if (signCode === 1 && payload.length > 0 && payload.length % 16 === 0) {
+      try { clear = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); } catch { return; }
+    } else if (signCode !== 0) return;
+    if (clear.length > 262144) { oversize(); return; }
+    owner.parseStage = "invalid_json";
+    try {
+      const row: unknown = JSON.parse(cameraInfoDocumentText(clear));
+      owner.parseStage = "invalid_schema";
+      if (!isRecord(row) || !Array.isArray(row.params)) return;
+      if (row.params.length > 65535) { oversize(); return; }
+      const types = new Set<number>(); let guardRows = 0; let guardMode: number | undefined;
+      for (const param of row.params) {
+        if (!isRecord(param) || !Number.isSafeInteger(param.param_type)) continue;
+        types.add(param.param_type as number);
+        if (param.param_type !== 1224) continue;
+        guardRows++;
+        const value = param.param_value;
+        const parsed = typeof value === "number" ? value : typeof value === "string" && /^(?:[0-6]|47|63)$/.test(value) ? Number(value) : NaN;
+        if (!Object.is(parsed, -0) && [0,1,2,3,4,5,6,47,63].includes(parsed)) guardMode = parsed;
+      }
+      owner.parseStage = "parsed";
+      this.#finishAlarmRead("unavailable", { outcome: "decoded", parameterCount: types.size,
+        ...(guardRows === 1 && guardMode !== undefined ? { guardMode } : {}) });
+    } catch { return; }
+  }
+
+  /**
    * Send the verified command-1011 motion switch and await its result.
    *
    * The standalone T8171 and T817L use their native 6040 JSON status command. Its caller
@@ -1854,6 +1957,7 @@ export class FirstPartyPpcsSession {
    * the level-two binary form and await its acknowledgement.
    */
   async writeMotionDetection(enabled: boolean): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control") throw new Error("Motion control requires a control session");
     if (!this.#remote) throw new Error("Motion control session is not connected");
     const accountId = this.#options.accountId;
@@ -1893,7 +1997,7 @@ export class FirstPartyPpcsSession {
    * this original session after provider cancellation or inventory replacement.
    */
   async prepareS100SirenTrial(route: ModelControlRoute, enabled: boolean): Promise<S100SirenTrialTransport> {
-    if (this.#closed || !this.#remote || this.#pendingControl || this.#pendingControlQuery) {
+    if (this.#closed || !this.#remote || this.#pendingCameraInfo || this.#pendingControl || this.#pendingControlQuery) {
       throw new S100SirenTrialError(["session_prepare"]);
     }
     if (this.#options.purpose !== "control" || !this.#options.accountId
@@ -1903,8 +2007,10 @@ export class FirstPartyPpcsSession {
     }
     try { await this.#waitForLevel2Key(); }
     catch {
-      throw new S100SirenTrialError([this.#closed ? "session_prepare"
-        : this.#s100GatewayFrames === 0 ? "session_gateway" : "session_cipher"]);
+      const stages: S100SirenFailureStage[] = this.#closed || this.#level2Failure === "retired" ? ["session_prepare"]
+        : this.#s100GatewayFrames === 0 ? ["session_gateway"] : ["session_cipher"];
+      if (stages[0] === "session_cipher" && this.#level2Failure && this.#level2Failure !== "retired") stages.push(this.#level2Failure);
+      throw new S100SirenTrialError(stages);
     }
     if (this.#closed) throw new S100SirenTrialError(["session_prepare"]);
     const frames = buildS100SirenTrialFrames(route, enabled, this.#level2Key, this.#level2Seq);
@@ -1952,6 +2058,7 @@ export class FirstPartyPpcsSession {
    * The caller can recheck ownership after key negotiation and before dispatch.
    */
   async writeModelControlTrial(request: ModelControlTrial, route: ModelControlRoute, current: () => void = () => undefined): Promise<void> {
+    if (request.action === "alarmState" || this.#alarmRead) throw new Error("Alarm state read cannot dispatch controls");
     if (this.#closed || this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
       || this.#options.cameraModel !== route.model || this.#options.channel !== route.channel
       || this.#options.homeBaseAttached !== route.homeBaseAttached) throw new Error("Invalid model trial session");
@@ -1967,6 +2074,7 @@ export class FirstPartyPpcsSession {
 
   /** Send exactly one reviewed absolute setting; only provider readback can establish success. */
   async writeReviewedCameraSetting(change: CameraSettingChange, route: ModelControlRoute, onDispatch: () => void): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     const profile = cameraSettingProfile(route, change.setting);
     if (!profile || this.#closed || this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
       || this.#options.cameraModel !== route.model || this.#options.channel !== route.channel
@@ -1990,6 +2098,7 @@ export class FirstPartyPpcsSession {
 
   /** Send only reviewed exact-C31 preferences; the provider must independently confirm inventory. */
   async writeC31Preference(name: C31Preference, value: number): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     validateC31Preference(name, value);
     if (this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
       || this.#options.cameraModel !== "T817L" || this.#options.homeBaseAttached !== false || this.#options.channel !== 0) {
@@ -2006,6 +2115,7 @@ export class FirstPartyPpcsSession {
 
   /** Send one E21 absolute operation on the provider-owned control session without opening live media. */
   async writeE21Preference(name: E21Preference, value: number, videoMode: 0 | 12 | null): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     validateE21Preference(name, value);
     if (this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
       || this.#options.cameraModel !== "T8354" || this.#options.homeBaseAttached !== false || this.#options.channel !== 0) {
@@ -2022,6 +2132,7 @@ export class FirstPartyPpcsSession {
 
   /** Send the native standalone audio setting; callers must confirm fresh inventory readback. */
   async writeAudioRecording(enabled: boolean): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId) {
       throw new Error("Audio recording requires a connected account-owned control session");
     }
@@ -2038,6 +2149,7 @@ export class FirstPartyPpcsSession {
 
   /** Send a native quality preference; fresh cloud confirmation remains the caller's responsibility. */
   async writeStreamingQuality(quality: number): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId) {
       throw new Error("Streaming quality requires a connected account-owned control session");
     }
@@ -2064,6 +2176,7 @@ export class FirstPartyPpcsSession {
    * attached camera. It is retransmitted three times and waits for one result.
    */
   async writeAutoNightVision(enabled: boolean): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control") throw new Error("Auto night vision control requires a control session");
     if (!this.#remote) throw new Error("Auto night vision control session is not connected");
     if (!this.#options.homeBaseAttached) throw new Error("Auto night vision control requires a HomeBase-attached camera");
@@ -2093,6 +2206,7 @@ export class FirstPartyPpcsSession {
    * frame, so the provider must confirm each preference through fresh readback.
    */
   async writeNightVision(mode: number): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control") throw new Error("Night vision control requires a control session");
     if (!this.#remote) throw new Error("Night vision control session is not connected");
     const standalone = this.#options.homeBaseAttached === false
@@ -2145,6 +2259,7 @@ export class FirstPartyPpcsSession {
    * or stop policy. Resolution confirms transmission, not siren activation.
    */
   async writeCameraSiren(durationSeconds: number): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control") throw new Error("Camera siren control requires a control session");
     if (!this.#remote) throw new Error("Camera siren control session is not connected");
     const accountId = this.#options.accountId;
@@ -2184,6 +2299,7 @@ export class FirstPartyPpcsSession {
 
   /** Transmit a native C31 alarm action; the provider owns pulse timing, cancellation and stop. */
   async writeStandaloneC31Siren(enabled: boolean): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control" || !this.#remote
       || this.#options.cameraModel !== "T817L" || this.#options.homeBaseAttached || this.#options.channel !== 0) {
       throw new Error("C31 siren requires its connected direct channel-zero control session");
@@ -2208,6 +2324,7 @@ export class FirstPartyPpcsSession {
 
   /** Send the native manual light action on a provider-authorized standalone C31. */
   async writeStandaloneC31Light(enabled: boolean): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.cameraModel !== "T817L" || this.#options.homeBaseAttached || this.#options.channel !== 0) {
       throw new Error("C31 manual light requires its direct channel-zero route");
     }
@@ -2216,6 +2333,7 @@ export class FirstPartyPpcsSession {
 
   /** Send the standalone wall-light family's momentary on or off command. */
   async writeTimedCameraLight(enabled: boolean): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control") throw new Error("Camera light control requires a control session");
     if (!this.#remote) throw new Error("Camera light control session is not connected");
     if (this.#options.homeBaseAttached) throw new Error("Timed camera light control requires a standalone camera");
@@ -2235,6 +2353,7 @@ export class FirstPartyPpcsSession {
 
   /** Send command 1400 using the direct spotlight family's integer and account envelope. */
   async writeStandaloneCameraLight(enabled: boolean): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control") throw new Error("Camera light control requires a control session");
     if (!this.#remote) throw new Error("Camera light control session is not connected");
     if (this.#options.homeBaseAttached) throw new Error("Standalone camera light control requires a direct camera");
@@ -2292,6 +2411,7 @@ export class FirstPartyPpcsSession {
 
   /** Enable or disable AI tracking using this model's app-confirmed command shape. */
   async writeAiTracking(enabled: boolean): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     await this.#sendControlPayload(6016, (this.#usesSoloCamPanControl()
       || (this.#options.cameraModel === "T817L" && !this.#options.homeBaseAttached && this.#options.channel === 0))
       ? buildSoloCamPanControlData(6016, enabled ? 1 : 0) : buildAiTrackingControlData(enabled));
@@ -2445,6 +2565,7 @@ export class FirstPartyPpcsSession {
 
   /** Enable or disable T817L automatic cruise using the app-confirmed action. */
   async writeAutoCruise(enabled: boolean): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     await this.#sendControlPayload(6031, { value: enabled ? 1 : 0,
       ...(!this.#options.homeBaseAttached && this.#options.cameraModel === "T817L" && this.#options.channel === 0
         ? { transaction: `${Date.now()}` } : {}),
@@ -2463,6 +2584,7 @@ export class FirstPartyPpcsSession {
     if (this.#closed) return;
     this.#speaker?.close();
     this.#closed = true;
+    this.#level2Failure = null;
     this.#lookupCancel?.();
     this.#lookupCancel = null;
     this.stats.closeReason = reason;
@@ -2484,6 +2606,7 @@ export class FirstPartyPpcsSession {
       this.#pendingControlQuery.reject(new Error("Camera control session closed before query response"));
       this.#pendingControlQuery = null;
     }
+    this.#finishAlarmRead("unavailable");
     if (this.#pendingCameraInfo) {
       clearTimeout(this.#pendingCameraInfo.timer);
       this.#pendingCameraInfo.reject(new Error("Camera-info session closed before readback"));
@@ -2788,6 +2911,9 @@ export class FirstPartyPpcsSession {
     // media frames after the level-2 request has been accepted.
     if (command === 1100) this.#s100GatewayFrames++;
     if (command === 1100 && signCode === 1) { this.stats.gatewayInfo++; void this.#handleGatewayInfo(payload); }
+    else if (command === 1103 && this.#alarmReadUsed) {
+      if (frameChannel === 0 || frameChannel === 255) this.#inspectAlarmRead(payload, signCode);
+    }
     else if (command === 1103 && (!this.#options.modelControlTrial || frameChannel === this.#options.channel)) {
       this.#inspectCameraInfo(payload, signCode);
     }
@@ -2963,21 +3089,43 @@ export class FirstPartyPpcsSession {
    * standalone media session starts with its level-one fallback, then reissues
    * START_LIVE at level two as soon as the negotiated key becomes available.
    */
+  /** Latch only fixed failure facts in the same turn as the error observed by key waiters. */
+  #failLevel2(phase: "gateway_decrypt" | "cipher_lookup_error" | "cipher_missing_key" | "cipher_unwrap_failed" | "retired"): void {
+    if (this.#closed) return;
+    this.#level2Failure = phase;
+    this.stats.level2Error = `Key negotiation unavailable: ${phase}`;
+  }
+
   async #deriveLevel2(payload: Buffer): Promise<void> {
+    if (this.#closed) return;
     let plainPayload: Buffer;
-    try { plainPayload = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); } catch (error) { this.stats.level2Error = `gateway decrypt failed: ${error instanceof Error ? error.message : String(error)}`; return; }
+    try { plainPayload = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); }
+    catch { this.#failLevel2("gateway_decrypt"); return; }
     const cipherId = plainPayload.readUInt16LE(0);
     this.stats.cipherId = cipherId;
-    let eccPrivateKey: string | undefined;
-    try { eccPrivateKey = await this.#options.resolveCipherKey!(cipherId); } catch (error) { this.stats.level2Error = error instanceof Error ? error.message : String(error); return; }
-
-    // Key resolution can outlive the media lease and its UDP socket.
+    let key: unknown;
+    try {
+      if (this.#options.resolveCipherKeyOutcome) {
+        const outcome = await this.#options.resolveCipherKeyOutcome(cipherId);
+        if (this.#closed) return;
+        if (!outcome || typeof outcome !== "object") { this.#failLevel2("cipher_lookup_error"); return; }
+        if (outcome.kind === "retired") { this.#failLevel2("retired"); return; }
+        if (outcome.kind === "lookup_failed") { this.#failLevel2("cipher_lookup_error"); return; }
+        if (outcome.kind === "missing_key") { this.#failLevel2("cipher_missing_key"); return; }
+        if (outcome.kind !== "key") { this.#failLevel2("cipher_lookup_error"); return; }
+        key = outcome.value;
+      } else key = await this.#options.resolveCipherKey!(cipherId);
+    } catch { this.#failLevel2("cipher_lookup_error"); return; }
     if (this.#closed) return;
-    if (!eccPrivateKey) { this.stats.level2Error = "no ECC private key"; return; }
-    this.#videoDecoder.setEccPrivateKey(eccPrivateKey);
-    const plain = unwrapGatewayInfo(plainPayload.subarray(4, 133), eccPrivateKey);
-    if (!plain || plain.length < 32) { this.stats.level2Error = "gateway info ECIES unwrap failed"; return; }
+    if (typeof key !== "string" || !key) { this.#failLevel2("cipher_missing_key"); return; }
+    let plain: Buffer | undefined;
+    try {
+      this.#videoDecoder.setEccPrivateKey(key);
+      plain = unwrapGatewayInfo(plainPayload.subarray(4, 133), key);
+    } catch { this.#failLevel2("cipher_unwrap_failed"); return; }
+    if (!plain || plain.length < 32) { this.#failLevel2("cipher_unwrap_failed"); return; }
     this.#level2Key = plain.subarray(0, 32);
+    this.#level2Failure = null;
     this.stats.level2++;
     if (this.#options.purpose !== "control" && this.#options.purpose !== "passive") {
       if (this.#options.homeBaseAttached) this.#startAttachedMedia();
@@ -3006,6 +3154,7 @@ export class FirstPartyPpcsSession {
    * potentially non-idempotent operation.
    */
   #waitForControlResult(command: number, strictChannel?: number, timeoutMilliseconds = CONTROL_TIMEOUT_MILLISECONDS, authenticatedOnly = false): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#pendingControl) return Promise.reject(new Error("Camera already has a control command in flight"));
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -3023,7 +3172,7 @@ export class FirstPartyPpcsSession {
   ): Promise<Record<string, unknown>> {
     if (this.#options.purpose !== "control" && !this.#allowsViewerPanControl(command)) throw new Error("Camera query requires a control session");
     if (!this.#remote) throw new Error("Camera control session is not connected");
-    if (this.#pendingControlQuery || this.#pendingControl) {
+    if (this.#alarmRead || this.#pendingControlQuery || this.#pendingControl) {
       throw new Error("Camera already has a control operation in flight");
     }
     if (this.#options.homeBaseAttached || this.#usesSoloCamPanControl()
@@ -3097,6 +3246,7 @@ export class FirstPartyPpcsSession {
     command: number,
     data: Readonly<Record<string, unknown>>,
   ): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control" && !this.#allowsViewerPanControl(command)) throw new Error("Camera control requires a control session");
     if (!this.#remote) throw new Error("Camera control session is not connected");
     const soloCam = this.#usesSoloCamPanControl();
@@ -3272,6 +3422,7 @@ export class FirstPartyPpcsSession {
 
   /** Wrap and send one inner XZYH command over the established data channel. */
   #sendCommand(command: number, payload: Buffer): void {
+    if (this.#alarmRead && (command !== 1103 || !this.#alarmRead.dispatched)) throw new Error("Alarm state read owns this session");
     if (!this.#remote) return;
     const header = Buffer.concat([DATA.data, u16(this.#seq++), MAGIC, u16le(command)]);
     this.#send(REQ.data, Buffer.concat([header, payload]), this.#remote);

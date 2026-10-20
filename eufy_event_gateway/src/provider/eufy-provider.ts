@@ -31,7 +31,7 @@ import { careMonitorPushKind, careMonitorSensorState } from "./care-monitor.js";
 import { E21ControlError, e21Readings, e21PreferenceContracts, e21PreferenceNames, isE21, validateE21Preference, type E21Readings } from "./e21-profile.js";
 import { NvrRtcSession } from "../stream/nvr-rtc-session.js";
 import { NvrTrialError, nvrTrialSensor, type NvrStateSummary } from "../stream/nvr-protocol.js";
-import { modelControlTrialActions, parseModelControlTrial, runModelControlTrial, type ModelControlRoute, type ModelControlTrial, type ModelControlTrialResult } from "./model-control-trials.js";
+import { modelControlTrialActions, parseModelControlTrial, runModelControlTrial, type ModelControlRoute, type ModelControlTrial, type ModelControlTrialResult, type AlarmStateTrialResult } from "./model-control-trials.js";
 import { join } from "node:path";
 import { setTimeout as cancellableDelay } from "node:timers/promises";
 import { createHmac, randomBytes } from "node:crypto";
@@ -51,7 +51,7 @@ import { MegaPushReceiver, type MegaPushEvent } from "../mega/push.js";
 import { CloudRecordingError } from "../stream/cloud-recordings.js";
 import { DoorbellRtcSession } from "../stream/doorbell-rtc-session.js";
 import { DoorbellRtcError } from "../stream/doorbell-rtc-offer.js";
-import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, PpcsLookupTimeoutError, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
+import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, type PpcsCipherKeyOutcome, PpcsLookupTimeoutError, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBaseChildParam, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
 import type { SensorContactObservation } from "../stream/sensor-status-notification.js";
 import { cameraCapabilityLogSummaries, describeCameraCapabilities, isSupportedCameraType, describeDeviceCapabilities, deviceCapabilityLogSummaries } from "./device-capabilities-core.js";
@@ -69,6 +69,11 @@ import { c31PreferenceNames, c31PreferenceValue, c31PreferenceReadField, validat
 
 /** Classify a fresh cloud motion advance without retaining a sensor baseline. */
 export { inventoryMotionOutcome } from "./inventory-motion.js";
+
+/** Private ownership signal keeps arbitrary transport messages out of read responses. */
+class AlarmReadRouteChangedError extends Error {
+  constructor() { super("Model control route changed or closed"); }
+}
 
 const logger = createLogger("provider");
 const DSK_REFRESH_SKEW_MILLISECONDS = 60_000;
@@ -131,6 +136,9 @@ export interface EufyProviderConfig {
 
   /** Default-off existing cloud recording download, independent of live camera capabilities. */
   readonly experimentalCloudRecordings?: boolean;
+
+  /** Default-off alternate request for exact attributed T8172 event pictures only. */
+  readonly experimentalEventImageRequest?: boolean;
   readonly experimentalNvrRegion?: "auto" | "us" | "eu" | "ie";
 
   /** Optional process-owned evidence collector, closed by the composition root. */
@@ -614,7 +622,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #dskKeys = new Map<string, { readonly key: string; readonly expiresAt: number | null }>();
   readonly #dskRefreshes = new Map<string, Promise<{ readonly key: string; readonly expiresAt: number | null } | null>>();
   readonly #cipherKeys = new Map<string, string>();
-  readonly #cipherFlights = new Map<string, Promise<string | undefined>>();
+  readonly #cipherFlights = new Map<string, Promise<PpcsCipherKeyOutcome>>();
   readonly #pushSnapshotQueues = new Map<string, Promise<void>>();
   readonly #pushDeduplicator = new PushEventDeduplicator();
   readonly #t8417ReadShapes = new T8417ReadShapeTracker();
@@ -695,40 +703,54 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
 
+  /** Preserve the ordinary media key contract while sharing the classified private lookup. */
   async #resolveCipherKey(cipherId: number, peer: MegaInventoryDevice): Promise<string | undefined> {
-    if (!peer.adminUserId) return undefined;
+    const outcome = await this.#resolveCipherKeyOutcome(cipherId, peer);
+    return outcome.kind === "key" ? outcome.value : undefined;
+  }
+
+  /** Classify lookup ownership without returning arbitrary errors or sharing session failure phases. */
+  async #resolveCipherKeyOutcome(cipherId: number, peer: MegaInventoryDevice): Promise<PpcsCipherKeyOutcome> {
+    if (!peer.adminUserId) return { kind: "missing_key" };
+    const generation = this.#startupGeneration;
+    const current = (): boolean => {
+      const live = this.#devices.get(peer.serial);
+      return generation === this.#startupGeneration && !this.#recordingClosing && !!live
+        && !inventoryBindingChanged(peer, live) && live.p2pDid === peer.p2pDid && live.p2pConnection === peer.p2pConnection;
+    };
     const cacheKey = JSON.stringify([peer.serial, peer.adminUserId, cipherId]);
     const cached = this.#cipherKeys.get(cacheKey);
-    if (cached) return cached;
-    const pending = this.#cipherFlights.get(cacheKey);
-    if (pending) return pending;
-    const generation = this.#startupGeneration;
-    const lookup = (async () => {
-      try {
-        const ciphers = await this.#client.getCiphers([cipherId], peer.adminUserId!, peer.serial);
-        if (generation !== this.#startupGeneration || this.#recordingClosing
-          || this.#devices.get(peer.serial)?.adminUserId !== peer.adminUserId) return undefined;
-        const matches = ciphers.filter(cipher => {
-          const id = cipher.cipher_id;
-          return (typeof id === "number" && Number.isSafeInteger(id)
-            || typeof id === "string" && /^\d{1,10}$/.test(id)) && Number(id) === cipherId;
-        });
-        const key = matches.length === 1 && typeof matches[0]!.ecc_private_key === "string"
-          ? matches[0]!.ecc_private_key : undefined;
-        if (key) this.#cipherKeys.set(cacheKey, key);
-        return key;
-      } catch (error) {
-        if (generation === this.#startupGeneration && !this.#recordingClosing) {
-          logger.warn("cipher_lookup_unavailable", `Mega cipher lookup unavailable: ${safeError(error)}`);
+    if (cached) return current() ? { kind: "key", value: cached } : { kind: "retired" };
+    let pending = this.#cipherFlights.get(cacheKey);
+    if (!pending) {
+      pending = (async (): Promise<PpcsCipherKeyOutcome> => {
+        try {
+          const ciphers = await this.#client.getCiphers([cipherId], peer.adminUserId!, peer.serial);
+          if (!current()) return { kind: "retired" };
+          if (!Array.isArray(ciphers)) throw new TypeError("Invalid cipher collection");
+          const matches = ciphers.filter(cipher => {
+            const id = cipher.cipher_id;
+            return (typeof id === "number" && Number.isSafeInteger(id)
+              || typeof id === "string" && /^\d{1,10}$/.test(id)) && Number(id) === cipherId;
+          });
+          const key = matches.length === 1 && typeof matches[0]!.ecc_private_key === "string" ? matches[0]!.ecc_private_key : undefined;
+          if (key) { this.#cipherKeys.set(cacheKey, key); return { kind: "key", value: key }; }
+          return { kind: "missing_key" };
+        } catch (error) {
+          if (!current()) return { kind: "retired" };
+          let reason = "unknown";
+          try { reason = this.#client.isSessionInvalidError(error) ? "session_invalid" : error instanceof TypeError ? "transport" : error instanceof Error ? "request" : "unknown"; } catch {}
+          logger.warn("cipher_lookup_unavailable", `Mega cipher lookup unavailable: reason=${reason}`);
+          return { kind: "lookup_failed" };
         }
-        return undefined;
-      }
-    })();
-    this.#cipherFlights.set(cacheKey, lookup);
-    try { return await lookup; }
-    finally {
-      if (this.#cipherFlights.get(cacheKey) === lookup) this.#cipherFlights.delete(cacheKey);
+      })();
+      this.#cipherFlights.set(cacheKey, pending);
     }
+    try {
+      const outcome = await pending;
+      if (!current()) return { kind: "retired" };
+      return outcome.kind === "retired" ? { kind: "lookup_failed" } : outcome;
+    } finally { if (this.#cipherFlights.get(cacheKey) === pending) this.#cipherFlights.delete(cacheKey); }
   }
 
   async #dskKey(peerSerial: string): Promise<{ readonly key: string; readonly expiresAt: number | null } | null> {
@@ -2729,7 +2751,60 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (actions.includes("manualLight") && (route.peer.adminUserId !== device.adminUserId
       || !this.#client.isAuthenticatedUser(device.adminUserId)
       || [...this.#devices.values()].filter(row => row.parentSerial === route.peer.serial && row.channel === device.channel).length !== 1)) return [];
+    if (actions.includes("alarmState")) {
+      const dsk = this.#dskKeys.get(route.peer.serial);
+      if (!this.config.apiAuthenticationConfigured || route.peer.adminUserId !== device.adminUserId
+        || !this.#client.isAuthenticatedUser(device.adminUserId) || !dsk?.key || dskKeyNeedsRefresh(dsk)) return [];
+    }
     return actions;
+  }
+
+  /** Own the cached-key read experiment without publishing security state. */
+  async #performAlarmStateRead(serial: string): Promise<AlarmStateTrialResult> {
+    const unavailable: AlarmStateTrialResult = { outcome: "unavailable", frames: 0, parseStage: "none", keyReady: false };
+    let result: AlarmStateTrialResult = unavailable;
+    let session: FirstPartyPpcsSession | null = null;
+    let release: (() => void) | undefined;
+    let peerSerial: string | undefined;
+    try {
+      if (!this.modelControlTrials(serial).includes("alarmState")) return unavailable;
+      const device = this.#devices.get(serial)!;
+      const route = ppcsStreamRoute(device, this.#devices)!;
+      const peer = route.peer, generation = this.#startupGeneration;
+      const dsk = this.#dskKeys.get(peer.serial);
+      const maps = [this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations,
+        this.#audioRecordingOperations, this.#motionOperations, this.#nightVisionOperations, this.#guardModeOperations,
+        this.#lightOperations, this.#panControlOperations, this.#cameraSirenOperations];
+      const related = [...this.#devices.values()].filter(row => (row.parentSerial || row.serial) === peer.serial || row.serial === peer.serial);
+      if (!dsk?.key || dskKeyNeedsRefresh(dsk) || this.#localMotionAborters.size || this.#trialPeers.has(peer.serial)
+        || this.#recordingPeerReserved(serial) || this.#stationOperations.has(peer.serial)
+        || related.some(row => this.#ppcsStreams.has(row.serial) || this.#streamStarts.has(row.serial)
+          || maps.some(map => map.has(row.serial)))) return unavailable;
+      release = this.#reserveTrialPeer(peer.serial); peerSerial = peer.serial;
+      const current = (): void => {
+        const live = this.#devices.get(serial), livePeer = this.#devices.get(peer.serial);
+        if (this.#recordingClosing || generation !== this.#startupGeneration || !live || !livePeer
+          || inventoryBindingChanged(device, live) || inventoryBindingChanged(peer, livePeer)
+          || livePeer.p2pDid !== peer.p2pDid || livePeer.p2pConnection !== peer.p2pConnection) throw new AlarmReadRouteChangedError();
+      };
+      session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!, appConnection: peer.p2pConnection!,
+        localAddress: peer.localAddress, dskKey: dsk.key, channel: 0, cameraModel: "T8170", accountId: device.adminUserId!,
+        homeBaseAttached: false, purpose: "control", modelControlTrial: true, maxSeconds: 40,
+        resolveCipherKey: cipherId => this.#resolveCipherKey(cipherId, peer) });
+      this.#trialSessions.set(peer.serial, session);
+      await session.start(); current();
+      const observed = await session.readT8170AlarmState(); current();
+      result = observed;
+      return result;
+    } catch (error) {
+      if (error instanceof AlarmReadRouteChangedError) throw error;
+      return unavailable;
+    } finally {
+      logger.info("model_control_trial_result", `Model control trial: model=T8170 action=alarmState outcome=${result.outcome}`);
+      session?.close();
+      if (peerSerial && this.#trialSessions.get(peerSerial) === session) this.#trialSessions.delete(peerSerial);
+      release?.();
+    }
   }
 
   /** Own one peer exclusively for an explicit trial, publishing only fresh native state. */
@@ -2737,6 +2812,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     const request = parseModelControlTrial(input);
+    if (request.action === "alarmState") return await this.#performAlarmStateRead(serial);
     if (request.action === "manualLight") return await this.#performS120LightTrial(serial, request, signal);
     if (!this.modelControlTrials(serial).includes(request.action)) throw new Error("Experimental model control is unavailable");
     const device = this.#devices.get(serial)!;
@@ -2786,7 +2862,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         appConnection: peer.p2pConnection, localAddress: peer.localAddress, dskKey: dsk.key,
         channel: device.channel, cameraModel: device.model, accountId: device.adminUserId,
         homeBaseAttached: route.homeBaseAttached, purpose: "control", modelControlTrial: true, maxSeconds: 40,
-        resolveCipherKey: cipherId => this.#resolveCipherKey(cipherId, peer) });
+        resolveCipherKey: cipherId => this.#resolveCipherKey(cipherId, peer),
+        ...(["siren", "sirenConnection"].includes(request.action)
+          ? { resolveCipherKeyOutcome: (cipherId: number) => this.#resolveCipherKeyOutcome(cipherId, peer) } : {}) });
       this.#trialSessions.set(peer.serial, session);
       await session.start();
       sirenSetupStage = "session_prepare";
@@ -2925,7 +3003,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   #modelTrialRoute(device: MegaInventoryDevice, route: NonNullable<ReturnType<typeof ppcsStreamRoute>>): ModelControlRoute {
     return { model: device.model, deviceType: device.deviceType, channel: device.channel,
-      homeBaseAttached: route.homeBaseAttached, peerModel: route.peer.model, peerDeviceType: route.peer.deviceType, selfPeer: route.peer.serial === device.serial };
+      homeBaseAttached: route.homeBaseAttached, peerModel: route.peer.model,
+      ...(route.homeBaseAttached ? { peerDeviceType: route.peer.deviceType } : {}), selfPeer: route.peer.serial === device.serial };
   }
 
   /** Write the model's verified motion command and require fresh inventory confirmation. */
@@ -4846,6 +4925,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (this.#rtcPreparation.gated) return;
     const generation = this.#startupGeneration;
     const previous = this.#pushSnapshotQueues.get(event.cameraSerial) ?? Promise.resolve();
+    let selected = false;
     const current = previous.then(async () => {
       if (generation !== this.#startupGeneration) return;
       const camera = this.#devices.get(event.cameraSerial);
@@ -4854,16 +4934,26 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         ...(camera.deviceType !== null ? { deviceType: camera.deviceType } : {}),
         ...(camera.parentSerial ? { topology: camera.parentSerial !== camera.serial ? "attached" : "direct" } : {}),
       } : {};
-      const picture = await downloadPushSnapshot(this.#client, event, this.#devices, this.config.eventImageCapture, context);
+      const native = this.config.experimentalEventImageRequest === true && camera?.model === "T8172"
+        && camera.deviceType === 89 && camera.category === "eufy_security" && this.#client.isAuthenticated;
+      const client = native ? {
+        download: (url: string, maximumBytes?: number) => this.#client.downloadNativeEventImage(url, maximumBytes),
+        downloadWithMetadata: (url: string, maximumBytes?: number) => this.#client.downloadNativeEventImageWithMetadata(url, maximumBytes),
+        getEventImageKey: (keyId: number, owner: string) => this.#client.getEventImageKey(keyId, owner),
+      } : this.#client;
+      selected = native;
+      const picture = await downloadPushSnapshot(client, event, this.#devices, this.config.eventImageCapture, context);
+      selected = false;
       if (picture) {
         if (generation !== this.#startupGeneration) {
           picture.data.fill(0);
           return;
         }
         events.snapshot(event.cameraSerial, picture.data, "image/jpeg");
+        if (native) logger.info("push_snapshot_retained", "Eufy push snapshot retained request_style=native");
       }
     }).catch((error: unknown) => {
-      logger.warn("push_snapshot_unavailable", `Eufy push snapshot unavailable: ${safeError(error)}`);
+      logger.warn("push_snapshot_unavailable", `Eufy push snapshot unavailable: ${safeError(error)}${selected ? " request_style=native" : ""}`);
     });
     this.#pushSnapshotQueues.set(event.cameraSerial, current);
     void current.finally(() => {

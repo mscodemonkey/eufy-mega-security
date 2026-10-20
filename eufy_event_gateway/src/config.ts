@@ -23,6 +23,9 @@ export interface GatewayConfig {
   /** Opt-in private evidence session; requires bearer authentication even on loopback. */
   readonly captureFailedEventImages: boolean;
 
+  /** Default-off T8172 event-picture request comparison, without changing its account authorization. */
+  readonly experimentalEventImageRequest: boolean;
+
   /** Default-off official-model control trials, requiring bearer authentication. */
   readonly experimentalModelControls: boolean;
 
@@ -71,6 +74,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
   const verifyCode = nonEmpty(environment.EUFY_VERIFY_CODE);
   const host = environment.EUFY_GATEWAY_HOST ?? "127.0.0.1";
   const apiToken = nonEmpty(environment.EUFY_GATEWAY_API_TOKEN);
+  const experimentalEventImageRequest = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_EVENT_IMAGE_REQUEST, "EUFY_GATEWAY_EXPERIMENTAL_EVENT_IMAGE_REQUEST");
   const captureFailedEventImages = captureBoolean(environment.EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES);
   const experimentalModelControls = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS, "EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS");
   const experimentalE30Locks = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_E30_LOCKS, "EUFY_GATEWAY_EXPERIMENTAL_E30_LOCKS");
@@ -110,6 +114,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
     maxStreamSeconds: positiveInteger(environment.EUFY_GATEWAY_MAX_STREAM_SECONDS, 120),
     apiToken,
     captureFailedEventImages,
+    experimentalEventImageRequest,
     experimentalModelControls,
     experimentalE30Locks,
     experimentalNvrLive,

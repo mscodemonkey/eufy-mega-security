@@ -213,15 +213,15 @@ test("cloud recording renewal keeps record owners, verifies responses and strips
     "-c:v", "libx264", "-movflags", "frag_keyframe+empty_moov", "-f", "mp4", "pipe:1"]);
   assert.equal(generated.status, 0);
   const objectUrl = "https://zhixin-security-fixture.s3.eu-west-1.amazonaws.com/private-record.mp4?signature=synthetic";
-  for (const outcome of ["valid", "wrong-camera", "wrong-parent", "duplicate", "wrong-url", "wrong-key", "bad-length", "external-host", "bad-signature", "cancel-download"]) {
+  for (const outcome of ["valid", "media-host", "wrong-camera", "wrong-parent", "duplicate", "wrong-url", "wrong-key", "bad-length", "external-host", "bad-signature", "cancel-download"]) {
     await context.test(outcome, async () => {
       const controller = new AbortController();
       const requests: string[] = [];
       const f = await fixture(async (input, init) => {
         const url = new URL(String(input)); requests.push(url.pathname);
-        if (url.hostname === "zhixin-security-fixture.s3.eu-west-1.amazonaws.com") {
+        if (url.hostname === "zhixin-security-fixture.s3.eu-west-1.amazonaws.com" || url.pathname === "/private-record.mp4") {
           const headers = new Headers(init?.headers);
-          assert.equal(headers.has("authorization"), false); assert.equal(headers.has("x-auth-token"), false);
+          assert.equal(headers.has("authorization"), false); assert.equal(headers.has("x-auth-token"), outcome === "media-host");
           assert.equal(init?.redirect, "manual");
           if (outcome === "cancel-download") {
             return new Response(new ReadableStream({ start() { setImmediate(() => controller.abort()); } }));
@@ -239,7 +239,7 @@ test("cloud recording renewal keeps record owners, verifies responses and strips
           value = outcome === "duplicate" ? [row, row] : [row];
         } else if (url.pathname.endsWith("get_kvs_urls")) {
           assert.deepEqual(body, { monitor_ids: [123], user_id: "record-owner" });
-          value = [{ monitor_id: outcome === "wrong-url" ? 999 : 123, cloud_path: outcome === "external-host" ? "https://attacker.invalid/private" : objectUrl }];
+          value = [{ monitor_id: outcome === "wrong-url" ? 999 : 123, cloud_path: outcome === "external-host" ? "https://attacker.invalid/private" : outcome === "media-host" ? "https://security-app-eu.eufylife.com/private-record.mp4" : objectUrl }];
         } else {
           assert.equal(url.pathname, "/v3/web/cipher/dec_aes_keys"); assert.equal(body.user_id, "key-owner");
           const entry = body.cipher_keys[0]; assert.equal(entry.cipher_id, 7);
@@ -254,7 +254,7 @@ test("cloud recording renewal keeps record owners, verifies responses and strips
       });
       try {
         const result = f.client.cloudRecordingTrial("synthetic-camera", "synthetic-station", "123", { startTime: 90, endTime: 130 }, controller.signal);
-        if (outcome === "valid") {
+        if (outcome === "valid" || outcome === "media-host") {
           const media = await result;
           assert.equal(media.subarray(4, 8).toString(), "ftyp"); assert.equal(requests.length, 4);
         } else {

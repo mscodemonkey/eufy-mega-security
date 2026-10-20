@@ -7,14 +7,15 @@ import assert from "node:assert/strict";
 import { createCipheriv, createECDH, createHmac } from "node:crypto";
 import { Socket } from "node:dgram";
 import test, { type TestContext } from "node:test";
-import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
+import { FirstPartyPpcsSession, PpcsVideoFrameDecoder, type PpcsCipherKeyOutcome } from "../src/stream/first-party-ppcs.js";
 import { S100SirenTrialError } from "../src/provider/s100-siren-trial.js";
 
 const route = { model: "T84A1", deviceType: 151, peerModel: "T84A1", selfPeer: true, homeBaseAttached: false, channel: 0 };
 
-async function syntheticSession(context: TestContext, negotiated: boolean | "missing" | "short" | "resolver-throws" | "unwrap" = true) {
+async function syntheticSession(context: TestContext, negotiated: boolean | "missing" | "short" | "resolver-throws" | "unwrap" | "bad-block" | "wrong-valid" | "sign" = true, outcome?: () => Promise<PpcsCipherKeyOutcome>) {
   let socket!: Socket, sequence = 0;
   const controls: { command: number; channel: number }[] = [];
+  const outgoing: number[] = [];
   const remote = { address: "127.0.0.1", port: 12345 };
   const recipient = createECDH("prime256v1"); recipient.generateKeys();
   const incoming = (command: number, channel: number, payload: Buffer, sign: number, kind: number) => {
@@ -34,6 +35,7 @@ async function syntheticSession(context: TestContext, negotiated: boolean | "mis
   context.mock.method(Socket.prototype, "send", (packet: Buffer) => {
     if (packet.length < 24 || packet.subarray(8, 12).toString() !== "XZYH") return;
     const command = packet.readUInt16LE(12), channel = packet[20]!;
+    outgoing.push(command);
     if (command !== 1201 && command !== 1202) return;
     controls.push({ command, channel });
     if (callbacks.failSend) throw Error("private-send-error");
@@ -41,7 +43,10 @@ async function syntheticSession(context: TestContext, negotiated: boolean | "mis
   });
   const session = new FirstPartyPpcsSession({ stationSerial: "test fixture 1234567", p2pDid: "TEST-12345678-TEST", appConnection: "", dskKey: "synthetic", channel: 0,
     homeBaseAttached: false, cameraModel: "T84A1", accountId: "synthetic-owner", purpose: "control", modelControlTrial: true, maxSeconds: 40,
-    resolveCipherKey: async () => { if (negotiated === "resolver-throws") throw Error("private-resolver"); return negotiated === false ? undefined : recipient.getPrivateKey().toString("hex"); } });
+    resolveCipherKey: async () => { if (negotiated === "resolver-throws") throw Error("private-resolver");
+      if (negotiated === "wrong-valid") { const other = createECDH("prime256v1"); other.generateKeys(); return other.getPrivateKey().toString("hex"); }
+      return negotiated === false ? undefined : recipient.getPrivateKey().toString("hex"); },
+    ...(outcome ? { resolveCipherKeyOutcome: outcome } : {}) });
   await session.start();
   const ephemeral = createECDH("prime256v1"); ephemeral.generateKeys();
   const shared = ephemeral.computeSecret(recipient.getPublicKey()), label = Buffer.from("ECIES");
@@ -55,9 +60,11 @@ async function syntheticSession(context: TestContext, negotiated: boolean | "mis
   const gateway = Buffer.alloc(144); gateway.writeUInt16LE(1); envelope.copy(gateway, 4);
   const legacy = createCipheriv("aes-128-ecb", Buffer.from("1234567-12345678"), null); legacy.setAutoPadding(false);
   if (negotiated === "unwrap") gateway.fill(0);
-  if (negotiated !== "missing") incoming(1100, 0, negotiated === "short" ? Buffer.alloc(16) : Buffer.concat([legacy.update(gateway), legacy.final()]), 1, 0);
+  const encryptedGateway = Buffer.concat([legacy.update(gateway), legacy.final()]);
+  if (negotiated !== "missing") incoming(1100, 0, negotiated === "short" ? Buffer.alloc(16)
+    : negotiated === "bad-block" ? Buffer.alloc(145) : encryptedGateway, negotiated === "sign" ? 0 : 1, 0);
   await new Promise(resolve => setImmediate(resolve));
-  return { session, controls, callbacks, respond };
+  return { session, controls, outgoing, callbacks, respond, incoming, encryptedGateway, key: recipient.getPrivateKey().toString("hex") };
 }
 
 test("real S100 session sends one start, deduplicates stop and continues after primary rejection", async context => {
@@ -137,7 +144,7 @@ for (const mode of ["missing", "short", "resolver-throws", "unwrap", false] as c
     try {
       context.mock.timers.enable({ apis: ["Date", "setTimeout"] });
       const running = h.session.prepareS100SirenTrial(route, false);
-      const failure = assert.rejects(running, (error: unknown) => error instanceof S100SirenTrialError && error.stages.join() === (mode === "missing" ? "session_gateway" : "session_cipher"));
+      const failure = assert.rejects(running, (error: unknown) => error instanceof S100SirenTrialError && error.stages.join() === (mode === "missing" ? "session_gateway" : mode === "resolver-throws" ? "session_cipher,cipher_lookup_error" : mode === "unwrap" ? "session_cipher,cipher_unwrap_failed" : mode === false ? "session_cipher,cipher_missing_key" : "session_cipher"));
       context.mock.timers.tick(20_000);
       await failure;
       assert.deepEqual(h.controls, []);
@@ -151,4 +158,65 @@ test("closed negotiation is preparation failure rather than a missing gateway", 
   h.session.close();
   await assert.rejects(running, (error: unknown) => error instanceof S100SirenTrialError && error.stages.join() === "session_prepare");
   assert.deepEqual(h.controls, []);
+});
+
+for (const [mode, phase] of [["bad-block", "gateway_decrypt"], ["resolver-throws", "cipher_lookup_error"], ["unwrap", "cipher_unwrap_failed"], [false, "cipher_missing_key"]] as const) {
+  for (const enabled of [false, true]) test(`phase ${phase}, enabled=${enabled}, sends only the existing key-negotiation query`, async context => {
+    const h = await syntheticSession(context, mode);
+    try {
+      await assert.rejects(h.session.prepareS100SirenTrial(route, enabled), (error: unknown) => error instanceof S100SirenTrialError
+        && error.stages.join() === `session_cipher,${phase}`);
+      assert.deepEqual(h.outgoing, [1100]);
+      assert.equal(h.session.stats.level2Error?.includes("private"), false);
+    } finally { h.session.close(); }
+  });
+}
+
+for (const [kind, expected] of [["missing_key", "session_cipher,cipher_missing_key"], ["lookup_failed", "session_cipher,cipher_lookup_error"],
+  ["retired", "session_prepare"], ["unknown", "session_cipher,cipher_lookup_error"]] as const) {
+  test(`typed outcome ${kind} settles without waiting for the control deadline`, async context => {
+    const h = await syntheticSession(context, true, async () => ({ kind } as PpcsCipherKeyOutcome));
+    try {
+      let settled = false;
+      const result = assert.rejects(h.session.prepareS100SirenTrial(route, false), (error: unknown) =>
+        error instanceof S100SirenTrialError && error.stages.join() === expected).then(() => { settled = true; });
+      await new Promise<void>(resolve => setImmediate(resolve)); assert.equal(settled, true); await result;
+      assert.deepEqual(h.outgoing, [1100]);
+    } finally { h.session.close(); }
+  });
+}
+
+test("a wrong but valid private key is not authenticated by the legacy CBC envelope", async context => {
+  const h = await syntheticSession(context, "wrong-valid");
+  try { await h.session.prepareS100SirenTrial(route, false); assert.equal(h.session.stats.level2, 1); assert.deepEqual(h.outgoing, [1100]); }
+  finally { h.session.close(); }
+});
+
+test("decoder key setup exceptions become a fixed unwrap phase", async context => {
+  context.mock.method(PpcsVideoFrameDecoder.prototype, "setEccPrivateKey", () => { throw Error("private-decoder-marker"); });
+  const h = await syntheticSession(context);
+  try {
+    await assert.rejects(h.session.prepareS100SirenTrial(route, false), (error: unknown) => error instanceof S100SirenTrialError
+      && error.stages.join() === "session_cipher,cipher_unwrap_failed");
+    assert.equal(h.session.stats.level2Error?.includes("private"), false); assert.deepEqual(h.outgoing, [1100]);
+  } finally { h.session.close(); }
+});
+
+test("close prevents a late callback failure from rewriting key diagnostics", async context => {
+  let fail!: () => void;
+  const h = await syntheticSession(context, true, async () => await new Promise<never>((_resolve, reject) => { fail = () => reject(Error("private-late")); }));
+  h.session.close(); const before = h.session.stats.level2Error; fail();
+  await new Promise<void>(resolve => setImmediate(resolve)); assert.equal(h.session.stats.level2Error, before);
+});
+
+test("retransmission retains the latest failure and a subsequent success clears its phase", async context => {
+  let key: string | undefined;
+  const h = await syntheticSession(context, true, async () => key ? { kind: "key", value: key } : { kind: "missing_key" });
+  try {
+    h.incoming(1100, 0, Buffer.alloc(145), 1, 0); await new Promise<void>(resolve => setImmediate(resolve));
+    await assert.rejects(h.session.prepareS100SirenTrial(route, false), (error: unknown) => error instanceof S100SirenTrialError
+      && error.stages.join() === "session_cipher,gateway_decrypt");
+    key = h.key; h.incoming(1100, 0, h.encryptedGateway, 1, 0); await new Promise<void>(resolve => setImmediate(resolve));
+    await h.session.prepareS100SirenTrial(route, false); assert.deepEqual(h.outgoing, [1100]);
+  } finally { h.session.close(); }
 });

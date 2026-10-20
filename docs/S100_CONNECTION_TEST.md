@@ -24,7 +24,17 @@ behaviour remain unconfirmed.
 | `session_identity` | The exact model or session route did not match. |
 | `session_gateway` | No gateway key-negotiation frame arrived. |
 | `session_cipher` | The negotiated key was missing or unusable. |
+| `gateway_decrypt` | The gateway could not decode the outer key-negotiation message. |
+| `cipher_lookup_error` | The account key lookup could not complete. |
+| `cipher_missing_key` | No single usable key was returned for this connection. |
+| `cipher_unwrap_failed` | The returned key material could not open the negotiation envelope. |
 | `session_counter` | The session could not reserve safe command counters. |
 
 These are gateway observations, not a diagnosis of the camera's physical state.
 This check changes no encryption settings and adds no encryption fallback.
+
+The detailed stages follow `session_cipher` and remain connection observations.
+The legacy envelope has no authentication check. A wrong but well-formed private
+key can therefore produce a key without triggering an unwrap failure. A
+`prepared` result does not rule that out and does not prove a sound test will work.
+Please use only the connection check and share its existing failure line.

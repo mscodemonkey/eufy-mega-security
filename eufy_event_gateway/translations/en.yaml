@@ -1,4 +1,7 @@
 configuration:
+  experimental_event_image_request:
+    name: Experimental T8172 event picture request test
+    description: Unverified Android-derived request comparison for T8172. Pictures may stop while enabled. Disable to restore ordinary requests. Runtime default headers remain.
   experimental_cloud_recordings:
     name: Experimental cloud recording test
     description: Request an existing private cloud recording in Diagnostics with explicit consent. Video only. Local HomeBase recordings and deletion are separate. Off by default.

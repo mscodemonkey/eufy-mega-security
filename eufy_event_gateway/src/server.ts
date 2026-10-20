@@ -36,7 +36,8 @@ import type { GatewayConfig } from "./config.js";
 import { GatewayState } from "./domain/gateway-state.js";
 import type { GatewayEvent } from "./domain/types.js";
 import { createLogger, observeLogEvents } from "./logging.js";
-import { parseModelControlTrial } from "./provider/model-control-trials.js";
+import { S100SirenTrialError, type S100SirenFailureStage } from "./provider/s100-siren-trial.js";
+import { parseModelControlTrial, closedAlarmStateResult } from "./provider/model-control-trials.js";
 import { E30LockError } from "./provider/e30-lock-protocol.js";
 import { CameraSettingError, parseCameraSettingChange } from "./provider/camera-settings.js";
 import { validateC31Preference } from "./provider/c31-preferences.js";
@@ -856,7 +857,8 @@ export class GatewayServer {
         const actions = this.provider.modelControlTrials?.(segments[2]!) ?? [];
         if (request.method === "GET") return json(response, 200, { actions, experimental: true });
         const trial = parseModelControlTrial(await readJson(request));
-        if (!actions.includes(trial.action) || !this.provider.performModelControlTrial) return json(response, 409, { error: "Model control trial unavailable" });
+        if (!actions.includes(trial.action) || !this.provider.performModelControlTrial) return json(response, 409,
+          trial.action === "alarmState" ? closedAlarmStateResult(null) : { error: "Model control trial unavailable" });
         if (trial.action === "manualLight") {
           const controller = new AbortController();
           const abort = (): void => { if (!response.writableEnded) controller.abort(); };
@@ -872,6 +874,10 @@ export class GatewayServer {
           }
           finally { controller.abort(); response.removeListener("close", abort); request.removeListener("aborted", abort); }
           return;
+        }
+        if (trial.action === "alarmState") {
+          try { return json(response, 200, closedAlarmStateResult(await this.provider.performModelControlTrial(segments[2]!, trial))); }
+          catch { return json(response, 409, closedAlarmStateResult(null)); }
         }
         const result = await this.provider.performModelControlTrial(segments[2]!, trial);
         return json(response, 200, result);
@@ -1039,6 +1045,20 @@ export class GatewayServer {
       }
       return json(response, 404, { error: "Not found" });
     } catch (error) {
+      if (error instanceof S100SirenTrialError) {
+        const allowed: readonly S100SirenFailureStage[] = ["start", "primary_stop", "secondary_stop", "ownership", "session_key",
+          "session_connect", "session_prepare", "session_identity", "session_gateway", "session_cipher", "session_counter",
+          "gateway_decrypt", "cipher_lookup_error", "cipher_missing_key", "cipher_unwrap_failed"];
+        let stages: readonly S100SirenFailureStage[] = ["session_prepare"], connectionOnly = false;
+        try {
+          if (Array.isArray(error.stages) && error.stages.length > 0 && error.stages.length <= 16
+            && error.stages.every(stage => allowed.includes(stage))) stages = [...error.stages];
+          connectionOnly = error.connectionOnly === true;
+        } catch {}
+        const safe = new S100SirenTrialError(stages, connectionOnly);
+        response.setHeader("cache-control", "no-store");
+        return json(response, 409, { error: safe.message, stages: safe.stages });
+      }
       if (error instanceof GeneralRtcPreparationError) return json(response, 409, { stage: error.stage });
       if (error instanceof NvrLiveControlError) return json(response, 409, { error: error.code, code: error.code, stage: error.stage });
       const status = error instanceof SyntaxError ? 400 : 500;

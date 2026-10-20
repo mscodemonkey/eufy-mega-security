@@ -81,3 +81,5 @@ Maintainers must keep received archives in ignored private storage. Do not commi
 them, include them in Claude review prompts, normal diagnostic reports or status
 emails. Derive synthetic regression fixtures after establishing the actual format.
 Capture availability is not a decoder fix or confirmation on reporter hardware.
+
+For the optional T8172 request-style comparison, see [Experimental T8172 event-picture request](T8172_EVENT_PICTURE_TEST.md).

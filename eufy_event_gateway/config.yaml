@@ -26,6 +26,7 @@ options:
   password: ""
   country: AU
   verification_code: ""
+  experimental_event_image_request: false
   capture_failed_event_images: false
   experimental_model_controls: false
   experimental_e30_locks: false
@@ -41,6 +42,7 @@ schema:
   password: password
   country: str
   verification_code: str
+  experimental_event_image_request: bool?
   capture_failed_event_images: bool
   experimental_model_controls: bool
   experimental_e30_locks: bool?
