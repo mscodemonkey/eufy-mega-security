@@ -47,7 +47,7 @@ function harness() {
   let reply: (path: string, options: { method?: string; body?: string }) => Promise<unknown> = async () => ({ actions: ["motion"] });
   const fetch = async (path: string, options: { method?: string; body?: string }) => {
     calls.push({ path, ...options });
-    const result = await reply(path, options);
+    const result = path.endsWith("/general-rtc-prepare") ? { state: "idle" } : await reply(path, options);
     const failure = result as { httpFailure?: boolean; jsonFailure?: boolean };
     return { ok: !failure?.httpFailure, json: async () => { if(failure?.jsonFailure) throw Error("Invalid JSON"); return result; } };
   };
@@ -56,7 +56,7 @@ function harness() {
     document: { getElementById: el, querySelectorAll: () => [...elements.values()] }, fetch,
     Option: function(this: { value: string }, _text: string, value: string) { this.value = value; },
     window: { addEventListener: (name: string, callback: () => void) => { if (name === "pagehide") departures.push(callback); } },
-    location: { protocol: "https:" }, AbortController, URL, setInterval, clearInterval,
+    location: { protocol: "https:" }, AbortController, URL, setInterval, clearInterval, setTimeout, clearTimeout,
   });
   el("device").value = "demo"; el("token").value = "fixture";
   return { el, calls, controls, departures, respond: (handler: typeof reply) => { reply = handler; } };

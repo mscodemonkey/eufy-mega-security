@@ -8,6 +8,7 @@
  * module owns request authentication, response framing, and route selection;
  * it does not parse Mega payloads or open camera sockets.
  */
+import { GeneralRtcPreparationError } from "./provider/provider.js";
 import { E21ControlError, validateE21Preference } from "./provider/e21-profile.js";
 
 import { NvrLiveControlError, type NvrLiveControl } from "./provider/nvr-live-controls.js";
@@ -240,6 +241,21 @@ export class GatewayServer {
   async #route(request: IncomingMessage, response: ServerResponse): Promise<void> {
     try {
       const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+      const preparationState = this.config.experimentalGeneralRtc ? this.provider.generalRtcPrepareStatus?.() : undefined;
+      if (["signing-in", "authentication-required", "failed"].includes(preparationState ?? "")) {
+        const path = url.pathname;
+        const cacheReads = new Set(["/", "/health", "/live", "/diagnostics", "/api/cameras", "/api/stations", "/api/sensors",
+          "/api/locks", "/api/camera-capabilities", "/api/device-capabilities", "/api/events", "/api/diagnostics/push",
+          "/api/diagnostics/event-delivery", "/api/diagnostics/inventory", "/api/diagnostics/catalogue-evidence",
+          "/api/diagnostics/summary", "/api/diagnostics/bundle", "/api/diagnostics/bundle/targets", "/api/diagnostics/event-images"]);
+        const prepare = /^\/api\/cameras\/[^/]+\/general-rtc-prepare$/.test(path);
+        const allowed = request.method === "GET" && (cacheReads.has(path) || /^\/api\/cameras\/[^/]+$/.test(path) || /^\/api\/cameras\/[^/]+\/(snapshot|event-image)$/.test(path) || prepare)
+          || request.method === "POST" && (["/", "/auth/captcha", "/auth/verification"].includes(path) || prepare);
+        if (!allowed) {
+          response.setHeader("cache-control", "no-store");
+          return json(response, 409, { stage: "preparing" });
+        }
+      }
       if (url.pathname === "/diagnostics" && request.method === "GET") {
         return html(response, 200, diagnosticsPage());
       }
@@ -299,7 +315,9 @@ export class GatewayServer {
 
       const generalTrial = request.method === "POST" && segments.length === 4 && segments[0] === "api"
         && segments[1] === "cameras" && segments[3] === "general-rtc-trial";
-      if (generalTrial) response.setHeader("Cache-Control", "no-store");
+      const generalPreparation = segments.length === 4 && segments[0] === "api" && segments[1] === "cameras"
+        && segments[3] === "general-rtc-prepare";
+      if (generalTrial || generalPreparation) response.setHeader("Cache-Control", "no-store");
       if (segments[0] === "api" && this.config.apiToken) {
         const streamAuthorized =
           request.method === "GET" &&
@@ -308,10 +326,33 @@ export class GatewayServer {
           segments.length === 4 &&
           validateStreamToken(segments[2]!, url.searchParams.get("access_token"), this.config.apiToken);
         if (!streamAuthorized && !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) {
-          return json(response, 401, generalTrial ? { stage: "admission" } : { error: "Unauthorized" });
+          return json(response, 401, generalTrial || generalPreparation ? { stage: "admission" } : { error: "Unauthorized" });
         }
       }
 
+      if (generalPreparation) {
+        if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) return json(response, 401, { stage: "admission" });
+        if (!this.config.experimentalGeneralRtc || !this.provider.prepareGeneralRtc || !this.provider.generalRtcPrepareStatus) return json(response, 409, { stage: "admission" });
+        const serial = segments[2]!;
+        if (!this.state.hasCamera(serial)) return json(response, 404, { stage: "admission" });
+        if (request.url?.includes("?")) return json(response, 400, { stage: "admission" });
+        if (request.method === "GET") return json(response, 200, { state: this.provider.generalRtcPrepareStatus() });
+        if (request.method !== "POST") return json(response, 405, { stage: "admission" });
+        if (request.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") return json(response, 415, { stage: "admission" });
+        try {
+          const body = await readGeneralRtcBody(request, 256);
+          if (body === null) return json(response, 413, { stage: "admission" });
+
+          // The single literal key grammar rejects duplicate and escaped aliases before JSON parsing.
+          if (!/^[\x20\t\r\n]*\{[\x20\t\r\n]*"consent"[\x20\t\r\n]*:[\x20\t\r\n]*true[\x20\t\r\n]*\}[\x20\t\r\n]*$/.test(body.toString("utf8"))) return json(response, 400, { stage: "admission" });
+        } catch { return json(response, 400, { stage: "admission" }); }
+        const joining = ["signing-in", "authentication-required"].includes(this.provider.generalRtcPrepareStatus());
+        if (!joining && (this.#recordingIndexJobs.size || this.#cloudCalendarJobs.size || this.#nvrTrialJobs.size
+          || this.#speakerJobs.size || this.#recordingJobs.size || this.#bundle?.status().state === "active"
+          || this.state.listCameras().some(camera => this.streams.hasActiveSession(camera.serial)))) return json(response, 409, { stage: "busy" });
+        const state = this.provider.prepareGeneralRtc(serial);
+        return json(response, state === "ready" ? 200 : 202, { state });
+      }
       if (generalTrial) {
         try {
           if (!this.config.experimentalGeneralRtc || !this.config.apiToken || !this.provider.reserveGeneralRtcTrial) return json(response, 409, { stage: "admission" });
@@ -998,6 +1039,7 @@ export class GatewayServer {
       }
       return json(response, 404, { error: "Not found" });
     } catch (error) {
+      if (error instanceof GeneralRtcPreparationError) return json(response, 409, { stage: error.stage });
       if (error instanceof NvrLiveControlError) return json(response, 409, { error: error.code, code: error.code, stage: error.stage });
       const status = error instanceof SyntaxError ? 400 : 500;
       return json(response, status, { error: safeError(error) });
@@ -1460,7 +1502,7 @@ async function readBody(request: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-async function readGeneralRtcBody(request: IncomingMessage): Promise<Buffer | null> {
+async function readGeneralRtcBody(request: IncomingMessage, maximumBytes = 16_384): Promise<Buffer | null> {
   return await new Promise<Buffer | null>((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0, finished = false;
@@ -1475,7 +1517,7 @@ async function readGeneralRtcBody(request: IncomingMessage): Promise<Buffer | nu
     };
     const data = (chunk: Buffer): void => {
       size += chunk.length;
-      if (size > 16_384) { chunks.length = 0; finish(null); request.resume(); }
+      if (size > maximumBytes) { chunks.length = 0; finish(null); request.resume(); }
       else chunks.push(Buffer.from(chunk));
     };
     const end = (): void => { finish(Buffer.concat(chunks)); };

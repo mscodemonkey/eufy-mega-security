@@ -112,6 +112,11 @@ export class E30LockProvider {
     void this.#poll(added);
   }
 
+  /** Report owned operations, including autonomous polls, until they settle even after close. */
+  get busy(): boolean {
+    return this.#operations.size > 0;
+  }
+
   /** Return cache snapshots only, suppressing stale state without opening MQTT. */
   list(): SmartLockState[] {
     return [...this.#states.values()].map(state => maskSmartLockState(state));

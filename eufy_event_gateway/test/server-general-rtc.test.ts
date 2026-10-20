@@ -10,7 +10,7 @@ import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { loadConfig } from "../src/config.js";
 import { GatewayState } from "../src/domain/gateway-state.js";
-import type { CameraProvider } from "../src/provider/provider.js";
+import { GeneralRtcPreparationError, type GeneralRtcPreparationState, type CameraProvider } from "../src/provider/provider.js";
 import type { GeneralRtcTrialLease } from "../src/provider/general-rtc-trial.js";
 import { GatewayServer } from "../src/server.js";
 import { SnapshotStore } from "../src/storage/snapshot-store.js";
@@ -52,7 +52,7 @@ async function fixture(context: TestContext, enabled = true, providerAvailable =
   const request = (body: BodyInit = JSON.stringify({ consent: true, pin }), changes: RequestInit = {}, target = url) => fetch(target, {
     method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body, ...changes,
   });
-  return { request, url, entering, retiring, logs, mode: (value: typeof mode) => { mode = value; }, busy: (value: boolean) => { busy = value; },
+  return { request, url, entering, retiring, logs, provider, state, mode: (value: typeof mode) => { mode = value; }, busy: (value: boolean) => { busy = value; },
     counts: () => ({ acquired, released }) };
 }
 
@@ -121,4 +121,46 @@ test("the 170-second route backstop cancels a stalled recorder and releases the 
   const f = await fixture(context); f.mode("wait");
   const result = await f.request(); assert.equal(result.status, 409); assert.deepEqual(await result.json(), { stage: "deadline" });
   await f.retiring; assert.deepEqual(f.counts(), { acquired: 1, released: 1 });
+});
+
+test("manual preparation has closed input, private states, and any-camera busy admission", async context => {
+  const f = await fixture(context);
+  let calls = 0, state: GeneralRtcPreparationState = "idle";
+  f.provider.generalRtcPrepareStatus = () => state;
+  f.provider.prepareGeneralRtc = () => { calls++; state = "signing-in"; return state; };
+  const url = f.url.replace("general-rtc-trial", "general-rtc-prepare");
+  for (const [body, status] of [["{}", 400], ['{"consent":false}', 400], ['{"consent":true,"consent":true}', 400],
+    ['{"consent":true,"con\\u0073ent":true}', 400], ['\ufeff{"consent":true}', 400], ['{"consent":true}{}', 400],
+    ['{"consent":true,"extra":1}', 400], [" ".repeat(257), 413]] as const) {
+    const response = await f.request(body, {}, url); assert.equal(response.status, status);
+    assert.equal(response.headers.get("cache-control"), "no-store"); assert.deepEqual(await response.json(), { stage: "admission" });
+  }
+  assert.equal(calls, 0);
+  const get = await f.request(undefined, { method: "GET", body: null }, url);
+  assert.deepEqual(await get.json(), { state: "idle" });
+  f.busy(true);
+  assert.equal((await f.request('{"consent":true}', {}, url)).status, 409); assert.equal(calls, 0);
+  f.busy(false);
+  const first = await f.request('{"consent":true}', {}, url); assert.equal(first.status, 202);
+  assert.deepEqual(await first.json(), { state: "signing-in" });
+  const joined = await f.request('{"consent":true}', {}, url); assert.equal(joined.status, 202);
+  state = "ready"; f.provider.prepareGeneralRtc = () => "ready";
+  assert.equal((await f.request('{"consent":true}', {}, url)).status, 200);
+  f.provider.prepareGeneralRtc = () => { throw new GeneralRtcPreparationError("cooldown"); };
+  assert.deepEqual(await (await f.request('{"consent":true}', {}, url)).json(), { stage: "cooldown" });
+});
+
+test("preparation default-deny gate blocks effects before parsing and retains cached routes", async context => {
+  const f = await fixture(context); f.provider.generalRtcPrepareStatus = () => "signing-in";
+  const base = f.url.split("/api/")[0]!;
+  for (const [method, path] of [["POST", "/api/diagnostics/bundle"], ["POST", "/api/cameras/synthetic/enabled"],
+    ["GET", "/api/cameras/synthetic/live.ts"], ["GET", "/api/cameras/synthetic/cloud-history"],
+    ["GET", "/api/cameras/synthetic/recordings"], ["GET", "/api/cameras/synthetic/preset-positions"],
+    ["POST", "/api/cameras/synthetic/general-rtc-trial"], ["DELETE", "/api/diagnostics/bundle"], ["POST", "/unknown-future-route"]]) {
+    const response = await f.request("invalid-json", { method: method!, ...(method === "GET" ? { body: null } : {}) }, base + path);
+    assert.equal(response.status, 409, path); assert.deepEqual(await response.json(), { stage: "preparing" });
+  }
+  for (const path of ["/diagnostics", "/api/cameras", "/api/stations", "/api/sensors", "/api/locks", "/api/camera-capabilities", "/api/device-capabilities"]) {
+    assert.equal((await f.request(undefined, { method: "GET", body: null }, base + path)).status, 200, path);
+  }
 });

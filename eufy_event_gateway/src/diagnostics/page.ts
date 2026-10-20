@@ -61,7 +61,11 @@ export function diagnosticsPage(): string {
 <p>The configured Eufy account must own the camera. Guest accounts are refused. Only cameras whose camera or HomeBase reports portal video support qualify. NVR cameras and the T8224 doorbell are excluded.</p>
 <p>Your Eufy live-view PIN is sent to Eufy and is not stored. A rejected or interrupted PIN request counts towards a three-attempt lockout until gateway restart. Wait at least 60 seconds between attempts.</p>
 <p>The test wakes the camera and uses battery. It can stay awake for about 40 seconds after capture. Connection checks may reach local network addresses supplied by Eufy.</p>
-<p>A saved sign-in may not include the required video identity. The test waits for the next natural sign-in. A restart helps only if the saved sign-in has expired. Normal gateway refreshes can also interrupt a trial, including after capture.</p>
+<p>A saved sign-in may not include the required video identity. Use the separate sign-in action below if you want to prepare it now. A restart alone may reuse the saved sign-in. Normal gateway refreshes can also interrupt a trial, including after capture.</p>
+<p>Signing in again pauses the whole gateway. Live view and events can be missed. It may replace your saved sign-in and ask for a CAPTCHA or email code in Open web UI. If it fails, restart the gateway and complete any authentication there. Ready only means a video identity is bound, not that camera video works. The clip can still refuse if another required account identity is missing.</p>
+<label><input id="general-prepare-consent" type="checkbox"> I agree to pause the gateway and replace its saved sign-in for this video test.</label>
+<button id="general-prepare" disabled>Sign in again for video test</button>
+<pre id="general-prepare-status" role="status">No sign-in preparation requested. PIN and clip consent are separate.</pre>
 <p id="general-https" role="alert" hidden>Use HTTPS before entering your live-view PIN. This page is using an unencrypted connection.</p>
 <label>Eufy live-view PIN <input id="general-pin" type="password" autocomplete="new-password" spellcheck="false" maxlength="32"></label>
 <label><input id="general-consent" type="checkbox"> I agree to send my live-view PIN to Eufy and request a ten-second private video clip.</label>
@@ -122,11 +126,12 @@ let indexJob = null, motionJob = null, lockStatusJob = null, nvrPowerJob = null,
 let cloudJob = null, cloudLoadJob = null, cloudClip = null, cloudSelection = null, cloudGeneration = 0;
 let cloudCalendarKey = null;
 let generalJob = null, generalClip = null, generalDisabled = null;
+let prepareBusy = false, preparePoll = null, prepareGeneration = 0;
 let trialAdmission = null, trialGeneration = 0, trialGeneralBusy = false, trialCloudBusy = false;
 function syncTrialControls() {
   const admitted = trialAdmission && trialAdmission.serial === el('device').value && trialAdmission.serial
     && trialAdmission.actions.includes(el('trial-action').value);
-  const busy = activeTrialSerial !== null || !!generalJob || !!cloudJob || !!cloudLoadJob || trialGeneralBusy || trialCloudBusy;
+  const busy = prepareBusy || activeTrialSerial !== null || !!generalJob || !!cloudJob || !!cloudLoadJob || trialGeneralBusy || trialCloudBusy;
   for(const id of ['trial-action','trial-value','trial-consent','trial-send']) el(id).disabled = !admitted || busy;
   el('trial-load').disabled = busy;
 }
@@ -151,6 +156,7 @@ async function status() {
   if(value.state !== 'active') { abortStream(); clearInterval(poll); poll = null; }
 }
 function action(id, fn) { el(id).onclick = async () => { try {
+  if(prepareBusy) throw Error('Complete video sign-in preparation in Open web UI, or restart after a failure.');
   if(generalJob && !['general-cancel','trial-siren-stop','nvr-power-cancel','nvr-guard-cancel'].includes(id)) throw Error('Finish or cancel the general video test first.');
   await fn();
 } catch(error) { show(error.message); } }; }
@@ -444,7 +450,7 @@ function generalControls(busy) {
       if(['general-cancel','trial-siren-stop','nvr-power-cancel','nvr-guard-cancel'].includes(button.id)) continue;
       generalDisabled.set(button, button.disabled); button.disabled = true;
     }
-    for(const id of ['device','general-pin','general-consent']) { const input = el(id); generalDisabled.set(input, input.disabled); input.disabled = true; }
+    for(const id of ['device','general-pin','general-consent']) { const input = el(id); if(!generalDisabled.has(input)) generalDisabled.set(input, input.disabled); input.disabled = true; }
   } else if(generalDisabled) {
     for(const [input, disabled] of generalDisabled) input.disabled = disabled;
     generalDisabled = null;
@@ -453,7 +459,7 @@ function generalControls(busy) {
 }
 const generalMessages = {
   admission: 'This trial is unavailable. Check the owner account and app option. Try again shortly. The gateway refreshes this on its own.',
-  reconnect_required: 'The saved sign-in has no video identity. Wait for the next natural sign-in. A restart helps only if the saved sign-in has expired.',
+  reconnect_required: 'The saved sign-in has no video identity. Use the separate Sign in again for video test action if you want to prepare it now.',
   busy: 'Finish other camera activity before testing.', cooldown: 'Wait at least 60 seconds after the previous PIN request.',
   locked: 'The advisory PIN attempt limit has been reached. No further PIN was sent.',
   preflight_required: 'This camera needs a start command that this trial does not send.', preflight: 'The camera preparation check could not be completed.',
@@ -464,6 +470,83 @@ const generalMessages = {
   offer: 'The camera did not offer a supported video stream.', peer: 'The video connection did not complete.',
   video: 'The trial did not produce a valid private clip.', cancelled: 'Video test cancelled.', deadline: 'The video test took too long.', shutdown: 'The gateway stopped the video test.'
 };
+const prepareMessages = {
+  idle: 'No video identity is bound. Sign-in preparation is optional.',
+  'signing-in': 'Signing in. The gateway is paused. Keep this page open to check progress.',
+  'authentication-required': 'Complete the CAPTCHA or email code in Open web UI, then return here.',
+  ready: 'Video identity ready. This does not confirm playable video. The PIN and clip consent are still required.',
+  'identity-unavailable': 'Sign-in completed without a usable video identity. Wait ten minutes before another preparation attempt.',
+  failed: 'Sign-in preparation failed. Restart the gateway and complete any authentication in Open web UI.'
+};
+function showPreparation(state) {
+  if(!Object.hasOwn(prepareMessages, state)) throw Error('Unknown preparation status.');
+  const wasBusy = prepareBusy;
+  prepareBusy = ['signing-in','authentication-required','failed'].includes(state);
+  el('general-prepare-status').textContent = prepareMessages[state];
+  if(state !== 'idle') el('general-prepare-consent').checked = false;
+  if(wasBusy !== prepareBusy) generalControls(prepareBusy);
+  el('general-prepare').disabled = prepareBusy || !el('general-prepare-consent').checked;
+  el('general-prepare-consent').disabled = prepareBusy;
+}
+async function preparationRequest(serial, method = 'GET') {
+  return fetch('api/cameras/' + encodeURIComponent(serial) + '/general-rtc-prepare', {
+    method, cache: 'no-store', headers: { Authorization: 'Bearer ' + el('token').value,
+      ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}) },
+    ...(method === 'POST' ? { body: JSON.stringify({ consent: true }) } : {})
+  });
+}
+async function pollPreparation(serial, generation) {
+  try {
+    const result = await preparationRequest(serial);
+    if(!result.ok) throw Error('Preparation status unavailable.');
+    const value = await result.json();
+    if(generation !== prepareGeneration) return;
+    showPreparation(value.state);
+    if(['signing-in','authentication-required'].includes(value.state)) {
+      preparePoll = setTimeout(() => { void pollPreparation(serial, generation); }, 1500);
+    }
+  } catch {
+    if(generation !== prepareGeneration) return;
+    el('general-prepare-status').textContent = 'Status unavailable. The sign-in may still be running. Reopen this page to check it. No second sign-in was sent.';
+  }
+}
+el('general-prepare-consent').onchange = () => {
+  el('general-prepare').disabled = prepareBusy || !el('general-prepare-consent').checked;
+};
+el('general-prepare').onclick = async () => {
+  const serial = el('device').value;
+  if(prepareBusy || !serial || !el('general-prepare-consent').checked) return;
+  if(generalJob || activeTrialSerial !== null || nvrJob || doorbellJob || cloudJob || cloudLoadJob || indexJob || motionJob || lockStatusJob || nvrPowerJob || nvrGuardJob || poll || stream) {
+    el('general-prepare-status').textContent = 'Finish other camera activity before signing in.'; return;
+  }
+  const generation = ++prepareGeneration;
+  el('general-prepare-consent').checked = false;
+  showPreparation('signing-in');
+  try {
+    const response = await preparationRequest(serial, 'POST');
+    if(!response.ok) {
+      showPreparation('idle');
+      el('general-prepare-status').textContent = response.status === 409
+        ? 'Preparation refused. Finish background activity or wait ten minutes after the last attempt. No new sign-in was started.'
+        : 'Preparation refused. Check the experimental option, API token and selected owner camera.';
+      return;
+    }
+  } catch {}
+
+  // A lost POST response is reconciled only with status reads, never another login request.
+  if(generation === prepareGeneration) await pollPreparation(serial, generation);
+};
+el('device').addEventListener('change', () => {
+  el('general-prepare-consent').checked = false;
+  el('general-prepare').disabled = true;
+  clearTimeout(preparePoll); preparePoll = null;
+  const generation = ++prepareGeneration, serial = el('device').value;
+  if(serial) void pollPreparation(serial, generation);
+});
+window.addEventListener('pagehide', () => {
+  ++prepareGeneration; clearTimeout(preparePoll); preparePoll = null;
+  el('general-prepare-consent').checked = false;
+});
 el('general-https').hidden = location.protocol === 'https:';
 el('device').addEventListener('change', cancelGeneral);
 window.addEventListener('pagehide', cancelGeneral);

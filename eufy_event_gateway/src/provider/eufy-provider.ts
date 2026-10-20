@@ -55,10 +55,11 @@ import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, PpcsLo
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBaseChildParam, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
 import type { SensorContactObservation } from "../stream/sensor-status-notification.js";
 import { cameraCapabilityLogSummaries, describeCameraCapabilities, isSupportedCameraType, describeDeviceCapabilities, deviceCapabilityLogSummaries } from "./device-capabilities-core.js";
-import { GeneralRtcTrial, GeneralRtcPinLimiter, type GeneralRtcTrialLease, type GeneralRtcBinding } from "./general-rtc-trial.js";
+import { generalRtcBinding, GeneralRtcTrial, GeneralRtcPinLimiter, type GeneralRtcTrialLease, type GeneralRtcBinding } from "./general-rtc-trial.js";
 import { GeneralRtcError } from "../stream/general-rtc-protocol.js";
 import { catalogueIntegrationStatus, hasMainsBatterySentinel } from "./camera-capability-core.js";
-import type { CameraProvider, CaptchaChallenge, CaptchaProvider, ProviderEvents } from "./provider.js";
+import { GeneralRtcPreparationError, type GeneralRtcPreparationState, type CameraProvider, type CaptchaChallenge, type CaptchaProvider, type ProviderEvents } from "./provider.js";
+import { GeneralRtcPreparation } from "./general-rtc-preparation.js";
 import { PushEventDeduplicator } from "./push-event-deduplicator.js";
 import { resolveDeviceRoute } from "./device-routing.js";
 
@@ -542,6 +543,16 @@ export interface PpcsStreamRoute {
   readonly homeBaseAttached: boolean;
 }
 
+/** One private manual sign-in owner; raw lock rows never leave the provider boundary. */
+interface RtcPreparationOwner {
+  readonly epoch: number;
+  readonly generation: number;
+  readonly events: ProviderEvents;
+  readonly binding: GeneralRtcBinding;
+  lockRows: MegaInventory["devices"] | null;
+  stage: "stop" | "login" | "challenge" | "startup" | "identity";
+}
+
 /**
  * Bridges Mega cloud observations and first-party PPCS streams into callbacks.
  *
@@ -580,6 +591,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #recordingIdSecret = randomBytes(32);
   #recordingClosing = false;
   #recordingIndexActive = false;
+  #cloudReads = 0;
   readonly #recordingIndexCooldowns = new Map<string, number>();
   readonly #recordingReservations = new Set<string>();
   readonly #trialPeers = new Map<string, symbol>();
@@ -642,6 +654,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   #locks: E30LockProvider | null = null;
 
+  /** Manual preparation is process-owned and never persists an account, token or login secret. */
+  readonly #rtcPreparation = new GeneralRtcPreparation(epoch => this.#failRtcPreparation(epoch, "deadline"));
+  #rtcPreparationOwner: RtcPreparationOwner | null = null;
+
   constructor(private readonly config: EufyProviderConfig) {
     this.#client = new MegaClient({
       email: config.username,
@@ -654,6 +670,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Query one opt-in lock through its separately owned MQTT operation. */
   async refreshLock(serial: string, signal?: AbortSignal): Promise<SmartLockState> {
+    this.#assertRtcPreparationIdle();
     if (this.#generalRtcReserved(serial)) throw new E30LockError("busy");
     if (!this.#locks) throw new E30LockError("unavailable");
     return this.#withGeneralRtcLockOperation(serial, () => this.#locks!.refresh(serial, signal));
@@ -661,6 +678,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Change lock state once and require an independent correlated query response. */
   async setLockState(serial: string, locked: boolean, signal?: AbortSignal, onDispatch?: () => void): Promise<SmartLockState> {
+    this.#assertRtcPreparationIdle();
     if (this.#generalRtcReserved(serial)) throw new E30LockError("busy");
     if (!this.#locks) throw new E30LockError("unavailable");
     return this.#withGeneralRtcLockOperation(serial, () => this.#locks!.setLocked(serial, locked, signal, onDispatch));
@@ -668,6 +686,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Forward one closed settings operation through the lock registry's shared lease. */
   async setLockSetting(serial: string, change: E30LockSettingChange, signal?: AbortSignal, onDispatch?: () => void): Promise<SmartLockState> {
+    this.#assertRtcPreparationIdle();
     if (this.#generalRtcReserved(serial)) throw new E30LockError("busy");
     if (!this.#locks) throw new E30LockError("unavailable");
     return this.#withGeneralRtcLockOperation(serial, () => this.#locks!.setSetting(serial, change, signal, onDispatch));
@@ -744,55 +763,67 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Read cloud metadata only for a camera admitted in the current account. */
   async cloudHistory(serial: string, query: CloudHistoryQuery): Promise<readonly CloudHistoryRecord[]> {
-    this.#assertLegacyCamera(serial);
-    const camera = this.#devices.get(serial);
-    if (!camera || !isSupportedCameraType(camera)) throw new Error("Camera not found");
-    return this.#client.cloudHistory(serial, query);
+    this.#assertRtcPreparationIdle();
+    this.#cloudReads++;
+    try {
+      this.#assertLegacyCamera(serial);
+      const camera = this.#devices.get(serial);
+      if (!camera || !isSupportedCameraType(camera)) throw new Error("Camera not found");
+      return await this.#client.cloudHistory(serial, query);
+    } finally { this.#cloudReads--; }
   }
 
   /** Read unconfirmed calendar hints without modifying inventory or retained media. */
   async cloudCalendar(serial: string, query: CloudCalendarQuery, signal: AbortSignal): Promise<CloudCalendarResult> {
-    this.#assertLegacyCamera(serial);
-    const original = this.#devices.get(serial), generation = this.#startupGeneration;
-    if (!this.config.experimentalCloudRecordings || !original || !isSupportedCameraType(original)
-      || !this.#client.isAuthenticated || this.#recordingClosing || signal.aborted) throw new CloudCalendarError("admission");
-    const current = (): void => {
-      if (signal.aborted || this.#recordingClosing || generation !== this.#startupGeneration) throw new CloudCalendarError("cancelled");
-      if (!this.#client.isAuthenticated) throw new CloudCalendarError("auth");
-      const live = this.#devices.get(serial);
-      if (!live || inventoryBindingChanged(original, live)) throw new CloudCalendarError("inventory");
-    };
-    const fresh = async (): Promise<void> => {
-      current();
-      let inventory: MegaInventory;
-      try { inventory = await this.#client.inventory(signal); }
-      catch { throw new CloudCalendarError(signal.aborted ? "cancelled" : "inventory"); }
-      current();
-      if (!inventory || !Array.isArray(inventory.devices)) throw new CloudCalendarError("inventory");
-      if (inventory.devices.filter(row => safeValue(row.device_sn, 128) === serial).length !== 1) throw new CloudCalendarError("inventory");
-      const device = parseMegaInventory(inventory).find(row => row.serial === serial);
-      if (!device || inventoryBindingChanged(original, device)) throw new CloudCalendarError("inventory");
-    };
-    await fresh();
-    const result = await this.#client.cloudCalendar(serial, original.parentSerial || serial, query, signal);
-    current(); await fresh(); current();
-    logger.info("cloud_calendar_read", `days=${result.days.length} dropped_rows=${result.droppedRows}`);
-    return { month: result.month, days: result.days };
+    this.#assertRtcPreparationIdle();
+    this.#cloudReads++;
+    try {
+      this.#assertLegacyCamera(serial);
+      const original = this.#devices.get(serial), generation = this.#startupGeneration;
+      if (!this.config.experimentalCloudRecordings || !original || !isSupportedCameraType(original)
+        || !this.#client.isAuthenticated || this.#recordingClosing || signal.aborted) throw new CloudCalendarError("admission");
+      const current = (): void => {
+        if (signal.aborted || this.#recordingClosing || generation !== this.#startupGeneration) throw new CloudCalendarError("cancelled");
+        if (!this.#client.isAuthenticated) throw new CloudCalendarError("auth");
+        const live = this.#devices.get(serial);
+        if (!live || inventoryBindingChanged(original, live)) throw new CloudCalendarError("inventory");
+      };
+      const fresh = async (): Promise<void> => {
+        current();
+        let inventory: MegaInventory;
+        try { inventory = await this.#client.inventory(signal); }
+        catch { throw new CloudCalendarError(signal.aborted ? "cancelled" : "inventory"); }
+        current();
+        if (!inventory || !Array.isArray(inventory.devices)) throw new CloudCalendarError("inventory");
+        if (inventory.devices.filter(row => safeValue(row.device_sn, 128) === serial).length !== 1) throw new CloudCalendarError("inventory");
+        const device = parseMegaInventory(inventory).find(row => row.serial === serial);
+        if (!device || inventoryBindingChanged(original, device)) throw new CloudCalendarError("inventory");
+      };
+      await fresh();
+      const result = await this.#client.cloudCalendar(serial, original.parentSerial || serial, query, signal);
+      current(); await fresh(); current();
+      logger.info("cloud_calendar_read", `days=${result.days.length} dropped_rows=${result.droppedRows}`);
+      return { month: result.month, days: result.days };
+    } finally { this.#cloudReads--; }
   }
 
   /** Prepare existing cloud video for one currently admitted camera without waking or controlling it. */
   async cloudRecordingTrial(serial: string, id: string, query: CloudHistoryQuery, signal: AbortSignal): Promise<Buffer> {
-    this.#assertLegacyCamera(serial);
-    const device = this.#devices.get(serial), generation = this.#startupGeneration;
-    if (!this.config.experimentalCloudRecordings || !device || !isSupportedCameraType(device)
-      || this.#recordingClosing || signal.aborted || !this.#client.isAuthenticated) throw new CloudRecordingError("admission");
-    const media = await this.#client.cloudRecordingTrial(serial, device.parentSerial, id, query, signal);
-    const current = this.#devices.get(serial);
-    if (signal.aborted || this.#recordingClosing || generation !== this.#startupGeneration || !current
-      || inventoryBindingChanged(device, current) || current.adminUserId !== device.adminUserId) {
-      media.fill(0); throw new CloudRecordingError("cancelled");
-    }
-    return media;
+    this.#assertRtcPreparationIdle();
+    this.#cloudReads++;
+    try {
+      this.#assertLegacyCamera(serial);
+      const device = this.#devices.get(serial), generation = this.#startupGeneration;
+      if (!this.config.experimentalCloudRecordings || !device || !isSupportedCameraType(device)
+        || this.#recordingClosing || signal.aborted || !this.#client.isAuthenticated) throw new CloudRecordingError("admission");
+      const media = await this.#client.cloudRecordingTrial(serial, device.parentSerial, id, query, signal);
+      const current = this.#devices.get(serial);
+      if (signal.aborted || this.#recordingClosing || generation !== this.#startupGeneration || !current
+        || inventoryBindingChanged(device, current) || current.adminUserId !== device.adminUserId) {
+        media.fill(0); throw new CloudRecordingError("cancelled");
+      }
+      return media;
+    } finally { this.#cloudReads--; }
   }
 
   /**
@@ -801,6 +832,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
    * no recording references, and its success does not establish playback.
    */
   async readRecordingIndexTrial(serial: string, signal: AbortSignal): Promise<C31IndexSummary> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     const device = this.#devices.get(serial), generation = this.#startupGeneration;
     const route = device ? ppcsStreamRoute(device, this.#devices) : null;
@@ -862,6 +894,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
    * counts only and are discarded if the fresh binding cannot be rechecked.
    */
   async readLocalMotionTrial(serial: string, signal: AbortSignal): Promise<LocalMotionSummary> {
+    this.#assertRtcPreparationIdle();
     const device = this.#devices.get(serial), generation = this.#startupGeneration;
     const peer = device ? this.#devices.get(device.parentSerial) : undefined;
     const admitted = (rows: readonly MegaInventoryDevice[]): boolean => {
@@ -963,6 +996,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Read source-derived attached FamiLock status under a fresh, exclusive parent lease. */
   async readT85V0StatusTrial(serial: string, signal: AbortSignal): Promise<T85V0StatusSummary> {
+    this.#assertRtcPreparationIdle();
     const device = this.#devices.get(serial), generation = this.#startupGeneration;
     const peer = device ? this.#devices.get(device.parentSerial) : undefined;
     const admitted = (rows: readonly MegaInventoryDevice[]): boolean => {
@@ -1069,6 +1103,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** List validated, completed SoloCam event clips through its currently verified storage route. */
   async listStoredRecordings(serial: string, date: string, signal?: AbortSignal): Promise<readonly StoredRecordingSummary[]> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     validateRecordingDate(date);
     return await this.#recordingOperation(serial, signal, async (session) => {
@@ -1088,6 +1123,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Resolve an opaque owned reference only while its verified storage route remains available. */
   async downloadStoredRecording(serial: string, id: string, signal?: AbortSignal): Promise<Buffer | null> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     const reference = this.#recordingReferences.get(id);
     if (!reference || reference.serial !== serial || reference.expiresAt <= Date.now()) return null;
@@ -1145,6 +1181,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Authenticate and publish cameras independently of background push readiness. */
   async start(events: ProviderEvents): Promise<void> {
+    this.#assertRtcPreparationIdle();
     this.#nvrModePushStartedAt = Date.now();
     this.#nvrModePushTimes.clear();
     for (const pending of this.#streamStarts.values()) pending.cancelled = true;
@@ -1156,13 +1193,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#nvrViews.clear();
     this.#retireInventoryRefresh();
     this.#events = events;
-    this.#locks?.close();
-    this.#locks = this.config.experimentalE30Locks ? new E30LockProvider({
-      accountName: this.config.username.split("@")[0] || "Home Assistant",
-      credentials: () => this.#client.e30MqttCredentials(),
-      freshDevices: async () => (await this.#client.inventory()).devices,
-      changed: locks => { if (generation === this.#startupGeneration) events.locks?.(locks); },
-    }) : null;
+    this.#rebuildLockAdapter(events, generation);
     let auth;
     try { auth = await this.#client.connect(this.config.verifyCode); }
     catch (error) { if (generation !== this.#startupGeneration) return; throw error; }
@@ -1177,6 +1208,147 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       return;
     }
     await this.#completeStartup(events, generation);
+  }
+
+  /** Read only the current video identity state, without renewing a session. */
+  generalRtcPrepareStatus(): GeneralRtcPreparationState {
+    return this.#rtcPreparation.status(!!this.#client.generalRtcCipher());
+  }
+
+  /** Admit one detached, explicitly requested account sign-in and join duplicate requests. */
+  prepareGeneralRtc(serial: string): GeneralRtcPreparationState {
+    if (!this.config.experimentalGeneralRtc || !this.config.apiAuthenticationConfigured || this.#recordingClosing) throw new GeneralRtcPreparationError("admission");
+    if (this.#rtcPreparationOwner && this.#rtcPreparation.gated) return this.generalRtcPrepareStatus();
+    this.#assertRtcPreparationIdle();
+    const admitted = (() => {
+      try { return this.#generalRtcAdmission(serial); }
+      catch { throw new GeneralRtcPreparationError("admission"); }
+    })();
+    const { account, device, parent, parentSerial } = admitted;
+    if (!this.#events || this.#inventoryReadyGeneration !== this.#startupGeneration) throw new GeneralRtcPreparationError("admission");
+    if (account.cipher) return "ready";
+    this.#assertRtcPreparationAccountIdle();
+    const epoch = this.#rtcPreparation.begin();
+    const owner: RtcPreparationOwner = { epoch, generation: ++this.#startupGeneration, events: this.#events,
+      binding: { child: { serial, model: device.model, type: device.deviceType!, category: device.category!,
+        parent: parentSerial, channel: device.channel!, administrator: account.userId },
+      parent: { serial: parentSerial, model: parent.model, type: parent.deviceType!, category: parent.category!, administrator: account.userId } },
+      lockRows: null, stage: "stop" };
+    this.#rtcPreparationOwner = owner;
+    this.#captchaChallenge = null;
+    this.#verificationRequired = false;
+
+    // Close synchronously after the idle check so its autonomous poll cannot start in the gap.
+    this.#locks?.close();
+    owner.events.connection("disconnected", "Video sign-in preparation has paused the gateway.");
+    owner.events.locks?.([]);
+    void this.#runRtcPreparation(owner).catch(() => this.#failRtcPreparation(epoch, owner.stage));
+    return "signing-in";
+  }
+
+  /** Refuse every effect entry point while an account sign-in owns the provider. */
+  #assertRtcPreparationIdle(): void {
+    if (this.#rtcPreparation.gated) throw new GeneralRtcPreparationError("preparing");
+  }
+
+  /** Account-wide work, including autonomous lock polling, must settle before pausing. */
+  #assertRtcPreparationAccountIdle(): void {
+    const maps: readonly { readonly size: number }[] = [this.#ppcsStreams, this.#streamStarts, this.#stationOperations,
+      this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations, this.#audioRecordingOperations,
+      this.#motionOperations, this.#guardModeOperations, this.#nightVisionOperations, this.#lightOperations,
+      this.#cameraSirenOperations, this.#cameraSirenAborters, this.#panControlOperations, this.#nvrTrials, this.#doorbellTrials,
+      this.#localMotionAborters, this.#lockStatusAborters, this.#manualLightAborters, this.#recordingSessions,
+      this.#trialSirenStops, this.#generalRtcLockOperations, this.#generalRtcTrials, this.#trialPeers, this.#trialSessions,
+      this.#recordingReservations, this.#nvrLiveJobs, this.#nvrPowerEntries, this.#nvrGuardEntries,
+      this.#nvrGuardLatches, this.#dskRefreshes, this.#cipherFlights, this.#pushSnapshotQueues];
+    let locksBusy = true;
+    try { locksBusy = this.#locks?.busy ?? false; } catch {}
+    const now = performance.now();
+    if (locksBusy || this.#cloudReads > 0 || this.#recordingIndexActive || this.#inventoryRefresh || this.#inventoryTrailingRefresh
+      || maps.some(map => map.size > 0)
+      || [this.#nvrPowerCooldowns, this.#nvrGuardCooldowns].some(map => [...map.values()].some(until => until > now))) {
+      throw new GeneralRtcPreparationError("busy");
+    }
+  }
+
+  /** A retired owner must never stop or restart resources belonging to a replacement generation. */
+  #assertRtcPreparationOwner(owner: RtcPreparationOwner): void {
+    if (!this.#rtcPreparation.owns(owner.epoch) || this.#rtcPreparationOwner !== owner
+      || this.#startupGeneration !== owner.generation || this.#recordingClosing) throw new GeneralRtcPreparationError("preparing");
+  }
+
+  /** Stop ordinary work before the single forced login, with ownership checked after each await. */
+  async #runRtcPreparation(owner: RtcPreparationOwner): Promise<void> {
+    await this.#stopProviderResources(() => this.#assertRtcPreparationOwner(owner));
+    this.#assertRtcPreparationOwner(owner);
+    this.#rebuildLockAdapter(owner.events, owner.generation);
+    owner.stage = "login";
+    const result = await this.#client.connect(undefined, undefined, true);
+    this.#assertRtcPreparationOwner(owner);
+    if (result.state !== "authenticated") {
+      this.#captchaChallenge = result.state === "captcha-required" ? result.captcha ?? null : null;
+      this.#verificationRequired = result.state === "verification-required";
+      this.#waitRtcPreparationChallenge(owner);
+      return;
+    }
+    await this.#finishRtcPreparation(owner);
+  }
+
+  /** Pause the active deadline while the existing authentication page waits for explicit input. */
+  #waitRtcPreparationChallenge(owner: RtcPreparationOwner): void {
+    this.#assertRtcPreparationOwner(owner);
+    owner.stage = "challenge";
+    this.#rtcPreparation.challenge(owner.epoch);
+    owner.events.connection("authentication-required", "Complete the CAPTCHA or email code in Open web UI.");
+  }
+
+  /** Startup must prove the fresh raw device binding before releasing the account gate. */
+  async #finishRtcPreparation(owner: RtcPreparationOwner): Promise<void> {
+    owner.stage = "startup";
+    await this.#completeStartup(owner.events, owner.generation, false);
+    this.#assertRtcPreparationOwner(owner);
+    if (this.#inventoryReadyGeneration !== owner.generation) throw new GeneralRtcPreparationError("preparing");
+    owner.stage = "identity";
+    if (this.#client.generalRtcAccount()?.userId !== owner.binding.child.administrator) throw new GeneralRtcPreparationError("admission");
+    const bound = !!this.#client.generalRtcCipher();
+    if (!this.#rtcPreparation.complete(owner.epoch, bound)) return;
+    this.#rtcPreparationOwner = null;
+    this.#locks?.inventory(owner.lockRows ?? [], true);
+    owner.events.connection("connected", "Cameras are ready. Video identity readiness does not confirm playable video.");
+  }
+
+  /** Retire failed I/O without logging account data or an arbitrary authentication error. */
+  #failRtcPreparation(epoch: number, stage: RtcPreparationOwner["stage"] | "deadline" | "shutdown"): void {
+    const owner = this.#rtcPreparationOwner;
+    if (!owner || owner.epoch !== epoch || !this.#rtcPreparation.fail(epoch)) return;
+    this.#rtcPreparationOwner = null;
+    const generation = ++this.#startupGeneration;
+    this.#client.cancelPendingRequests();
+    this.#captchaChallenge = null;
+    this.#verificationRequired = false;
+    logger.warn("general_rtc_prepare_failed", `stage=${stage}`);
+    try { owner.events.connection("error", "Video sign-in preparation failed. Restart the gateway before trying other operations."); } catch {}
+    void this.#stopProviderResources(() => {
+      if (generation !== this.#startupGeneration) throw new GeneralRtcPreparationError("preparing");
+    }).catch(() => undefined);
+  }
+
+  /** Rebind lock callbacks to the generation that will actually complete startup. */
+  #rebuildLockAdapter(events: ProviderEvents, generation: number): void {
+    this.#locks?.close();
+    this.#locks = this.config.experimentalE30Locks ? new E30LockProvider({
+      accountName: this.config.username.split("@")[0] || "Home Assistant",
+      credentials: () => this.#client.e30MqttCredentials(),
+      freshDevices: async () => (await this.#client.inventory()).devices,
+      changed: locks => { if (generation === this.#startupGeneration) events.locks?.(locks); },
+    }) : null;
+  }
+
+  /** Defer new background lock polls until a preparation-owned startup releases its gate. */
+  #observeLockInventory(rows: MegaInventory["devices"], initial = false): void {
+    const owner = this.#rtcPreparationOwner;
+    if (owner && this.#rtcPreparation.owns(owner.epoch)) { owner.lockRows = rows; return; }
+    if (!this.#rtcPreparation.gated) this.#locks?.inventory(rows, initial);
   }
 
   /** Return numeric evidence from an existing source, excluding wire prefixes and identities. */
@@ -1202,9 +1374,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       && device.channel >= 0 && device.channel <= 254;
   }
 
-  /** Reserve a default-off owner-account clip without changing normal media admission. */
-  reserveGeneralRtcTrial(serial: string, signal: AbortSignal): GeneralRtcTrialLease {
-    if (!this.config.experimentalGeneralRtc || !this.config.apiAuthenticationConfigured || this.#recordingClosing || signal.aborted) throw new GeneralRtcError("admission");
+  /** Share the existing owner and camera eligibility facts without starting authentication or checking a PIN. */
+  #generalRtcAdmission(serial: string, signal?: AbortSignal) {
+    if (!this.config.experimentalGeneralRtc || !this.config.apiAuthenticationConfigured || this.#recordingClosing || signal?.aborted) throw new GeneralRtcError("admission");
     const account = this.#client.generalRtcAccount();
     if (!account || !this.#client.generalRtcHasNativeIdentities()) throw new GeneralRtcError("admission", "native_identity_missing");
     const device = this.#devices.get(serial);
@@ -1219,6 +1391,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       || parent.model === "T8N00" && parent.deviceType === 300 || parent.model === "T9000" && parent.deviceType === 27
       || device.model === "T8224" && device.deviceType === 96 || !account.smartHost || !/^[A-Z]{2}$/.test(account.country)
       || !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]{1,4096}$/.test(account.token)) throw new GeneralRtcError("admission");
+    return { account, device, parent, parentSerial };
+  }
+
+  /** Reserve a default-off owner-account clip without changing normal media admission. */
+  reserveGeneralRtcTrial(serial: string, signal: AbortSignal): GeneralRtcTrialLease {
+    this.#assertRtcPreparationIdle();
+    const { account, device, parent, parentSerial } = this.#generalRtcAdmission(serial, signal);
     if (!account.cipher) throw new GeneralRtcError("reconnect_required");
     this.#generalRtcPins.check(account.userId);
     const related = new Set([parentSerial, ...[...this.#devices.values()]
@@ -1232,9 +1411,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (this.#recordingIndexActive || this.#recordingPeerReserved(serial) || this.#nvrControlReserved(parentSerial)
       || [...this.#nvrLiveJobs].some(id => related.has(id)) || [...this.#generalRtcTrials.values()].some(entry => entry.parent === parentSerial)
       || busyMaps.some(map => [...map.keys()].some(id => related.has(id)))) throw new GeneralRtcError("busy");
-    const initial: GeneralRtcBinding = { child: { serial, model: device.model, type: device.deviceType, category: device.category,
-      parent: parentSerial, channel: device.channel, administrator: account.userId }, parent: { serial: parentSerial,
-      model: parent.model, type: parent.deviceType, category: parent.category, administrator: account.userId } };
+    const initial: GeneralRtcBinding = { child: { serial, model: device.model, type: device.deviceType!, category: device.category!,
+      parent: parentSerial, channel: device.channel!, administrator: account.userId }, parent: { serial: parentSerial,
+      model: parent.model, type: parent.deviceType!, category: parent.category!, administrator: account.userId } };
     const generation = this.#startupGeneration;
     const releaseReservation = this.#reserveTrialPeer(parentSerial);
     let trial: GeneralRtcTrial;
@@ -1255,6 +1434,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Reserve one exact standalone doorbell for a private, video-only diagnostic clip. */
   reserveDoorbellRtcTrial(serial: string, signal: AbortSignal): () => Promise<void> {
+    this.#assertRtcPreparationIdle();
     const device = this.#devices.get(serial);
     if (!this.#doorbellRtcBinding(device) || !device || signal.aborted || this.#recordingClosing
       || !this.#client.isAuthenticated || this.#localMotionAborters.size || this.#doorbellTrials.size || this.#nvrTrials.size
@@ -1358,6 +1538,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Reserve an explicit diagnostic lease before credentials or sockets are requested. */
   reserveNvrLiveTrial(serial: string, signal: AbortSignal): () => Promise<void> {
+    this.#assertRtcPreparationIdle();
     return this.#reserveNvrTrial(serial, signal, false, true);
   }
 
@@ -1481,6 +1662,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Query selected NVR settings under an exclusive lease, without media or writes. */
   async readNvrStateTrial(serial: string, signal: AbortSignal): Promise<NvrStateSummary> {
+    this.#assertRtcPreparationIdle();
     let release: (() => Promise<void>) | undefined;
     try {
       release = this.#reserveNvrTrial(serial, signal, true, true);
@@ -1538,6 +1720,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Test one separately admitted NVR camera and retain its lease through recovery. */
   async testNvrCameraPower(serial: string, request: NvrPowerRequest, signal: AbortSignal): Promise<NvrPowerSummary> {
+    this.#assertRtcPreparationIdle();
     const device = this.#devices.get(serial), generation = this.#startupGeneration;
     const station = device ? this.#devices.get(device.parentSerial) : undefined;
     const valid = (rows: readonly MegaInventoryDevice[]): boolean => {
@@ -1669,6 +1852,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Temporarily change one exact T8N00 from Schedule to Home and restore it. */
   async testNvrGuardMode(serial: string, request: NvrGuardRequest, signal: AbortSignal): Promise<NvrGuardSummary> {
+    this.#assertRtcPreparationIdle();
     nvrGuardTimeZone(request.timeZone);
     const device = this.#devices.get(serial), generation = this.#startupGeneration;
     const station = device ? this.#devices.get(device.parentSerial) : undefined;
@@ -1840,6 +2024,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Share an in-flight media start and retire bounded lookup retries on stop. */
   async startStream(serial: string): Promise<void> {
+    this.#assertRtcPreparationIdle();
     const nvrStartingDevice = this.#devices.get(serial);
     if (nvrStartingDevice && this.#nvrLiveJobs.has(nvrStartingDevice.parentSerial)) throw new NvrLiveControlError("busy");
     if (this.#doorbellTrials.has(serial)) return this.#startDoorbellRtcTrial(serial);
@@ -1983,6 +2168,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Change the next normal source only while the entire camera is idle. */
   async setNvrView(serial: string, view: number): Promise<CameraIdentity> {
+    this.#assertRtcPreparationIdle();
     const device = this.#devices.get(serial), station = device && this.#devices.get(device.parentSerial);
     if (!device || !this.#nvrLiveAdmitted(device, station)) throw new NvrLiveControlError("disabled");
     if (view !== 0 && view !== 1) throw new NvrLiveControlError("unavailable");
@@ -1995,6 +2181,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Submit one click or absolute optical step. A receipt never confirms physical movement. */
   async performNvrLiveControl(serial: string, request: NvrLiveControl, signal = AbortSignal.timeout(90000)): Promise<NvrLiveControlResult> {
+    this.#assertRtcPreparationIdle();
     await this.#runNvrLiveControl(serial, request, signal);
     return { outcome: "request_accepted", physicalConfirmationRequired: true };
   }
@@ -2166,6 +2353,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   async stopStream(serial: string): Promise<void> {
+    this.#assertRtcPreparationIdle();
     const doorbell = this.#doorbellTrials.get(serial);
     if (doorbell) { await doorbell.release(); return; }
     const pending = this.#streamStarts.get(serial);
@@ -2182,6 +2370,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Borrow the server-leased media source for one exact C31 speaker operation. */
   async playCameraAudio(serial: string, audio: Buffer, signal?: AbortSignal): Promise<void> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     const previous = this.#panControlOperations.get(serial) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(async () => {
@@ -2199,6 +2388,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Write camera enablement once and publish only cloud-confirmed state. */
   setCameraEnabled(serial: string, enabled: boolean): Promise<CameraIdentity> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
     const previous = this.#cameraOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
@@ -2277,6 +2467,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Serialize all E21 writes and accept only a post-dispatch raw inventory observation as confirmation. */
   setE21Preference(serial: string, name: string, value: number): Promise<CameraIdentity> {
+    this.#assertRtcPreparationIdle();
     const preference = validateE21Preference(name, value);
     const generation = this.#startupGeneration;
     if (!this.#e21ControlDevice(serial)) return Promise.reject(new E21ControlError("admission"));
@@ -2372,6 +2563,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Write a known standalone C31 preference and publish only fresh camera confirmation. */
   setCameraPreference(serial: string, name: string, value: number): Promise<CameraIdentity> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
     const preference = validateC31Preference(name, value);
@@ -2434,6 +2626,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Own one peer until a single reviewed setting is freshly confirmed or invalidated. */
   async setCameraSetting(serial: string, input: CameraSettingChange, signal?: AbortSignal): Promise<CameraIdentity> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     const change = parseCameraSettingChange(input);
     const device = this.#devices.get(serial);
@@ -2539,6 +2732,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Own one peer exclusively for an explicit trial, publishing only fresh native state. */
   async performModelControlTrial(serial: string, input: ModelControlTrial, signal?: AbortSignal): Promise<ModelControlTrialResult> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     const request = parseModelControlTrial(input);
     if (request.action === "manualLight") return await this.#performS120LightTrial(serial, request, signal);
@@ -2734,6 +2928,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Write the model's verified motion command and require fresh inventory confirmation. */
   setCameraMotionDetection(serial: string, enabled: boolean): Promise<CameraIdentity> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
     const previous = this.#motionOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
@@ -2795,6 +2990,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Write the model's verified audio-recording command and require fresh inventory confirmation. */
   setCameraAudioRecording(serial: string, enabled: boolean): Promise<CameraIdentity> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
     const previous = this.#audioRecordingOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
@@ -2854,6 +3050,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Write the admitted route's native live-quality preference and require fresh readback. */
   setCameraStreamingQuality(serial: string, quality: number, signal?: AbortSignal): Promise<CameraIdentity> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     const nvr = this.#devices.get(serial);
     if (nvr && this.#nvrLiveAdmitted(nvr, this.#devices.get(nvr.parentSerial))) return this.#runNvrLiveControl(serial, { kind: "quality", value: quality }, signal);
@@ -2920,6 +3117,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Refresh a direct camera's known reads from its read-only parameter table. */
   refreshCameraCapabilities(serial: string): Promise<CameraIdentity> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     const nvr = this.#devices.get(serial);
     if (nvr && this.#nvrLiveAdmitted(nvr, this.#devices.get(nvr.parentSerial))) return this.#refreshNvrLiveCapabilities(serial);
@@ -2983,6 +3181,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Set a standalone camera guard mode and require fresh local readback. */
   setCameraGuardMode(serial: string, mode: number): Promise<CameraIdentity> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
     if (![0, 1, 63].includes(mode)) return Promise.reject(new Error("Unsupported standalone camera guard mode"));
@@ -3032,6 +3231,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Write the camera family's night-vision control and publish fresh confirmed state. */
   setCameraNightVision(serial: string, mode: number, signal?: AbortSignal): Promise<CameraIdentity> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     const nvr = this.#devices.get(serial);
     if (nvr && this.#nvrLiveAdmitted(nvr, this.#devices.get(nvr.parentSerial))) return this.#runNvrLiveControl(serial, { kind: "night", value: mode }, signal);
@@ -3133,6 +3333,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   async refreshStation(serial: string): Promise<HomeBaseState> {
+    this.#assertRtcPreparationIdle();
     const identity = this.#devices.get(serial);
     if (!identity || !isDiscoveredHomeBase(identity)) {
       return Promise.reject(new Error("HomeBase state read is unavailable for this station"));
@@ -3158,24 +3359,28 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   async setGuardMode(serial: string, mode: number): Promise<HomeBaseState> {
+    this.#assertRtcPreparationIdle();
     this.#assertNoModelTrial(serial);
     if (![0, 1, 2, 3, 4, 5, 47, 63].includes(mode)) throw new Error("Unsupported HomeBase guard mode");
     return this.#writeStationValue(serial, "guardMode", mode, (session) => session.setGuardMode(mode), "guard-mode");
   }
 
   async setAlarmVolume(serial: string, value: number): Promise<HomeBaseState> {
+    this.#assertRtcPreparationIdle();
     this.#assertNoModelTrial(serial);
     if (!Number.isInteger(value) || value < 1 || value > 26) throw new Error("HomeBase alarm volume must be from 1 to 26");
     return this.#writeStationValue(serial, "alarmVolume", value, (session) => session.setAlarmVolume(value));
   }
 
   async setPromptVolume(serial: string, value: number): Promise<HomeBaseState> {
+    this.#assertRtcPreparationIdle();
     this.#assertNoModelTrial(serial);
     if (!Number.isInteger(value) || value < 1 || value > 26) throw new Error("HomeBase prompt volume must be from 1 to 26");
     return this.#writeStationValue(serial, "promptVolume", value, (session) => session.setPromptVolume(value));
   }
 
   async setAlarmTone(serial: string, value: number): Promise<HomeBaseState> {
+    this.#assertRtcPreparationIdle();
     this.#assertNoModelTrial(serial);
     if (value !== 1 && value !== 2) throw new Error("HomeBase alarm tone must be 1 or 2");
     return this.#writeStationValue(serial, "alarmTone", value, (session) => session.setAlarmTone(value));
@@ -3183,6 +3388,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Retire startup and push synchronously before cancelling shared cloud work. */
   async close(): Promise<void> {
+    this.#rtcPreparation.retire();
+    this.#rtcPreparationOwner = null;
+    this.#recordingClosing = true;
+    ++this.#startupGeneration;
+    await this.#stopProviderResources();
+    this.#events = null;
+  }
+
+  /** Stop resources for either shutdown or an owned preparation, preserving cleanup ordering. */
+  async #stopProviderResources(current: () => void = () => undefined): Promise<void> {
     for (const entry of this.#nvrGuardEntries.values()) {
       if (entry.attempted && !entry.warned) {
         entry.warned = true;
@@ -3190,7 +3405,6 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       }
       entry.controller.abort();
     }
-    this.#recordingClosing = true;
     for (const pending of this.#streamStarts.values()) pending.cancelled = true;
     this.#streamStarts.clear();
     this.#cipherFlights.clear();
@@ -3198,7 +3412,6 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     for (const [peer, session] of this.#trialSessions) {
       if (!this.#trialSirenStops.has(peer)) session.close();
     }
-    ++this.#startupGeneration;
     this.#locks?.close();
     this.#locks = null;
     this.#retireInventoryRefresh();
@@ -3210,10 +3423,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     try { this.#events?.eventReceiverState("stopped"); } catch {}
     for (const value of this.#nvrSettings.values()) if (value.timer) clearTimeout(value.timer);
     this.#nvrSettings.clear(); this.#nvrViews.clear(); this.#nvrExplicitOwners.clear();
-    await Promise.allSettled([...this.#nvrTrials.values()].map(trial => trial.release()));
-    await Promise.allSettled([...this.#doorbellTrials.values()].map(trial => trial.release()));
+    await Promise.allSettled([...this.#nvrTrials.values()].map(trial => trial.release())); current();
+    await Promise.allSettled([...this.#doorbellTrials.values()].map(trial => trial.release())); current();
     if (this.#generalRtcTrials.size) {
-      await Promise.allSettled([...this.#generalRtcTrials.values()].map(entry => entry.trial.release("shutdown")));
+      await Promise.allSettled([...this.#generalRtcTrials.values()].map(entry => entry.trial.release("shutdown"))); current();
     }
     this.#client.cancelPendingRequests();
     for (const controller of this.#localMotionAborters.values()) controller.abort();
@@ -3231,30 +3444,30 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         new Promise<void>(resolve => { sirenDeadline = setTimeout(resolve, 7000); }),
       ]);
     } finally { if (sirenDeadline) clearTimeout(sirenDeadline); }
+    current();
     for (const session of this.#trialSessions.values()) session.close();
-    await closingPush;
+    await closingPush; current();
     for (const stream of this.#ppcsStreams.values()) stream.close();
     this.#ppcsStreams.clear();
     for (const session of this.#recordingSessions.values()) session.close();
     this.#recordingSessions.clear();
     this.#recordingReferences.clear();
-    await Promise.allSettled(this.#stationOperations.values());
+    await Promise.allSettled(this.#stationOperations.values()); current();
     this.#stationOperations.clear();
     for (const controller of this.#cameraSirenAborters.values()) controller.abort();
-    await Promise.allSettled(this.#cameraSirenOperations.values());
+    await Promise.allSettled(this.#cameraSirenOperations.values()); current();
     this.#cameraSirenOperations.clear();
     this.#cameraSirenAborters.clear();
-    await Promise.allSettled(this.#cameraOperations.values());
+    await Promise.allSettled(this.#cameraOperations.values()); current();
     this.#cameraOperations.clear();
-    await Promise.allSettled(this.#lightOperations.values());
+    await Promise.allSettled(this.#lightOperations.values()); current();
     this.#lightOperations.clear();
-    await Promise.allSettled(this.#panControlOperations.values());
+    await Promise.allSettled(this.#panControlOperations.values()); current();
     this.#panControlOperations.clear();
     this.#pendingSensorMotionCloudConfirmations.clear();
     this.#sensorMotionClocks.clear();
     this.#liveDeviceReads.clear();
     this.#liveDeviceParamTypes.clear();
-    this.#events = null;
   }
 
   getCaptchaChallenge(): CaptchaChallenge | null {
@@ -3266,6 +3479,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   async submitCaptcha(answer: string): Promise<void> {
+    if (this.#rtcPreparation.gated) return this.#submitRtcPreparationChallenge("captcha", answer);
     if (!this.#captchaChallenge || !this.#events) throw new Error("No Eufy CAPTCHA is waiting for an answer");
     const generation = this.#startupGeneration;
     let result;
@@ -3288,6 +3502,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   async submitVerification(code: string): Promise<void> {
+    if (this.#rtcPreparation.gated) return this.#submitRtcPreparationChallenge("verification", code);
     if (!this.#verificationRequired || !this.#events) throw new Error("No Eufy verification is waiting for a code");
     const generation = this.#startupGeneration;
     let result;
@@ -3299,20 +3514,43 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     await this.#completeStartup(this.#events);
   }
 
-  async #completeStartup(events: ProviderEvents, generation = ++this.#startupGeneration): Promise<void> {
+  /** Complete only the active challenge on its original epoch and startup generation. */
+  async #submitRtcPreparationChallenge(kind: "captcha" | "verification", value: string): Promise<void> {
+    const owner = this.#rtcPreparationOwner;
+    if (!owner || this.generalRtcPrepareStatus() !== "authentication-required"
+      || (kind === "captcha" ? !this.#captchaChallenge : !this.#verificationRequired)) throw new GeneralRtcPreparationError("preparing");
+    this.#assertRtcPreparationOwner(owner);
+    this.#rtcPreparation.resume(owner.epoch);
+    try {
+      const result = await this.#client.connect(kind === "verification" ? value : undefined, kind === "captcha" ? value : undefined);
+      this.#assertRtcPreparationOwner(owner);
+      this.#captchaChallenge = result.state === "captcha-required" ? result.captcha ?? null : null;
+      this.#verificationRequired = result.state === "verification-required";
+      if (result.state !== "authenticated") {
+        this.#waitRtcPreparationChallenge(owner);
+        return;
+      }
+      await this.#finishRtcPreparation(owner);
+    } catch {
+      this.#failRtcPreparation(owner.epoch, owner.stage);
+      throw new GeneralRtcPreparationError("preparing");
+    }
+  }
+
+  async #completeStartup(events: ProviderEvents, generation = ++this.#startupGeneration, allowLoginRecovery = true): Promise<void> {
     this.#retireInventoryRefresh();
-    try { await this.#runStartup(events, generation); }
+    try { await this.#runStartup(events, generation, allowLoginRecovery); }
     catch (error) { if (generation !== this.#startupGeneration) return; throw error; }
   }
 
-  async #runStartup(events: ProviderEvents, generation: number): Promise<void> {
+  async #runStartup(events: ProviderEvents, generation: number, allowLoginRecovery = true): Promise<void> {
     let inventory;
     try {
       inventory = await this.#client.inventory();
       if (generation !== this.#startupGeneration) return;
     } catch (error) {
       if (generation !== this.#startupGeneration) return;
-      if (!this.#client.isSessionInvalidError(error)) throw error;
+      if (!allowLoginRecovery || !this.#client.isSessionInvalidError(error)) throw error;
       for (const serial of this.#nvrSettings.keys()) this.#clearNvrSettings(serial);
       this.#nvrViews.clear();
       logger.warn("session_invalidated", "Mega session was invalidated; signing in again");
@@ -3331,9 +3569,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (generation !== this.#startupGeneration) return;
     }
     this.#nvrObserveOwners(inventory);
+    const preparation = this.#rtcPreparationOwner;
+    if (preparation) {
+      this.#assertRtcPreparationOwner(preparation);
+      const binding = generalRtcBinding(inventory, preparation.binding.child.serial,
+        preparation.binding.child.administrator, parseMegaInventory);
+      if (JSON.stringify(binding) !== JSON.stringify(preparation.binding)) throw new GeneralRtcPreparationError("admission");
+    }
     const devices = parseMegaInventory(inventory);
     this.#observeE21Inventory(devices, generation, ++this.#e21FetchSequence);
-    this.#locks?.inventory(inventory.devices, true);
+    this.#observeLockInventory(inventory.devices, true);
     this.#devices.clear();
     this.#pendingSensorMotionCloudConfirmations.clear();
     this.#sensorMotionClocks.clear();
@@ -3357,7 +3602,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         for (const [serial, key] of Object.entries(keys)) this.#dskKeys.set(serial, key);
       } catch (error) {
         if (generation !== this.#startupGeneration) return;
-        logger.warn("dsk_lookup_unavailable", `Mega DSK lookup unavailable: ${safeError(error)}`);
+        logger.warn("dsk_lookup_unavailable", this.#rtcPreparation.gated ? "stage=startup" : `Mega DSK lookup unavailable: ${safeError(error)}`);
       }
     }
     const dskPeerSerials = new Set(this.#dskKeys.keys());
@@ -3463,8 +3708,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       logger.warn("push_start_unavailable", "Push startup unavailable. Camera startup remains independent.");
     });
     if (generation !== this.#startupGeneration) return;
-    events.connection("connected", "Cameras and snapshots are ready. Push event delivery is reported separately.");
-    await Promise.allSettled(
+    if (!this.#rtcPreparation.gated) events.connection("connected", "Cameras and snapshots are ready. Push event delivery is reported separately.");
+    if (!this.#rtcPreparation.gated) await Promise.allSettled(
       [...this.#stations.values()]
         .filter(({ serial }) => {
           const identity = this.#devices.get(serial);
@@ -3478,6 +3723,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (generation !== this.#startupGeneration) return;
     if (this.#stationRefreshTimer) clearInterval(this.#stationRefreshTimer);
     this.#stationRefreshTimer = setInterval(() => {
+      if (this.#rtcPreparation.gated) return;
       for (const station of this.#stations.values()) {
         const identity = this.#devices.get(station.serial);
         if (!identity || !isDiscoveredHomeBase(identity)) continue;
@@ -3493,6 +3739,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#inventoryReadyGeneration = generation;
     if (this.#inventoryRefreshTimer) clearInterval(this.#inventoryRefreshTimer);
     this.#inventoryRefreshTimer = setInterval(() => {
+      if (this.#rtcPreparation.gated) return;
       void this.#refreshInventoryReads(false).catch((error: unknown) => {
         logger.warn("inventory_refresh_unavailable", `Mega read refresh unavailable: ${safeError(error)}`);
       });
@@ -3512,6 +3759,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Join timer reads, but queue a post-command read when a control needs fresh state. */
   async #refreshInventoryReads(requireFresh = true): Promise<void> {
+    if (this.#rtcPreparation.gated) return;
     const generation = this.#startupGeneration;
     const events = this.#events;
     if (this.#inventoryReadyGeneration !== generation || !events) return;
@@ -3555,7 +3803,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (generation !== this.#startupGeneration) throw new Error("Inventory refresh cancelled");
     this.#observeE21Inventory(refreshed, generation, sequence);
     this.#nvrObserveOwners(inventory);
-    this.#locks?.inventory(inventory.devices);
+    this.#observeLockInventory(inventory.devices);
     if (refreshed.length === 0) return;
     const previous = new Map(this.#devices);
     const motionOutcomes = new Map<string, InventoryMotionOutcome>();
@@ -3936,6 +4184,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Send a source-backed momentary camera-light command over a ready direct route. */
   setCameraLight(serial: string, enabled: boolean): Promise<void> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
     const previous = this.#lightOperations.get(serial) ?? Promise.resolve();
@@ -4002,6 +4251,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
    * not readable alarm state. Attached cameras retain their native duration path.
    */
   setCameraSiren(serial: string, durationSeconds: number): Promise<void> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
     if (!Number.isSafeInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 900) {
@@ -4074,6 +4324,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Serialize a fresh preset query with movement and tracking on the verified camera route. */
   async getCameraPresetPositions(serial: string): Promise<readonly CameraPresetPosition[]> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
     let positions: readonly CameraPresetPosition[] = [];
@@ -4085,6 +4336,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Move once to an enabled stored position after refreshing slot occupancy. */
   selectCameraPresetPosition(serial: string, index: number): Promise<void> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
     if (!Number.isSafeInteger(index) || index < 0 || index > 9) {
@@ -4101,6 +4353,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Write verified tracking and require fresh cloud confirmation on admitted standalone routes. */
   setCameraAiTracking(serial: string, enabled: boolean): Promise<void> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
     return this.#queuePanControl(serial, "ai_tracking", async (session) => {
@@ -4128,6 +4381,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Send the reversible automatic-cruise action proven on local hardware. */
   setCameraAutoCruise(serial: string, enabled: boolean): Promise<void> {
+    this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
     return this.#queuePanControl(serial, "auto_cruise", (session) => session.writeAutoCruise(enabled));
@@ -4222,6 +4476,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Trigger or stop a HomeBase siren through the station-side duration command. */
   async setHomeBaseSiren(serial: string, durationSeconds: number): Promise<HomeBaseState> {
+    this.#assertRtcPreparationIdle();
     this.#assertNoModelTrial(serial);
     if (!Number.isSafeInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 900) {
       throw new Error("HomeBase siren duration must be a whole number from 0 to 900 seconds");
@@ -4265,6 +4520,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   #handlePush(events: ProviderEvents, event: MegaPushEvent): void {
+    if (this.#rtcPreparation.gated) return;
     const station = this.#stations.get(event.stationSerial);
     const stationIdentity = this.#devices.get(event.stationSerial);
     const nvrState = station && stationIdentity ? applyNvrModePush(station, stationIdentity, event,
@@ -4574,6 +4830,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   #queuePushSnapshot(events: ProviderEvents, event: MegaPushEvent): void {
+    if (this.#rtcPreparation.gated) return;
     const generation = this.#startupGeneration;
     const previous = this.#pushSnapshotQueues.get(event.cameraSerial) ?? Promise.resolve();
     const current = previous.then(async () => {
@@ -5406,7 +5663,7 @@ export function inventoryDiagnostics(devices: readonly MegaInventoryDevice[]): I
     upstreamIsCamera: false,
     acceptedAsCamera: isSupportedMegaCamera(device),
     megaDeviceType: device.deviceType,
-    category: device.category,
+    category: device.category!,
     cameraSwitch1035: device.reads.cameraSwitch1035 ?? "missing",
   }));
 }
@@ -5434,7 +5691,7 @@ export function inventoryLogSummaries(
     const values = {
       model: device.model,
       deviceType: device.deviceType,
-      category: device.category,
+      category: device.category!,
       hasParent: device.parentSerial.length > 0,
       hasChannel: device.channel !== null,
       acceptedAsCamera: isSupportedMegaCamera(device),

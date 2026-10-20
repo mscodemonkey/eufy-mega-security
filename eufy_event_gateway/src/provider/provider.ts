@@ -27,6 +27,18 @@ import type { StoredRecordingSummary } from "../stream/stored-recordings.js";
 
 import type { CameraCapabilityManifest, CameraIdentity, CameraPresetPosition, DetectionKind, DeviceCapabilityManifest, EventReceiverState, HomeBaseState, InventoryDiagnostic, PushDiagnostic, SecuritySensorState, StreamDiagnostic, VideoCodec } from "../domain/types.js";
 
+/** Public preparation facts only. Ready means a bound video identity, not playable video. */
+export type GeneralRtcPreparationState = "idle" | "signing-in" | "authentication-required" | "ready" | "identity-unavailable" | "failed";
+
+/** Fixed lifecycle refusal shared by provider admission and HTTP without account or server details. */
+export class GeneralRtcPreparationError extends Error {
+
+  /** Retain only a closed refusal code for one rejected request. */
+  constructor(readonly stage: "admission" | "busy" | "cooldown" | "preparing") {
+    super(`Video sign-in preparation ${stage}`);
+  }
+}
+
 /** Callbacks through which a provider reports normalized observations. */
 export interface ProviderEvents {
 
@@ -136,6 +148,12 @@ export interface CameraProvider {
 
   /** Prepare one consented private cloud recording, without any camera or account writes. */
   cloudRecordingTrial?(serial: string, id: string, query: CloudHistoryQuery, signal: AbortSignal): Promise<Buffer>;
+  /** Admit one explicitly consented account reauthentication and start a detached owned flight. */
+  prepareGeneralRtc?(serial: string): GeneralRtcPreparationState;
+
+  /** Return fixed preparation state from memory without authentication or network effects. */
+  generalRtcPrepareStatus?(): GeneralRtcPreparationState;
+
   start(events: ProviderEvents): Promise<void>;
   startStream(serial: string): Promise<void>;
   stopStream(serial: string): Promise<void>;

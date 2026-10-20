@@ -17,7 +17,7 @@ The account already configured in the gateway must own the camera. Guest account
 
 ## Sign-in and PIN limits
 
-Enabling this option does not force login or exchange keys. A valid saved sign-in is reused. If the page reports `reconnect_required`, wait for the next natural sign-in. A restart helps only if the saved sign-in has expired.
+Enabling this option does not force login or exchange keys. A valid saved sign-in is reused. If the page reports `reconnect_required`, use the optional explicit sign-in preparation below, or wait for the next natural sign-in. A restart helps only if the saved sign-in has expired.
 
 The gateway also needs its existing native request identities. Normal traffic refreshes them. A missing identity, or a refresh during a trial, can make the run unavailable, including at the final camera check. Try again shortly rather than forcing authentication.
 
@@ -34,3 +34,15 @@ The trial checks fresh ownership and topology before sending a PIN and again aft
 Only H.264 video is accepted. Audio and application sections are rejected, and both the raw recording and MP4 are limited to 32 MiB. Relay servers must use public IP addresses. Hostname relays and some otherwise usable portal configurations are refused. Camera connection candidates may contain private IP addresses, so connection checks can reach local network addresses supplied by Eufy.
 
 The trial uses the current Security service host. The NVR region override has no effect. Some GB-style accounts may fail even when the official portal works. A successful local fixture or decoded test clip does not establish support for another model or account.
+
+## Optional video sign-in preparation
+
+Diagnostics offers a separate **Sign in again for video test** action under the default-off general camera experiment. It asks for explicit, unticked consent and never runs from enabling the option, restarting, opening the page, or requesting a clip. It uses the configured account. It does not ask for a password or PIN.
+
+This pauses the whole gateway, including live view and event delivery. Events during the pause can be missed. The action may replace the saved sign-in and remove its previous video identity. A CAPTCHA or email code may be required in Open web UI. If preparation fails or is abandoned, restart the gateway and complete any authentication there before other operations can resume. There is no automatic rollback or retry.
+
+Stop other viewers, recordings, diagnostic captures and controls first. A temporary busy refusal can also be an existing background lock check. Preparation is account-wide and allows one attempt per ten minutes, including failures. A duplicate request joins the existing attempt. A lost browser response is checked with status reads and never automatically sends another sign-in. Signing-in work has a three-minute active deadline, paused while waiting for challenge input.
+
+Ready means only that a video identity is currently bound. It does not confirm playable camera video. The clip still needs its own PIN and consent, and can refuse if another required native account identity is missing. A completed sign-in can also report identity-unavailable without changing normal media support. Physical behaviour remains unconfirmed until the private clip is tested.
+
+QA must use mocked authentication for this action. Do not force a real account login or actuate a security device during automated validation.
