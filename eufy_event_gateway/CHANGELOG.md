@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.182
+
+- Accept a validated standalone doorbell video offer when Eufy's call-accepted message arrives immediately afterwards, while retaining the existing one-call ownership and cleanup limits.
+- Preserve privacy-safe offer failure reasons so another T8224 test can distinguish an ordering mismatch from an unsupported offer shape without logging signaling data.
+
+- Normal Home Assistant live view remains unavailable for this route. A T8224 reporter still needs to confirm whether the opt-in diagnostic clip plays on real hardware.
+
 ## 0.1.181
 
 - Restore the night-vision select for a C31 doorbell reporting T8223/type 95 through a ready HomeBase 2 or HomeBase 3 connection. It offers Off and Infrared only when a known current value is available.

@@ -64,6 +64,7 @@ export class DoorbellRtcSession {
   #socket: WebSocket | null = null;
   #peer: RTCPeerConnection | null = null;
   #offer: DoorbellRtcOffer | null = null;
+  #earlyOffer: DoorbellRtcOffer | null = null;
   #chain: Promise<void> = Promise.resolve();
   #queued = 0;
   #candidateCount = 0;
@@ -131,7 +132,8 @@ export class DoorbellRtcSession {
         if (this.#retired) return;
         if (++this.#queued > 32) { this.#fail("call"); return; }
         this.#chain = this.#chain.then(async () => { this.#guard(); await this.#message(raw.toString()); })
-          .catch(error => this.#fail(error instanceof DoorbellRtcError ? error.stage : this.#stage))
+          .catch(error => this.#fail(error instanceof DoorbellRtcError ? error.stage : this.#stage,
+            error instanceof DoorbellRtcError ? error.reason : "unspecified"))
           .finally(() => { this.#queued--; });
       });
       await ready;
@@ -151,6 +153,8 @@ export class DoorbellRtcSession {
     this.#reject?.(new DoorbellRtcError("cancelled"));
     this.#reject = null; this.#resolve = null;
     this.#assembler.clear(); this.#parameters = new VideoParameterSetCache();
+    this.#earlyOffer = null; this.#offer = null;
+    this.#remoteCandidates.splice(0); this.#localCandidates.clear(); this.#turn.splice(0);
     const socket = this.#socket, peer = this.#peer;
     this.#socket = null; this.#peer = null;
     this.#closing = (async () => {
@@ -186,10 +190,10 @@ export class DoorbellRtcSession {
     if (this.#retired || this.options.signal.aborted || !this.options.current()) throw new DoorbellRtcError("cancelled");
   }
 
-  #fail(stage: DoorbellRtcStage): void {
+  #fail(stage: DoorbellRtcStage, reason: DoorbellRtcError["reason"] = "unspecified"): void {
     if (this.#retired) return;
     this.#stage = stage;
-    const error = new DoorbellRtcError(stage);
+    const error = new DoorbellRtcError(stage, reason);
     this.#reject?.(error); this.#reject = null; this.#resolve = null;
     this.output.destroy(error);
     void this.close().catch(() => undefined);
@@ -244,7 +248,11 @@ export class DoorbellRtcSession {
       if (data.status === 486) throw new DoorbellRtcError("busy");
       if (data.status === 408) throw new DoorbellRtcError("call");
       if (data.status === 100) this.#relays(data.turn);
-      else if (data.status === 200 && !this.#accepted) { this.#accepted = true; this.#action("ack", {}); }
+      else if (data.status === 200 && !this.#accepted) {
+        this.#accepted = true; this.#action("ack", {});
+        const offer = this.#earlyOffer; this.#earlyOffer = null;
+        if (offer) await this.#negotiate(offer);
+      }
       else if (data.status !== 200) throw new DoorbellRtcError("call");
       return;
     }
@@ -256,7 +264,12 @@ export class DoorbellRtcSession {
       if (++this.#candidateCount > 64 || (this.#candidateBytes += Buffer.byteLength(candidate)) > 65536) throw new DoorbellRtcError("peer");
       if (!this.#offer || !this.#answerSent) this.#remoteCandidates.push(candidate);
       else await this.#candidate(candidate);
-    } else if (data.format === "SDP" || data.sdp !== undefined) await this.#negotiate(data.value ?? data.sdp);
+    } else if (data.format === "SDP" || data.sdp !== undefined) {
+      if (this.#peer || this.#earlyOffer) throw new DoorbellRtcError("offer");
+      const offer = doorbellRtcOffer(data.value ?? data.sdp);
+      if (!this.#accepted) { this.#earlyOffer = offer; return; }
+      await this.#negotiate(offer);
+    }
   }
 
   #relays(value: unknown): void {
@@ -280,9 +293,9 @@ export class DoorbellRtcSession {
     this.#guard();
   }
 
-  async #negotiate(value: unknown): Promise<void> {
+  async #negotiate(offer: DoorbellRtcOffer): Promise<void> {
     if (!this.#accepted || this.#peer) throw new DoorbellRtcError("offer");
-    const offer = this.#offer = doorbellRtcOffer(value);
+    this.#offer = offer;
     this.#stage = "peer";
     const peer = this.#peer = this.dependencies.peer(this.#turn, offer);
     peer.connectionStateChange.subscribe(state => {
@@ -326,7 +339,8 @@ export class DoorbellRtcSession {
               this.#deadline = setTimeout(() => this.#fail("deadline"), 25_000);
             }
           } else if (!this.output.write(unit)) throw new DoorbellRtcError("video");
-        } catch (error) { this.#fail(error instanceof DoorbellRtcError ? error.stage : "video"); }
+        } catch (error) { this.#fail(error instanceof DoorbellRtcError ? error.stage : "video",
+          error instanceof DoorbellRtcError ? error.reason : "unspecified"); }
       });
     });
     try {

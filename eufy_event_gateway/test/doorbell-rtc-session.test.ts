@@ -60,7 +60,8 @@ function payloads(unit: readonly Buffer[]): Buffer[] {
   return result;
 }
 
-for (const scenario of ["video", "loss", "busy", "wrong-owner", "no-video", "cancel-offer"] as const) {
+for (const scenario of ["video", "loss", "early-offer", "invalid-offer", "duplicate-offer", "early-busy",
+  "abort-early", "busy", "wrong-owner", "no-video", "cancel-offer"] as const) {
   test(`native doorbell ${scenario} has bounded media and cleanup`, { timeout: 20_000 }, async context => {
     const generated = spawnSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=10",
       "-t", "1", "-c:v", "libx264", "-preset", "ultrafast", "-x264-params", "aud=1:repeat-headers=1:keyint=5",
@@ -77,7 +78,8 @@ for (const scenario of ["video", "loss", "busy", "wrong-owner", "no-video", "can
     await camera.setLocalDescription(await camera.createOffer());
     const controller = new AbortController();
     let timer: NodeJS.Timeout | null = null;
-    let counter = 0, sequence = 65500, hangups = 0, answers = 0, peerCount = 0;
+    let counter = 0, sequence = 65500, hangups = 0, answers = 0, acknowledgements = 0, peerCount = 0;
+    let acceptedReplySent = false;
     let peer: RTCPeerConnection | null = null;
     let entered!: () => void, finish!: () => void;
     const entering = new Promise<void>(resolve => { entered = resolve; });
@@ -118,10 +120,25 @@ for (const scenario of ["video", "loss", "busy", "wrong-owner", "no-video", "can
           if (inner.dataType === "call") {
             assert.equal(inner.sn, "synthetic-station"); assert.equal(inner.channelId, 0);
             assert.equal(typeof data.account, "string");
-            reply("call", { status: scenario === "busy" ? 486 : 200 });
-            if (scenario !== "busy") reply("info", scenario === "loss"
-              ? { sdp: camera.localDescription!.sdp } : { format: "SDP", value: camera.localDescription!.sdp });
+            if (scenario === "early-offer") {
+              reply("info", { format: "SDP", value: camera.localDescription!.sdp });
+              acceptedReplySent = true; reply("call", { status: 200 });
+            } else if (scenario === "invalid-offer") {
+              reply("call", { status: 200 }); reply("info", { format: "SDP", value: "invalid" });
+            } else if (scenario === "duplicate-offer") {
+              reply("info", { format: "SDP", value: camera.localDescription!.sdp });
+              reply("info", { format: "SDP", value: camera.localDescription!.sdp });
+            } else if (scenario === "early-busy") {
+              reply("info", { format: "SDP", value: camera.localDescription!.sdp }); reply("call", { status: 486 });
+            } else if (scenario === "abort-early") {
+              reply("info", { format: "SDP", value: camera.localDescription!.sdp }); setTimeout(() => controller.abort(), 50);
+            } else {
+              reply("call", { status: scenario === "busy" ? 486 : 200 });
+              if (scenario !== "busy") reply("info", scenario === "loss"
+                ? { sdp: camera.localDescription!.sdp } : { format: "SDP", value: camera.localDescription!.sdp });
+            }
           } else if (inner.dataType === "hangup") hangups++;
+          else if (inner.dataType === "ack") acknowledgements++;
           else if (inner.dataType === "info" && data.sdp) {
             answers++;
             await camera.setRemoteDescription(new RTCSessionDescription(data.sdp, "answer"));
@@ -143,6 +160,7 @@ for (const scenario of ["video", "loss", "busy", "wrong-owner", "no-video", "can
       },
       peer: (_servers, offer) => {
         peerCount++;
+        if (scenario === "early-offer") assert.equal(acceptedReplySent, true);
         peer = new RTCPeerConnection({ iceServers: [], iceUseIpv6: false,
           codecs: { audio: [], video: [useH264({ payloadType: offer.payloadType, parameters: offer.parameters })] } });
         if (scenario === "cancel-offer") {
@@ -155,11 +173,18 @@ for (const scenario of ["video", "loss", "busy", "wrong-owner", "no-video", "can
       },
     });
     try {
-      if (scenario === "busy" || scenario === "wrong-owner" || scenario === "no-video") {
+      if (scenario === "busy" || scenario === "early-busy" || scenario === "wrong-owner" || scenario === "no-video"
+        || scenario === "invalid-offer" || scenario === "duplicate-offer" || scenario === "abort-early") {
         await assert.rejects(session.start(), error => error instanceof DoorbellRtcError
-          && error.stage === (scenario === "busy" ? "busy" : scenario === "wrong-owner" ? "call" : "deadline"));
+          && error.stage === (scenario === "busy" || scenario === "early-busy" ? "busy"
+            : scenario === "wrong-owner" ? "call" : scenario === "invalid-offer" || scenario === "duplicate-offer" ? "offer"
+              : scenario === "abort-early" ? "cancelled" : "deadline")
+          && (scenario === "invalid-offer" ? error.reason === "offer_text"
+            : scenario === "duplicate-offer" ? error.reason === "unspecified" : true));
         assert.equal(chunks.length, 0);
         if (scenario !== "no-video") assert.equal(peerCount, 0);
+        assert.equal(answers, scenario === "no-video" ? 1 : 0);
+        assert.equal(acknowledgements, scenario === "invalid-offer" || scenario === "no-video" ? 1 : 0);
       } else if (scenario === "cancel-offer") {
         const stopped = assert.rejects(session.start(), error => error instanceof DoorbellRtcError && error.stage === "cancelled");
         await entering; controller.abort(); await stopped; finish();
@@ -175,6 +200,7 @@ for (const scenario of ["video", "loss", "busy", "wrong-owner", "no-video", "can
         const counts = [...decoded.stdout.toString().matchAll(/^frame=(\d+)$/gm)];
         assert.ok(Number(counts.at(-1)?.[1]) >= 6);
         assert.equal(answers, 1); assert.equal(peerCount, 1);
+        assert.equal(acknowledgements, 1);
         assert.equal(peer!.sctpTransport, undefined);
         assert.equal(hangups, 1);
       }
