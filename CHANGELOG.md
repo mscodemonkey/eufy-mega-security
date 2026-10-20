@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.187
+
+- Add a separate consented Diagnostics action to sign in again for the experimental general camera video test, with visible identity readiness and CAPTCHA or email-code handling.
+- Pause gateway activity during preparation, refuse while account work is busy, and require restart after a failed attempt. The action may replace the saved sign-in and never runs automatically.
+- Keep video PIN and clip consent separate. Ready confirms a bound video identity, while playable camera video remains hardware-unconfirmed.
+
 ## 0.1.186
 
 - Preserve crying/sound entities and add the remaining source-defined E21 care notifications, attributed event pictures and normalized room settings.
