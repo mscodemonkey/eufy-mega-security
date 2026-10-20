@@ -60,6 +60,7 @@ import { GeneralRtcError } from "../stream/general-rtc-protocol.js";
 import { catalogueIntegrationStatus, hasMainsBatterySentinel } from "./camera-capability-core.js";
 import { GeneralRtcPreparationError, type GeneralRtcPreparationState, type CameraProvider, type CaptchaChallenge, type CaptchaProvider, type ProviderEvents } from "./provider.js";
 import { GeneralRtcPreparation } from "./general-rtc-preparation.js";
+import { T8417ReadShapeTracker } from "./t8417-read-shape.js";
 import { PushEventDeduplicator } from "./push-event-deduplicator.js";
 import { resolveDeviceRoute } from "./device-routing.js";
 
@@ -616,6 +617,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #cipherFlights = new Map<string, Promise<string | undefined>>();
   readonly #pushSnapshotQueues = new Map<string, Promise<void>>();
   readonly #pushDeduplicator = new PushEventDeduplicator();
+  readonly #t8417ReadShapes = new T8417ReadShapeTracker();
   readonly #stationRefreshFailures = new Map<string, number>();
   readonly #stationReadConfirmed = new Set<string>();
   readonly #stationStorageDiagnosticLogged = new Set<string>();
@@ -3684,6 +3686,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const summary = privacyParameterLogSummary(device);
       if (summary) logger.info("camera_privacy_parameter_observed", summary);
     }
+    try {
+      for (const message of this.#t8417ReadShapes.observe(inventory.devices, generation, performance.now(), true)) {
+        logger.info("camera_t8417_read_shape_observed", message);
+      }
+    } catch {}
     events.inventory(diagnostics);
 
     const previousPush = this.#push;
@@ -3749,6 +3756,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Detach generation-owned flights so replacement startup cannot join retired work. */
   #retireInventoryRefresh(): void {
+    this.#t8417ReadShapes.reset();
     this.#inventoryReadyGeneration = null;
     this.#e21Inventory.clear();
     this.#inventoryRefresh = null;
@@ -3805,6 +3813,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#nvrObserveOwners(inventory);
     this.#observeLockInventory(inventory.devices);
     if (refreshed.length === 0) return;
+    try {
+      for (const message of this.#t8417ReadShapes.observe(inventory.devices, generation, performance.now(), false)) {
+        logger.info("camera_t8417_read_shape_observed", message);
+      }
+    } catch {}
     const previous = new Map(this.#devices);
     const motionOutcomes = new Map<string, InventoryMotionOutcome>();
     for (const device of refreshed) {
