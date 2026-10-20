@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.189
+
+- Let the opt-in standalone C30 doorbell video test accept the bounded SCTP offer variant already used by Eufy's RTC clients. Normal Home Assistant live view remains disabled until the hardware trial succeeds.
+
 ## 0.1.188
 
 - Fix the S100 connection-test handoff and report precise preparation failures without exposing private transport details.

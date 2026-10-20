@@ -53,8 +53,12 @@ export function doorbellRtcOffer(value: unknown): DoorbellRtcOffer {
     throw new DoorbellRtcError("offer", "media_kinds");
   }
   for (const section of sections) {
+    const application = section[0]!.startsWith("m=application ")
+      ? /^m=application \d{1,5} UDP\/DTLS\/SCTP webrtc-datachannel(?: (\d{1,5}))?$/.exec(section[0]!)
+      : null;
     if (section[0]!.startsWith("m=audio ") && !/^m=audio \d{1,5} UDP\/TLS\/RTP\/SAVPF(?: \d{1,3})+$/.test(section[0]!)
-      || section[0]!.startsWith("m=application ") && !/^m=application \d{1,5} UDP\/DTLS\/SCTP webrtc-datachannel$/.test(section[0]!)) {
+      || section[0]!.startsWith("m=application ") && (!application
+        || application[1] !== undefined && Number(application[1]) > 65535)) {
       throw new DoorbellRtcError("offer", "media_shape");
     }
   }

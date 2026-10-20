@@ -80,6 +80,22 @@ test("selects H.264 and rejects unused audio and SCTP", () => {
   assert.doesNotMatch(answer, /a=sctp-port/); assert.match(answer, /a=setup:passive/);
 });
 
+test("accepts one bounded SCTP token without widening the rejected application section", () => {
+  for (const token of ["0", "1024", "65535"]) {
+    const result = doorbellRtcOffer(offer().replace("webrtc-datachannel", `webrtc-datachannel ${token}`));
+    assert.doesNotMatch(result.sdp, /m=application|webrtc-datachannel/);
+    const answer = doorbellRtcAnswer(result, result.sdp.replace("a=setup:active", "a=setup:passive"));
+    assert.match(answer, new RegExp(`m=application 0 UDP/DTLS/SCTP webrtc-datachannel ${token}`));
+    assert.match(answer, /a=mid:2\r\na=inactive/);
+  }
+  for (const suffix of ["65536", "-1", "+1", "1.5", "1024 2048", "private"]) {
+    assert.throws(() => doorbellRtcOffer(offer().replace("webrtc-datachannel", `webrtc-datachannel ${suffix}`)), error => {
+      assert.ok(error instanceof DoorbellRtcError); assert.equal(error.stage, "offer");
+      assert.equal(error.reason, "media_shape"); return true;
+    });
+  }
+});
+
 test("offer failures contain no received values", () => {
   for (const [invalid, reason] of [[offer().replace("H264/90000", "H265/90000"), "codec"], [offer().replace("a=sendonly", "a=sendrecv"), "video_shape"],
     [offer().replace("packetization-mode=1", "packetization-mode=2"), "fmtp"], [offer().replaceAll("a=ice-ufrag:abcd", "a=ice-ufrag:PRIVATE VALUE"), "transport_field"],
