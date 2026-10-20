@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.183
+
+- Match the T8223/type 95 C31 night-vision choices to the Eufy app: Off and Auto night vision. This changes wording only, with no change to numeric values or commands. Physical behaviour still awaits reporter confirmation.
+- Update both the app and integration to this release. C31 automations using the option infrared must use auto_night_vision instead, and the entity's recorded state uses the new key. The updated integration also understands the old gateway wording. Other camera models keep their existing options.
+
 ## 0.1.182
 
 - Accept a validated standalone doorbell video offer when Eufy's call-accepted message arrives immediately afterwards, while retaining the existing one-call ownership and cleanup limits.
