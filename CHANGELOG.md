@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.185
+
+- Explain how the official Eufy app interprets login rejection 26108, while keeping account details private and preserving the existing no-retry behaviour.
+
 ## 0.1.184
 
 - Add experimental sensor-only support for the exact Baby Monitor E21 T8354, Mega type 86 in the `eufy_care` category. Home Assistant now creates separate transient crying and sound notification sensors without admitting video, audio, pictures, or controls.
