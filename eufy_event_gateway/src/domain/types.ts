@@ -273,11 +273,17 @@ export interface SecuritySensorState {
   readonly model: string;
   readonly deviceType: number;
   readonly available: boolean;
-  readonly capabilities: readonly ("battery" | "contact" | "lastSeen" | "motion" | "rssi")[];
+  readonly capabilities: readonly ("battery" | "contact" | "crying" | "lastSeen" | "motion" | "rssi" | "sound")[];
   readonly batteryLevel: number | null;
   readonly contactOpen: boolean | null;
   readonly lastSeen: string | null;
   readonly motionDetected: boolean;
+
+  /** A recent crying push was retained; false does not classify current audio. */
+  readonly cryingDetected?: boolean;
+
+  /** A recent sound push was retained; false does not classify current audio. */
+  readonly soundDetected?: boolean;
   readonly rssi: number | null;
 }
 

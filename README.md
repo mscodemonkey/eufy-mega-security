@@ -42,6 +42,8 @@ Saved event playback is available for the SoloCam E30 T8171, both standalone wit
 
 Supported child sensors receive validated contact and telemetry updates from the existing HomeBase refresh. While a requested HomeBase camera session is open, matching contact notifications can also update a known sensor without waiting for cloud push. This is passive observation, not an always-on sensor subscription. It doesn't open a connection, wake a sensor or change phone-notification settings.
 
+The exact Baby Monitor E21 T8354, Mega type 86 in the `eufy_care` category, has experimental sensor-only support for crying and sound notifications. The matching app and integration versions create those two entities automatically, and users can disable them in Home Assistant. They are transient relays for notifications already delivered to the configured account. An off state means only that no recent notification was retained. It does not classify live audio or prove that a child is not crying. These entities are not a safety, medical, or monitoring device and must not be the sole alert for a child. Video, audio, pictures and controls are not exposed. Actual E21 notification delivery still needs reporter confirmation.
+
 > [!IMPORTANT]
 > This is an early community project built against real EufyCam 2C, HomeBase 3, and Doorbell hardware. It is not affiliated with Anker or Eufy and should not be your only security system.
 
@@ -93,6 +95,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 - 🟠 Indoor Cam C220 T8W11C: Mega type 10010 is admitted as ready to test in v0.1.118. Inventory battery reads are reported. Live media is unavailable without a ready route. Hardware discovery, events and snapshots await confirmation. Type 10008 remains recognised only.
 - 🟠 Indoor Cam S350 T8416: discovery and Home Assistant entities are confirmed on direct Wi-Fi and T9000-attached setups. There is no normal live binding through T9000. The T8N00 owner-only RTC path requires the experimental options described below and remains hardware-unconfirmed. Privacy-mode control is not exposed.
 - 🟠 Indoor Cam E30 4K T8417: discovery and properties are confirmed. Direct media arrives, but live video remains blank and codec startup is unresolved. Events and snapshots still need confirmation.
+- 🟠 Baby Monitor E21 T8354: exact Mega type 86 in `eufy_care` is admitted only as an experimental crying and sound notification sensor. It has no gateway video, audio, picture, or control path. Hardware and cloud delivery await reporter confirmation.
 - ✅ eufyCam C37 T814X / T814XS: Mega type 10037 is confirmed through HomeBase 3. The standalone solar variant's type 10039 is confirmed for discovery, person events, fresh snapshots, and reliable live video.
 - 🟠 eufyCam T8111 original: discovery, Home Assistant entities, live video, and manual fresh snapshots are confirmed through HomeBase 3. Motion-driven event images still need confirmation.
 - ✅ eufyCam E330 Professional T8600: discovery, fresh snapshots, live video, motion events, and person events are confirmed through HomeBase 3. Sustained H.265 playback can stutter, and battery-shaped values are suppressed because this model is mains-powered.
@@ -157,6 +160,10 @@ and the gateway refreshes the inventory-backed readings every 60 seconds. The
 T8900 contact path is confirmed on installed hardware. T8910 motion pushes are
 confirmed through HomeBase 2 when notifications are enabled for the sensor in
 the active Eufy mode. Its inventory-backed last-seen value remains unconfirmed.
+The exact T8354/type 86 E21 also gets crying and sound notification entities.
+They follow the push receiver and expire after 10 seconds. Their off state says
+nothing about current nursery audio. They are not a child-safety monitor and
+must not be used as the sole alert.
 
 The integration also defines three Home Assistant actions for on-demand streaming:
 

@@ -42,6 +42,9 @@ export interface ProviderEvents {
   doorbell(serial: string, pressed: boolean): void;
   sensorContact(serial: string, open: boolean): void;
   sensorMotion(serial: string, detected: boolean): void;
+
+  /** Report one passive care-monitor notification without opening a media path. */
+  sensorDetection(serial: string, kind: "crying" | "sound", detected: boolean): void;
   snapshot(serial: string, data: Buffer, contentType: string): void;
   pushDiagnostic(diagnostic: PushDiagnostic): void;
   eventReceiverState(state: EventReceiverState): void;

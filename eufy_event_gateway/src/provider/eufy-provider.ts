@@ -27,6 +27,7 @@ import type { E30LockSettingChange, SmartLockState } from "../domain/types.js";
 import { runS100SirenTrial, S100SirenTrialError, type S100SirenFailureStage } from "./s100-siren-trial.js";
 import { E30LockProvider } from "./e30-lock-provider.js";
 import { E30LockError } from "./e30-lock-protocol.js";
+import { careMonitorPushKind, careMonitorSensorState } from "./care-monitor.js";
 import { NvrRtcSession } from "../stream/nvr-rtc-session.js";
 import { NvrTrialError, nvrTrialSensor, type NvrStateSummary } from "../stream/nvr-protocol.js";
 import { modelControlTrialActions, parseModelControlTrial, runModelControlTrial, type ModelControlRoute, type ModelControlTrial, type ModelControlTrialResult } from "./model-control-trials.js";
@@ -4141,6 +4142,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       event.eventType,
       event.pictureUrl !== null,
     );
+    const careKind = careMonitorPushKind(device, event.messageType, event.eventType);
+    if (careKind !== null) {
+      if (delivery.handleState) events.sensorDetection(event.cameraSerial, careKind, true);
+      return;
+    }
     if (delivery.retainPicture && isSupportedMegaCamera(device)) this.#queuePushSnapshot(events, event);
     if (!delivery.handleState) return;
     if ((device.deviceType === 2 || device.deviceType === 126) && event.eventType === 3 && event.sensorOpen !== null) {
@@ -4995,6 +5001,8 @@ export function resolveHomeBaseContactObservation(
 }
 
 function securitySensorState(device: MegaInventoryDevice): SecuritySensorState | null {
+  const careMonitor = careMonitorSensorState(device);
+  if (careMonitor) return careMonitor;
   const contact = device.paramTypes.includes(1550);
   const motion = device.deviceType === 10 || device.deviceType === 127;
   const battery = device.paramTypes.includes(1101);

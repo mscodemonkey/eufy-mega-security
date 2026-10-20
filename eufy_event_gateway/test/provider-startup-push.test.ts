@@ -451,7 +451,7 @@ function discoveryFixture(context: TestContext) {
   const intervals = context.mock.method(globalThis, "setInterval");
   const push = context.mock.method(MegaPushReceiver.prototype, "start", async () => undefined);
   context.mock.method(EufyProvider.prototype, "refreshStation", async () => { throw new Error("Offline station"); });
-  const observations = { publications: 0, motion: [] as string[] };
+  const observations = { publications: 0, motion: [] as string[], care: [] as string[] };
   const events = new Proxy({
     camera: (row: Parameters<ProviderEvents["camera"]>[0]) => { ++observations.publications; f.state.registerCamera(row); },
     sensor: (row: Parameters<ProviderEvents["sensor"]>[0]) => f.state.registerSensor(row),
@@ -460,9 +460,54 @@ function discoveryFixture(context: TestContext) {
     cameraCapabilities: (rows: Parameters<ProviderEvents["cameraCapabilities"]>[0]) => f.state.updateCameraCapabilities(rows),
     deviceCapabilities: (rows: Parameters<ProviderEvents["deviceCapabilities"]>[0]) => f.state.updateDeviceCapabilities(rows),
     sensorMotion: (serial: string) => observations.motion.push(serial),
+    sensorDetection: (serial: string, kind: "crying" | "sound", detected: boolean) => {
+      observations.care.push(`${serial}:${kind}:${detected}`);
+      f.state.recordSensorDetection(serial, kind, detected);
+    },
   }, { get: (target, key) => Reflect.get(target, key) ?? Reflect.get(f.events, key) }) as unknown as ProviderEvents;
   return { ...f, events, observations, intervals, push };
 }
+
+test("exact E21 pushes publish sensor flags before every media path", async (context) => {
+  const f = discoveryFixture(context);
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{
+    device_sn: "e21", device_name: "Nursery", device_model: "T8354",
+    device_type: 86, category: "eufy_care",
+  }] }));
+  let deliver!: (event: MegaPushEvent) => void;
+  context.mock.method(MegaPushReceiver.prototype, "start", async function(this: MegaPushReceiver) {
+    deliver = Reflect.get(this, "onEvent") as (event: MegaPushEvent) => void;
+  });
+  try {
+    await f.provider.start(f.events);
+    assert.equal(f.state.hasCamera("e21"), false);
+    assert.deepEqual(f.state.listSensors()[0]?.capabilities, ["crying", "sound"]);
+    assert.deepEqual(f.state.listDeviceCapabilities()[0]?.matrix.map(({ id }) => id), [
+      "sensor.crying_event", "sensor.sound_event",
+    ]);
+    const crying = parsePushEvent({ device_sn: "e21", payload: Buffer.from(JSON.stringify({
+      device_sn: "e21", msg_type: 18, a: 3104, unique_id: "cry-1", pic_url: "https://example.invalid/private.jpg",
+      file_path: "private/path", fetch_id: 42,
+    })).toString("base64") });
+    assert.ok(crying);
+    deliver(crying);
+    assert.deepEqual(f.observations.care, ["e21:crying:true"]);
+    assert.equal(f.state.listSensors()[0]?.cryingDetected, true);
+    assert.equal(f.network.mock.callCount(), 0);
+    const sound = parsePushEvent({ device_sn: "e21", payload: JSON.stringify({ msg_type: 18, a: 3105 }) });
+    assert.ok(sound);
+    deliver(sound);
+    deliver(sound);
+    assert.deepEqual(f.observations.care, ["e21:crying:true", "e21:sound:true", "e21:sound:true"]);
+    const wrongMessage = parsePushEvent({ device_sn: "e21", msg_type: 17, a: 3104 });
+    const wrongIdentity = parsePushEvent({ device_sn: "other", station_sn: "e21", msg_type: 18, a: 3104 });
+    const precedence = parsePushEvent({ device_sn: "e21", msg_type: 18, a: 3106, event_type: 3104 });
+    assert.ok(wrongMessage && wrongIdentity && precedence);
+    deliver(wrongMessage); deliver(wrongIdentity); deliver(precedence);
+    assert.equal(f.observations.care.length, 3);
+    assert.equal(f.network.mock.callCount(), 0);
+  } finally { await f.provider.close(); f.state.close(); }
+});
 
 /** Drain asynchronous callbacks without advancing station transport timers. */
 async function settleDiscovery(): Promise<void> {

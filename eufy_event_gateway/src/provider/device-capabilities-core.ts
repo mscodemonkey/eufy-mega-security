@@ -13,6 +13,7 @@ import type { CoreCapabilityEntry } from "./device-capability-core.js";
 import { DOORBELL_CAPABILITY_CORE } from "./doorbell-capability-core.js";
 import { HOMEBASE_CAPABILITY_CORE, HOMEBASE_DEVICE_TYPES } from "./homebase-capability-core.js";
 import { SENSOR_CAPABILITY_CORE, SENSOR_DEVICE_TYPES } from "./sensor-capability-core.js";
+import { CARE_MONITOR_CAPABILITY_ROWS, isCareBabyMonitor } from "./care-monitor.js";
 
 /** Inventory shape sufficient for baseline family recognition. */
 export interface CapabilityInventoryRow {
@@ -97,6 +98,18 @@ export function describeCameraCapabilities(device: CapabilityInventoryRow, optio
 
 /** Return one manifest for each recognized non-camera or doorbell family. */
 export function describeDeviceCapabilities(device: CapabilityInventoryRow, options: DeviceCapabilityOptions): DeviceCapabilityManifest[] {
+  if (isCareBabyMonitor(device)) {
+    return [{
+      serial: device.serial,
+      model: device.model,
+      deviceType: device.deviceType,
+      family: "sensor",
+      recognized: true,
+      supported: true,
+      matrix: CARE_MONITOR_CAPABILITY_ROWS,
+      unmappedParamCount: device.paramTypes.length,
+    }];
+  }
   if (device.category !== "eufy_security") return [];
   const manifests: DeviceCapabilityManifest[] = [];
   if (SENSOR_DEVICE_TYPES.has(device.deviceType ?? -1)) {

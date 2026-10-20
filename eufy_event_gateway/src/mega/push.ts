@@ -632,7 +632,18 @@ function nestedRecord(value: unknown): Record<string, unknown> | null {
     const parsed: unknown = JSON.parse(value);
     return isRecord(parsed) ? parsed : null;
   } catch {
-    return null;
+    const encoded = value.trim();
+    if (encoded.length === 0 || encoded.length > 87_384
+      || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) return null;
+    try {
+      const decoded = Buffer.from(encoded, "base64");
+      if (decoded.length === 0 || decoded.length > 65_536
+        || decoded.toString("base64") !== encoded) return null;
+      const parsed: unknown = JSON.parse(decoded.toString("utf8"));
+      return isRecord(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
   }
 }
 

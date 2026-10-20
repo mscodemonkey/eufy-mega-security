@@ -87,6 +87,7 @@ export class GatewayState extends EventEmitter {
   readonly #doorbellClearTimers = new Map<string, NodeJS.Timeout>();
   readonly #detectionClearTimers = new Map<string, NodeJS.Timeout>();
   readonly #sensorMotionClearTimers = new Map<string, NodeJS.Timeout>();
+  readonly #sensorDetectionClearTimers = new Map<string, NodeJS.Timeout>();
   #inventoryDiagnostics: InventoryDiagnostic[] = [];
   #cameraCapabilities: CameraCapabilityManifest[] = [];
   #deviceCapabilities: DeviceCapabilityManifest[] = [];
@@ -157,9 +158,23 @@ export class GatewayState extends EventEmitter {
   /** Add or replace one standalone security-sensor observation. */
   registerSensor(sensor: SecuritySensorState): SecuritySensorState {
     const existing = this.#sensors.get(sensor.serial);
+    const capabilities = new Set(sensor.capabilities);
+    for (const kind of ["crying", "sound"] as const) {
+      if (capabilities.has(kind)) continue;
+      const key = `${sensor.serial}:${kind}`;
+      const timer = this.#sensorDetectionClearTimers.get(key);
+      if (timer) clearTimeout(timer);
+      this.#sensorDetectionClearTimers.delete(key);
+    }
     const snapshot = structuredClone({
       ...sensor,
       motionDetected: existing?.motionDetected ?? sensor.motionDetected,
+      ...(capabilities.has("crying")
+        ? { cryingDetected: existing?.cryingDetected ?? sensor.cryingDetected ?? false }
+        : {}),
+      ...(capabilities.has("sound")
+        ? { soundDetected: existing?.soundDetected ?? sensor.soundDetected ?? false }
+        : {}),
     });
     this.#sensors.set(sensor.serial, snapshot);
     this.emit("event", { type: "sensor-updated", sensor: snapshot } satisfies GatewayEvent);
@@ -199,6 +214,27 @@ export class GatewayState extends EventEmitter {
     }, this.detectionHoldMilliseconds);
     timer.unref();
     this.#sensorMotionClearTimers.set(serial, timer);
+  }
+
+  /** Hold one passive care notification independently for the configured event window. */
+  recordSensorDetection(serial: string, kind: "crying" | "sound", detected: boolean): void {
+    const sensor = this.#sensors.get(serial);
+    if (!sensor || !sensor.capabilities.includes(kind)) return;
+    const key = `${serial}:${kind}`;
+    const existing = this.#sensorDetectionClearTimers.get(key);
+    if (existing) clearTimeout(existing);
+    this.#sensorDetectionClearTimers.delete(key);
+    const field = kind === "crying" ? "cryingDetected" : "soundDetected";
+    const snapshot = structuredClone({ ...sensor, [field]: detected });
+    this.#sensors.set(serial, snapshot);
+    this.emit("event", { type: "sensor-updated", sensor: structuredClone(snapshot) } satisfies GatewayEvent);
+    if (!detected) return;
+    const timer = setTimeout(() => {
+      this.#sensorDetectionClearTimers.delete(key);
+      this.recordSensorDetection(serial, kind, false);
+    }, this.detectionHoldMilliseconds);
+    timer.unref();
+    this.#sensorDetectionClearTimers.set(key, timer);
   }
 
   /** Return immutable snapshots for every known HomeBase. */
@@ -557,11 +593,13 @@ export class GatewayState extends EventEmitter {
     for (const timer of this.#doorbellClearTimers.values()) clearTimeout(timer);
     for (const timer of this.#detectionClearTimers.values()) clearTimeout(timer);
     for (const timer of this.#sensorMotionClearTimers.values()) clearTimeout(timer);
+    for (const timer of this.#sensorDetectionClearTimers.values()) clearTimeout(timer);
     this.#motionClearTimers.clear();
     this.#personClearTimers.clear();
     this.#doorbellClearTimers.clear();
     this.#detectionClearTimers.clear();
     this.#sensorMotionClearTimers.clear();
+    this.#sensorDetectionClearTimers.clear();
   }
 
   /** Keep the general motion flag active while any visual detection is active. */

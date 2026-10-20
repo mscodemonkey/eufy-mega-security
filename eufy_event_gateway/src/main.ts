@@ -232,6 +232,9 @@ const providerEvents: ProviderEvents = {
   sensorMotion(serial, detected) {
     state.recordSensorMotion(serial, detected);
   },
+  sensorDetection(serial, kind, detected) {
+    state.recordSensorDetection(serial, kind, detected);
+  },
   snapshot(serial, data, contentType) {
     if (!state.hasCamera(serial)) return;
     void snapshots.writeEvent(serial, data, contentType).then(({ eventImage, snapshot }) => {
