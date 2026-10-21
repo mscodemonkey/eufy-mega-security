@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.190
+
+- Fixed HomeBase 2 motion changes competing with live video. The gateway pauses media and holds reconnects until it confirms the setting.
+- Added limited recovery for lost live-view start packets, preserving the original request and reporting acknowledgement, retry and expiry counts.
+- Added a total motion-control deadline and matching Home Assistant timeout. Errors distinguish an unsent change from a result that needs checking before retrying.
+
 ## 0.1.189
 
 - Let the opt-in standalone C30 doorbell video test accept the bounded SCTP offer variant already used by Eufy's RTC clients. Normal Home Assistant live view remains disabled until the hardware trial succeeds.
