@@ -52,7 +52,7 @@ import { validateRecordingDate } from "./stream/stored-recordings.js";
 import { validateCloudHistoryQuery } from "./mega/cloud-history.js";
 import { CloudCalendarError, validateCloudCalendarQuery, type CloudCalendarQuery } from "./mega/cloud-calendar.js";
 import { waitingImage } from "./mega/waiting-image.js";
-import { LiveStreamManager } from "./stream/live-stream-manager.js";
+import { LiveStreamManager, type ViewerProfile } from "./stream/live-stream-manager.js";
 
 const logger = createLogger("gateway");
 const STREAM_TOKEN_LIFETIME_SECONDS = 10 * 60;
@@ -324,9 +324,12 @@ export class GatewayServer {
         const streamAuthorized =
           request.method === "GET" &&
           segments[1] === "cameras" &&
-          (segments[3] === "live.h264" || segments[3] === "live.ts") &&
+          (segments[3] === "live.h264" || segments[3] === "live.ts" || segments[3] === "live-native.annexb") &&
           segments.length === 4 &&
-          validateStreamToken(segments[2]!, url.searchParams.get("access_token"), this.config.apiToken);
+          (segments[3] === "live-native.annexb"
+            ? url.searchParams.getAll(STREAM_TOKEN_QUERY).length === 1
+              && validateNativeStreamToken(segments[2]!, url.searchParams.get(STREAM_TOKEN_QUERY), this.config.apiToken)
+            : validateStreamToken(segments[2]!, url.searchParams.get(STREAM_TOKEN_QUERY), this.config.apiToken));
         if (!streamAuthorized && !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) {
           return json(response, 401, generalTrial || generalPreparation ? { stage: "admission" } : { error: "Unauthorized" });
         }
@@ -1005,7 +1008,7 @@ export class GatewayServer {
         request.method === "POST" &&
         segments[0] === "api" && segments[1] === "cameras" && segments[3] === "stream-token" && segments.length === 4
       ) {
-        return this.#streamToken(segments[2]!, response);
+        return await this.#streamToken(request, segments[2]!, response);
       }
       if (
         request.method === "POST" &&
@@ -1034,9 +1037,9 @@ export class GatewayServer {
       if (
         request.method === "GET" &&
         segments[0] === "api" && segments[1] === "cameras"
-        && (segments[3] === "live.h264" || segments[3] === "live.ts") && segments.length === 4
+        && (segments[3] === "live.h264" || segments[3] === "live.ts" || segments[3] === "live-native.annexb") && segments.length === 4
       ) {
-        return await this.#live(segments[2]!, response, segments[3] === "live.ts");
+        return await this.#live(segments[2]!, response, segments[3] === "live.ts", segments[3] === "live-native.annexb" ? "native" : "compatible");
       }
       if (request.method === "GET" && url.pathname === "/api/events") return this.#events(request, response);
       if (request.method === "POST" && url.pathname === "/api/simulate/detection" && this.simulatedProvider) {
@@ -1414,7 +1417,7 @@ export class GatewayServer {
     response.end(image);
   }
 
-  async #live(serial: string, response: ServerResponse, transport = false): Promise<void> {
+  async #live(serial: string, response: ServerResponse, transport = false, profile: ViewerProfile = "compatible"): Promise<void> {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     if (!this.state.getCamera(serial).streamSupported) {
       return json(response, 409, { error: "This camera was discovered through push events only; livestream control is unavailable" });
@@ -1422,23 +1425,28 @@ export class GatewayServer {
     if (transport && !this.state.getCamera(serial).liveAudioSupported) {
       return json(response, 409, { error: "Live audio transport is unavailable for this camera" });
     }
-    logger.info("camera_media_request", `model=${safeCameraModel(this.state.getCamera(serial).model)} operation=live_view`);
+    logger.info("camera_media_request", `model=${safeCameraModel(this.state.getCamera(serial).model)} operation=${profile === "native" ? "live_view_native" : "live_view"}`);
     if (transport) await this.streams.addTransportClient(serial, response);
-    else await this.streams.addClient(serial, response);
+    else await this.streams.addClient(serial, response, profile);
   }
 
-  #streamToken(serial: string, response: ServerResponse): void {
+  async #streamToken(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
+    let profile: ViewerProfile | undefined;
+    try { profile = await readStreamProfile(request); }
+    catch { return json(response, 400, { error: "Invalid stream profile request" }); }
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     if (!this.state.getCamera(serial).streamSupported) {
       return json(response, 409, { error: "Livestream control is unavailable for this camera" });
     }
     const expiresAt = Math.floor(Date.now() / 1_000) + STREAM_TOKEN_LIFETIME_SECONDS;
     const token = this.config.apiToken
-      ? createStreamToken(serial, expiresAt, this.config.apiToken)
+      ? profile === "native" ? createNativeStreamToken(serial, expiresAt, this.config.apiToken)
+        : createStreamToken(serial, expiresAt, this.config.apiToken)
       : null;
-    const media = this.state.getCamera(serial).liveAudioSupported ? "live.ts" : "live.h264";
-    const path = `/api/cameras/${encodeURIComponent(serial)}/${media}${token ? `?access_token=${encodeURIComponent(token)}` : ""}`;
-    return json(response, 200, { path, expiresAt });
+    const media = profile === "native" ? "live-native.annexb" : this.state.getCamera(serial).liveAudioSupported ? "live.ts" : "live.h264";
+    const path = `/api/cameras/${encodeURIComponent(serial)}/${media}${token ? `?${STREAM_TOKEN_QUERY}=${encodeURIComponent(token)}` : ""}`;
+    if (profile === "native") response.setHeader("Cache-Control", "no-store");
+    return json(response, 200, { path, expiresAt, ...(profile ? { profile } : {}) });
   }
 
   async #captureSnapshot(serial: string, response: ServerResponse): Promise<void> {
@@ -1622,6 +1630,64 @@ async function readJson(request: IncomingMessage): Promise<Record<string, unknow
   const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new SyntaxError("Expected a JSON object");
   return parsed as Record<string, unknown>;
+}
+
+async function readStreamProfile(request: IncomingMessage): Promise<ViewerProfile | undefined> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += bytes.length;
+    if (size > 16_384) throw new SyntaxError("Invalid stream profile");
+    chunks.push(bytes);
+  }
+  if (size === 0) return undefined;
+  const text = Buffer.concat(chunks).toString("utf8");
+
+  // This endpoint accepts only a flat string map. Decode keys before checking
+  // duplicates so escaped spellings cannot override the selected profile.
+  const string = '"(?:[^"\\\\\\u0000-\\u001f]|\\\\(?:["\\\\/bfnrt]|u[0-9a-fA-F]{4}))*"';
+  const item = new RegExp(`\\s*(${string})\\s*:\\s*(${string})\\s*`, "y");
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) throw new SyntaxError("Invalid stream profile");
+  const body = trimmed.slice(1, -1);
+  if (!body.trim()) return undefined;
+  const fields = new Map<string, string>();
+  let offset = 0;
+  for (;;) {
+    item.lastIndex = offset;
+    const match = item.exec(body);
+    if (!match) throw new SyntaxError("Invalid stream profile");
+    const key = JSON.parse(match[1]!) as string;
+    if (fields.has(key)) throw new SyntaxError("Invalid stream profile");
+    fields.set(key, JSON.parse(match[2]!) as string);
+    offset = item.lastIndex;
+    if (offset === body.length) break;
+    if (body[offset++] !== "," || offset === body.length) throw new SyntaxError("Invalid stream profile");
+  }
+  if (fields.size !== 1 || !fields.has("profile")) throw new SyntaxError("Invalid stream profile");
+  const profile = fields.get("profile");
+  if (profile !== "native" && profile !== "compatible") throw new SyntaxError("Invalid stream profile");
+  return profile;
+}
+
+const STREAM_TOKEN_QUERY = "access_token";
+
+/** Sign a native-only camera URL with a key separated from compatible tokens. */
+export function createNativeStreamToken(serial: string, expiresAt: number, apiToken: string): string {
+  const key = createHmac("sha256", apiToken).update("eufy-stream-native-v1").digest();
+  const signature = createHmac("sha256", key).update(JSON.stringify([serial, expiresAt])).digest("base64url");
+  return `native.${expiresAt}.${signature}`;
+}
+
+/** Reject malformed, expired or cross-profile native signatures using a testable clock. */
+export function validateNativeStreamToken(serial: string, token: string | null, apiToken: string,
+  nowSeconds = Math.floor(Date.now() / 1000)): boolean {
+  const match = token?.match(/^native\.(0|[1-9][0-9]{0,15})\.([A-Za-z0-9_-]{43})$/);
+  if (!match) return false;
+  const expiry = Number(match[1]);
+  return Number.isSafeInteger(expiry) && expiry >= nowSeconds && expiry <= nowSeconds + STREAM_TOKEN_MAX_FUTURE_SECONDS
+    && equalSecret(token!, createNativeStreamToken(serial, expiry, apiToken));
 }
 
 function safeError(error: unknown): string {

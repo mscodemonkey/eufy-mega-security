@@ -118,8 +118,12 @@ export interface ViewerDeliverySummary {
   readonly maximumClientWritableBytes: number;
 }
 
+/** Selects existing H.264 compatibility conversion or unchanged source video for one viewer. */
+export type ViewerProfile = "compatible" | "native";
+
 /** Privacy-safe delivery evidence captured when one HTTP viewer disconnects. */
 export interface ViewerClientSummary {
+  readonly profile: ViewerProfile;
   readonly model: string;
   readonly sourceCodec: VideoCodec | null;
   readonly sourceActive: boolean;
@@ -136,6 +140,8 @@ export interface ViewerClientSummary {
 }
 
 interface ViewerClientDelivery {
+  readonly profile: ViewerProfile;
+  startedCodec: VideoCodec | null;
   readonly requestedAtMilliseconds: number;
   deliveryStarted: boolean;
   firstWriteAtMilliseconds: number | null;
@@ -539,12 +545,14 @@ export class LiveStreamManager extends EventEmitter {
   }
 
   /** Attach an HTTP viewer, starting the shared provider source if needed. */
-  async addClient(serial: string, response: VideoViewerResponse): Promise<void> {
+  async addClient(serial: string, response: VideoViewerResponse, profile: ViewerProfile = "compatible"): Promise<void> {
     const session = this.#session(serial);
     this.#assertShareable(session);
     this.#cancelStop(session);
     session.clients.add(response);
     session.clientDeliveries.set(response, {
+      profile,
+      startedCodec: null,
       requestedAtMilliseconds: performance.now(),
       deliveryStarted: false,
       firstWriteAtMilliseconds: null,
@@ -558,11 +566,11 @@ export class LiveStreamManager extends EventEmitter {
 
     // A viewer joining a running source starts from the current keyframe so it
     // shows a picture now instead of waiting for the camera's next one.
-    const viewerParameterSets = sourceCodec === "h265" ? session.viewerParameterSets : session.parameterSets;
+    const viewerParameterSets = sourceCodec === "h265" && profile === "compatible" ? session.viewerParameterSets : session.parameterSets;
     const viewerBootstrap = viewerParameterSets.bootstrap && viewerParameterSets.startupIncludesLatest
       ? viewerParameterSets.startup ?? viewerParameterSets.bootstrap
       : viewerParameterSets.bootstrap;
-    const viewerCodec = sourceCodec === "h265" ? "h264" : sourceCodec;
+    const viewerCodec = sourceCodec === "h265" && profile === "compatible" ? "h264" : sourceCodec;
 
     // Headers retained from a stopped source belong to its old encoding session.
     // Wait for the replacement source instead of sending two HTTP header blocks.
@@ -571,7 +579,7 @@ export class LiveStreamManager extends EventEmitter {
     } else {
       session.pendingClients.add(response);
       const startup = session.parameterSets.startup;
-      if (sourceCodec === "h265" && startup && !session.viewerFfmpeg) {
+      if (profile === "compatible" && sourceCodec === "h265" && startup && !session.viewerFfmpeg) {
         this.#startViewerTranscoder(serial, session, startup);
       }
     }
@@ -854,11 +862,19 @@ export class LiveStreamManager extends EventEmitter {
       session.parameterSets.push(chunk, codecHint());
       const bootstrap = session.parameterSets.bootstrap;
       const codec = session.parameterSets.codec;
-      const needsStartup = (!session.suppressSnapshots && !session.ffmpeg) || (session.pendingClients.size > 0 && !(codec === "h265" && session.viewerFfmpeg))
-        || (codec === "h265" && session.clients.size > 0 && (!session.viewerFfmpeg
+      const compatibleClients = this.#profileClients(session, "compatible");
+      const pendingNative = [...session.pendingClients].some(client => session.clientDeliveries.get(client)?.profile === "native");
+      const pendingCompatible = [...session.pendingClients].some(client => session.clientDeliveries.get(client)?.profile === "compatible");
+      const needsStartup = (!session.suppressSnapshots && !session.ffmpeg) || pendingNative
+        || (pendingCompatible && !(codec === "h265" && session.viewerFfmpeg))
+        || (codec === "h265" && compatibleClients.length > 0 && (!session.viewerFfmpeg
           || this.#shouldRestartViewerTranscoder(session)));
       const startup = needsStartup ? session.parameterSets.startup : null;
       if (bootstrap && codec) {
+        for (const client of this.#profileClients(session, "native")) {
+          const previous = session.clientDeliveries.get(client)?.startedCodec;
+          if (previous && previous !== codec) { client.end(); this.#removeClient(serial, client); }
+        }
         let snapshotStarted = false;
         if (!session.suppressSnapshots && !session.ffmpeg && startup) {
           session.ffmpeg = this.#startSnapshotExtractor(serial, codec);
@@ -867,10 +883,10 @@ export class LiveStreamManager extends EventEmitter {
         }
         if (codec === "h265") {
           let transcoderSeeded = false;
-          if (session.clients.size > 0 && !session.viewerFfmpeg && startup) {
+          if (compatibleClients.length > 0 && !session.viewerFfmpeg && startup) {
             this.#startViewerTranscoder(serial, session, startup);
             transcoderSeeded = session.parameterSets.startupIncludesLatest;
-          } else if (session.viewerFfmpeg && startup && this.#shouldRestartViewerTranscoder(session)) {
+          } else if (compatibleClients.length > 0 && session.viewerFfmpeg && startup && this.#shouldRestartViewerTranscoder(session)) {
             this.#restartViewerTranscoder(serial, session, startup);
             transcoderSeeded = session.parameterSets.startupIncludesLatest;
           }
@@ -878,14 +894,11 @@ export class LiveStreamManager extends EventEmitter {
           // The cached decoder start already ends with this chunk, so writing it
           // again would feed FFmpeg the same keyframe twice.
           if (!transcoderSeeded) this.#writeViewerTranscoderInput(session, chunk);
+          this.#writeViewerChunk(session, chunk, "native");
+          if (startup) this.#startPendingClients(session, codec, startup, "native");
         } else {
           this.#writeViewerChunk(session, chunk);
-          for (const client of session.pendingClients) {
-            if (session.clients.has(client) && startup) {
-              this.#startClient(session, client, codec, startup);
-            }
-          }
-          if (startup) session.pendingClients.clear();
+          if (startup) this.#startPendingClients(session, codec, startup);
         }
         if (!snapshotStarted && session.ffmpeg?.stdin.writable) session.ffmpeg.stdin.write(chunk);
       }
@@ -933,7 +946,7 @@ export class LiveStreamManager extends EventEmitter {
     session.clients.delete(response);
     session.pendingClients.delete(response);
     this.#emitViewerClientSummary(session, response);
-    if (session.clients.size === 0) this.#stopViewerTranscoder(session);
+    if (this.#profileClients(session, "compatible").length === 0) this.#stopViewerTranscoder(session);
     this.#updateState(serial, session);
     this.#scheduleStopIfUnused(serial, session);
   }
@@ -1139,14 +1152,35 @@ export class LiveStreamManager extends EventEmitter {
     }
     session.viewerClientStarts += 1;
     const delivery = session.clientDeliveries.get(response);
-    if (delivery) delivery.deliveryStarted = true;
+    if (delivery) { delivery.deliveryStarted = true; delivery.startedCodec = codec; }
     const accepted = response.write(bootstrap);
     this.#recordViewerClientWrite(session, response, bootstrap.length, accepted);
   }
 
-  #writeViewerChunk(session: Session, chunk: Buffer): void {
+  #profileClients(session: Session, profile: ViewerProfile): VideoViewerResponse[] {
+    return [...session.clients].filter(client => session.clientDeliveries.get(client)?.profile === profile);
+  }
+
+  #startPendingClients(session: Session, codec: VideoCodec, startup: Buffer, profile?: ViewerProfile): void {
+    for (const client of [...session.pendingClients]) {
+      if (profile && session.clientDeliveries.get(client)?.profile !== profile) continue;
+      if (session.clients.has(client)) this.#startClient(session, client, codec, startup);
+      session.pendingClients.delete(client);
+    }
+  }
+
+  #failCompatibleClients(serial: string, session: Session, error: Error): void {
+    for (const client of this.#profileClients(session, "compatible")) {
+      client.destroy(error);
+      this.#removeClient(serial, client);
+    }
+    this.#updateState(serial, session, session.clients.size ? null : error.message);
+  }
+
+  #writeViewerChunk(session: Session, chunk: Buffer, profile?: ViewerProfile): void {
     let delivered = false;
     for (const client of session.clients) {
+      if (profile && session.clientDeliveries.get(client)?.profile !== profile) continue;
       if (session.pendingClients.has(client)) continue;
       delivered = true;
       session.viewerClientWrites += 1;
@@ -1202,12 +1236,9 @@ export class LiveStreamManager extends EventEmitter {
       session.viewerParameterSets.push(chunk, "h264");
       const bootstrap = session.viewerParameterSets.bootstrap;
       if (bootstrap) {
-        for (const client of session.pendingClients) {
-          if (session.clients.has(client)) this.#startClient(session, client, "h264", bootstrap);
-        }
-        session.pendingClients.clear();
+        this.#startPendingClients(session, "h264", bootstrap, "compatible");
       }
-      this.#writeViewerChunk(session, chunk);
+      this.#writeViewerChunk(session, chunk, "compatible");
     });
     process.stderr.on("data", (chunk: Buffer) => {
       this.emit("ffmpeg-error", `pipeline=viewer ${chunk.toString("utf8").trim()}`);
@@ -1218,20 +1249,14 @@ export class LiveStreamManager extends EventEmitter {
     process.once("error", (error) => {
       if (session.generation !== generation || session.viewerFfmpeg !== process) return;
       session.viewerFfmpeg = null;
-      for (const client of session.clients) client.destroy(error);
-      session.clients.clear();
-      session.pendingClients.clear();
-      this.#updateState(serial, session, error.message);
+      this.#failCompatibleClients(serial, session, error);
     });
     process.once("close", (code) => {
       if (session.generation !== generation || session.viewerFfmpeg !== process) return;
       this.#emitViewerTranscoderSummary(session);
       session.viewerFfmpeg = null;
       const error = new Error(`H.265 viewer fallback exited with status ${code ?? "unknown"}`);
-      for (const client of session.clients) client.destroy(error);
-      session.clients.clear();
-      session.pendingClients.clear();
-      this.#updateState(serial, session, error.message);
+      this.#failCompatibleClients(serial, session, error);
     });
     this.#writeViewerTranscoderInput(session, startup);
   }
@@ -1371,6 +1396,7 @@ export class LiveStreamManager extends EventEmitter {
     session.clientDeliveries.delete(response);
     const now = performance.now();
     const summary: ViewerClientSummary = {
+      profile: delivery.profile,
       model: session.model,
       sourceCodec: session.parameterSets.codec,
       sourceActive: session.source !== null,

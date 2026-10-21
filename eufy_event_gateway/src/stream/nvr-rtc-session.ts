@@ -13,6 +13,7 @@ import type { VideoCodec } from "../domain/types.js";
 import { NvrPtcsReassembler, type NvrPtcsReassemblyStats } from "./nvr-ptcs-reassembly.js";
 import { VideoParameterSetCache } from "./live-stream-manager.js";
 import { installNvrIceTiming } from "./nvr-ice-timing.js";
+import { installNvrIceGathering } from "./nvr-ice-gathering.js";
 import { NvrPowerError, type NvrCameraPower } from "../provider/nvr-power-trial.js";
 import { NvrGuardError } from "../provider/nvr-guard-trial.js";
 import type { NvrGuardEffective } from "../provider/nvr-guard-schedule.js";
@@ -39,8 +40,20 @@ export interface NvrRtcDependencies {
   readonly peer: (servers: RTCIceServer[]) => RTCPeerConnection;
 }
 
+/** Relative monotonic startup milestones. Missing stages remain null on failure. */
+export interface NvrTimings {
+  readonly offer: number | null;
+  readonly firstLocalCandidate: number | null;
+  readonly answerSent: number | null;
+  readonly channelOpen: number | null;
+  readonly mediaRequest: number | null;
+  readonly firstVideo: number | null;
+}
+
 /** The provider verifies this binding before and throughout the trial. */
 export interface NvrRtcOptions {
+  /** Receives one immutable live-start summary on close, never state/control queries. */
+  readonly onTimings?: (timings: NvrTimings) => void;
   readonly station: string;
   readonly camera: string;
   readonly channel: number;
@@ -115,6 +128,11 @@ export interface NvrRtcStats {
  * the lease. All externally visible errors have fixed diagnostic stages.
  */
 export class NvrRtcSession {
+  #startInvoked = false;
+  #timingsEmitted = false;
+  readonly #timings: { -readonly [Key in keyof NvrTimings]: NvrTimings[Key] } = {
+    offer: null, firstLocalCandidate: null, answerSent: null, channelOpen: null, mediaRequest: null, firstVideo: null,
+  };
   readonly output = new PassThrough({ highWaterMark: 4 * 1024 * 1024 + 64 });
   readonly stats: NvrRtcStats = { packets: 0, frames: 0, video: 0, controlPackets: 0, rejected: 0,
     segmentNotEchoed: 0, staleReplies: 0, ignoredAudio: 0, ignoredUnknownMedia: 0,
@@ -202,6 +220,15 @@ export class NvrRtcSession {
   /** Report only a checked codec, never a model-derived guess. */
   get codec(): VideoCodec | null { return this.#codec; }
 
+  /** Return a detached frozen snapshot, containing no session or candidate identity. */
+  get timings(): NvrTimings { return Object.freeze({ ...this.#timings }); }
+
+  #markTiming(stage: keyof NvrTimings): void {
+    if (this.#startInvoked && this.#started && this.#timings[stage] === null) {
+      this.#timings[stage] = Math.round(Math.max(0, performance.now() - this.#lifetimeStartedAt));
+    }
+  }
+
   /** Remaining owned lifetime, including negotiation. Callers cannot extend it. */
   get remainingLifetimeMilliseconds(): number {
     return this.#started && !this.#retired ? Math.max(0, this.#maximumLifetimeMilliseconds - (performance.now() - this.#lifetimeStartedAt)) : 0;
@@ -211,6 +238,7 @@ export class NvrRtcSession {
   async start(): Promise<void> {
     if (this.options.powerTrial || this.options.guardTrial) throw this.options.guardTrial
       ? new NvrGuardError("admission") : new NvrPowerError("admission");
+    this.#startInvoked = true;
     await this.#connectAndDiscover();
     this.options.ready(this.output, () => this.#codec);
     this.#stage = "start";
@@ -530,6 +558,10 @@ export class NvrRtcSession {
 
   /** Attempt stream stop and deterministically retire the original connection. */
   close(): Promise<void> {
+    if (!this.#timingsEmitted && this.#startInvoked) {
+      this.#timingsEmitted = true;
+      try { this.options.onTimings?.(this.timings); } catch { /* Diagnostics must never prevent retirement. */ }
+    }
     if (this.#closing) return this.#closing;
     this.#livePending?.reject(new NvrLiveControlError("outcome_unknown", "dispatch"));
     this.#retired = true;
@@ -641,12 +673,14 @@ export class NvrRtcSession {
     } else if (data.format === "SDP") {
       if (!this.#accepted || this.#peer) throw new NvrTrialError("negotiation", "offer_order");
       const offer = nvrOffer(data.value); this.#mid = offer.mid; this.#stage = "negotiation";
+      this.#markTiming("offer");
       let peer: RTCPeerConnection;
       try { peer = this.#peer = this.dependencies.peer(this.#turn); }
       catch { throw new NvrTrialError("negotiation", "peer_setup"); }
       peer.connectionStateChange.subscribe(state => { if (state === "failed" || state === "disconnected") this.#fail("negotiation", state === "failed" ? "peer_failed" : "peer_disconnected"); });
       peer.onIceCandidate.subscribe(candidate => {
         if (!candidate?.candidate || this.#retired) return;
+        this.#markTiming("firstLocalCandidate");
         if (this.#localCandidates.size + this.#sentCandidates.size >= 64) { this.#fail("negotiation", "local_candidate_limit"); return; }
         if (this.#sentCandidates.has(candidate.candidate) || this.#localCandidates.has(candidate.candidate)) return;
         if (Buffer.byteLength(candidate.candidate) > 8192 || (this.#localCandidateBytes += Buffer.byteLength(candidate.candidate)) > 65536) { this.#fail("negotiation", "local_candidate_limit"); return; }
@@ -657,13 +691,14 @@ export class NvrRtcSession {
       await this.#step("peer_setup", () => {
         for (const label of ["WebrtcDataChannel", "audio", "idr", "video", "notify", "download"]) this.#attach(peer.createDataChannel(label));
         installNvrIceTiming(peer, this.#negotiation.signal);
+        installNvrIceGathering(peer, this.#negotiation.signal);
       });
       await this.#step("remote_description", () => peer.setRemoteDescription(new RTCSessionDescription(offer.sdp, "offer"))); this.#guard();
       this.#offerApplied = true;
       for (const candidate of this.#pendingCandidates.splice(0)) await this.#candidate(candidate);
       const answer = await this.#step("create_answer", () => peer.createAnswer()); this.#guard();
       await this.#step("local_description", () => peer.setLocalDescription(answer)); this.#guard();
-      await this.#step("send_answer", () => { this.#action("info", { sdp: peer.localDescription!.sdp }); this.#answerSent = true; this.#flushLocal(); });
+      await this.#step("send_answer", () => { this.#action("info", { sdp: peer.localDescription!.sdp }); this.#markTiming("answerSent"); this.#answerSent = true; this.#flushLocal(); });
     }
   }
 
@@ -696,6 +731,7 @@ export class NvrRtcSession {
     this.#channels.set(channel.label, channel);
     channel.onopen = () => {
       if (this.#retired || channel.label !== "WebrtcDataChannel") return;
+      this.#markTiming("channelOpen");
       try {
         this.#guard(); channel.send(nvrHeartbeat());
         this.#heartbeat = setInterval(() => { try { this.#guard(); channel.send(nvrHeartbeat()); } catch { this.#fail("channel"); } }, 10_000);
@@ -792,6 +828,7 @@ export class NvrRtcSession {
         if (!startup) return;
         this.#bootstrapped = true;
         if (this.#firstFrame) clearTimeout(this.#firstFrame);
+        this.#markTiming("firstVideo");
         if (!this.output.write(startup)) throw new NvrTrialError("video");
       } else if (!this.output.write(video.bytes)) throw new NvrTrialError("video");
       return;
@@ -872,6 +909,7 @@ export class NvrRtcSession {
       if (command === 1003) this.#startSent = true;
       try {
         for (const packet of nvrPackets(nvrCommand(this.options.administrator, command, segment, this.options.channel, this.options.sensor ?? 1), this.#outSequence++ % 65536, Date.now())) channel.send(packet);
+        if (command === 1003) this.#markTiming("mediaRequest");
       } catch { clearTimeout(timer); this.#pending = null; reject(new NvrTrialError(this.#stage)); }
     });
   }

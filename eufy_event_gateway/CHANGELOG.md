@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.192
+
+- NVR live view can send its connection answer while candidate gathering continues, reducing time spent waiting for slow discovery. Late relay candidates remain eligible, pending relay work is cancelled on shutdown, and the camera stop request keeps its established connection until completion. Local connection and relay tests pass. Real NVR startup latency and late-candidate acceptance still need hardware confirmation.
+- Add an optional native video profile in the Home Assistant integration. It shares original H.264 or H.265 video without the H.264 compatibility conversion. The option is off by default and video only. HLS and get_stream_url share the selected source, H.265 playback depends on the client, and turning the option off restores compatible video and audio.
+- Isolate native and compatible viewers so conversion failures and client disconnects do not terminate the other profile. Native URLs use separate camera-scoped signatures, and startup timing logs contain no connection identities.
+
 ## 0.1.191
 
 - Let the existing opt-in standalone C30 doorbell video setting enable normal Home Assistant live view for the exact T8224/type 96 route. Diagnostic playback is reporter-confirmed, while normal-view startup and reopening still need physical confirmation.

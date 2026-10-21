@@ -433,9 +433,11 @@
         "title": "Playback test options",
         "description": "Experimental options apply to this integration. Saving reloads its cameras.",
         "data": {
+          "experimental_native_video": "Try native camera video (video only)",
           "experimental_short_hls_idle": "Try a 60-second HLS idle timeout"
         },
         "data_description": {
+          "experimental_native_video": "Off by default. Sends the original H.264 or H.265 video without compatibility conversion. Video only, including for cameras with audio. H.265 browser support varies. HLS and get_stream_url use this source too. There is no automatic fallback. Switch this off to restore compatible video and audio.",
           "experimental_short_hls_idle": "Off by default. Stops unused HA live-view output sooner, using viewer requests. Turn off camera preload for this test. Recordings keep their own timeout. Very slow initial streams may need this option switched off again."
         }
       }

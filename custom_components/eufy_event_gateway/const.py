@@ -52,3 +52,5 @@ ALARM_TONES = {
 
 # Entry-wide opt-in, consumed only when Home Assistant creates an HLS provider.
 CONF_SHORT_HLS_IDLE = "experimental_short_hls_idle"
+
+CONF_NATIVE_VIDEO = "experimental_native_video"

@@ -313,6 +313,8 @@ options:
       title: Testindstillinger for afspilning
       description: Eksperimentelle indstillinger gælder for denne integration. Når du gemmer, genindlæses kameraerne.
       data:
+        experimental_native_video: Prøv kameraets originale video (kun video)
         experimental_short_hls_idle: Prøv en HLS-inaktivitetstimeout på 60 sekunder
       data_description:
+        experimental_native_video: Slået fra som standard. Sender original H.264- eller H.265-video uden kompatibilitetskonvertering. Kun video, også for kameraer med lyd. Browserunderstøttelse af H.265 varierer. HLS og get_stream_url bruger også denne kilde. Der er intet automatisk tilbagefald. Slå indstillingen fra for at gendanne kompatibel video og lyd.
         experimental_short_hls_idle: Slået fra som standard. Afslutter ubrugt livevisning i HA tidligere baseret på seerforespørgsler. Slå kameraets forudindlæsning fra under testen. Optagelser beholder deres egen timeout. Ved meget langsom opstart kan det være nødvendigt at slå indstillingen fra igen.

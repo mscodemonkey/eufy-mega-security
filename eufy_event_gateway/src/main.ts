@@ -166,6 +166,7 @@ streams.on("viewer-client-stopped", (detail: ViewerClientSummary) => {
     [
       `Viewer client stopped: model=${detail.model}`,
       `codec=${detail.sourceCodec ?? "unknown"}`,
+      `profile=${detail.profile}`,
       `source_active=${detail.sourceActive}`,
       `delivery_started=${detail.deliveryStarted}`,
       `duration_ms=${detail.durationMilliseconds}`,

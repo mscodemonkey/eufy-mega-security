@@ -25,7 +25,7 @@ from homeassistant.helpers.selector import (
 from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 
 from .client import GatewayAuthenticationError, GatewayClient, GatewayClientError
-from .const import CONF_API_TOKEN, CONF_SHORT_HLS_IDLE, DOMAIN
+from .const import CONF_API_TOKEN, CONF_SHORT_HLS_IDLE, CONF_NATIVE_VIDEO, DOMAIN
 
 
 class EufyGatewayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -185,7 +185,7 @@ class EufyGatewayOptionsFlow(config_entries.OptionsFlowWithReload):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Offer a reversible, default-off shorter HLS idle timeout."""
+        """Offer reversible playback trials and reload the selected camera profiles."""
         if user_input is not None:
             return self.async_create_entry(
                 title="", data={**self.config_entry.options, **user_input}
@@ -193,6 +193,10 @@ class EufyGatewayOptionsFlow(config_entries.OptionsFlowWithReload):
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
+                vol.Optional(
+                    CONF_NATIVE_VIDEO,
+                    default=self.config_entry.options.get(CONF_NATIVE_VIDEO, False),
+                ): bool,
                 vol.Optional(
                     CONF_SHORT_HLS_IDLE,
                     default=self.config_entry.options.get(CONF_SHORT_HLS_IDLE, False),

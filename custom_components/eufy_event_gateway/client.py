@@ -12,7 +12,7 @@ from __future__ import annotations
 import calendar
 import json
 import re
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit, unquote, parse_qsl
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -389,12 +389,43 @@ class GatewayClient:
         except (ClientError, TimeoutError) as error:
             raise GatewayClientError(str(error)) from error
 
-    async def stream_url(self, serial: str) -> str:
-        """Create a short-lived video or audio/video URL without exposing the bearer token."""
-        payload = await self._json(f"/api/cameras/{serial}/stream-token", method="POST")
-        path = payload.get("path")
-        if not isinstance(path, str) or not path.startswith("/"):
-            raise GatewayClientError("Gateway returned an invalid stream path")
+    async def stream_url(self, serial: str, *, native: bool = False) -> str:
+        """Create a signed viewer URL, validating the opt-in native boundary.
+
+        Compatible calls preserve the existing request and response behavior.
+        Native responses fail closed when an older gateway ignores the profile.
+        """
+        if not native:
+            payload = await self._json(f"/api/cameras/{serial}/stream-token", method="POST")
+            path = payload.get("path")
+            if not isinstance(path, str) or not path.startswith("/"):
+                raise GatewayClientError("Gateway returned an invalid stream path")
+            return self._url(path)
+        try:
+            payload = await self._json(
+                f"/api/cameras/{quote(serial, safe='')}/stream-token", method="POST",
+                payload={"profile": "native"},
+            )
+            if not isinstance(payload, dict) or payload.get("profile") != "native":
+                raise ValueError
+            path = payload.get("path")
+            if not isinstance(path, str) or "\\" in path or "//" in path or ".." in path:
+                raise ValueError
+            parts = urlsplit(path)
+            if parts.scheme or parts.netloc or parts.fragment or re.search(r"%(?![0-9a-fA-F]{2})", parts.path):
+                raise ValueError
+            segments = [unquote(segment, errors="strict") for segment in parts.path.split("/")]
+            if segments != ["", "api", "cameras", serial, "live-native.annexb"]:
+                raise ValueError
+            query = parse_qsl(parts.query, keep_blank_values=True, strict_parsing=True) if parts.query else []
+            if len(query) > 1 or any(key != "access_token" for key, _ in query):
+                raise ValueError
+            if self._headers and not query:
+                raise ValueError
+            if query and re.fullmatch(r"native\.(0|[1-9][0-9]{0,15})\.[A-Za-z0-9_-]{43}", query[0][1]) is None:
+                raise ValueError
+        except (ValueError, TypeError, AttributeError, GatewayClientError):
+            raise GatewayClientError("Gateway returned an invalid native stream response") from None
         return self._url(path)
 
     async def capture_snapshot(self, serial: str) -> None:

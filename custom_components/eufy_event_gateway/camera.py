@@ -43,7 +43,7 @@ from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity
-from .const import CONF_SHORT_HLS_IDLE, DOMAIN
+from .const import CONF_SHORT_HLS_IDLE, CONF_NATIVE_VIDEO, DOMAIN
 
 if TYPE_CHECKING:
     from homeassistant.components.stream import Stream
@@ -110,6 +110,7 @@ async def async_setup_entry(
                 EufyGatewayCamera(
                     coordinator, serial,
                     short_hls_idle=entry.options.get(CONF_SHORT_HLS_IDLE) is True,
+                    native_video=entry.options.get(CONF_NATIVE_VIDEO) is True,
                 )
                 for serial in sorted(serials)
             ]
@@ -182,14 +183,15 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
 
     def __init__(
         self, coordinator: EufyGatewayCoordinator, serial: str,
-        *, short_hls_idle: bool = False,
+        *, short_hls_idle: bool = False, native_video: bool = False,
     ) -> None:
-        """Create an entity, optionally shortening only its HA HLS idle timer."""
+        """Bind playback options for this entity until the next entry reload."""
         EufyGatewayEntity.__init__(self, coordinator, serial)
         Camera.__init__(self)
         self._attr_unique_id = f"{serial}_camera"
         self._published_snapshot_revision = self._snapshot_revision
         self._short_hls_idle = short_hls_idle
+        self._native_video = native_video
         self._hls_idle_stream: Stream | None = None
         self._stream_source_refreshing = False
         self._cloud_metadata_busy = False
@@ -197,7 +199,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         # Raw Annex-B needs arrival timestamps. MPEG-TS already supplies a
         # shared video/audio clock, which must survive Home Assistant's remux.
         self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = (
-            self.camera.get("liveAudioSupported") is not True
+            self._native_video or self.camera.get("liveAudioSupported") is not True
         )
 
     async def async_list_cloud_recordings(self, day: str) -> dict[str, Any]:
@@ -252,7 +254,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
             self._stream_source_refreshing = True
             try:
                 source = await asyncio.wait_for(
-                    self.coordinator.client.stream_url(self.serial),
+                    self._async_stream_url(),
                     timeout=CAMERA_STREAM_SOURCE_TIMEOUT,
                 )
                 if self.hass is not None and self.stream is stream:
@@ -311,7 +313,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
             return
         self._stream_source_refreshing = True
         try:
-            source = await self.coordinator.client.stream_url(self.serial)
+            source = await self._async_stream_url()
             if self.hass is not None and self.stream is stream and (
                 stream.outputs() or stream.dynamic_stream_settings.preload_stream
             ):
@@ -455,8 +457,14 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         # reads these options after obtaining this source, so choose its clock
         # from the same current capability that selects the gateway transport.
         self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = (
-            self.camera.get("liveAudioSupported") is not True
+            self._native_video or self.camera.get("liveAudioSupported") is not True
         )
+        return await self._async_stream_url()
+
+    async def _async_stream_url(self) -> str:
+        """Select the same source profile for initial open and both renewals."""
+        if self._native_video:
+            return await self.coordinator.client.stream_url(self.serial, native=True)
         return await self.coordinator.client.stream_url(self.serial)
 
     async def async_get_stream_url(self) -> dict[str, str]:

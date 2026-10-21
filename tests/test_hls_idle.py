@@ -29,13 +29,14 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
                       and n.name == "async_create_stream")
         base = type("CameraBase", (), {"async_create_stream": AsyncMock()})
         cls = ast.ClassDef(name="TestCamera", bases=[ast.Name(id="CameraBase", ctx=ast.Load())],
-                           keywords=[], body=[method], decorator_list=[])
+                           keywords=[], body=[method, next(n for n in camera.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "_async_stream_url")], decorator_list=[])
         module = ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[]))
         namespace = {"CameraBase": base, "Stream": object, "StreamOutput": object, "GatewayClientError": RuntimeError, "_LOGGER": Mock(), "asyncio": asyncio, "CAMERA_STREAM_SOURCE_TIMEOUT": 0.02}
         exec(compile(module, str(SOURCE), "exec"), namespace)
         self.base = base
         self.camera = namespace["TestCamera"]()
         self.camera._short_hls_idle = True
+        self.camera._native_video = False
         self.camera._hls_idle_stream = None
         self.camera._stream_source_refreshing = False
         self.original = Mock(return_value=SimpleNamespace(idle_timer=Mock()))

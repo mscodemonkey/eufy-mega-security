@@ -672,6 +672,26 @@ implementation limit may cancel an unusually slow connection before it can
 return a full clip. It is not a measured hardware performance guarantee.
 Trial footage is excluded from retained snapshots and diagnostic media capture.
 
+### Optional native camera video
+
+In **Settings → Devices & services → Eufy Mega Security → Configure**, enable
+**Try native camera video (video only)** to share the original H.264 or H.265
+video with Home Assistant. This option is off by default. Saving reloads the
+integration. Native H.265 avoids the gateway's H.264 compatibility conversion.
+Home Assistant's existing go2rtc provider continues to own WebRTC signalling.
+
+Native mode is video only, including for cameras that support audio. HLS and
+`get_stream_url` use the same selected source. Synthetic H.264 and H.265 video
+decoded through go2rtc and HA's pinned PyAV version, but H.265 playback still
+depends on the browser and hardware decoder. There is no automatic fallback.
+Turn the option off to restore compatible video and audio.
+
+NVR connections also send their answer after an initial UDP candidate and a
+short gathering grace, while remaining candidates continue to arrive. Late
+relay selection and cancellation are covered by local connection tests. Startup
+timings are recorded without connection identities. Real NVR latency and its
+acceptance of late candidates still need hardware confirmation.
+
 ### Optional shorter Home Assistant live-view idle timeout
 
 In **Settings → Devices & services → Eufy Mega Security → Configure**, enable

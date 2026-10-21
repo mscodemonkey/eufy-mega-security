@@ -1668,6 +1668,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         liveControls: !entry.diagnostic && this.#nvrLiveAdmitted(entry.device, entry.station),
         administrator: entry.station.adminUserId!, context, signal: entry.controller.signal, current,
         maximumLifetimeMilliseconds: entry.diagnostic ? 75_000 : this.config.maxStreamSeconds * 1_000,
+        ...(!entry.stateOnly ? { onTimings: (timings: import("../stream/nvr-rtc-session.js").NvrTimings): void => {
+          const model = safeLogModel(entry.device.model);
+          logger.info("nvr_live_timings", `model=${model} offer_ms=${timings.offer ?? "none"} first_local_candidate_ms=${timings.firstLocalCandidate ?? "none"} answer_sent_ms=${timings.answerSent ?? "none"} channel_open_ms=${timings.channelOpen ?? "none"} media_request_ms=${timings.mediaRequest ?? "none"} first_video_ms=${timings.firstVideo ?? "none"}`);
+        } } : {}),
         ready: (output, codec) => this.#events?.streamStarted(serial, output, codec) });
       entry.session = session;
       return session;

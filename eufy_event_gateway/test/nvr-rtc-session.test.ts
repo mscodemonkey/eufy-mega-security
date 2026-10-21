@@ -12,7 +12,7 @@ import { GatewayState } from '../src/domain/gateway-state.js';
 import { LiveStreamManager } from '../src/stream/live-stream-manager.js';
 import WebSocket, { WebSocketServer } from 'ws';
 import { RTCPeerConnection, RTCSessionDescription } from 'werift';
-import { NvrRtcSession } from '../src/stream/nvr-rtc-session.js';
+import { NvrRtcSession, type NvrTimings } from '../src/stream/nvr-rtc-session.js';
 import { nvrApplication, nvrHeartbeat, nvrPackets, NvrTrialError } from '../src/stream/nvr-protocol.js';
 import { NvrPtcsReassembler } from '../src/stream/nvr-ptcs-reassembly.js';
 
@@ -289,7 +289,8 @@ for (const scenario of ['live-zero-identity', 'live-abort', 'live-read-close', '
       return channel;
     });
   }
-  const session = new NvrRtcSession({ station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
+  const timingReports: NvrTimings[] = [];
+  const session = new NvrRtcSession({ onTimings: value => timingReports.push(value), station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
     powerTrial: scenario.startsWith('power'), liveControls: scenario.startsWith('live-'),
     guardTrial: scenario === 'guard', ...(scenario === 'guard' ? { userName: 'Synthetic' } : {}),
     cameraType: scenario === 'legacy-first-lens' ? 14 : 301, sensor: scenario === 'legacy-first-lens' ? 0 : 1,
@@ -450,6 +451,13 @@ for (const scenario of ['live-zero-identity', 'live-abort', 'live-read-close', '
     assert.equal(decoded.status, 0, decoded.stderr.toString()); assert.ok(clip.length > 1000); assert.equal(session.codec, codec); assert.equal(snapshots, 0); assert.equal(extractors, 0); assert.equal(diagnosticMedia, 0); assert.equal(attached, 1); assert.deepEqual(commands, [9100, 1003, 1004]);
     controller.abort(); await session.close(); await session.close();
     assert.deepEqual(commands, [9100, 1003, 1004]); assert.equal(session.stats.stopUnconfirmed, 0);
+    assert.equal(timingReports.length, 1);
+    const timing = timingReports[0]!;
+    assert.equal(Object.isFrozen(timing), true);
+    assert.ok(Object.values(timing).every(value => Number.isInteger(value) && value! >= 0));
+    assert.ok(timing.offer! <= timing.answerSent!);
+    assert.ok(timing.channelOpen! <= timing.mediaRequest!);
+    assert.ok(timing.mediaRequest! <= timing.firstVideo!);
     if (scenario === 'zero-segment-lifecycle') assert.equal(session.stats.segmentNotEchoed, 3);
     if (scenario === 'h265' || scenario === 'sequence-gap') {
       assert.ok(session.stats.channel5Frames > 0);
@@ -463,6 +471,8 @@ for (const scenario of ['live-zero-identity', 'live-abort', 'live-read-close', '
     }
   } finally {
     if (sendVideo) clearInterval(sendVideo); await session.close(); await manager.close(); socket?.terminate(); await peer.close(); await new Promise<void>(resolve => server.close(() => resolve()));
+    assert.ok(timingReports.length <= 1);
+    if (scenario.startsWith('power') || scenario === 'guard') assert.equal(timingReports.length, 0);
   }
 });
 

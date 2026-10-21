@@ -47,7 +47,7 @@ class CameraStreamOptionsTest(unittest.TestCase):
             ({"liveAudioSupported": "true"}, True),
         ]:
             with self.subTest(camera=camera):
-                self.assertIs(eval(expression, {}, {"self": SimpleNamespace(camera=camera)}), expected)
+                self.assertIs(eval(expression, {}, {"self": SimpleNamespace(camera=camera, _native_video=False)}), expected)
 
     def test_stream_url_action_requires_a_response(self) -> None:
         """Keep the temporary URL out of state attributes and event data."""
@@ -113,7 +113,7 @@ class CameraStreamOptionsTest(unittest.TestCase):
         self.assertTrue(
             any(
                 isinstance(call.func, ast.Attribute)
-                and call.func.attr == "stream_url"
+                and call.func.attr == "_async_stream_url"
                 for call in refresh_calls
             )
         )
@@ -171,6 +171,7 @@ class CameraStreamRefreshTest(unittest.IsolatedAsyncioTestCase):
         camera = SimpleNamespace(stream=stream, serial="demo", hass=object(),
                                  _stream_source_refreshing=False,
                                  coordinator=SimpleNamespace(client=client))
+        camera._async_stream_url = lambda: camera.coordinator.client.stream_url(camera.serial)
         return namespace["_async_refresh_stream_source"], camera, stream, client
 
     async def test_missing_stream_does_not_renew(self):
@@ -309,6 +310,7 @@ class CameraCurrentStreamClockTest(unittest.IsolatedAsyncioTestCase):
         exec(compile(ast.Module(body=[method], type_ignores=[]), str(CAMERA_SOURCE), "exec"), namespace)
         client = SimpleNamespace(stream_url=AsyncMock(return_value="signed-source"))
         entity = SimpleNamespace(camera={"streamSupported": True}, stream_options={"wallclock": True},
+                                 _native_video=False, _async_stream_url=client.stream_url,
                                  serial="synthetic", coordinator=SimpleNamespace(client=client))
         entity.camera["liveAudioSupported"] = True
         self.assertEqual(await namespace["stream_source"](entity), "signed-source")
