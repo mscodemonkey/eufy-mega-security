@@ -27,6 +27,7 @@ import { validateStoredMedia } from "./stream/stored-recordings.js";
 import { isE30LockSettingChange } from "./domain/types.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { CameraControlDeadlineError } from "./provider/camera-control-deadline.js";
 import { BundleCapture, diagnosticTargets, type DiagnosticMedia } from "./diagnostics/bundle-capture.js";
 import { diagnosticsPage } from "./diagnostics/page.js";
 import type { EventImageCapture } from "./diagnostics/event-image-capture.js";
@@ -1045,6 +1046,9 @@ export class GatewayServer {
       }
       return json(response, 404, { error: "Not found" });
     } catch (error) {
+      if (error instanceof CameraControlDeadlineError) {
+        return json(response, error.code === "outcome_unknown" ? 503 : 409, { code: error.code, error: error.message });
+      }
       if (error instanceof S100SirenTrialError) {
         const allowed: readonly S100SirenFailureStage[] = ["start", "primary_stop", "secondary_stop", "ownership", "session_key",
           "session_connect", "session_prepare", "session_identity", "session_gateway", "session_cipher", "session_counter",

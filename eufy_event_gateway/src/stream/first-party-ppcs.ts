@@ -1491,11 +1491,6 @@ export class CameraControlAcknowledgementTimeoutError extends Error {
   }
 }
 
-/** Identify a borrowed motion session retired before any setting datagram was sent. */
-export class CameraMotionNotSentError extends Error {
-  constructor() { super("Camera motion session retired before dispatch"); }
-}
-
 /**
  * One bounded, first-party PPCS camera session for media or a control operation.
  *
@@ -1970,80 +1965,64 @@ export class FirstPartyPpcsSession {
   }
 
   /**
-   * Send the verified command-1011 motion switch and await its result.
+   * Send motion detection through an owned control connection.
    *
-   * The standalone T8171 and T817L use their native 6040 JSON status command. Its caller
-   * must confirm the setting through a fresh inventory read. Other routes use
-   * the level-two binary form and await its acknowledgement. An attached,
-   * decoded media owner can lend its connection without transferring ownership.
-   * Closure after dispatch is ambiguous and requires provider readback.
+   * Attached results must match this camera's channel. Retirement before the
+   * first send is a hard no-dispatch failure; retirement after a send is
+   * ambiguous and requires provider readback. The optional dispatch callback
+   * marks that boundary for the provider's total deadline.
    */
-  async writeMotionDetection(enabled: boolean): Promise<void> {
+  async writeMotionDetection(enabled: boolean, onDispatched?: () => void): Promise<void> {
     if (this.#alarmRead) throw new Error("Alarm state read owns this session");
-    const borrowed = this.#options.purpose !== "control";
-    if (borrowed && (!this.#options.homeBaseAttached || this.#options.purpose === "passive"
-      || this.#options.cameraModel === "T8171" || !this.#level2Key || this.stats.videoOutputFrames === 0)) {
-      throw new Error("Motion control requires a control session");
-    }
-    if (this.#closed && borrowed) throw new CameraMotionNotSentError();
+    if (this.#options.purpose !== "control") throw new Error("Motion control requires a control session");
+    if (this.#closed) throw new Error("Camera motion session closed before dispatch");
     if (this.#pendingControl) throw new Error("Camera already has a control command in flight");
     if (!this.#remote) throw new Error("Motion control session is not connected");
     const accountId = this.#options.accountId;
     if (!accountId) throw new Error("Motion control account identity is unavailable");
-    try { await this.#waitForLevel2Key(); }
-    catch (error) {
-      if (borrowed && this.#closed) throw new CameraMotionNotSentError();
-      throw error;
-    }
-    if (this.#closed && borrowed) throw new CameraMotionNotSentError();
-    if (this.#options.cameraModel === "T8171"
-      || (this.#options.cameraModel === "T817L" && this.#options.homeBaseAttached === false)) {
-      if (this.#options.homeBaseAttached || this.#options.channel !== 0) {
-        throw new Error("SoloCam motion control requires a standalone channel-zero route");
-      }
-      const transaction = Date.now();
-      for (let index = 0; index < 3; index += 1) {
-        this.#sendCommand(1700, buildSoloCamMotionDetectionPayload(enabled, this.#level2Key!, this.#level2Seq++, transaction));
-        await delay(200);
-      }
-      return;
-    }
-    const body = buildCameraEnableBody(this.#options.channel, enabled ? 1 : 0, accountId);
-    const acknowledgement = this.#waitForControlResult(1011, this.#options.homeBaseAttached ? this.#options.channel : undefined);
-
-    // Observe closure rejection immediately, including while the redundant sends wait.
-    void acknowledgement.catch(() => undefined);
+    await this.#waitForLevel2Key();
+    if (this.#closed) throw new Error("Camera motion session closed before dispatch");
     let sent = false;
+    const dispatch = (): void => {
+      if (this.#closed) {
+        if (sent) throw new CameraControlAcknowledgementTimeoutError();
+        throw new Error("Camera motion session closed before dispatch");
+      }
+      if (!sent) onDispatched?.();
+      sent = true;
+    };
     try {
-      for (let index = 0; index < 3; index += 1) {
-        if (this.#closed) {
-          if (!sent && borrowed) throw new CameraMotionNotSentError();
-          throw new CameraControlAcknowledgementTimeoutError();
+      if (this.#options.cameraModel === "T8171"
+        || (this.#options.cameraModel === "T817L" && this.#options.homeBaseAttached === false)) {
+        if (this.#options.homeBaseAttached || this.#options.channel !== 0) {
+          throw new Error("SoloCam motion control requires a standalone channel-zero route");
         }
+        const transaction = Date.now();
+        for (let index = 0; index < 3; index += 1) {
+          dispatch();
+          this.#sendCommand(1700, buildSoloCamMotionDetectionPayload(enabled, this.#level2Key!, this.#level2Seq++, transaction));
+          await delay(200);
+        }
+        return;
+      }
+      const body = buildCameraEnableBody(this.#options.channel, enabled ? 1 : 0, accountId);
+      const acknowledgement = this.#waitForControlResult(1011, this.#options.homeBaseAttached ? this.#options.channel : undefined);
+
+      // Observe closure rejection even while a redundant transmission is waiting.
+      void acknowledgement.catch(() => undefined);
+      for (let index = 0; index < 3; index += 1) {
+        dispatch();
         const sequence = this.#level2Seq++;
         const encrypted = encryptLevel2(body, this.#level2Key!, sequence);
         const header = commandHeader(this.#seq++, 1011);
-        this.#send(
-          REQ.data,
-          Buffer.concat([header, rawPayload(encrypted, this.#options.channel, 8, [8, 0], 0)]),
-          this.#remote,
-        );
-        sent = true;
+        this.#send(REQ.data, Buffer.concat([header, rawPayload(encrypted, this.#options.channel, 8, [8, 0], 0)]), this.#remote);
         if (index < 2) await delay(200);
       }
       await acknowledgement;
     } catch (error) {
-      if (borrowed && sent && this.#closed) throw new CameraControlAcknowledgementTimeoutError();
+      if (sent && this.#closed) throw new CameraControlAcknowledgementTimeoutError();
       throw error;
     }
-  }
-
-  /** Check exact peer/channel ownership before lending an already decoded attached stream. */
-  canBorrowMotionControl(peer: string, channel: number): boolean {
-    return this.#options.stationSerial === peer && this.#options.channel === channel
-      && this.#options.homeBaseAttached === true && this.#options.purpose !== "control"
-      && this.#options.purpose !== "passive" && this.#options.cameraModel !== "T8171"
-      && !this.#closed && this.#level2Key !== null && this.stats.camId > 0 && this.stats.videoOutputFrames > 0;
   }
 
   /**

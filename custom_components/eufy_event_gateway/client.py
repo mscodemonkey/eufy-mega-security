@@ -417,11 +417,12 @@ class GatewayClient:
     async def set_camera_motion_detection(
         self, serial: str, enabled: bool
     ) -> dict[str, Any]:
-        """Set camera motion detection and return confirmed gateway state."""
+        """Allow the gateway's 90-second motion confirmation scope to finish."""
         camera = await self._json(
             f"/api/cameras/{serial}/motion-detection",
             method="POST",
             payload={"enabled": enabled},
+            timeout=120,
         )
         if not isinstance(camera.get("serial"), str):
             raise GatewayClientError("Gateway returned an invalid camera response")

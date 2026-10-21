@@ -1,12 +1,12 @@
 /**
- * Exercises media-start repair and borrowed motion at the real UDP boundary.
+ * Exercises media-start repair and owned motion at the real UDP boundary.
  * Synthetic peer keys and sockets are test-owned. No account or camera is used.
  */
 import assert from "node:assert/strict";
 import { createCipheriv, createECDH, createHmac } from "node:crypto";
 import { Socket } from "node:dgram";
 import test, { type TestContext } from "node:test";
-import { CameraControlAcknowledgementTimeoutError, CameraMotionNotSentError, FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
+import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 
 /** Encode one synthetic encrypted gateway key using the session's public wire contract. */
 function gateway(): Buffer {
@@ -32,7 +32,7 @@ function gateway(): Buffer {
 }
 
 /** Own a synthetic CAM_ID handshake, inbound frames, packet loss and fake time. */
-async function peer(context: TestContext, attached = true, model = "T8113-Z") {
+async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" = "media") {
   let socket!: Socket;
   let inbound = 0;
   const sent: Buffer[] = [];
@@ -45,8 +45,8 @@ async function peer(context: TestContext, attached = true, model = "T8113-Z") {
   context.mock.method(Socket.prototype, "send", (packet: Buffer) => { sent.push(Buffer.from(packet)); });
   context.mock.method(Socket.prototype, "close", function (this: Socket) { return this; });
   const session = new FirstPartyPpcsSession({ stationSerial: "SYNTHETIC1234567", p2pDid: "TEST-12345678-TEST",
-    appConnection: "", dskKey: "synthetic", channel: 1, homeBaseAttached: attached, stationModel: "T8010",
-    cameraModel: model, accountId: "synthetic-owner", maxSeconds: 120,
+    appConnection: "", dskKey: "synthetic", channel: attached ? 1 : 0, homeBaseAttached: attached, stationModel: "T8010",
+    purpose, cameraModel: model, accountId: "synthetic-owner", maxSeconds: 120,
     resolveCipherKey: async () => Buffer.alloc(32, 1).toString("hex") });
   const receive = (packet: Buffer, port = 12345) => socket.emit("message", packet, { address: "127.0.0.1", port });
   const frame = (command: number, payload: Buffer, channel = 1, result = false, sign = 0) => {
@@ -143,14 +143,11 @@ test("only delivered requested-channel media cancels a pending attached start", 
     assert.ok(f.session.stats.videoOutputFrames > 0);
     context.mock.timers.tick(150);
     assert.equal(f.session.stats.mediaStartRetransmitted, 1);
-    assert.equal(f.session.canBorrowMotionControl("other", 1), false);
-    assert.equal(f.session.canBorrowMotionControl("SYNTHETIC1234567", 2), false);
-    assert.equal(f.session.canBorrowMotionControl("SYNTHETIC1234567", 1), true);
   } finally { f.session.close(); }
 });
 
-test("borrowed motion binds results to its channel and preserves the viewer", async context => {
-  const f = await peer(context);
+test("owned motion binds results to its channel", async context => {
+  const f = await peer(context, true, "T8113-Z", "control");
   try {
     await f.negotiate(); f.video();
     const pending = f.session.writeMotionDetection(false);
@@ -170,11 +167,11 @@ test("borrowed motion binds results to its channel and preserves the viewer", as
 });
 
 for (const afterDispatch of [false, true]) {
-  test(`borrowed closure ${afterDispatch ? "after" : "before"} dispatch has a precise outcome`, async context => {
-    const f = await peer(context);
+  test(`owned closure ${afterDispatch ? "after" : "before"} dispatch has a precise outcome`, async context => {
+    const f = await peer(context, true, "T8113-Z", "control");
     await f.negotiate(); f.video();
     const pending = f.session.writeMotionDetection(false);
-    const result = assert.rejects(pending, afterDispatch ? CameraControlAcknowledgementTimeoutError : CameraMotionNotSentError);
+    const result = assert.rejects(pending, afterDispatch ? CameraControlAcknowledgementTimeoutError : /closed before dispatch/);
     if (afterDispatch) await new Promise(resolve => setImmediate(resolve));
     f.session.close();
     const count = f.sent.length;
@@ -183,3 +180,24 @@ for (const afterDispatch of [false, true]) {
     assert.equal(f.sent.length, count);
   });
 }
+
+
+test("motion cannot borrow a decoded media-purpose session", async context => {
+  const f = await peer(context);
+  try {
+    await f.negotiate(); f.video();
+    await assert.rejects(f.session.writeMotionDetection(false), /requires a control session/);
+  } finally { f.session.close(); }
+});
+
+test("solo motion also stops its redundant transmissions after retirement", async context => {
+  const f = await peer(context, false, "T8171", "control");
+  await f.negotiate();
+  const pending = assert.rejects(f.session.writeMotionDetection(false), CameraControlAcknowledgementTimeoutError);
+  await new Promise(resolve => setImmediate(resolve));
+  f.session.close();
+  const count = f.sent.length;
+  context.mock.timers.tick(500);
+  await pending;
+  assert.equal(f.sent.length, count);
+});

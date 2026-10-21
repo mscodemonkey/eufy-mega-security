@@ -18,6 +18,8 @@ If you use Eufy Mega Security and fancy buying me a beer, you can support the pr
 
 Motion, person, pet, vehicle, dog, crying, sound, stranger, and stranded-package detections arrive as distinct Home Assistant entities. Supported doorbells also expose a press sensor. HomeBase 3 familiar-person names appear when Eufy supplies one. Each camera keeps its last good still, while a separate **Last event image** entity retains the latest picture supplied with an event.
 
+Changing motion detection through a HomeBase 2 temporarily interrupts live video while the gateway confirms the setting. Pending live-view requests wait for that operation to finish.
+
 Last event image uses Home Assistant's `image` domain, so it does not create a second camera tile on the automatic Security page. It remains available on the device page and in manually added picture cards. Upgraded installations keep their old event-image camera entities hidden for compatibility with existing dashboard cards and automations. These entries are not deleted or disabled. The main camera uses a retained picture while video is idle, with an explicit waiting image only when no picture has ever been captured.
 
 Camera attributes include reported audio configuration and, when supplied, image rotation, status-indicator and sound-detection settings. These are read-only inventory settings, not live hardware verification. Missing or unrecognized values remain absent. Reading them does not wake a camera or offer a new control.

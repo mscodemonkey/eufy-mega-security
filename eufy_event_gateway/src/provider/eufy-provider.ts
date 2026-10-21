@@ -51,7 +51,8 @@ import { MegaPushReceiver, type MegaPushEvent } from "../mega/push.js";
 import { CloudRecordingError } from "../stream/cloud-recordings.js";
 import { DoorbellRtcSession } from "../stream/doorbell-rtc-session.js";
 import { DoorbellRtcError } from "../stream/doorbell-rtc-offer.js";
-import { CameraControlAcknowledgementTimeoutError, CameraMotionNotSentError, FirstPartyPpcsSession, type PpcsCipherKeyOutcome, PpcsLookupTimeoutError, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
+import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, type PpcsCipherKeyOutcome, PpcsLookupTimeoutError, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
+import { withCameraControlDeadline } from "./camera-control-deadline.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBaseChildParam, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
 import type { SensorContactObservation } from "../stream/sensor-status-notification.js";
 import { cameraCapabilityLogSummaries, describeCameraCapabilities, isSupportedCameraType, describeDeviceCapabilities, deviceCapabilityLogSummaries } from "./device-capabilities-core.js";
@@ -639,7 +640,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #cameraCapabilityOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #streamingQualityOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #audioRecordingOperations = new Map<string, Promise<CameraIdentity>>();
-  readonly #motionOperations = new Map<string, Promise<CameraIdentity>>();
+  readonly #motionOperations = new Map<string, Promise<void>>();
+
+  /** Hold peer ownership through predecessor completion, even when a queued caller expires. */
+  readonly #homeBaseMotionOperations = new Map<string, Promise<void>>();
+  readonly #motionAborters = new Set<AbortController>();
   readonly #guardModeOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #nightVisionOperations = new Map<string, Promise<CameraIdentity>>();
   readonly #lightOperations = new Map<string, Promise<void>>();
@@ -1206,6 +1211,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   /** Authenticate and publish cameras independently of background push readiness. */
   async start(events: ProviderEvents): Promise<void> {
     this.#assertRtcPreparationIdle();
+    for (const controller of this.#motionAborters) controller.abort();
     this.#nvrModePushStartedAt = Date.now();
     this.#nvrModePushTimes.clear();
     for (const pending of this.#streamStarts.values()) pending.cancelled = true;
@@ -2058,7 +2064,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (nvrTrial && !nvrTrial.retiring) return this.#startNvrTrial(serial);
     const pending = this.#streamStarts.get(serial);
     if (pending && !pending.cancelled) return pending.promise;
-    const ticket = { promise: Promise.resolve(), cancelled: false };
+    const cancellation = new AbortController();
+    let cancelled = false;
+    const ticket = {
+      promise: Promise.resolve(),
+      get cancelled(): boolean { return cancelled; },
+      set cancelled(value: boolean) {
+        cancelled = value;
+        if (value) cancellation.abort();
+      },
+    };
     const generation = this.#startupGeneration;
     const current = (): void => {
       if (ticket.cancelled || this.#streamStarts.get(serial) !== ticket
@@ -2067,6 +2082,22 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       }
     };
     ticket.promise = Promise.resolve().then(async () => {
+      current();
+      if (this.#homeBaseMotionReservation(serial)) {
+        try {
+          await withCameraControlDeadline(async scope => {
+            let reservation: Promise<void> | undefined;
+            while ((reservation = this.#homeBaseMotionReservation(serial))) {
+              current();
+              await scope.wait(() => reservation!.catch(() => undefined));
+              current();
+            }
+          }, cancellation.signal);
+        } catch {
+          current();
+          throw new Error("Camera stream start timed out waiting for motion control");
+        }
+      }
       current();
       if (nvrTrial?.retiring) {
         await nvrTrial.release().catch(() => {});
@@ -3007,94 +3038,118 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       ...(route.homeBaseAttached ? { peerDeviceType: route.peer.deviceType } : {}), selfPeer: route.peer.serial === device.serial };
   }
 
-  /** Borrow eligible attached media for motion writes and require fresh inventory confirmation. */
+  /**
+   * Confirm motion writes within one request budget, reserving legacy HomeBase peers.
+   * T8010 controls stop media and postpone existing viewer reconnects until cleanup.
+   * A caller's expiry never releases a still-running predecessor's reservation.
+   */
   setCameraMotionDetection(serial: string, enabled: boolean): Promise<CameraIdentity> {
     this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
-    const previous = this.#motionOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
-    const current = previous.catch(() => this.#requireCameraIdentity(serial)).then(async () => {
-      const generation = this.#startupGeneration;
+    const requested = this.#devices.get(serial);
+    const requestedRoute = requested ? ppcsStreamRoute(requested, this.#devices) : null;
+    const peerKey = requestedRoute?.homeBaseAttached && requestedRoute.peer.model === "T8010"
+      ? requestedRoute.peer.serial : null;
+    const previous = (peerKey ? this.#homeBaseMotionOperations.get(peerKey) : this.#motionOperations.get(serial)) ?? Promise.resolve();
+    let predecessorSettled = false;
+    void previous.finally(() => { predecessorSettled = true; });
+    const generation = this.#startupGeneration;
+    const controller = new AbortController();
+    this.#motionAborters.add(controller);
+    const result = withCameraControlDeadline(async scope => {
+      await scope.wait(() => previous.catch(() => undefined));
+      const current = (): void => {
+        scope.signal.throwIfAborted();
+        if (generation !== this.#startupGeneration || this.#recordingClosing) throw new Error("Camera motion control cancelled");
+      };
+      current();
       const device = this.#devices.get(serial);
       if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
       const route = ppcsStreamRoute(device, this.#devices);
+      const peer = route?.peer;
+      const actualPeerKey = route?.homeBaseAttached && peer?.model === "T8010" ? peer.serial : null;
+      if (actualPeerKey !== peerKey || peerKey && (requested?.channel !== device.channel
+        || requested?.adminUserId !== device.adminUserId)) throw new Error("Camera motion route changed before dispatch");
+      if (this.#recordingPeerReserved(serial)) throw new Error("Wait for recording retrieval before changing motion detection");
+      this.#assertNoModelTrial(serial);
       const soloCam = (device.deviceType === 88 && device.model === "T8171")
         || (device.deviceType === 10_031 && device.model === "T817L" && route?.homeBaseAttached === false);
-      const peer = route?.peer;
-      const dsk = peer ? await this.#dskKey(peer.serial) : null;
-      if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId) {
+      if (!route || !peer?.p2pDid || !peer.p2pConnection || device.channel === null || !device.adminUserId) {
         throw new Error("Camera motion detection control is unavailable for this camera");
       }
       if (soloCam && (route.homeBaseAttached || peer.serial !== device.serial || device.channel !== 0
         || device.reads.motionDetectionEnabled === undefined)) {
         throw new Error("SoloCam motion control requires a known standalone channel-zero setting");
       }
-      if (soloCam) await this.stopStream(serial);
-      for (let operation = 0; operation < (soloCam ? 2 : 1); operation += 1) {
-        if (generation !== this.#startupGeneration) throw new Error("Camera motion control cancelled");
-        const ownedSession = (): FirstPartyPpcsSession => new FirstPartyPpcsSession({
-          stationSerial: peer.serial, p2pDid: peer.p2pDid!, appConnection: peer.p2pConnection!,
-          localAddress: peer.localAddress,
-          dskKey: dsk.key, channel: device.channel!, cameraModel: device.model,
+      if (peerKey) {
+        const starts = [...new Set([...this.#streamStarts.keys(), ...this.#ppcsStreams.keys()])]
+          .filter(key => this.#devices.get(key)?.parentSerial === peerKey);
+        for (const key of starts) await scope.wait(() => this.stopStream(key));
+      } else if (soloCam) await scope.wait(() => this.stopStream(serial));
+      const dsk = await scope.wait(() => this.#dskKey(peer.serial));
+      current();
+      if (!dsk) throw new Error("Camera motion detection control is unavailable for this camera");
+      for (let operation = 0; operation < (soloCam ? 2 : 1); operation++) {
+        current();
+        const session = new FirstPartyPpcsSession({
+          stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
+          localAddress: peer.localAddress, dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
           accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 40,
           resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
         });
-        const active = route.homeBaseAttached && !soloCam ? this.#ppcsStreams.get(serial) : undefined;
-        const currentDevice = this.#devices.get(serial);
-        const currentRoute = currentDevice ? ppcsStreamRoute(currentDevice, this.#devices) : null;
-        let borrowed = Boolean(active && active.canBorrowMotionControl(peer.serial, device.channel)
-          && currentDevice?.channel === device.channel
-          && currentRoute?.homeBaseAttached && currentRoute.peer.serial === peer.serial);
-        let session = borrowed ? active! : ownedSession();
+        const removeCleanup = scope.onAbort(() => session.close());
         let acknowledgementTimedOut = false;
         try {
-          if (!borrowed) await session.start();
-          try { await session.writeMotionDetection(enabled); }
-          catch (error) {
-            if (!(borrowed && error instanceof CameraMotionNotSentError)) throw error;
-
-            // No datagram left the retired viewer, so an owned connection is safe.
-            if (generation !== this.#startupGeneration) throw new Error("Camera motion control cancelled");
-            borrowed = false;
-            session = ownedSession();
-            await session.start();
-            await session.writeMotionDetection(enabled);
-          }
+          await scope.wait(() => session.start());
+          current();
+          await scope.wait(() => session.writeMotionDetection(enabled, scope.dispatched));
         } catch (error) {
+          current();
           if (error instanceof CameraControlAcknowledgementTimeoutError) acknowledgementTimedOut = true;
           else if (!soloCam) throw error;
-
-          // A failed send can still have changed the setting. Read it before retrying.
-        } finally {
-          if (!borrowed) session.close();
-        }
-        if (supportsStandaloneC31Presets(device, route, true)) {
-          this.#invalidateLiveReads(serial, ["motionDetectionEnabled"]);
-        }
-        for (let attempt = 0; attempt < 12; attempt += 1) {
-          if (generation !== this.#startupGeneration) throw new Error("Camera motion control cancelled");
-          await this.#refreshInventoryReads();
-          if (generation !== this.#startupGeneration) throw new Error("Camera motion control cancelled");
+        } finally { removeCleanup(); session.close(); }
+        if (supportsStandaloneC31Presets(device, route, true)) this.#invalidateLiveReads(serial, ["motionDetectionEnabled"]);
+        for (let attempt = 0; attempt < 12; attempt++) {
+          current();
+          await scope.wait(() => this.#refreshInventoryReads());
+          current();
           const refreshed = this.#devices.get(serial);
           if (refreshed?.reads.motionDetectionEnabled === enabled) {
-            if (acknowledgementTimedOut) {
-              logger.warn("camera_motion_acknowledgement_missing", "Camera motion detection was confirmed by fresh inventory after its acknowledgement was unavailable");
-            }
+            if (acknowledgementTimedOut) logger.warn("camera_motion_acknowledgement_missing", "Camera motion detection was confirmed by fresh inventory after its acknowledgement was unavailable");
             return this.#cameraIdentity(refreshed);
           }
-          await delay(2_000);
+          await scope.wait(() => delay(2000));
         }
       }
       throw new Error("Camera motion detection write was not confirmed by readback");
-    }).catch((error: unknown) => {
+    }, controller.signal).catch((error: unknown) => {
       logger.warn("camera_motion_detection_failed", `Camera motion command failed: error=${safeError(error)}`);
       throw error;
+    }).finally(() => { this.#motionAborters.delete(controller); });
+
+    // Keep expired queue members attached to their predecessor until it retires.
+    const reservation = Promise.allSettled([previous, result]).then(() => undefined);
+    this.#motionOperations.set(serial, reservation);
+    if (peerKey) this.#homeBaseMotionOperations.set(peerKey, reservation);
+    const release = (): void => {
+      if (this.#motionOperations.get(serial) === reservation) this.#motionOperations.delete(serial);
+      if (peerKey && this.#homeBaseMotionOperations.get(peerKey) === reservation) this.#homeBaseMotionOperations.delete(peerKey);
+    };
+    void reservation.finally(release);
+    return result.finally(() => {
+
+      // Settled predecessors permit immediate reuse; expired queue members keep ownership.
+      if (predecessorSettled) release();
     });
-    this.#motionOperations.set(serial, current);
-    void current.finally(() => {
-      if (this.#motionOperations.get(serial) === current) this.#motionOperations.delete(serial);
-    }).catch(() => undefined);
-    return current;
+  }
+
+  /** Return only an attached T8010 peer's current motion reservation. */
+  #homeBaseMotionReservation(serial: string): Promise<void> | undefined {
+    const device = this.#devices.get(serial);
+    const route = device ? ppcsStreamRoute(device, this.#devices) : null;
+    return route?.homeBaseAttached && route.peer.model === "T8010"
+      ? this.#homeBaseMotionOperations.get(route.peer.serial) : undefined;
   }
 
   /** Write the model's verified audio-recording command and require fresh inventory confirmation. */
@@ -3507,6 +3562,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Stop resources for either shutdown or an owned preparation, preserving cleanup ordering. */
   async #stopProviderResources(current: () => void = () => undefined): Promise<void> {
+    for (const controller of this.#motionAborters) controller.abort();
     for (const entry of this.#nvrGuardEntries.values()) {
       if (entry.attempted && !entry.warned) {
         entry.warned = true;
@@ -3569,6 +3625,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#cameraSirenAborters.clear();
     await Promise.allSettled(this.#cameraOperations.values()); current();
     this.#cameraOperations.clear();
+    await Promise.allSettled(this.#motionOperations.values()); current();
+    this.#motionOperations.clear();
+    this.#homeBaseMotionOperations.clear();
+    this.#motionAborters.clear();
     await Promise.allSettled(this.#lightOperations.values()); current();
     this.#lightOperations.clear();
     await Promise.allSettled(this.#panControlOperations.values()); current();
