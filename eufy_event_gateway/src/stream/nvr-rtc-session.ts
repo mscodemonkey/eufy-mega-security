@@ -52,6 +52,7 @@ export interface NvrTimings {
 
 /** The provider verifies this binding before and throughout the trial. */
 export interface NvrRtcOptions {
+
   /** Receives one immutable live-start summary on close, never state/control queries. */
   readonly onTimings?: (timings: NvrTimings) => void;
   readonly station: string;
