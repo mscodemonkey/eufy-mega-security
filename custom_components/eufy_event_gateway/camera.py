@@ -329,16 +329,16 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Publish a new image URL after a fresher retained still is committed.
+        """Publish fresher retained-image state without invalidating stream workers.
 
-        Snapshot revisions are atomic retained-media commits. Rotating the token
-        for every revision keeps event-driven stills visible even when a stream
-        is active, while the published revision prevents duplicate rotations.
+        Snapshot revisions are atomic retained-media commits. The camera entity's
+        access token also authenticates Home Assistant's stream endpoint, so it
+        must remain stable while an idle worker can retain and retry that URL.
+        Coordinator updates still publish the new revision and retained bytes.
         """
         revision = self._snapshot_revision
         if revision != self._published_snapshot_revision:
             self._published_snapshot_revision = revision
-            self.async_update_token()
         super()._handle_coordinator_update()
 
     @property

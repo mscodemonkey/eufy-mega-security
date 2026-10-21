@@ -581,8 +581,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #generalRtcLockOperations = new Map<string, number>();
   readonly #nvrModePushTimes = new Map<string, number>();
   #nvrModePushStartedAt = 0;
-  readonly #doorbellTrials = new Map<string, { controller: AbortController; device: MegaInventoryDevice; generation: number;
-    connecting: boolean; session: DoorbellRtcSession | null; release: () => Promise<void> }>();
+  readonly #doorbellTrials = new Map<string, { controller: AbortController; device: MegaInventoryDevice; diagnostic: boolean;
+    generation: number; connecting: boolean; retiring: boolean; terminalRetirement: boolean;
+    session: DoorbellRtcSession | null; release: () => Promise<void> }>();
   readonly #ppcsStreams = new Map<string, FirstPartyPpcsSession>();
   readonly #streamStarts = new Map<string, { promise: Promise<void>; cancelled: boolean }>();
   readonly #nvrExplicitOwners = new Map<string, string>();
@@ -1398,7 +1399,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   #doorbellRtcBinding(device: MegaInventoryDevice | undefined): boolean {
-    return this.config.experimentalDoorbellRtc === true && !!device && device.model === "T8224" && device.deviceType === 96
+    return this.config.experimentalDoorbellRtc === true && this.#client.isAuthenticated
+      && !!device && device.model === "T8224" && device.deviceType === 96
       && device.category === "eufy_security" && device.parentSerial === device.serial && !device.p2pConnection
       && !!device.adminUserId && device.channel !== null && Number.isInteger(device.channel)
       && device.channel >= 0 && device.channel <= 254;
@@ -1465,6 +1467,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   /** Reserve one exact standalone doorbell for a private, video-only diagnostic clip. */
   reserveDoorbellRtcTrial(serial: string, signal: AbortSignal): () => Promise<void> {
     this.#assertRtcPreparationIdle();
+    return this.#reserveDoorbellRtc(serial, signal, true);
+  }
+
+  /** Own either the explicit diagnostic or the opted-in normal live lease. */
+  #reserveDoorbellRtc(serial: string, signal: AbortSignal, diagnostic: boolean): () => Promise<void> {
     const device = this.#devices.get(serial);
     if (!this.#doorbellRtcBinding(device) || !device || signal.aborted || this.#recordingClosing
       || !this.#client.isAuthenticated || this.#localMotionAborters.size || this.#doorbellTrials.size || this.#nvrTrials.size
@@ -1473,18 +1480,27 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
     const controller = new AbortController();
     let closed: Promise<void> | null = null;
-    const deadline = setTimeout(() => { void entry.release().catch(() => logger.warn("doorbell_rtc_trial_failed", "stage=stop")); }, 85_000);
-    const entry = { controller, device, generation: this.#startupGeneration, connecting: false, session: null as DoorbellRtcSession | null,
+    const deadline = diagnostic
+      ? setTimeout(() => { void entry.release().catch(() => logger.warn("doorbell_rtc_trial_failed", "stage=stop")); }, 85_000)
+      : null;
+    const entry = { controller, device, diagnostic, generation: this.#startupGeneration, connecting: false,
+      retiring: false, terminalRetirement: false, session: null as DoorbellRtcSession | null,
       release: (): Promise<void> => {
         if (closed) return closed;
+        entry.retiring = true;
         controller.abort();
         closed = (async () => {
-          clearTimeout(deadline);
+          if (deadline) clearTimeout(deadline);
           try { await entry.session?.close(); }
           finally {
             signal.removeEventListener("abort", abort);
-            if (this.#doorbellTrials.get(serial) === entry) this.#doorbellTrials.delete(serial);
-            releaseTrialPeer(); this.#events?.streamStopped(serial);
+            const owned = this.#doorbellTrials.get(serial) === entry;
+            if (owned) this.#doorbellTrials.delete(serial);
+            releaseTrialPeer();
+            const waiting = this.#streamStarts.get(serial);
+            const handingOff = entry.terminalRetirement && waiting && !waiting.cancelled
+              && entry.generation === this.#startupGeneration;
+            if (owned && !handingOff) this.#events?.streamStopped(serial);
           }
         })();
         return closed;
@@ -1513,17 +1529,29 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (!current()) throw new DoorbellRtcError("cancelled");
       const session = entry.session = new DoorbellRtcSession({ station: serial,
         administrator: entry.device.adminUserId!, context, signal: entry.controller.signal, current,
+        maximumLifetimeMilliseconds: entry.diagnostic ? 25_000 : Math.min(this.config.maxStreamSeconds * 1_000, 2_147_000_000),
         ready: output => {
           if (!current()) throw new DoorbellRtcError("cancelled");
           this.#events?.streamStarted(serial, output, () => "h264");
         },
       });
-      session.output.once("error", error => logger.warn("doorbell_rtc_trial_failed",
-        `stage=${error instanceof DoorbellRtcError ? error.stage : "video"} reason=${error instanceof DoorbellRtcError ? error.reason : "unspecified"}`));
+      let terminalHandled = false;
+      const retire = (): void => {
+        if (terminalHandled || entry.retiring) return;
+        terminalHandled = true; entry.terminalRetirement = true;
+        void entry.release().catch(() => {});
+      };
+      session.output.once("end", retire); session.output.once("close", retire);
+      session.output.once("error", error => {
+        logger.warn(entry.diagnostic ? "doorbell_rtc_trial_failed" : "doorbell_rtc_stream_failed",
+          `stage=${error instanceof DoorbellRtcError ? error.stage : "video"} reason=${error instanceof DoorbellRtcError ? error.reason : "unspecified"}`);
+        retire();
+      });
       await session.start();
     } catch (error) {
       const failure = error instanceof DoorbellRtcError ? error : new DoorbellRtcError(entry.controller.signal.aborted ? "cancelled" : "sign");
-      logger.warn("doorbell_rtc_trial_failed", `stage=${failure.stage} reason=${failure.reason}`);
+      logger.warn(entry.diagnostic ? "doorbell_rtc_trial_failed" : "doorbell_rtc_stream_failed",
+        `stage=${failure.stage} reason=${failure.reason}`);
       await entry.release(); throw failure;
     }
   }
@@ -2083,6 +2111,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     };
     ticket.promise = Promise.resolve().then(async () => {
       current();
+      const doorbell = this.#devices.get(serial);
+      if (this.#doorbellRtcBinding(doorbell)) {
+        this.#reserveDoorbellRtc(serial, cancellation.signal, false);
+        return this.#startDoorbellRtcTrial(serial);
+      }
       if (this.#homeBaseMotionReservation(serial)) {
         try {
           await withCameraControlDeadline(async scope => {
@@ -3788,8 +3821,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
     const manifests = devices.map((device) => describeCameraCapabilities(device, {
       doorbellSupported: isDoorbellDevice(device),
-      streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials),
-      routeReady: isPpcsRouteReady(device, this.#devices, dskPeerSerials),
+      streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials) || this.#doorbellRtcBinding(device),
+      routeReady: isPpcsRouteReady(device, this.#devices, dskPeerSerials) || this.#doorbellRtcBinding(device),
       homeBaseAttached: ppcsStreamRoute(device, this.#devices)?.homeBaseAttached ?? false,
       standaloneNightVisionSupported: supportsStandaloneNightVision(device, ppcsStreamRoute(device, this.#devices),
         isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
@@ -3803,7 +3836,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       homeBaseGuardModeSupported: supportsHomeBaseGuardMode(device),
       homeBaseRouteReady: Boolean(device.p2pDid && device.p2pConnection && this.#dskKeys.has(device.serial)),
       doorbellSupported: isDoorbellDevice(device),
-      cameraStreamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials),
+      cameraStreamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials) || this.#doorbellRtcBinding(device),
     }));
     events.deviceCapabilities(deviceManifests);
     for (const { count, message } of deviceCapabilityLogSummaries(deviceManifests)) {
@@ -4071,8 +4104,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     events.inventory(inventoryDiagnostics(devices));
     events.cameraCapabilities(devices.map((device) => describeCameraCapabilities(device, {
       doorbellSupported: isDoorbellDevice(device),
-      streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeers),
-      routeReady: isPpcsRouteReady(device, this.#devices, dskPeers),
+      streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeers) || this.#doorbellRtcBinding(device),
+      routeReady: isPpcsRouteReady(device, this.#devices, dskPeers) || this.#doorbellRtcBinding(device),
       homeBaseAttached: ppcsStreamRoute(device, this.#devices)?.homeBaseAttached ?? false,
       standaloneNightVisionSupported: supportsStandaloneNightVision(device, ppcsStreamRoute(device, this.#devices),
         isPpcsRouteReady(device, this.#devices, dskPeers)),
@@ -4082,7 +4115,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       homeBaseGuardModeSupported: supportsHomeBaseGuardMode(device),
       homeBaseRouteReady: Boolean(device.p2pDid && device.p2pConnection && this.#dskKeys.has(device.serial)),
       doorbellSupported: isDoorbellDevice(device),
-      cameraStreamSupported: isPpcsStreamSupported(device, this.#devices, dskPeers),
+      cameraStreamSupported: isPpcsStreamSupported(device, this.#devices, dskPeers) || this.#doorbellRtcBinding(device),
     })));
     for (const device of refreshed) {
       const known = previous.get(device.serial);
@@ -4257,7 +4290,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       },
       stationSerial: device.parentSerial,
       doorbellSupported: isDoorbellDevice(device),
-      streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials),
+      streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials) || this.#doorbellRtcBinding(device),
       liveAudioSupported: supportsCameraLiveAudio(device, route, isPpcsStreamSupported(device, this.#devices, dskPeerSerials)),
       enabled: device.reads.enabled ?? null,
       enableControlSupported: supportsCameraEnablement(

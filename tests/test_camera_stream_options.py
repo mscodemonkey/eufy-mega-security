@@ -128,6 +128,30 @@ class CameraStreamOptionsTest(unittest.TestCase):
             )
         )
 
+    def test_snapshot_revisions_do_not_invalidate_stream_worker_tokens(self) -> None:
+        """Keep the main camera token stable while publishing retained-image state."""
+        tree = ast.parse(CAMERA_SOURCE.read_text())
+        camera_class = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "EufyGatewayCamera"
+        )
+        handler = next(
+            node
+            for node in camera_class.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_handle_coordinator_update"
+        )
+
+        self.assertFalse(
+            any(
+                isinstance(call.func, ast.Attribute)
+                and call.func.attr == "async_update_token"
+                for call in ast.walk(handler)
+                if isinstance(call, ast.Call)
+            )
+        )
+
 
 class CameraStreamRefreshTest(unittest.IsolatedAsyncioTestCase):
     """Exercise URL renewal with synthetic clients and no Home Assistant runtime."""

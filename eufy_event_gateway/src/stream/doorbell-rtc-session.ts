@@ -26,6 +26,9 @@ export interface DoorbellRtcOptions {
   /** Internal test deadline, capped at the production 35-second startup limit. */
   readonly startupTimeoutMilliseconds?: number;
 
+  /** Maximum media lifetime after decoder startup, owned by the calling lease. */
+  readonly maximumLifetimeMilliseconds?: number;
+
   /** Attach the owned source before its first complete decoder startup is written. */
   readonly ready: (output: PassThrough) => void;
 }
@@ -96,6 +99,8 @@ export class DoorbellRtcSession {
   }) {
     const deadline = options.startupTimeoutMilliseconds ?? 35_000;
     if (!Number.isSafeInteger(deadline) || deadline < 1 || deadline > 35_000) throw new DoorbellRtcError("admission");
+    const lifetime = options.maximumLifetimeMilliseconds ?? 25_000;
+    if (!Number.isSafeInteger(lifetime) || lifetime < 1 || lifetime > 2_147_000_000) throw new DoorbellRtcError("admission");
     this.output.on("error", () => undefined);
   }
 
@@ -336,7 +341,7 @@ export class DoorbellRtcSession {
             if (this.#resolve) {
               this.#resolve(); this.#resolve = null; this.#reject = null;
               if (this.#deadline) clearTimeout(this.#deadline);
-              this.#deadline = setTimeout(() => this.#fail("deadline"), 25_000);
+              this.#deadline = setTimeout(() => this.#fail("deadline"), this.options.maximumLifetimeMilliseconds ?? 25_000);
             }
           } else if (!this.output.write(unit)) throw new DoorbellRtcError("video");
         } catch (error) { this.#fail(error instanceof DoorbellRtcError ? error.stage : "video",

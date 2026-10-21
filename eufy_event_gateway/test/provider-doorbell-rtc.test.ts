@@ -58,7 +58,7 @@ for (const mode of ["disabled", "unauthenticated", "wrong-model", "wrong-type", 
   });
 }
 
-test("normal media remains unavailable and cleanup retains the exclusive lease", async context => {
+test("normal media uses the opted-in RTC path and cleanup retains the exclusive lease", async context => {
   const f = await fixture(context);
   let finish!: () => void;
   const closing = new Promise<void>(resolve => { finish = resolve; });
@@ -68,17 +68,25 @@ test("normal media remains unavailable and cleanup retains the exclusive lease",
     assert.equal(serial, "synthetic-doorbell"); return contextValue;
   });
   try {
-    assert.equal(f.state.getCamera("synthetic-doorbell").streamSupported, false);
-    await assert.rejects(f.provider.startStream("synthetic-doorbell"), /unavailable/);
-    assert.equal(sign.mock.callCount(), 0);
-    const release = f.provider.reserveDoorbellRtcTrial("synthetic-doorbell", new AbortController().signal);
-    await f.provider.startStream("synthetic-doorbell"); assert.equal(starts.mock.callCount(), 1);
-    const first = release(); assert.equal(release(), first);
+    assert.equal(f.state.getCamera("synthetic-doorbell").streamSupported, true);
+    await f.provider.startStream("synthetic-doorbell");
+    assert.equal(starts.mock.callCount(), 1); assert.equal(sign.mock.callCount(), 1);
+    const first = f.provider.stopStream("synthetic-doorbell");
     assert.throws(() => f.provider.reserveDoorbellRtcTrial("synthetic-doorbell", new AbortController().signal));
     finish(); await first; assert.equal(closes.mock.callCount(), 1);
     const next = f.provider.reserveDoorbellRtcTrial("synthetic-doorbell", new AbortController().signal); await next();
-    assert.equal(f.state.getCamera("synthetic-doorbell").streamSupported, false);
+    assert.equal(f.state.getCamera("synthetic-doorbell").streamSupported, true);
   } finally { finish(); await f.close(); }
+});
+
+test("disabled doorbell option keeps normal live media unavailable", async context => {
+  const f = await fixture(context, "disabled");
+  const sign = context.mock.method(MegaClient.prototype, "nvrSignallingContext", async () => contextValue);
+  try {
+    assert.equal(f.state.getCamera("synthetic-doorbell").streamSupported, false);
+    await assert.rejects(f.provider.startStream("synthetic-doorbell"), /unavailable/);
+    assert.equal(sign.mock.callCount(), 0);
+  } finally { await f.close(); }
 });
 
 test("stopping a pending sign prevents late media and releases only the original trial", async context => {

@@ -1,8 +1,11 @@
 # Experimental standalone doorbell video test
 
 This default-off test requests one private ten-second clip from an exact standalone
-Video Doorbell C30, T8224/type 96. Discovery and events remain separate. It does
-not enable normal Home Assistant live view, camera controls or audio.
+Video Doorbell C30, T8224/type 96. Discovery and events remain separate. The
+same default-off option now enables normal Home Assistant live view for this
+exact route after the diagnostic produced reporter-confirmed H.264 playback.
+Normal-view startup, reopening and sustained playback remain unconfirmed. It
+does not enable camera controls or audio.
 
 An independent T8223 owner-account result provides the connection lead. T8224
 and dedicated guest accounts still need physical confirmation. No Web Portal
