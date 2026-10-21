@@ -51,7 +51,7 @@ import { MegaPushReceiver, type MegaPushEvent } from "../mega/push.js";
 import { CloudRecordingError } from "../stream/cloud-recordings.js";
 import { DoorbellRtcSession } from "../stream/doorbell-rtc-session.js";
 import { DoorbellRtcError } from "../stream/doorbell-rtc-offer.js";
-import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, type PpcsCipherKeyOutcome, PpcsLookupTimeoutError, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
+import { CameraControlAcknowledgementTimeoutError, CameraMotionNotSentError, FirstPartyPpcsSession, type PpcsCipherKeyOutcome, PpcsLookupTimeoutError, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBaseChildParam, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
 import type { SensorContactObservation } from "../stream/sensor-status-notification.js";
 import { cameraCapabilityLogSummaries, describeCameraCapabilities, isSupportedCameraType, describeDeviceCapabilities, deviceCapabilityLogSummaries } from "./device-capabilities-core.js";
@@ -3007,13 +3007,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       ...(route.homeBaseAttached ? { peerDeviceType: route.peer.deviceType } : {}), selfPeer: route.peer.serial === device.serial };
   }
 
-  /** Write the model's verified motion command and require fresh inventory confirmation. */
+  /** Borrow eligible attached media for motion writes and require fresh inventory confirmation. */
   setCameraMotionDetection(serial: string, enabled: boolean): Promise<CameraIdentity> {
     this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
     const previous = this.#motionOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
     const current = previous.catch(() => this.#requireCameraIdentity(serial)).then(async () => {
+      const generation = this.#startupGeneration;
       const device = this.#devices.get(serial);
       if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
       const route = ppcsStreamRoute(device, this.#devices);
@@ -3030,30 +3031,57 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       }
       if (soloCam) await this.stopStream(serial);
       for (let operation = 0; operation < (soloCam ? 2 : 1); operation += 1) {
-        const session = new FirstPartyPpcsSession({
-          stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
+        if (generation !== this.#startupGeneration) throw new Error("Camera motion control cancelled");
+        const ownedSession = (): FirstPartyPpcsSession => new FirstPartyPpcsSession({
+          stationSerial: peer.serial, p2pDid: peer.p2pDid!, appConnection: peer.p2pConnection!,
           localAddress: peer.localAddress,
-          dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
+          dskKey: dsk.key, channel: device.channel!, cameraModel: device.model,
           accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 40,
           resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
         });
+        const active = route.homeBaseAttached && !soloCam ? this.#ppcsStreams.get(serial) : undefined;
+        const currentDevice = this.#devices.get(serial);
+        const currentRoute = currentDevice ? ppcsStreamRoute(currentDevice, this.#devices) : null;
+        let borrowed = Boolean(active && active.canBorrowMotionControl(peer.serial, device.channel)
+          && currentDevice?.channel === device.channel
+          && currentRoute?.homeBaseAttached && currentRoute.peer.serial === peer.serial);
+        let session = borrowed ? active! : ownedSession();
+        let acknowledgementTimedOut = false;
         try {
-          await session.start();
-          await session.writeMotionDetection(enabled);
+          if (!borrowed) await session.start();
+          try { await session.writeMotionDetection(enabled); }
+          catch (error) {
+            if (!(borrowed && error instanceof CameraMotionNotSentError)) throw error;
+
+            // No datagram left the retired viewer, so an owned connection is safe.
+            if (generation !== this.#startupGeneration) throw new Error("Camera motion control cancelled");
+            borrowed = false;
+            session = ownedSession();
+            await session.start();
+            await session.writeMotionDetection(enabled);
+          }
         } catch (error) {
-          if (!soloCam) throw error;
+          if (error instanceof CameraControlAcknowledgementTimeoutError) acknowledgementTimedOut = true;
+          else if (!soloCam) throw error;
 
           // A failed send can still have changed the setting. Read it before retrying.
         } finally {
-          session.close();
+          if (!borrowed) session.close();
         }
         if (supportsStandaloneC31Presets(device, route, true)) {
           this.#invalidateLiveReads(serial, ["motionDetectionEnabled"]);
         }
         for (let attempt = 0; attempt < 12; attempt += 1) {
+          if (generation !== this.#startupGeneration) throw new Error("Camera motion control cancelled");
           await this.#refreshInventoryReads();
+          if (generation !== this.#startupGeneration) throw new Error("Camera motion control cancelled");
           const refreshed = this.#devices.get(serial);
-          if (refreshed?.reads.motionDetectionEnabled === enabled) return this.#cameraIdentity(refreshed);
+          if (refreshed?.reads.motionDetectionEnabled === enabled) {
+            if (acknowledgementTimedOut) {
+              logger.warn("camera_motion_acknowledgement_missing", "Camera motion detection was confirmed by fresh inventory after its acknowledgement was unavailable");
+            }
+            return this.#cameraIdentity(refreshed);
+          }
           await delay(2_000);
         }
       }
@@ -5885,7 +5913,7 @@ export function isPpcsRouteReady(
 export function ppcsStreamLogSummary(
   model: string,
   route: PpcsStreamRoute | null,
-  stats: Pick<FirstPartyPpcsSession["stats"], "camId" | "dataDatagrams" | "frameHeaders" | "videoFrames"> & Partial<Pick<FirstPartyPpcsSession["stats"], "alternateLookupCandidates" | "batteryHistory" | "closeReason" | "commands" | "directLookupCandidates" | "duplicateDatagrams" | "foreignVideoFrames" | "frameShapes" | "incompleteAccessUnitBytes" | "incompleteAccessUnits" | "localLookupCandidates" | "mediaStartAttempts" | "mediaStartProtocols" | "mediaStopAttempts" | "mediaStopProtocol" | "parserBlocked" | "parserResyncs" | "pendingBytes" | "sequenceGaps" | "sequenceRestarts" | "sequenceChannels" | "staleDatagrams" | "types" | "videoCodec" | "videoNalTypes" | "videoOutputFrames" | "videoResults">>,
+  stats: Pick<FirstPartyPpcsSession["stats"], "camId" | "dataDatagrams" | "frameHeaders" | "videoFrames"> & Partial<Pick<FirstPartyPpcsSession["stats"], "alternateLookupCandidates" | "batteryHistory" | "closeReason" | "commands" | "directLookupCandidates" | "duplicateDatagrams" | "foreignVideoFrames" | "frameShapes" | "incompleteAccessUnitBytes" | "incompleteAccessUnits" | "localLookupCandidates" | "mediaStartAttempts" | "mediaStartAcknowledged" | "mediaStartRetransmitted" | "mediaStartExpired" | "mediaStartProtocols" | "mediaStopAttempts" | "mediaStopProtocol" | "parserBlocked" | "parserResyncs" | "pendingBytes" | "sequenceGaps" | "sequenceRestarts" | "sequenceChannels" | "staleDatagrams" | "types" | "videoCodec" | "videoNalTypes" | "videoOutputFrames" | "videoResults">>,
   error?: unknown,
 ): string {
   const stage = stats.camId === 0 ? "lookup" : stats.videoFrames === 0 ? "first_frame" : "media";
@@ -5934,6 +5962,9 @@ export function ppcsStreamLogSummary(
     `media_start_protocols=${stats.mediaStartProtocols?.join(",") || "none"}`,
     `media_stop_attempts=${stats.mediaStopAttempts ?? 0}`,
     `media_stop_protocol=${stats.mediaStopProtocol ?? "none"}`,
+    `media_start_acked=${stats.mediaStartAcknowledged ?? 0}`,
+    `media_start_retransmitted=${stats.mediaStartRetransmitted ?? 0}`,
+    `media_start_expired=${stats.mediaStartExpired ?? 0}`,
     `close_reason=${stats.closeReason ?? "unknown"}`,
     `battery_history=${stats.batteryHistory ?? "not-reported"}`,
     ...(stats.sequenceChannels === undefined ? [] : [`sequence_channels=${stats.sequenceChannels}`]),
