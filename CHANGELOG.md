@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.191
+
+- Let the existing opt-in standalone C30 doorbell video setting enable normal Home Assistant live view for the exact T8224/type 96 route. Diagnostic playback is reporter-confirmed, while normal-view startup and reopening still need physical confirmation.
+- Keep the main Home Assistant camera access token stable across retained-image updates so idle stream workers do not retry an obsolete URL and loop on HTTP 401 responses.
+
 ## 0.1.190
 
 - Fixed HomeBase 2 motion changes competing with live video. The gateway pauses media and holds reconnects until it confirms the setting.
