@@ -5,7 +5,13 @@ T8N00, type 300. It temporarily changes the camera's power/privacy state and
 attempts to restore its original state. Normal Home Assistant controls and NVR
 guard modes remain unavailable.
 
-Hardware behaviour in this gateway is unconfirmed. Turning the camera off can
+In issue #310, a reporter observed the camera turn off and back on in three of
+three runs on 2026-10-21, using v0.1.188 with T8E00/type 301 through
+T8N00/type 300. A fresh state read afterwards showed it on. The reporter
+described Schedule and Home modes with motion detection off or on as the
+conditions for those power tests, not as guard-mode trial results. This confirms
+only that setup, not other models or firmware, continuous recording, or recovery
+after a connection failure. Later versions have not been separately confirmed. Turning the camera off can
 interrupt recording and notifications. Only test while you can observe the
 camera and restore it in the Eufy app if needed. A connection failure or gateway
 restart can prevent automatic restoration.
@@ -46,7 +52,7 @@ after an attempted change. It uses cloud inventory and a private NVR connection.
 A cloud outage during recovery can use the same verified connection, but a known
 change in ownership or device binding prevents further writes.
 
-The on/off mapping is hardware-unconfirmed for this exact admitted camera. A wrong
+Other hardware or firmware pairings remain unconfirmed. A wrong
 mapping can leave it off despite restoration attempts, so keep observing and
 verify the original manually. A browser or proxy timeout requests recovery but
 cannot display the eventual result. Both restore attempts share a 60-second

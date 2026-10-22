@@ -3,7 +3,7 @@
 ## 0.1.193
 
 - Add privacy-safe Home Assistant playback observations to integration diagnostics without opening cameras, including when the gateway is unavailable. This supports investigation of restart-related battery drain and does not claim to fix its cause.
-- Record confirmed C30 T8224 live-view startup and reopening with the experimental option, and distinguish the new standalone T8425 result from earlier hardware reports.
+- Record confirmed C30 T8224 live-view startup and reopening with the experimental option, and distinguish the new standalone T8425 result from earlier hardware reports. Record the v0.1.188 T8E00-through-T8N00 physical power-test result without expanding normal controls.
 
 ## 0.1.192
 

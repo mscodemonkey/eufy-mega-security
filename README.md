@@ -67,7 +67,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 
 ### NVR
 
-- 🟠 NVR S4 Max T8N00: inventory discovery and read-only configured guard-mode reporting are implemented, with periodic refresh confirmed on hardware. A reporter confirmed T8E00 RTC views of about a minute and reopening on v0.1.163, with startup delay and initially accelerated playback still reported. Sustained playback is unconfirmed. T8416 has a separate hardware-unconfirmed owner-only path. Camera-power and Schedule guard-mode trials are implemented but remain default-off and physically unconfirmed. Normal arm/disarm, storage diagnostics and automatic fresh snapshots remain unavailable.
+- 🟠 NVR S4 Max T8N00: inventory discovery and read-only configured guard-mode reporting are implemented, with periodic refresh confirmed on hardware. A reporter confirmed T8E00 RTC views of about a minute and reopening on v0.1.163, with startup delay and initially accelerated playback still reported. Sustained playback is unconfirmed. T8416 has a separate hardware-unconfirmed owner-only path. Camera-power and Schedule guard-mode trials remain default-off. One T8E00/type 301 through T8N00/type 300 reporter observed physical power off/on and restored on state in three runs on v0.1.188. Later versions are not separately confirmed, and the guard-mode trial remains physically unconfirmed. Normal arm/disarm, storage diagnostics and automatic fresh snapshots remain unavailable.
 
 ### Cameras
 
@@ -597,7 +597,9 @@ The separate [NVR camera-power test](docs/NVR_CAMERA_POWER_TEST.md) is off by
 default and limited to T8E00/type 301 through T8N00/type 300. It requires
 observation consent, a recorded original state and its own app option. It
 attempts restoration, but a lost connection can require manual restoration.
-Hardware behaviour is unconfirmed, and normal controls stay unavailable.
+One reporter confirmed physical off/on and restored on state for this pairing on
+v0.1.188. Later versions and recovery after a connection failure have not been
+separately confirmed. Normal controls stay unavailable.
 
 The [NVR Schedule guard-mode test](docs/NVR_GUARD_MODE_TEST.md) is also off by
 default and limited to the same exact pairing. It temporarily changes the whole
@@ -618,7 +620,7 @@ their first lens and remain hardware-unconfirmed, including non-Z T8140.
 
 The same option also enables normal Home Assistant live view for T8E00/type 301 through T8N00/type 300 and T8140-Z/type 14 through T9000/type 27 when the gateway's NVR binding checks pass. Normal live view has no per-view consent step. Anyone with Home Assistant camera access can open these cameras. The reported T8E00 views and reopening on v0.1.163 lasted about a minute, with startup delay and initially accelerated playback. T8140-Z initial and reopened video was reported on v0.1.174, with one reopened session ending after 49 seconds with `peer_failed`. That cause and sustained playback remain unconfirmed.
 
-T8416/type 104 through T8N00/type 300 has a separate hardware-unconfirmed normal live path requiring `experimental_nvr_live`, `experimental_model_controls`, `experimental_nvr_controls`, a configured API token, explicit camera and station ownership, and a unique camera channel. It needs owner credentials, unlike the usual guest-account recommendation. Do not switch a working gateway to your everyday owner account just to enable this experiment. Enabling the NVR controls option also makes the manual physical camera-power and Schedule guard-mode trials available. Those trials remain off by default, require their own consent and observation, and are limited to T8E00/type 301 through T8N00/type 300. Their physical results and the experimental live controls remain unconfirmed. There is no normal T8416 live binding through T9000.
+T8416/type 104 through T8N00/type 300 has a separate hardware-unconfirmed normal live path requiring `experimental_nvr_live`, `experimental_model_controls`, `experimental_nvr_controls`, a configured API token, explicit camera and station ownership, and a unique camera channel. It needs owner credentials, unlike the usual guest-account recommendation. Do not switch a working gateway to your everyday owner account just to enable this experiment. Enabling the NVR controls option also makes the manual physical camera-power and Schedule guard-mode trials available. Those trials remain off by default, require their own consent and observation, and are limited to T8E00/type 301 through T8N00/type 300. The camera-power trial has a reporter-observed physical off/on and restored-on result on v0.1.188 for this pairing. Later versions are not separately confirmed. The guard-mode trial and experimental live controls remain physically unconfirmed. There is no normal T8416 live binding through T9000.
 
 This does not establish support for every NVR camera, automatic fresh snapshots, events, storage, normal station controls or arming. Retained pictures and each diagnostic result remain separate.
 
