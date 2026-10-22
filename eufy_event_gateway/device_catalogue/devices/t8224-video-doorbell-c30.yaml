@@ -71,11 +71,14 @@ capabilities:
           status: reported
           tested_on: 2026-10-21
           tested_by: lsnewman
-          notes: On v0.1.191 with the experimental option enabled and the app restarted, three normal Home Assistant opens delivered first video in about 7.5 to 13 seconds and reopening worked. Gateway source sessions ended about 10 seconds after the last viewer left. This does not prove physical camera sleep or fresh snapshot capture.
+          notes: On v0.1.191 with the experimental option enabled and the app restarted, three normal Home Assistant opens delivered first video in about 7.5 to 13 seconds and reopening worked. Gateway source sessions ended about 10 seconds after the last viewer left. This does not prove physical camera sleep.
     snapshot:
       connections:
         direct:
-          status: declared
+          status: reported
+          tested_on: 2026-10-22
+          tested_by: lsnewman
+          notes: On v0.1.191 Capture snapshot saved a current JPEG whose on-image timestamp matched the request time. The experimental standalone doorbell option was enabled for this installation's earlier live-view test and was not restated in the snapshot report. This does not establish capture latency or physical camera sleep.
   events:
     motion:
       connections:

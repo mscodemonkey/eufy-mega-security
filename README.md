@@ -110,7 +110,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 - 🟠 Video Doorbell T8213: discovery, sensors, retained images, and live video are confirmed through HomeBase 3. A second HomeBase 3 setup now shows live video from both lenses on v0.1.123, while fresh snapshots and longer-term reliability on that setup remain unconfirmed.
 - 🟠 Video Doorbell Slim T8220: discovery and live video through HomeBase 2 are reporter-confirmed. Slow startup and continued streaming after the view closes are reported. Events, fresh snapshots, and battery values still await confirmation.
 - 🟠 Video Doorbell E340 T8214: discovery and Home Assistant entities are confirmed through a T9000. A separate T8030 report confirms live video, motion, person, familiar-person updates, and restored doorbell presses, but reports intermittent frame jumps. T9000 live video remains blocked at lookup, and missing push deliveries are under investigation separately.
-- 🟠 Video Doorbell C30 T8224: Mega type 96 admission, Home Assistant entities and a physical button press are reporter-confirmed. With the default-off standalone RTC option enabled on v0.1.191, three normal live-view opens started in about 7.5 to 13 seconds and reopening worked. Gateway source sessions ended about 10 seconds after the last viewer left. Fresh snapshot capture and physical camera sleep remain unconfirmed.
+- 🟠 Video Doorbell C30 T8224: Mega type 96 admission, Home Assistant entities and a physical button press are reporter-confirmed. With the default-off standalone RTC option enabled on v0.1.191, three normal live-view opens started in about 7.5 to 13 seconds and reopening worked. Gateway source sessions ended about 10 seconds after the last viewer left. Fresh snapshot capture is reporter-confirmed on v0.1.191. Physical camera sleep remains unconfirmed.
 - 🟠 Familock S3 Max T85V0: discovery and the main rechargeable battery are confirmed. HomeBase media arrives with H.265 startup headers, but visible playback remains unconfirmed. Backup AA battery reporting, snapshots, and doorbell events need separate evidence. Lock controls are not exposed. An optional [read-only status check](docs/T85V0_STATUS_TEST.md) is available for T85V0/type 203 through HomeBase 3. Its physical behaviour remains unconfirmed.
 
 ### Standalone sensors
@@ -681,6 +681,8 @@ In **Settings → Devices & services → Eufy Mega Security → Configure**, ena
 video with Home Assistant. This option is off by default. Saving reloads the
 integration. Native H.265 avoids the gateway's H.264 compatibility conversion.
 Home Assistant's existing go2rtc provider continues to own WebRTC signalling.
+
+One reporter's installation confirmed native H.265 playback in the Home Assistant iOS app and desktop browsers on v0.1.192. The reported time from stream request to first HLS part was about 7 to 10 seconds, which does not measure end-to-end rendering latency. The report does not establish which transport a physical client selected. Two cameras still produce no source video and are tracked separately. Client support varies.
 
 Native mode is video only, including for cameras that support audio. HLS and
 `get_stream_url` use the same selected source. Synthetic H.264 and H.265 video

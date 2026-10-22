@@ -4,11 +4,12 @@ This default-off test requests one private ten-second clip from an exact standal
 Video Doorbell C30, T8224/type 96. Discovery and events remain separate. The
 same default-off option now enables normal Home Assistant live view for this
 exact route after the diagnostic produced reporter-confirmed H.264 playback.
-Normal-view startup, reopening and sustained playback remain unconfirmed. It
-does not enable camera controls or audio.
+One reporter confirmed normal-view startup and reopening on v0.1.191, then
+confirmed that Capture snapshot saved a current JPEG. Sustained playback and
+physical camera sleep remain unconfirmed. It does not enable camera controls or audio.
 
-An independent T8223 owner-account result provides the connection lead. T8224
-and dedicated guest accounts still need physical confirmation. No Web Portal
+An independent T8223 owner-account result provides the connection lead.
+Dedicated guest accounts still need physical confirmation. No Web Portal
 PIN, account switch or encryption-setting change is required for this trial.
 
 1. Update both the app and integration to a release containing this test.
