@@ -21,7 +21,22 @@ jobs:
           cache: npm
           cache-dependency-path: eufy_event_gateway/package-lock.json
       - run: npm run release:check
-      - run: sudo apt-get update && sudo apt-get install --yes ffmpeg
+      - name: Install FFmpeg
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          rewritten=0
+          for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources /etc/apt/apt-mirrors.txt; do
+            if [ -f "$source_file" ] && [ ! -L "$source_file" ] \
+              && grep -Eq '(^|[^[:alnum:].-])azure\.archive\.ubuntu\.com([^[:alnum:].-]|$)' "$source_file"; then
+              sudo sed -i -E 's/(^|[^[:alnum:].-])azure\.archive\.ubuntu\.com([^[:alnum:].-]|$)/\1archive.ubuntu.com\2/g' "$source_file"
+              rewritten=$((rewritten + 1))
+            fi
+          done
+          echo "Rewrote ${rewritten} apt source file(s)"
+          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          sudo apt-get "${apt_options[@]}" update
+          sudo apt-get "${apt_options[@]}" install --yes ffmpeg
       - run: npm ci
       - run: npm run check
       - run: npm run build
