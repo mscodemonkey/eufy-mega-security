@@ -43,9 +43,9 @@ capabilities:
       connections:
         direct:
           status: mixed
-          tested_on: 2026-09-26
-          tested_by: jsole510
-          notes: Live view starts with a ready H.265 decoder and visible playback after v0.1.103, but revisiting the view can intermittently freeze until the page is reopened.
+          tested_on: 2026-10-21
+          tested_by: cbource
+          notes: cbource reports standalone direct firmware 1.6.4.6 on v0.1.192 starts in about one second and revisits cleanly. jsole510 reported intermittent revisit freezes on v0.1.103 on 2026-09-26; that setup has not been retested. These results do not confirm other controls or the T9000 route.
         T9000:
           status: failing
           tested_on: 2026-09-17

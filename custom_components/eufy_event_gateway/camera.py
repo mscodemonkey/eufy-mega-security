@@ -44,6 +44,7 @@ from .client import GatewayClientError
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity
 from .const import CONF_SHORT_HLS_IDLE, CONF_NATIVE_VIDEO, DOMAIN
+from .playback_diagnostics import serialize_stream
 
 if TYPE_CHECKING:
     from homeassistant.components.stream import Stream
@@ -201,6 +202,25 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = (
             self._native_video or self.camera.get("liveAudioSupported") is not True
         )
+
+    def playback_diagnostic(self) -> dict[str, Any]:
+        """Describe cached HA playback without requesting a URL or waking a camera.
+
+        Only model/type and allowlisted observations leave this boundary. A
+        failed observation must not prevent the rest of a diagnostics download.
+        """
+        try:
+            model = self.camera.get("model")
+            device_type = self.camera.get("deviceType")
+            return {
+                **serialize_stream(self.stream),
+                "model": model if isinstance(model, str) and re.fullmatch(r"T[0-9A-Z]{3,15}", model) else None,
+                "device_type": device_type if type(device_type) is int and 0 <= device_type <= 65535 else None,
+                "native_video": bool(self._native_video),
+                "short_hls_idle": bool(self._short_hls_idle),
+            }
+        except Exception:
+            return {"unavailable": True}
 
     async def async_list_cloud_recordings(self, day: str) -> dict[str, Any]:
         """Return activity times only, leaving media access to explicit Diagnostics."""

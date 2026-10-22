@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.193
+
+- Add privacy-safe Home Assistant playback observations to integration diagnostics without opening cameras, including when the gateway is unavailable. This supports investigation of restart-related battery drain and does not claim to fix its cause.
+- Record confirmed C30 T8224 live-view startup and reopening with the experimental option, and distinguish the new standalone T8425 result from earlier hardware reports.
+
 ## 0.1.192
 
 - NVR live view can send its connection answer while candidate gathering continues, reducing time spent waiting for slow discovery. Late relay candidates remain eligible, pending relay work is cancelled on shutdown, and the camera stop request keeps its established connection until completion. Local connection and relay tests pass. Real NVR startup latency and late-candidate acceptance still need hardware confirmation.
