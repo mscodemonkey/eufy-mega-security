@@ -11,6 +11,7 @@ models:
   - T8425
   - T8425121
 device_type: 47
+notes: The contributor physically confirmed manual floodlight on and off on exact standalone T8425 firmware 1.6.4.6. The momentary command has no independent light-state readback or automatic-off guarantee. Brightness, master spotlight settings, T8425121 and attached routes are not covered.
 capabilities:
   controls:
     enabled:
@@ -28,6 +29,11 @@ capabilities:
         "1": "On"
     night_vision:
       connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-22
+          tested_by: cbource
+          notes: The contributor physically confirmed Off, Infrared, and Spotlight on exact standalone T8425 firmware 1.6.4.6. This does not cover T8425121 or an attached route.
         T9000:
           status: declared
       read:
@@ -38,6 +44,21 @@ capabilities:
         "0": "Off"
         "1": "Infrared"
         "2": "Spotlight"
+    siren:
+      connections:
+        direct:
+          status: tested
+          tested_on: 2026-10-22
+          tested_by: cbource
+          notes: The contributor physically confirmed start and stop on exact standalone T8425 firmware 1.6.4.6. Timed expiry and independent alarm state were not verified. This does not cover T8425121 or an attached route.
+      write:
+        command: 1202
+        input:
+          name: duration_seconds
+          type: integer
+          minimum: 0
+          maximum: 900
+      notes: A duration of 0 stops the siren.
   media:
     live_view:
       connections:

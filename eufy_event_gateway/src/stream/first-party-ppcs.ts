@@ -1007,7 +1007,7 @@ export function buildStandaloneJsonControlPayload(
   return rawPayload(encrypted, channel, 1, [1, 0], frameType);
 }
 
-/** Build the observed timed wall-light value carried by standalone command 1700. */
+/** Build the observed timed-light value carried by standalone command 1700. */
 export function buildTimedCameraLightControlValue(enabled: boolean): string {
   return JSON.stringify({
     commandType: 1400,
@@ -2245,7 +2245,7 @@ export class FirstPartyPpcsSession {
     if (!this.#remote) throw new Error("Night vision control session is not connected");
     const standalone = this.#options.homeBaseAttached === false
       && this.#options.standaloneNightVisionSupported === true
-      && ["T8171", "T817L"].includes(this.#options.cameraModel ?? "") && this.#options.channel === 0;
+      && ["T8171", "T817L", "T8425"].includes(this.#options.cameraModel ?? "") && this.#options.channel === 0;
     if (!this.#options.homeBaseAttached && !standalone) throw new Error("Night vision control requires a HomeBase-attached camera");
     const accountId = this.#options.accountId;
     if (!accountId) throw new Error("Night vision control account identity is unavailable");
@@ -2365,7 +2365,7 @@ export class FirstPartyPpcsSession {
     await this.#sendControlPayload(1400, { value: enabled ? 1 : 0, transaction: `${Date.now()}` });
   }
 
-  /** Send the standalone wall-light family's momentary on or off command. */
+  /** Send a provider-admitted standalone timed-light on or off command. */
   async writeTimedCameraLight(enabled: boolean): Promise<void> {
     if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control") throw new Error("Camera light control requires a control session");

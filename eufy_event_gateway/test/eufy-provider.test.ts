@@ -350,9 +350,10 @@ test("refreshes expiring DSK material without replacing non-expiring keys", () =
   assert.equal(dskKeyNeedsRefresh({ expiresAt: now + 60_001 }, now), false);
 });
 
-test("limits timed JSON light control to the verified wall-light family", () => {
+test("limits timed JSON light control to verified light profiles", () => {
   assert.equal(supportsTimedCameraLight({ deviceType: 10005 }), true);
   assert.equal(supportsTimedCameraLight({ deviceType: 151 }), true);
+  assert.equal(supportsTimedCameraLight({ deviceType: 47 }), false);
   assert.equal(supportsTimedCameraLight({ deviceType: 61 }), false);
   assert.equal(supportsTimedCameraLight({ deviceType: 10031 }), false);
   assert.equal(supportsTimedCameraLight({ deviceType: null }), false);
@@ -360,6 +361,7 @@ test("limits timed JSON light control to the verified wall-light family", () => 
 
 test("selects the source-backed direct light protocol by camera family", () => {
   assert.equal(cameraLightControlProtocol({ deviceType: 45 }), "int-string");
+  assert.equal(cameraLightControlProtocol({ deviceType: 47 }), null);
   assert.equal(cameraLightControlProtocol({ deviceType: 61 }), null);
   assert.equal(cameraLightControlProtocol({ deviceType: 151 }), "timed-json");
   assert.equal(cameraLightControlProtocol({ deviceType: 10005 }), "timed-json");
@@ -383,6 +385,8 @@ test("limits camera sirens by route and device evidence", () => {
   for (const changed of [{ model: "T817L121" }, { model: "T8171" }, { deviceType: 88 }, { channel: 1 }, { adminUserId: null }]) {
     assert.equal(supportsCameraSiren({ ...device, ...changed }, direct), false);
   }
+  const t8425 = { serial: "fixture-camera", model: "T8425", deviceType: 47, channel: 0, adminUserId: "fixture-admin", paramTypes: [] };
+  assert.equal(supportsCameraSiren(t8425, { homeBaseAttached: false, peer: { serial: t8425.serial } as MegaInventoryDevice }), true);
   assert.equal(supportsCameraSiren(device, { ...direct, peer: { ...peer, serial: "other-camera" } }), false);
   assert.equal(supportsCameraSiren(device, { homeBaseAttached: false }), false);
 });
@@ -1961,4 +1965,46 @@ test("stream failure summaries preserve optional sequence evidence before the er
     camId: 0, dataDatagrams: 4, frameHeaders: 0, videoFrames: 0, sequenceChannels,
   }, new Error("fixture failure"));
   assert.ok(summary.includes(`battery_history=not-reported sequence_channels=${sequenceChannels} error=`));
+});
+
+
+test("T8425 timed light requires its exact owned direct route without changing legacy families", () => {
+  const device = parseMegaInventory({ devices: [{ device_sn: "cam", device_model: "T8425", device_type: 47,
+    category: "eufy_security", device_channel: 0, member: { admin_user_id: "admin" }, params: [] }] })[0]!;
+  const direct = { homeBaseAttached: false, peer: device as MegaInventoryDevice };
+  assert.equal(supportsTimedCameraLight(device, direct), true);
+  assert.equal(cameraLightControlProtocol(device, direct), "timed-json");
+  for (const changed of [{ model: "T8425121" }, { deviceType: 48 }, { channel: 1 },
+    { serial: "" }, { serial: " " }, { adminUserId: null }, { adminUserId: " " }]) {
+    assert.equal(supportsTimedCameraLight({ ...device, ...changed }, direct), false);
+    assert.equal(cameraLightControlProtocol({ ...device, ...changed }, direct), null);
+  }
+  const { model: _model, ...missingModel } = device;
+  assert.equal(supportsTimedCameraLight(missingModel, direct), false);
+  assert.equal(cameraLightControlProtocol(missingModel, direct), null);
+  for (const route of [null, undefined, { ...direct, homeBaseAttached: true },
+    { ...direct, peer: { ...device, serial: "other" } as MegaInventoryDevice }]) {
+    assert.equal(supportsTimedCameraLight(device, route), false);
+    assert.equal(cameraLightControlProtocol(device, route), null);
+  }
+  for (const deviceType of [151, 10005]) {
+    assert.equal(supportsTimedCameraLight({ deviceType }), true);
+    assert.equal(supportsTimedCameraLight({ deviceType }, direct), true);
+    assert.equal(cameraLightControlProtocol({ deviceType }), "timed-json");
+  }
+});
+
+test("T8425 siren eligibility refuses unverified model and ownership combinations", () => {
+  const device = parseMegaInventory({ devices: [{ device_sn: "cam", device_model: "T8425", device_type: 47,
+    category: "eufy_security", device_channel: 0, member: { admin_user_id: "admin" }, params: [] }] })[0]!;
+  const direct = { homeBaseAttached: false, peer: device as MegaInventoryDevice };
+  assert.equal(supportsCameraSiren(device, direct), true);
+  for (const changed of [{ model: "T8425121" }, { deviceType: 48 }, { channel: 1 }, { adminUserId: null }]) {
+    assert.equal(supportsCameraSiren({ ...device, ...changed }, direct), false);
+  }
+  const { model: _model, ...missingModel } = device;
+  assert.equal(supportsCameraSiren(missingModel, direct), false);
+  assert.equal(supportsCameraSiren(device, null), false);
+  assert.equal(supportsCameraSiren(device, { ...direct, homeBaseAttached: true }), false);
+  assert.equal(supportsCameraSiren(device, { ...direct, peer: { ...device, serial: "other" } as MegaInventoryDevice }), false);
 });

@@ -1,5 +1,5 @@
 /**
- * Verifies standalone E30 eligibility and encrypted night-vision transmissions.
+ * Verifies standalone E30 and T8425 control admission and encrypted transmissions.
  * Tests own synthetic sockets and clocks. No account or network is contacted;
  * provider and Home Assistant consumers remain responsible for fresh readback.
  */
@@ -181,6 +181,10 @@ test("one eligibility decision gates direct identity, route and capability offer
     params: [{ param_type: 1277, param_value: "1" }] }] })[0]!;
   const route = { peer: device, homeBaseAttached: false };
   assert.equal(supportsStandaloneNightVision(device, route, true), true);
+  const t8425 = parseMegaInventory({ devices: [{ device_sn: "floodlight", device_model: "T8425", device_type: 47,
+    category: "eufy_security", device_channel: 0, member: { admin_user_id: "fixture-account" },
+    params: [{ param_type: 1277, param_value: "1" }] }] })[0]!;
+  assert.equal(supportsStandaloneNightVision(t8425, { peer: t8425, homeBaseAttached: false }, true), true);
   for (const changed of [{ model: "T8171-X" }, { deviceType: 94 }, { channel: 1 }, { adminUserId: null }, { reads: {} }]) {
     assert.equal(supportsStandaloneNightVision({ ...device, ...changed }, route, true), false);
   }
@@ -220,3 +224,98 @@ test("SoloCam T8171 rejects the unrelated spotlight value", async (context) => {
     await assert.rejects(session.writeNightVision(4), /not supported for this camera model/);
   } finally { session.close(); }
 });
+
+
+for (const mode of [0, 1, 2]) {
+  test(`standalone T8425 night vision mode ${mode} uses only level one`, async context => {
+    const peer = offlinePeer(context);
+    const cipher = context.mock.fn(async () => { throw new Error("Level two forbidden"); });
+    const session = new FirstPartyPpcsSession({ ...options, cameraModel: "T8425", resolveCipherKey: cipher });
+    try {
+      await session.start();
+      await session.writeNightVision(mode);
+      const writes = peer.packets.filter(({ body }) => body.length >= 14 && body.readUInt16LE(12) === 1350);
+      assert.equal(writes.length, 3);
+      assert.deepEqual(writes.map(({ at }) => at), [0, 200, 400]);
+      assert.equal(cipher.mock.callCount(), 0);
+      for (const { body } of writes) {
+        const value = body.subarray(14);
+        assert.deepEqual([...value.subarray(4, 10)], [1, 0, 0, 1, 0, 0]);
+        const decrypt = createDecipheriv("aes-128-ecb", Buffer.from("1234567-000000-X"), null);
+        decrypt.setAutoPadding(false);
+        const plain = Buffer.concat([decrypt.update(value.subarray(10)), decrypt.final()]);
+        const expected = buildNightVisionBody(0, mode, options.accountId);
+        assert.deepEqual(plain.subarray(0, expected.length), expected);
+      }
+      const before = peer.packets.length;
+      await assert.rejects(session.writeNightVision(3), /not supported/);
+      assert.equal(peer.packets.length, before);
+    } finally { session.close(); }
+  });
+}
+
+for (const flag of ["missing", "false", "channel"] as const) {
+  test(`standalone T8425 rejects ${flag} provider validation without control packets`, async context => {
+    const peer = offlinePeer(context);
+    const { standaloneNightVisionSupported: _flag, ...withoutFlag } = options;
+    const candidate = flag === "missing" ? { ...withoutFlag, cameraModel: "T8425" }
+      : { ...options, cameraModel: "T8425", ...(flag === "false" ? { standaloneNightVisionSupported: false } : { channel: 1 }) };
+    const session = new FirstPartyPpcsSession(candidate);
+    try {
+      await session.start();
+      const before = peer.packets.length;
+      await assert.rejects(session.writeNightVision(1), /requires a HomeBase-attached camera/);
+      assert.equal(peer.packets.length, before);
+    } finally { session.close(); }
+  });
+}
+
+for (const enabled of [false, true]) {
+  test(`standalone T8425 manual light ${enabled} sends timed JSON on channel zero`, async context => {
+    const peer = offlinePeer(context);
+    const cipher = context.mock.fn(async () => { throw new Error("Level two forbidden"); });
+    const session = new FirstPartyPpcsSession({ ...options, cameraModel: "T8425", resolveCipherKey: cipher });
+    try {
+      await session.start();
+      await session.writeTimedCameraLight(enabled);
+      const writes = peer.packets.filter(({ body }) => body.length >= 14 && body.readUInt16LE(12) === 1700);
+      assert.equal(writes.length, 3);
+      assert.deepEqual(writes.map(({ at }) => at), [0, 200, 400]);
+      assert.equal(cipher.mock.callCount(), 0);
+      for (const { body } of writes) {
+        const value = body.subarray(14);
+        assert.deepEqual([...value.subarray(4, 10)], [1, 0, 0, 1, 0, 0]);
+        const decrypt = createDecipheriv("aes-128-ecb", Buffer.from("1234567-000000-X"), null);
+        decrypt.setAutoPadding(false);
+        const plain = Buffer.concat([decrypt.update(value.subarray(10)), decrypt.final()]).toString("utf8").replace(/\0+$/u, "");
+        assert.deepEqual(JSON.parse(plain), { commandType: 1400, data: { time: 0, type: 2, value: enabled ? 1 : 0 } });
+      }
+    } finally { session.close(); }
+  });
+}
+
+for (const duration of [0, 5]) {
+  test(`standalone T8425 siren duration ${duration} sends the bounded native value`, async context => {
+    const peer = offlinePeer(context);
+    const cipher = context.mock.fn(async () => { throw new Error("Level two forbidden"); });
+    const session = new FirstPartyPpcsSession({ ...options, cameraModel: "T8425", resolveCipherKey: cipher });
+    try {
+      await session.start();
+      await session.writeCameraSiren(duration);
+      const writes = peer.packets.filter(({ body }) => body.length >= 14 && body.readUInt16LE(12) === 1202);
+      assert.equal(writes.length, 3);
+      assert.deepEqual(writes.map(({ at }) => at), [0, 200, 400]);
+      assert.equal(cipher.mock.callCount(), 0);
+      for (const { body } of writes) {
+        const value = body.subarray(14);
+        assert.deepEqual([...value.subarray(4, 10)], [1, 0, 0, 1, 0, 0]);
+        const decrypt = createDecipheriv("aes-128-ecb", Buffer.from("1234567-000000-X"), null);
+        decrypt.setAutoPadding(false);
+        const plain = Buffer.concat([decrypt.update(value.subarray(10)), decrypt.final()]);
+        assert.equal(plain.readUInt32LE(0), 0);
+        assert.equal(plain.readUInt32LE(4), duration);
+        assert.equal(plain.subarray(8, 136).toString("utf8").replace(/\0+$/u, ""), options.accountId);
+      }
+    } finally { session.close(); }
+  });
+}

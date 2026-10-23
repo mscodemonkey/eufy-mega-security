@@ -284,31 +284,44 @@ const STANDALONE_GUARD_MODE_MODELS: ReadonlySet<string> = new Set([
 ]);
 const PRIVACY_PARAMETER_PROBE_DEVICE_TYPES: ReadonlySet<number> = new Set([104, 105]);
 
-/** Return whether a device uses the verified timed JSON wall-light command. */
+/**
+ * Admit timed light commands while retaining the legacy wall-light profiles.
+ *
+ * T8425 is confirmed only on its exact owned, direct channel-zero route.
+ * Callers still require current peer credentials before offering or writing it.
+ */
 export function supportsTimedCameraLight(
-  device: Pick<MegaInventoryDevice, "deviceType">,
+  device: Pick<MegaInventoryDevice, "deviceType"> & Partial<Pick<MegaInventoryDevice, "serial" | "model" | "channel" | "adminUserId">>,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null = null,
 ): boolean {
+  if (device.deviceType === 47) {
+    return device.model === "T8425" && device.channel === 0
+      && Boolean(device.serial?.trim()) && Boolean(device.adminUserId?.trim())
+      && route?.homeBaseAttached === false && route.peer.serial === device.serial;
+  }
   return device.deviceType !== null && TIMED_LIGHT_JSON_DEVICE_TYPES.has(device.deviceType);
 }
 
-/** Select a direct-camera light wire format without broadening exact C31 model eligibility. */
+/** Select a direct light format without widening exact-model ownership boundaries. */
 export function cameraLightControlProtocol(
-  device: Pick<MegaInventoryDevice, "deviceType"> & Partial<Pick<MegaInventoryDevice, "model">>,
+  device: Pick<MegaInventoryDevice, "deviceType"> & Partial<Pick<MegaInventoryDevice, "serial" | "model" | "channel" | "adminUserId">>,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null = null,
 ): "timed-json" | "int-string" | "c31-json" | null {
   if (device.model === "T817L" && device.deviceType === 10031) return "c31-json";
   if (device.deviceType === null) return null;
-  if (TIMED_LIGHT_JSON_DEVICE_TYPES.has(device.deviceType)) return "timed-json";
+  if (supportsTimedCameraLight(device, route)) return "timed-json";
   if (INT_STRING_LIGHT_DEVICE_TYPES.has(device.deviceType)) return "int-string";
   return null;
 }
 
-/** Admit attached sirens by command evidence and the exact owned standalone C31 by native validation. */
+/** Admit attached sirens by command evidence and exact owned standalone models by native validation. */
 export function supportsCameraSiren(
   device: Pick<MegaInventoryDevice, "paramTypes"> & Partial<Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">>,
   route: Pick<PpcsStreamRoute, "homeBaseAttached"> & Partial<Pick<PpcsStreamRoute, "peer">> | null,
 ): boolean {
   if (route?.homeBaseAttached === true) return device.paramTypes.includes(1015);
-  return route?.homeBaseAttached === false && device.model === "T817L" && device.deviceType === 10_031
+  return route?.homeBaseAttached === false
+    && ((device.model === "T817L" && device.deviceType === 10_031) || (device.model === "T8425" && device.deviceType === 47))
     && device.channel === 0 && Boolean(device.serial) && route.peer?.serial === device.serial && Boolean(device.adminUserId);
 }
 
@@ -413,7 +426,9 @@ export function supportsStandaloneNightVision(
   route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
   routeReady: boolean,
 ): boolean {
-  return ((device.model === "T8171" && device.deviceType === 88) || (device.model === "T817L" && device.deviceType === 10_031)) && device.channel === 0
+  return ((device.model === "T8171" && device.deviceType === 88)
+    || (device.model === "T817L" && device.deviceType === 10_031)
+    || (device.model === "T8425" && device.deviceType === 47)) && device.channel === 0
     && route?.homeBaseAttached === false && route.peer.serial === device.serial
     && device.reads.nightVisionMode !== undefined && Boolean(device.adminUserId)
     && routeReady && !isDoorbellDevice(device);
@@ -4350,13 +4365,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.adminUserId !== null
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === true
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
-      cameraLightControlSupported: cameraLightControlProtocol(device) !== null
-        && (cameraLightControlProtocol(device) !== "c31-json"
+      cameraLightControlSupported: cameraLightControlProtocol(device, route) !== null
+        && (cameraLightControlProtocol(device, route) !== "c31-json"
           || supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)))
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === false
         && device.channel !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
-      timedLightControlSupported: supportsTimedCameraLight(device)
+      timedLightControlSupported: supportsTimedCameraLight(device, route)
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === false
         && device.channel !== null
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
@@ -4407,11 +4422,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const previous = this.#lightOperations.get(serial) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(async () => {
       const device = this.#devices.get(serial);
-      const protocol = device ? cameraLightControlProtocol(device) : null;
+      const route = device ? ppcsStreamRoute(device, this.#devices) : null;
+      const protocol = device ? cameraLightControlProtocol(device, route) : null;
       if (!device || !isSupportedMegaCamera(device) || protocol === null) {
         throw new Error("Camera light control is not supported for this camera");
       }
-      const route = ppcsStreamRoute(device, this.#devices);
       if (protocol === "c31-json" && !supportsStandaloneC31Presets(device, route, true)) {
         throw new Error("C31 light control requires its authorized direct channel-zero route");
       }
