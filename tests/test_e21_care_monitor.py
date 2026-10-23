@@ -36,8 +36,16 @@ def load_function(name: str, namespace: dict, class_name: str | None = None):
         and node.name == name
     )
     function.decorator_list = []
+    dependencies = [node for node in tree.body if name == "async_setup_entry" and (
+        getattr(node, "name", None) == "sync_detection_registry" or (
+            isinstance(node, ast.Assign) and any(
+                isinstance(target, ast.Name) and target.id == "DETECTION_KINDS"
+                for target in node.targets
+            )
+        )
+    )]
     exec(
-        compile(ast.Module(body=[tree.body[1], function], type_ignores=[]), SOURCE, "exec"),
+        compile(ast.Module(body=[tree.body[1], *dependencies, function], type_ignores=[]), SOURCE, "exec"),
         namespace,
     )
     return namespace[name]
@@ -81,12 +89,21 @@ class E21CareMonitorTest(unittest.IsolatedAsyncioTestCase):
         """Create the care adapter's entities while the matching camera advertises no generic detections."""
         kinds = ["motion", "crying", "sound", "pet", "babyLeft", "babyEntered", "temperatureHigh", "temperatureLow", "careAreaLeft", "careAreaEntered", "babyActivity"]
         added = []
-        coordinator = SimpleNamespace(cameras={"e21": {"supportedDetections": []}}, stations={}, sensors={"e21": {"capabilities": kinds}})
+        coordinator = SimpleNamespace(cameras={"e21": {"careMonitor": True, "supportedDetections": []}}, stations={}, sensors={"e21": {"capabilities": kinds}})
         coordinator.async_add_listener = lambda callback: None
-        entry = SimpleNamespace(runtime_data=SimpleNamespace(coordinator=coordinator), async_on_unload=lambda value: None)
+        entry = SimpleNamespace(entry_id="entry", runtime_data=SimpleNamespace(coordinator=coordinator), async_on_unload=lambda value: None)
+        registered = {f"e21_{kind}": SimpleNamespace(entity_id=f"binary_sensor.care_{kind}", disabled_by=None,
+                                                    name="Custom care name", options={"custom": True}) for kind in kinds}
+        before = {key: vars(value).copy() for key, value in registered.items()}
+        registry = SimpleNamespace(
+            async_get_entity_id=lambda domain, platform, unique_id: registered[unique_id].entity_id if unique_id in registered else None,
+            async_get=lambda *args: self.fail("Care entries must not enter generic migration"),
+            async_update_entity=lambda *args, **kwargs: self.fail("Care entry changed"),
+            async_remove=lambda *args: self.fail("Care entry removed"),
+        )
         namespace = {
-            "er": SimpleNamespace(async_get=lambda hass: SimpleNamespace(async_get_entity_id=lambda *args: None)),
-            "DOMAIN": "synthetic",
+            "er": SimpleNamespace(async_get=lambda hass: registry),
+            "DOMAIN": "eufy_event_gateway",
             "EufyStandaloneBinarySensor": lambda coordinator, serial, kind: (serial, kind),
             "EufyDetectionSensor": lambda *args: self.fail("Duplicate camera detection entity"),
         }
@@ -94,6 +111,7 @@ class E21CareMonitorTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(added, [("e21", kind) for kind in kinds])
         self.assertEqual(added.count(("e21", "crying")), 1)
         self.assertEqual(added.count(("e21", "sound")), 1)
+        self.assertEqual(before, {key: vars(value) for key, value in registered.items()})
 
     async def test_states_preserve_unknown_and_use_independent_fields(self) -> None:
         """Avoid turning a missing notification flag into a false claim."""

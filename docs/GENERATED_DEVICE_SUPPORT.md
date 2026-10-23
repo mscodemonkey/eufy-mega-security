@@ -47,6 +47,7 @@ hardware evidence and topology-specific results remain in
 | T8419 | Indoor Cam C210 | 10009 | camera | supported |
 | T8420 | Floodlight Cam 1080p | 3 | camera | ready_to_test |
 | T8420 | Floodlight Cam (T8420X hardware variant) | 3 | camera | ready_to_test |
+| T8422 | Floodlight Cam E 2K | 37 | camera | ready_to_test |
 | T8423 | Floodlight Cam 2 Pro (S330) | 38 | camera | supported |
 | T8425, T8425121 | Floodlight Cam E340 | 47 | camera | supported |
 | T8426, T8426121 | Floodlight Camera E30 | 87 | camera | supported |
@@ -59,6 +60,7 @@ hardware evidence and topology-specific results remain in
 | T8910, T8910021 | Motion Sensor | 10 | sensor | ready_to_test |
 | T8920, T89200D1 | Water and Freeze Sensor | 20 | sensor | ready_to_test |
 | T8B00 | SoloCam C210 | 64 | camera | ready_to_test |
+| T8W11C | Indoor Cam C220 (T8W11C, original) | 10008 | camera | ready_to_test |
 | T8W11C, T8W11 | Indoor Cam C220 (T8W11C, v2) | 10010 | camera | ready_to_test |
 | T90E0, T90E0121 | Entry Sensor E20 | 126 | sensor | ready_to_test |
 | T90M0, T90M0121 | Motion Sensor E20 | 127 | sensor | ready_to_test |

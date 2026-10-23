@@ -192,7 +192,7 @@ test("admits catalogued cameras with ready routes at their evidence status", () 
   }
 });
 
-test("admits only T8W11C type 10010 without inventing media or writes", () => {
+test("admits the two T8W11C variants without inventing media or writes", () => {
   const admitted = describeCameraCapabilities({
     serial: "t8w11c-v2", model: "T8W11C", category: "eufy_security", deviceType: 10010,
     paramTypes: [1011, 1101],
@@ -207,7 +207,9 @@ test("admits only T8W11C type 10010 without inventing media or writes", () => {
   assert.equal(admitted.capabilities.some(({ id }) => id === "batteryLevel"), true);
   assert.equal(admitted.capabilities.some(({ id }) => id === "liveVideo"), false);
   assert.equal(admitted.matrix.some(({ id, offerable }) => id === "camera.motion_detection" && offerable), false);
-  assert.equal(original.acceptedAsCamera, false);
+  assert.equal(original.acceptedAsCamera, true);
+  assert.equal(original.capabilities.some(({ id }) => id === "liveVideo"), false);
+  assert.equal(original.matrix.some(({ id, offerable }) => id === "camera.motion_detection" && offerable), false);
 });
 
 test("offers compatibility feedback only for the exact ready-to-test model", () => {
