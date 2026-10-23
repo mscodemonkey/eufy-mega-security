@@ -36,8 +36,16 @@ def load_function(name: str, namespace: dict, class_name: str | None = None):
         and node.name == name
     )
     function.decorator_list = []
+    dependencies = [node for node in tree.body if name == "async_setup_entry" and (
+        getattr(node, "name", None) == "sync_detection_registry" or (
+            isinstance(node, ast.Assign) and any(
+                isinstance(target, ast.Name) and target.id == "DETECTION_KINDS"
+                for target in node.targets
+            )
+        )
+    )]
     exec(
-        compile(ast.Module(body=[tree.body[1], function], type_ignores=[]), SOURCE, "exec"),
+        compile(ast.Module(body=[tree.body[1], *dependencies, function], type_ignores=[]), SOURCE, "exec"),
         namespace,
     )
     return namespace[name]
@@ -83,7 +91,7 @@ class E21CareMonitorTest(unittest.IsolatedAsyncioTestCase):
         added = []
         coordinator = SimpleNamespace(cameras={"e21": {"supportedDetections": []}}, stations={}, sensors={"e21": {"capabilities": kinds}})
         coordinator.async_add_listener = lambda callback: None
-        entry = SimpleNamespace(runtime_data=SimpleNamespace(coordinator=coordinator), async_on_unload=lambda value: None)
+        entry = SimpleNamespace(entry_id="entry", runtime_data=SimpleNamespace(coordinator=coordinator), async_on_unload=lambda value: None)
         namespace = {
             "er": SimpleNamespace(async_get=lambda hass: SimpleNamespace(async_get_entity_id=lambda *args: None)),
             "DOMAIN": "synthetic",
