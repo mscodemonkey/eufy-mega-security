@@ -38,6 +38,7 @@ export function isSupportedCameraType(device: { readonly category: string | null
   if (device.category !== "eufy_security" || megaDeviceRole(device.deviceType) !== "camera") return false;
 
   if (device.deviceType === 37) return device.model.toUpperCase() === "T8422";
+  if (device.deviceType === 10008) return device.model.toUpperCase() === "T8W11C";
 
   // Type 95 is also declared for T8224 without hardware confirmation, so only
   // the reported T8223 pairing may cross the existing camera boundary.
@@ -58,7 +59,8 @@ export function directCameraDetectionKinds(
   const model = device.model.toUpperCase();
   if (model === "T8420" && device.deviceType === 3) return ["motion"];
   if ((model === "T8224" && device.deviceType === 96)
-    || (model === "T8422" && device.deviceType === 37)) return ["motion", "person"];
+    || (model === "T8422" && device.deviceType === 37)
+    || (model === "T8W11C" && device.deviceType === 10008)) return ["motion", "person"];
   return undefined;
 }
 
