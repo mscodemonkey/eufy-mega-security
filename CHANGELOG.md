@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.195
+
+- Add standalone Floodlight Cam E340 T8425 night vision, manual floodlight on/off and siren start/stop controls. Thanks to @cbource for the contribution and physical tests on firmware 1.6.4.6.
+- Restrict new T8425 controls to their supported direct camera route and add packet and refusal coverage. HomeBase-attached cameras and model aliases are not covered by these hardware results.
+- Record the exact tested scope. Brightness, motion settings, pan/tilt and tracking remain separate requests. Siren timed expiry and state are unconfirmed, and the manual floodlight does not promise independent state or automatic expiry.
+
 ## 0.1.194
 
 - Mitigate slow hosted CI package downloads by selecting the main Ubuntu archive, while retaining the existing package verification and test gates.
