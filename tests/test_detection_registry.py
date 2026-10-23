@@ -30,11 +30,12 @@ class Registry:
         """Create isolated registry ownership and update history for one test."""
         self.entries = {}
         self.updates = []
+        self.removals = []
 
-    def add(self, kind: str, disabled_by=None, entry_id="entry") -> None:
+    def add(self, kind: str, disabled_by=None, entry_id="entry", serial="cam") -> None:
         """Create an existing sensor whose UI identity must survive migration."""
-        self.entries[f"cam_{kind}"] = SimpleNamespace(
-            entity_id=f"binary_sensor.custom_{kind}", config_entry_id=entry_id,
+        self.entries[f"{serial}_{kind}"] = SimpleNamespace(
+            entity_id=f"binary_sensor.custom_{kind}" if serial == "cam" else f"binary_sensor.custom_{serial}_{kind}", config_entry_id=entry_id,
             disabled_by=disabled_by, name="Custom name", options={"custom": True},
         )
 
@@ -53,6 +54,12 @@ class Registry:
         assert set(changes) == {"disabled_by"}
         self.updates.append((entity_id, changes["disabled_by"]))
         self.async_get(entity_id).disabled_by = changes["disabled_by"]
+
+
+    def async_remove(self, entity_id):
+        """Make unexpected destruction visible instead of silently dropping IDs."""
+        self.removals.append(entity_id)
+        raise AssertionError("Registry removal is outside this migration")
 
 
 class DetectionRegistryTest(unittest.IsolatedAsyncioTestCase):
@@ -75,6 +82,36 @@ class DetectionRegistryTest(unittest.IsolatedAsyncioTestCase):
         }
         exec(compile(ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[])), str(source), "exec"), self.namespace)
         self.sync = self.namespace["sync_detection_registry"]
+        constructor = next(node for node in tree.body if isinstance(node, ast.ClassDef)
+                           and node.name == "EufyStandaloneBinarySensor")
+        constructor = next(node for node in constructor.body if isinstance(node, ast.FunctionDef)
+                           and node.name == "__init__")
+        constructor.name = "_standalone_init"
+        self.namespace.update({
+            "EufySecuritySensorEntity": SimpleNamespace(__init__=lambda entity, coordinator, serial: setattr(entity, "serial", serial)),
+            "BinarySensorEntity": SimpleNamespace(__init__=lambda entity: None),
+            "BinarySensorDeviceClass": SimpleNamespace(OPENING="opening", MOTION="motion", SOUND="sound", OCCUPANCY="occupancy"),
+        })
+        exec(compile(ast.fix_missing_locations(ast.Module(body=[nodes[0], constructor], type_ignores=[])), str(source), "exec"), self.namespace)
+
+        def create_standalone(coordinator, serial, kind):
+            """Run the shipped constructor while inert bases own no HA state."""
+            entity = SimpleNamespace()
+            self.namespace["_standalone_init"](entity, coordinator, serial, kind)
+            return entity
+
+        self.namespace["EufyStandaloneBinarySensor"] = create_standalone
+
+    async def setup_camera(self, camera, sensors=None):
+        """Run real platform setup and return its listener and created entities."""
+        listeners, entities = [], []
+        coordinator = SimpleNamespace(cameras={"cam": camera}, stations={}, sensors=sensors or {},
+                                      async_add_listener=lambda callback: listeners.append(callback) or (lambda: None))
+        entry = SimpleNamespace(entry_id="entry", runtime_data=SimpleNamespace(coordinator=coordinator),
+                                async_on_unload=lambda callback: None)
+        await self.namespace["async_setup_entry"](None, entry, entities.extend)
+        return listeners, entities, coordinator
+
 
     async def test_preserves_ownership_customization_and_user_choices(self) -> None:
         """Disable only unsupported active entries in the current config entry."""
@@ -93,7 +130,7 @@ class DetectionRegistryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(before, {key: (entry.entity_id, entry.name, entry.options) for key, entry in self.registry.entries.items()})
 
     async def test_restores_integration_disables_and_honours_empty_lists(self) -> None:
-        """An explicit empty care profile withdraws detection sensors only."""
+        """An explicit empty ordinary-camera profile withdraws detection sensors only."""
         self.registry.add("motion", Disabler.INTEGRATION)
         self.registry.add("person", Disabler.USER)
         self.registry.add("doorbell")
@@ -132,6 +169,56 @@ class DetectionRegistryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.registry.updates[-1], ("binary_sensor.custom_person", None))
         listeners[0]()
         self.assertEqual(len(self.registry.updates), 2)
+
+
+    async def test_care_shared_ids_keep_real_sensor_constructor_and_registry_state(self) -> None:
+        """Preserve all four overlapping care IDs during setup and updates."""
+        kinds = ["motion", "crying", "sound", "pet", "babyLeft", "babyEntered", "temperatureHigh", "temperatureLow", "careAreaLeft", "careAreaEntered", "babyActivity"]
+        for kind in kinds:
+            self.registry.add(kind, Disabler.USER if kind == "pet" else None)
+        before = {key: vars(entry).copy() for key, entry in self.registry.entries.items()}
+        self.namespace["EufyDetectionSensor"] = lambda *args: self.fail("Duplicate care camera detection")
+        camera = {"careMonitor": True, "supportedDetections": []}
+        listeners, entities, _ = await self.setup_camera(camera, {"cam": {"capabilities": kinds}})
+        self.assertEqual([(entity.serial, entity.kind) for entity in entities], [("cam", kind) for kind in kinds])
+        for entity in entities:
+            self.assertEqual(entity._attr_unique_id, f"cam_{entity.kind}")
+        self.assertEqual({entity.kind: entity._attr_translation_key for entity in entities if entity.kind in ("motion", "crying", "sound", "pet")},
+                         {"motion": "motion_detection", "crying": "crying_detection", "sound": "sound_detection", "pet": "pet_detection"})
+        for profile in ([], ["motion"], ["crying"], []):
+            camera["supportedDetections"] = profile
+            listeners[0]()
+            listeners[0]()
+        self.assertEqual(self.registry.updates, [])
+        self.assertEqual(self.registry.removals, [])
+        self.assertEqual(before, {key: vars(entry) for key, entry in self.registry.entries.items()})
+        camera["careMonitor"] = False
+        listeners[0]()
+        self.assertEqual(len(self.registry.updates), 3)
+        listeners[0]()
+        self.assertEqual(len(self.registry.updates), 3)
+        self.assertEqual(self.registry.entries["cam_pet"].disabled_by, Disabler.USER)
+
+    async def test_ordinary_empty_lists_include_missing_and_nonboolean_care_flags(self) -> None:
+        """Only the real boolean care flag protects the separate sensor owner."""
+        for flag in (False, None, "true", 1, "yes", "missing"):
+            with self.subTest(flag=flag):
+                self.registry = Registry()
+                self.registry.add("motion")
+                self.registry.add("person", Disabler.USER)
+                self.registry.add("pet", Disabler.DEVICE)
+                self.registry.add("sound", Disabler.CONFIG_ENTRY)
+                camera = {"supportedDetections": []}
+                if flag != "missing":
+                    camera["careMonitor"] = flag
+                listeners, entities, _ = await self.setup_camera(camera)
+                self.assertEqual(entities, [])
+                self.assertEqual(self.registry.updates, [("binary_sensor.custom_motion", Disabler.INTEGRATION)])
+                listeners[0]()
+                self.assertEqual(len(self.registry.updates), 1)
+                self.assertEqual(self.registry.entries["cam_person"].disabled_by, Disabler.USER)
+                self.assertEqual(self.registry.entries["cam_pet"].disabled_by, Disabler.DEVICE)
+                self.assertEqual(self.registry.entries["cam_sound"].disabled_by, Disabler.CONFIG_ENTRY)
 
 
 if __name__ == "__main__":

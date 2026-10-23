@@ -37,7 +37,9 @@ def sync_detection_registry(
 ) -> None:
     """Retain detection entries while applying an explicit gateway event profile.
 
-    Only this config entry's default-enabled detection entities are managed.
+    The caller excludes care monitors, whose motion, crying, sound and pet IDs
+    belong to standalone care sensors. Their legacy camera entries also remain
+    untouched. Only this entry's default-enabled detection entities are managed.
     User and device disables, custom names, IDs and options remain untouched.
     Home Assistant may schedule its own reload after an integration disable is
     cleared. Repeated identical calls make no registry updates.
@@ -74,6 +76,8 @@ async def async_setup_entry(
 
     def add_new() -> None:
         for serial, camera in coordinator.cameras.items():
+            if camera.get("careMonitor") is True:
+                continue
             supported = camera.get("supportedDetections")
             profile = tuple(supported) if isinstance(supported, list) else None
             if serial not in applied_profiles or applied_profiles[serial] != profile:

@@ -149,7 +149,7 @@ switches because the direct HomeBase route does not return their current state.
 Preset movement is sent once and is never retried when the camera moves without
 returning a command acknowledgement.
 
-Direct T8420/type 3 cameras expose only motion detection. Direct T8224/type 96 and T8422/type 37 expose motion and person detection. Unsupported existing detection entries are preserved but disabled by the integration, so automations using them stop receiving those states. Explicit empty care profiles also withdraw legacy camera detections. User and device disable choices are preserved.
+Direct T8420/type 3 cameras expose only motion detection. Direct T8224/type 96 and T8422/type 37 expose motion and person detection. Unsupported existing detection entries are preserved but disabled by the integration, so automations using them stop receiving those states. Care-monitor sensor entities remain unchanged. User and device disable choices are preserved.
 
 Supported doorbells also get a Doorbell binary sensor. A bell press turns it on
 for 10 seconds, so an automation can catch the press without opening a video stream.
