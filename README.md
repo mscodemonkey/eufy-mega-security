@@ -86,6 +86,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 - ✅ SoloCam S230 / S40 T8124: discovery and live video are confirmed through HomeBase 3. Events and fresh snapshots still need focused confirmation.
 - 🟠 SoloCam S340 T8170: discovery, person events, and retained snapshots are confirmed through a T9000. Live video is waiting on that station's PPCS lookup result.
 - 🟠 Solar Wall Light Cam S120 T81A0: discovery, sensors, motion events, retained snapshots, and live video are confirmed. A HomeBase 3 reporter confirms sustained live video and reopening on v0.1.157. Manual light controls worked on the standalone route, but remain unavailable through HomeBase 3. Fresh captures and clip recording still need focused confirmation.
+- 🟠 Floodlight Cam E 2K T8422/type 37: exact direct-camera admission is ready for testing in v0.1.196 after two diagnostic rows exposed the missing mapping. Firmware, live video, snapshots, detection delivery and camera-enable hardware behaviour remain unconfirmed. T8422S aliases are excluded. Battery-shaped telemetry is not separately validated.
 - 🟠 Floodlight Cam E340 T8425: one standalone firmware 1.6.4.6 setup reports roughly one-second live startup and clean reopening on v0.1.192. The same standalone firmware has contributor-reported night vision, manual floodlight on/off and siren start/stop tests, available in v0.1.195. Brightness, motion settings and pan/tilt controls are not implemented. Siren timed expiry and readable siren state remain unconfirmed. Manual light has no independent state or automatic-expiry guarantee. These control results do not cover model aliases or HomeBase-attached routes. An older standalone setup reported revisit freezes and has not been retested. Discovery, person and vehicle events, and retained snapshots are confirmed through a T9000, where live video still awaits a successful peer lookup.
 - 🟢 Floodlight Camera E30 T8426: standalone discovery, fresh snapshots, and live video are confirmed. The current stream is video-only; audio, two-way talk, and floodlight controls are not implemented for this model.
 - 🟠 Floodlight Cam S330 / 2 Pro T8423: discovery and an event snapshot are confirmed. Direct H.265 live video is stable in most attempts. CPU recovery after closing live view is reporter-confirmed on v0.1.117. Consistent first-open success is still awaiting confirmation.
@@ -147,6 +148,8 @@ buttons for AI tracking and automatic cruise. These remain actions rather than
 switches because the direct HomeBase route does not return their current state.
 Preset movement is sent once and is never retried when the camera moves without
 returning a command acknowledgement.
+
+Direct T8420/type 3 cameras expose only motion detection. Direct T8224/type 96 and T8422/type 37 expose motion and person detection. Unsupported existing detection entries are preserved but disabled by the integration, so automations using them stop receiving those states. Explicit empty care profiles also withdraw legacy camera detections. User and device disable choices are preserved.
 
 Supported doorbells also get a Doorbell binary sensor. A bell press turns it on
 for 10 seconds, so an automation can catch the press without opening a video stream.

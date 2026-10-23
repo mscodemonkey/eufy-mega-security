@@ -7,7 +7,7 @@
  * normalized camera, station, and standalone-sensor paths Home Assistant may use.
  */
 
-import type { CameraCapability, CameraCapabilityManifest, CapabilityMatrixRow, DeviceCapabilityManifest } from "../domain/types.js";
+import type { CameraCapability, CameraCapabilityManifest, CapabilityMatrixRow, DeviceCapabilityManifest, DetectionKind } from "../domain/types.js";
 import { CAMERA_CAPABILITY_CORE, catalogueIntegrationStatus, hasMainsBatterySentinel, KNOWN_CAMERA_DEVICE_TYPES, megaDeviceRole, NON_CAMERA_DEVICE_TYPES } from "./camera-capability-core.js";
 import type { CoreCapabilityEntry } from "./device-capability-core.js";
 import { DOORBELL_CAPABILITY_CORE } from "./doorbell-capability-core.js";
@@ -37,9 +37,29 @@ export interface DeviceCapabilityOptions {
 export function isSupportedCameraType(device: { readonly category: string | null; readonly model: string; readonly deviceType: number | null }): boolean {
   if (device.category !== "eufy_security" || megaDeviceRole(device.deviceType) !== "camera") return false;
 
+  if (device.deviceType === 37) return device.model.toUpperCase() === "T8422";
+
   // Type 95 is also declared for T8224 without hardware confirmation, so only
   // the reported T8223 pairing may cross the existing camera boundary.
   return device.deviceType !== 95 || catalogueIntegrationStatus(device.model, device.deviceType) === "ready_to_test";
+}
+
+/**
+ * Limit direct-camera detection entities to the reviewed exact-model profiles.
+ *
+ * Unknown identities and unresolved or attached routes retain the legacy list.
+ * These declarations describe available event kinds, not successful detections.
+ */
+export function directCameraDetectionKinds(
+  device: Pick<CapabilityInventoryRow, "category" | "model" | "deviceType">,
+  homeBaseAttached: boolean | null | undefined,
+): DetectionKind[] | undefined {
+  if (device.category !== "eufy_security" || homeBaseAttached !== false) return undefined;
+  const model = device.model.toUpperCase();
+  if (model === "T8420" && device.deviceType === 3) return ["motion"];
+  if ((model === "T8224" && device.deviceType === 96)
+    || (model === "T8422" && device.deviceType === 37)) return ["motion", "person"];
+  return undefined;
 }
 
 /** Build one camera's shape-only manifest from reported inventory and route facts. */

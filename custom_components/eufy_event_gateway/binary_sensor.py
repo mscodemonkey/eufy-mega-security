@@ -9,6 +9,8 @@ availability come from ``entity.py``.
 
 from __future__ import annotations
 
+from typing import Any
+
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
@@ -24,6 +26,39 @@ from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity, EufySecuritySensorEntity, EufyStationEntity
 
 
+DETECTION_KINDS = (
+    "motion", "person", "stranger", "pet", "vehicle", "dog", "crying", "sound",
+    "packageDelivered", "packageTaken", "packageStranded",
+)
+
+
+def sync_detection_registry(
+    registry: er.EntityRegistry, entry_id: str, serial: str, supported: Any
+) -> None:
+    """Retain detection entries while applying an explicit gateway event profile.
+
+    Only this config entry's default-enabled detection entities are managed.
+    User and device disables, custom names, IDs and options remain untouched.
+    Home Assistant may schedule its own reload after an integration disable is
+    cleared. Repeated identical calls make no registry updates.
+    """
+    if not isinstance(supported, list):
+        return
+    for kind in DETECTION_KINDS:
+        entity_id = registry.async_get_entity_id(
+            "binary_sensor", DOMAIN, f"{serial}_{kind}"
+        )
+        entity = registry.async_get(entity_id) if entity_id else None
+        if entity is None or entity.config_entry_id != entry_id:
+            continue
+        if kind not in supported and entity.disabled_by is None:
+            registry.async_update_entity(
+                entity_id, disabled_by=er.RegistryEntryDisabler.INTEGRATION
+            )
+        elif kind in supported and entity.disabled_by == er.RegistryEntryDisabler.INTEGRATION:
+            registry.async_update_entity(entity_id, disabled_by=None)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: EufyGatewayConfigEntry,
@@ -35,8 +70,15 @@ async def async_setup_entry(
     known_cameras: set[str] = set()
     known_stations: set[str] = set()
     known_sensors: set[str] = set()
+    applied_profiles: dict[str, tuple[str, ...] | None] = {}
 
     def add_new() -> None:
+        for serial, camera in coordinator.cameras.items():
+            supported = camera.get("supportedDetections")
+            profile = tuple(supported) if isinstance(supported, list) else None
+            if serial not in applied_profiles or applied_profiles[serial] != profile:
+                sync_detection_registry(registry, entry.entry_id, serial, supported)
+                applied_profiles[serial] = profile
         serials = set(coordinator.cameras) - known_cameras
         if serials:
             known_cameras.update(serials)
@@ -49,7 +91,7 @@ async def async_setup_entry(
                     if stale_entity_id:
                         registry.async_remove(stale_entity_id)
                 supported = coordinator.cameras[serial].get("supportedDetections")
-                kinds = ("motion", "person", "stranger", "pet", "vehicle", "dog", "crying", "sound", "packageDelivered", "packageTaken", "packageStranded")
+                kinds = DETECTION_KINDS
                 entities.extend(
                     EufyDetectionSensor(coordinator, serial, kind)
                     for kind in kinds if not isinstance(supported, list) or kind in supported

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.196
+
+- Admit exact standalone Floodlight Cam E 2K T8422/type 37 for camera testing. Reporter diagnostics established the missing admission, but firmware, actual media playback, detections and camera-enable hardware behaviour remain unconfirmed. Model aliases remain excluded.
+- Limit direct T8420/type 3 detection entities to motion, and direct T8224/type 96 and T8422/type 37 to motion and person. Keep doorbell press handling separate. Remove unsupported pet, vehicle and sound declarations from the two affected catalogue profiles.
+- Preserve existing detection entity IDs, names and options while disabling unsupported integration-owned entries, including explicit empty care profiles. Automations depending on those unsupported entities stop receiving their states. Preserve user/device disables and migrate profiles that arrive after initial inventory. Supported integration-disabled detection entries may be restored by Home Assistant's normal registry lifecycle.
+
 ## 0.1.195
 
 - Add standalone Floodlight Cam E340 T8425 night vision, manual floodlight on/off and siren start/stop controls. Thanks to @cbource for the contribution and physical tests on firmware 1.6.4.6.

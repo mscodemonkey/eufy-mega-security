@@ -47,6 +47,7 @@ hardware evidence and topology-specific results remain in
 | T8419 | Indoor Cam C210 | 10009 | camera | supported |
 | T8420 | Floodlight Cam 1080p | 3 | camera | ready_to_test |
 | T8420 | Floodlight Cam (T8420X hardware variant) | 3 | camera | ready_to_test |
+| T8422 | Floodlight Cam E 2K | 37 | camera | ready_to_test |
 | T8423 | Floodlight Cam 2 Pro (S330) | 38 | camera | supported |
 | T8425, T8425121 | Floodlight Cam E340 | 47 | camera | supported |
 | T8426, T8426121 | Floodlight Camera E30 | 87 | camera | supported |

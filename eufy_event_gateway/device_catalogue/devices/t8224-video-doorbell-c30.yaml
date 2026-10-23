@@ -88,18 +88,6 @@ capabilities:
       connections:
         direct:
           status: declared
-    pet:
-      connections:
-        direct:
-          status: declared
-    vehicle:
-      connections:
-        direct:
-          status: declared
-    sound:
-      connections:
-        direct:
-          status: declared
     doorbell_press:
       connections:
         direct:

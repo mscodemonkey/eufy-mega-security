@@ -55,7 +55,7 @@ import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, type P
 import { withCameraControlDeadline } from "./camera-control-deadline.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBaseChildParam, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
 import type { SensorContactObservation } from "../stream/sensor-status-notification.js";
-import { cameraCapabilityLogSummaries, describeCameraCapabilities, isSupportedCameraType, describeDeviceCapabilities, deviceCapabilityLogSummaries } from "./device-capabilities-core.js";
+import { cameraCapabilityLogSummaries, describeCameraCapabilities, directCameraDetectionKinds, isSupportedCameraType, describeDeviceCapabilities, deviceCapabilityLogSummaries } from "./device-capabilities-core.js";
 import { generalRtcBinding, GeneralRtcTrial, GeneralRtcPinLimiter, type GeneralRtcTrialLease, type GeneralRtcBinding } from "./general-rtc-trial.js";
 import { GeneralRtcError } from "../stream/general-rtc-protocol.js";
 import { catalogueIntegrationStatus, hasMainsBatterySentinel } from "./camera-capability-core.js";
@@ -4250,11 +4250,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const soloCamPanControlsSupported = supportsSoloCamPresetControl(
       device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials),
     );
+    const supportedDetections = directCameraDetectionKinds(device, route?.homeBaseAttached);
     const identity: CameraIdentity = {
       serial: device.serial,
       name: device.name,
       model: device.model,
       catalogueStatus: catalogueIntegrationStatus(device.model, device.deviceType),
+      ...(supportedDetections ? { supportedDetections } : {}),
       firmware: device.firmware,
       hardwareVersion: device.hardwareVersion ?? null,
       firmwareSubVersion: device.firmwareSubVersion ?? null,
