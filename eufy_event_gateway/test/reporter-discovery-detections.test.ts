@@ -25,6 +25,7 @@ const profiles = [
   { serial: "bell", model: "T8224", deviceType: 96, kinds: ["motion", "person"] },
   { serial: "e2k", model: "T8422", deviceType: 37, kinds: ["motion", "person"] },
   { serial: "c220", model: "T8W11C", deviceType: 10008, kinds: ["motion", "person"] },
+  { serial: "lte", model: "T86P2", deviceType: 111, kinds: ["motion", "person", "pet", "vehicle", "sound"] },
 ] as const;
 
 test("exact direct profiles agree with declared events without sharing mutable lists", () => {
@@ -41,6 +42,7 @@ test("exact direct profiles agree with declared events without sharing mutable l
       T8224: "t8224-video-doorbell-c30.yaml",
       T8422: "t8422-floodlight-cam-e-2k.yaml",
       T8W11C: "t8w11c-indoor-cam-c220-original.yaml",
+      T86P2: "t86p2-4g-lte-cam-s330.yaml",
     };
     const catalogue = parse(readFileSync(new URL(`../device_catalogue/devices/${files[model]}`, import.meta.url), "utf8")) as { capabilities: { events: Record<string, unknown> } };
     const events = Object.keys(catalogue.capabilities.events);
@@ -99,6 +101,7 @@ test("provider publishes exact profiles and refuses aliases or incomplete live r
   context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
   const rejected = [
     { serial: "wrong37", model: "T8422S", deviceType: 37 },
+    { serial: "wrong111", model: "T86P2S", deviceType: 111 },
     { serial: "wrong10008", model: "T8W11", deviceType: 10008 },
   ];
   const incomplete = [
