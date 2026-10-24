@@ -17,6 +17,19 @@ export type ModelControlTrial =
   | { readonly action: "sirenConnection"; readonly enabled: false }
   | { readonly action: "ptz"; readonly direction: "left" | "right" | "up" | "down" };
 
+/** Fixed, privacy-safe explanations for an unavailable exact-model trial. */
+export type ModelControlTrialUnavailableReason =
+  | "unsupported_identity"
+  | "direct_route_unavailable"
+  | "owner_account_required"
+  | "connection_key_unavailable";
+
+/** Describes admission without exposing account, route, or key material. */
+export interface ModelControlTrialAdmission {
+  readonly actions: readonly ModelControlTrial["action"][];
+  readonly unavailableReason?: ModelControlTrialUnavailableReason;
+}
+
 /** Report acknowledgement separately from fresh reported state and physical movement. */
 export interface ModelControlWriteTrialResult {
   readonly outcome: "confirmed" | "acknowledged" | "unchanged" | "prepared";

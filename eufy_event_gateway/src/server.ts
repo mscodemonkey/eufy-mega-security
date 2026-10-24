@@ -858,8 +858,10 @@ export class GatewayServer {
         if (!this.config.apiToken || !this.config.experimentalModelControls) return json(response, 409, { error: "Experimental model controls are disabled" });
         if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
         response.setHeader("cache-control", "no-store");
-        const actions = this.provider.modelControlTrials?.(segments[2]!) ?? [];
-        if (request.method === "GET") return json(response, 200, { actions, experimental: true });
+        const admission = this.provider.modelControlTrialAdmission?.(segments[2]!);
+        const actions = admission?.actions ?? this.provider.modelControlTrials?.(segments[2]!) ?? [];
+        if (request.method === "GET") return json(response, 200, { actions, experimental: true,
+          ...(actions.length === 0 && admission?.unavailableReason ? { unavailableReason: admission.unavailableReason } : {}) });
         const trial = parseModelControlTrial(await readJson(request));
         if (!actions.includes(trial.action) || !this.provider.performModelControlTrial) return json(response, 409,
           trial.action === "alarmState" ? closedAlarmStateResult(null) : { error: "Model control trial unavailable" });

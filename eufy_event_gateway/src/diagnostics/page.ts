@@ -141,6 +141,12 @@ function clearTrialAdmission(message = 'Choose a camera and check available cont
   el('trial-status').textContent = message; syncTrialControls();
 }
 const unavailableTrials = 'No exact model control trials available. This can reflect disabled app options, an unready connection or owner-account requirements. No command was sent.';
+const unavailableTrialMessages = {
+  unsupported_identity: 'No exact model control trial matches this device identity. No command was sent.',
+  direct_route_unavailable: 'The camera does not currently have a ready direct connection route. No command was sent.',
+  owner_account_required: 'The owner account is required for this experimental control. No command was sent.',
+  connection_key_unavailable: 'The camera connection key is unavailable or needs refreshing. No command was sent.'
+};
 const show = value => { el('status').textContent = value; };
 const abortStream = () => { if(stream) stream.abort(); stream = null; };
 async function api(path, method = 'GET', body) {
@@ -219,7 +225,11 @@ action('trial-load', async () => {
     if(generation !== trialGeneration || serial !== el('device').value) return;
     const names = ['motion','spotlight','siren','sirenConnection','ptz','manualLight','alarmState'];
     if(!Array.isArray(value.actions) || value.actions.some(name => !names.includes(name))) throw Error('Invalid control list.');
-    if(!value.actions.length) { clearTrialAdmission(unavailableTrials); return; }
+    if(!value.actions.length) {
+      const message = typeof value.unavailableReason === 'string' && Object.hasOwn(unavailableTrialMessages, value.unavailableReason)
+        ? unavailableTrialMessages[value.unavailableReason] : unavailableTrials;
+      clearTrialAdmission(message); return;
+    }
     trialAdmission = { serial, actions: [...value.actions] };
     for(const name of value.actions) el('trial-action').add(new Option(name === 'alarmState' ? 'Read alarm state (experimental)' : name === 'sirenConnection' ? 'Check S100 connection (no sound)' : name === 'manualLight' ? 'Manual light (S120 through HomeBase 3)' : name, name));
     trialValues(); syncTrialControls();

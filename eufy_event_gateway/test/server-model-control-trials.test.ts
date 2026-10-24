@@ -71,6 +71,22 @@ test("trial form is opt-in, explicit, single-submit and syntactically valid", ()
   new Function(page.split("<script>")[1]!.split("</script>")[0]!);
 });
 
+test("model control admission exposes only a fixed refusal reason", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "eufy-trial-admission-"));
+  const state = new GatewayState();
+  state.registerCamera({ serial: "synthetic", name: "Synthetic", model: "T8170", stationSerial: "synthetic",
+    streamSupported: false, doorbellSupported: false });
+  const provider = { modelControlTrialAdmission: () => ({ actions: [], unavailableReason: "connection_key_unavailable" }) } as unknown as CameraProvider;
+  const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "fixture", experimentalModelControls: true },
+    state, new SnapshotStore(directory), {} as LiveStreamManager, provider, null);
+  try {
+    await server.listen();
+    const response = await fetch(`http://127.0.0.1:${server.port}/api/cameras/synthetic/model-control-trial`,
+      { headers: { authorization: "Bearer fixture" } });
+    assert.deepEqual(await response.json(), { actions: [], experimental: true, unavailableReason: "connection_key_unavailable" });
+  } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 
 test("S100 HTTP client disconnect leaves provider-owned stop cleanup running", async () => {
   const directory = await mkdtemp(join(tmpdir(), "eufy-s100-http-"));

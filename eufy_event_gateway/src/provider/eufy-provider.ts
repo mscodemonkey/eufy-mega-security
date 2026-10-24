@@ -31,7 +31,7 @@ import { careMonitorPushKind, careMonitorSensorState } from "./care-monitor.js";
 import { E21ControlError, e21Readings, e21PreferenceContracts, e21PreferenceNames, isE21, validateE21Preference, type E21Readings } from "./e21-profile.js";
 import { NvrRtcSession } from "../stream/nvr-rtc-session.js";
 import { NvrTrialError, nvrTrialSensor, type NvrStateSummary } from "../stream/nvr-protocol.js";
-import { modelControlTrialActions, parseModelControlTrial, runModelControlTrial, type ModelControlRoute, type ModelControlTrial, type ModelControlTrialResult, type AlarmStateTrialResult } from "./model-control-trials.js";
+import { modelControlTrialActions, parseModelControlTrial, runModelControlTrial, type ModelControlRoute, type ModelControlTrial, type ModelControlTrialAdmission, type ModelControlTrialResult, type AlarmStateTrialResult } from "./model-control-trials.js";
 import { join } from "node:path";
 import { setTimeout as cancellableDelay } from "node:timers/promises";
 import { createHmac, randomBytes } from "node:crypto";
@@ -2825,21 +2825,32 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** List trials independently of normal hardware-verified capability flags. */
   modelControlTrials(serial: string): readonly ModelControlTrial["action"][] {
-    if (this.#devices.get(serial) && isE21(this.#devices.get(serial)!)) return [];
-    if (!this.config.experimentalModelControls || this.#recordingClosing) return [];
+    return this.modelControlTrialAdmission(serial).actions;
+  }
+
+  /** Explain trial refusal without returning account, route, or key material. */
+  modelControlTrialAdmission(serial: string): ModelControlTrialAdmission {
+    if (this.#devices.get(serial) && isE21(this.#devices.get(serial)!)) return { actions: [], unavailableReason: "unsupported_identity" };
+    if (!this.config.experimentalModelControls || this.#recordingClosing) return { actions: [], unavailableReason: "unsupported_identity" };
     const device = this.#devices.get(serial);
     const route = device ? ppcsStreamRoute(device, this.#devices) : null;
-    if (!device || !route || !device.adminUserId || !route.peer.p2pDid || !route.peer.p2pConnection) return [];
+    if (!device) return { actions: [], unavailableReason: "unsupported_identity" };
+    if (!route || !route.peer.p2pDid || !route.peer.p2pConnection) return { actions: [], unavailableReason: "direct_route_unavailable" };
+    if (!device.adminUserId) return { actions: [], unavailableReason: "owner_account_required" };
     const actions = modelControlTrialActions(this.#modelTrialRoute(device, route));
+    if (!actions.length) return { actions: [], unavailableReason: "unsupported_identity" };
     if (actions.includes("manualLight") && (route.peer.adminUserId !== device.adminUserId
       || !this.#client.isAuthenticatedUser(device.adminUserId)
-      || [...this.#devices.values()].filter(row => row.parentSerial === route.peer.serial && row.channel === device.channel).length !== 1)) return [];
+      || [...this.#devices.values()].filter(row => row.parentSerial === route.peer.serial && row.channel === device.channel).length !== 1)) {
+      return { actions: [], unavailableReason: "owner_account_required" };
+    }
     if (actions.includes("alarmState")) {
       const dsk = this.#dskKeys.get(route.peer.serial);
       if (!this.config.apiAuthenticationConfigured || route.peer.adminUserId !== device.adminUserId
-        || !this.#client.isAuthenticatedUser(device.adminUserId) || !dsk?.key || dskKeyNeedsRefresh(dsk)) return [];
+        || !this.#client.isAuthenticatedUser(device.adminUserId)) return { actions: [], unavailableReason: "owner_account_required" };
+      if (!dsk?.key || dskKeyNeedsRefresh(dsk)) return { actions: [], unavailableReason: "connection_key_unavailable" };
     }
-    return actions;
+    return { actions };
   }
 
   /** Own the cached-key read experiment without publishing security state. */

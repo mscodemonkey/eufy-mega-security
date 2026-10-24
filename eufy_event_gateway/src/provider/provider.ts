@@ -19,7 +19,7 @@ import type { CameraSettingChange } from "./camera-settings.js";
 import type { E30LockSettingChange } from "../domain/types.js";
 import type { NvrStateSummary } from "../stream/nvr-protocol.js";
 import type { SmartLockState } from "../domain/types.js";
-import type { ModelControlTrial, ModelControlTrialResult } from "./model-control-trials.js";
+import type { ModelControlTrial, ModelControlTrialAdmission, ModelControlTrialResult } from "./model-control-trials.js";
 import type { CloudHistoryQuery, CloudHistoryRecord } from "../mega/cloud-history.js";
 import type { CloudCalendarQuery, CloudCalendarResult } from "../mega/cloud-calendar.js";
 import type { Readable } from "node:stream";
@@ -128,6 +128,9 @@ export interface CameraProvider {
 
   /** List default-off exact-model trials, independently of verified capabilities. */
   modelControlTrials?(serial: string): readonly ModelControlTrial["action"][];
+
+  /** Explain trial admission through a fixed, privacy-safe reason vocabulary. */
+  modelControlTrialAdmission?(serial: string): ModelControlTrialAdmission;
 
   /** Submit one experimental command with fresh state confirmation for settings. */
   performModelControlTrial?(serial: string, request: ModelControlTrial, signal?: AbortSignal): Promise<ModelControlTrialResult>;

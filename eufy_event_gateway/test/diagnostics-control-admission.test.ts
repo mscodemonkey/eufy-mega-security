@@ -62,7 +62,7 @@ function harness() {
   return { el, calls, controls, departures, respond: (handler: typeof reply) => { reply = handler; } };
 }
 
-for (const scenario of ["initial", "empty", "success", "device", "reload", "failure", "http-failure", "json-failure", "no-selection", "pagehide", "general", "cloud", "siren-stop"]) {
+for (const scenario of ["initial", "empty", "reason", "success", "device", "reload", "failure", "http-failure", "json-failure", "no-selection", "pagehide", "general", "cloud", "siren-stop"]) {
   test(`Model control admission: ${scenario}`, async () => {
     const h = harness();
     if (scenario === "initial") {
@@ -74,12 +74,14 @@ for (const scenario of ["initial", "empty", "success", "device", "reload", "fail
       await h.el("trial-send").onclick!(); assert.equal(h.calls.length, 0); return;
     }
     if (scenario === "empty") h.respond(async () => ({ actions: [] }));
+    if (scenario === "reason") h.respond(async () => ({ actions: [], unavailableReason: "connection_key_unavailable" }));
     if (scenario === "failure") h.respond(async () => { throw Error("offline"); });
     if (scenario === "http-failure") h.respond(async () => ({ httpFailure: true }));
     if (scenario === "json-failure") h.respond(async () => ({ jsonFailure: true }));
     await h.el("trial-load").onclick!();
-    if (["empty", "failure", "http-failure", "json-failure"].includes(scenario)) {
-      assert.equal(h.el("trial-send").disabled, true); assert.match(h.el("trial-status").textContent, /owner-account/); return;
+    if (["empty", "reason", "failure", "http-failure", "json-failure"].includes(scenario)) {
+      assert.equal(h.el("trial-send").disabled, true);
+      assert.match(h.el("trial-status").textContent, scenario === "reason" ? /connection key/ : /owner-account/); return;
     }
     assert.equal(h.el("trial-send").disabled, false);
     if (scenario === "success") return;
