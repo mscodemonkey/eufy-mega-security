@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.197
+
+- Explain why an exact-model experimental control is unavailable when Diagnostics can safely distinguish an unsupported identity, an unready direct route, an owner-account requirement, or a missing connection key.
+- Keep account, route, and key details private while preserving the existing opt-in and no-command-on-refusal safeguards.
+
 ## 0.1.196
 
 - Admit exact Indoor Cam C220 T8W11C/type 10008 for testing after the reporter supplied its numeric identity, firmware 4.0.9.4 and direct Wi-Fi connection. Retain route and reported-state guards, exclude type 10008 aliases, and leave media, detection and control hardware behaviour unconfirmed.
