@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.198
+
+- Admit the exact 4G LTE Cam S330 T86P2/type 111 profile for hardware testing, including its declared motion, person, pet, vehicle and sound events for Home Assistant automations.
+- Keep model aliases excluded and leave live media behind the existing direct-route checks. Actual event delivery and live view still need reporter confirmation.
+
 ## 0.1.197
 
 - Explain why an exact-model experimental control is unavailable when Diagnostics can safely distinguish an unsupported identity, an unready direct route, an owner-account requirement, or a missing connection key.

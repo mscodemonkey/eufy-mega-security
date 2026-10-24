@@ -5,7 +5,8 @@ id: t86p2
 name: 4G LTE Cam S330
 category: camera
 integration:
-  status: recognised
+  status: ready_to_test
+  handler: camera
 models:
   - T86P2
   - T86P2121
