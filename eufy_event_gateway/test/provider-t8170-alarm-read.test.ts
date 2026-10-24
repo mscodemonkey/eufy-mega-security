@@ -65,6 +65,10 @@ for (const mode of ["option-off", "api-off", "unauthenticated", "missing-admin",
   test(`T8170 ${mode} refuses listing and perform without fetching keys or opening sessions`, async context => {
     const h = await fixture(context, mode), count = h.keys.mock.callCount();
     assert.deepEqual(h.provider.modelControlTrials("fixture-camera"), []);
+    const expectedReason = ["missing-did", "missing-connection"].includes(mode) ? "direct_route_unavailable"
+      : ["no-key", "empty-key", "expired-key"].includes(mode) ? "connection_key_unavailable"
+      : mode === "option-off" ? "unsupported_identity" : "owner_account_required";
+    assert.deepEqual(h.provider.modelControlTrialAdmission("fixture-camera"), { actions: [], unavailableReason: expectedReason });
     assert.deepEqual(await h.provider.performModelControlTrial("fixture-camera", { action: "alarmState", enabled: false }),
       { outcome: "unavailable", frames: 0, parseStage: "none", keyReady: false });
     assert.equal(h.keys.mock.callCount(), count); assert.equal(h.starts.mock.callCount(), 0); assert.equal(h.reads.mock.callCount(), 0);
@@ -75,6 +79,7 @@ for (const mode of ["option-off", "api-off", "unauthenticated", "missing-admin",
 for (const mode of ["ready", "failure", "held", "drift", "shutdown", "abort"]) test(`T8170 provider ${mode} keeps private read ownership`, async context => {
   const h = await fixture(context, mode), before = h.state.getCamera("fixture-camera"), keyCalls = h.keys.mock.callCount();
   assert.deepEqual(h.provider.modelControlTrials("fixture-camera"), ["alarmState"]);
+  assert.deepEqual(h.provider.modelControlTrialAdmission("fixture-camera"), { actions: ["alarmState"] });
   const controller = new AbortController();
   const running = h.provider.performModelControlTrial("fixture-camera", { action: "alarmState", enabled: false }, controller.signal);
   const settled = running.then(value => ({ value }), error => ({ error }));
