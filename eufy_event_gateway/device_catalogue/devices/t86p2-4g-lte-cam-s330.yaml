@@ -86,7 +86,10 @@ capabilities:
     motion:
       connections:
         direct:
-          status: declared
+          status: reported
+          tested_on: 2026-10-25
+          tested_by: mcdunne100
+          notes: Exact T86P2 discovery used the direct route in v0.1.198. Motion events arrived through the gateway push receiver with camera notifications enabled in Away mode. T86P2121 remains untested.
     person:
       connections:
         direct:
