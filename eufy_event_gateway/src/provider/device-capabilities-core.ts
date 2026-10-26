@@ -35,7 +35,12 @@ export interface DeviceCapabilityOptions {
 
 /** Check the existing camera admission boundary before offering camera paths. */
 export function isSupportedCameraType(device: { readonly category: string | null; readonly model: string; readonly deviceType: number | null }): boolean {
-  if (device.category !== "eufy_security" || megaDeviceRole(device.deviceType) !== "camera") return false;
+  if (device.category !== "eufy_security") return false;
+
+  if (device.model.toUpperCase() === "T8215" || device.deviceType === 97) {
+    return device.model.toUpperCase() === "T8215" && device.deviceType === 97;
+  }
+  if (megaDeviceRole(device.deviceType) !== "camera") return false;
 
   if (device.deviceType === 37) return device.model.toUpperCase() === "T8422";
   if (device.deviceType === 111) return device.model.toUpperCase() === "T86P2";

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.199
+
+- Admit the exact Video Doorbell S4 T8215/type 97 profile for hardware testing and expose its reported battery readings. Discovery and battery reporting are testable, while live view, snapshots, events and controls remain unconfirmed.
+- Recognise the exact Video Doorbell Chime 2 T8026/type 600 identity without treating it as a camera or exposing unsupported media and controls.
+- Record reporter-confirmed T86P2 motion delivery when notifications are enabled in Away mode. Other declared events and live view remain unconfirmed.
+
 ## 0.1.198
 
 - Admit the exact 4G LTE Cam S330 T86P2/type 111 profile for hardware testing, including its declared motion, person, pet, vehicle and sound events for Home Assistant automations.

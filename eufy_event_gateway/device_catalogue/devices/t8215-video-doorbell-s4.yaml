@@ -1,0 +1,39 @@
+# yaml-language-server: $schema=../device.schema.json
+
+schema: 1
+id: t8215
+name: Video Doorbell S4
+category: doorbell
+integration:
+  status: ready_to_test
+  handler: camera
+models:
+  - T8215
+device_type: 97
+notes: "Exact T8215/type 97 discovery and battery reads are reported. Live view, snapshots, events and controls remain unconfirmed."
+capabilities:
+  readable:
+    battery_level:
+      connections:
+        T8030:
+          status: declared
+      read:
+        parameter: 1101
+    battery_charging:
+      connections:
+        T8030:
+          status: declared
+      read:
+        parameter: 2111
+    battery_health:
+      connections:
+        T8030:
+          status: declared
+      read:
+        parameter: 1198
+    battery_temperature:
+      connections:
+        T8030:
+          status: declared
+      read:
+        parameter: 1138

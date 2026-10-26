@@ -192,6 +192,54 @@ test("admits catalogued cameras with ready routes at their evidence status", () 
   }
 });
 
+test("admits only the exact reported Video Doorbell S4 identity", () => {
+  const reported = {
+    serial: "s4-doorbell",
+    model: "T8215",
+    category: "eufy_security",
+    deviceType: 97,
+    paramTypes: [1101, 2111, 1198, 1138],
+  };
+  const manifest = describeCameraCapabilities(reported, {
+    doorbellSupported: true,
+    streamSupported: false,
+    routeReady: false,
+    homeBaseAttached: true,
+  });
+
+  assert.equal(catalogueIntegrationStatus("T8215", 97), "ready_to_test");
+  assert.equal(manifest.acceptedAsCamera, true);
+  assert.deepEqual(
+    manifest.capabilities.filter(({ id }) => id.startsWith("battery")).map(({ id }) => id),
+    ["batteryLevel", "batteryCharging", "batteryHealth", "batteryTemperature"],
+  );
+  assert.equal(manifest.capabilities.some(({ id }) => id === "liveVideo"), false);
+  assert.equal(manifest.matrix.find(({ id }) => id === "camera.live_stream")?.offerable, false);
+
+  for (const patch of [{ model: "T8215S" }, { model: "T8214" }, { deviceType: 98 }]) {
+    assert.equal(describeCameraCapabilities({ ...reported, ...patch }, {
+      doorbellSupported: true,
+      streamSupported: false,
+      routeReady: false,
+      homeBaseAttached: true,
+    }).acceptedAsCamera, false);
+  }
+});
+
+test("recognises Chime 2 without admitting it as a camera", () => {
+  const manifest = describeCameraCapabilities({
+    serial: "chime",
+    model: "T8026",
+    category: "eufy_security",
+    deviceType: 600,
+    paramTypes: [],
+  }, { doorbellSupported: false, streamSupported: false, routeReady: true });
+
+  assert.equal(catalogueIntegrationStatus("T8026", 600), "recognised");
+  assert.equal(manifest.acceptedAsCamera, false);
+  assert.deepEqual(manifest.capabilities, []);
+});
+
 test("admits the two T8W11C variants without inventing media or writes", () => {
   const admitted = describeCameraCapabilities({
     serial: "t8w11c-v2", model: "T8W11C", category: "eufy_security", deviceType: 10010,
