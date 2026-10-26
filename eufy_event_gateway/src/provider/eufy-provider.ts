@@ -31,7 +31,7 @@ import { careMonitorPushKind, careMonitorSensorState } from "./care-monitor.js";
 import { E21ControlError, e21Readings, e21PreferenceContracts, e21PreferenceNames, isE21, validateE21Preference, type E21Readings } from "./e21-profile.js";
 import { NvrRtcSession } from "../stream/nvr-rtc-session.js";
 import { NvrTrialError, nvrTrialSensor, type NvrStateSummary } from "../stream/nvr-protocol.js";
-import { modelControlTrialActions, parseModelControlTrial, runModelControlTrial, type ModelControlRoute, type ModelControlTrial, type ModelControlTrialAdmission, type ModelControlTrialResult, type AlarmStateTrialResult } from "./model-control-trials.js";
+import { modelControlTrialActions, parseModelControlTrial, runModelControlTrial, type ModelControlRoute, type ModelControlTrial, type ModelControlTrialAdmission, type ModelControlTrialFailureStage, type ModelControlTrialResult, type AlarmStateTrialResult } from "./model-control-trials.js";
 import { join } from "node:path";
 import { setTimeout as cancellableDelay } from "node:timers/promises";
 import { createHmac, randomBytes } from "node:crypto";
@@ -2935,6 +2935,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     let session: FirstPartyPpcsSession | null = null;
     let finishSiren: (() => void) | undefined;
     let sirenSetupStage: S100SirenFailureStage = "session_key";
+    let failureStage: ModelControlTrialFailureStage = "session_key";
     const checkOwnership = () => {
       const current = this.#devices.get(serial);
       const currentPeer = this.#devices.get(peer.serial);
@@ -2952,6 +2953,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         throw new Error("Model control session keys unavailable");
       }
       sirenSetupStage = "session_connect";
+      failureStage = "session_connect";
       session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid,
         appConnection: peer.p2pConnection, localAddress: peer.localAddress, dskKey: dsk.key,
         channel: device.channel, cameraModel: device.model, accountId: device.adminUserId,
@@ -2962,6 +2964,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#trialSessions.set(peer.serial, session);
       await session.start();
       sirenSetupStage = "session_prepare";
+      failureStage = "session_prepare";
       checkOwnership();
       const owned = session;
       const profile = this.#modelTrialRoute(device, route);
@@ -2988,7 +2991,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
             return safeInventoryReads(params, device.deviceType, device.model, !route.homeBaseAttached && device.channel === 0);
           },
           write: async value => { checkOwnership(); await owned.writeModelControlTrial(value, profile); },
-        }, request, checkOwnership, error => error instanceof CameraControlAcknowledgementTimeoutError);
+        }, request, checkOwnership, error => error instanceof CameraControlAcknowledgementTimeoutError,
+        stage => { failureStage = stage; });
       }
       if (request.action === "motion" || request.action === "spotlight") {
         const field = request.action === "motion" ? "motionDetectionEnabled" : "spotlightEnabled";
@@ -3003,7 +3007,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     } catch (error) {
       const s100 = request.action === "siren" || request.action === "sirenConnection";
       const stages = error instanceof S100SirenTrialError ? error.stages : [sirenSetupStage];
-      logger.warn("model_control_trial_failed", `Model control trial failed: model=${safeLogModel(device.model)} action=${request.action}${s100 ? ` stages=${stages.join(",")}` : ""}`);
+      logger.warn("model_control_trial_failed", `Model control trial failed: model=${safeLogModel(device.model)} action=${request.action}${s100 ? ` stages=${stages.join(",")}` : ` stage=${failureStage}`}`);
       if (s100) throw new S100SirenTrialError(stages, request.action === "sirenConnection");
       throw error;
     } finally {

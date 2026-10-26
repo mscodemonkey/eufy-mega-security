@@ -120,6 +120,35 @@ test("setting trials require a fresh baseline and fresh matching readback, writi
   assert.equal(writes, 2);
 });
 
+test("setting trials expose only closed failure stages in operation order", async () => {
+  const stages: string[] = [];
+  let reads = 0;
+  const result = await runModelControlTrial({
+    read: async () => ({ motionDetectionEnabled: ++reads === 1 }),
+    write: async () => undefined,
+  }, { action: "motion", enabled: false }, () => {}, () => false, stage => { stages.push(stage); });
+  assert.equal(result.outcome, "confirmed");
+  assert.deepEqual(stages, ["initial_read", "write", "confirmation_read"]);
+
+  for (const [failure, expected] of [
+    ["read", ["initial_read"]],
+    ["write", ["initial_read", "write"]],
+    ["confirmation", ["initial_read", "write", "confirmation_read"]],
+  ] as const) {
+    const observed: string[] = [];
+    let attempts = 0;
+    await assert.rejects(runModelControlTrial({
+      read: async () => {
+        attempts++;
+        if (failure === "read" || (failure === "confirmation" && attempts > 1)) throw Error("private response");
+        return { motionDetectionEnabled: true };
+      },
+      write: async () => { if (failure === "write") throw Error("private response"); },
+    }, { action: "motion", enabled: false }, () => {}, () => false, stage => { observed.push(stage); }), /private response/);
+    assert.deepEqual(observed, expected);
+  }
+});
+
 test("negative or missing acknowledgement never becomes success or a replay", async () => {
   for (const action of ["motion", "ptz"] as const) {
     let writes = 0, reads = 0;
