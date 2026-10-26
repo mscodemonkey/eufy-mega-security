@@ -18,6 +18,11 @@ for (const mode of ["disabled", "enabled", "missing-key", "e30"]) {
   const enabled = mode !== "disabled";
   test(`provider trial mode=${mode} owns its peer, confirms fresh state and releases on failure`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "eufy-trial-provider-"));
+    const warnings: string[] = [];
+    context.mock.method(process.stderr, "write", ((value: string | Uint8Array) => {
+      warnings.push(String(value));
+      return true;
+    }) as typeof process.stderr.write);
     const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
     context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
     context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{ device_sn: "camera", device_model: mode === "e30" ? "T8417" : "T8423",
@@ -50,6 +55,8 @@ for (const mode of ["disabled", "enabled", "missing-key", "e30"]) {
       if (mode === "missing-key") {
         await assert.rejects(provider.performModelControlTrial("camera", { action: "motion", enabled: false }), /keys unavailable/);
         assert.equal(starts.mock.callCount(), 0);
+        assert.match(warnings.join(""), /event=model_control_trial_failed .*action=motion stage=session_key/);
+        assert.doesNotMatch(warnings.join(""), /keys unavailable/);
         return;
       }
       const trial = provider.performModelControlTrial("camera", { action: "motion", enabled: false });
@@ -65,6 +72,8 @@ for (const mode of ["disabled", "enabled", "missing-key", "e30"]) {
       assert.equal(closes.mock.callCount(), 1);
       context.mock.method(FirstPartyPpcsSession.prototype, "writeModelControlTrial", async () => { throw Error("rejected"); });
       await assert.rejects(provider.performModelControlTrial("camera", { action: "ptz", direction: "up" }), /rejected/);
+      assert.match(warnings.join(""), /event=model_control_trial_failed .*action=ptz stage=write/);
+      assert.doesNotMatch(warnings.join(""), /rejected/);
       assert.equal(closes.mock.callCount(), 2);
       context.mock.method(FirstPartyPpcsSession.prototype, "writeModelControlTrial", async () => undefined);
       assert.equal((await provider.performModelControlTrial("camera", { action: "ptz", direction: "down" })).outcome, "acknowledged");

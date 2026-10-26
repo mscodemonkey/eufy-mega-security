@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.200
+
+- Add a privacy-safe failure stage to experimental model-control trial warnings, so failed T84A1 motion tests can distinguish session setup, the initial read, the write, and confirmation readback without exposing raw errors.
+
 ## 0.1.199
 
 - Admit the exact Video Doorbell S4 T8215/type 97 profile for hardware testing and expose its reported battery readings. Discovery and battery reporting are testable, while live view, snapshots, events and controls remain unconfirmed.

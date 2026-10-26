@@ -24,6 +24,15 @@ export type ModelControlTrialUnavailableReason =
   | "owner_account_required"
   | "connection_key_unavailable";
 
+/** Closed diagnostic stages that locate a failed trial without logging private errors. */
+export type ModelControlTrialFailureStage =
+  | "session_key"
+  | "session_connect"
+  | "session_prepare"
+  | "initial_read"
+  | "write"
+  | "confirmation_read";
+
 /** Describes admission without exposing account, route, or key material. */
 export interface ModelControlTrialAdmission {
   readonly actions: readonly ModelControlTrial["action"][];
@@ -158,26 +167,40 @@ export interface ModelControlTrialSession {
   write(request: ModelControlTrial): Promise<void>;
 }
 
-/** Submit once and require fresh native readback for absolute settings, never cached state. */
+/**
+ * Submit once and require fresh native readback for absolute settings, never cached state.
+ *
+ * The optional observer receives only closed diagnostic stages. It lets the
+ * provider report where a failed trial stopped without exposing transport
+ * errors, device identifiers, or response content. Observer failures are
+ * ignored so diagnostics cannot change the command lifecycle.
+ */
 export async function runModelControlTrial(
   session: ModelControlTrialSession, request: ModelControlTrial, checkOwnership: () => void,
   isAcknowledgementTimeout: (error: unknown) => boolean = () => false,
+  observeStage: (stage: ModelControlTrialFailureStage) => void = () => {},
 ): Promise<ModelControlTrialResult> {
+  const stage = (value: ModelControlTrialFailureStage): void => {
+    try { observeStage(value); } catch {}
+  };
   if (request.action === "alarmState") throw new Error("Alarm state read cannot dispatch controls");
   if (request.action === "sirenConnection") throw new Error("S100 connection check cannot dispatch controls");
   checkOwnership();
   if (request.action === "siren") throw new Error("S100 siren requires its dedicated pulse runner");
   if (request.action === "ptz" || request.action === "manualLight") {
+    stage("write");
     await session.write(request);
     checkOwnership();
     return { outcome: "acknowledged", physicalConfirmationRequired: true };
   }
   const field = request.action === "motion" ? "motionDetectionEnabled" : "spotlightEnabled";
+  stage("initial_read");
   const original = (await session.read())[field];
   checkOwnership();
   if (original === undefined) throw new Error("Trial requires a fresh reported original setting");
   if (original === request.enabled) return { outcome: "unchanged", physicalConfirmationRequired: true };
   let acknowledgementReceived = true;
+  stage("write");
   try { await session.write(request); }
   catch (error) {
     if (!isAcknowledgementTimeout(error)) throw error;
@@ -187,6 +210,7 @@ export async function runModelControlTrial(
   for (let attempt = 0; attempt < 3; attempt++) {
     await delay(500);
     checkOwnership();
+    stage("confirmation_read");
     const fresh = await session.read();
     checkOwnership();
     if (fresh[field] === request.enabled) return { outcome: "confirmed", physicalConfirmationRequired: true, acknowledgementReceived };
