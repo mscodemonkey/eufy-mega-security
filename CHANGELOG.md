@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.209
+
+- Preserve HomeBase 2 encoder startup until its existing first-frame deadline instead of repeatedly stopping and restarting it before any video arrives.
+- Keep byte-identical start-packet repair, peer heartbeats, the original twenty-second startup bound and later genuine-stall recovery. Other HomeBase families retain their current startup policy.
+- Add real-session timing regressions for late key negotiation, missing video, ongoing packet repair and pings, later media stalls and unchanged non-T8010 behavior. The previous policy fails the new startup regressions.
+- Track owned hardware startup and live/control handoff results separately in #465. No security setting, command encoding, authentication or additional reconnect loop is introduced.
+
 ## 0.1.208
 
 - Add off-by-default motion-detection switches and five-step sensitivity numbers for exact standalone T8425/type 47 and T8426/type 87 on channel zero. The current owner account, a ready route and a unique readable setting are required.
