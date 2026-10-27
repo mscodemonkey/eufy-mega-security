@@ -209,7 +209,7 @@ class EufyMotionSensitivityNumber(EufyGatewayEntity, NumberEntity):
 
 
 class EufyFloodlightBrightnessNumber(EufyGatewayEntity, NumberEntity):
-    """Expose the opt-in T8425 setting while the gateway admits its owned route.
+    """Expose opt-in floodlight brightness while the gateway admits its owned route.
 
     The coordinator owns current admission and observations. This entity submits
     one absolute request and publishes only the gateway's independent readback.

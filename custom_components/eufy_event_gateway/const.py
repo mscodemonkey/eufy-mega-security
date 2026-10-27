@@ -55,3 +55,7 @@ ALARM_TONES = {
 CONF_SHORT_HLS_IDLE = "experimental_short_hls_idle"
 
 CONF_NATIVE_VIDEO = "experimental_native_video"
+
+
+# Shorten only a new, isolated native HLS stream after explicit entry opt-in.
+CONF_FAST_NATIVE_HLS = "experimental_fast_native_hls"

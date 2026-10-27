@@ -5546,9 +5546,8 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const soundSensitivity = soundFamily || c31 ? finiteNumber(params.get(6044)) : null;
   const soundType = soundFamily || c31 ? finiteNumber(params.get(6046)) : null;
   const soundRoundLook = c31 ? finiteNumber(params.get(6208)) : null;
-  const lightBrightness = model === "T8425" && deviceType === 47 && standaloneChannelZero
-    ? readCameraSetting(settingRows, model, deviceType, true, "lightBrightness")
-    : c31 ? percentage(1401) : undefined;
+  const reviewedBrightness = readCameraSetting(settingRows, model ?? "", deviceType, standaloneChannelZero, "lightBrightness");
+  const lightBrightness = typeof reviewedBrightness === "number" ? reviewedBrightness : c31 ? percentage(1401) : undefined;
   const notificationInterval = c31 ? finiteNumber(params.get(1250)) : null;
   const rtspPublication = c31 ? finiteNumber(params.get(1145)) : null;
   const continuousRecording = c31 ? finiteNumber(params.get(6010)) : null;

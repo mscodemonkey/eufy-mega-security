@@ -106,12 +106,12 @@ test("confirmation requires a present fresh baseline and sends once despite igno
 });
 
 
-test("T8425 brightness is exact, scalar and independently readable without defaults", () => {
-  const r = route("T8425", 47, false), p = cameraSettingProfile(r, "lightBrightness")!;
+for (const [model, type] of [["T8425", 47], ["T8426", 87]] as const) test(`${model} brightness is exact, scalar and independently readable without defaults`, () => {
+  const r = route(model, type, false), p = cameraSettingProfile(r, "lightBrightness")!;
   assert.deepEqual(p, { readParam: 1401, command: 1401, form: "binary" });
   for (const value of [1, 37, 100]) {
-    assert.equal(readCameraSetting([{ param_type: 1401, param_value: `${value}` }], "T8425", 47, true, "lightBrightness"), value);
-    assert.equal(safeInventoryReads([{ param_type: 1401, param_value: `${value}` }], 47, "T8425", true).lightBrightness, value);
+    assert.equal(readCameraSetting([{ param_type: 1401, param_value: `${value}` }], model, type, true, "lightBrightness"), value);
+    assert.equal(safeInventoryReads([{ param_type: 1401, param_value: `${value}` }], type, model, true).lightBrightness, value);
     const frame = buildReviewedCameraSettingPayload({ setting: "lightBrightness", value }, r, "fixture-owner", Buffer.alloc(32, 7), 1, 1791464400000);
     const body = clear(frame, Buffer.alloc(32, 7));
     assert.equal(frame.command, 1401); assert.equal(body.length, 136);
@@ -119,11 +119,11 @@ test("T8425 brightness is exact, scalar and independently readable without defau
     assert.equal(body.subarray(8, 21).toString(), "fixture-owner");
   }
   for (const bad of [0, 101, 2.5, NaN, Infinity, true, null, " 50", "50.0"]) {
-    assert.equal(readCameraSetting([{ param_type: 1401, param_value: bad }], "T8425", 47, true, "lightBrightness"), undefined);
+    assert.equal(readCameraSetting([{ param_type: 1401, param_value: bad }], model, type, true, "lightBrightness"), undefined);
     if (typeof bad !== "string") assert.throws(() => parseCameraSettingChange({ setting: "lightBrightness", value: bad }));
   }
-  assert.equal(readCameraSetting([{ param_type: 1401, param_value: 50 }, { param_type: 1401, param_value: 50 }], "T8425", 47, true, "lightBrightness"), undefined);
-  for (const unsupported of [route("T8426", 87, false), route("T8425", 47, true), route("T8425X", 47, false), route("T8425", 37, false), { ...r, channel: 1 }]) {
+  assert.equal(readCameraSetting([{ param_type: 1401, param_value: 50 }, { param_type: 1401, param_value: 50 }], model, type, true, "lightBrightness"), undefined);
+  for (const unsupported of [route(model + "X", type, false), route(model, type, true), route(model, type === 47 ? 87 : 47, false), route("T8425121", 47, false), route("T8426121", 87, false), { ...r, channel: 1 }]) {
     assert.equal(cameraSettingProfile(unsupported, "lightBrightness"), null);
     assert.throws(() => buildReviewedCameraSettingPayload({ setting: "lightBrightness", value: 50 }, unsupported, "fixture-owner", Buffer.alloc(32, 7), 1, 1791464400000));
   }

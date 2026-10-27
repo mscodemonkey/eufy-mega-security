@@ -43,7 +43,7 @@ from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity
-from .const import CONF_SHORT_HLS_IDLE, CONF_NATIVE_VIDEO, DOMAIN
+from .const import CONF_SHORT_HLS_IDLE, CONF_NATIVE_VIDEO, CONF_FAST_NATIVE_HLS, DOMAIN
 from .playback_diagnostics import serialize_stream
 
 if TYPE_CHECKING:
@@ -112,6 +112,7 @@ async def async_setup_entry(
                     coordinator, serial,
                     short_hls_idle=entry.options.get(CONF_SHORT_HLS_IDLE) is True,
                     native_video=entry.options.get(CONF_NATIVE_VIDEO) is True,
+                    fast_native_hls=entry.options.get(CONF_FAST_NATIVE_HLS) is True,
                 )
                 for serial in sorted(serials)
             ]
@@ -184,7 +185,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
 
     def __init__(
         self, coordinator: EufyGatewayCoordinator, serial: str,
-        *, short_hls_idle: bool = False, native_video: bool = False,
+        *, short_hls_idle: bool = False, native_video: bool = False, fast_native_hls: bool = False,
     ) -> None:
         """Bind playback options for this entity until the next entry reload."""
         EufyGatewayEntity.__init__(self, coordinator, serial)
@@ -193,6 +194,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         self._published_snapshot_revision = self._snapshot_revision
         self._short_hls_idle = short_hls_idle
         self._native_video = native_video
+        self._fast_native_hls = fast_native_hls
         self._hls_idle_stream: Stream | None = None
         self._stream_source_refreshing = False
         self._cloud_metadata_busy = False
@@ -265,6 +267,11 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         retries running indefinitely.
         Recorders, explicit timeouts and preload keep HA's own behaviour. The
         entry reload replaces this camera on opt-out.
+
+        Faster native startup is a separate opt-in. It adjusts only the public
+        settings on the first ordinary HLS output of a new stream, after proving
+        that HA's global settings are a different object. Active outputs,
+        recordings, preload and unknown HA settings contracts retain defaults.
         """
         cached = self.stream
         stream = await super().async_create_stream()
@@ -285,10 +292,14 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
                 self._stream_source_refreshing = False
         if stream is self._hls_idle_stream:
             return stream
+        fast_native_hls = self._fast_native_hls and self._native_video and stream is not cached
         add_provider = stream.add_provider
 
         def add_output(fmt: str, timeout: int | None = None) -> StreamOutput:
             """Arm the startup deadline when a consumer requests ordinary HLS."""
+            tune_first_output = (fast_native_hls and fmt == "hls" and timeout is None
+                                 and not stream.outputs()
+                                 and not stream.dynamic_stream_settings.preload_stream)
             provider = add_provider(
                 fmt,
                 timeout=(
@@ -297,6 +308,25 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
                     else timeout
                 ),
             )
+            if tune_first_output:
+                settings = getattr(provider, "stream_settings", None)
+                hass_data = getattr(self.hass, "data", None)
+                stream_data = hass_data.get("stream") if isinstance(hass_data, dict) else None
+                global_settings = stream_data.get("settings") if isinstance(stream_data, dict) else None
+                minimum = getattr(settings, "min_segment_duration", None)
+                if (global_settings is not None and settings is not global_settings
+                        and type(settings).__module__ == "homeassistant.components.stream.core"
+                        and type(settings).__name__ == "StreamSettings"
+                        and getattr(settings, "ll_hls", None) is True
+                        and type(minimum) is float and 1.9 < minimum <= 9.9):
+
+                    # HA copies settings for each Stream. This public output
+                    # shares only that camera's copy with its not-yet-started
+                    # worker. Use HA's two-second target minus its 0.1s margin.
+                    try:
+                        settings.min_segment_duration = 1.9
+                    except (AttributeError, TypeError):
+                        pass
             if fmt == "hls" and timeout is None:
                 provider.idle_timer.start()
             return provider
