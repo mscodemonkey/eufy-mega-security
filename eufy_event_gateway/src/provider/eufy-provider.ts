@@ -2502,7 +2502,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     // The production path is deliberately first-party Mega/PPCS.
     if (route && peer?.p2pDid && peer.p2pConnection && dsk && device.channel !== null) {
       if (this.#recordingPeerReserved(serial)) throw new Error("Wait for recording retrieval before starting live view");
-      this.#ppcsStreams.get(serial)?.close("replaced");
+      const previous = this.#ppcsStreams.get(serial);
+      previous?.close("replaced");
+      await previous?.waitUntilClosed();
+      current();
       const initialEccPrivateKey = !route.homeBaseAttached && device.cipherId !== null
         ? await this.#resolveCipherKey(device.cipherId, peer)
         : undefined;
@@ -2565,6 +2568,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (!stream || !device) return;
     const route = ppcsStreamRoute(device, this.#devices);
     stream.close("client_stop");
+    await stream.waitUntilClosed();
     this.#finalizeStream(serial, stream, device, route);
   }
 
@@ -3221,6 +3225,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const generation = this.#startupGeneration;
     const controller = new AbortController();
     this.#motionAborters.add(controller);
+    const retirements: Promise<void>[] = [];
     const result = withCameraControlDeadline(async scope => {
       await scope.wait(() => previous.catch(() => undefined));
       const current = (): void => {
@@ -3262,7 +3267,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 40,
           resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
         });
-        const removeCleanup = scope.onAbort(() => session.close());
+        let retirement: Promise<void> | undefined;
+        const retire = (): void => {
+          session.close();
+          if (!retirement) {
+            retirement = session.waitUntilClosed();
+            retirements.push(retirement);
+          }
+        };
+        const removeCleanup = scope.onAbort(retire);
         let acknowledgementTimedOut = false;
         try {
           await scope.wait(() => session.start());
@@ -3272,7 +3285,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           current();
           if (error instanceof CameraControlAcknowledgementTimeoutError) acknowledgementTimedOut = true;
           else if (!soloCam) throw error;
-        } finally { removeCleanup(); session.close(); }
+        } finally { removeCleanup(); retire(); await retirement; }
         if (supportsStandaloneC31Presets(device, route, true)) this.#invalidateLiveReads(serial, ["motionDetectionEnabled"]);
         for (let attempt = 0; attempt < 12; attempt++) {
           current();
@@ -3290,7 +3303,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }, controller.signal).catch((error: unknown) => {
       logger.warn("camera_motion_detection_failed", `Camera motion command failed: error=${safeError(error)}`);
       throw error;
-    }).finally(() => { this.#motionAborters.delete(controller); });
+    }).finally(async () => {
+      await Promise.allSettled(retirements);
+      this.#motionAborters.delete(controller);
+    });
 
     // Keep expired queue members attached to their predecessor until it retires.
     const reservation = Promise.allSettled([previous, result]).then(() => undefined);
@@ -3655,9 +3671,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     route: PpcsStreamRoute | null,
   ): void {
     if (this.#ppcsStreams.get(serial) !== stream) return;
-    logger.info("camera_stream_closed", ppcsStreamLogSummary(device.model, route, stream.stats));
-    this.#ppcsStreams.delete(serial);
-    this.#events?.streamStopped(serial);
+
+    // Keep the retiring source discoverable so a reconnect waits for its END
+    // send instead of opening a competing session during local UDP cleanup.
+    void stream.waitUntilClosed().then(() => {
+      if (this.#ppcsStreams.get(serial) !== stream) return;
+      logger.info("camera_stream_closed", ppcsStreamLogSummary(device.model, route, stream.stats));
+      this.#ppcsStreams.delete(serial);
+      this.#events?.streamStopped(serial);
+    });
   }
 
   async refreshStation(serial: string): Promise<HomeBaseState> {

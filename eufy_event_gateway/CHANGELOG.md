@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.207
+
+- Fix PPCS shutdown discarding queued disconnect and attached-camera stop packets. Media and pending operations still retire immediately, while UDP closes after the final send completes, with a finite local cleanup deadline.
+- Wait for that cleanup before replacing a live stream or handing a HomeBase 2 peer between live video and motion control. Timed-out controls keep their reservation until their owned disconnect has drained.
+- Add real loopback and lifecycle regressions for packet delivery, duplicate close, missing completion, cancellation and both handoff directions. Make the existing short care-monitor timer test deterministic.
+- Hardware startup and handoff results are tracked separately in #465. Local send completion does not mean the camera acknowledged the disconnect.
+
 ## 0.1.206
 
 - Add a separate, off-by-default faster native HLS startup option. It shortens the segment target only for the first ordinary HLS output of a new native stream, after confirming its settings are isolated from Home Assistant's global configuration. Existing outputs, recordings and preload retain their current setup.

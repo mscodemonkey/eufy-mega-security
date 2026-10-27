@@ -63,7 +63,8 @@ test("requires message type 18 and preserves the care event namespace", () => {
   assert.equal(careMonitorPushKind({ ...exact, model: "T8354A" }, 18, 3104), null);
 });
 
-test("holds care flags independently and withdraws removed capabilities", async () => {
+test("holds care flags independently and withdraws removed capabilities", context => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
   const state = new GatewayState(15);
   const sensor = careMonitorSensorState(exact);
   assert.ok(sensor);
@@ -71,11 +72,11 @@ test("holds care flags independently and withdraws removed capabilities", async 
   state.on("event", (event) => emitted.push(event));
   state.registerSensor(sensor);
   state.recordSensorDetection("E21", "crying", true);
-  await new Promise((resolve) => setTimeout(resolve, 5));
+  context.mock.timers.tick(5);
   state.recordSensorDetection("E21", "sound", true);
   assert.equal(state.listSensors()[0]?.cryingDetected, true);
   assert.equal(state.listSensors()[0]?.soundDetected, true);
-  await new Promise((resolve) => setTimeout(resolve, 12));
+  context.mock.timers.tick(12);
   assert.equal(state.listSensors()[0]?.cryingDetected, false);
   assert.equal(state.listSensors()[0]?.soundDetected, true);
   const last = emitted.at(-1) as { sensor: { soundDetected: boolean } };

@@ -1602,6 +1602,7 @@ export class FirstPartyPpcsSession {
   #speakerSequence = 0;
   #speaker: C31TalkbackSender | null = null;
   #closed = false;
+  #closeCompletion: Promise<void> = Promise.resolve();
   #lookupCancel: (() => void) | null = null;
   #closedSequenceChannels: string | null = null;
   #t8200MediaStartSent = false;
@@ -2626,7 +2627,9 @@ export class FirstPartyPpcsSession {
    *
    * Closing is idempotent. It clears every timer, rejects an outstanding
    * control wait, drops incomplete access-unit state, sends the appropriate
-   * attached-media stop before PPCS END, closes UDP, and ends `output`.
+   * attached-media stop before PPCS END, and ends `output` immediately. It
+   * drains the queued END before closing UDP. Call `waitUntilClosed` before
+   * handing the peer to a new session.
    */
   close(reason: PpcsStreamCloseReason = "client_stop"): void {
     if (this.#closed) return;
@@ -2669,11 +2672,38 @@ export class FirstPartyPpcsSession {
     if (this.#options.purpose !== "control" && this.#options.purpose !== "passive" && this.#options.homeBaseAttached) {
       this.#stopAttachedMedia();
     }
-    if (this.#remote) this.#send(REQ.end, Buffer.alloc(0), this.#remote);
-    if (this.#lookupSockets) this.#lookupSockets.close();
-    else this.#socket.close();
+    this.#closeCompletion = new Promise<void>((resolve) => {
+      let finished = false;
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      const finish = (): void => {
+        if (finished) return;
+        finished = true;
+        if (deadline) clearTimeout(deadline);
+        try {
+          if (this.#lookupSockets) this.#lookupSockets.close();
+          else this.#socket.close();
+        } catch {
+
+          // Failed lookup or socket errors can already have closed this port.
+        }
+        resolve();
+      };
+      if (!this.#remote) { finish(); return; }
+
+      // dgram.close discards queued sends. Completing the final END send also
+      // drains the preceding stop command, without claiming a peer acknowledgement.
+      deadline = setTimeout(finish, 500);
+      deadline.unref?.();
+      try { this.#socket.send(Buffer.concat([REQ.end, u16(0)]), this.#remote.port, this.#remote.host, finish); }
+      catch { finish(); }
+    });
     this.output.end();
     this.audioOutput.end();
+  }
+
+  /** Wait for local disconnect-send completion after close, bounded to 500ms even on socket failure. */
+  waitUntilClosed(): Promise<void> {
+    return this.#closeCompletion;
   }
 
   /** Send LAN lookup to broadcast and known private targets, then query cloud rendezvous peers. */
