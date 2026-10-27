@@ -61,6 +61,7 @@ class E21CareMonitorTest(unittest.IsolatedAsyncioTestCase):
         coordinator = SimpleNamespace(
             cameras={},
             stations={},
+            locks={},
             sensors={
                 "e21": {
                     "serial": "e21",
@@ -89,7 +90,7 @@ class E21CareMonitorTest(unittest.IsolatedAsyncioTestCase):
         """Create the care adapter's entities while the matching camera advertises no generic detections."""
         kinds = ["motion", "crying", "sound", "pet", "babyLeft", "babyEntered", "temperatureHigh", "temperatureLow", "careAreaLeft", "careAreaEntered", "babyActivity"]
         added = []
-        coordinator = SimpleNamespace(cameras={"e21": {"careMonitor": True, "supportedDetections": []}}, stations={}, sensors={"e21": {"capabilities": kinds}})
+        coordinator = SimpleNamespace(cameras={"e21": {"careMonitor": True, "supportedDetections": []}}, stations={}, locks={}, sensors={"e21": {"capabilities": kinds}})
         coordinator.async_add_listener = lambda callback: None
         entry = SimpleNamespace(entry_id="entry", runtime_data=SimpleNamespace(coordinator=coordinator), async_on_unload=lambda value: None)
         registered = {f"e21_{kind}": SimpleNamespace(entity_id=f"binary_sensor.care_{kind}", disabled_by=None,

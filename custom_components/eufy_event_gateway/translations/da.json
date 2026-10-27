@@ -70,6 +70,9 @@
       }
     },
     "binary_sensor": {
+      "reported_lock_state": {
+        "name": "Rapporteret låsestatus"
+      },
       "motion_detection": {
         "name": "Bevægelse"
       },

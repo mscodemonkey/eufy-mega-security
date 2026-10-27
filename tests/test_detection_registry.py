@@ -105,7 +105,7 @@ class DetectionRegistryTest(unittest.IsolatedAsyncioTestCase):
     async def setup_camera(self, camera, sensors=None):
         """Run real platform setup and return its listener and created entities."""
         listeners, entities = [], []
-        coordinator = SimpleNamespace(cameras={"cam": camera}, stations={}, sensors=sensors or {},
+        coordinator = SimpleNamespace(cameras={"cam": camera}, stations={}, locks={}, sensors=sensors or {},
                                       async_add_listener=lambda callback: listeners.append(callback) or (lambda: None))
         entry = SimpleNamespace(entry_id="entry", runtime_data=SimpleNamespace(coordinator=coordinator),
                                 async_on_unload=lambda callback: None)
@@ -152,7 +152,7 @@ class DetectionRegistryTest(unittest.IsolatedAsyncioTestCase):
         """A route resolving later cannot leave stale default sensors enabled."""
         self.registry.add("person")
         listeners, entities = [], []
-        coordinator = SimpleNamespace(cameras={"cam": {}}, stations={}, sensors={},
+        coordinator = SimpleNamespace(cameras={"cam": {}}, stations={}, locks={}, sensors={},
                                       async_add_listener=lambda callback: listeners.append(callback) or (lambda: None))
         entry = SimpleNamespace(entry_id="entry", runtime_data=SimpleNamespace(coordinator=coordinator),
                                 async_on_unload=lambda callback: None)

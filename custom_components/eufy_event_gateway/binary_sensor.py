@@ -159,7 +159,7 @@ class EufyReportedLockState(EufyLockEntity, BinarySensorEntity):
     lock's cloud value only and never queries, locks or unlocks the device.
     """
 
-    _attr_name = "Reported lock state"
+    _attr_translation_key = "reported_lock_state"
     _attr_device_class = BinarySensorDeviceClass.LOCK
 
     def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
