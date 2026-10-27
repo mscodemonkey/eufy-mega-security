@@ -8,7 +8,7 @@ import { createDecipheriv } from "node:crypto";
 import test from "node:test";
 import { cameraSettingProfile, cameraSettingWireValue, CameraSettingError, parseCameraSettingChange, readCameraSetting, runConfirmedCameraSetting } from "../src/provider/camera-settings.js";
 import type { ModelControlRoute } from "../src/provider/model-control-trials.js";
-import { buildReviewedCameraSettingPayload } from "../src/stream/first-party-ppcs.js";
+import { buildFloodlightMotionControlValue, buildReviewedCameraSettingPayload } from "../src/stream/first-party-ppcs.js";
 import { safeInventoryReads } from "../src/provider/eufy-provider.js";
 
 const profiles = [
@@ -143,4 +143,28 @@ test("T8426 manual override requires its own read and native level-one format", 
   assert.equal(cameraSettingProfile(route("T8425", 47, false), "manualFloodlight"), null);
   assert.equal(cameraSettingProfile(route("T8426", 87, true), "manualFloodlight"), null);
   assert.throws(() => buildReviewedCameraSettingPayload({ setting: "manualFloodlight", value: true }, r, "fixture-owner", Buffer.alloc(32), 1, 1791464400000), /level-one/);
+});
+
+
+for (const [model, type] of [["T8425", 47], ["T8426", 87]] as const) test(`${model} motion settings use strict native reads and standalone payloads`, () => {
+  const r = route(model, type, false);
+  for (const value of [false, true]) {
+    const params = [{ param_type: 6040, param_value: Number(value) }];
+    assert.equal(readCameraSetting(params, model, type, true, "motionDetection"), value);
+    assert.equal(safeInventoryReads([...params, { param_type: 1011, param_value: Number(!value) }], type, model, true).motionDetectionEnabled, value);
+    assert.deepEqual(JSON.parse(buildFloodlightMotionControlValue({ setting: "motionDetection", value }, r)), { commandType: 6040, data: { status: Number(value) } });
+    assert.equal(readCameraSetting([...params, ...params], model, type, true, "motionDetection"), undefined);
+    assert.equal(safeInventoryReads([...params, ...params], type, model, true).motionDetectionEnabled, undefined);
+  }
+  for (const value of [1, 2, 3, 4, 5]) {
+    assert.equal(readCameraSetting([{ param_type: 6041, param_value: `${value}` }], model, type, true, "motionSensitivity"), value);
+    assert.deepEqual(JSON.parse(buildFloodlightMotionControlValue({ setting: "motionSensitivity", value }, r)), { commandType: 6041, data: { value, index: value, channel: 0 } });
+  }
+  for (const value of [0, 6, true, null, " 3", "3.0"]) assert.equal(readCameraSetting([{ param_type: 6041, param_value: value }], model, type, true, "motionSensitivity"), undefined);
+  for (const value of [2, true, null, "", "false", " 0"]) assert.equal(readCameraSetting([{ param_type: 6040, param_value: value }], model, type, true, "motionDetection"), undefined);
+  for (const setting of ["motionDetection", "motionSensitivity"] as const) {
+    for (const unsupported of [route(model + "X", type, false), route(model, type, true), route(model, type === 47 ? 87 : 47, false), { ...r, channel: 1 }]) assert.equal(cameraSettingProfile(unsupported, setting), null);
+  }
+  assert.throws(() => buildReviewedCameraSettingPayload({ setting: "motionDetection", value: true }, r, "owner", Buffer.alloc(32), 1, 1791464400000), /level-one/);
+  assert.equal(safeInventoryReads([{ param_type: 1011, param_value: 1 }], type, model, true).motionDetectionEnabled, undefined);
 });

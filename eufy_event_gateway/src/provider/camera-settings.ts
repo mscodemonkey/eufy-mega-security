@@ -9,6 +9,7 @@ import type { ModelControlRoute } from "./model-control-trials.js";
 /** Closed absolute requests never carry arbitrary native command identifiers. */
 export type CameraSettingChange =
   | { readonly setting: "motionSensitivity"; readonly value: number }
+  | { readonly setting: "motionDetection"; readonly value: boolean }
   | { readonly setting: "lightBrightness"; readonly value: number }
   | { readonly setting: "manualFloodlight"; readonly value: boolean }
   | { readonly setting: "homebaseChime"; readonly value: boolean };
@@ -17,9 +18,9 @@ export type CameraSettingChange =
 export interface CameraSettingProfile {
   readonly readParam: number;
   readonly command: number;
-  readonly form: "binary" | "payload" | "control" | "manual-light";
+  readonly form: "binary" | "payload" | "control" | "manual-light" | "motion-control";
 
-  /** Least-sensitive first; absent for the boolean chime control. */
+  /** Least-sensitive first; absent for boolean controls. */
   readonly ladder?: readonly number[];
 }
 
@@ -44,7 +45,7 @@ export function parseCameraSettingChange(value: unknown): CameraSettingChange {
   const row = value as Record<string, unknown>;
   if (Object.keys(row).length !== 2 || !Object.hasOwn(row, "setting") || !Object.hasOwn(row, "value")) throw new SyntaxError("Invalid camera setting");
   if (row.setting === "lightBrightness" && typeof row.value === "number" && Number.isInteger(row.value) && row.value >= 1 && row.value <= 100) return { setting: row.setting, value: row.value };
-  if ((row.setting === "homebaseChime" || row.setting === "manualFloodlight") && typeof row.value === "boolean") return { setting: row.setting, value: row.value };
+  if ((row.setting === "homebaseChime" || row.setting === "manualFloodlight" || row.setting === "motionDetection") && typeof row.value === "boolean") return { setting: row.setting, value: row.value };
   if (row.setting === "motionSensitivity" && typeof row.value === "number" && Number.isInteger(row.value) && row.value >= 1 && row.value <= 7) {
     return { setting: row.setting, value: row.value };
   }
@@ -52,6 +53,9 @@ export function parseCameraSettingChange(value: unknown): CameraSettingChange {
 }
 
 function nativeProfile(model: string, type: number | null, standalone: boolean, setting: CameraSettingChange["setting"]): CameraSettingProfile | null {
+  const floodlight = standalone && ((model === "T8425" && type === 47) || (model === "T8426" && type === 87));
+  if (setting === "motionDetection") return floodlight ? { readParam: 6040, command: 1700, form: "motion-control" } : null;
+  if (setting === "motionSensitivity" && floodlight) return { readParam: 6041, command: 1700, form: "motion-control", ladder: [1, 2, 3, 4, 5] };
   if (setting === "manualFloodlight") return standalone && model === "T8426" && type === 87 ? { readParam: 1400, command: 1700, form: "manual-light" } : null;
   if (setting === "lightBrightness") return standalone && ((model === "T8425" && type === 47) || (model === "T8426" && type === 87))
     ? { readParam: 1401, command: 1401, form: "binary" } : null;
@@ -83,7 +87,7 @@ export function readCameraSetting(
   const raw = rows[0]!.param_value;
   const value = typeof raw === "string" && /^(0|[1-9][0-9]*)$/.test(raw) ? Number(raw) : raw;
   if (typeof value !== "number" || !Number.isSafeInteger(value)) return undefined;
-  if (setting === "homebaseChime" || setting === "manualFloodlight") return value === 0 || value === 1 ? value === 1 : undefined;
+  if (setting === "homebaseChime" || setting === "manualFloodlight" || setting === "motionDetection") return value === 0 || value === 1 ? value === 1 : undefined;
   if (setting === "lightBrightness") return value >= 1 && value <= 100 ? value : undefined;
   const index = profile.ladder!.indexOf(value);
   return index >= 0 ? index + 1 : undefined;
@@ -92,6 +96,10 @@ export function readCameraSetting(
 /** Convert one validated HA step to native bytes, rejecting profile-specific excess values. */
 export function cameraSettingWireValue(profile: CameraSettingProfile, change: CameraSettingChange): number {
   parseCameraSettingChange(change);
+  if (change.setting === "motionDetection") {
+    if (profile.readParam !== 6040 || profile.command !== 1700 || profile.form !== "motion-control" || profile.ladder) throw new CameraSettingError("unavailable");
+    return change.value ? 1 : 0;
+  }
   if (change.setting === "manualFloodlight") {
     if (profile.readParam !== 1400 || profile.command !== 1700 || profile.form !== "manual-light" || profile.ladder) throw new CameraSettingError("unavailable");
     return change.value ? 1 : 0;
