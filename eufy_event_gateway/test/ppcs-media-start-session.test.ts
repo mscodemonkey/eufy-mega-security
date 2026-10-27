@@ -32,7 +32,7 @@ function gateway(): Buffer {
 }
 
 /** Own a synthetic CAM_ID handshake, inbound frames, packet loss and fake time. */
-async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" = "media") {
+async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" = "media", stationModel = "T8010") {
   let socket!: Socket;
   let inbound = 0;
   const sent: Buffer[] = [];
@@ -45,7 +45,7 @@ async function peer(context: TestContext, attached = true, model = "T8113-Z", pu
   context.mock.method(Socket.prototype, "send", (packet: Buffer) => { sent.push(Buffer.from(packet)); });
   context.mock.method(Socket.prototype, "close", function (this: Socket) { return this; });
   const session = new FirstPartyPpcsSession({ stationSerial: "SYNTHETIC1234567", p2pDid: "TEST-12345678-TEST",
-    appConnection: "", dskKey: "synthetic", channel: attached ? 1 : 0, homeBaseAttached: attached, stationModel: "T8010",
+    appConnection: "", dskKey: "synthetic", channel: attached ? 1 : 0, homeBaseAttached: attached, stationModel,
     purpose, cameraModel: model, accountId: "synthetic-owner", maxSeconds: 120,
     resolveCipherKey: async () => Buffer.alloc(32, 1).toString("hex") });
   const receive = (packet: Buffer, port = 12345) => socket.emit("message", packet, { address: "127.0.0.1", port });
@@ -115,7 +115,7 @@ test("late level-two upgrade preserves repair of the original level-one start", 
   } finally { f.session.close(); }
 });
 
-test("a late attached start defers heartbeat restart until its repair window ends", async context => {
+test("HB2 waits for the first frame after delivery repair expires instead of restarting its encoder", async context => {
   const f = await peer(context);
   try {
     context.mock.timers.tick(4000);
@@ -126,6 +126,12 @@ test("a late attached start defers heartbeat restart until its repair window end
     context.mock.timers.tick(2000);
     assert.equal(f.session.stats.mediaStartExpired, 1);
     context.mock.timers.tick(3000);
+    assert.equal(f.session.stats.mediaStopAttempts, 0);
+    context.mock.timers.tick(250);
+    assert.equal(f.session.stats.mediaStartAttempts, 1);
+    f.video();
+    assert.ok(f.session.stats.videoOutputFrames > 0);
+    context.mock.timers.tick(14750);
     assert.equal(f.session.stats.mediaStopAttempts, 1);
     context.mock.timers.tick(250);
     assert.equal(f.session.stats.mediaStartAttempts, 2);
@@ -234,4 +240,34 @@ test("missing END completion releases the port after a finite local drain deadli
   context.mock.timers.tick(1);
   await f.session.waitUntilClosed();
   assert.equal(socketClose.mock.callCount(), 1);
+});
+
+
+test("silent HB2 startup retains ping and ACK repair but closes at the original first-frame deadline", async context => {
+  const f = await peer(context);
+  try {
+    await f.negotiate();
+    context.mock.timers.tick(150);
+    context.mock.timers.tick(19849);
+    assert.equal(f.session.stats.mediaStartAttempts, 1);
+    assert.equal(f.session.stats.mediaStopAttempts, 0);
+    assert.ok(f.session.stats.mediaStartRetransmitted > 0);
+    assert.equal(f.session.stats.mediaStartExpired, 1);
+    const pings = f.sent.filter(packet => packet[0] === 0xf1 && packet[1] === 0xe0);
+    assert.ok(pings.length >= 4);
+    context.mock.timers.tick(1);
+    assert.equal(f.session.stats.closeReason, "first_frame_timeout");
+    assert.equal(f.session.stats.mediaStopAttempts, 1);
+  } finally { f.session.close(); }
+});
+
+test("other HomeBase startup recovery retains its existing policy", async context => {
+  const f = await peer(context, true, "T8113-Z", "media", "T8030");
+  try {
+    await f.negotiate();
+    context.mock.timers.tick(5000);
+    assert.equal(f.session.stats.mediaStopAttempts, 1);
+    context.mock.timers.tick(250);
+    assert.equal(f.session.stats.mediaStartAttempts, 2);
+  } finally { f.session.close(); }
 });
