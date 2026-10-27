@@ -126,7 +126,9 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
     experimentalNvrRegion: experimentalNvrRegion as "auto" | "us" | "eu" | "ie",
     eufy: {
       username: nonEmpty(environment.EUFY_USERNAME),
-      password: nonEmpty(environment.EUFY_PASSWORD),
+
+      // Passwords are opaque, so surrounding whitespace must reach encryption unchanged.
+      password: environment.EUFY_PASSWORD || null,
       country: (environment.EUFY_COUNTRY ?? "AU").toUpperCase(),
       ...(verifyCode ? { verifyCode } : {}),
     },

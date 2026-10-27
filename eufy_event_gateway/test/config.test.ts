@@ -9,6 +9,25 @@ import test from "node:test";
 
 import { loadConfig } from "../src/config.js";
 
+for (const value of [" a b ", "\ta b\t", "\u00a0a b\u2003", "   ", "a b", "synthetic"]) {
+  test(`preserves the opaque password string ${JSON.stringify(value)}`, () => {
+    const config = loadConfig({
+      EUFY_PASSWORD: value,
+      EUFY_USERNAME: "  user  ",
+      EUFY_VERIFY_CODE: " 123456 ",
+      EUFY_GATEWAY_API_TOKEN: "x".repeat(32),
+    });
+    assert.equal(config.eufy.password, value);
+    assert.equal(config.eufy.username, "user");
+    assert.equal(config.eufy.verifyCode, "123456");
+  });
+}
+
+test("missing and empty passwords remain unconfigured", () => {
+  assert.equal(loadConfig({}).eufy.password, null);
+  assert.equal(loadConfig({ EUFY_PASSWORD: "" }).eufy.password, null);
+});
+
 test("allows a token-free gateway only on loopback", () => {
   assert.equal(loadConfig({ EUFY_GATEWAY_PROVIDER: "simulated" }).host, "127.0.0.1");
   assert.throws(

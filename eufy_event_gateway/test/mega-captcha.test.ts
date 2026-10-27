@@ -125,3 +125,108 @@ test("26108 on the CAPTCHA endpoint remains unclassified", async () => {
     assert.deepEqual(paths, ["/passport/login", "/passport/generate/captcha"]);
   } finally { await f.close(); }
 });
+
+const classifiedLoginErrors = new Map([
+  [26006, "Mega request failed (26006: Eufy rejected the login, which the inspected official app version classifies as an incorrect email or password) operation=login"],
+  [26108, "Mega request failed (26108: Eufy rejected the login, which the official app reports as an incorrect email or password) operation=login"],
+  [10019, "Mega request failed (10019: Eufy rejected the login, which the inspected official app version classifies as too many incorrect password attempts. Stop repeated login attempts) operation=login"],
+]);
+
+for (const [code, message] of classifiedLoginErrors) {
+  test(`${code} login classification is terminal and excludes private response values`, async () => {
+    const paths: string[] = [];
+    const f = await fixture(async url => {
+      paths.push(new URL(String(url)).pathname);
+      return new Response(JSON.stringify({ code, msg: "PRIVATE SERVER MESSAGE", data: "PRIVATE_DATA_STRING" }));
+    });
+    try {
+      await assert.rejects(f.client.connect(), error => {
+        assert.ok(error instanceof Error);
+        assert.equal(error.message, message);
+        for (const value of ["PRIVATE", "fixture@example.invalid", "redacted"]) assert.equal(error.message.includes(value), false);
+        assert.equal(f.client.isSessionInvalidError(error), false);
+        assert.equal(f.client.isLoginAttemptLimitError(error), code === 10019);
+        assert.equal(f.client.isLoginAttemptLimitError(new Error(error.message)), false);
+        assert.equal(f.client.isLoginAttemptLimitError(null), false);
+        return true;
+      });
+      assert.equal(f.client.captcha, null);
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.deepEqual(paths, ["/passport/login"]);
+    } finally { await f.close(); }
+  });
+
+  test(`${code} remains generic on CAPTCHA generation`, async () => {
+    const paths: string[] = [];
+    const f = await fixture(async url => {
+      const path = new URL(String(url)).pathname;
+      paths.push(path);
+      return new Response(JSON.stringify(path === "/passport/login"
+        ? { code: 100032, data: {} }
+        : { code, msg: "PRIVATE SERVER MESSAGE", data: "PRIVATE_DATA_STRING" }));
+    });
+    try {
+      await assert.rejects(f.client.connect(), { message: `Mega request failed (${code}: application error) operation=captcha` });
+      assert.deepEqual(paths, ["/passport/login", "/passport/generate/captcha"]);
+    } finally { await f.close(); }
+  });
+
+  test(`${code} remains generic on inventory without another login`, async () => {
+    const paths: string[] = [];
+    const f = await fixture(async url => {
+      const path = new URL(String(url)).pathname;
+      paths.push(path);
+      return new Response(JSON.stringify(path === "/passport/login"
+        ? { code: 0, data: { auth_token: "fixture", user_id: "fixture", token_expires_at: 2_000_000_000 } }
+        : { code, msg: "PRIVATE SERVER MESSAGE", data: "PRIVATE_DATA_STRING" }));
+    });
+    try {
+      await f.client.connect();
+      await assert.rejects(f.client.inventory(), { message: `Mega request failed (${code}: application error) operation=inventory` });
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.deepEqual(paths, ["/passport/login", "/app/house/get_devs_list"]);
+    } finally { await f.close(); }
+  });
+}
+
+test("an attempt-limit rejection after a CAPTCHA answer neither regenerates nor retries", async () => {
+  const requests: { path: string; body: Record<string, unknown> }[] = [];
+  const f = await fixture(async (url, options) => {
+    const path = new URL(String(url)).pathname;
+    const body = JSON.parse(decryptEnvelope(String(options?.body), sharedAesKey(sharedKey))) as Record<string, unknown>;
+    requests.push({ path, body });
+    if (path === "/passport/generate/captcha") {
+      return new Response(JSON.stringify({ code: 0, data: { captcha_id: "challenge-1", item: "data:image/png;base64,AA==" } }));
+    }
+    return new Response(JSON.stringify({ code: requests.length === 1 ? 100032 : 10019, msg: "PRIVATE SERVER MESSAGE", data: {} }));
+  });
+  try {
+    await f.client.connect();
+    const challenge = f.client.captcha;
+    assert.ok(challenge);
+    await assert.rejects(f.client.connect(undefined, "ANSWER"), error => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, classifiedLoginErrors.get(10019)!);
+      assert.equal(f.client.isLoginAttemptLimitError(error), true);
+      assert.equal(f.client.isLoginAttemptLimitError(new Error(error.message)), false);
+      return true;
+    });
+    assert.equal(f.client.captcha, null);
+    assert.equal(requests[2]!.body.answer, "ANSWER");
+    assert.equal(requests[2]!.body.captcha_id, "challenge-1");
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.deepEqual(requests.map(request => request.path), ["/passport/login", "/passport/generate/captcha", "/passport/login"]);
+  } finally { await f.close(); }
+});
+
+test("verification submission retains the login-specific rejection explanation", async () => {
+  const paths: string[] = [];
+  const f = await fixture(async url => {
+    paths.push(new URL(String(url)).pathname);
+    return new Response(JSON.stringify({ code: 26006, msg: "PRIVATE SERVER MESSAGE", data: {} }));
+  });
+  try {
+    await assert.rejects(f.client.connect("123456"), { message: classifiedLoginErrors.get(26006)! });
+    assert.deepEqual(paths, ["/passport/login"]);
+  } finally { await f.close(); }
+});

@@ -53,6 +53,23 @@ const AUTH_SESSION_INVALID_CODES = new Set([4404, 26084, 26884]);
 // The native app's login screen interprets this code as a credential rejection.
 const LOGIN_CREDENTIALS_REJECTED = 26108;
 
+// Android 6.1.10_30612 selects credential and attempt-limit resources for these
+// login codes. The resource names establish classifications, not server causes.
+const LOGIN_CREDENTIALS_REJECTED_LEGACY = 26006;
+const LOGIN_ATTEMPTS_REJECTED = 10019;
+
+/**
+ * Marks a terminal login-attempt rejection without retaining request or response data.
+ * MegaClient creates this short-lived marker at response classification, and the
+ * provider consumes its identity to retire only the current sign-in form.
+ */
+class MegaLoginAttemptLimitError extends Error {
+  constructor() {
+    super("Mega request failed (10019: Eufy rejected the login, which the inspected official app version classifies as too many incorrect password attempts. Stop repeated login attempts) operation=login");
+    this.name = "MegaLoginAttemptLimitError";
+  }
+}
+
 // Android thumbnail processing retries at one, three, five and ten seconds.
 const MEDIA_NOT_READY_DELAYS_MS = [1_000, 2_000, 2_000, 5_000] as const;
 const CIPHER_IDENTITY_RECOVERY_INTERVAL_MS = 10 * 60_000;
@@ -554,6 +571,11 @@ export class MegaClient {
   isSessionInvalidError(error: unknown): boolean {
     return error instanceof Error && (error.message === "Mega request failed (HTTP 401)" || [...AUTH_SESSION_INVALID_CODES].some((code) => error.message.includes(`Mega request failed (${code}:`)) ||
       /Mega request failed \(401:.*token not exist/i.test(error.message));
+  }
+
+  /** Classify only this client's terminal login marker, without changing state or retrying. */
+  isLoginAttemptLimitError(error: unknown): boolean {
+    return error instanceof MegaLoginAttemptLimitError;
   }
 
   /** Fetch the short-lived DSK lookup keys used by Eufy's native PPCS camera path. */
@@ -1226,6 +1248,13 @@ export class MegaClient {
     const operation = this.#responseOperations.get(result) ?? "unknown";
     if (!isSuccess(result.code)) {
       if (result.code === VERIFICATION_REQUIRED || CAPTCHA_REQUIRED.has(result.code)) return result.data;
+      if (operation === "login" && result.code === LOGIN_CREDENTIALS_REJECTED_LEGACY) {
+        throw new Error("Mega request failed (26006: Eufy rejected the login, which the inspected official app version classifies as an incorrect email or password) operation=login");
+      }
+      if (operation === "login" && result.code === LOGIN_ATTEMPTS_REJECTED) {
+        this.#pendingCaptcha = null;
+        throw new MegaLoginAttemptLimitError();
+      }
       if (operation === "login" && result.code === LOGIN_CREDENTIALS_REJECTED) {
         throw new Error("Mega request failed (26108: Eufy rejected the login, which the official app reports as an incorrect email or password) operation=login");
       }

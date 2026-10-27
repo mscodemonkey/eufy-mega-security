@@ -52,6 +52,110 @@ function fixture(context: TestContext, directory = "/nonexistent/fixture") {
   return { provider, events, state, connections, network };
 }
 
+const attemptLimitMessage = "Mega request failed (10019: Eufy rejected the login, which the inspected official app version classifies as too many incorrect password attempts. Stop repeated login attempts) operation=login";
+const attemptLimitDetail = "Eufy rejected repeated login attempts. Stop retrying and check the saved account configuration privately.";
+
+for (const kind of ["captcha", "verification"] as const) {
+  test(`terminal ${kind} rejection retires the form without another login`, async context => {
+    context.mock.timers.enable({ apis: ["setTimeout"] });
+    const f = fixture(context);
+    const rejection = new Error(attemptLimitMessage);
+    let calls = 0;
+    const connect = context.mock.method(MegaClient.prototype, "connect", async () => {
+      if (++calls === 1) return kind === "captcha"
+        ? { state: "captcha-required" as const, captcha: { id: "first", image: "AA==" } }
+        : { state: "verification-required" as const };
+      throw rejection;
+    });
+    context.mock.method(MegaClient.prototype, "isLoginAttemptLimitError", (error: unknown) => error === rejection);
+    const inventory = context.mock.method(MegaClient.prototype, "inventory");
+    const push = context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
+    try {
+      await f.provider.start(f.events);
+      const submit = (): Promise<void> => kind === "captcha" ? f.provider.submitCaptcha("ABCD") : f.provider.submitVerification("123456");
+      await assert.rejects(submit(), error => error === rejection);
+      assert.equal(f.provider.getCaptchaChallenge(), null);
+      assert.equal(f.provider.isVerificationRequired(), false);
+      assert.deepEqual(f.connections.at(-1), { state: "error", detail: attemptLimitDetail });
+      assert.equal(f.connections.filter(connection => connection.state === "error").length, 1);
+      await assert.rejects(submit(), /No Eufy .* waiting/);
+      context.mock.timers.tick(300_000);
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.equal(connect.mock.callCount(), 2);
+      assert.equal(inventory.mock.callCount(), 0);
+      assert.equal(push.mock.callCount(), 0);
+      assert.equal(f.network.mock.callCount(), 0);
+    } finally { await f.provider.close(); }
+  });
+}
+
+test("matching error text alone does not retire a CAPTCHA", async context => {
+  const f = fixture(context);
+  const challenge = { id: "first", image: "AA==" };
+  const rejection = new Error(attemptLimitMessage);
+  let calls = 0;
+  const connect = context.mock.method(MegaClient.prototype, "connect", async () => {
+    if (++calls === 1) return { state: "captcha-required" as const, captcha: challenge };
+    throw rejection;
+  });
+  try {
+    await f.provider.start(f.events);
+    await assert.rejects(f.provider.submitCaptcha("ABCD"), error => error === rejection);
+    assert.equal(f.provider.getCaptchaChallenge(), challenge);
+    assert.equal(connect.mock.callCount(), 2);
+    assert.equal(f.connections.some(connection => connection.state === "error"), false);
+  } finally { await f.provider.close(); }
+});
+
+for (const replacement of [false, true]) {
+  test(`a retired generation's rejected submission preserves ${replacement ? "the replacement challenge" : "stopped state"}`, async context => {
+    const f = fixture(context);
+    const rejection = new Error(attemptLimitMessage);
+    let rejectSubmission: (error: Error) => void = () => { assert.fail("submission must start first"); };
+    const pending = new Promise<never>((_resolve, reject) => { rejectSubmission = reject; });
+    const replacementChallenge = { id: "replacement", image: "AA==" };
+    let calls = 0;
+    const connect = context.mock.method(MegaClient.prototype, "connect", async () => {
+      if (++calls === 1) return { state: "captcha-required" as const, captcha: { id: "first", image: "AA==" } };
+      if (calls === 2) return pending;
+      return { state: "captcha-required" as const, captcha: replacementChallenge };
+    });
+    context.mock.method(MegaClient.prototype, "isLoginAttemptLimitError", (error: unknown) => error === rejection);
+    try {
+      await f.provider.start(f.events);
+      const submission = f.provider.submitCaptcha("ABCD");
+      await f.provider.close();
+      if (replacement) await f.provider.start(f.events);
+      const before = f.provider.getCaptchaChallenge();
+      rejectSubmission(rejection);
+      assert.equal(await submission, undefined);
+      assert.equal(f.provider.getCaptchaChallenge(), before);
+      if (replacement) assert.equal(before, replacementChallenge);
+      assert.equal(connect.mock.callCount(), replacement ? 3 : 2);
+      assert.equal(f.connections.some(connection => connection.state === "error"), false);
+    } finally { await f.provider.close(); }
+  });
+}
+
+test("a failing state callback does not replace the terminal login rejection", async context => {
+  const f = fixture(context);
+  const rejection = new Error(attemptLimitMessage);
+  let calls = 0;
+  const connect = context.mock.method(MegaClient.prototype, "connect", async () => {
+    if (++calls === 1) return { state: "captcha-required" as const, captcha: { id: "first", image: "AA==" } };
+    throw rejection;
+  });
+  context.mock.method(MegaClient.prototype, "isLoginAttemptLimitError", (error: unknown) => error === rejection);
+  try {
+    await f.provider.start(f.events);
+    context.mock.method(f.events, "connection", () => { throw new Error("Synthetic presentation failure"); });
+    await assert.rejects(f.provider.submitCaptcha("ABCD"), error => error === rejection);
+    assert.equal(f.provider.getCaptchaChallenge(), null);
+    assert.equal(f.provider.isVerificationRequired(), false);
+    assert.equal(connect.mock.callCount(), 2);
+  } finally { await f.provider.close(); }
+});
+
 /** Count owned retry handles without counting the Firebase login deadline. */
 function retryTimers(context: TestContext) {
   const schedule = globalThis.setTimeout;
