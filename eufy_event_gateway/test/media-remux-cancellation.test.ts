@@ -14,10 +14,31 @@ import { remuxVideoToMp4, terminateMediaProcess } from '../src/stream/live-strea
 async function waitForPid(path: string): Promise<number> {
   const deadline = Date.now() + 3000;
   while (Date.now() < deadline) {
-    try { return Number(await readFile(path, 'utf8')); } catch { await new Promise<void>(resolve => setImmediate(resolve)); }
+    try {
+      const value = (await readFile(path, 'utf8')).trim();
+
+      // File creation can become visible before the synthetic child writes its PID.
+      if (/^[1-9][0-9]*$/.test(value) && Number.isSafeInteger(Number(value))) return Number(value);
+    } catch {}
+    await new Promise<void>(resolve => setImmediate(resolve));
   }
   throw Error('Synthetic media process did not start');
 }
+
+test('PID fixture waits for content after file creation', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'nvr-remux-pid-'));
+  const path = join(directory, 'pid');
+  await writeFile(path, '');
+  const writer = new Promise<void>((resolve, reject) => setTimeout(() => {
+    void writeFile(path, String(process.pid)).then(resolve, reject);
+  }, 25));
+  try {
+    assert.equal(await waitForPid(path), process.pid);
+  } finally {
+    await writer;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 for (const ignoreTerm of [false, true]) test(`remux abort reaps a child ignoring SIGTERM=${ignoreTerm} before settling`, { timeout: 10000 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'nvr-remux-')), pidPath = join(directory, 'pid');

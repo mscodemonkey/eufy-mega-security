@@ -32,7 +32,7 @@ function gateway(): Buffer {
 }
 
 /** Own a synthetic CAM_ID handshake, inbound frames, packet loss and fake time. */
-async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" = "media") {
+async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" = "media", stationModel = "T8010") {
   let socket!: Socket;
   let inbound = 0;
   const sent: Buffer[] = [];
@@ -45,7 +45,7 @@ async function peer(context: TestContext, attached = true, model = "T8113-Z", pu
   context.mock.method(Socket.prototype, "send", (packet: Buffer) => { sent.push(Buffer.from(packet)); });
   context.mock.method(Socket.prototype, "close", function (this: Socket) { return this; });
   const session = new FirstPartyPpcsSession({ stationSerial: "SYNTHETIC1234567", p2pDid: "TEST-12345678-TEST",
-    appConnection: "", dskKey: "synthetic", channel: attached ? 1 : 0, homeBaseAttached: attached, stationModel: "T8010",
+    appConnection: "", dskKey: "synthetic", channel: attached ? 1 : 0, homeBaseAttached: attached, stationModel,
     purpose, cameraModel: model, accountId: "synthetic-owner", maxSeconds: 120,
     resolveCipherKey: async () => Buffer.alloc(32, 1).toString("hex") });
   const receive = (packet: Buffer, port = 12345) => socket.emit("message", packet, { address: "127.0.0.1", port });
@@ -234,4 +234,62 @@ test("missing END completion releases the port after a finite local drain deadli
   context.mock.timers.tick(1);
   await f.session.waitUntilClosed();
   assert.equal(socketClose.mock.callCount(), 1);
+});
+
+test("HB2 2C setup repairs the identical initial query until its validated ACK", async context => {
+  const f = await peer(context);
+  try {
+    const original = f.sent.at(-1)!;
+    assert.equal(original.readUInt16LE(original.indexOf(Buffer.from("XZYH")) + 4), 1100);
+    const sequence = original.readUInt16BE(6);
+    const count = f.sent.length;
+    context.mock.timers.tick(150);
+    assert.equal(f.sent.length, count + 1);
+    assert.deepEqual(f.sent.at(-1), original);
+    assert.equal(f.session.stats.gatewayInfoRetransmitted, 1);
+    for (const invalid of ["peer", "channel", "length", "count"]) f.ack(sequence, invalid);
+    context.mock.timers.tick(150);
+    assert.equal(f.session.stats.gatewayInfoRetransmitted, 2);
+    f.ack(sequence);
+    f.ack(sequence);
+    context.mock.timers.tick(1000);
+    assert.equal(f.session.stats.gatewayInfoAcknowledged, 1);
+    assert.equal(f.session.stats.gatewayInfoRetransmitted, 2);
+    assert.equal(f.session.stats.mediaStartAttempts, 0);
+  } finally { f.session.close(); }
+});
+
+test("a setup reply retires lost-ACK repair before media starts", async context => {
+  const f = await peer(context);
+  try {
+    context.mock.timers.tick(150);
+    await f.negotiate();
+    context.mock.timers.tick(150);
+    assert.equal(f.session.stats.gatewayInfoRetransmitted, 1);
+    assert.equal(f.session.stats.gatewayInfoAcknowledged, 0);
+    assert.equal(f.session.stats.mediaStartAttempts, 1);
+    assert.equal(f.session.stats.mediaStartRetransmitted, 1);
+  } finally { f.session.close(); }
+});
+
+for (const action of ["expiry", "close"] as const) test(`setup repair has bounded ${action} and sends nothing afterwards`, async context => {
+  const f = await peer(context);
+  try {
+    context.mock.timers.tick(150);
+    if (action === "close") f.session.close();
+    else context.mock.timers.tick(2850);
+    const repaired = f.session.stats.gatewayInfoRetransmitted;
+    context.mock.timers.tick(5000);
+    assert.equal(f.session.stats.gatewayInfoRetransmitted, repaired);
+    assert.equal(f.session.stats.gatewayInfoExpired, action === "expiry" ? 1 : 0);
+  } finally { f.session.close(); }
+});
+
+for (const [model, station] of [["T8210", "T8010"], ["T8113-Z", "T8030"]] as const) test(`setup policy stays unchanged for ${model} on ${station}`, async context => {
+  const f = await peer(context, true, model, "media", station);
+  try {
+    context.mock.timers.tick(150);
+    assert.equal(f.session.stats.gatewayInfoRetransmitted, 0);
+    assert.equal(f.session.stats.gatewayInfoAcknowledged, 0);
+  } finally { f.session.close(); }
 });

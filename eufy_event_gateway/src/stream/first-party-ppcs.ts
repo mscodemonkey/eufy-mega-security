@@ -1582,6 +1582,9 @@ export class FirstPartyPpcsSession {
     videoResults: [] as string[],
     videoCodec: "unknown" as "h264" | "h265" | "unknown",
     videoNalTypes: [] as number[],
+    gatewayInfoAcknowledged: 0,
+    gatewayInfoRetransmitted: 0,
+    gatewayInfoExpired: 0,
     mediaStartAttempts: 0,
     mediaStartAcknowledged: 0,
     mediaStartRetransmitted: 0,
@@ -1593,6 +1596,7 @@ export class FirstPartyPpcsSession {
   };
   readonly #options: PpcsCameraOptions;
   readonly #mediaStart: PpcsMediaStart;
+  readonly #gatewayInfoRequest: PpcsMediaStart;
   #socket: Socket = createSocket("udp4");
   #lookupSockets: PpcsLookupSocketPool | null = null;
 
@@ -1676,15 +1680,24 @@ export class FirstPartyPpcsSession {
       throw new RangeError("Invalid PPCS lookup deadline");
     }
     this.#options = options;
-    this.#mediaStart = new PpcsMediaStart(packet => {
+    const transmitStartup = (packet: Buffer): void => {
       if (!this.#closed && this.#remote) this.#socket.send(packet, this.#remote.port, this.#remote.host);
-    });
+    };
+    this.#mediaStart = new PpcsMediaStart(transmitStartup);
+    this.#gatewayInfoRequest = new PpcsMediaStart(transmitStartup);
     for (const [field, counter] of [
       ["mediaStartAcknowledged", "acknowledged"],
       ["mediaStartRetransmitted", "retransmitted"],
       ["mediaStartExpired", "expired"],
     ] as const) {
       Object.defineProperty(this.stats, field, { enumerable: true, get: () => this.#mediaStart.stats[counter] });
+    }
+    for (const [field, counter] of [
+      ["gatewayInfoAcknowledged", "acknowledged"],
+      ["gatewayInfoRetransmitted", "retransmitted"],
+      ["gatewayInfoExpired", "expired"],
+    ] as const) {
+      Object.defineProperty(this.stats, field, { enumerable: true, get: () => this.#gatewayInfoRequest.stats[counter] });
     }
     this.#videoAssembler = new PpcsAccessUnitAssembler((drop) => {
       this.stats.incompleteAccessUnits++;
@@ -1780,6 +1793,7 @@ export class FirstPartyPpcsSession {
       this.#send(REQ.ping, Buffer.alloc(0), this.#remote);
       if ((this.#options.purpose === "control" || this.#options.purpose === "passive") && this.stats.mediaStartAttempts === 0) return;
       if (this.#options.homeBaseAttached && this.#level2Key) {
+
         const recovery = attachedMediaStallRecoveryAction(
           this.#lastDeliveredMediaFrameAt,
           this.#lastAttachedMediaReassertAt,
@@ -2650,6 +2664,7 @@ export class FirstPartyPpcsSession {
   close(reason: PpcsStreamCloseReason = "client_stop"): void {
     if (this.#closed) return;
     this.#mediaStart.close();
+    this.#gatewayInfoRequest.close();
     this.#speaker?.close();
     this.#closed = true;
     this.#level2Failure = null;
@@ -2784,7 +2799,11 @@ export class FirstPartyPpcsSession {
       this.stats.camId++;
       this.#remote = { host: info.address, port: info.port };
       this.#send(REQ.ping, Buffer.alloc(0), this.#remote);
-      this.#sendCommand(1100, voidPayload(255));
+      if (this.#options.stationModel === "T8010" && this.#options.cameraModel === "T8113-Z" && this.#options.homeBaseAttached) {
+        const sequence = this.#seq++;
+        const payload = Buffer.concat([commandHeader(sequence, 1100), voidPayload(255)]);
+        this.#gatewayInfoRequest.start(sequence, Buffer.concat([REQ.data, u16(payload.length), payload]));
+      } else this.#sendCommand(1100, voidPayload(255));
       if (!this.#options.homeBaseAttached && this.#options.purpose !== "control" && this.#options.purpose !== "passive") this.#startOwnMedia();
       return true;
     }
@@ -2794,7 +2813,11 @@ export class FirstPartyPpcsSession {
       && message.subarray(4, 6).equals(DATA.data)) {
       const count = message.readUInt16BE(6);
       if (count >= 1 && count <= 64 && message.length === 8 + count * 2) {
-        for (let index = 0; index < count; index++) this.#mediaStart.acknowledge(message.readUInt16BE(8 + index * 2));
+        for (let index = 0; index < count; index++) {
+          const sequence = message.readUInt16BE(8 + index * 2);
+          this.#mediaStart.acknowledge(sequence);
+          this.#gatewayInfoRequest.acknowledge(sequence);
+        }
       }
       return false;
     }
@@ -3014,7 +3037,11 @@ export class FirstPartyPpcsSession {
     // 1100 carries the encrypted HomeBase gateway details. 1300 carries
     // media frames after the level-2 request has been accepted.
     if (command === 1100) this.#s100GatewayFrames++;
-    if (command === 1100 && signCode === 1) { this.stats.gatewayInfo++; void this.#handleGatewayInfo(payload); }
+    if (command === 1100 && signCode === 1) {
+      this.#gatewayInfoRequest.close();
+      this.stats.gatewayInfo++;
+      void this.#handleGatewayInfo(payload);
+    }
     else if (command === 1103 && this.#alarmReadUsed) {
       if (frameChannel === 0 || frameChannel === 255) this.#inspectAlarmRead(payload, signCode);
     }

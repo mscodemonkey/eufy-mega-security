@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.209
+
+- Repair the exact T8113-Z/T8010 setup query with byte-identical, peer-pinned DATA retransmission until its validated acknowledgement or reply, the existing three-second repair deadline, or session close.
+- Add separate safe setup-delivery counters so missing packet receipt stays distinct from a missing application response. The existing live-start repair, encoder-recovery policy and first-frame deadline are unchanged.
+- Cover dropped queries, malformed or foreign acknowledgements, duplicate acknowledgements, replies with lost acknowledgements, expiry, close and unchanged neighboring model routes through the real session boundary.
+- Hardware startup and handoff remain tracked in #465. Transport acknowledgement does not establish successful live video, and this release does not claim that intermittent hardware fault is resolved.
+
 ## 0.1.208
 
 - Add off-by-default motion-detection switches and five-step sensitivity numbers for exact standalone T8425/type 47 and T8426/type 87 on channel zero. The current owner account, a ready route and a unique readable setting are required.
