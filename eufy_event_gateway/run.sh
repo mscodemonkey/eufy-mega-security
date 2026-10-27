@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+# Standalone Compose builds have no Supervisor-supplied version argument.
+if [ -z "${EUFY_GATEWAY_VERSION:-}" ]; then
+  export EUFY_GATEWAY_VERSION="$(node -p 'require("/app/package.json").version')"
+fi
+
 options=/data/options.json
 token_file=/data/api_token
 

@@ -206,7 +206,7 @@ Open the shared Home in the Eufy app while signed in as the guest account and co
 
 You will need:
 
-- Home Assistant OS or Home Assistant Supervised for the app installation below;
+- Home Assistant OS or Home Assistant Supervised for the app installation below, or Docker with Compose for Home Assistant Container;
 - HACS, or File Editor/SSH for the manual integration method;
 - the guest account username, password, and two-letter account country code;
 - the Eufy account credentials; the gateway does not use the expiring Web Portal Access PIN.
@@ -228,6 +228,12 @@ Assistant. If a release updates both parts, update the integration in HACS and
 the app separately, then restart Home Assistant.
 
 If you do not use HACS, copy `custom_components/eufy_event_gateway` into `/config/custom_components/eufy_event_gateway` and restart Home Assistant.
+
+## Run with Home Assistant Container
+
+Use the [Docker Compose guide](docs/DOCKER_COMPOSE.md) to build and run the
+gateway separately, preserve its session and API token, and connect the custom
+integration manually. Supervisor and the Home Assistant app store are not needed.
 
 ## Install the Home Assistant app
 
