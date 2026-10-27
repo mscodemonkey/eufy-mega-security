@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.201
+
+- Preserve leading and trailing whitespace in configured Eufy passwords instead of changing them before sign-in.
+- Clarify login rejection codes 26006 and 10019, and avoid labelling every CAPTCHA submission failure as an incorrect answer. Reporter login recovery remains unconfirmed.
+- Passwords are now used exactly as configured. If a saved value only worked because surrounding whitespace was silently removed, correct that value before signing in again. No fallback login with a trimmed password is attempted.
+- Retire blocked CAPTCHA and verification forms for the current normal sign-in attempt after error 10019. A previously pending verification prompt can return after a restart, and the separate experimental video sign-in flow is unchanged.
+
 ## 0.1.200
 
 - Add a privacy-safe failure stage to experimental model-control trial warnings, so failed T84A1 motion tests can distinguish session setup, the initial read, the write, and confirmation readback without exposing raw errors.

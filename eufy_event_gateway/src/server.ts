@@ -1105,7 +1105,7 @@ export class GatewayServer {
         captchaResultMessage(nextChallenge !== null),
       );
     } catch (error) {
-      return this.#authenticationPage(response, `Eufy did not accept the answer: ${safeError(error)}`);
+      return this.#authenticationPage(response, `Eufy could not complete sign-in: ${safeError(error)}`);
     }
   }
 

@@ -3720,7 +3720,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const generation = this.#startupGeneration;
     let result;
     try { result = await this.#client.connect(undefined, answer); }
-    catch (error) { if (generation !== this.#startupGeneration) return; throw error; }
+    catch (error) {
+      if (generation !== this.#startupGeneration) return;
+      if (this.#client.isLoginAttemptLimitError(error)) this.#retireRejectedLoginChallenge();
+      throw error;
+    }
     if (generation !== this.#startupGeneration || !this.#events) return;
     if (result.state === "captcha-required") {
       this.#captchaChallenge = result.captcha ?? null;
@@ -3743,11 +3747,26 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const generation = this.#startupGeneration;
     let result;
     try { result = await this.#client.connect(code); }
-    catch (error) { if (generation !== this.#startupGeneration) return; throw error; }
+    catch (error) {
+      if (generation !== this.#startupGeneration) return;
+      if (this.#client.isLoginAttemptLimitError(error)) this.#retireRejectedLoginChallenge();
+      throw error;
+    }
     if (generation !== this.#startupGeneration || !this.#events) return;
     if (result.state !== "authenticated") throw new Error("Eufy did not accept the verification code");
     this.#verificationRequired = false;
     await this.#completeStartup(this.#events);
+  }
+
+  #retireRejectedLoginChallenge(): void {
+    this.#captchaChallenge = null;
+    this.#verificationRequired = false;
+    try {
+      this.#events?.connection("error", "Eufy rejected repeated login attempts. Stop retrying and check the saved account configuration privately.");
+    } catch {
+
+      // Presentation failures must not replace the original cloud rejection.
+    }
   }
 
   /** Complete only the active challenge on its original epoch and startup generation. */
