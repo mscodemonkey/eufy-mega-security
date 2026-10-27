@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.208
+
+- Add off-by-default motion-detection switches and five-step sensitivity numbers for exact standalone T8425/type 47 and T8426/type 87 on channel zero. The current owner account, a ready route and a unique readable setting are required.
+- Read a fresh native baseline, send one absolute command and confirm the result independently. Unknown results withdraw the affected setting. Keep zones, notification types and motion-lighting schedules unchanged.
+- Retain exclusive settings ownership until the session disconnect has drained, including failed readback and cancellation cleanup.
+- Verify both synthetic models through normal Home Assistant Container switch and number services, restoring the original values. Physical detection and sensitivity behaviour remain unconfirmed. Model aliases and attached routes stay excluded.
+
 ## 0.1.207
 
 - Fix PPCS shutdown discarding queued disconnect and attached-camera stop packets. Media and pending operations still retire immediately, while UDP closes after the final send completes, with a finite local cleanup deadline.

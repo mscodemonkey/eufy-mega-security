@@ -947,7 +947,7 @@ export function buildReviewedCameraSettingPayload(
   if (!profile || !accountId || key.length !== 32 || !Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) {
     throw new Error("Reviewed camera setting route unavailable");
   }
-  if (profile.form === "manual-light") throw new Error("Manual floodlight requires its native level-one envelope");
+  if (profile.form === "manual-light" || profile.form === "motion-control") throw new Error("Floodlight setting requires its native level-one envelope");
   const native = cameraSettingWireValue(profile, change);
   const clear = profile.form === "binary" ? buildCameraEnableBody(route.channel!, native, accountId)
     : Buffer.from(JSON.stringify(profile.form === "payload"
@@ -955,6 +955,15 @@ export function buildReviewedCameraSettingPayload(
         payload: { sensitivity: native, channel: route.channel } }
       : { commandType: profile.readParam, data: { value: native, index: native, channel: route.channel, transaction: `${now}` } }));
   return { command: profile.command, payload: rawPayload(encryptLevel2(clear, key, sequence), route.channel!, 8, [8, 0], 0) };
+}
+
+/** Encode exact standalone floodlight motion settings without borrowing the attached-camera payload. */
+export function buildFloodlightMotionControlValue(change: CameraSettingChange, route: ModelControlRoute): string {
+  const profile = cameraSettingProfile(route, change.setting);
+  if (!profile || profile.form !== "motion-control") throw new Error("Floodlight motion setting unavailable");
+  const value = cameraSettingWireValue(profile, change);
+  return JSON.stringify({ commandType: profile.readParam, data: change.setting === "motionDetection"
+    ? { status: value } : { value, index: value, channel: route.channel } });
 }
 
 /** Protect a native SoloCam preset or tracking request on its channel-zero control envelope. */
@@ -2128,6 +2137,13 @@ export class FirstPartyPpcsSession {
       || this.#options.cameraModel !== route.model || this.#options.channel !== route.channel
       || this.#options.homeBaseAttached !== route.homeBaseAttached) throw new Error("Reviewed camera setting session unavailable");
     cameraSettingWireValue(profile, change);
+    if (profile.form === "motion-control") {
+      const payload = buildStandaloneJsonControlPayload(buildFloodlightMotionControlValue(change, route), route.channel!,
+        commandKey(this.#options.stationSerial, this.#options.p2pDid));
+      onDispatch();
+      this.#sendCommand(1700, payload);
+      return;
+    }
     if (change.setting === "manualFloodlight") {
       const payload = buildStandaloneJsonControlPayload(buildManualFloodlightControlValue(change.value), route.channel!,
         commandKey(this.#options.stationSerial, this.#options.p2pDid));
