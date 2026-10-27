@@ -283,3 +283,59 @@ test("other HB2 child models retain their existing startup recovery", async cont
     assert.equal(f.session.stats.mediaStartAttempts, 2);
   } finally { f.session.close(); }
 });
+
+test("HB2 2C setup repairs the identical initial query until its validated ACK", async context => {
+  const f = await peer(context);
+  try {
+    const original = f.sent.at(-1)!;
+    assert.equal(original.readUInt16LE(original.indexOf(Buffer.from("XZYH")) + 4), 1100);
+    const sequence = original.readUInt16BE(6);
+    context.mock.timers.tick(150);
+    assert.deepEqual(f.sent.at(-1), original);
+    assert.equal(f.session.stats.gatewayInfoRetransmitted, 1);
+    for (const invalid of ["peer", "channel", "length", "count"]) f.ack(sequence, invalid);
+    context.mock.timers.tick(150);
+    assert.equal(f.session.stats.gatewayInfoRetransmitted, 2);
+    f.ack(sequence);
+    f.ack(sequence);
+    context.mock.timers.tick(1000);
+    assert.equal(f.session.stats.gatewayInfoAcknowledged, 1);
+    assert.equal(f.session.stats.gatewayInfoRetransmitted, 2);
+    assert.equal(f.session.stats.mediaStartAttempts, 0);
+  } finally { f.session.close(); }
+});
+
+test("a setup reply retires lost-ACK repair before media starts", async context => {
+  const f = await peer(context);
+  try {
+    context.mock.timers.tick(150);
+    await f.negotiate();
+    context.mock.timers.tick(150);
+    assert.equal(f.session.stats.gatewayInfoRetransmitted, 1);
+    assert.equal(f.session.stats.gatewayInfoAcknowledged, 0);
+    assert.equal(f.session.stats.mediaStartAttempts, 1);
+    assert.equal(f.session.stats.mediaStartRetransmitted, 1);
+  } finally { f.session.close(); }
+});
+
+for (const action of ["expiry", "close"] as const) test(`setup repair has bounded ${action} and sends nothing afterwards`, async context => {
+  const f = await peer(context);
+  try {
+    context.mock.timers.tick(150);
+    if (action === "close") f.session.close();
+    else context.mock.timers.tick(2850);
+    const repaired = f.session.stats.gatewayInfoRetransmitted;
+    context.mock.timers.tick(5000);
+    assert.equal(f.session.stats.gatewayInfoRetransmitted, repaired);
+    assert.equal(f.session.stats.gatewayInfoExpired, action === "expiry" ? 1 : 0);
+  } finally { f.session.close(); }
+});
+
+for (const [model, station] of [["T8210", "T8010"], ["T8113-Z", "T8030"]] as const) test(`setup policy stays unchanged for ${model} on ${station}`, async context => {
+  const f = await peer(context, true, model, "media", station);
+  try {
+    context.mock.timers.tick(150);
+    assert.equal(f.session.stats.gatewayInfoRetransmitted, 0);
+    assert.equal(f.session.stats.gatewayInfoAcknowledged, 0);
+  } finally { f.session.close(); }
+});

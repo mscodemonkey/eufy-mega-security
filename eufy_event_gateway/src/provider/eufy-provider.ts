@@ -3270,7 +3270,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         current();
         const session = new FirstPartyPpcsSession({
           stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
-          localAddress: peer.localAddress, dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
+          localAddress: peer.localAddress, dskKey: dsk.key, channel: device.channel, cameraModel: device.model, stationModel: peer.model,
           accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 40,
           resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
         });
@@ -6208,7 +6208,7 @@ export function isPpcsRouteReady(
 export function ppcsStreamLogSummary(
   model: string,
   route: PpcsStreamRoute | null,
-  stats: Pick<FirstPartyPpcsSession["stats"], "camId" | "dataDatagrams" | "frameHeaders" | "videoFrames"> & Partial<Pick<FirstPartyPpcsSession["stats"], "alternateLookupCandidates" | "batteryHistory" | "closeReason" | "commands" | "directLookupCandidates" | "duplicateDatagrams" | "foreignVideoFrames" | "frameShapes" | "incompleteAccessUnitBytes" | "incompleteAccessUnits" | "localLookupCandidates" | "mediaStartAttempts" | "mediaStartAcknowledged" | "mediaStartRetransmitted" | "mediaStartExpired" | "mediaStartProtocols" | "mediaStopAttempts" | "mediaStopProtocol" | "parserBlocked" | "parserResyncs" | "pendingBytes" | "sequenceGaps" | "sequenceRestarts" | "sequenceChannels" | "staleDatagrams" | "types" | "videoCodec" | "videoNalTypes" | "videoOutputFrames" | "videoResults">>,
+  stats: Pick<FirstPartyPpcsSession["stats"], "camId" | "dataDatagrams" | "frameHeaders" | "videoFrames"> & Partial<Pick<FirstPartyPpcsSession["stats"], "alternateLookupCandidates" | "batteryHistory" | "closeReason" | "commands" | "directLookupCandidates" | "duplicateDatagrams" | "foreignVideoFrames" | "gatewayInfoAcknowledged" | "gatewayInfoRetransmitted" | "gatewayInfoExpired" | "frameShapes" | "incompleteAccessUnitBytes" | "incompleteAccessUnits" | "localLookupCandidates" | "mediaStartAttempts" | "mediaStartAcknowledged" | "mediaStartRetransmitted" | "mediaStartExpired" | "mediaStartProtocols" | "mediaStopAttempts" | "mediaStopProtocol" | "parserBlocked" | "parserResyncs" | "pendingBytes" | "sequenceGaps" | "sequenceRestarts" | "sequenceChannels" | "staleDatagrams" | "types" | "videoCodec" | "videoNalTypes" | "videoOutputFrames" | "videoResults">>,
   error?: unknown,
 ): string {
   const stage = stats.camId === 0 ? "lookup" : stats.videoFrames === 0 ? "first_frame" : "media";
@@ -6253,6 +6253,9 @@ export function ppcsStreamLogSummary(
     `video_nal_types=${nalTypes.join(",") || "none"}`,
     `codec_bootstrap=${codecBootstrap}`,
     `decoder_ready=${hasDecoderReadyKeyframe(codec, nalTypes)}`,
+    `gateway_info_acked=${stats.gatewayInfoAcknowledged ?? 0}`,
+    `gateway_info_retransmitted=${stats.gatewayInfoRetransmitted ?? 0}`,
+    `gateway_info_expired=${stats.gatewayInfoExpired ?? 0}`,
     `media_start_attempts=${stats.mediaStartAttempts ?? 0}`,
     `media_start_protocols=${stats.mediaStartProtocols?.join(",") || "none"}`,
     `media_stop_attempts=${stats.mediaStopAttempts ?? 0}`,

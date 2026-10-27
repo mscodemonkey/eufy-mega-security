@@ -2,6 +2,7 @@
 
 ## 0.1.209
 
+- Repair the exact T8113-Z/T8010 setup query with byte-identical, peer-pinned DATA retransmission until its validated acknowledgement or reply, the existing three-second repair deadline, or session close. Add separate safe counters so missing delivery stays distinct from missing application response.
 - Preserve T8113-Z encoder startup on exact T8010 HomeBase 2 peers until its existing first-frame deadline instead of repeatedly stopping and restarting it before any video arrives.
 - Keep byte-identical start-packet repair, peer heartbeats, the original twenty-second startup bound and later genuine-stall recovery. Other camera models and HomeBase families retain their current startup policy.
 - Add real-session timing regressions for late key negotiation, missing video, ongoing packet repair and pings, later media stalls and unchanged non-T8010 behavior. The previous policy fails the new startup regressions.

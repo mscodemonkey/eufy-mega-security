@@ -1,13 +1,18 @@
 /**
- * Repairs lost live-start datagrams without constructing another camera command.
- * Each PPCS session owns one tracker and its fixed peer/socket sender. The
- * session validates ACKs and channel-specific media before retiring entries.
- * Ciphertext is held only in memory until receipt, expiry, stop or close.
+ * Repairs lost startup datagrams without constructing another camera command.
+ * Each PPCS session owns independent setup-query and live-start trackers with
+ * a fixed peer/socket sender. The session validates ACKs and responses before
+ * retiring entries.
+ * Packet bytes are held only in memory until receipt, response, expiry, stop or close.
  */
 
 /** Clock and repeating timer borrowed by the tracker for deterministic lifetime tests. */
 export interface PpcsMediaStartScheduler {
+
+  /** Return epoch milliseconds for the original request's fixed deadline. */
   now(): number;
+
+  /** Schedule periodic repair ticks and return the owning tracker's cancellation callback. */
   repeat(callback: () => void, milliseconds: number): () => void;
 }
 
@@ -27,9 +32,9 @@ interface PendingStart {
 }
 
 /**
- * Own the current live start and, during a key upgrade, one displaced start.
+ * Own a startup request and, during a media key upgrade, one displaced start.
  * Retries preserve the complete packet and its original sequence. The owning
- * session must close this tracker before stopping media or closing its socket.
+ * session retires this tracker on response or before closing its socket.
  * Receipt counters describe transport only, never successful video playback.
  */
 export class PpcsMediaStart {
@@ -47,11 +52,11 @@ export class PpcsMediaStart {
     private readonly clock: PpcsMediaStartScheduler = scheduler,
   ) {}
 
-  /** Defer heartbeat-driven starts while either original datagram still needs repair. */
+  /** Report whether either original startup datagram still needs delivery repair. */
   get pending(): boolean { return this.#current !== null || this.#displaced !== null; }
 
   /**
-   * Send one new start, retaining one replaced start during a key upgrade.
+   * Send one startup request, retaining one replaced start during a media key upgrade.
    * A third simultaneous start is refused instead of dropping a sequence hole.
    */
   start(sequence: number, packet: Buffer): boolean {
