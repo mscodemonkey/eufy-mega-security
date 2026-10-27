@@ -2838,7 +2838,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const peer = route?.peer;
     const profile = device && route ? cameraSettingProfile(this.#modelTrialRoute(device, route), change.setting) : null;
     if (!device || !route || !peer || !profile || !device.adminUserId || this.#recordingClosing) throw new CameraSettingError("unavailable");
-    const optInSetting = change.setting === "lightBrightness" || change.setting === "manualFloodlight";
+    const optInSetting = change.setting === "lightBrightness" || change.setting === "manualFloodlight" || profile.form === "motion-control";
     const settingBinding = optInSetting ? this.#client.authenticatedBinding() : null;
     if (optInSetting && (!this.config.experimentalModelControls || !this.#client.isAuthenticatedUser(device.adminUserId) || !settingBinding)) throw new CameraSettingError("unavailable");
     cameraSettingWireValue(profile, change);
@@ -2851,7 +2851,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const releaseTrialPeer = this.#reserveTrialPeer(peer.serial);
     const generation = this.#startupGeneration;
     const deadline = Date.now() + 90_000;
-    const field = change.setting === "motionSensitivity" ? "motionSensitivityStep" : change.setting === "lightBrightness" ? "lightBrightness" : change.setting === "manualFloodlight" ? "manualFloodlightEnabled" : "homebaseChimeEnabled";
+    const field = change.setting === "motionSensitivity" ? "motionSensitivityStep" : change.setting === "motionDetection" ? "motionDetectionEnabled" : change.setting === "lightBrightness" ? "lightBrightness" : change.setting === "manualFloodlight" ? "manualFloodlightEnabled" : "homebaseChimeEnabled";
     let session: FirstPartyPpcsSession | null = null;
     let dispatched = false;
     const check = (): void => {
@@ -2881,6 +2881,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#trialSessions.set(peer.serial, session);
       await session.start(); check(); return session;
     };
+    const retireSession = async (): Promise<void> => {
+      session?.close(); await session?.waitUntilClosed();
+    };
     const originalPublic = this.#cameraIdentity(device);
     const abort = (): void => { if (!dispatched) session?.close(); };
     signal?.addEventListener("abort", abort, { once: true });
@@ -2897,7 +2900,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
             } catch (error) {
               check();
               if (!dispatched) throw error;
-              session?.close(); session = null; this.#trialSessions.delete(peer.serial);
+              session?.close(); await session?.waitUntilClosed(); session = null; this.#trialSessions.delete(peer.serial);
             }
           }
           clear(); await this.#refreshInventoryReads(); check();
@@ -2909,7 +2912,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
             check(); onDispatch(); dispatched = true;
           });
           check();
-          if (route.homeBaseAttached) { owned.close(); session = null; this.#trialSessions.delete(peer.serial); }
+          if (route.homeBaseAttached) { owned.close(); await owned.waitUntilClosed(); session = null; this.#trialSessions.delete(peer.serial); }
         },
         invalidate: () => { clear(); const current = this.#devices.get(serial); if (current) this.#events?.camera(this.#cameraIdentity(current)); },
       }, change.value);
@@ -2920,7 +2923,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       throw error;
     } finally {
       signal?.removeEventListener("abort", abort);
-      this.#trialSessions.get(peer.serial)?.close(); this.#trialSessions.delete(peer.serial); releaseTrialPeer();
+      await retireSession();
+      this.#trialSessions.delete(peer.serial); releaseTrialPeer();
     }
   }
 
@@ -3216,6 +3220,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
     const requested = this.#devices.get(serial);
+    if (requested?.model === "T8425" || requested?.model === "T8426") {
+      return this.setCameraSetting(serial, { setting: "motionDetection", value: enabled });
+    }
     const requestedRoute = requested ? ppcsStreamRoute(requested, this.#devices) : null;
     const peerKey = requestedRoute?.homeBaseAttached && requestedRoute.peer.model === "T8010"
       ? requestedRoute.peer.serial : null;
@@ -4405,6 +4412,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const soloCamPanControlsSupported = supportsSoloCamPresetControl(
       device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials),
     );
+    const floodlight = device.model === "T8425" || device.model === "T8426";
+    const experimentalSettingsReady = this.config.experimentalModelControls === true && !!device.adminUserId
+      && this.#client.isAuthenticatedUser(device.adminUserId);
     const supportedDetections = directCameraDetectionKinds(device, route?.homeBaseAttached);
     const identity: CameraIdentity = {
       serial: device.serial,
@@ -4424,7 +4434,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         speakerVolume: device.reads.speakerVolume ?? null,
       },
       talkbackSupported: supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
-      motionSensitivityControlSupported: settingRouteReady && sensitivityProfile !== null && device.reads.motionSensitivityStep !== undefined,
+      motionSensitivityControlSupported: settingRouteReady && sensitivityProfile !== null
+        && (sensitivityProfile.form !== "motion-control" || experimentalSettingsReady) && device.reads.motionSensitivityStep !== undefined,
       motionSensitivitySteps: sensitivityProfile?.ladder?.length ?? null,
       manualFloodlightControlSupported: this.config.experimentalModelControls === true && settingRouteReady
         && !!settingRoute && cameraSettingProfile(settingRoute, "manualFloodlight") !== null
@@ -4490,7 +4501,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       ] : [],
       audioRecordingControlSupported: supportsStandaloneAudioRecording(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
       motionDetectionEnabled: device.reads.motionDetectionEnabled ?? null,
-      motionDetectionControlSupported: device.reads.motionDetectionEnabled !== undefined
+      motionDetectionControlSupported: floodlight ? experimentalSettingsReady && settingRouteReady && !!settingRoute
+        && cameraSettingProfile(settingRoute, "motionDetection") !== null && device.reads.motionDetectionEnabled !== undefined
+        : device.reads.motionDetectionEnabled !== undefined
         && ((device.deviceType === 88 && device.model === "T8171") || (device.deviceType === 10_031 && device.model === "T817L" && route?.homeBaseAttached === false)
           ? supportsStandaloneMotionDetection(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials))
           : supportsMotionDetectionControlRoute(route))
@@ -5613,7 +5626,10 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   // The selected standalone profiles report detection through their native switch.
   // A conflicting legacy bit must not override that model-specific read.
   const nativeLightMotion = standaloneChannelZero && nativeLightProfile;
-  const motionSwitch = finiteNumber(params.get(soloE30 || c31 || nativeLightMotion ? 6040 : 1011));
+  const floodlight = model === "T8425" || model === "T8426";
+  const reviewedMotion = readCameraSetting(settingRows, model ?? "", deviceType, standaloneChannelZero, "motionDetection");
+  const motionSwitch = floodlight ? (typeof reviewedMotion === "boolean" ? Number(reviewedMotion) : null)
+    : finiteNumber(params.get(soloE30 || c31 || nativeLightMotion ? 6040 : 1011));
   const guardMode = finiteNumber(params.get(1224));
   const autoNightVision = finiteNumber(params.get(1013));
   const nightVisionMode = finiteNumber(params.get(1277));

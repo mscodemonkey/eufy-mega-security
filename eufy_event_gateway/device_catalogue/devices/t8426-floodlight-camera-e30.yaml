@@ -13,6 +13,32 @@ models:
 device_type: 87
 capabilities:
   controls:
+    motion_detection:
+      connections:
+        direct:
+          status: declared
+          notes: Implemented behind experimental model controls for exact T8426 type 87 on channel zero with the current owner account. A unique native baseline and independent readback are required. One absolute command is sent. Physical detection behaviour is unconfirmed. Model aliases and attached routes are excluded.
+      read:
+        parameter: 6040
+      write:
+        command: 1700
+      values:
+        "0": Detection off
+        "1": Detection on
+    motion_sensitivity:
+      connections:
+        direct:
+          status: declared
+          notes: Opt-in exact standalone T8426 only. Native steps 1 to 5 are offered only with a readable value and current owner account. Single write and fresh readback are required. Physical sensitivity behaviour is unconfirmed.
+      read:
+        parameter: 6041
+      write:
+        command: 1700
+        input:
+          name: sensitivity_step
+          type: integer
+          minimum: 1
+          maximum: 5
     light_brightness:
       connections:
         direct:
