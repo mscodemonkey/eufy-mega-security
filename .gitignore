@@ -32,3 +32,6 @@ docs/TODO.md
 /site/.build-output/
 /site/test-results/
 /site/playwright-report/
+
+# Standalone gateway credentials.
+/docker/options.json

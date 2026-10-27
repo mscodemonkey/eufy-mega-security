@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.203
+
+- Add a Docker Compose installation for Home Assistant Container, with a persistent gateway session and API token, read-only private options file, health check and manual integration setup guide.
+- Identify standalone gateway builds using their packaged release version when Supervisor build arguments are absent.
+- Validate the Compose gateway and a fresh Home Assistant Container without Supervisor using simulated cameras. Existing Eufy account and device compatibility requirements still apply.
+
 ## 0.1.202
 
 - Add a manual read-only state check for T8410, T8417 and HomeBase 3 missing-state investigations. It requires experimental model controls, explicit consent, a gateway API token and the existing owner account.
