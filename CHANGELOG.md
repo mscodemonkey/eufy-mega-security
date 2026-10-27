@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.204
+
+- Add an opt-in, read-only T8520, T8520J11 and T8520S cloud-inventory profile for direct devices reporting type 51. Home Assistant exposes reported lock state and battery without lock, unlock or settings controls. Physical behaviour remains unconfirmed.
+- Keep cached cloud observations separate from fresh bolt queries and E30 motor authority, including HTTP, event-stream and Home Assistant boundaries.
+- Let Eufy authorize the manual reported-parameter diagnostic using the current account token instead of inferring read permission from an inventory administrator identifier. Server refusals remain final, and device-command ownership checks are unchanged.
+- Direct compatibility reports to the private diagnostics-sharing guide instead of requesting public diagnostic attachments.
+
 ## 0.1.203
 
 - Add a Docker Compose installation for Home Assistant Container, with a persistent gateway session and API token, read-only private options file, health check and manual integration setup guide.

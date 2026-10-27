@@ -29,7 +29,10 @@ async def async_setup_entry(hass, entry, async_add_entities) -> None:
     known: set[str] = set()
 
     def add_new() -> None:
-        serials = set(coordinator.locks) - known
+        serials = {
+            serial for serial, state in coordinator.locks.items()
+            if state.get("readOnly") is not True
+        } - known
         known.update(serials)
         async_add_entities([EufySmartLock(coordinator, serial) for serial in sorted(serials)])
 
@@ -77,7 +80,10 @@ class EufyLockEntity(CoordinatorEntity[EufyGatewayCoordinator]):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Expose the observation time, never protocol or account fields."""
-        return {"state_observed_at": self.lock_state.get("stateObservedAt")}
+        attributes = {"state_observed_at": self.lock_state.get("stateObservedAt")}
+        if self.lock_state.get("readOnly") is True:
+            attributes["observation_source"] = "cloud_inventory"
+        return attributes
 
 
 class EufySmartLock(EufyLockEntity, LockEntity):
@@ -88,6 +94,11 @@ class EufySmartLock(EufyLockEntity, LockEntity):
     """
 
     _attr_name = None
+
+    @property
+    def available(self) -> bool:
+        """Never retain motor controls after a profile becomes read-only."""
+        return super().available and self.lock_state.get("readOnly") is not True
 
     def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
         """Assign a stable lock entity identifier."""

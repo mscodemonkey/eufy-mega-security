@@ -8,10 +8,12 @@ controls, change settings, start live view or update Home Assistant state.
 In the local diagnostics page, load devices, select one supported device and
 open **Read-only state check**. Experimental model controls and a configured
 gateway API token are required. Tick its separate consent box, then choose
-**Run once**. This makes one owner-authorised cloud parameter read between two
+**Run once**. This asks Eufy to authorise one cloud parameter read using your existing account, between two
 inventory checks. Nothing runs automatically. **Cancel state check**, changing
 the selected device or leaving the page retires the request and its result.
 
+The read uses your current session, without signing in again or borrowing an
+owner identity. Eufy decides whether that session may read the selected device.
 Keep your current account. If the check says an owner account is required, do not
 switch accounts to force it. Share that fixed refusal only. No account details,
 credentials, diagnostics bundle or capture is needed.

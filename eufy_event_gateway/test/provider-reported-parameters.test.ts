@@ -16,7 +16,7 @@ import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
 import { ParameterCheckError, projectReportedParameters, type ParameterCheckModel } from "../src/provider/reported-parameter-check.js";
 
-for (const mode of ["valid", "attached", "root", "self", "unauthenticated", "hung-inventory", "disabled", "token", "shared", "missing-owner", "parent-owner", "model", "type", "parent", "channel", "ambiguous", "raw-duplicate", "changed", "binding", "inventory", "cancelled", "hung", "shutdown", "busy", "late"] as const) {
+for (const mode of ["valid", "attached", "root", "self", "unauthenticated", "hung-inventory", "disabled", "token", "shared", "shared-denied", "missing-owner", "parent-owner", "model", "type", "parent", "channel", "ambiguous", "raw-duplicate", "changed", "binding", "inventory", "cancelled", "hung", "shutdown", "busy", "late"] as const) {
   test(`reported parameters: ${mode}`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "parameter-provider-"));
     const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
@@ -51,6 +51,7 @@ for (const mode of ["valid", "attached", "root", "self", "unauthenticated", "hun
     const events = new Proxy({}, { get: () => () => { callbackCount++; } }) as ProviderEvents;
     let resolve!: () => void;
     const query = context.mock.method(MegaClient.prototype, "readReportedParameters", async (_serial: string, model: ParameterCheckModel) => {
+      if (mode === "shared-denied") throw new ParameterCheckError("owner_account_required");
       if (mode === "binding") bound = false;
       if (mode === "shutdown") await provider.close();
       if (mode === "cancelled") controller.abort();
@@ -62,7 +63,7 @@ for (const mode of ["valid", "attached", "root", "self", "unauthenticated", "hun
       const before = callbackCount, beforeReads = reads;
       context.mock.timers.enable({ apis: ["setTimeout"], now: Date.now() });
       const operation = provider.readReportedParameters("target", controller.signal);
-      const succeeds = ["valid", "attached", "root", "self", "busy"].includes(mode);
+      const succeeds = ["valid", "attached", "root", "self", "busy", "shared"].includes(mode);
       const result = succeeds ? operation : assert.rejects(operation, ParameterCheckError);
       for (let index = 0; index < 10; index++) await new Promise(done => setImmediate(done));
       if (["busy", "hung", "late", "hung-inventory"].includes(mode)) {
@@ -79,7 +80,7 @@ for (const mode of ["valid", "attached", "root", "self", "unauthenticated", "hun
         for (let index = 0; index < 10; index++) await new Promise(done => setImmediate(done));
         context.mock.timers.tick(30_000); await nextResult;
       }
-      if (["disabled", "token", "unauthenticated", "shared", "missing-owner", "parent-owner", "model", "type", "parent", "channel"].includes(mode)) {
+      if (["disabled", "token", "unauthenticated", "missing-owner", "parent-owner", "model", "type", "parent", "channel"].includes(mode)) {
         assert.equal(reads, beforeReads); assert.equal(query.mock.callCount(), 0);
       }
       assert.equal(network.mock.callCount(), 0); assert.equal(peer.mock.callCount(), 0);
