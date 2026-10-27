@@ -271,3 +271,15 @@ test("other HomeBase startup recovery retains its existing policy", async contex
     assert.equal(f.session.stats.mediaStartAttempts, 2);
   } finally { f.session.close(); }
 });
+
+
+test("other HB2 child models retain their existing startup recovery", async context => {
+  const f = await peer(context, true, "T8210", "media", "T8010");
+  try {
+    await f.negotiate();
+    context.mock.timers.tick(5000);
+    assert.equal(f.session.stats.mediaStopAttempts, 1);
+    context.mock.timers.tick(250);
+    assert.equal(f.session.stats.mediaStartAttempts, 2);
+  } finally { f.session.close(); }
+});

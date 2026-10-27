@@ -1781,10 +1781,11 @@ export class FirstPartyPpcsSession {
       if ((this.#options.purpose === "control" || this.#options.purpose === "passive") && this.stats.mediaStartAttempts === 0) return;
       if (this.#options.homeBaseAttached && this.#level2Key) {
 
-        // A full stop/start during initial HB2 encoder startup can reset the
+        // A full stop/start during initial HB2 2C encoder startup can reset the
         // very first frame. Byte-identical repair owns delivery until its ACK
         // deadline, and the existing first-frame timer owns startup failure.
         const waitingForHomeBase2Startup = this.#options.stationModel === "T8010"
+          && this.#options.cameraModel === "T8113-Z"
           && this.#lastDeliveredMediaFrameAt === null && this.stats.mediaStartAttempts > 0;
         const recovery = waitingForHomeBase2Startup ? "wait" : attachedMediaStallRecoveryAction(
           this.#lastDeliveredMediaFrameAt,
