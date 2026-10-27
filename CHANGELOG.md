@@ -2,11 +2,10 @@
 
 ## 0.1.209
 
-- Repair the exact T8113-Z/T8010 setup query with byte-identical, peer-pinned DATA retransmission until its validated acknowledgement or reply, the existing three-second repair deadline, or session close. Add separate safe counters so missing delivery stays distinct from missing application response.
-- Preserve T8113-Z encoder startup on exact T8010 HomeBase 2 peers until its existing first-frame deadline instead of repeatedly stopping and restarting it before any video arrives.
-- Keep byte-identical start-packet repair, peer heartbeats, the original twenty-second startup bound and later genuine-stall recovery. Other camera models and HomeBase families retain their current startup policy.
-- Add real-session timing regressions for late key negotiation, missing video, ongoing packet repair and pings, later media stalls and unchanged non-T8010 behavior. The previous policy fails the new startup regressions.
-- Track owned hardware startup and live/control handoff results separately in #465. No security setting, command encoding, authentication or additional reconnect loop is introduced.
+- Repair the exact T8113-Z/T8010 setup query with byte-identical, peer-pinned DATA retransmission until its validated acknowledgement or reply, the existing three-second repair deadline, or session close.
+- Add separate safe setup-delivery counters so missing packet receipt stays distinct from a missing application response. The existing live-start repair, encoder-recovery policy and first-frame deadline are unchanged.
+- Cover dropped queries, malformed or foreign acknowledgements, duplicate acknowledgements, replies with lost acknowledgements, expiry, close and unchanged neighboring model routes through the real session boundary.
+- Hardware startup and handoff remain tracked in #465. Transport acknowledgement does not establish successful live video, and this release does not claim that intermittent hardware fault is resolved.
 
 ## 0.1.208
 

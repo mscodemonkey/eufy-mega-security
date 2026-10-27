@@ -115,7 +115,7 @@ test("late level-two upgrade preserves repair of the original level-one start", 
   } finally { f.session.close(); }
 });
 
-test("HB2 waits for the first frame after delivery repair expires instead of restarting its encoder", async context => {
+test("a late attached start defers heartbeat restart until its repair window ends", async context => {
   const f = await peer(context);
   try {
     context.mock.timers.tick(4000);
@@ -126,12 +126,6 @@ test("HB2 waits for the first frame after delivery repair expires instead of res
     context.mock.timers.tick(2000);
     assert.equal(f.session.stats.mediaStartExpired, 1);
     context.mock.timers.tick(3000);
-    assert.equal(f.session.stats.mediaStopAttempts, 0);
-    context.mock.timers.tick(250);
-    assert.equal(f.session.stats.mediaStartAttempts, 1);
-    f.video();
-    assert.ok(f.session.stats.videoOutputFrames > 0);
-    context.mock.timers.tick(14750);
     assert.equal(f.session.stats.mediaStopAttempts, 1);
     context.mock.timers.tick(250);
     assert.equal(f.session.stats.mediaStartAttempts, 2);
@@ -240,48 +234,6 @@ test("missing END completion releases the port after a finite local drain deadli
   context.mock.timers.tick(1);
   await f.session.waitUntilClosed();
   assert.equal(socketClose.mock.callCount(), 1);
-});
-
-
-test("silent HB2 startup retains ping and ACK repair but closes at the original first-frame deadline", async context => {
-  const f = await peer(context);
-  try {
-    await f.negotiate();
-    context.mock.timers.tick(150);
-    context.mock.timers.tick(19849);
-    assert.equal(f.session.stats.mediaStartAttempts, 1);
-    assert.equal(f.session.stats.mediaStopAttempts, 0);
-    assert.ok(f.session.stats.mediaStartRetransmitted > 0);
-    assert.equal(f.session.stats.mediaStartExpired, 1);
-    const pings = f.sent.filter(packet => packet[0] === 0xf1 && packet[1] === 0xe0);
-    assert.ok(pings.length >= 4);
-    context.mock.timers.tick(1);
-    assert.equal(f.session.stats.closeReason, "first_frame_timeout");
-    assert.equal(f.session.stats.mediaStopAttempts, 1);
-  } finally { f.session.close(); }
-});
-
-test("other HomeBase startup recovery retains its existing policy", async context => {
-  const f = await peer(context, true, "T8113-Z", "media", "T8030");
-  try {
-    await f.negotiate();
-    context.mock.timers.tick(5000);
-    assert.equal(f.session.stats.mediaStopAttempts, 1);
-    context.mock.timers.tick(250);
-    assert.equal(f.session.stats.mediaStartAttempts, 2);
-  } finally { f.session.close(); }
-});
-
-
-test("other HB2 child models retain their existing startup recovery", async context => {
-  const f = await peer(context, true, "T8210", "media", "T8010");
-  try {
-    await f.negotiate();
-    context.mock.timers.tick(5000);
-    assert.equal(f.session.stats.mediaStopAttempts, 1);
-    context.mock.timers.tick(250);
-    assert.equal(f.session.stats.mediaStartAttempts, 2);
-  } finally { f.session.close(); }
 });
 
 test("HB2 2C setup repairs the identical initial query until its validated ACK", async context => {
