@@ -18,6 +18,11 @@ export function diagnosticsPage(): string {
 <label>Gateway API token <input id="token" type="password" autocomplete="off" spellcheck="false"></label>
 <button id="load">Load devices</button>
 <label>Device <select id="device"><option value="">All devices</option></select></label>
+<details><summary>Read-only state check</summary>
+<p>For T8410, T8417 and HomeBase 3 (T8030) only. Enable Experimental model controls first. This makes one owner-authorised cloud read. It leaves settings unchanged and does not enable controls. Cloud readings may lag. The 6250 candidate is not a lens-position readback.</p>
+<label><input id="parameter-consent" type="checkbox"> I agree to one read of cached candidate field shapes for the selected device.</label>
+<button id="parameter-start">Run once</button><button id="parameter-cancel">Cancel state check</button>
+<pre id="parameter-status" role="status">No state check started.</pre></details>
 <details id="trials"><summary>Experimental model controls</summary>
 <p>Enable experimental model controls in the app settings, then select a camera. These controls need testing on your hardware. Stop live view first. Remember the original setting and restore it after testing. For the S120 manual light test, note whether the light is on or off first, watch it during the test and restore that starting state afterward. A success reply acknowledges receipt only.</p>
 <button id="trial-load">Check available controls</button>
@@ -156,6 +161,33 @@ async function api(path, method = 'GET', body) {
   if(!result.ok) throw Error('Gateway returned HTTP ' + result.status + '. Check your token, selection and capture status.');
   return result;
 }
+let parameterJob = null;
+function cancelParameterCheck() {
+  if(parameterJob) parameterJob.abort();
+  parameterJob = null; el('parameter-consent').checked = false;
+  el('parameter-status').textContent = 'No state check running.';
+}
+el('parameter-start').onclick = async () => {
+  const selected = el('device').value;
+  if(parameterJob || !selected || !el('parameter-consent').checked) return;
+  const job = new AbortController(); parameterJob = job; el('parameter-consent').checked = false;
+  el('parameter-status').textContent = 'Reading cached candidate fields...';
+  try {
+    const response = await fetch('api/diagnostics/parameter-check', { method: 'POST', signal: job.signal, cache: 'no-store',
+      headers: { Authorization: 'Bearer ' + el('token').value, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serial: selected, consent: true }) });
+    const result = await response.json();
+    if(parameterJob !== job || job.signal.aborted || el('device').value !== selected) return;
+    el('parameter-status').textContent = response.ok ? 'Cached candidates only, not physical state or control permission.\\n' + JSON.stringify(result)
+      : result.stage === 'owner_account_required' ? 'This read requires an owner account. Keep your current account. Do not switch accounts to force this check.'
+      : 'State check unavailable: ' + result.stage;
+  } catch {
+    if(parameterJob === job && !job.signal.aborted) el('parameter-status').textContent = 'State check unavailable: request';
+  } finally { if(parameterJob === job) parameterJob = null; }
+};
+el('parameter-cancel').onclick = cancelParameterCheck;
+el('device').addEventListener('change', cancelParameterCheck);
+window.addEventListener('pagehide', cancelParameterCheck);
 async function status() {
   const value = await (await api('bundle')).json();
   show(JSON.stringify(value, null, 2));

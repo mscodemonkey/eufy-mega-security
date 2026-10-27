@@ -12,6 +12,7 @@
  * forwarding private event fields into the logger. Periodic cloud refreshes admit
  * newly added devices without replacing push receivers or active media sessions.
  */
+import { ParameterCheckError, parameterCheckLog, type ParameterCheckModel, type ParameterCheckSummary } from "./reported-parameter-check.js";
 import { nvrLiveProfile, NvrLiveControlError, type NvrLiveControl, type NvrLiveControlResult } from "./nvr-live-controls.js";
 import type { NvrLiveSettings } from "../stream/nvr-live-control-protocol.js";
 import { InventoryMotionClock, type InventoryMotionOutcome } from "./inventory-motion.js";
@@ -621,6 +622,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #recordingIndexCooldowns = new Map<string, number>();
   readonly #recordingReservations = new Set<string>();
   readonly #trialPeers = new Map<string, symbol>();
+  #parameterCheck: AbortController | null = null;
   readonly #localMotionAborters = new Map<string, AbortController>();
   readonly #lockStatusAborters = new Map<string, AbortController>();
   readonly #lockStatusCooldowns = new Map<string, number>();
@@ -930,6 +932,82 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#recordingReservations.delete(serial); this.#recordingIndexActive = false;
       this.#recordingIndexCooldowns.delete(serial); this.#recordingIndexCooldowns.set(serial, Date.now() + 10_000);
       while (this.#recordingIndexCooldowns.size > 100) this.#recordingIndexCooldowns.delete(this.#recordingIndexCooldowns.keys().next().value!);
+    }
+  }
+
+  /**
+   * Read one default-off owner cloud profile against fresh inventory snapshots.
+   * This flight owns cancellation only. It never ingests those snapshots into
+   * normal state, opens a peer, or treats cached candidates as control readback.
+   */
+  async readReportedParameters(serial: string, signal: AbortSignal): Promise<ParameterCheckSummary> {
+    if (this.#rtcPreparation.gated) throw new ParameterCheckError("busy");
+    if (this.#recordingClosing) throw new ParameterCheckError("shutdown");
+    if (!this.config.experimentalModelControls) throw new ParameterCheckError("disabled");
+    if (!this.config.apiAuthenticationConfigured) throw new ParameterCheckError("unauthorized");
+    if (this.#parameterCheck || this.#rtcPreparation.gated) throw new ParameterCheckError("busy");
+    const device = this.#devices.get(serial), generation = this.#startupGeneration;
+    if (!device || !((device.model === "T8410" && device.deviceType === 31)
+      || (device.model === "T8417" && device.deviceType === 105) || (device.model === "T8030" && device.deviceType === 18))) throw new ParameterCheckError("unsupported");
+    const attached = !!device.parentSerial && device.parentSerial !== serial;
+    const parent = attached ? this.#devices.get(device.parentSerial) : undefined;
+    if (attached && (device.model !== "T8417" || !parent
+      || !((parent.model === "T8010" && parent.deviceType === 0) || (parent.model === "T8030" && parent.deviceType === 18))
+      || device.channel === null || device.channel < 0 || device.channel > 254 || !Number.isInteger(device.channel))) throw new ParameterCheckError("unsupported");
+    if (!device.adminUserId || !this.#client.isAuthenticatedUser(device.adminUserId)
+      || (parent && parent.adminUserId !== device.adminUserId)) throw new ParameterCheckError("owner_account_required");
+    const binding = this.#client.authenticatedBinding();
+    if (!binding) throw new ParameterCheckError("unauthorized");
+    const controller = new AbortController();
+    this.#parameterCheck = controller;
+    let timedOut = false;
+    const abort = (): void => controller.abort();
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+    const timer = setTimeout(() => { timedOut = true; abort(); }, 30_000);
+    const current = (): void => {
+      if (this.#recordingClosing) throw new ParameterCheckError("shutdown");
+      if (controller.signal.aborted) throw new ParameterCheckError(timedOut ? "timeout" : "cancelled");
+      const active = this.#devices.get(serial), activeParent = parent ? this.#devices.get(parent.serial) : undefined;
+      if (generation !== this.#startupGeneration || !binding() || !active || inventoryBindingChanged(device, active)
+        || (parent && (!activeParent || inventoryBindingChanged(parent, activeParent)))) throw new ParameterCheckError("binding_changed");
+    };
+    const owned = async <T>(operation: () => Promise<T>): Promise<T> => {
+      current();
+      let cancel!: () => void;
+      const cancelled = new Promise<never>((_resolve, reject) => {
+        cancel = () => { try { current(); } catch (error) { reject(error); } };
+        controller.signal.addEventListener("abort", cancel, { once: true });
+        if (controller.signal.aborted) cancel();
+      });
+      try { const result = await Promise.race([Promise.resolve().then(() => { current(); return operation(); }), cancelled]); current(); return result; }
+      finally { controller.signal.removeEventListener("abort", cancel); }
+    };
+    const fresh = async (): Promise<void> => {
+      let inventory;
+      try { inventory = await owned(() => this.#client.inventory(controller.signal)); }
+      catch (error) { throw error instanceof ParameterCheckError ? error : new ParameterCheckError("inventory"); }
+      const rows = parseMegaInventory(inventory);
+      for (const selected of parent ? [device, parent] : [device]) {
+        const raw = inventory.devices.filter(row => row.device_sn === selected.serial);
+        const parsed = rows.find(row => row.serial === selected.serial);
+        if (raw.length !== 1 || raw[0]!.device_type !== selected.deviceType || !parsed || inventoryBindingChanged(selected, parsed)) throw new ParameterCheckError("binding_changed");
+      }
+      if (parent && rows.filter(row => row.parentSerial === parent.serial && row.channel === device.channel).length !== 1) throw new ParameterCheckError("binding_changed");
+    };
+    try {
+      await fresh();
+      const summary = await owned(() => this.#client.readReportedParameters(serial, device.model as ParameterCheckModel, controller.signal));
+      await fresh(); current();
+      logger.info("reported_parameter_check", parameterCheckLog(summary));
+      return summary;
+    } catch (error) {
+      const failure = error instanceof ParameterCheckError ? error : new ParameterCheckError("request");
+      logger.warn("reported_parameter_check", `model=${device.model} outcome=${failure.stage}`);
+      throw failure;
+    } finally {
+      clearTimeout(timer); signal.removeEventListener("abort", abort); controller.abort();
+      if (this.#parameterCheck === controller) this.#parameterCheck = null;
     }
   }
 
@@ -1310,7 +1388,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     let locksBusy = true;
     try { locksBusy = this.#locks?.busy ?? false; } catch {}
     const now = performance.now();
-    if (locksBusy || this.#cloudReads > 0 || this.#recordingIndexActive || this.#inventoryRefresh || this.#inventoryTrailingRefresh
+    if (locksBusy || this.#parameterCheck || this.#cloudReads > 0 || this.#recordingIndexActive || this.#inventoryRefresh || this.#inventoryTrailingRefresh
       || maps.some(map => map.size > 0)
       || [this.#nvrPowerCooldowns, this.#nvrGuardCooldowns].some(map => [...map.values()].some(until => until > now))) {
       throw new GeneralRtcPreparationError("busy");
@@ -3622,6 +3700,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#rtcPreparation.retire();
     this.#rtcPreparationOwner = null;
     this.#recordingClosing = true;
+    this.#parameterCheck?.abort();
     ++this.#startupGeneration;
     await this.#stopProviderResources();
     this.#events = null;
