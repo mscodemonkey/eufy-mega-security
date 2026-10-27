@@ -471,13 +471,14 @@ export class GatewayServer {
         return json(response, 200, { cameras: this.state.listCameras() });
       }
       if (request.method === "GET" && url.pathname === "/api/locks") {
-        return json(response, 200, { locks: this.config.experimentalE30Locks ? this.state.listLocks() : [] });
+        return json(response, 200, { locks: this.#visibleLocks() });
       }
       if (request.method === "POST" && segments[0] === "api" && segments[1] === "locks"
         && segments.length === 4 && (segments[3] === "refresh" || segments[3] === "state" || segments[3] === "settings")) {
         response.setHeader("cache-control", "no-store");
         if (!this.config.apiToken || !this.config.experimentalE30Locks) return json(response, 409, { error: "Experimental E30 locks are disabled", code: "disabled" });
         if (!this.state.hasLock(segments[2]!)) return json(response, 404, { error: "Lock not found" });
+        if (this.state.listLocks().find(lock => lock.serial === segments[2])?.readOnly === true) return json(response, 409, { error: "This lock profile is read-only", code: "read_only" });
         if (request.headers["content-type"]?.split(";", 1)[0]?.trim() !== "application/json") return json(response, 415, { error: "Lock operations require application/json" });
         const body = await readJson(request);
         const writing = segments[3] === "state";
@@ -1529,6 +1530,12 @@ export class GatewayServer {
     }
   }
 
+  /** Keep read-only observations independent from E30's motor opt-in at every HTTP boundary. */
+  #visibleLocks() {
+    return this.state.listLocks().filter(lock => lock.readOnly === true
+      ? this.config.experimentalModelControls : this.config.experimentalE30Locks);
+  }
+
   #events(request: IncomingMessage, response: ServerResponse): void {
     response.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -1539,9 +1546,13 @@ export class GatewayServer {
       cameras: this.state.listCameras(),
       stations: this.state.listStations(),
       sensors: this.state.listSensors(),
-      locks: this.config.experimentalE30Locks ? this.state.listLocks() : [],
+      locks: this.#visibleLocks(),
     })}\n\n`);
-    const listener = (event: GatewayEvent) => response.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+    const listener = (event: GatewayEvent): void => {
+      if (event.type === "lock" && !(event.lock.readOnly === true ? this.config.experimentalModelControls : this.config.experimentalE30Locks)) return;
+      const visible = event.type === "locks" ? { ...event, locks: this.#visibleLocks() } : event;
+      response.write(`event: ${event.type}\ndata: ${JSON.stringify(visible)}\n\n`);
+    };
     this.state.on("event", listener);
     const heartbeat = setInterval(() => response.write(": heartbeat\n\n"), 15_000);
     request.once("close", () => {

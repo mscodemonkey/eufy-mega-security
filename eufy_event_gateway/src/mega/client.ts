@@ -215,7 +215,7 @@ export class MegaClient {
       && this.generalRtcCipher()?.bindingKey === cipherBinding;
   }
 
-  /** Read one owner's cached parameter candidates without login, identity renewal or replay. */
+  /** Read cached parameter candidates under the current token's server-enforced permission, without login or replay. */
   async readReportedParameters(serial: string, model: ParameterCheckModel, signal: AbortSignal): Promise<ParameterCheckSummary> {
     const current = this.authenticatedBinding();
     if (!current) throw new ParameterCheckError("unauthorized");

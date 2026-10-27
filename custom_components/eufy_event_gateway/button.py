@@ -157,7 +157,7 @@ Connection: <!-- Direct, HomeBase model, or NVR model -->
 - [ ] A fresh snapshot worked
 - [ ] Live view worked
 
-Please describe anything that did not work and attach the Eufy Mega Security diagnostics download. Review the file before posting it publicly.
+Please describe anything that did not work. Keep diagnostic files out of this public issue. Follow the private sharing instructions at https://github.com/mscodemonkey/eufy-mega-security/blob/main/docs/PRIVATE_DIAGNOSTICS.md if diagnostics are needed.
 """
         report_url = f"{_ISSUE_URL}?{urlencode({'title': f'Compatibility report: {safe_model}', 'body': issue_body})}"
         persistent_notification.async_create(

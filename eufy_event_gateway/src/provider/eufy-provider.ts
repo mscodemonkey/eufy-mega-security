@@ -12,6 +12,7 @@
  * forwarding private event fields into the logger. Periodic cloud refreshes admit
  * newly added devices without replacing push receivers or active media sessions.
  */
+import { classicLockInventory } from "./classic-lock-inventory.js";
 import { ParameterCheckError, parameterCheckLog, type ParameterCheckModel, type ParameterCheckSummary } from "./reported-parameter-check.js";
 import { nvrLiveProfile, NvrLiveControlError, type NvrLiveControl, type NvrLiveControlResult } from "./nvr-live-controls.js";
 import type { NvrLiveSettings } from "../stream/nvr-live-control-protocol.js";
@@ -622,6 +623,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #recordingIndexCooldowns = new Map<string, number>();
   readonly #recordingReservations = new Set<string>();
   readonly #trialPeers = new Map<string, symbol>();
+  #classicLocks: SmartLockState[] = [];
   #parameterCheck: AbortController | null = null;
   readonly #localMotionAborters = new Map<string, AbortController>();
   readonly #lockStatusAborters = new Map<string, AbortController>();
@@ -936,7 +938,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   /**
-   * Read one default-off owner cloud profile against fresh inventory snapshots.
+   * Read one default-off cloud profile under the current account and fresh inventory snapshots.
    * This flight owns cancellation only. It never ingests those snapshots into
    * normal state, opens a peer, or treats cached candidates as control readback.
    */
@@ -954,8 +956,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (attached && (device.model !== "T8417" || !parent
       || !((parent.model === "T8010" && parent.deviceType === 0) || (parent.model === "T8030" && parent.deviceType === 18))
       || device.channel === null || device.channel < 0 || device.channel > 254 || !Number.isInteger(device.channel))) throw new ParameterCheckError("unsupported");
-    if (!device.adminUserId || !this.#client.isAuthenticatedUser(device.adminUserId)
-      || (parent && parent.adminUserId !== device.adminUserId)) throw new ParameterCheckError("owner_account_required");
+
+    // Cloud reads use the current session token. Eufy authorizes that token,
+    // rather than treating an inventory administrator ID as an account-role proof.
+    if (!device.adminUserId || (parent && parent.adminUserId !== device.adminUserId)) throw new ParameterCheckError("owner_account_required");
     const binding = this.#client.authenticatedBinding();
     if (!binding) throw new ParameterCheckError("unauthorized");
     const controller = new AbortController();
@@ -1437,7 +1441,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const bound = !!this.#client.generalRtcCipher();
     if (!this.#rtcPreparation.complete(owner.epoch, bound)) return;
     this.#rtcPreparationOwner = null;
-    this.#locks?.inventory(owner.lockRows ?? [], true);
+    this.#applyLockInventory(owner.lockRows ?? [], true);
     owner.events.connection("connected", "Cameras are ready. Video identity readiness does not confirm playable video.");
   }
 
@@ -1460,11 +1464,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   /** Rebind lock callbacks to the generation that will actually complete startup. */
   #rebuildLockAdapter(events: ProviderEvents, generation: number): void {
     this.#locks?.close();
+    this.#classicLocks = [];
     this.#locks = this.config.experimentalE30Locks ? new E30LockProvider({
       accountName: this.config.username.split("@")[0] || "Home Assistant",
       credentials: () => this.#client.e30MqttCredentials(),
       freshDevices: async () => (await this.#client.inventory()).devices,
-      changed: locks => { if (generation === this.#startupGeneration) events.locks?.(locks); },
+      changed: locks => { if (generation === this.#startupGeneration) events.locks?.([...locks, ...this.#classicLocks]); },
     }) : null;
   }
 
@@ -1472,7 +1477,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #observeLockInventory(rows: MegaInventory["devices"], initial = false): void {
     const owner = this.#rtcPreparationOwner;
     if (owner && this.#rtcPreparation.owns(owner.epoch)) { owner.lockRows = rows; return; }
-    if (!this.#rtcPreparation.gated) this.#locks?.inventory(rows, initial);
+    if (!this.#rtcPreparation.gated) this.#applyLockInventory(rows, initial);
+  }
+
+  /** Publish cached read-only locks separately from the MQTT adapter's actuator authority. */
+  #applyLockInventory(rows: MegaInventory["devices"], initial: boolean): void {
+    this.#classicLocks = classicLockInventory(rows, this.config.experimentalModelControls === true, Date.now());
+    if (this.#locks) this.#locks.inventory(rows, initial);
+    else if (this.config.experimentalModelControls) this.#events?.locks?.(this.#classicLocks);
   }
 
   /** Return numeric evidence from an existing source, excluding wire prefixes and identities. */
@@ -3725,6 +3737,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
     this.#locks?.close();
     this.#locks = null;
+    this.#classicLocks = [];
     this.#retireInventoryRefresh();
     const push = this.#push;
     this.#push = null;

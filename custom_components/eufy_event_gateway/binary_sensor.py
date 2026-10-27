@@ -23,6 +23,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import EufyGatewayConfigEntry
 from .const import DOMAIN
 from .coordinator import EufyGatewayCoordinator
+from .lock import EufyLockEntity
 from .entity import EufyGatewayEntity, EufySecuritySensorEntity, EufyStationEntity
 
 
@@ -72,9 +73,20 @@ async def async_setup_entry(
     known_cameras: set[str] = set()
     known_stations: set[str] = set()
     known_sensors: set[str] = set()
+    known_read_only_locks: set[str] = set()
     applied_profiles: dict[str, tuple[str, ...] | None] = {}
 
     def add_new() -> None:
+        read_only_locks = {
+            serial for serial, state in coordinator.locks.items()
+            if state.get("readOnly") is True
+        } - known_read_only_locks
+        known_read_only_locks.update(read_only_locks)
+        if read_only_locks:
+            async_add_entities([
+                EufyReportedLockState(coordinator, serial)
+                for serial in sorted(read_only_locks)
+            ])
         for serial, camera in coordinator.cameras.items():
             if camera.get("careMonitor") is True:
                 continue
@@ -138,6 +150,37 @@ async def async_setup_entry(
 
     add_new()
     entry.async_on_unload(coordinator.async_add_listener(add_new))
+
+
+class EufyReportedLockState(EufyLockEntity, BinarySensorEntity):
+    """Expose cached lock status without offering a motor service.
+
+    The coordinator owns inventory and cache expiry. This entity reports the
+    lock's cloud value only and never queries, locks or unlocks the device.
+    """
+
+    _attr_translation_key = "reported_lock_state"
+    _attr_device_class = BinarySensorDeviceClass.LOCK
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Keep a stable sensor identity separate from a future actuating lock entity."""
+        super().__init__(coordinator, serial)
+        self._attr_unique_id = f"{serial}_reported_lock_state"
+
+    @property
+    def available(self) -> bool:
+        """Retire this read-only entity if the gateway replaces its profile."""
+        return super().available and self.lock_state.get("readOnly") is True
+
+    @property
+    def is_on(self) -> bool | None:
+        """Home Assistant's lock binary sensor is on for unlocked, off for locked."""
+        value = self.lock_state.get("state")
+        if value == "unlocked":
+            return True
+        if value == "locked":
+            return False
+        return None
 
 
 class EufyDetectionSensor(EufyGatewayEntity, BinarySensorEntity):

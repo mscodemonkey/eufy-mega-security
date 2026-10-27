@@ -408,11 +408,21 @@ export function maskSmartLockState(state: SmartLockState, now = Date.now()): Sma
     ...(!fresh(state.stateObservedAt) ? { state: "unknown" as const, available: false, batteryPercent: null } : {}) };
 }
 
-/** Only normalized observations cross from the lock provider into the authenticated local API. */
+/**
+ * Normalized lock observations consumed by authenticated HTTP and Home Assistant.
+ * Read-only cloud profiles carry their source explicitly and never inherit the
+ * separately owned E30 adapter's settings or motor authority.
+ */
 export interface SmartLockState {
   readonly serial: string;
   readonly name: string;
-  readonly model: "T85F1";
+  readonly model: "T85F1" | "T8520" | "T8520J11" | "T8520S";
+
+  /** A cloud inventory profile has no lock, unlock, settings or query authority. */
+  readonly readOnly?: true;
+
+  /** Receipt of cached cloud facts must never be claimed as a physical device query. */
+  readonly observationSource?: "cloud_inventory";
   readonly state: "locked" | "unlocked" | "unknown";
   readonly available: boolean;
   readonly batteryPercent: number | null;

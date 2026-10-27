@@ -45,6 +45,8 @@ entity:
     eufy_standalone_camera_alarm:
       name: Kameraalarm
   binary_sensor:
+    reported_lock_state:
+      name: Rapporteret låsestatus
     motion_detection:
       name: Bevægelse
     person_detection:
