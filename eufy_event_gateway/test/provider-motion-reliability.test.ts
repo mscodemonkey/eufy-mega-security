@@ -231,7 +231,11 @@ test("HB2 handoff waits for both old media and owned control disconnect sends", 
   let release!: () => void;
   let held = new Promise<void>(resolve => { release = resolve; });
   let waiting = 0;
-  context.mock.method(FirstPartyPpcsSession.prototype, "waitUntilClosed", async () => { waiting++; await held; });
+  const retired = new Map<FirstPartyPpcsSession, Promise<void>>();
+  context.mock.method(FirstPartyPpcsSession.prototype, "waitUntilClosed", function (this: FirstPartyPpcsSession) {
+    if (!retired.has(this)) { waiting++; retired.set(this, held); }
+    return retired.get(this)!;
+  });
   try {
     await f.provider.startStream("camera");
     const motion = f.provider.setCameraMotionDetection("camera", false);
