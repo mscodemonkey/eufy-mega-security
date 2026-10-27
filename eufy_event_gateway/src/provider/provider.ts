@@ -9,6 +9,7 @@
  * tests; the production provider is the only implementation allowed to know
  * Mega and PPCS details.
  */
+import type { ParameterCheckSummary } from "./reported-parameter-check.js";
 import type { NvrLiveControl, NvrLiveControlResult } from "./nvr-live-controls.js";
 import type { NvrPowerRequest, NvrPowerSummary } from "./nvr-power-trial.js";
 import type { NvrGuardRequest, NvrGuardSummary } from "./nvr-guard-trial.js";
@@ -72,6 +73,9 @@ export interface ProviderEvents {
 
 /** Lifecycle and stream operations required by the gateway server. */
 export interface CameraProvider {
+
+  /** Read cached candidate field shapes once without updating state or enabling controls. */
+  readReportedParameters?(serial: string, signal: AbortSignal): Promise<ParameterCheckSummary>;
 
   /** Read current NVR admission without opening media. Optional quality checks the exact profile. */
   nvrLiveSettingAdmitted?(serial: string, quality?: number): boolean;

@@ -9,6 +9,7 @@
  * SSE, or the PPCS packet stream. Keeping those concerns out of this class is
  * what makes the Mega layer reusable by a probe or another application.
  */
+import { ParameterCheckError, projectReportedParameters, type ParameterCheckModel, type ParameterCheckSummary } from "../provider/reported-parameter-check.js";
 import { MEDIA_HOST, MEDIA_OBJECT_HOST, mediaRequestDiagnostic } from "./media-request-diagnostic.js";
 import type { NvrSignallingContext } from "../stream/nvr-rtc-session.js";
 import { NvrTrialError } from "../stream/nvr-protocol.js";
@@ -74,7 +75,7 @@ class MegaLoginAttemptLimitError extends Error {
 const MEDIA_NOT_READY_DELAYS_MS = [1_000, 2_000, 2_000, 5_000] as const;
 const CIPHER_IDENTITY_RECOVERY_INTERVAL_MS = 10 * 60_000;
 
-/** Internal request controls used only by the isolated general RTC experiment. */
+/** Internal dispatch checks, with cached-identity mode restricted to the RTC experiment. */
 interface GeneralRtcCallOptions {
   readonly cachedIdentityOnly?: true;
   readonly onDispatch?: () => void;
@@ -202,6 +203,36 @@ export class MegaClient {
   /** Check the current authenticated user without exposing stored account identity. */
   isAuthenticatedUser(userId: string): boolean {
     return this.isAuthenticated && !!userId && this.#session?.userId === userId;
+  }
+
+  /** Capture an opaque account predicate without exposing credentials to its caller. */
+  authenticatedBinding(): (() => boolean) | null {
+    if (!this.isAuthenticated || !this.#session) return null;
+    const { userId, authToken, openUdid } = this.#session;
+    const cipherBinding = this.generalRtcCipher()?.bindingKey;
+    return () => this.isAuthenticated && this.#session?.userId === userId
+      && this.#session.authToken === authToken && this.#session.openUdid === openUdid
+      && this.generalRtcCipher()?.bindingKey === cipherBinding;
+  }
+
+  /** Read one owner's cached parameter candidates without login, identity renewal or replay. */
+  async readReportedParameters(serial: string, model: ParameterCheckModel, signal: AbortSignal): Promise<ParameterCheckSummary> {
+    const current = this.authenticatedBinding();
+    if (!current) throw new ParameterCheckError("unauthorized");
+    try {
+      signal.throwIfAborted();
+      const result = await this.#call("devicemanage", "/app/devicemanage/get_device_param_list", { device_sns: [serial] }, false, undefined, signal, {
+        onDispatch: () => { if (!current()) throw new ParameterCheckError("binding_changed"); },
+      });
+      signal.throwIfAborted();
+      if (!current()) throw new ParameterCheckError("binding_changed");
+      if (result.code === 20004) throw new ParameterCheckError("owner_account_required");
+      if (!isSuccess(result.code)) throw new ParameterCheckError("request");
+      return projectReportedParameters(model, this.#decodeResult(result));
+    } catch (error) {
+      if (signal.aborted) throw new ParameterCheckError("cancelled");
+      throw error instanceof ParameterCheckError ? error : new ParameterCheckError("request");
+    }
   }
 
   /** Return only a currently bound RTC cipher, without initiating authentication. */
@@ -1013,7 +1044,7 @@ export class MegaClient {
       if (!current || !trialAccount || current.token !== trialAccount.token || current.userId !== trialAccount.userId
         || current.cipher?.bindingKey !== trialAccount.cipher?.bindingKey) throw new GeneralRtcError("binding", "binding");
       options.onDispatch?.();
-    } : undefined;
+    } : options?.onDispatch;
     let result: MegaResult;
     try {
       const pending = this.#signedPost(host, path, payload, identity, undefined, appScope, cancellation, onDispatch);

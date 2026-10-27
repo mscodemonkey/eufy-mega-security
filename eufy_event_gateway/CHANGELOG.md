@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.202
+
+- Add a manual read-only state check for T8410, T8417 and HomeBase 3 missing-state investigations. It requires experimental model controls, explicit consent, a gateway API token and the existing owner account.
+- Report only cached candidate field shapes. The check leaves settings and normal Home Assistant state unchanged, masks binary candidates in logs and discards cancelled or changed-device results.
+- Hardware usefulness remains unconfirmed. Missing power, privacy, alarm-volume and manual siren-state controls are not declared fixed or enabled by this diagnostic.
+
 ## 0.1.201
 
 - Preserve leading and trailing whitespace in configured Eufy passwords instead of changing them before sign-in.

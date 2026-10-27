@@ -3,6 +3,7 @@
  * Tests own synthetic account inventory and all authentication callbacks. The
  * provider boundary must never contact Eufy or actuate a device in these tests.
  */
+import { ParameterCheckError } from "../src/provider/reported-parameter-check.js";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -104,12 +105,13 @@ test("every public effect method refuses before inspecting its arguments", async
   f.provider.prepareGeneralRtc("synthetic-one");
   const permitted = new Set(["constructor", "close", "submitCaptcha", "submitVerification", "getCaptchaChallenge", "isVerificationRequired",
     "streamDiagnostic", "modelControlTrials", "modelControlTrialAdmission", "nvrLiveSettingAdmitted", "setNvrLiveMediaChecks", "prepareGeneralRtc", "generalRtcPrepareStatus"]);
-  const guarded = new Set(["refreshLock", "setLockState", "setLockSetting", "cloudHistory", "cloudCalendar", "cloudRecordingTrial", "readRecordingIndexTrial", "readLocalMotionTrial", "readT85V0StatusTrial", "listStoredRecordings", "downloadStoredRecording", "start", "reserveGeneralRtcTrial", "reserveDoorbellRtcTrial", "reserveNvrLiveTrial", "readNvrStateTrial", "testNvrCameraPower", "testNvrGuardMode", "startStream", "setNvrView", "performNvrLiveControl", "stopStream", "playCameraAudio", "setCameraEnabled", "setE21Preference", "setCameraPreference", "setCameraSetting", "performModelControlTrial", "setCameraMotionDetection", "setCameraAudioRecording", "setCameraStreamingQuality", "refreshCameraCapabilities", "setCameraGuardMode", "setCameraNightVision", "refreshStation", "setGuardMode", "setAlarmVolume", "setPromptVolume", "setAlarmTone", "setCameraLight", "setCameraSiren", "getCameraPresetPositions", "selectCameraPresetPosition", "setCameraAiTracking", "setCameraAutoCruise", "setHomeBaseSiren"]);
+  const guarded = new Set(["readReportedParameters", "refreshLock", "setLockState", "setLockSetting", "cloudHistory", "cloudCalendar", "cloudRecordingTrial", "readRecordingIndexTrial", "readLocalMotionTrial", "readT85V0StatusTrial", "listStoredRecordings", "downloadStoredRecording", "start", "reserveGeneralRtcTrial", "reserveDoorbellRtcTrial", "reserveNvrLiveTrial", "readNvrStateTrial", "testNvrCameraPower", "testNvrGuardMode", "startStream", "setNvrView", "performNvrLiveControl", "stopStream", "playCameraAudio", "setCameraEnabled", "setE21Preference", "setCameraPreference", "setCameraSetting", "performModelControlTrial", "setCameraMotionDetection", "setCameraAudioRecording", "setCameraStreamingQuality", "refreshCameraCapabilities", "setCameraGuardMode", "setCameraNightVision", "refreshStation", "setGuardMode", "setAlarmVolume", "setPromptVolume", "setAlarmTone", "setCameraLight", "setCameraSiren", "getCameraPresetPositions", "selectCameraPresetPosition", "setCameraAiTracking", "setCameraAutoCruise", "setHomeBaseSiren"]);
   const actual = Object.getOwnPropertyNames(EufyProvider.prototype);
   assert.deepEqual(new Set(actual), new Set([...permitted, ...guarded]));
   for (const name of guarded) {
     const operation = Reflect.get(f.provider, name) as (...args: unknown[]) => unknown;
-    await assert.rejects(async () => operation.call(f.provider), GeneralRtcPreparationError, name);
+    await assert.rejects(async () => operation.call(f.provider), error => name === "readReportedParameters"
+      ? error instanceof ParameterCheckError && error.stage === "busy" : error instanceof GeneralRtcPreparationError, name);
   }
 });
 

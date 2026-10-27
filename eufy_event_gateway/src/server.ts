@@ -8,6 +8,7 @@
  * module owns request authentication, response framing, and route selection;
  * it does not parse Mega payloads or open camera sockets.
  */
+import { ParameterCheckError, parameterCheckStages, validateParameterSummary } from "./provider/reported-parameter-check.js";
 import { GeneralRtcPreparationError } from "./provider/provider.js";
 import { E21ControlError, validateE21Preference } from "./provider/e21-profile.js";
 
@@ -243,6 +244,44 @@ export class GatewayServer {
   async #route(request: IncomingMessage, response: ServerResponse): Promise<void> {
     try {
       const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+      if (url.pathname === "/api/diagnostics/parameter-check") {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) return json(response, 401, { stage: "unauthorized" });
+        if (request.method !== "POST" || url.search || request.headers["content-type"]?.split(";")[0]?.trim().toLowerCase() !== "application/json") return json(response, 400, { stage: "invalid_request" });
+        if (!this.config.experimentalModelControls || !this.provider.readReportedParameters) return json(response, 409, { stage: "disabled" });
+        const controller = new AbortController();
+        let timeout = false, dispatched = false;
+        const close = (): void => { if (!response.writableFinished) controller.abort(); };
+        response.once("close", close);
+        const timer = setTimeout(() => { timeout = true; controller.abort(); }, 30_000);
+        try {
+          const bytes = await readGeneralRtcBody(request, 1024, controller.signal);
+          let value: unknown;
+          try { value = bytes ? JSON.parse(bytes.toString("utf8")) : null; } catch { throw new ParameterCheckError("invalid_request"); }
+          if (!value || typeof value !== "object" || Array.isArray(value)) throw new ParameterCheckError("invalid_request");
+          const body = value as Record<string, unknown>;
+          if (Object.keys(body).sort().join() !== "consent,serial" || body.consent !== true || typeof body.serial !== "string"
+            || !/^[A-Za-z0-9_-]{1,128}$/.test(body.serial)) throw new ParameterCheckError("invalid_request");
+          controller.signal.throwIfAborted();
+          let abort!: () => void;
+          const cancelled = new Promise<never>((_resolve, reject) => {
+            abort = () => reject(new ParameterCheckError(timeout ? "timeout" : "cancelled"));
+            controller.signal.addEventListener("abort", abort, { once: true });
+            if (controller.signal.aborted) abort();
+          });
+          try {
+            dispatched = true;
+            const result = await Promise.race([this.provider.readReportedParameters(body.serial, controller.signal), cancelled]);
+            controller.signal.throwIfAborted();
+            return json(response, 200, validateParameterSummary(result));
+          } finally { controller.signal.removeEventListener("abort", abort); }
+        } catch (error) {
+          const stage = controller.signal.aborted ? (timeout ? "timeout" : "cancelled")
+            : error instanceof ParameterCheckError && parameterCheckStages.includes(error.stage) ? error.stage : dispatched ? "request" : "invalid_request";
+          if (!response.destroyed) return json(response, stage === "invalid_request" ? 400 : 409, { stage });
+          return;
+        } finally { clearTimeout(timer); response.removeListener("close", close); }
+      }
       const preparationState = this.config.experimentalGeneralRtc ? this.provider.generalRtcPrepareStatus?.() : undefined;
       if (["signing-in", "authentication-required", "failed"].includes(preparationState ?? "")) {
         const path = url.pathname;
@@ -1536,7 +1575,7 @@ async function readBody(request: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-async function readGeneralRtcBody(request: IncomingMessage, maximumBytes = 16_384): Promise<Buffer | null> {
+async function readGeneralRtcBody(request: IncomingMessage, maximumBytes = 16_384, signal?: AbortSignal): Promise<Buffer | null> {
   return await new Promise<Buffer | null>((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0, finished = false;
@@ -1545,6 +1584,7 @@ async function readGeneralRtcBody(request: IncomingMessage, maximumBytes = 16_38
       finished = true;
       request.removeListener("data", data); request.removeListener("end", end); request.removeListener("error", error);
       request.removeListener("aborted", error);
+      signal?.removeEventListener("abort", abort);
       request.once("error", () => undefined);
       if (failed) reject(new SyntaxError("Invalid trial input"));
       else resolve(value);
@@ -1556,7 +1596,10 @@ async function readGeneralRtcBody(request: IncomingMessage, maximumBytes = 16_38
     };
     const end = (): void => { finish(Buffer.concat(chunks)); };
     const error = (): void => { finish(null, true); };
+    const abort = (): void => { finish(null, true); request.resume(); };
     request.on("data", data); request.once("end", end); request.once("error", error); request.once("aborted", error);
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
   });
 }
 
