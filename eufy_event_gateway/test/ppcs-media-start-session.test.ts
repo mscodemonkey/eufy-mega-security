@@ -290,7 +290,9 @@ test("HB2 2C setup repairs the identical initial query until its validated ACK",
     const original = f.sent.at(-1)!;
     assert.equal(original.readUInt16LE(original.indexOf(Buffer.from("XZYH")) + 4), 1100);
     const sequence = original.readUInt16BE(6);
+    const count = f.sent.length;
     context.mock.timers.tick(150);
+    assert.equal(f.sent.length, count + 1);
     assert.deepEqual(f.sent.at(-1), original);
     assert.equal(f.session.stats.gatewayInfoRetransmitted, 1);
     for (const invalid of ["peer", "channel", "length", "count"]) f.ack(sequence, invalid);
