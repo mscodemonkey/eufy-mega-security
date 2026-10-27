@@ -16,12 +16,16 @@ import type { ProviderEvents } from "../src/provider/provider.js";
 import { CameraSettingError } from "../src/provider/camera-settings.js";
 import { GatewayState } from "../src/domain/gateway-state.js";
 
-for (const setting of ["lightBrightness", "manualFloodlight"] as const) for (const mode of ["success", "disabled", "shared", "missing", "changed-account", "lost-reply"] as const) {
-  test(`${setting} provider ${mode}`, async context => {
+for (const { setting, model, type } of [
+  { setting: "lightBrightness", model: "T8425", type: 47 },
+  { setting: "lightBrightness", model: "T8426", type: 87 },
+  { setting: "manualFloodlight", model: "T8426", type: 87 },
+] as const) for (const mode of ["success", "disabled", "shared", "missing", "changed-account", "lost-reply"] as const) {
+  test(`${model} ${setting} provider ${mode}`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "brightness-"));
     const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
     context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
-    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{ device_sn: "fixture", device_model: setting === "lightBrightness" ? "T8425" : "T8426", device_type: setting === "lightBrightness" ? 47 : 87,
+    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{ device_sn: "fixture", device_model: model, device_type: type,
       category: "eufy_security", device_channel: 0, p2p_did: "fixture-peer", p2p_conn: "fixture-route", member: { admin_user_id: "fixture-owner" },
       params: [{ param_type: setting === "lightBrightness" ? 1401 : 1400, param_value: setting === "lightBrightness" ? "80" : "0" }] }] }));
     context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ fixture: { key: "fixture-key", expiresAt: null } }));

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.206
+
+- Add a separate, off-by-default faster native HLS startup option. It shortens the segment target only for the first ordinary HLS output of a new native stream, after confirming its settings are isolated from Home Assistant's global configuration. Existing outputs, recordings and preload retain their current setup.
+- Verify native H.264 and H.265 HLS through Home Assistant Container 2026.10.4 with generated video. The optional setting reduced first-fragment time from about 7.2 to 3.1 seconds, preserving codec, keyframe access and decoded frame timing. This does not establish browser rendering latency or reporter hardware performance.
+- Add an opt-in brightness number for exact standalone T8426/type 87, using the existing owner, fresh baseline, single-write and independent-readback safeguards. Physical brightness behaviour remains unconfirmed, and model aliases and attached routes remain excluded.
+
 ## 0.1.205
 
 - Add an opt-in brightness number for exact standalone T8425/type 47 with the current owner account, a fresh baseline, one command and independent readback. Physical brightness behaviour remains unconfirmed.

@@ -53,7 +53,8 @@ export function parseCameraSettingChange(value: unknown): CameraSettingChange {
 
 function nativeProfile(model: string, type: number | null, standalone: boolean, setting: CameraSettingChange["setting"]): CameraSettingProfile | null {
   if (setting === "manualFloodlight") return standalone && model === "T8426" && type === 87 ? { readParam: 1400, command: 1700, form: "manual-light" } : null;
-  if (setting === "lightBrightness") return standalone && model === "T8425" && type === 47 ? { readParam: 1401, command: 1401, form: "binary" } : null;
+  if (setting === "lightBrightness") return standalone && ((model === "T8425" && type === 47) || (model === "T8426" && type === 87))
+    ? { readParam: 1401, command: 1401, form: "binary" } : null;
   if (setting === "homebaseChime") return !standalone && model === "T8210" && type === 7 ? { readParam: 1702, command: 1702, form: "binary" } : null;
   if (standalone) return model === "T817L" && type === 10031 ? { readParam: 6041, command: 1700, form: "control", ladder: [1, 2, 3] } : null;
   if (model === "T8113-Z" && type === 8) return { readParam: 1210, command: 1210, form: "binary", ladder: INVERTED_2C };

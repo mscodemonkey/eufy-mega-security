@@ -25,7 +25,7 @@ from homeassistant.helpers.selector import (
 from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 
 from .client import GatewayAuthenticationError, GatewayClient, GatewayClientError
-from .const import CONF_API_TOKEN, CONF_SHORT_HLS_IDLE, CONF_NATIVE_VIDEO, DOMAIN
+from .const import CONF_API_TOKEN, CONF_SHORT_HLS_IDLE, CONF_NATIVE_VIDEO, CONF_FAST_NATIVE_HLS, DOMAIN
 
 
 class EufyGatewayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -196,6 +196,10 @@ class EufyGatewayOptionsFlow(config_entries.OptionsFlowWithReload):
                 vol.Optional(
                     CONF_NATIVE_VIDEO,
                     default=self.config_entry.options.get(CONF_NATIVE_VIDEO, False),
+                ): bool,
+                vol.Optional(
+                    CONF_FAST_NATIVE_HLS,
+                    default=self.config_entry.options.get(CONF_FAST_NATIVE_HLS, False),
                 ): bool,
                 vol.Optional(
                     CONF_SHORT_HLS_IDLE,

@@ -543,7 +543,7 @@ enabling it.
 
 The exact standalone T8426/type 87 has an opt-in [Manual floodlight light entity](docs/T8426_MANUAL_FLOODLIGHT.md). It controls the reported manual override independently of motion detection, requires the current owner account and fresh setting readback, and has no automatic-off guarantee. Physical behaviour remains unconfirmed.
 
-The exact standalone T8425/type 47 has an opt-in [brightness number](docs/T8425_CONTROLS.md). It requires the current owner account and a readable value, sends once and confirms independently. Physical brightness behaviour is unconfirmed. Motion settings and pan/tilt remain separate work.
+The exact standalone T8425/type 47 and T8426/type 87 have an opt-in [brightness number](docs/T8425_CONTROLS.md). It requires the current owner account and a readable value, sends once and confirms independently. Physical brightness behaviour is unconfirmed. Motion settings and pan/tilt remain separate work.
 
 The app option `experimental_model_controls` is off by default. When enabled,
 open `/diagnostics`, enter your gateway token, select one camera and expand
@@ -700,6 +700,8 @@ In **Settings → Devices & services → Eufy Mega Security → Configure**, ena
 video with Home Assistant. This option is off by default. Saving reloads the
 integration. Native H.265 avoids the gateway's H.264 compatibility conversion.
 Home Assistant's existing go2rtc provider continues to own WebRTC signalling.
+
+**Try faster native startup** is a separate, default-off option. With native video enabled, it gives a new ordinary HLS stream a two-second segment target. It uses less playback buffering, so turn it off if playback becomes unstable. Home Assistant must have low-latency HLS enabled. Existing streams, active recordings, preload and other cameras' settings are left to Home Assistant. Camera connection and keyframe timing can still limit startup.
 
 One reporter's installation confirmed native H.265 playback in the Home Assistant iOS app and desktop browsers on v0.1.192. The reported time from stream request to first HLS part was about 7 to 10 seconds, which does not measure end-to-end rendering latency. The report does not establish which transport a physical client selected. Two cameras still produce no source video and are tracked separately. Client support varies.
 

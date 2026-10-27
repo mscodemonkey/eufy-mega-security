@@ -22,5 +22,5 @@ the original setting and confirm restoration in the app. Leave motion detection
 and its lighting settings unchanged. If the entity does not appear, report that
 result first rather than trying another model's controls.
 
-Brightness, night vision, motion settings, pan/tilt and siren remain separate
-work in #481.
+From v0.1.206, a separate [brightness number](T8425_CONTROLS.md) can change intensity.
+Night vision, motion settings, pan/tilt and siren remain separate work in #481.

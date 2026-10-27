@@ -1,4 +1,4 @@
-"""Exercise HLS startup cleanup and optional idle timing without a camera.
+"""Exercise per-stream native HLS tuning and startup cleanup without a camera.
 
 Tests execute the camera hook against an owned provider factory. Home
 Assistant owns viewer timers, checked separately against its actual source.
@@ -18,7 +18,7 @@ SOURCE = Path(__file__).parents[1] / "custom_components/eufy_event_gateway/camer
 
 
 class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
-    """Arm startup cleanup while keeping custom timing confined to HLS defaults."""
+    """Protect stream ownership while tuning new native HLS outputs and idle timers."""
 
     def setUp(self) -> None:
         """Load the real hook with a synthetic HA camera base."""
@@ -37,6 +37,7 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         self.camera = namespace["TestCamera"]()
         self.camera._short_hls_idle = True
         self.camera._native_video = False
+        self.camera._fast_native_hls = False
         self.camera._hls_idle_stream = None
         self.camera._stream_source_refreshing = False
         self.original = Mock(return_value=SimpleNamespace(idle_timer=Mock()))
@@ -47,6 +48,59 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         self.camera.serial = "demo"
         self.camera.coordinator = SimpleNamespace(client=SimpleNamespace(stream_url=AsyncMock(return_value="fresh")))
         base.async_create_stream.return_value = self.stream
+
+    @staticmethod
+    def _settings(minimum=5.9, ll=True):
+        """Model the public Core settings value while retaining ownership identity."""
+        cls = type("StreamSettings", (), {"__module__": "homeassistant.components.stream.core"})
+        settings = cls()
+        settings.min_segment_duration = minimum
+        settings.ll_hls = ll
+        settings.part_target_duration = 1.0
+        return settings
+
+    async def test_fast_native_hls_changes_only_the_new_stream_copy(self):
+        """An explicit opt-in shortens the first native HLS output without changing global settings."""
+        global_settings, own_settings = self._settings(), self._settings()
+        self.camera.hass = SimpleNamespace(data={"stream": {"settings": global_settings}})
+        self.camera._native_video = self.camera._fast_native_hls = True
+        self.camera.stream = None
+        self.stream.outputs.return_value = {}
+        self.original.return_value.stream_settings = own_settings
+        await self.camera.async_create_stream()
+        self.stream.add_provider("hls")
+        self.assertEqual(own_settings.min_segment_duration, 1.9)
+        self.assertEqual(own_settings.part_target_duration, 1.0)
+        self.assertEqual(global_settings.min_segment_duration, 5.9)
+        self.original.assert_called_once_with("hls", timeout=60)
+
+    async def test_fast_native_hls_preserves_existing_owners_and_unknown_contracts(self):
+        """Keep compatible video, cached workers, recordings, preload and shared settings unchanged."""
+        for scenario in ("disabled", "compatible", "cached", "recording-active", "preload", "recorder", "explicit-timeout", "global-shared", "unknown-class", "non-ll", "invalid-minimum", "missing-global"):
+            with self.subTest(scenario=scenario):
+                global_settings, own_settings = self._settings(), self._settings()
+                self.camera.hass = SimpleNamespace(data={"stream": {"settings": global_settings}} if scenario != "missing-global" else {})
+                self.camera._native_video = scenario != "compatible"
+                self.camera._fast_native_hls = scenario != "disabled"
+                self.camera._hls_idle_stream = None
+                self.camera.stream = self.stream if scenario == "cached" else None
+                self.stream.add_provider = self.original
+                self.stream.outputs.return_value = {"recorder": object()} if scenario == "recording-active" else {}
+                self.stream.dynamic_stream_settings.preload_stream = scenario == "preload"
+                if scenario == "global-shared":
+                    own_settings = global_settings
+                elif scenario == "unknown-class":
+                    own_settings = SimpleNamespace(min_segment_duration=5.9, ll_hls=True)
+                elif scenario == "non-ll":
+                    own_settings.ll_hls = False
+                elif scenario == "invalid-minimum":
+                    own_settings.min_segment_duration = 20.0
+                self.original.return_value.stream_settings = own_settings
+                before = own_settings.min_segment_duration
+                await self.camera.async_create_stream()
+                self.stream.add_provider("recorder" if scenario == "recorder" else "hls", 120 if scenario == "explicit-timeout" else None)
+                self.assertEqual(own_settings.min_segment_duration, before)
+                self.assertEqual(global_settings.min_segment_duration, 5.9)
 
     async def test_reopen_idle_cached_stream_refreshes_before_return(self):
         """A returning viewer gets fresh credentials after idle renewal was skipped."""

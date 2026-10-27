@@ -92,7 +92,7 @@ export interface CameraReportedSettings {
   readonly soundRoundLookEnabled?: boolean | null;
   readonly enhanceLightingEnabled?: boolean | null;
 
-  /** Exact C31 or opt-in T8425 light setting and C31 notification spacing. */
+  /** Exact C31 or opt-in T8425/T8426 light setting and C31 notification spacing. */
   readonly lightBrightness?: number | null;
   readonly notificationIntervalMinutes?: number | null;
 
@@ -183,7 +183,7 @@ export interface CameraState {
   readonly motionSensitivitySteps?: number | null;
   readonly homebaseChimeControlSupported?: boolean;
 
-  /** Opt-in exact T8425 brightness with a readable baseline; physical behaviour is unconfirmed. */
+  /** Opt-in exact T8425/T8426 brightness with a readable baseline; physical behaviour is unconfirmed. */
   readonly lightBrightnessControlSupported?: boolean;
 
   /** Opt-in exact T8426 manual override with independent setting readback. */
@@ -498,7 +498,7 @@ export interface CameraIdentity {
   readonly motionSensitivitySteps?: number | null;
   readonly homebaseChimeControlSupported?: boolean;
 
-  /** Opt-in exact T8425 brightness with a readable baseline; physical behaviour is unconfirmed. */
+  /** Opt-in exact T8425/T8426 brightness with a readable baseline; physical behaviour is unconfirmed. */
   readonly lightBrightnessControlSupported?: boolean;
 
   /** Opt-in exact T8426 manual override with independent setting readback. */
