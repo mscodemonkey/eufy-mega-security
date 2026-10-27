@@ -477,6 +477,9 @@ class GatewayClient:
 
     async def set_camera_setting(self, serial: str, setting: str, value: bool | int) -> dict[str, Any]:
         """Await an independently confirmed setting within the gateway's 90-second deadline."""
+        field = {"motionSensitivity": "motionSensitivityStep", "homebaseChime": "homebaseChimeEnabled", "lightBrightness": "lightBrightness", "manualFloodlight": "manualFloodlightEnabled"}.get(setting)
+        if field is None:
+            raise GatewayClientError("Unsupported camera setting", code="unavailable")
         try:
             camera = await self._json(
                 f"/api/cameras/{quote(serial, safe='')}/settings", method="POST",
@@ -486,7 +489,6 @@ class GatewayClient:
             if error.status is None and error.code is None:
                 raise GatewayClientError("Camera setting outcome is unknown", code="outcome_unknown") from error
             raise
-        field = "motionSensitivityStep" if setting == "motionSensitivity" else "homebaseChimeEnabled"
         observed = camera.get("reportedSettings", {}).get(field) if isinstance(camera, dict) and isinstance(camera.get("reportedSettings"), dict) else None
         if not isinstance(camera, dict) or camera.get("serial") != serial or type(observed) is not type(value) or observed != value:
             raise GatewayClientError("Gateway did not confirm the camera setting", code="outcome_unknown")

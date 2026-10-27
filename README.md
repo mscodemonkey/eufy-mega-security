@@ -541,6 +541,10 @@ enabling it.
 
 ### Experimental model controls
 
+The exact standalone T8426/type 87 has an opt-in [Manual floodlight light entity](docs/T8426_MANUAL_FLOODLIGHT.md). It controls the reported manual override independently of motion detection, requires the current owner account and fresh setting readback, and has no automatic-off guarantee. Physical behaviour remains unconfirmed.
+
+The exact standalone T8425/type 47 has an opt-in [brightness number](docs/T8425_CONTROLS.md). It requires the current owner account and a readable value, sends once and confirms independently. Physical brightness behaviour is unconfirmed. Motion settings and pan/tilt remain separate work.
+
 The app option `experimental_model_controls` is off by default. When enabled,
 open `/diagnostics`, enter your gateway token, select one camera and expand
 **Experimental model controls**. Choose **Check available controls**, select

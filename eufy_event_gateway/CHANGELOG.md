@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.205
+
+- Add an opt-in brightness number for exact standalone T8425/type 47 with the current owner account, a fresh baseline, one command and independent readback. Physical brightness behaviour remains unconfirmed.
+- Add an opt-in Manual floodlight light entity for exact standalone T8426/type 87. It controls the reported manual override independently of motion lighting, uses its native command format and requires fresh setting readback. Physical behaviour remains unconfirmed, and no automatic-off timer is promised.
+- Reduce startup buffering in compatible H.265 conversion by limiting input probing while retaining the initial keyframe. Real FFmpeg tests preserve all frames and confirm output before the input closes. This does not establish a fix for native-view or camera startup delay.
+
 ## 0.1.204
 
 - Add an opt-in, read-only T8520, T8520J11 and T8520S cloud-inventory profile for direct devices reporting type 51. Home Assistant exposes reported lock state and battery without lock, unlock or settings controls. Physical behaviour remains unconfirmed.

@@ -947,6 +947,7 @@ export function buildReviewedCameraSettingPayload(
   if (!profile || !accountId || key.length !== 32 || !Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) {
     throw new Error("Reviewed camera setting route unavailable");
   }
+  if (profile.form === "manual-light") throw new Error("Manual floodlight requires its native level-one envelope");
   const native = cameraSettingWireValue(profile, change);
   const clear = profile.form === "binary" ? buildCameraEnableBody(route.channel!, native, accountId)
     : Buffer.from(JSON.stringify(profile.form === "payload"
@@ -1005,6 +1006,12 @@ export function buildStandaloneJsonControlPayload(
   cipher.setAutoPadding(false);
   const encrypted = Buffer.concat([cipher.update(plain), cipher.final()]);
   return rawPayload(encrypted, channel, 1, [1, 0], frameType);
+}
+
+/** Build T8426's manual override without borrowing timed or motion-light fields. */
+export function buildManualFloodlightControlValue(enabled: boolean): string {
+  if (typeof enabled !== "boolean") throw new Error("Manual floodlight requires a boolean");
+  return JSON.stringify({ commandType: 1400, data: { value: enabled ? 1 : 0, open: enabled ? 1 : 0, type: 2 } });
 }
 
 /** Build the observed timed-light value carried by standalone command 1700. */
@@ -2114,6 +2121,13 @@ export class FirstPartyPpcsSession {
       || this.#options.cameraModel !== route.model || this.#options.channel !== route.channel
       || this.#options.homeBaseAttached !== route.homeBaseAttached) throw new Error("Reviewed camera setting session unavailable");
     cameraSettingWireValue(profile, change);
+    if (change.setting === "manualFloodlight") {
+      const payload = buildStandaloneJsonControlPayload(buildManualFloodlightControlValue(change.value), route.channel!,
+        commandKey(this.#options.stationSerial, this.#options.p2pDid));
+      onDispatch();
+      this.#sendCommand(1700, payload);
+      return;
+    }
     await this.#waitForLevel2Key();
     const frame = buildReviewedCameraSettingPayload(change, route, this.#options.accountId, this.#level2Key!, this.#level2Seq++, Date.now());
     const acknowledgement = this.#waitForControlResult(frame.command, route.channel!);

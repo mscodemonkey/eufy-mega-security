@@ -1,5 +1,5 @@
 /**
- * Defines reviewed sensitivity and chime settings for exact camera routes.
+ * Defines reviewed sensitivity, chime and opt-in floodlight settings for exact camera routes.
  * The provider owns leases, network reads and state publication. This module
  * owns native mappings and the single-write confirmation lifecycle consumed
  * by HTTP, PPCS and the Home Assistant settings boundary.
@@ -9,13 +9,15 @@ import type { ModelControlRoute } from "./model-control-trials.js";
 /** Closed absolute requests never carry arbitrary native command identifiers. */
 export type CameraSettingChange =
   | { readonly setting: "motionSensitivity"; readonly value: number }
+  | { readonly setting: "lightBrightness"; readonly value: number }
+  | { readonly setting: "manualFloodlight"; readonly value: boolean }
   | { readonly setting: "homebaseChime"; readonly value: boolean };
 
 /** Native parameter and encoding selected only for a reviewed model and topology. */
 export interface CameraSettingProfile {
   readonly readParam: number;
   readonly command: number;
-  readonly form: "binary" | "payload" | "control";
+  readonly form: "binary" | "payload" | "control" | "manual-light";
 
   /** Least-sensitive first; absent for the boolean chime control. */
   readonly ladder?: readonly number[];
@@ -41,7 +43,8 @@ export function parseCameraSettingChange(value: unknown): CameraSettingChange {
   if (!value || typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) throw new SyntaxError("Invalid camera setting");
   const row = value as Record<string, unknown>;
   if (Object.keys(row).length !== 2 || !Object.hasOwn(row, "setting") || !Object.hasOwn(row, "value")) throw new SyntaxError("Invalid camera setting");
-  if (row.setting === "homebaseChime" && typeof row.value === "boolean") return { setting: row.setting, value: row.value };
+  if (row.setting === "lightBrightness" && typeof row.value === "number" && Number.isInteger(row.value) && row.value >= 1 && row.value <= 100) return { setting: row.setting, value: row.value };
+  if ((row.setting === "homebaseChime" || row.setting === "manualFloodlight") && typeof row.value === "boolean") return { setting: row.setting, value: row.value };
   if (row.setting === "motionSensitivity" && typeof row.value === "number" && Number.isInteger(row.value) && row.value >= 1 && row.value <= 7) {
     return { setting: row.setting, value: row.value };
   }
@@ -49,6 +52,8 @@ export function parseCameraSettingChange(value: unknown): CameraSettingChange {
 }
 
 function nativeProfile(model: string, type: number | null, standalone: boolean, setting: CameraSettingChange["setting"]): CameraSettingProfile | null {
+  if (setting === "manualFloodlight") return standalone && model === "T8426" && type === 87 ? { readParam: 1400, command: 1700, form: "manual-light" } : null;
+  if (setting === "lightBrightness") return standalone && model === "T8425" && type === 47 ? { readParam: 1401, command: 1401, form: "binary" } : null;
   if (setting === "homebaseChime") return !standalone && model === "T8210" && type === 7 ? { readParam: 1702, command: 1702, form: "binary" } : null;
   if (standalone) return model === "T817L" && type === 10031 ? { readParam: 6041, command: 1700, form: "control", ladder: [1, 2, 3] } : null;
   if (model === "T8113-Z" && type === 8) return { readParam: 1210, command: 1210, form: "binary", ladder: INVERTED_2C };
@@ -58,7 +63,7 @@ function nativeProfile(model: string, type: number | null, standalone: boolean, 
   return null;
 }
 
-/** Admit tested transport families, excluding standalone SoloCam and nearby model variants. */
+/** Admit exact reviewed transport families, excluding nearby model variants; the provider owns opt-in and account gates. */
 export function cameraSettingProfile(route: ModelControlRoute, setting: CameraSettingChange["setting"]): CameraSettingProfile | null {
   if (!Number.isInteger(route.channel) || route.channel! < 0 || route.channel! > 255) return null;
   if (route.homeBaseAttached ? route.selfPeer || route.peerModel !== "T8030" : !route.selfPeer || route.channel !== 0) return null;
@@ -77,7 +82,8 @@ export function readCameraSetting(
   const raw = rows[0]!.param_value;
   const value = typeof raw === "string" && /^(0|[1-9][0-9]*)$/.test(raw) ? Number(raw) : raw;
   if (typeof value !== "number" || !Number.isSafeInteger(value)) return undefined;
-  if (setting === "homebaseChime") return value === 0 || value === 1 ? value === 1 : undefined;
+  if (setting === "homebaseChime" || setting === "manualFloodlight") return value === 0 || value === 1 ? value === 1 : undefined;
+  if (setting === "lightBrightness") return value >= 1 && value <= 100 ? value : undefined;
   const index = profile.ladder!.indexOf(value);
   return index >= 0 ? index + 1 : undefined;
 }
@@ -85,9 +91,17 @@ export function readCameraSetting(
 /** Convert one validated HA step to native bytes, rejecting profile-specific excess values. */
 export function cameraSettingWireValue(profile: CameraSettingProfile, change: CameraSettingChange): number {
   parseCameraSettingChange(change);
+  if (change.setting === "manualFloodlight") {
+    if (profile.readParam !== 1400 || profile.command !== 1700 || profile.form !== "manual-light" || profile.ladder) throw new CameraSettingError("unavailable");
+    return change.value ? 1 : 0;
+  }
   if (change.setting === "homebaseChime") {
     if (profile.readParam !== 1702 || profile.ladder) throw new CameraSettingError("unavailable");
     return change.value ? 1 : 0;
+  }
+  if (change.setting === "lightBrightness") {
+    if (profile.readParam !== 1401 || profile.command !== 1401 || profile.form !== "binary" || profile.ladder) throw new CameraSettingError("unavailable");
+    return change.value;
   }
   const value = profile.ladder?.[change.value - 1];
   if (value === undefined) throw new SyntaxError("Unsupported sensitivity step for this model");

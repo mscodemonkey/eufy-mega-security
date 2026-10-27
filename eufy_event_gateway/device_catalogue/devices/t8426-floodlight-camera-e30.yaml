@@ -13,6 +13,18 @@ models:
 device_type: 87
 capabilities:
   controls:
+    manual_floodlight:
+      connections:
+        direct:
+          status: declared
+          notes: Implemented as an opt-in Home Assistant Manual floodlight for exact T8426 type 87 on channel zero with the current owner account. Requires independent manual-setting readback and sends once. It reports the manual override, not physical illumination or motion-lighting state. Hardware behaviour is unconfirmed. T8426121 and attached routes are excluded. No automatic-off timer is promised.
+      read:
+        parameter: 1400
+      write:
+        command: 1700
+      values:
+        "0": Manual override off
+        "1": Manual override on
     enabled:
       connections:
         direct:
