@@ -22,6 +22,7 @@ PLATFORM_FILES = (
     "camera.py",
     "number.py",
     "lock.py",
+    "light.py",
     "select.py",
     "sensor.py",
     "siren.py",

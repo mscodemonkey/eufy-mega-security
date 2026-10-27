@@ -189,6 +189,9 @@ export interface MegaInventoryDevice {
 /** Allowlisted, validated current values retained from one Mega inventory row. */
 export interface MegaInventoryReads {
 
+  /** Exact standalone T8426 manual override, without inferring physical illumination. */
+  readonly manualFloodlightEnabled?: boolean;
+
   /** Strict care-profile values, never merged with generic camera parameter interpretations. */
   readonly e21?: E21Readings;
   readonly ringtoneVolume?: number;
@@ -1695,7 +1698,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       guardModeControlSupported: false, guardModeRefreshSupported: false, nightVisionControlSupported: !!profile && values.night !== null,
       autoNightVisionControlSupported: false, cameraLightControlSupported: false, timedLightControlSupported: false,
       cameraSirenControlSupported: false, presetPositionControlSupported: false, aiTrackingControlSupported: false,
-      autoCruiseControlSupported: false, motionSensitivityControlSupported: false, motionSensitivitySteps: null, homebaseChimeControlSupported: false, preferenceControls: [], streamingQualityModes: profile?.quality ?? [], nightVisionModes: profile?.night ?? [],
+      autoCruiseControlSupported: false, motionSensitivityControlSupported: false, motionSensitivitySteps: null, homebaseChimeControlSupported: false, lightBrightnessControlSupported: false, manualFloodlightControlSupported: false, preferenceControls: [], streamingQualityModes: profile?.quality ?? [], nightVisionModes: profile?.night ?? [],
     };
   }
 
@@ -2831,6 +2834,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const peer = route?.peer;
     const profile = device && route ? cameraSettingProfile(this.#modelTrialRoute(device, route), change.setting) : null;
     if (!device || !route || !peer || !profile || !device.adminUserId || this.#recordingClosing) throw new CameraSettingError("unavailable");
+    const optInSetting = change.setting === "lightBrightness" || change.setting === "manualFloodlight";
+    const settingBinding = optInSetting ? this.#client.authenticatedBinding() : null;
+    if (optInSetting && (!this.config.experimentalModelControls || !this.#client.isAuthenticatedUser(device.adminUserId) || !settingBinding)) throw new CameraSettingError("unavailable");
     cameraSettingWireValue(profile, change);
     const controlMaps = [this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations,
       this.#audioRecordingOperations, this.#motionOperations, this.#nightVisionOperations, this.#guardModeOperations,
@@ -2841,14 +2847,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const releaseTrialPeer = this.#reserveTrialPeer(peer.serial);
     const generation = this.#startupGeneration;
     const deadline = Date.now() + 90_000;
-    const field = change.setting === "motionSensitivity" ? "motionSensitivityStep" : "homebaseChimeEnabled";
+    const field = change.setting === "motionSensitivity" ? "motionSensitivityStep" : change.setting === "lightBrightness" ? "lightBrightness" : change.setting === "manualFloodlight" ? "manualFloodlightEnabled" : "homebaseChimeEnabled";
     let session: FirstPartyPpcsSession | null = null;
     let dispatched = false;
     const check = (): void => {
       const current = this.#devices.get(serial), currentPeer = this.#devices.get(peer.serial);
       if (this.#recordingClosing || generation !== this.#startupGeneration || Date.now() >= deadline || (!dispatched && signal?.aborted)
         || !current || !currentPeer || inventoryBindingChanged(device, current) || inventoryBindingChanged(peer, currentPeer)
-        || currentPeer.p2pDid !== peer.p2pDid || currentPeer.p2pConnection !== peer.p2pConnection) throw new CameraSettingError("unavailable");
+        || currentPeer.p2pDid !== peer.p2pDid || currentPeer.p2pConnection !== peer.p2pConnection
+        || (settingBinding !== null && !settingBinding())) throw new CameraSettingError("unavailable");
     };
     const clear = (): void => {
       this.#invalidateLiveReads(serial, [field]);
@@ -4397,6 +4404,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       talkbackSupported: supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
       motionSensitivityControlSupported: settingRouteReady && sensitivityProfile !== null && device.reads.motionSensitivityStep !== undefined,
       motionSensitivitySteps: sensitivityProfile?.ladder?.length ?? null,
+      manualFloodlightControlSupported: this.config.experimentalModelControls === true && settingRouteReady
+        && !!settingRoute && cameraSettingProfile(settingRoute, "manualFloodlight") !== null
+        && !!device.adminUserId && this.#client.isAuthenticatedUser(device.adminUserId) && device.reads.manualFloodlightEnabled !== undefined,
+      lightBrightnessControlSupported: this.config.experimentalModelControls === true && settingRouteReady
+        && !!settingRoute && cameraSettingProfile(settingRoute, "lightBrightness") !== null
+        && !!device.adminUserId && this.#client.isAuthenticatedUser(device.adminUserId) && device.reads.lightBrightness !== undefined,
       homebaseChimeControlSupported: settingRouteReady && chimeProfile !== null && device.reads.homebaseChimeEnabled !== undefined,
       preferenceControls: supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials))
         ? c31PreferenceNames.filter((name) => c31PreferenceValue(device.reads, name) !== undefined) : [],
@@ -4408,6 +4421,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         soundRoundLookEnabled: device.reads.soundRoundLookEnabled ?? null,
         enhanceLightingEnabled: device.reads.enhanceLightingEnabled ?? null,
         lightBrightness: device.reads.lightBrightness ?? null,
+        manualFloodlightEnabled: device.reads.manualFloodlightEnabled ?? null,
         notificationIntervalMinutes: device.reads.notificationIntervalMinutes ?? null,
         rtspPublicationEnabled: device.reads.rtspPublicationEnabled ?? null,
         continuousRecordingEnabled: device.reads.continuousRecordingEnabled ?? null,
@@ -4533,7 +4547,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       guardModeRefreshSupported: false, nightVisionControlSupported: false, nightVisionModes: [], autoNightVisionControlSupported: false,
       cameraLightControlSupported: false, timedLightControlSupported: false, cameraSirenControlSupported: false,
       presetPositionControlSupported: false, storedRecordingsSupported: false, aiTrackingControlSupported: false,
-      autoCruiseControlSupported: false, motionSensitivityControlSupported: false, homebaseChimeControlSupported: false,
+      autoCruiseControlSupported: false, motionSensitivityControlSupported: false, homebaseChimeControlSupported: false, lightBrightnessControlSupported: false, manualFloodlightControlSupported: false,
       battery: { supported: [], level: null, backupLevel: null, charging: null, health: null, temperature: null, lastChargingDays: null },
       audioSettings: { microphoneEnabled: reads.preferences.microphone === undefined ? null : reads.preferences.microphone === 1,
         speakerEnabled: reads.preferences.speaker === undefined ? null : reads.preferences.speaker === 1,
@@ -5477,6 +5491,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
     return type === null ? [] : [{ param_type: type, param_value: row.param_value }];
   });
   const motionStep = readCameraSetting(settingRows, model ?? "", deviceType, standaloneChannelZero, "motionSensitivity");
+  const manualFloodlight = readCameraSetting(settingRows, model ?? "", deviceType, standaloneChannelZero, "manualFloodlight");
   const reviewedChime = readCameraSetting(settingRows, model ?? "", deviceType, standaloneChannelZero, "homebaseChime");
   const percentage = (type: number): number | undefined => {
     const parsed = finiteNumber(params.get(type));
@@ -5531,7 +5546,9 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const soundSensitivity = soundFamily || c31 ? finiteNumber(params.get(6044)) : null;
   const soundType = soundFamily || c31 ? finiteNumber(params.get(6046)) : null;
   const soundRoundLook = c31 ? finiteNumber(params.get(6208)) : null;
-  const lightBrightness = c31 ? percentage(1401) : undefined;
+  const lightBrightness = model === "T8425" && deviceType === 47 && standaloneChannelZero
+    ? readCameraSetting(settingRows, model, deviceType, true, "lightBrightness")
+    : c31 ? percentage(1401) : undefined;
   const notificationInterval = c31 ? finiteNumber(params.get(1250)) : null;
   const rtspPublication = c31 ? finiteNumber(params.get(1145)) : null;
   const continuousRecording = c31 ? finiteNumber(params.get(6010)) : null;
@@ -5592,7 +5609,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
     ...(soundSensitivity !== null && Number.isInteger(soundSensitivity) && (c31 ? soundSensitivity >= 1 && soundSensitivity <= 5 : [1, 3, 5].includes(soundSensitivity))
       ? { soundDetectionSensitivity: soundSensitivity } : {}),
     ...((c31 ? soundType === 128 || soundType === 256 : soundType === 1 || soundType === 2) ? { soundDetectionType: soundType! } : {}),
-    ...(lightBrightness !== undefined && Number.isInteger(lightBrightness) ? { lightBrightness } : {}),
+    ...(typeof lightBrightness === "number" && Number.isInteger(lightBrightness) ? { lightBrightness } : {}),
     ...(rtspPublication === 0 || rtspPublication === 1 ? { rtspPublicationEnabled: rtspPublication === 1 } : {}),
     ...(continuousRecording === 0 || continuousRecording === 1 ? { continuousRecordingEnabled: continuousRecording === 1 } : {}),
     ...(notificationInterval !== null && Number.isInteger(notificationInterval) && notificationInterval >= 0 && notificationInterval <= 300 && notificationInterval % 60 === 0 ? { notificationIntervalMinutes: notificationInterval / 60 } : {}),
@@ -5608,6 +5625,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
     ...(watermark !== null && [0, 1, 2].includes(watermark) ? { watermarkMode: watermark } : {}),
     ...(antiTheft === 0 || antiTheft === 1 ? { antiTheftDetectionEnabled: antiTheft === 1 } : {}),
     ...(spotlight === 0 || spotlight === 1 ? { spotlightEnabled: spotlight === 1 } : {}),
+    ...(typeof manualFloodlight === "boolean" ? { manualFloodlightEnabled: manualFloodlight } : {}),
     ...(typeof motionStep === "number" ? { motionSensitivityStep: motionStep } : {}),
     ...(sensitivity !== null && Number.isInteger(sensitivity) && sensitivity >= 1 && sensitivity <= 7
       ? { motionSensitivityRaw: sensitivity } : {}),

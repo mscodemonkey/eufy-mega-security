@@ -4,7 +4,7 @@
  * input crosses this boundary. CI must provide FFmpeg, ffprobe and the encoders.
  */
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import test from "node:test";
 import { h265ViewerTranscoderArguments, remuxVideoToMp4 } from "../src/stream/live-stream-manager.js";
 
@@ -12,7 +12,7 @@ function hevc(noisy = false): Buffer {
   return execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
     "testsrc2=size=640x360:rate=20", ...(noisy ? ["-vf", "noise=alls=100:allf=u:all_seed=1"] : []),
     "-frames:v", noisy ? "80" : "40", "-c:v", "libx265", "-preset", "ultrafast", "-crf", "14",
-    "-x265-params", "log-level=error:pools=1:bframes=0:keyint=20", "-f", "hevc", "pipe:1"],
+    "-x265-params", "log-level=error:pools=1:bframes=0:keyint=20:aud=1", "-f", "hevc", "pipe:1"],
   { maxBuffer: 32 * 1024 * 1024, stdio: ["pipe", "pipe", "ignore"] });
 }
 
@@ -67,5 +67,38 @@ for (const fixed of [false, true]) test(`browser conversion decodes with bounded
   for (let index = 0; index <= packets.length - 40; index += 10) {
     const bits = packets.slice(index, index + 40).reduce((sum, packet) => sum + Number(packet.size) * 8, 0);
     assert.ok(bits / 2 <= 3_000_000 * 1.25, `Two-second output exceeded VBV tolerance: ${bits / 2}`);
+  }
+});
+
+
+test("browser conversion emits a playable startup while the HEVC input remains open", { timeout: 15_000 }, async () => {
+  const source = hevc();
+  const boundaries = [...source.toString("latin1").matchAll(/\x00\x00\x00\x01|\x00\x00\x01/g)]
+    .filter(match => ((source[match.index! + match[0].length]! >> 1) & 63) === 35)
+    .map(match => match.index!);
+  assert.equal(boundaries.length, 40);
+  const child = spawn("ffmpeg", h265ViewerTranscoderArguments());
+  const output: Buffer[] = [];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const exited = new Promise<number | null>((resolve, reject) => { child.once("error", reject); child.once("exit", resolve); });
+  child.stderr.resume();
+  child.stdout.on("data", (bytes: Buffer) => output.push(bytes));
+  const started = new Promise<void>((resolve, reject) => {
+    child.stdout.once("data", () => resolve());
+    timer = setTimeout(() => reject(Error("No output while the input remains open")), 5_000);
+  });
+  try {
+    child.stdin.write(source.subarray(0, boundaries[15]));
+    await started;
+    assert.equal(child.stdin.writableEnded, false);
+    child.stdin.end(source.subarray(boundaries[15]));
+    assert.equal(await exited, 0);
+    const decoded = probe(Buffer.concat(output));
+    assert.equal(decoded.packets.filter(packet => packet.codec_type === "video").length, 40);
+  } finally {
+    if (timer) clearTimeout(timer);
+    child.stdin.destroy();
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await exited.catch(() => {});
   }
 });

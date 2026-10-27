@@ -77,6 +77,9 @@ export interface CameraAudioSettings {
 /** Inventory configuration only, not live image orientation, lamp output or sound events. */
 export interface CameraReportedSettings {
 
+  /** T8426 manual override setting, distinct from motion-driven illumination or physical lamp output. */
+  readonly manualFloodlightEnabled?: boolean | null;
+
   /** Exact standalone C31 pre-recording setting, not proof of a recording duration. */
   readonly preRecordingEnabled?: boolean | null;
 
@@ -89,7 +92,7 @@ export interface CameraReportedSettings {
   readonly soundRoundLookEnabled?: boolean | null;
   readonly enhanceLightingEnabled?: boolean | null;
 
-  /** Exact C31 light setting and notification spacing, unrelated to recording intervals. */
+  /** Exact C31 or opt-in T8425 light setting and C31 notification spacing. */
   readonly lightBrightness?: number | null;
   readonly notificationIntervalMinutes?: number | null;
 
@@ -179,6 +182,12 @@ export interface CameraState {
   readonly motionSensitivityControlSupported?: boolean;
   readonly motionSensitivitySteps?: number | null;
   readonly homebaseChimeControlSupported?: boolean;
+
+  /** Opt-in exact T8425 brightness with a readable baseline; physical behaviour is unconfirmed. */
+  readonly lightBrightnessControlSupported?: boolean;
+
+  /** Opt-in exact T8426 manual override with independent setting readback. */
+  readonly manualFloodlightControlSupported?: boolean;
 
   /** Model-specific streaming choices, used only when control admission is true. */
   readonly streamingQualityModes?: readonly CameraStreamingQualityMode[];
@@ -488,6 +497,12 @@ export interface CameraIdentity {
   readonly motionSensitivityControlSupported?: boolean;
   readonly motionSensitivitySteps?: number | null;
   readonly homebaseChimeControlSupported?: boolean;
+
+  /** Opt-in exact T8425 brightness with a readable baseline; physical behaviour is unconfirmed. */
+  readonly lightBrightnessControlSupported?: boolean;
+
+  /** Opt-in exact T8426 manual override with independent setting readback. */
+  readonly manualFloodlightControlSupported?: boolean;
 
   /** Native choices for this model, separate from recorded-video resolution. */
   readonly streamingQualityModes?: readonly CameraStreamingQualityMode[];

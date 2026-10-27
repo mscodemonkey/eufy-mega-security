@@ -34,9 +34,13 @@ async def async_setup_entry(
     known: set[str] = set()
     known_cameras: set[tuple[str, str]] = set()
     known_sensitivity: set[str] = set()
+    known_brightness: set[str] = set()
 
     def add_new() -> None:
         for serial, camera in coordinator.cameras.items():
+            if serial not in known_brightness and camera.get("lightBrightnessControlSupported") is True:
+                known_brightness.add(serial)
+                async_add_entities([EufyFloodlightBrightnessNumber(coordinator, serial)])
             sensitivity = camera.get("reportedSettings", {}).get("motionSensitivityStep") if isinstance(camera.get("reportedSettings"), dict) else None
             steps = camera.get("motionSensitivitySteps")
             if serial not in known_sensitivity and camera.get("motionSensitivityControlSupported") is True and type(steps) is int and steps in (3, 5, 7) and type(sensitivity) is int and 1 <= sensitivity <= steps:
@@ -200,5 +204,52 @@ class EufyMotionSensitivityNumber(EufyGatewayEntity, NumberEntity):
         except GatewayClientError as error:
             if error.code == "outcome_unknown":
                 camera = {**self.camera, "reportedSettings": {**(self.camera.get("reportedSettings") or {}), "motionSensitivityStep": None}}
+                self.coordinator.async_set_camera(camera)
+            raise HomeAssistantError(str(error)) from error
+
+
+class EufyFloodlightBrightnessNumber(EufyGatewayEntity, NumberEntity):
+    """Expose the opt-in T8425 setting while the gateway admits its owned route.
+
+    The coordinator owns current admission and observations. This entity submits
+    one absolute request and publishes only the gateway's independent readback.
+    An uncertain write clears brightness without changing other camera settings.
+    """
+
+    _attr_translation_key = "camera_light_brightness"
+    _attr_native_min_value = 1
+    _attr_native_max_value = 100
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = "%"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Keep this reviewed setting separate from legacy preference controls."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        NumberEntity.__init__(self)
+        self._attr_unique_id = f"{serial}_reviewed_light_brightness"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return only a present whole-number brightness within the native range."""
+        settings = self.camera.get("reportedSettings")
+        value = settings.get("lightBrightness") if isinstance(settings, dict) else None
+        return value if type(value) is int and 1 <= value <= 100 else None
+
+    @property
+    def available(self) -> bool:
+        """Withdraw the control if account, route, opt-in or readback is unavailable."""
+        return super().available and self.camera.get("lightBrightnessControlSupported") is True and self.native_value is not None
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Publish a confirmed result without optimistic state or automatic replay."""
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 1 <= value <= 100 or value != int(value):
+            raise HomeAssistantError("Brightness must be a whole number from 1 to 100")
+        try:
+            camera = await self.coordinator.client.set_camera_setting(self.serial, "lightBrightness", int(value))
+            self.coordinator.async_set_camera(camera)
+        except GatewayClientError as error:
+            if error.code == "outcome_unknown":
+                camera = {**self.camera, "reportedSettings": {**(self.camera.get("reportedSettings") or {}), "lightBrightness": None}}
                 self.coordinator.async_set_camera(camera)
             raise HomeAssistantError(str(error)) from error

@@ -104,3 +104,43 @@ test("confirmation requires a present fresh baseline and sends once despite igno
     assert.equal(invalidations, ["ignored", "ambiguous"].includes(scenario) ? 1 : 0);
   }
 });
+
+
+test("T8425 brightness is exact, scalar and independently readable without defaults", () => {
+  const r = route("T8425", 47, false), p = cameraSettingProfile(r, "lightBrightness")!;
+  assert.deepEqual(p, { readParam: 1401, command: 1401, form: "binary" });
+  for (const value of [1, 37, 100]) {
+    assert.equal(readCameraSetting([{ param_type: 1401, param_value: `${value}` }], "T8425", 47, true, "lightBrightness"), value);
+    assert.equal(safeInventoryReads([{ param_type: 1401, param_value: `${value}` }], 47, "T8425", true).lightBrightness, value);
+    const frame = buildReviewedCameraSettingPayload({ setting: "lightBrightness", value }, r, "fixture-owner", Buffer.alloc(32, 7), 1, 1791464400000);
+    const body = clear(frame, Buffer.alloc(32, 7));
+    assert.equal(frame.command, 1401); assert.equal(body.length, 136);
+    assert.equal(body.readUInt32LE(0), 0); assert.equal(body.readUInt32LE(4), value);
+    assert.equal(body.subarray(8, 21).toString(), "fixture-owner");
+  }
+  for (const bad of [0, 101, 2.5, NaN, Infinity, true, null, " 50", "50.0"]) {
+    assert.equal(readCameraSetting([{ param_type: 1401, param_value: bad }], "T8425", 47, true, "lightBrightness"), undefined);
+    if (typeof bad !== "string") assert.throws(() => parseCameraSettingChange({ setting: "lightBrightness", value: bad }));
+  }
+  assert.equal(readCameraSetting([{ param_type: 1401, param_value: 50 }, { param_type: 1401, param_value: 50 }], "T8425", 47, true, "lightBrightness"), undefined);
+  for (const unsupported of [route("T8426", 87, false), route("T8425", 47, true), route("T8425X", 47, false), route("T8425", 37, false), { ...r, channel: 1 }]) {
+    assert.equal(cameraSettingProfile(unsupported, "lightBrightness"), null);
+    assert.throws(() => buildReviewedCameraSettingPayload({ setting: "lightBrightness", value: 50 }, unsupported, "fixture-owner", Buffer.alloc(32, 7), 1, 1791464400000));
+  }
+});
+
+
+test("T8426 manual override requires its own read and native level-one format", () => {
+  const r = route("T8426", 87, false);
+  assert.deepEqual(cameraSettingProfile(r, "manualFloodlight"), { readParam: 1400, command: 1700, form: "manual-light" });
+  for (const [raw, expected] of [["0", false], ["1", true]] as const) {
+    const params = [{ param_type: 1400, param_value: raw }];
+    assert.equal(readCameraSetting(params, "T8426", 87, true, "manualFloodlight"), expected);
+    assert.equal(safeInventoryReads(params, 87, "T8426", true).manualFloodlightEnabled, expected);
+    assert.equal(readCameraSetting([...params, ...params], "T8426", 87, true, "manualFloodlight"), undefined);
+  }
+  for (const value of [null, true, 2, "", "false", " 0"]) assert.equal(readCameraSetting([{ param_type: 1400, param_value: value }], "T8426", 87, true, "manualFloodlight"), undefined);
+  assert.equal(cameraSettingProfile(route("T8425", 47, false), "manualFloodlight"), null);
+  assert.equal(cameraSettingProfile(route("T8426", 87, true), "manualFloodlight"), null);
+  assert.throws(() => buildReviewedCameraSettingPayload({ setting: "manualFloodlight", value: true }, r, "fixture-owner", Buffer.alloc(32), 1, 1791464400000), /level-one/);
+});

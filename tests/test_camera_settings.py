@@ -28,6 +28,49 @@ class ClientFailure(Exception):
 class CameraSettingsTest(unittest.IsolatedAsyncioTestCase):
     """Protect integer validation, confirmation and targeted failure semantics."""
 
+    async def test_brightness_requires_integral_values_and_clears_only_uncertain_state(self):
+        """Keep opt-in brightness independent of floodlight switching and motion settings."""
+        callback = method("number.py", "EufyFloodlightBrightnessNumber", "async_set_native_value",
+                          {"GatewayClientError": ClientFailure, "HomeAssistantError": RuntimeError})
+        camera = {"serial": "fixture", "reportedSettings": {"lightBrightness": 80, "motionSensitivityStep": 3}}
+        client = SimpleNamespace(set_camera_setting=AsyncMock(return_value=camera))
+        published = []
+        entity = SimpleNamespace(serial="fixture", camera=camera,
+                                 coordinator=SimpleNamespace(client=client, async_set_camera=published.append))
+        for invalid in (True, "2", 0, 101, 2.5, float("nan"), float("inf")):
+            with self.assertRaises(RuntimeError):
+                await callback(entity, invalid)
+        client.set_camera_setting.assert_not_called()
+        await callback(entity, 70.0)
+        client.set_camera_setting.assert_awaited_once_with("fixture", "lightBrightness", 70)
+        client.set_camera_setting.side_effect = ClientFailure("unavailable", 409)
+        with self.assertRaises(RuntimeError):
+            await callback(entity, 70)
+        self.assertEqual(len(published), 1)
+        client.set_camera_setting.side_effect = ClientFailure("outcome_unknown", 503)
+        with self.assertRaises(RuntimeError):
+            await callback(entity, 70)
+        self.assertIsNone(published[-1]["reportedSettings"]["lightBrightness"])
+        self.assertEqual(published[-1]["reportedSettings"]["motionSensitivityStep"], 3)
+        self.assertEqual(camera["reportedSettings"]["lightBrightness"], 80)
+
+    async def test_brightness_client_requires_matching_confirmation(self):
+        """Do not treat an unrelated or incorrectly typed setting as brightness confirmation."""
+        callback = method("client.py", "GatewayClient", "set_camera_setting", {"GatewayClientError": ClientFailure, "quote": quote})
+        camera = {"serial": "fixture", "reportedSettings": {"lightBrightness": 70}}
+        client = SimpleNamespace(_json=AsyncMock(return_value=camera))
+        self.assertEqual(await callback(client, "fixture", "lightBrightness", 70), camera)
+        for response in ({"serial": "other", "reportedSettings": {"lightBrightness": 70}},
+                         {"serial": "fixture", "reportedSettings": {"lightBrightness": "70"}},
+                         {"serial": "fixture", "reportedSettings": {"homebaseChimeEnabled": True}}):
+            client._json.return_value = response
+            with self.assertRaises(ClientFailure):
+                await callback(client, "fixture", "lightBrightness", 70)
+        client._json.reset_mock()
+        with self.assertRaises(ClientFailure):
+            await callback(client, "fixture", "arbitrary", 70)
+        client._json.assert_not_called()
+
     async def test_number_rejects_non_integral_values_and_preserves_clean_rejections(self):
         """Only supported whole-number steps dispatch, and only uncertain writes invalidate."""
         callback = method("number.py", "EufyMotionSensitivityNumber", "async_set_native_value",

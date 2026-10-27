@@ -11,9 +11,23 @@ models:
   - T8425
   - T8425121
 device_type: 47
-notes: The contributor physically confirmed manual floodlight on and off on exact standalone T8425 firmware 1.6.4.6. The momentary command has no independent light-state readback or automatic-off guarantee. Brightness, master spotlight settings, T8425121 and attached routes are not covered.
+notes: The contributor physically confirmed manual floodlight on and off on exact standalone T8425 firmware 1.6.4.6. The momentary command has no independent light-state readback or automatic-off guarantee. An opt-in brightness number is implemented for exact standalone T8425 with an owner account and independent readback. Physical brightness behaviour is unconfirmed. Master spotlight settings, T8425121 and attached routes are not covered.
 capabilities:
   controls:
+    light_brightness:
+      connections:
+        direct:
+          status: declared
+          notes: Implemented behind experimental model controls for exact T8425 type 47 on channel zero with the current owner account and a readable baseline. Each request sends once and requires independent readback. Physical behaviour remains unconfirmed. T8425121 and attached routes are excluded.
+      read:
+        parameter: 1401
+      write:
+        command: 1401
+        input:
+          name: brightness_percent
+          type: integer
+          minimum: 1
+          maximum: 100
     enabled:
       connections:
         direct:

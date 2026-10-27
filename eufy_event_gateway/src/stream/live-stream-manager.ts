@@ -1508,6 +1508,16 @@ export function h265ViewerTranscoderArguments(fixedResolution = false): string[]
     "-hide_banner",
     "-loglevel",
     "error",
+
+    // The manager supplies a complete HEVC startup sequence. A one-microsecond
+    // analysis limit avoids FFmpeg's automatic multi-second probe without
+    // dropping the buffered keyframe or changing input cadence.
+    "-probesize",
+    "32768",
+    "-analyzeduration",
+    "1",
+    "-fpsprobesize",
+    "0",
     "-f",
     "hevc",
     "-i",

@@ -1,5 +1,8 @@
 title: Eufy Mega Security
 entity:
+  light:
+    manual_floodlight:
+      name: Manuel projektør
   camera:
     event_image:
       name: Hændelsesbillede

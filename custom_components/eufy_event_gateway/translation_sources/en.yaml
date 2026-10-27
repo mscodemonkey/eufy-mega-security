@@ -1,5 +1,8 @@
 title: Eufy Mega Security
 entity:
+  light:
+    manual_floodlight:
+      name: Manual floodlight
   camera:
     event_image:
       name: Event image
