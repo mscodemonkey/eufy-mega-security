@@ -201,3 +201,37 @@ test("solo motion also stops its redundant transmissions after retirement", asyn
   await pending;
   assert.equal(f.sent.length, count);
 });
+
+test("logical close cancels media immediately but drains stop and END before releasing UDP", async context => {
+  const f = await peer(context);
+  await f.negotiate();
+  const socketClose = context.mock.method(Socket.prototype, "close", function (this: Socket) { return this; });
+  let complete!: (error: Error | null) => void;
+  context.mock.method(Socket.prototype, "send", (packet: Buffer, _port: number, _host: string, callback?: (error: Error | null) => void) => {
+    f.sent.push(Buffer.from(packet));
+    if (callback) complete = callback;
+  });
+  f.session.close();
+  f.session.close();
+  assert.equal(f.session.output.writableEnded, true);
+  assert.equal(socketClose.mock.callCount(), 0);
+  assert.equal(f.sent.at(-2)!.readUInt16LE(12), 1004);
+  assert.deepEqual(f.sent.at(-1), Buffer.from([0xf1, 0xf0, 0, 0]));
+  const count = f.sent.length;
+  complete(null);
+  await f.session.waitUntilClosed();
+  assert.equal(socketClose.mock.callCount(), 1);
+  context.mock.timers.tick(30000);
+  assert.equal(f.sent.length, count);
+});
+
+test("missing END completion releases the port after a finite local drain deadline", async context => {
+  const f = await peer(context, true, "T8113-Z", "control");
+  const socketClose = context.mock.method(Socket.prototype, "close", function (this: Socket) { return this; });
+  f.session.close();
+  context.mock.timers.tick(499);
+  assert.equal(socketClose.mock.callCount(), 0);
+  context.mock.timers.tick(1);
+  await f.session.waitUntilClosed();
+  assert.equal(socketClose.mock.callCount(), 1);
+});

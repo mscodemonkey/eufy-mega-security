@@ -225,3 +225,30 @@ for (const phase of ["lookup", "ack", "readback"]) {
     } finally { release(); await f.dispose(); }
   });
 }
+
+test("HB2 handoff waits for both old media and owned control disconnect sends", async context => {
+  const f = await fixture(context);
+  let release!: () => void;
+  let held = new Promise<void>(resolve => { release = resolve; });
+  let waiting = 0;
+  context.mock.method(FirstPartyPpcsSession.prototype, "waitUntilClosed", async () => { waiting++; await held; });
+  try {
+    await f.provider.startStream("camera");
+    const motion = f.provider.setCameraMotionDetection("camera", false);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(waiting, 1);
+    assert.equal(f.start.mock.callCount(), 1);
+    assert.equal(f.write.mock.callCount(), 0);
+    release();
+    held = new Promise<void>(resolve => { release = resolve; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(waiting, 2);
+    const reopened = f.provider.startStream("camera");
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(f.start.mock.callCount(), 2);
+    release();
+    await motion;
+    await reopened;
+    assert.equal(f.start.mock.callCount(), 3);
+  } finally { release(); await f.dispose(); }
+});
