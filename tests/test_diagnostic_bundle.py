@@ -118,6 +118,45 @@ class DiagnosticBundleTests(unittest.TestCase):
             with self.assertRaises(Exception):
                 TOOL.private_output_path(config, alias / "www/private.gz")
 
+    def test_movement_uses_saved_connection_and_closed_result(self):
+        """Admit and send one direction without returning a serial or token."""
+        calls = []
+
+        def fake_request(url, token, method="GET", value=None):
+            calls.append((url, token, method, value))
+            if url.endswith("/targets"):
+                return json.dumps({"devices": [{"serial": "private-camera", "model": "T8417",
+                                                "streamSupported": True}]}).encode()
+            if method == "GET":
+                return json.dumps({"actions": ["motion", "ptz"], "experimental": True}).encode()
+            return json.dumps({"outcome": "acknowledged", "physicalConfirmationRequired": True}).encode()
+
+        original = TOOL.request
+        TOOL.request = fake_request
+        try:
+            result = TOOL.movement_test("http://gateway.invalid", "private-token",
+                                        [{"serial": "private-camera", "model": "T8417",
+                                          "streamSupported": True}], 1, "left")
+        finally:
+            TOOL.request = original
+        self.assertEqual(result["outcome"], "acknowledged")
+        self.assertNotIn("private-camera", json.dumps(result))
+        self.assertEqual(calls[-2][2:], ("GET", None))
+        self.assertEqual(calls[-1][2:], ("POST", {"action": "ptz", "direction": "left"}))
+
+    def test_movement_refuses_missing_admission_and_bad_selection(self):
+        """Refuse a command unless the current gateway explicitly admits PTZ."""
+        with self.assertRaises(TOOL.DiagnosticError):
+            TOOL.selected_device([], 1)
+        original = TOOL.request
+        TOOL.request = lambda *_args, **_kwargs: json.dumps({"actions": ["motion"]}).encode()
+        try:
+            with self.assertRaises(TOOL.DiagnosticError):
+                TOOL.movement_test("http://gateway.invalid", "private-token",
+                                   [{"serial": "private-camera"}], 1, "left")
+        finally:
+            TOOL.request = original
+
 
 if __name__ == "__main__":
     unittest.main()
