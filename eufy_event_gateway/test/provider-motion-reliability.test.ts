@@ -14,6 +14,7 @@ import { MegaPushReceiver } from "../src/mega/push.js";
 import { HomeBasePpcsSession } from "../src/stream/homebase-ppcs.js";
 import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
+import { observeLogEvents } from "../src/logging.js";
 
 /** Own a normalized camera, confirmed settings and all synthetic session effects. */
 async function fixture(context: TestContext, standalone = false, stationModel = "T8010", extra = false) {
@@ -75,6 +76,19 @@ test("HB2 stops live media before its owned motion session and confirms fresh in
     assert.ok(f.closes.includes(f.sessions[1]!));
     assert.ok(f.inventory.mock.callCount() > reads);
   } finally { await f.dispose(); }
+});
+
+test("successful camera startup emits the closed stage-timing event", async context => {
+  const observed: string[] = [];
+  const stopObserving = observeLogEvents((component, event) => { observed.push(`${component}:${event}`); });
+  const f = await fixture(context);
+  try {
+    await f.provider.startStream("camera");
+    assert.ok(observed.includes("provider:camera_stream_start_timings"));
+  } finally {
+    stopObserving();
+    await f.dispose();
+  }
 });
 
 for (const mode of ["confirmed", "ack-lost", "readback-mismatch", "hard-error"]) {
