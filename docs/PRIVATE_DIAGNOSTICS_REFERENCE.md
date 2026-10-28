@@ -86,8 +86,8 @@ standard library. Keep them outside `/config/www`.
 
 ```sh
 mkdir -p /config/eufy-diagnostics-tools
-curl -fL https://raw.githubusercontent.com/mscodemonkey/eufy-mega-security/v0.1.131/eufy_event_gateway/scripts/diagnostic-bundle.py -o /config/eufy-diagnostics-tools/diagnostic-bundle.py
-curl -fL https://raw.githubusercontent.com/mscodemonkey/eufy-mega-security/v0.1.131/eufy_event_gateway/scripts/export-event-image-capture.py -o /config/eufy-diagnostics-tools/export-event-image-capture.py
+curl -fL https://raw.githubusercontent.com/mscodemonkey/eufy-mega-security/v0.1.211/eufy_event_gateway/scripts/diagnostic-bundle.py -o /config/eufy-diagnostics-tools/diagnostic-bundle.py
+curl -fL https://raw.githubusercontent.com/mscodemonkey/eufy-mega-security/v0.1.211/eufy_event_gateway/scripts/export-event-image-capture.py -o /config/eufy-diagnostics-tools/export-event-image-capture.py
 python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py list
 ```
 
@@ -105,6 +105,20 @@ python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py capture --output /co
 Reproduce the problem during those 30 seconds. To focus on one device, add
 `--target-index 1`, replacing `1` with its current index. A HomeBase selection
 also observes child cameras. Use a new output filename for each attempt.
+
+For an explicitly requested experimental camera movement test, first enable
+**Experimental model controls** in the app options and restart the app. Record
+the camera's original view, stop live viewers, and use the current device index
+from `list`. The utility reads the integration's saved token without displaying
+it. This sends one finite movement only:
+
+```sh
+python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py movement-test --target-index 1 --direction left --consent-restore-view
+```
+
+Watch the camera, then restore its original view in Eufy. An acknowledged result
+does not prove physical movement. Do not retry until you know what happened. If
+the test fails, share only the `model_control_trial_failed` log line publicly.
 
 For a stream problem, when you agree to include private media, choose a camera
 with `streamSupported` and run:

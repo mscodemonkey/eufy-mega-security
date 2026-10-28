@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.211
+
+- Let Home Assistant OS users run one admitted experimental movement test through the support utility without exposing the app-generated API token.
+
 ## 0.1.210
 
 - Expose the existing Home Assistant doorbell press sensor for exact Video Doorbell S4 T8215/type 97 devices after a reporter confirmed their physical button uses the already-supported event shape. Motion, person and button events are now recorded separately, while live view, snapshots and controls remain unconfirmed.

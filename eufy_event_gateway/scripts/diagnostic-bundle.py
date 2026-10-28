@@ -35,6 +35,7 @@ MAX_WIRE = 96 * 1024 * 1024
 MAX_JSON = 112 * 1024 * 1024
 MAX_MEDIA = 64 * 1024 * 1024
 MAX_RECORDS = 20_000
+MOVEMENT_DIRECTIONS = ("left", "right", "up", "down")
 
 
 class DiagnosticError(Exception):
@@ -171,6 +172,42 @@ def live_view(url: str, token: str) -> None:
         pass
 
 
+def devices(endpoint: str, token: str) -> list[dict]:
+    """Read the current closed device selection without exposing identifiers."""
+    value = json.loads(request(endpoint + "/targets", token))
+    rows = value.get("devices") if isinstance(value, dict) else None
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise DiagnosticError("Gateway returned an invalid device list.")
+    return rows
+
+
+def selected_device(rows: list[dict], index: int) -> dict:
+    """Resolve a current one-based index while keeping serials out of output."""
+    if not 1 <= index <= len(rows):
+        raise DiagnosticError("Choose a device index from the current list.")
+    row = rows[index - 1]
+    if not isinstance(row.get("serial"), str) or not row["serial"]:
+        raise DiagnosticError("Gateway returned an invalid device selection.")
+    return row
+
+
+def movement_test(url: str, token: str, rows: list[dict], index: int, direction: str) -> dict:
+    """Send one admitted movement and return only its closed confirmation boundary."""
+    target = selected_device(rows, index)
+    endpoint = url + "/api/cameras/" + quote(target["serial"], safe="") + "/model-control-trial"
+    admission = json.loads(request(endpoint, token))
+    actions = admission.get("actions") if isinstance(admission, dict) else None
+    if not isinstance(actions, list) or any(not isinstance(action, str) for action in actions):
+        raise DiagnosticError("Gateway returned an invalid movement admission.")
+    if "ptz" not in actions:
+        raise DiagnosticError("The selected device has no admitted movement test.")
+    result = json.loads(request(endpoint, token, "POST", {"action": "ptz", "direction": direction}))
+    if not isinstance(result, dict) or result.get("outcome") != "acknowledged" or result.get("physicalConfirmationRequired") is not True:
+        raise DiagnosticError("Gateway did not acknowledge the movement test.")
+    return {"outcome": "acknowledged", "physicalConfirmationRequired": True,
+            "next": "Check whether the camera moved, then restore its original view in Eufy."}
+
+
 def run(options) -> dict:
     """Perform the selected owner-requested workflow, retaining tokens only in memory."""
     if options.command == "inspect":
@@ -178,9 +215,13 @@ def run(options) -> dict:
     url, token = HELPERS.gateway_connection(options.config, options.entry_id)
     endpoint = url + "/api/diagnostics/bundle"
     if options.command == "list":
-        devices = json.loads(request(endpoint + "/targets", token))["devices"]
+        rows = devices(endpoint, token)
         return {"devices": [{"index": i + 1, "model": row["model"], "streamSupported": row["streamSupported"]}
-                            for i, row in enumerate(devices)]}
+                            for i, row in enumerate(rows)]}
+    if options.command == "movement-test":
+        if not options.consent_restore_view:
+            raise DiagnosticError("Movement testing requires explicit restore-view consent.")
+        return movement_test(url, token, devices(endpoint, token), options.target_index, options.direction)
     if options.command in {"status", "clear"}:
         return json.loads(request(endpoint, token, "DELETE" if options.command == "clear" else "GET"))
     if options.command == "export":
@@ -189,11 +230,9 @@ def run(options) -> dict:
         raise DiagnosticError("Private media capture requires explicit consent.")
     private_output_path(options.config, options.output)
     target = None
-    devices = json.loads(request(endpoint + "/targets", token))["devices"]
+    rows = devices(endpoint, token)
     if options.target_index is not None:
-        if not 1 <= options.target_index <= len(devices):
-            raise DiagnosticError("Choose a device index from the current list.")
-        target = devices[options.target_index - 1]
+        target = selected_device(rows, options.target_index)
     if options.open_live and (not options.media or not target or not target["streamSupported"]):
         raise DiagnosticError("Live capture requires media consent and one supported camera.")
     request(endpoint, token, "POST", {"target": target["serial"] if target else None,
@@ -224,6 +263,12 @@ def main(arguments=None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("list", "status", "clear"):
         sub.add_parser(name)
+    movement = sub.add_parser("movement-test", help="Send one admitted experimental camera movement.")
+    movement.add_argument("--target-index", type=int, required=True,
+                          help="Current one-based device index from the list command.")
+    movement.add_argument("--direction", choices=MOVEMENT_DIRECTIONS, required=True)
+    movement.add_argument("--consent-restore-view", action="store_true",
+                          help="Confirm that you recorded and will restore the original view.")
     capture = sub.add_parser("capture")
     capture.add_argument("--output", type=Path, required=True)
     capture.add_argument("--target-index", type=int)
