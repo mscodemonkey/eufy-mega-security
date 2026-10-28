@@ -100,8 +100,8 @@ test("type16 T8220 rings through its HomeBase 2 route", async context => {
 });
 
 test("doorbell identity and press summaries include only the supported category and types", () => {
-  for (const deviceType of [5, 7, 16, 91, 94, 95, 96, 203]) assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType }), true);
-  for (const deviceType of [2, 10, 93, 97, 104, 126, 127, null]) assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType }), false);
+  for (const deviceType of [5, 7, 16, 91, 94, 95, 96, 97, 203]) assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType }), true);
+  for (const deviceType of [2, 10, 93, 104, 126, 127, null]) assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType }), false);
   assert.equal(isDoorbellDevice({ category: "other", deviceType: 95 }), false);
   assert.equal(isDoorbellDevice({ category: undefined, deviceType: 95 } as never), false);
   const event = parsePushEvent({ device_sn: "t8223", payload: JSON.stringify({ a: 3103, notification_style: 1 }) });

@@ -10,7 +10,7 @@ integration:
 models:
   - T8215
 device_type: 97
-notes: "Exact T8215/type 97 discovery and battery reads are reported. Live view, snapshots, events and controls remain unconfirmed."
+notes: "Exact T8215/type 97 discovery, battery reads, motion, person and button-press events are reported through HomeBase Professional S1. Live view, snapshots and controls remain unconfirmed."
 capabilities:
   readable:
     battery_level:
@@ -37,3 +37,23 @@ capabilities:
           status: declared
       read:
         parameter: 1138
+  events:
+    motion:
+      connections:
+        T9000:
+          status: reported
+          tested_on: 2026-10-28
+          tested_by: jaimmor
+    person:
+      connections:
+        T9000:
+          status: reported
+          tested_on: 2026-10-28
+          tested_by: jaimmor
+    doorbell_press:
+      connections:
+        T9000:
+          status: reported
+          tested_on: 2026-10-28
+          tested_by: jaimmor
+          notes: Event type 3103 with notification style 3 and no AI evidence followed a physical button press on v0.1.209.
