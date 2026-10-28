@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.210
+
+- Expose the existing Home Assistant doorbell press sensor for exact Video Doorbell S4 T8215/type 97 devices after a reporter confirmed their physical button uses the already-supported event shape. Motion, person and button events are now recorded separately, while live view, snapshots and controls remain unconfirmed.
+
 ## 0.1.209
 
 - Repair the exact T8113-Z/T8010 setup query with byte-identical, peer-pinned DATA retransmission until its validated acknowledgement or reply, the existing three-second repair deadline, or session close.

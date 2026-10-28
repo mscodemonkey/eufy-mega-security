@@ -1261,8 +1261,18 @@ test("identifies the T8214 doorbell without classifying the T8416 indoor camera 
   assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType: 16 }), true);
   assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType: 94 }), true);
   assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType: 96 }), true);
+  assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType: 97 }), true);
   assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType: 203 }), true);
   assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType: 104 }), false);
+});
+
+test("routes the reported T8215 style-3 press without widening other type-97 categories", () => {
+  const press = safePushLogSummary({
+    eventType: 3103, messageType: 18, notificationStyle: 3,
+    pictureUrl: null, alarmType: null, detectionEvidence: [],
+  }, { model: "T8215", category: "eufy_security", deviceType: 97 }, true, false);
+  assert.match(press, /event_type=3103 message_type=18 notification_style=3 handling=doorbell_press/);
+  assert.equal(isDoorbellDevice({ category: "other", deviceType: 97 }), false);
 });
 
 test("admits T8224 type 96 as a camera with confirmed press support", () => {
