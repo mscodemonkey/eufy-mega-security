@@ -2489,6 +2489,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   async #startStreamOnce(serial: string, current: () => void): Promise<void> {
+    const startedAt = performance.now();
     current();
     if (this.#recordingPeerReserved(serial)) throw new Error("Wait for recording retrieval before starting live view");
     const device = this.#devices.get(serial);
@@ -2497,6 +2498,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const peer = route?.peer;
     if (isE21(device) && (!this.#e21Inventory.has(serial) || !this.config.experimentalModelControls || !route || route.homeBaseAttached || device.channel !== 0)) throw new E21ControlError("admission");
     const dsk = peer ? await this.#dskKey(peer.serial) : null;
+    const dskReadyAt = performance.now();
     current();
 
     // The production path is deliberately first-party Mega/PPCS.
@@ -2505,10 +2507,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const previous = this.#ppcsStreams.get(serial);
       previous?.close("replaced");
       await previous?.waitUntilClosed();
+      const previousClosedAt = performance.now();
       current();
       const initialEccPrivateKey = !route.homeBaseAttached && device.cipherId !== null
         ? await this.#resolveCipherKey(device.cipherId, peer)
         : undefined;
+      const cipherReadyAt = performance.now();
       current();
       if (this.#recordingPeerReserved(serial)) throw new Error("Wait for recording retrieval before starting live view");
       const stream = new FirstPartyPpcsSession({
@@ -2544,6 +2548,17 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         if (this.#ppcsStreams.get(serial) === stream) this.#ppcsStreams.delete(serial);
         throw error;
       }
+      const transportReadyAt = performance.now();
+      const elapsed = (later: number, earlier: number): number => Math.round(Math.max(0, later - earlier));
+      logger.info("camera_stream_start_timings", [
+        `model=${device.model}`,
+        `topology=${route.homeBaseAttached ? "attached" : "direct"}`,
+        `dsk_ms=${elapsed(dskReadyAt, startedAt)}`,
+        `previous_close_ms=${elapsed(previousClosedAt, dskReadyAt)}`,
+        `cipher_ms=${elapsed(cipherReadyAt, previousClosedAt)}`,
+        `transport_ms=${elapsed(transportReadyAt, cipherReadyAt)}`,
+        `total_ms=${elapsed(transportReadyAt, startedAt)}`,
+      ].join(" "));
       const audio = (isE21(device) || supportsCameraLiveAudio(device, route, true))
         ? stream.audioOutput : undefined;
       this.#events?.streamStarted(serial, stream.output, () => stream.videoCodec, audio);

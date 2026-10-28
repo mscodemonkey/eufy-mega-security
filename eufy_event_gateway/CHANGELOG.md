@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.212
+
+- Add one privacy-safe camera startup timing line that separates key lookup, prior-session cleanup, cipher lookup and transport startup without logging device identifiers or network details.
+
 ## 0.1.211
 
 - Let Home Assistant OS users run one admitted experimental movement test through the support utility without exposing the app-generated API token.
