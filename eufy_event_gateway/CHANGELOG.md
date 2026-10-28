@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.213
+
+- Fixed integration startup on Home Assistant 2026.11 after its camera timeout constant moved.
+
 ## 0.1.212
 
 - Add one privacy-safe camera startup timing line that separates key lookup, prior-session cleanup, cipher lookup and transport startup without logging device identifiers or network details.

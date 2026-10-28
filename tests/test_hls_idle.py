@@ -31,7 +31,7 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         cls = ast.ClassDef(name="TestCamera", bases=[ast.Name(id="CameraBase", ctx=ast.Load())],
                            keywords=[], body=[method, next(n for n in camera.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "_async_stream_url")], decorator_list=[])
         module = ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[]))
-        namespace = {"CameraBase": base, "Stream": object, "StreamOutput": object, "GatewayClientError": RuntimeError, "_LOGGER": Mock(), "asyncio": asyncio, "CAMERA_STREAM_SOURCE_TIMEOUT": 0.02}
+        namespace = {"CameraBase": base, "Stream": object, "StreamOutput": object, "GatewayClientError": RuntimeError, "_LOGGER": Mock(), "asyncio": asyncio, "STREAM_URL_RENEWAL_TIMEOUT": 0.02}
         exec(compile(module, str(SOURCE), "exec"), namespace)
         self.base = base
         self.camera = namespace["TestCamera"]()
@@ -48,6 +48,26 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         self.camera.serial = "demo"
         self.camera.coordinator = SimpleNamespace(client=SimpleNamespace(stream_url=AsyncMock(return_value="fresh")))
         base.async_create_stream.return_value = self.stream
+
+    def test_stream_renewal_timeout_is_integration_owned(self) -> None:
+        """Avoid importing a Home Assistant camera constant that moved in 2026.11."""
+        tree = ast.parse(SOURCE.read_text())
+        camera_imports = {
+            alias.name
+            for node in tree.body
+            if isinstance(node, ast.ImportFrom)
+            and node.module == "homeassistant.components.camera"
+            for alias in node.names
+        }
+        assignments = {
+            target.id
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        self.assertNotIn("CAMERA_STREAM_SOURCE_TIMEOUT", camera_imports)
+        self.assertIn("STREAM_URL_RENEWAL_TIMEOUT", assignments)
 
     @staticmethod
     def _settings(minimum=5.9, ll=True):

@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, Any
 import voluptuous as vol
 from homeassistant.components.camera import (
     Camera,
-    CAMERA_STREAM_SOURCE_TIMEOUT,
     CameraEntityFeature,
     async_request_stream,
 )
@@ -54,6 +53,7 @@ _LOGGER = logging.getLogger(__name__)
 
 CONF_DURATION = "duration"
 STREAM_SOURCE_REFRESH_INTERVAL = timedelta(minutes=5)
+STREAM_URL_RENEWAL_TIMEOUT = 10
 
 
 def _cloud_day_window(day: str, zone: Any) -> tuple[int, int, int]:
@@ -282,7 +282,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
             try:
                 source = await asyncio.wait_for(
                     self._async_stream_url(),
-                    timeout=CAMERA_STREAM_SOURCE_TIMEOUT,
+                    timeout=STREAM_URL_RENEWAL_TIMEOUT,
                 )
                 if self.hass is not None and self.stream is stream:
                     stream.source = source
