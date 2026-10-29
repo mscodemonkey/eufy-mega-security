@@ -557,7 +557,7 @@ test("uses the supported Mega inventory request and decrypts its response", asyn
   }
 });
 
-test("fetches first-party PPCS DSK keys from the Mega device-relation API", async () => {
+test("fetches first-party PPCS DSK keys with each device family's category", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mega-dsk-"));
   const sharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
   const host = "app-openapi-eu-pr.eufy.com";
@@ -567,17 +567,32 @@ test("fetches first-party PPCS DSK keys from the Mega device-relation API", asyn
       authToken: "token", tokenExpiresAt: 2_000_000_000, userId: "user", megaDomain: "mega-eu-pr.eufy.com",
       domains: {}, identities: { [host]: { keyIdent: "identity", sharedKey, clientPublicKey: "public" }, "app-devicerelation-eu-pr.eufy.com": { keyIdent: "identity", sharedKey, clientPublicKey: "public" } },
     }));
-    const requests: string[] = [];
+    const requests: Array<{ url: string; body: string }> = [];
     const fakeFetch: typeof fetch = async (input, init) => {
-      requests.push(String(input));
+      requests.push({ url: String(input), body: String(init?.body) });
       assert.equal(new Headers(init?.headers).has("app-tab"), false);
-      const data = encryptEnvelope(JSON.stringify({ device_dsks: [{ device_sn: "station", dsk_key: "dsk", expiration: 1_700_000_123 }] }), sharedAesKey(sharedKey), Buffer.alloc(16, 3));
+      const data = encryptEnvelope(JSON.stringify({ device_dsks: [
+        { device_sn: "station", dsk_key: "dsk", expiration: 1_700_000_123 },
+        { device_sn: "care", dsk_key: "care-dsk", expiration: 1_700_000_124 },
+      ] }), sharedAesKey(sharedKey), Buffer.alloc(16, 3));
       return new Response(JSON.stringify({ code: 0, data }), { status: 200 });
     };
     const client = new MegaClient({ email: "user@example.invalid", password: "password", country: "AU", persistentDirectory: directory, minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000, fetch: fakeFetch });
     await client.connect();
-    assert.deepEqual(await client.dskKeys(["station"]), { station: { key: "dsk", expiresAt: 1_700_000_123_000 } });
-    assert.equal(requests.at(-1), "https://app-devicerelation-eu-pr.eufy.com/app/devicerelation/get_dsk_keys");
+    assert.deepEqual(await client.dskKeys(["station", { serial: "care", category: "eufy_care" }]), {
+      station: { key: "dsk", expiresAt: 1_700_000_123_000 },
+      care: { key: "care-dsk", expiresAt: 1_700_000_124_000 },
+    });
+    assert.equal(requests.at(-1)?.url, "https://app-devicerelation-eu-pr.eufy.com/app/devicerelation/get_dsk_keys");
+    assert.deepEqual(JSON.parse(decryptEnvelope(requests.at(-1)!.body, sharedAesKey(sharedKey))), {
+      device_dsks: [
+        { invalid_dsk: "", device_sn: "station", category: "eufy_security" },
+        { invalid_dsk: "", device_sn: "care", category: "eufy_care" },
+      ],
+      invalid_dsks: { station: "", care: "" },
+      station_sns: ["station", "care"],
+      transaction: "1700000000000",
+    });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

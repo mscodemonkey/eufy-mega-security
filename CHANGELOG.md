@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.216
+
+- Fix E21 live-view readiness by requesting its camera transport key with the correct care-device category.
+
 ## 0.1.215
 
 - Preserve fragmented HomeBase state responses when UDP packets arrive out of order or are repeated, using the existing bounded receive window.
