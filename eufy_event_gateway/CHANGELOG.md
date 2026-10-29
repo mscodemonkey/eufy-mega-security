@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.215
+
+- Preserve fragmented HomeBase state responses when UDP packets arrive out of order or are repeated, using the existing bounded receive window.
+- Recover response alignment after a missing fragment so a later complete response can still be read.
+- Add privacy-safe HomeBase failure counters for request delivery, response sequencing and assembly progress.
+
 ## 0.1.214
 
 - Recover the verified T8113-Z/HomeBase 2 channel-zero startup when the authenticated peer ignores a live-start request, acknowledges it without an application response, or stalls after a short video bootstrap. Replace only the owned peer, at most twice, within the original startup deadline.
