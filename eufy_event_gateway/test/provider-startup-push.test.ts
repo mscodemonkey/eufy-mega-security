@@ -750,8 +750,11 @@ test("runtime discovery batches missing keys, throttles failures and restores re
       { device_sn: "rtc", device_model: "T8N00", device_type: 300, category: "eufy_security", p2p_did: "fixture-rtc", p2p_conn: "fixture-route" },
     ] }));
     let recover = false;
-    const keys = context.mock.method(MegaClient.prototype, "dskKeys", async (serials: readonly string[]) => {
-      assert.deepEqual(serials, ["peer"]);
+    const keys = context.mock.method(MegaClient.prototype, "dskKeys", async (targets: readonly (string | {
+      readonly serial: string;
+      readonly category: "eufy_security" | "eufy_care";
+    })[]) => {
+      assert.deepEqual(targets, [{ serial: "peer", category: "eufy_security" }]);
       if (!recover) throw new Error("Fixture key failure");
       return { peer: { key: "fixture-key", expiresAt: null } };
     });

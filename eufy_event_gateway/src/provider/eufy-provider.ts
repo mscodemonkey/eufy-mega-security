@@ -788,7 +788,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const pending = this.#dskRefreshes.get(peerSerial);
     if (pending) return await pending;
     const generation = this.#startupGeneration;
-    const refresh = this.#client.dskKeys([peerSerial]).then((keys) => {
+    const category = this.#devices.get(peerSerial)?.category === "eufy_care" ? "eufy_care" : "eufy_security";
+    const refresh = this.#client.dskKeys([{ serial: peerSerial, category }]).then((keys) => {
       if (generation !== this.#startupGeneration) throw new Error("Device key lookup cancelled");
       const replacement = keys[peerSerial] ?? null;
       if (replacement) {
@@ -4060,10 +4061,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
     this.#dskKeys.clear();
     this.#cipherKeys.clear();
-    const peerSerials = [...new Set(devices.filter((device) => (!device.parentSerial || device.parentSerial === device.serial) && device.p2pDid).map((device) => device.serial))];
-    if (peerSerials.length > 0) {
+    const peers = [...new Map(devices
+      .filter((device) => (!device.parentSerial || device.parentSerial === device.serial) && device.p2pDid)
+      .map((device) => [device.serial, device] as const)).values()];
+    if (peers.length > 0) {
       try {
-        const keys = await this.#client.dskKeys(peerSerials);
+        const keys = await this.#client.dskKeys(peers.map((peer) => ({
+          serial: peer.serial,
+          category: peer.category === "eufy_care" ? "eufy_care" : "eufy_security",
+        })));
         if (generation !== this.#startupGeneration) return;
         for (const [serial, key] of Object.entries(keys)) this.#dskKeys.set(serial, key);
       } catch (error) {
@@ -4328,7 +4334,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           || (device.deviceType === 300 && device.model.startsWith("T8N00")))));
     if (missingPeers.length > 0) {
       try {
-        const keys = await this.#client.dskKeys(missingPeers.map(({ serial }) => serial));
+        const keys = await this.#client.dskKeys(missingPeers.map((peer) => ({
+          serial: peer.serial,
+          category: peer.category === "eufy_care" ? "eufy_care" : "eufy_security",
+        })));
         if (generation !== this.#startupGeneration) throw new Error("Inventory refresh cancelled");
         for (const peer of missingPeers) {
           const key = keys[peer.serial];

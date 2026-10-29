@@ -609,15 +609,27 @@ export class MegaClient {
     return error instanceof MegaLoginAttemptLimitError;
   }
 
-  /** Fetch the short-lived DSK lookup keys used by Eufy's native PPCS camera path. */
-  async dskKeys(stationSerials: readonly string[]): Promise<Record<string, { readonly key: string; readonly expiresAt: number | null }>> {
+  /**
+   * Fetch the short-lived DSK lookup keys used by Eufy's native PPCS camera path.
+   *
+   * The device category is part of the cloud lookup contract. Legacy string
+   * callers remain scoped to the Security family, while care devices must
+   * supply their exact category or the service omits their key.
+   */
+  async dskKeys(targets: readonly (string | {
+    readonly serial: string;
+    readonly category: "eufy_security" | "eufy_care";
+  })[]): Promise<Record<string, { readonly key: string; readonly expiresAt: number | null }>> {
     this.#requireAuthentication();
-    const deviceDsks = stationSerials.map((serial) => ({ invalid_dsk: "", device_sn: serial, category: "eufy_security" }));
+    const devices = targets.map((target) => typeof target === "string"
+      ? { serial: target, category: "eufy_security" as const }
+      : target);
+    const deviceDsks = devices.map(({ serial, category }) => ({ invalid_dsk: "", device_sn: serial, category }));
     const result = await this.#call("devicerelation", "/app/devicerelation/get_dsk_keys", {
       device_dsks: deviceDsks,
-      invalid_dsks: Object.fromEntries(stationSerials.map((serial) => [serial, ""])),
-      station_sns: [...stationSerials],
-      transaction: `${Date.now()}`,
+      invalid_dsks: Object.fromEntries(devices.map(({ serial }) => [serial, ""])),
+      station_sns: devices.map(({ serial }) => serial),
+      transaction: `${this.#now()}`,
     });
     const decoded = this.#decodeResult(result);
     const value: Record<string, unknown> = isRecord(decoded) ? decoded : {};
