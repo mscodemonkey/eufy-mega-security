@@ -6,11 +6,11 @@
 import assert from "node:assert/strict";
 import { PassThrough } from "node:stream";
 import test from "node:test";
-import { acknowledgedStartupIsSilent, observeOwnedStartup, type OwnedStartupFacts } from "../src/stream/owned-startup-recovery.js";
+import { acknowledgedStartupIsSilent, unacknowledgedStartupIsSilent, observeOwnedStartup, type OwnedStartupFacts } from "../src/stream/owned-startup-recovery.js";
 
 /** Create independent delivered-start facts with no application or media progress. */
 function facts(): OwnedStartupFacts {
-  return { camId: 1, mediaStartAcknowledged: 1, videoFrames: 0, videoOutputFrames: 0,
+  return { camId: 1, mediaStartAcknowledged: 1, mediaStartAttempts: 1, gatewayInfoAcknowledged: 1, videoFrames: 0, videoOutputFrames: 0,
     commands: [1100], closeReason: "open", videoCodec: "h264", videoNalTypes: [7, 8, 5] };
 }
 
@@ -33,7 +33,7 @@ for (const acknowledged of [0, 1]) test(`observation waits for silence threshold
   await Promise.resolve();
   assert.equal(settled, false);
   context.mock.timers.tick(1);
-  assert.equal(await result, acknowledged ? "silent" : "unconfirmed");
+  assert.equal(await result, acknowledged ? "silent" : "unacknowledged");
   assert.equal(source.listenerCount("end"), 0);
   assert.equal(source.listenerCount("close"), 0);
   source.destroy();
@@ -105,4 +105,15 @@ for (const advancing of [false, true]) test(`missing decoder bootstrap preserves
   context.mock.timers.tick(1000);
   assert.equal(await result, advancing ? "unconfirmed" : "stalled");
   source.destroy();
+});
+
+
+test("unacknowledged start replacement requires authenticated setup delivery without application progress", () => {
+  const state = { ...facts(), mediaStartAcknowledged: 0 };
+  assert.equal(unacknowledgedStartupIsSilent(state), true);
+  for (const change of [{ camId: 0 }, { gatewayInfoAcknowledged: 0 }, { mediaStartAttempts: 0 },
+    { videoFrames: 1 }, { videoOutputFrames: 1 }, { commands: [1100, 1350] },
+    { commands: [] }, { closeReason: "client_stop" }]) {
+    assert.equal(unacknowledgedStartupIsSilent({ ...state, ...change }), false);
+  }
 });

@@ -362,7 +362,7 @@ test("owned motion prevents a background station reader from opening", async con
   } finally { release(); await f.dispose(); }
 });
 
-test("silent owned HB2 startup drains its old peer before replacing it and publishes only the replacement", async context => {
+for (const acknowledged of [0, 1]) test(`silent owned HB2 startup drains before replacement and publishes only the replacement: ack=${acknowledged}`, async context => {
   context.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 1800000000000 });
   context.mock.method(performance, "now", () => Date.now());
   const f = await fixture(context, false, "T8010", false, "synthetic-base", 0);
@@ -372,7 +372,7 @@ test("silent owned HB2 startup drains its old peer before replacing it and publi
   const published = f.published;
   context.mock.method(FirstPartyPpcsSession.prototype, "start", async function (this: FirstPartyPpcsSession) {
     attempts.push(this);
-    Object.defineProperty(this, "stats", { value: { ...this.stats, camId: 1, mediaStartAcknowledged: 1, commands: [1100] } });
+    Object.defineProperty(this, "stats", { value: { ...this.stats, camId: 1, mediaStartAcknowledged: acknowledged, mediaStartAttempts: 2, gatewayInfoAcknowledged: 1, commands: [1100] } });
     if (attempts.length > 1) { this.stats.videoOutputFrames = 15; this.stats.videoCodec = "h264"; this.stats.videoNalTypes = [7, 8, 5]; }
   });
   context.mock.method(FirstPartyPpcsSession.prototype, "waitUntilClosed", function (this: FirstPartyPpcsSession) {

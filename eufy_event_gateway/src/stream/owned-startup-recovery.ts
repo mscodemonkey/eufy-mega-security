@@ -13,6 +13,8 @@ const STARTUP_STALL_MILLISECONDS = 3000;
 export interface OwnedStartupFacts {
   readonly camId: number;
   readonly mediaStartAcknowledged: number;
+  readonly mediaStartAttempts: number;
+  readonly gatewayInfoAcknowledged: number;
   readonly videoFrames: number;
 
   /** Normalized output-unit count used to reject a short startup prefix. */
@@ -26,7 +28,7 @@ export interface OwnedStartupFacts {
 }
 
 /** Progress preserves the peer; silence or a stalled bootstrap permits owned replacement. */
-export type OwnedStartupObservation = "progress" | "silent" | "stalled" | "unconfirmed";
+export type OwnedStartupObservation = "progress" | "silent" | "unacknowledged" | "stalled" | "unconfirmed";
 
 /** Require delivery proof and absence of any application response beyond the key handshake. */
 export function acknowledgedStartupIsSilent(facts: OwnedStartupFacts): boolean {
@@ -35,11 +37,19 @@ export function acknowledgedStartupIsSilent(facts: OwnedStartupFacts): boolean {
     && facts.commands.includes(1100) && facts.commands.every(command => command === 1100);
 }
 
+/** Require an authenticated, responsive peer and an attempted start that receives no acknowledgement or media. */
+export function unacknowledgedStartupIsSilent(facts: OwnedStartupFacts): boolean {
+  return facts.mediaStartAcknowledged === 0 && facts.mediaStartAttempts > 0
+    && facts.gatewayInfoAcknowledged > 0
+    && acknowledgedStartupIsSilent({ ...facts, mediaStartAcknowledged: 1 });
+}
+
 /**
  * Observe startup for a limited part of the caller's remaining deadline.
  * Media bytes stay buffered for the eventual viewer. Cancellation, logical
- * retirement and every settlement remove listeners and timers. Unknown delivery
- * and a slowly advancing stream retain the ordinary first-frame policy.
+ * retirement and every settlement remove listeners and timers. A responsive peer
+ * that ignores the start can be replaced. A peer without authenticated setup
+ * delivery and a slowly advancing stream retain the ordinary first-frame policy.
  * Codec configuration and an IDR must be present before progress is accepted.
  * A short normalized bootstrap that stops for three seconds is distinct from
  * an application reply with no media and from an actively progressing stream.
@@ -78,6 +88,7 @@ export function observeOwnedStartup(source: Readable, facts: OwnedStartupFacts,
       progress();
       if (finished) return;
       if (acknowledgedStartupIsSilent(facts)) { finish("silent"); return; }
+      if (unacknowledgedStartupIsSilent(facts)) { finish("unacknowledged"); return; }
       if (outputUnits > 0 && lastOutputAt !== null) {
         const stalled = performance.now() - lastOutputAt >= STARTUP_STALL_MILLISECONDS;
         if (!stalled) {

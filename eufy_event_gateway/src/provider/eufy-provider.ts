@@ -2587,8 +2587,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
             const observed = await observeOwnedStartup(stream.output, stream.stats,
               Math.min(6000, Math.max(0, startupDeadline - performance.now())), signal);
             current();
-            if ((observed === "silent" || observed === "stalled") && replacements < 2 && startupDeadline - performance.now() > 500) {
-              logger.info("camera_stream_peer_recovery", `model=T8113-Z topology=attached attempt=${replacements + 1} reason=${observed === "silent" ? "acknowledged_no_response" : "startup_media_stall"}`);
+            if ((observed === "silent" || observed === "unacknowledged" || observed === "stalled") && replacements < 2 && startupDeadline - performance.now() > 500) {
+              logger.info("camera_stream_peer_recovery", `model=T8113-Z topology=attached attempt=${replacements + 1} reason=${observed === "silent" ? "acknowledged_no_response" : observed === "unacknowledged" ? "unacknowledged_start" : "startup_media_stall"}`);
               stream.close("replaced");
               await stream.waitUntilClosed();
               if (this.#ppcsStreams.get(serial) === stream) this.#ppcsStreams.delete(serial);
