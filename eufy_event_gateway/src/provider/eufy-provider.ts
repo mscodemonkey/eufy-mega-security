@@ -5204,6 +5204,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         this.#events?.station(updated);
         return updated;
       } catch (error) {
+        logger.warn("homebase_session_failed", `model=${safeLogModel(identity.model)} ${session.diagnostics()}`);
         if (interruptMedia) {
           const updated = { ...this.#requireStation(serial), connected: false };
           this.#stations.set(serial, updated);

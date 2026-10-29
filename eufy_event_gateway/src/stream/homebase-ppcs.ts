@@ -11,9 +11,11 @@ import { createCipheriv, createDecipheriv } from "node:crypto";
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 
 import type { HomeBaseStorageState } from "../domain/types.js";
+import { PpcsDatagramReorderBuffer } from "./first-party-ppcs.js";
 import { ppcsCandidatePorts, ppcsLocalLookupTargets } from "./ppcs-lookup.js";
 
 const MAGIC = Buffer.from("XZYH");
+
 /** PPCS request headers exposed for protocol regression tests. */
 export const HOMEBASE_PPCS_REQUEST_HEADERS = {
   end: Buffer.from([0xf1, 0xf0]),
@@ -28,6 +30,7 @@ const RESP = {
   camId: Buffer.from([0xf1, 0x42]),
   pong: Buffer.from([0xf1, 0xe1]),
   data: Buffer.from([0xf1, 0xd0]),
+  ack: Buffer.from([0xf1, 0xd1]),
 } as const;
 const DATA_HEADER = Buffer.from([0xd1, 0]);
 const STATION_CHANNEL = 255;
@@ -167,6 +170,8 @@ interface CameraInfo {
  * command result, and callers must perform a fresh read on the same session to
  * confirm the resulting device state. Close cancels operations immediately.
  * Callers await local disconnect-send completion before reusing the peer.
+ * A session-owned bounded reorder buffer repairs transport ordering without
+ * repeating application commands, including household-security writes.
  */
 export class HomeBasePpcsSession {
   readonly #socket: Socket = createSocket("udp4");
@@ -177,7 +182,36 @@ export class HomeBasePpcsSession {
   #closeCompletion: Promise<void> = Promise.resolve();
   #cancelConnect: ((error: Error) => void) | null = null;
   #pendingByType = new Map<number, Buffer>();
-  #lastSequenceByType = new Map<number, number>();
+  #receivedDatagrams = 0;
+  #frameHeaders = 0;
+  #sequenceGaps = 0;
+  #sequenceRestarts = 0;
+  #duplicateDatagrams = 0;
+  #staleDatagrams = 0;
+  #parserResyncs = 0;
+  #readRequests = 0;
+  #readAcknowledged = 0;
+  readonly #readSequences = new Set<number>();
+  #closedSequenceEvidence: string | null = null;
+  readonly #commands = new Set<number>();
+  readonly #reorder = new PpcsDatagramReorderBuffer(
+    (data, type) => {
+      try { this.#consumeData(data, type); }
+      catch (error) {
+        this.#rejectPending(error instanceof Error ? error : new Error("HomeBase response could not be parsed"));
+        this.close();
+      }
+    },
+    (type, reason) => {
+      this.#pendingByType.delete(type);
+      if (reason === "gap") this.#sequenceGaps++;
+      else this.#sequenceRestarts++;
+    },
+    reason => {
+      if (reason === "duplicate") this.#duplicateDatagrams++;
+      else this.#staleDatagrams++;
+    },
+  );
   #pendingCommand: PendingCommand | null = null;
   #gatewayInfoWaiter: { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> } | null = null;
   #cameraInfoWaiter: { resolve: (value: CameraInfo) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> } | null = null;
@@ -346,7 +380,9 @@ export class HomeBasePpcsSession {
     this.#cancelConnect = null;
     this.#rejectPending(error);
     this.#pendingByType.clear();
-    this.#lastSequenceByType.clear();
+    this.#readSequences.clear();
+    this.#closedSequenceEvidence = this.#reorder.diagnostics();
+    this.#reorder.close();
     this.#closeCompletion = new Promise<void>(resolve => {
       let finished = false;
       let deadline: ReturnType<typeof setTimeout> | undefined;
@@ -375,6 +411,18 @@ export class HomeBasePpcsSession {
     return this.#closeCompletion;
   }
 
+  /** Return bounded transport counters without state values, addresses or device identity. */
+  diagnostics(): string {
+    const pendingBytes = [...this.#pendingByType.values()].reduce((sum, value) => sum + value.length, 0);
+    return `data_datagrams=${this.#receivedDatagrams} frame_headers=${this.#frameHeaders}`
+      + ` sequence_gaps=${this.#sequenceGaps} sequence_restarts=${this.#sequenceRestarts}`
+      + ` duplicate_datagrams=${this.#duplicateDatagrams} stale_datagrams=${this.#staleDatagrams}`
+      + ` parser_resyncs=${this.#parserResyncs} pending_bytes=${pendingBytes}`
+      + ` read_requests=${this.#readRequests} read_acknowledged=${this.#readAcknowledged}`
+      + ` commands=${[...this.#commands].join(",") || "none"}`
+      + ` sequence_channels=${this.#closedSequenceEvidence ?? this.#reorder.diagnostics()}`;
+  }
+
   async #setPayload(command: number, payload: Record<string, number | string>): Promise<void> {
     const value = JSON.stringify({
       account_id: this.options.accountId,
@@ -400,11 +448,23 @@ export class HomeBasePpcsSession {
       return true;
     }
     if (has(message, RESP.pong)) return false;
-    if (has(message, RESP.data) && this.#remote) {
+    if (has(message, RESP.ack) && message.length >= 8 && this.#remote
+      && info.address === this.#remote.host && info.port === this.#remote.port
+      && message[4] === 0xd1 && message[5] === 0) {
+      const count = message.readUInt16BE(6);
+      if (count <= (message.length - 8) / 2) {
+        for (let index = 0; index < count; index++) {
+          if (this.#readSequences.delete(message.readUInt16BE(8 + index * 2))) this.#readAcknowledged++;
+        }
+      }
+      return false;
+    }
+    if (has(message, RESP.data) && message.length >= 8 && this.#remote) {
       const type = message.subarray(4, 6);
       const sequence = message.readUInt16BE(6);
       this.#send(HOMEBASE_PPCS_REQUEST_HEADERS.ack, Buffer.concat([type, u16(1), u16(sequence)]), this.#remote);
-      this.#consumeData(message.subarray(8), sequence, type[1] ?? 0);
+      this.#receivedDatagrams++;
+      this.#reorder.push(message.subarray(8), sequence, type[1] ?? 0);
     }
     return false;
   }
@@ -420,12 +480,18 @@ export class HomeBasePpcsSession {
     }
   }
 
-  #consumeData(data: Buffer, sequence: number, type: number): void {
-    const previous = this.#lastSequenceByType.get(type);
-    if (previous !== undefined && ((sequence - previous) & 0xffff) > 1) this.#pendingByType.delete(type);
-    this.#lastSequenceByType.set(type, sequence);
+  #consumeData(data: Buffer, type: number): void {
     let pending = Buffer.concat([this.#pendingByType.get(type) ?? Buffer.alloc(0), data]);
-    while (pending.length >= 16 && pending.subarray(0, 4).equals(MAGIC)) {
+    while (pending.length >= 4) {
+      const marker = pending.indexOf(MAGIC);
+      if (marker !== 0) {
+
+        // A lost fragment's tail must not hide the next complete command header.
+        this.#parserResyncs++;
+        pending = pending.subarray(marker < 0 ? Math.max(0, pending.length - 3) : marker);
+        if (marker < 0) break;
+      }
+      if (pending.length < 16) break;
       const command = pending.readUInt16LE(4);
       const size = pending.readUInt32LE(6);
       if (size > 16 * 1024 * 1024) throw new Error("HomeBase response exceeded the safety limit");
@@ -435,6 +501,8 @@ export class HomeBasePpcsSession {
       const signCode = pending[13] ?? 0;
       const payload = pending.subarray(16, 16 + size);
       pending = pending.subarray(16 + size);
+      this.#frameHeaders++;
+      if (this.#commands.size < 8) this.#commands.add(command);
       this.#handleFrame(command, channel, signCode, resultMessage, payload);
     }
     this.#pendingByType.set(type, pending);
@@ -565,7 +633,13 @@ export class HomeBasePpcsSession {
 
   #sendCommand(command: number, payload: Buffer): void {
     if (!this.#remote) throw new Error("HomeBase is not connected");
-    const header = Buffer.concat([DATA_HEADER, u16(this.#sequence++), MAGIC, u16le(command)]);
+    const sequence = this.#sequence++;
+    if ([CMD_GATEWAY_INFO, CMD_CAMERA_INFO, CMD_STORAGE_INFO_HB2].includes(command)) {
+      this.#readRequests++;
+      this.#readSequences.add(sequence);
+      if (this.#readSequences.size > 8) this.#readSequences.delete(this.#readSequences.values().next().value!);
+    }
+    const header = Buffer.concat([DATA_HEADER, u16(sequence), MAGIC, u16le(command)]);
     this.#send(HOMEBASE_PPCS_REQUEST_HEADERS.data, Buffer.concat([header, payload]), this.#remote);
   }
 
