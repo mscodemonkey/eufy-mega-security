@@ -17,7 +17,7 @@ import type { ProviderEvents } from "../src/provider/provider.js";
 import { observeLogEvents } from "../src/logging.js";
 
 /** Own a normalized camera, confirmed settings and all synthetic session effects. */
-async function fixture(context: TestContext, standalone = false, stationModel = "T8010", extra = false, stationSerial = "base") {
+async function fixture(context: TestContext, standalone = false, stationModel = "T8010", extra = false, stationSerial = "base", cameraChannel = standalone ? 0 : 1) {
   const directory = await mkdtemp(join(tmpdir(), "motion-reliability-"));
   let motion = true;
   const sessions: FirstPartyPpcsSession[] = [];
@@ -28,7 +28,7 @@ async function fixture(context: TestContext, standalone = false, stationModel = 
     ...(!standalone ? [{ device_sn: stationSerial, device_model: stationModel, device_type: stationModel === "T8010" ? 0 : 18,
       p2p_did: stationSerial === "base" ? "synthetic-peer" : "TEST-12345678-TEST", p2p_conn: "synthetic-route", category: "eufy_security", member: { admin_user_id: "owner" } }] : []),
     { device_sn: "camera", device_model: standalone ? "T8171" : "T8113-Z", device_type: standalone ? 88 : 8,
-      parent_sn: standalone ? "camera" : stationSerial, device_channel: standalone ? 0 : 1,
+      parent_sn: standalone ? "camera" : stationSerial, device_channel: cameraChannel,
       p2p_did: "synthetic-camera", p2p_conn: "synthetic-route", category: "eufy_security", member: { admin_user_id: "owner" },
       params: [{ param_type: standalone ? 6040 : 1011, param_value: motion ? "1" : "0" }] },
     ...(extra ? [
@@ -53,9 +53,11 @@ async function fixture(context: TestContext, standalone = false, stationModel = 
   const schedule = globalThis.setTimeout;
   context.mock.method(globalThis, "setTimeout", (callback: () => void, milliseconds?: number) => schedule(callback, milliseconds === 2000 ? 0 : milliseconds));
   const provider = new EufyProvider({ username: "synthetic", password: "redacted", country: "AU", persistentDirectory: directory, maxStreamSeconds: 120 });
-  const events = new Proxy({}, { get: () => () => undefined }) as ProviderEvents;
+  const published: unknown[][] = [];
+  const events = new Proxy({}, { get: (_target, property) => property === "streamStarted"
+    ? (...arguments_: unknown[]) => { published.push(arguments_); } : () => undefined }) as ProviderEvents;
   await provider.start(events); await new Promise(resolve => setImmediate(resolve));
-  return { provider, sessions, closes, start, write, inventory, setMotion: (value: boolean) => { motion = value; },
+  return { provider, sessions, closes, start, write, inventory, published, setMotion: (value: boolean) => { motion = value; },
     dispose: async () => { await provider.close(); assert.equal(network.mock.callCount(), 0); await rm(directory, { recursive: true, force: true }); } };
 }
 
@@ -358,4 +360,96 @@ test("owned motion prevents a background station reader from opening", async con
     release();
     await motion;
   } finally { release(); await f.dispose(); }
+});
+
+test("silent owned HB2 startup drains its old peer before replacing it and publishes only the replacement", async context => {
+  context.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 1800000000000 });
+  const f = await fixture(context, false, "T8010", false, "synthetic-base", 0);
+  const attempts: FirstPartyPpcsSession[] = [];
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const published = f.published;
+  context.mock.method(FirstPartyPpcsSession.prototype, "start", async function (this: FirstPartyPpcsSession) {
+    attempts.push(this);
+    Object.defineProperty(this, "stats", { value: { ...this.stats, camId: 1, mediaStartAcknowledged: 1, commands: [1100] } });
+    if (attempts.length > 1) this.stats.videoOutputFrames = 1;
+  });
+  context.mock.method(FirstPartyPpcsSession.prototype, "waitUntilClosed", function (this: FirstPartyPpcsSession) {
+    return this === attempts[0] ? held : Promise.resolve();
+  });
+  try {
+    const startup = f.provider.startStream("camera");
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(attempts.length, 1);
+    context.mock.timers.tick(6000);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.ok(f.closes.includes(attempts[0]!));
+    assert.equal(attempts.length, 1);
+    assert.equal(published.length, 0);
+    release();
+    await startup;
+    assert.equal(attempts.length, 2);
+    assert.equal(published.length, 1);
+    assert.equal(published[0]![1], attempts[1]!.output);
+  } finally { release(); await f.dispose(); }
+});
+
+test("cancellation during a silent peer retirement never opens its replacement", async context => {
+  context.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 1800000000000 });
+  const f = await fixture(context, false, "T8010", false, "synthetic-base", 0);
+  const attempts: FirstPartyPpcsSession[] = [];
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  context.mock.method(FirstPartyPpcsSession.prototype, "start", async function (this: FirstPartyPpcsSession) {
+    attempts.push(this);
+    Object.defineProperty(this, "stats", { value: { ...this.stats, camId: 1, mediaStartAcknowledged: 1, commands: [1100] } });
+  });
+  context.mock.method(FirstPartyPpcsSession.prototype, "waitUntilClosed", () => held);
+  try {
+    const startup = assert.rejects(f.provider.startStream("camera"), /cancelled/);
+    await new Promise(resolve => setImmediate(resolve));
+    context.mock.timers.tick(6000);
+    await new Promise(resolve => setImmediate(resolve));
+    const stopped = f.provider.stopStream("camera");
+    release();
+    await Promise.all([startup, stopped]);
+    assert.equal(attempts.length, 1);
+  } finally { release(); await f.dispose(); }
+});
+
+test("owned silence recovery stops after two replacements within one startup", async context => {
+  context.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 1800000000000 });
+  const f = await fixture(context, false, "T8010", false, "synthetic-base", 0);
+  let attempts = 0;
+  context.mock.method(FirstPartyPpcsSession.prototype, "start", async function (this: FirstPartyPpcsSession) {
+    attempts++;
+    Object.defineProperty(this, "stats", { value: { ...this.stats, camId: 1, mediaStartAcknowledged: 1, commands: [1100] } });
+  });
+  try {
+    const startup = f.provider.startStream("camera");
+    await new Promise(resolve => setImmediate(resolve));
+    for (let index = 0; index < 3; index++) {
+      context.mock.timers.tick(6000);
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    await startup;
+    assert.equal(attempts, 3);
+    assert.equal(f.published.length, 1);
+    context.mock.timers.tick(2000);
+    assert.equal(attempts, 3);
+  } finally { await f.dispose(); }
+});
+
+for (const [station, channel] of [["T8010", 1], ["T8030", 0]] as const) test(`silent adjacent route keeps its existing startup policy: ${station}/${channel}`, { timeout: 2000 }, async context => {
+  const f = await fixture(context, false, station, false, "synthetic-base", channel);
+  let attempts = 0;
+  context.mock.method(FirstPartyPpcsSession.prototype, "start", async function (this: FirstPartyPpcsSession) {
+    attempts++;
+    Object.defineProperty(this, "stats", { value: { ...this.stats, camId: 1, mediaStartAcknowledged: 1, commands: [1100] } });
+  });
+  try {
+    await f.provider.startStream("camera");
+    assert.equal(attempts, 1);
+    assert.equal(f.published.length, 1);
+  } finally { await f.dispose(); }
 });

@@ -2,6 +2,7 @@
 
 ## 0.1.214
 
+- Recover the verified T8113-Z/HomeBase 2 channel-zero startup when live-start delivery is acknowledged but the peer returns no application response or video. Replace only the owned peer, at most twice, within the original startup deadline.
 - Serialize classic HomeBase state refreshes with pending camera startup so background reads cannot open a competing session during live-view setup.
 - Keep HomeBase 2 motion handoffs exclusive with station refreshes, and cancel pending child starts before an interrupting station operation proceeds.
 - Drain the HomeBase state reader's final disconnect before releasing its UDP socket and station ownership, with immediate logical cancellation and a finite cleanup deadline.
