@@ -11,7 +11,7 @@ import { acknowledgedStartupIsSilent, observeOwnedStartup, type OwnedStartupFact
 /** Create independent delivered-start facts with no application or media progress. */
 function facts(): OwnedStartupFacts {
   return { camId: 1, mediaStartAcknowledged: 1, videoFrames: 0, videoOutputFrames: 0,
-    commands: [1100], closeReason: "open" };
+    commands: [1100], closeReason: "open", videoCodec: "h264", videoNalTypes: [7, 8, 5] };
 }
 
 test("recovery requires acknowledged delivery and complete application silence", () => {
@@ -91,5 +91,18 @@ for (const advancing of [false, true]) test(`short startup media is distinguishe
   if (advancing) state.videoOutputFrames++;
   context.mock.timers.tick(1000);
   assert.equal(await result, advancing ? "progress" : "stalled");
+  source.destroy();
+});
+
+for (const advancing of [false, true]) test(`missing decoder bootstrap preserves advancing media and replaces only a stall: ${advancing}`, async context => {
+  context.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 1800000000000 });
+  context.mock.method(performance, "now", () => Date.now());
+  const source = new PassThrough();
+  const state = { ...facts(), videoFrames: 12, videoOutputFrames: 12, commands: [1100, 1300], videoNalTypes: [1] };
+  const result = observeOwnedStartup(source, state, 6000, new AbortController().signal);
+  context.mock.timers.tick(5000);
+  if (advancing) state.videoOutputFrames++;
+  context.mock.timers.tick(1000);
+  assert.equal(await result, advancing ? "unconfirmed" : "stalled");
   source.destroy();
 });

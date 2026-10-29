@@ -2616,6 +2616,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           `cipher_ms=${elapsed(cipherReadyAt, previousClosedAt)}`,
           `transport_ms=${elapsed(transportReadyAt, cipherReadyAt)}`,
           `total_ms=${elapsed(transportReadyAt, startedAt)}`,
+          `owned_startup_recovery=${recoverOwnedPeer}`,
+          `channel=${device.channel}`,
         ].join(" "));
         const audio = (isE21(device) || supportsCameraLiveAudio(device, route, true))
           ? stream.audioOutput : undefined;

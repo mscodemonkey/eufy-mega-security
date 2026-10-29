@@ -373,7 +373,7 @@ test("silent owned HB2 startup drains its old peer before replacing it and publi
   context.mock.method(FirstPartyPpcsSession.prototype, "start", async function (this: FirstPartyPpcsSession) {
     attempts.push(this);
     Object.defineProperty(this, "stats", { value: { ...this.stats, camId: 1, mediaStartAcknowledged: 1, commands: [1100] } });
-    if (attempts.length > 1) this.stats.videoOutputFrames = 15;
+    if (attempts.length > 1) { this.stats.videoOutputFrames = 15; this.stats.videoCodec = "h264"; this.stats.videoNalTypes = [7, 8, 5]; }
   });
   context.mock.method(FirstPartyPpcsSession.prototype, "waitUntilClosed", function (this: FirstPartyPpcsSession) {
     return this === attempts[0] ? held : Promise.resolve();
@@ -466,7 +466,8 @@ test("a brief startup bootstrap that stalls is retired before its replacement is
     attempts.push(this);
     Object.defineProperty(this, "stats", { value: { ...this.stats, camId: 1, mediaStartAcknowledged: 1,
       commands: [1100, 1350, 1300], videoFrames: attempts.length === 1 ? 3 : 15,
-      videoOutputFrames: attempts.length === 1 ? 3 : 15 } });
+      videoOutputFrames: attempts.length === 1 ? 3 : 15, videoCodec: "h264",
+      videoNalTypes: attempts.length === 1 ? [1] : [7, 8, 5] } });
   });
   try {
     const startup = f.provider.startStream("camera");

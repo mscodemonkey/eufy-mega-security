@@ -4,6 +4,7 @@
  * only temporary listeners and timers used to distinguish silence from sustained progress.
  */
 import type { Readable } from "node:stream";
+import { hasDecoderReadyKeyframe } from "./first-party-ppcs.js";
 
 const STARTUP_VIDEO_UNITS = 10;
 const STARTUP_STALL_MILLISECONDS = 3000;
@@ -13,8 +14,14 @@ export interface OwnedStartupFacts {
   readonly camId: number;
   readonly mediaStartAcknowledged: number;
   readonly videoFrames: number;
+
+  /** Normalized output-unit count used to reject a short startup prefix. */
   readonly videoOutputFrames: number;
   readonly commands: readonly number[];
+  readonly videoCodec: "h264" | "h265" | "unknown";
+
+  /** Cumulative codec-specific NAL evidence from this owned peer. */
+  readonly videoNalTypes: readonly number[];
   readonly closeReason: string;
 }
 
@@ -33,6 +40,7 @@ export function acknowledgedStartupIsSilent(facts: OwnedStartupFacts): boolean {
  * Media bytes stay buffered for the eventual viewer. Cancellation, logical
  * retirement and every settlement remove listeners and timers. Unknown delivery
  * and a slowly advancing stream retain the ordinary first-frame policy.
+ * Codec configuration and an IDR must be present before progress is accepted.
  * A short normalized bootstrap that stops for three seconds is distinct from
  * an application reply with no media and from an actively progressing stream.
  */
@@ -61,7 +69,8 @@ export function observeOwnedStartup(source: Readable, facts: OwnedStartupFacts,
         outputUnits = facts.videoOutputFrames;
         lastOutputAt = performance.now();
       }
-      if (outputUnits >= STARTUP_VIDEO_UNITS) finish("progress");
+      if (outputUnits >= STARTUP_VIDEO_UNITS
+        && hasDecoderReadyKeyframe(facts.videoCodec, facts.videoNalTypes)) finish("progress");
     };
     source.once("end", ended); source.once("close", ended);
     signal.addEventListener("abort", aborted, { once: true });
@@ -71,7 +80,10 @@ export function observeOwnedStartup(source: Readable, facts: OwnedStartupFacts,
       if (acknowledgedStartupIsSilent(facts)) { finish("silent"); return; }
       if (outputUnits > 0 && lastOutputAt !== null) {
         const stalled = performance.now() - lastOutputAt >= STARTUP_STALL_MILLISECONDS;
-        if (!stalled) { finish("progress"); return; }
+        if (!stalled) {
+          finish(hasDecoderReadyKeyframe(facts.videoCodec, facts.videoNalTypes) ? "progress" : "unconfirmed");
+          return;
+        }
         if (facts.camId > 0 && facts.mediaStartAcknowledged > 0 && facts.commands.includes(1100)) {
           finish("stalled"); return;
         }
