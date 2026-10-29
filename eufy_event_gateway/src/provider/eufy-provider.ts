@@ -2228,6 +2228,26 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         this.#reserveDoorbellRtc(serial, cancellation.signal, false);
         return this.#startDoorbellRtcTrial(serial);
       }
+      const stationReservation = (): Promise<HomeBaseState> | undefined => {
+        const device = this.#devices.get(serial);
+        const route = device ? ppcsStreamRoute(device, this.#devices) : null;
+        return route?.homeBaseAttached ? this.#stationOperations.get(route.peer.serial) : undefined;
+      };
+      if (stationReservation()) {
+        try {
+          await withCameraControlDeadline(async scope => {
+            let reservation: Promise<HomeBaseState> | undefined;
+            while ((reservation = stationReservation())) {
+              current();
+              await scope.wait(() => reservation!.catch(() => undefined));
+              current();
+            }
+          }, cancellation.signal);
+        } catch {
+          current();
+          throw new Error("Camera stream start timed out waiting for HomeBase state refresh");
+        }
+      }
       if (this.#homeBaseMotionReservation(serial)) {
         try {
           await withCameraControlDeadline(async scope => {
@@ -5144,6 +5164,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         throw error;
       } finally {
         session.close();
+        await session.waitUntilClosed();
       }
     });
     this.#stationOperations.set(serial, current);
@@ -5245,12 +5266,17 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   #stationHasActiveMedia(stationSerial: string): boolean {
-    return this.#stationHasRecordingReservation(stationSerial) || [...this.#ppcsStreams.keys()].some((serial) => this.#devices.get(serial)?.parentSerial === stationSerial);
+    return this.#stationHasRecordingReservation(stationSerial)
+      || [...this.#ppcsStreams.keys()].some(serial => this.#devices.get(serial)?.parentSerial === stationSerial)
+      || (["T8010", "T8030"].includes(this.#devices.get(stationSerial)?.model ?? "")
+        && [...this.#streamStarts.entries()].some(([serial, ticket]) => !ticket.cancelled
+          && this.#devices.get(serial)?.parentSerial === stationSerial));
   }
 
   async #stopStationMedia(stationSerial: string): Promise<void> {
-    const serials = [...this.#ppcsStreams.keys()].filter((serial) => this.#devices.get(serial)?.parentSerial === stationSerial);
-    await Promise.all(serials.map((serial) => this.stopStream(serial)));
+    const owned = new Set([...this.#ppcsStreams.keys(), ...this.#streamStarts.keys()]);
+    const serials = [...owned].filter(serial => this.#devices.get(serial)?.parentSerial === stationSerial);
+    await Promise.all(serials.map(serial => this.stopStream(serial)));
   }
 
   #queuePushSnapshot(events: ProviderEvents, event: MegaPushEvent): void {

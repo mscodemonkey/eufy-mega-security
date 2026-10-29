@@ -165,7 +165,8 @@ interface CameraInfo {
  *
  * A session never retries a control write. Every write waits for the matching
  * command result, and callers must perform a fresh read on the same session to
- * confirm the resulting device state.
+ * confirm the resulting device state. Close cancels operations immediately.
+ * Callers await local disconnect-send completion before reusing the peer.
  */
 export class HomeBasePpcsSession {
   readonly #socket: Socket = createSocket("udp4");
@@ -173,6 +174,8 @@ export class HomeBasePpcsSession {
   #remote: { host: string; port: number } | null = null;
   #sequence = 0;
   #closed = false;
+  #closeCompletion: Promise<void> = Promise.resolve();
+  #cancelConnect: ((error: Error) => void) | null = null;
   #pendingByType = new Map<number, Buffer>();
   #lastSequenceByType = new Map<number, number>();
   #pendingCommand: PendingCommand | null = null;
@@ -190,12 +193,14 @@ export class HomeBasePpcsSession {
 
   /** Discover the HomeBase on the local network and establish its UDP peer. */
   async connect(): Promise<void> {
+    if (this.#closed) throw new Error("HomeBase session is closed");
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.#lookupTimer) clearInterval(this.#lookupTimer);
         this.#lookupTimer = null;
         reject(new Error("HomeBase local PPCS lookup timed out"));
       }, 10_000);
+      this.#cancelConnect = (error) => { clearTimeout(timer); reject(error); };
       this.#socket.once("error", (error) => {
         clearTimeout(timer);
         if (this.#lookupTimer) clearInterval(this.#lookupTimer);
@@ -218,6 +223,7 @@ export class HomeBasePpcsSession {
         }
       });
       this.#socket.bind(0, () => {
+        if (this.#closed) return;
         this.#socket.setBroadcast(true);
         this.#lookup();
         this.#lookupTimer = setInterval(
@@ -226,7 +232,8 @@ export class HomeBasePpcsSession {
         );
         this.#lookupTimer.unref?.();
       });
-    });
+    }).finally(() => { this.#cancelConnect = null; });
+    if (this.#closed) throw new Error("HomeBase session is closed");
     const gatewayInfoPromise = this.#waitForGatewayInfo();
     this.#sendCommand(CMD_GATEWAY_INFO, voidPayload(STATION_CHANNEL));
     await gatewayInfoPromise;
@@ -238,9 +245,11 @@ export class HomeBasePpcsSession {
 
   /** Read all state fields used by the Home Assistant integration. */
   async readState(includeStorage = true): Promise<HomeBasePpcsState> {
+    if (this.#closed) throw new Error("HomeBase session is closed");
     const cameraInfoPromise = this.#waitForCameraInfo();
     this.#sendCommand(CMD_CAMERA_INFO, intPayload(255, STATION_CHANNEL, this.#key));
     const cameraInfo = await cameraInfoPromise;
+    if (this.#closed) throw new Error("HomeBase session is closed");
 
     if (!includeStorage || !this.options.storageProtocol || this.options.storageProtocol === "none") {
       return parseHomeBaseState(cameraInfo, null, false);
@@ -326,16 +335,44 @@ export class HomeBasePpcsSession {
     });
   }
 
-  /** Close the socket and reject every incomplete operation. */
+  /** Cancel operations immediately, then drain the final local disconnect send. */
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
     if (this.#heartbeat) clearInterval(this.#heartbeat);
     if (this.#lookupTimer) clearInterval(this.#lookupTimer);
     const error = new Error("HomeBase session closed before the operation completed");
+    this.#cancelConnect?.(error);
+    this.#cancelConnect = null;
     this.#rejectPending(error);
-    if (this.#remote) this.#send(HOMEBASE_PPCS_REQUEST_HEADERS.end, Buffer.alloc(0), this.#remote);
-    this.#socket.close();
+    this.#pendingByType.clear();
+    this.#lastSequenceByType.clear();
+    this.#closeCompletion = new Promise<void>(resolve => {
+      let finished = false;
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      const finish = (): void => {
+        if (finished) return;
+        finished = true;
+        if (deadline) clearTimeout(deadline);
+        try { this.#socket.close(); } catch {
+
+          // An unopened or failed socket may already be closed.
+        }
+        resolve();
+      };
+      if (!this.#remote) { finish(); return; }
+      deadline = setTimeout(finish, 500);
+      deadline.unref?.();
+      try {
+        this.#socket.send(Buffer.concat([HOMEBASE_PPCS_REQUEST_HEADERS.end, u16(0)]),
+          this.#remote.port, this.#remote.host, finish);
+      } catch { finish(); }
+    });
+  }
+
+  /** Wait up to 500ms for local disconnect-send completion, without claiming peer acknowledgement. */
+  waitUntilClosed(): Promise<void> {
+    return this.#closeCompletion;
   }
 
   async #setPayload(command: number, payload: Record<string, number | string>): Promise<void> {
@@ -349,6 +386,7 @@ export class HomeBasePpcsSession {
   }
 
   #handle(message: Buffer, info: RemoteInfo): boolean {
+    if (this.#closed) return false;
     if (has(message, RESP.localLookup)) {
       for (const port of ppcsCandidatePorts(info.port)) {
         this.#check({ host: info.address, port });
@@ -453,6 +491,7 @@ export class HomeBasePpcsSession {
   }
 
   #sendAcknowledgedCommand(command: number, payload: Buffer): Promise<void> {
+    if (this.#closed) return Promise.reject(new Error("HomeBase session is closed"));
     if (this.#pendingCommand) return Promise.reject(new Error("HomeBase already has a command in flight"));
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -531,6 +570,7 @@ export class HomeBasePpcsSession {
   }
 
   #send(type: Buffer, payload: Buffer, address: { host: string; port: number }): void {
+    if (this.#closed) return;
     this.#socket.send(Buffer.concat([type, u16(payload.length), payload]), address.port, address.host);
   }
 }

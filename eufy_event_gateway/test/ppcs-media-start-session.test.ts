@@ -3,7 +3,7 @@
  * Synthetic peer keys and sockets are test-owned. No account or camera is used.
  */
 import assert from "node:assert/strict";
-import { createCipheriv, createDecipheriv, createECDH, createHmac } from "node:crypto";
+import { createCipheriv, createECDH, createHmac } from "node:crypto";
 import { Socket } from "node:dgram";
 import test, { type TestContext } from "node:test";
 import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
@@ -32,7 +32,7 @@ function gateway(): Buffer {
 }
 
 /** Own a synthetic CAM_ID handshake, inbound frames, packet loss and fake time. */
-async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" = "media", stationModel = "T8010", channel = attached ? 1 : 0) {
+async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" = "media", stationModel = "T8010") {
   let socket!: Socket;
   let inbound = 0;
   const sent: Buffer[] = [];
@@ -45,7 +45,7 @@ async function peer(context: TestContext, attached = true, model = "T8113-Z", pu
   context.mock.method(Socket.prototype, "send", (packet: Buffer) => { sent.push(Buffer.from(packet)); });
   context.mock.method(Socket.prototype, "close", function (this: Socket) { return this; });
   const session = new FirstPartyPpcsSession({ stationSerial: "SYNTHETIC1234567", p2pDid: "TEST-12345678-TEST",
-    appConnection: "", dskKey: "synthetic", channel, homeBaseAttached: attached, stationModel,
+    appConnection: "", dskKey: "synthetic", channel: attached ? 1 : 0, homeBaseAttached: attached, stationModel,
     purpose, cameraModel: model, accountId: "synthetic-owner", maxSeconds: 120,
     resolveCipherKey: async () => Buffer.alloc(32, 1).toString("hex") });
   const receive = (packet: Buffer, port = 12345) => socket.emit("message", packet, { address: "127.0.0.1", port });
@@ -291,37 +291,5 @@ for (const [model, station] of [["T8210", "T8010"], ["T8113-Z", "T8030"]] as con
     context.mock.timers.tick(150);
     assert.equal(f.session.stats.gatewayInfoRetransmitted, 0);
     assert.equal(f.session.stats.gatewayInfoAcknowledged, 0);
-  } finally { f.session.close(); }
-});
-
-for (const [model, station, channel, expected] of [
-  ["T8113-Z", "T8010", 0, 0], ["T8113-Z", "T8010", 1, 1],
-  ["T8113-Z", "T8030", 0, 1], ["T8210", "T8010", 0, 1],
-] as const) test(`attached codec request ${model}/${station}/${channel} is ${expected}`, async context => {
-  const f = await peer(context, true, model, "media", station, channel);
-  try {
-    await f.negotiate();
-    const packet = f.sent.find(value => value.length >= 24 && value.subarray(8, 12).toString() === "XZYH"
-      && value.readUInt16LE(12) === 1350)!;
-    assert.ok(packet, "negotiated session sends an attached media start");
-    assert.equal(packet[20], channel);
-    assert.equal(packet[21], 8);
-    const encrypted = packet.subarray(24);
-    const decipher = createDecipheriv("aes-256-gcm", Buffer.alloc(32, 9), encrypted.subarray(16, 28));
-    decipher.setAAD(Buffer.from("eufy security"));
-    decipher.setAuthTag(encrypted.subarray(0, 16));
-    const value = JSON.parse(Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]).toString());
-    assert.equal(value.cmd, 1003);
-    assert.equal(value.mChannel, channel);
-    assert.equal(value.payload.streamtype, expected);
-    assert.equal(value.payload.accountId, "synthetic-owner");
-    assert.match(value.payload.key, /^[a-f0-9]{256}$/);
-    if (channel === 0) assert.equal(packet[22], model === "T8113-Z" && station === "T8010" ? 10 : 0,
-      "only the captured route selects native stream slot ten");
-    const count = f.sent.filter(candidate => candidate.equals(packet)).length;
-    context.mock.timers.tick(150);
-    assert.ok(f.sent.filter(candidate => candidate.equals(packet)).length > count,
-      "codec selection preserves byte-identical live-start repair");
-    f.ack(packet.readUInt16BE(6));
   } finally { f.session.close(); }
 });

@@ -17,7 +17,7 @@ import type { ProviderEvents } from "../src/provider/provider.js";
 import { observeLogEvents } from "../src/logging.js";
 
 /** Own a normalized camera, confirmed settings and all synthetic session effects. */
-async function fixture(context: TestContext, standalone = false, stationModel = "T8010", extra = false) {
+async function fixture(context: TestContext, standalone = false, stationModel = "T8010", extra = false, stationSerial = "base") {
   const directory = await mkdtemp(join(tmpdir(), "motion-reliability-"));
   let motion = true;
   const sessions: FirstPartyPpcsSession[] = [];
@@ -25,10 +25,10 @@ async function fixture(context: TestContext, standalone = false, stationModel = 
   const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
   context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
   const inventory = context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [
-    ...(!standalone ? [{ device_sn: "base", device_model: stationModel, device_type: stationModel === "T8010" ? 0 : 18,
-      p2p_did: "synthetic-peer", p2p_conn: "synthetic-route", category: "eufy_security", member: { admin_user_id: "owner" } }] : []),
+    ...(!standalone ? [{ device_sn: stationSerial, device_model: stationModel, device_type: stationModel === "T8010" ? 0 : 18,
+      p2p_did: stationSerial === "base" ? "synthetic-peer" : "TEST-12345678-TEST", p2p_conn: "synthetic-route", category: "eufy_security", member: { admin_user_id: "owner" } }] : []),
     { device_sn: "camera", device_model: standalone ? "T8171" : "T8113-Z", device_type: standalone ? 88 : 8,
-      parent_sn: standalone ? "camera" : "base", device_channel: standalone ? 0 : 1,
+      parent_sn: standalone ? "camera" : stationSerial, device_channel: standalone ? 0 : 1,
       p2p_did: "synthetic-camera", p2p_conn: "synthetic-route", category: "eufy_security", member: { admin_user_id: "owner" },
       params: [{ param_type: standalone ? 6040 : 1011, param_value: motion ? "1" : "0" }] },
     ...(extra ? [
@@ -38,7 +38,7 @@ async function fixture(context: TestContext, standalone = false, stationModel = 
         category: "eufy_security", member: { admin_user_id: "owner" }, params: [{ param_type: 1011, param_value: motion ? "1" : "0" }] })),
     ] : []),
   ] }));
-  context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ base2: { key: "synthetic", expiresAt: null }, base: { key: "synthetic", expiresAt: null }, camera: { key: "synthetic", expiresAt: null } }));
+  context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ base2: { key: "synthetic", expiresAt: null }, [stationSerial]: { key: "synthetic", expiresAt: null }, camera: { key: "synthetic", expiresAt: null } }));
   context.mock.method(MegaPushReceiver.prototype, "start", async () => undefined);
   context.mock.method(HomeBasePpcsSession.prototype, "connect", async () => undefined);
   context.mock.method(HomeBasePpcsSession.prototype, "readState", async () => ({ childParams: [] }));
@@ -269,4 +269,59 @@ test("HB2 handoff waits for both old media and owned control disconnect sends", 
     await reopened;
     assert.equal(f.start.mock.callCount(), 3);
   } finally { release(); await f.dispose(); }
+});
+
+test("HomeBase read ownership waits for disconnect completion before the next read", async context => {
+  const f = await fixture(context, false, "T8010", false, "synthetic-base");
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let waits = 0;
+  const connect = context.mock.method(HomeBasePpcsSession.prototype, "connect", async () => undefined);
+  context.mock.method(HomeBasePpcsSession.prototype, "waitUntilClosed", () => ++waits === 1 ? held : Promise.resolve());
+  try {
+    const first = f.provider.refreshStation("synthetic-base");
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(waits, 1);
+    const next = f.provider.refreshStation("synthetic-base");
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(connect.mock.callCount(), 1);
+    release();
+    await Promise.all([first, next]);
+    assert.equal(connect.mock.callCount(), 2);
+  } finally { release(); await f.dispose(); }
+});
+
+for (const cancel of [false, true]) test(`HomeBase read disconnect gates pending media, cancel=${cancel}`, async context => {
+  const f = await fixture(context, false, "T8010", false, "synthetic-base");
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let waits = 0;
+  context.mock.method(HomeBasePpcsSession.prototype, "waitUntilClosed", () => { waits++; return held; });
+  try {
+    const refresh = f.provider.refreshStation("synthetic-base");
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(waits, 1);
+    const media = f.provider.startStream("camera");
+    const rejected = cancel ? assert.rejects(media, /cancelled/) : undefined;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(f.start.mock.callCount(), 0);
+    if (cancel) await f.provider.stopStream("camera");
+    release();
+    await refresh;
+    if (cancel) await rejected;
+    else await media;
+    assert.equal(f.start.mock.callCount(), cancel ? 0 : 1);
+  } finally { release(); await f.dispose(); }
+});
+
+test("pending child media prevents a new background station reader from opening", async context => {
+  const f = await fixture(context, false, "T8010", false, "synthetic-base");
+  const connect = context.mock.method(HomeBasePpcsSession.prototype, "connect", async () => undefined);
+  try {
+    const media = f.provider.startStream("camera");
+    const refresh = f.provider.refreshStation("synthetic-base");
+    await Promise.all([media, refresh]);
+    assert.equal(connect.mock.callCount(), 0);
+    assert.equal(f.start.mock.callCount(), 1);
+  } finally { await f.dispose(); }
 });
