@@ -325,3 +325,37 @@ test("pending child media prevents a new background station reader from opening"
     assert.equal(f.start.mock.callCount(), 1);
   } finally { await f.dispose(); }
 });
+
+test("HomeBase station disconnect gates a motion handoff without dispatching early", async context => {
+  const f = await fixture(context, false, "T8010", false, "synthetic-base");
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  context.mock.method(HomeBasePpcsSession.prototype, "waitUntilClosed", () => held);
+  try {
+    const refresh = f.provider.refreshStation("synthetic-base");
+    await new Promise(resolve => setImmediate(resolve));
+    const motion = f.provider.setCameraMotionDetection("camera", true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(f.write.mock.callCount(), 0);
+    assert.equal(f.start.mock.callCount(), 0);
+    release();
+    await Promise.all([refresh, motion]);
+    assert.equal(f.write.mock.callCount(), 1);
+  } finally { release(); await f.dispose(); }
+});
+
+test("owned motion prevents a background station reader from opening", async context => {
+  const f = await fixture(context, false, "T8010", false, "synthetic-base");
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const connect = context.mock.method(HomeBasePpcsSession.prototype, "connect", async () => undefined);
+  context.mock.method(FirstPartyPpcsSession.prototype, "writeMotionDetection", async () => held);
+  try {
+    const motion = f.provider.setCameraMotionDetection("camera", true);
+    await new Promise(resolve => setImmediate(resolve));
+    await f.provider.refreshStation("synthetic-base");
+    assert.equal(connect.mock.callCount(), 0);
+    release();
+    await motion;
+  } finally { release(); await f.dispose(); }
+});

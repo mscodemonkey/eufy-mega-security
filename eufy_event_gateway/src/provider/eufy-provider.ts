@@ -3275,6 +3275,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         if (generation !== this.#startupGeneration || this.#recordingClosing) throw new Error("Camera motion control cancelled");
       };
       current();
+      if (peerKey) {
+        let stationOperation: Promise<HomeBaseState> | undefined;
+        while ((stationOperation = this.#stationOperations.get(peerKey))) {
+          await scope.wait(() => stationOperation!.catch(() => undefined));
+          current();
+        }
+      }
       const device = this.#devices.get(serial);
       if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
       const route = ppcsStreamRoute(device, this.#devices);
@@ -5267,6 +5274,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   #stationHasActiveMedia(stationSerial: string): boolean {
     return this.#stationHasRecordingReservation(stationSerial)
+      || this.#homeBaseMotionOperations.has(stationSerial)
       || [...this.#ppcsStreams.keys()].some(serial => this.#devices.get(serial)?.parentSerial === stationSerial)
       || (["T8010", "T8030"].includes(this.#devices.get(stationSerial)?.model ?? "")
         && [...this.#streamStarts.entries()].some(([serial, ticket]) => !ticket.cancelled
