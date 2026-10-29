@@ -45,21 +45,22 @@ test("progress leaves the first media bytes buffered for the viewer", async cont
   const state = { ...facts() };
   const result = observeOwnedStartup(source, state, 6000, new AbortController().signal);
   source.write(Buffer.from("first-media-unit"));
-  state.videoFrames = 1;
+  state.videoFrames = 10;
+  state.videoOutputFrames = 10;
   context.mock.timers.tick(50);
   assert.equal(await result, "progress");
   assert.equal(source.read().toString(), "first-media-unit");
   source.destroy();
 });
 
-test("application replies retain the current peer even without video", async context => {
+test("application replies without media do not authorize silent-peer replacement", async context => {
   context.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
   const source = new PassThrough();
   const state = { ...facts(), commands: [1100] };
   const result = observeOwnedStartup(source, state, 6000, new AbortController().signal);
   state.commands.push(1350);
-  context.mock.timers.tick(50);
-  assert.equal(await result, "progress");
+  context.mock.timers.tick(6000);
+  assert.equal(await result, "unconfirmed");
   source.destroy();
 });
 
@@ -77,5 +78,18 @@ for (const retirement of ["abort", "logical-close", "stream-close"] as const) te
   assert.equal(source.listenerCount("end"), 0);
   assert.equal(source.listenerCount("close"), 0);
   context.mock.timers.tick(6000);
+  source.destroy();
+});
+
+for (const advancing of [false, true]) test(`short startup media is distinguished from a slow progressing stream: ${advancing}`, async context => {
+  context.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 1800000000000 });
+  context.mock.method(performance, "now", () => Date.now());
+  const source = new PassThrough();
+  const state = { ...facts(), videoFrames: 3, videoOutputFrames: 3, commands: [1100, 1350, 1300] };
+  const result = observeOwnedStartup(source, state, 6000, new AbortController().signal);
+  context.mock.timers.tick(5000);
+  if (advancing) state.videoOutputFrames++;
+  context.mock.timers.tick(1000);
+  assert.equal(await result, advancing ? "progress" : "stalled");
   source.destroy();
 });

@@ -373,7 +373,7 @@ test("silent owned HB2 startup drains its old peer before replacing it and publi
   context.mock.method(FirstPartyPpcsSession.prototype, "start", async function (this: FirstPartyPpcsSession) {
     attempts.push(this);
     Object.defineProperty(this, "stats", { value: { ...this.stats, camId: 1, mediaStartAcknowledged: 1, commands: [1100] } });
-    if (attempts.length > 1) this.stats.videoOutputFrames = 1;
+    if (attempts.length > 1) this.stats.videoOutputFrames = 15;
   });
   context.mock.method(FirstPartyPpcsSession.prototype, "waitUntilClosed", function (this: FirstPartyPpcsSession) {
     return this === attempts[0] ? held : Promise.resolve();
@@ -454,5 +454,28 @@ for (const [station, channel] of [["T8010", 1], ["T8030", 0]] as const) test(`si
     await f.provider.startStream("camera");
     assert.equal(attempts, 1);
     assert.equal(f.published.length, 1);
+  } finally { await f.dispose(); }
+});
+
+test("a brief startup bootstrap that stalls is retired before its replacement is published", async context => {
+  context.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 1800000000000 });
+  context.mock.method(performance, "now", () => Date.now());
+  const f = await fixture(context, false, "T8010", false, "synthetic-base", 0);
+  const attempts: FirstPartyPpcsSession[] = [];
+  context.mock.method(FirstPartyPpcsSession.prototype, "start", async function (this: FirstPartyPpcsSession) {
+    attempts.push(this);
+    Object.defineProperty(this, "stats", { value: { ...this.stats, camId: 1, mediaStartAcknowledged: 1,
+      commands: [1100, 1350, 1300], videoFrames: attempts.length === 1 ? 3 : 15,
+      videoOutputFrames: attempts.length === 1 ? 3 : 15 } });
+  });
+  try {
+    const startup = f.provider.startStream("camera");
+    await new Promise(resolve => setImmediate(resolve));
+    context.mock.timers.tick(6000);
+    await startup;
+    assert.equal(attempts.length, 2);
+    assert.ok(f.closes.includes(attempts[0]!));
+    assert.equal(f.published.length, 1);
+    assert.equal(f.published[0]![1], attempts[1]!.output);
   } finally { await f.dispose(); }
 });
