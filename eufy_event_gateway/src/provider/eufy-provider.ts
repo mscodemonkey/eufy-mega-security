@@ -2543,7 +2543,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       let replacements = 0;
       for (;;) {
         current();
-        if (startupDeadline !== undefined && Date.now() >= startupDeadline) throw new Error("Camera startup deadline expired");
+        if (startupDeadline !== undefined && performance.now() >= startupDeadline) throw new Error("Camera startup deadline expired");
         if (recoverOwnedPeer) {
           const fresh = this.#devices.get(serial);
           const freshRoute = fresh ? ppcsStreamRoute(fresh, this.#devices) : null;
@@ -2567,7 +2567,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
           ...(startupDeadline === undefined ? {} : { startupDeadlineMilliseconds: startupDeadline }),
           maxSeconds: maximumDeadline === undefined ? this.config.maxStreamSeconds
-            : Math.max(0, (maximumDeadline - Date.now()) / 1000),
+            : Math.max(0, (maximumDeadline - performance.now()) / 1000),
           onSensorContact: (observation) => {
             const observed = resolveHomeBaseContactObservation(this.#devices.values(), peer.serial, observation);
             if (!observed) return;
@@ -2582,12 +2582,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           await stream.start();
           current();
           if (recoverOwnedPeer) {
-            startupDeadline ??= Date.now() + 20_000;
-            maximumDeadline ??= Date.now() + this.config.maxStreamSeconds * 1000;
+            startupDeadline ??= performance.now() + 20_000;
+            maximumDeadline ??= performance.now() + this.config.maxStreamSeconds * 1000;
             const observed = await observeOwnedStartup(stream.output, stream.stats,
-              Math.min(6000, Math.max(0, startupDeadline - Date.now())), signal);
+              Math.min(6000, Math.max(0, startupDeadline - performance.now())), signal);
             current();
-            if (observed === "silent" && replacements < 2 && startupDeadline - Date.now() > 500) {
+            if (observed === "silent" && replacements < 2 && startupDeadline - performance.now() > 500) {
               logger.info("camera_stream_peer_recovery", `model=T8113-Z topology=attached attempt=${replacements + 1} reason=acknowledged_no_response`);
               stream.close("replaced");
               await stream.waitUntilClosed();

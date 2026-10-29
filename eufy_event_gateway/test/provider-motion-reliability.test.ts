@@ -364,6 +364,7 @@ test("owned motion prevents a background station reader from opening", async con
 
 test("silent owned HB2 startup drains its old peer before replacing it and publishes only the replacement", async context => {
   context.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 1800000000000 });
+  context.mock.method(performance, "now", () => Date.now());
   const f = await fixture(context, false, "T8010", false, "synthetic-base", 0);
   const attempts: FirstPartyPpcsSession[] = [];
   let release!: () => void;
@@ -396,6 +397,7 @@ test("silent owned HB2 startup drains its old peer before replacing it and publi
 
 test("cancellation during a silent peer retirement never opens its replacement", async context => {
   context.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 1800000000000 });
+  context.mock.method(performance, "now", () => Date.now());
   const f = await fixture(context, false, "T8010", false, "synthetic-base", 0);
   const attempts: FirstPartyPpcsSession[] = [];
   let release!: () => void;
@@ -419,6 +421,7 @@ test("cancellation during a silent peer retirement never opens its replacement",
 
 test("owned silence recovery stops after two replacements within one startup", async context => {
   context.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 1800000000000 });
+  context.mock.method(performance, "now", () => Date.now());
   const f = await fixture(context, false, "T8010", false, "synthetic-base", 0);
   let attempts = 0;
   context.mock.method(FirstPartyPpcsSession.prototype, "start", async function (this: FirstPartyPpcsSession) {

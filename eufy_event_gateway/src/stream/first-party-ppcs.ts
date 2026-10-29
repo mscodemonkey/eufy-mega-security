@@ -1354,7 +1354,7 @@ export interface PpcsCameraOptions {
   /** Supply closed lookup outcomes for S100 preparation only; ordinary media keeps its string adapter. */
   readonly resolveCipherKeyOutcome?: (cipherId: number) => Promise<PpcsCipherKeyOutcome>;
 
-  /** Epoch-millisecond deadline shared by replacement lookup and first-frame waits. */
+  /** Monotonic performance.now() deadline shared by replacement lookup and first-frame waits. */
   readonly startupDeadlineMilliseconds?: number;
 
   /** Hard session lifetime, defaulting to 30 seconds when omitted. */
@@ -1740,7 +1740,7 @@ export class FirstPartyPpcsSession {
         reject(new PpcsLookupTimeoutError());
       }, Math.min(this.#options.lookupTimeoutMs ?? 20_000,
         this.#options.startupDeadlineMilliseconds === undefined ? 20_000
-          : Math.max(0, this.#options.startupDeadlineMilliseconds - Date.now())));
+          : Math.max(0, this.#options.startupDeadlineMilliseconds - performance.now())));
       this.#lookupCancel = () => {
         clearTimeout(timeout);
         reject(new Error("PPCS camera lookup cancelled"));
@@ -1791,7 +1791,7 @@ export class FirstPartyPpcsSession {
       this.#firstFrameTimer = setTimeout(
         () => this.close("first_frame_timeout"),
         Math.min(FIRST_VIDEO_FRAME_TIMEOUT_MILLISECONDS, this.#options.startupDeadlineMilliseconds === undefined
-          ? FIRST_VIDEO_FRAME_TIMEOUT_MILLISECONDS : Math.max(0, this.#options.startupDeadlineMilliseconds - Date.now())),
+          ? FIRST_VIDEO_FRAME_TIMEOUT_MILLISECONDS : Math.max(0, this.#options.startupDeadlineMilliseconds - performance.now())),
       );
     }
     this.#heartbeat = setInterval(() => {

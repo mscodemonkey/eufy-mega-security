@@ -296,6 +296,7 @@ for (const [model, station] of [["T8210", "T8010"], ["T8113-Z", "T8030"]] as con
 });
 
 for (const remaining of [1000, 60000]) test(`absolute startup deadline cannot extend first-frame budget: ${remaining}`, async context => {
+  context.mock.method(performance, "now", () => Date.now());
   const f = await peer(context, true, "T8113-Z", "media", "T8010", 1800000000000 + remaining);
   try {
     const expected = Math.min(remaining, 20000);
@@ -308,6 +309,7 @@ for (const remaining of [1000, 60000]) test(`absolute startup deadline cannot ex
 
 test("remaining owned startup budget also bounds replacement lookup", async context => {
   context.mock.timers.enable({ apis: ["Date", "setTimeout", "setInterval"], now: 1800000000000 });
+  context.mock.method(performance, "now", () => Date.now());
   context.mock.method(Socket.prototype, "bind", function (this: Socket) { return this; });
   context.mock.method(Socket.prototype, "close", function (this: Socket) { return this; });
   const session = new FirstPartyPpcsSession({ stationSerial: "SYNTHETIC1234567", p2pDid: "TEST-12345678-TEST",
