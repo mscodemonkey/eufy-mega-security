@@ -166,7 +166,9 @@ export function acceptsSoloCamAudio(cameraModel: string, homeBaseAttached: boole
  * modulus so the camera can wrap its media key. Command 1004 stops the child
  * channel and deliberately carries an empty payload. The caller applies
  * level-two encryption after this function returns. The owning route selects
- * the codec request, retaining H.265 for routes without an exact H.264 contract.
+ * the codec request, retaining the existing request for other routes.
+ *
+ * @param streamType Zero requests H.264. One requests H.265.
  */
 export function buildAttachedMediaControlValue(
   command: 1003 | 1004,
@@ -3492,23 +3494,24 @@ export class FirstPartyPpcsSession {
     }
 
     // The authenticated native T8113-Z/T8010 channel-zero start requests H.264.
-    // Stream-slot IDs are independent of codec selection. Other routes retain
-    // their existing request until an exact contract establishes a change.
-    const nativeH264 = this.#options.stationModel === "T8010"
+    // Other routes retain their existing request until an exact contract
+    // establishes a change. The same capture uses stream slot ten on start.
+    const nativeStartRoute = this.#options.stationModel === "T8010"
       && this.#options.cameraModel === "T8113-Z" && this.#options.channel === 0;
     const value = buildAttachedMediaControlValue(
       command,
       this.#options.channel,
       this.#options.accountId ?? "",
       command === 1003 ? publicModulus(this.#rsa.publicKey) : undefined,
-      nativeH264 ? 0 : 1,
+      nativeStartRoute ? 0 : 1,
     );
 
     // The level-2 body is AES-GCM encrypted. The RSA modulus inside the JSON
     // lets the camera establish the per-stream video key for frame payloads.
     const level2Sequence = this.#level2Seq++;
     const body = encryptLevel2(value, this.#level2Key, level2Sequence);
-    const streamId = this.#options.channel === 0 || this.#options.channel === 255 ? 0 : 10 + (this.#level2Seq & 127);
+    const streamId = nativeStartRoute && command === 1003 ? 10
+      : this.#options.channel === 0 || this.#options.channel === 255 ? 0 : 10 + (this.#level2Seq & 127);
     const header = commandHeader(this.#seq++, 1350);
     const packet = Buffer.concat([header, rawPayload(body, this.#options.channel, 8, [8, 0], streamId)]);
     if (!this.stats.startHex) this.stats.startHex = packet.subarray(0, 32).toString("hex");

@@ -316,7 +316,8 @@ for (const [model, station, channel, expected] of [
     assert.equal(value.payload.streamtype, expected);
     assert.equal(value.payload.accountId, "synthetic-owner");
     assert.match(value.payload.key, /^[a-f0-9]{256}$/);
-    if (channel === 0) assert.equal(packet[22], 0, "stream slot remains independent of codec selection");
+    if (channel === 0) assert.equal(packet[22], model === "T8113-Z" && station === "T8010" ? 10 : 0,
+      "only the captured route selects native stream slot ten");
     const count = f.sent.filter(candidate => candidate.equals(packet)).length;
     context.mock.timers.tick(150);
     assert.ok(f.sent.filter(candidate => candidate.equals(packet)).length > count,
