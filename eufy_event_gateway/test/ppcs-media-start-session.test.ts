@@ -32,7 +32,7 @@ function gateway(): Buffer {
 }
 
 /** Own a synthetic CAM_ID handshake, inbound frames, packet loss and fake time. */
-async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" = "media", stationModel = "T8010") {
+async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" = "media", stationModel = "T8010", startupDeadlineMilliseconds?: number) {
   let socket!: Socket;
   let inbound = 0;
   const sent: Buffer[] = [];
@@ -46,6 +46,7 @@ async function peer(context: TestContext, attached = true, model = "T8113-Z", pu
   context.mock.method(Socket.prototype, "close", function (this: Socket) { return this; });
   const session = new FirstPartyPpcsSession({ stationSerial: "SYNTHETIC1234567", p2pDid: "TEST-12345678-TEST",
     appConnection: "", dskKey: "synthetic", channel: attached ? 1 : 0, homeBaseAttached: attached, stationModel,
+    ...(startupDeadlineMilliseconds === undefined ? {} : { startupDeadlineMilliseconds }),
     purpose, cameraModel: model, accountId: "synthetic-owner", maxSeconds: 120,
     resolveCipherKey: async () => Buffer.alloc(32, 1).toString("hex") });
   const receive = (packet: Buffer, port = 12345) => socket.emit("message", packet, { address: "127.0.0.1", port });
@@ -292,4 +293,31 @@ for (const [model, station] of [["T8210", "T8010"], ["T8113-Z", "T8030"]] as con
     assert.equal(f.session.stats.gatewayInfoRetransmitted, 0);
     assert.equal(f.session.stats.gatewayInfoAcknowledged, 0);
   } finally { f.session.close(); }
+});
+
+for (const remaining of [1000, 60000]) test(`absolute startup deadline cannot extend first-frame budget: ${remaining}`, async context => {
+  context.mock.method(performance, "now", () => Date.now());
+  const f = await peer(context, true, "T8113-Z", "media", "T8010", 1800000000000 + remaining);
+  try {
+    const expected = Math.min(remaining, 20000);
+    context.mock.timers.tick(expected - 1);
+    assert.equal(f.session.stats.closeReason, "open");
+    context.mock.timers.tick(1);
+    assert.equal(f.session.stats.closeReason, "first_frame_timeout");
+  } finally { f.session.close(); }
+});
+
+test("remaining owned startup budget also bounds replacement lookup", async context => {
+  context.mock.timers.enable({ apis: ["Date", "setTimeout", "setInterval"], now: 1800000000000 });
+  context.mock.method(performance, "now", () => Date.now());
+  context.mock.method(Socket.prototype, "bind", function (this: Socket) { return this; });
+  context.mock.method(Socket.prototype, "close", function (this: Socket) { return this; });
+  const session = new FirstPartyPpcsSession({ stationSerial: "SYNTHETIC1234567", p2pDid: "TEST-12345678-TEST",
+    appConnection: "", dskKey: "synthetic", channel: 0, cameraModel: "T8113-Z", stationModel: "T8010",
+    homeBaseAttached: true, accountId: "synthetic-owner", startupDeadlineMilliseconds: Date.now() + 1000 });
+  const result = assert.rejects(session.start(), /lookup timed out/);
+  context.mock.timers.tick(1000);
+  await result;
+  assert.equal(session.stats.closeReason, "start_failed");
+  await session.waitUntilClosed();
 });

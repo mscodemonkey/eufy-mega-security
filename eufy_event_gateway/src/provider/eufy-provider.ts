@@ -54,6 +54,7 @@ import { CloudRecordingError } from "../stream/cloud-recordings.js";
 import { DoorbellRtcSession } from "../stream/doorbell-rtc-session.js";
 import { DoorbellRtcError } from "../stream/doorbell-rtc-offer.js";
 import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, type PpcsCipherKeyOutcome, PpcsLookupTimeoutError, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
+import { observeOwnedStartup } from "../stream/owned-startup-recovery.js";
 import { withCameraControlDeadline } from "./camera-control-deadline.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBaseChildParam, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
 import type { SensorContactObservation } from "../stream/sensor-status-notification.js";
@@ -2228,6 +2229,26 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         this.#reserveDoorbellRtc(serial, cancellation.signal, false);
         return this.#startDoorbellRtcTrial(serial);
       }
+      const stationReservation = (): Promise<HomeBaseState> | undefined => {
+        const device = this.#devices.get(serial);
+        const route = device ? ppcsStreamRoute(device, this.#devices) : null;
+        return route?.homeBaseAttached ? this.#stationOperations.get(route.peer.serial) : undefined;
+      };
+      if (stationReservation()) {
+        try {
+          await withCameraControlDeadline(async scope => {
+            let reservation: Promise<HomeBaseState> | undefined;
+            while ((reservation = stationReservation())) {
+              current();
+              await scope.wait(() => reservation!.catch(() => undefined));
+              current();
+            }
+          }, cancellation.signal);
+        } catch {
+          current();
+          throw new Error("Camera stream start timed out waiting for HomeBase state refresh");
+        }
+      }
       if (this.#homeBaseMotionReservation(serial)) {
         try {
           await withCameraControlDeadline(async scope => {
@@ -2258,7 +2279,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       }
       for (let attempt = 0; ; attempt++) {
         current();
-        try { await this.#startStreamOnce(serial, current); return; }
+        try { await this.#startStreamOnce(serial, current, cancellation.signal); return; }
         catch (error) {
           current();
           const device = this.#devices.get(serial);
@@ -2488,7 +2509,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     } finally { try { await release?.(); } finally { this.#nvrLiveJobs.delete(station.serial); } }
   }
 
-  async #startStreamOnce(serial: string, current: () => void): Promise<void> {
+  async #startStreamOnce(serial: string, current: () => void, signal: AbortSignal): Promise<void> {
     const startedAt = performance.now();
     current();
     if (this.#recordingPeerReserved(serial)) throw new Error("Wait for recording retrieval before starting live view");
@@ -2515,57 +2536,97 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const cipherReadyAt = performance.now();
       current();
       if (this.#recordingPeerReserved(serial)) throw new Error("Wait for recording retrieval before starting live view");
-      const stream = new FirstPartyPpcsSession({
-        ...(device.model === "T8170" && device.deviceType === 48 && !route.homeBaseAttached ? { lookupTimeoutMs: 8_000 } : {}),
-        stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
-        localAddress: peer.localAddress,
-        dskKey: dsk.key, channel: device.channel, cameraModel: device.model, stationModel: peer.model,
-        accountId: device.adminUserId,
-        homeBaseAttached: route.homeBaseAttached,
-        cipherId: device.cipherId,
-        ...(initialEccPrivateKey ? { initialEccPrivateKey } : {}),
-        resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
-        maxSeconds: this.config.maxStreamSeconds,
-        onSensorContact: (observation) => {
-          const observed = resolveHomeBaseContactObservation(this.#devices.values(), peer.serial, observation);
-          if (!observed) return;
-          this.#devices.set(observed.serial, observed);
-          const cached = this.#liveDeviceReads.get(observed.serial) ?? {};
-          this.#liveDeviceReads.set(observed.serial, { ...cached, contactOpen: observation.open });
-          publishHomeBaseChildSensorObservation(observed, this.#events);
-        },
-      });
-      this.#ppcsStreams.set(serial, stream);
-      try {
-        await stream.start();
+      const recoverOwnedPeer = route.homeBaseAttached && peer.model === "T8010"
+        && device.model === "T8113-Z" && device.deviceType === 8 && device.channel === 0;
+      let startupDeadline: number | undefined;
+      let maximumDeadline: number | undefined;
+      let replacements = 0;
+      for (;;) {
         current();
-      } catch (error) {
-        logger.warn(
-          "camera_stream_start_failed",
-          ppcsStreamLogSummary(device.model, route, stream.stats, error),
-        );
-        stream.close("start_failed");
-        if (this.#ppcsStreams.get(serial) === stream) this.#ppcsStreams.delete(serial);
-        throw error;
+        if (startupDeadline !== undefined && performance.now() >= startupDeadline) throw new Error("Camera startup deadline expired");
+        if (recoverOwnedPeer) {
+          const fresh = this.#devices.get(serial);
+          const freshRoute = fresh ? ppcsStreamRoute(fresh, this.#devices) : null;
+          if (!fresh || fresh.model !== device.model || fresh.deviceType !== device.deviceType
+            || fresh.channel !== device.channel || fresh.adminUserId !== device.adminUserId
+            || !freshRoute?.homeBaseAttached || freshRoute.peer.serial !== peer.serial
+            || freshRoute.peer.model !== peer.model || freshRoute.peer.adminUserId !== peer.adminUserId
+            || freshRoute.peer.p2pDid !== peer.p2pDid || freshRoute.peer.p2pConnection !== peer.p2pConnection) {
+            throw new Error("Camera startup route changed before peer recovery");
+          }
+        }
+        const stream = new FirstPartyPpcsSession({
+          ...(device.model === "T8170" && device.deviceType === 48 && !route.homeBaseAttached ? { lookupTimeoutMs: 8_000 } : {}),
+          stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
+          localAddress: peer.localAddress,
+          dskKey: dsk.key, channel: device.channel, cameraModel: device.model, stationModel: peer.model,
+          accountId: device.adminUserId,
+          homeBaseAttached: route.homeBaseAttached,
+          cipherId: device.cipherId,
+          ...(initialEccPrivateKey ? { initialEccPrivateKey } : {}),
+          resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
+          ...(startupDeadline === undefined ? {} : { startupDeadlineMilliseconds: startupDeadline }),
+          maxSeconds: maximumDeadline === undefined ? this.config.maxStreamSeconds
+            : Math.max(0, (maximumDeadline - performance.now()) / 1000),
+          onSensorContact: (observation) => {
+            const observed = resolveHomeBaseContactObservation(this.#devices.values(), peer.serial, observation);
+            if (!observed) return;
+            this.#devices.set(observed.serial, observed);
+            const cached = this.#liveDeviceReads.get(observed.serial) ?? {};
+            this.#liveDeviceReads.set(observed.serial, { ...cached, contactOpen: observation.open });
+            publishHomeBaseChildSensorObservation(observed, this.#events);
+          },
+        });
+        this.#ppcsStreams.set(serial, stream);
+        try {
+          await stream.start();
+          current();
+          if (recoverOwnedPeer) {
+            startupDeadline ??= performance.now() + 20_000;
+            maximumDeadline ??= performance.now() + this.config.maxStreamSeconds * 1000;
+            const observed = await observeOwnedStartup(stream.output, stream.stats,
+              Math.min(6000, Math.max(0, startupDeadline - performance.now())), signal);
+            current();
+            if ((observed === "silent" || observed === "unacknowledged" || observed === "stalled") && replacements < 2 && startupDeadline - performance.now() > 500) {
+              logger.info("camera_stream_peer_recovery", `model=T8113-Z topology=attached attempt=${replacements + 1} reason=${observed === "silent" ? "acknowledged_no_response" : observed === "unacknowledged" ? "unacknowledged_start" : "startup_media_stall"}`);
+              stream.close("replaced");
+              await stream.waitUntilClosed();
+              if (this.#ppcsStreams.get(serial) === stream) this.#ppcsStreams.delete(serial);
+              replacements++;
+              continue;
+            }
+          }
+        } catch (error) {
+          logger.warn(
+            "camera_stream_start_failed",
+            ppcsStreamLogSummary(device.model, route, stream.stats, error),
+          );
+          stream.close("start_failed");
+          if (recoverOwnedPeer) await stream.waitUntilClosed();
+          if (this.#ppcsStreams.get(serial) === stream) this.#ppcsStreams.delete(serial);
+          throw error;
+        }
+        const transportReadyAt = performance.now();
+        const elapsed = (later: number, earlier: number): number => Math.round(Math.max(0, later - earlier));
+        logger.info("camera_stream_start_timings", [
+          `model=${device.model}`,
+          `topology=${route.homeBaseAttached ? "attached" : "direct"}`,
+          `dsk_ms=${elapsed(dskReadyAt, startedAt)}`,
+          `previous_close_ms=${elapsed(previousClosedAt, dskReadyAt)}`,
+          `cipher_ms=${elapsed(cipherReadyAt, previousClosedAt)}`,
+          `transport_ms=${elapsed(transportReadyAt, cipherReadyAt)}`,
+          `total_ms=${elapsed(transportReadyAt, startedAt)}`,
+          `owned_startup_recovery=${recoverOwnedPeer}`,
+          `channel=${device.channel}`,
+        ].join(" "));
+        const audio = (isE21(device) || supportsCameraLiveAudio(device, route, true))
+          ? stream.audioOutput : undefined;
+        this.#events?.streamStarted(serial, stream.output, () => stream.videoCodec, audio);
+        const finalize = () => this.#finalizeStream(serial, stream, device, route);
+        stream.output.once("end", finalize);
+        stream.output.once("close", finalize);
+        return;
       }
-      const transportReadyAt = performance.now();
-      const elapsed = (later: number, earlier: number): number => Math.round(Math.max(0, later - earlier));
-      logger.info("camera_stream_start_timings", [
-        `model=${device.model}`,
-        `topology=${route.homeBaseAttached ? "attached" : "direct"}`,
-        `dsk_ms=${elapsed(dskReadyAt, startedAt)}`,
-        `previous_close_ms=${elapsed(previousClosedAt, dskReadyAt)}`,
-        `cipher_ms=${elapsed(cipherReadyAt, previousClosedAt)}`,
-        `transport_ms=${elapsed(transportReadyAt, cipherReadyAt)}`,
-        `total_ms=${elapsed(transportReadyAt, startedAt)}`,
-      ].join(" "));
-      const audio = (isE21(device) || supportsCameraLiveAudio(device, route, true))
-        ? stream.audioOutput : undefined;
-      this.#events?.streamStarted(serial, stream.output, () => stream.videoCodec, audio);
-      const finalize = () => this.#finalizeStream(serial, stream, device, route);
-      stream.output.once("end", finalize);
-      stream.output.once("close", finalize);
-      return;
     }
     throw new Error("First-party PPCS camera transport is unavailable for this camera");
   }
@@ -3255,6 +3316,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         if (generation !== this.#startupGeneration || this.#recordingClosing) throw new Error("Camera motion control cancelled");
       };
       current();
+      if (peerKey) {
+        let stationOperation: Promise<HomeBaseState> | undefined;
+        while ((stationOperation = this.#stationOperations.get(peerKey))) {
+          await scope.wait(() => stationOperation!.catch(() => undefined));
+          current();
+        }
+      }
       const device = this.#devices.get(serial);
       if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
       const route = ppcsStreamRoute(device, this.#devices);
@@ -5144,6 +5212,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         throw error;
       } finally {
         session.close();
+        await session.waitUntilClosed();
       }
     });
     this.#stationOperations.set(serial, current);
@@ -5245,12 +5314,18 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   #stationHasActiveMedia(stationSerial: string): boolean {
-    return this.#stationHasRecordingReservation(stationSerial) || [...this.#ppcsStreams.keys()].some((serial) => this.#devices.get(serial)?.parentSerial === stationSerial);
+    return this.#stationHasRecordingReservation(stationSerial)
+      || this.#homeBaseMotionOperations.has(stationSerial)
+      || [...this.#ppcsStreams.keys()].some(serial => this.#devices.get(serial)?.parentSerial === stationSerial)
+      || (["T8010", "T8030"].includes(this.#devices.get(stationSerial)?.model ?? "")
+        && [...this.#streamStarts.entries()].some(([serial, ticket]) => !ticket.cancelled
+          && this.#devices.get(serial)?.parentSerial === stationSerial));
   }
 
   async #stopStationMedia(stationSerial: string): Promise<void> {
-    const serials = [...this.#ppcsStreams.keys()].filter((serial) => this.#devices.get(serial)?.parentSerial === stationSerial);
-    await Promise.all(serials.map((serial) => this.stopStream(serial)));
+    const owned = new Set([...this.#ppcsStreams.keys(), ...this.#streamStarts.keys()]);
+    const serials = [...owned].filter(serial => this.#devices.get(serial)?.parentSerial === stationSerial);
+    await Promise.all(serials.map(serial => this.stopStream(serial)));
   }
 
   #queuePushSnapshot(events: ProviderEvents, event: MegaPushEvent): void {

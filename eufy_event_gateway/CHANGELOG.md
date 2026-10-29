@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.214
+
+- Recover the verified T8113-Z/HomeBase 2 channel-zero startup when the authenticated peer ignores a live-start request, acknowledges it without an application response, or stalls after a short video bootstrap. Replace only the owned peer, at most twice, within the original startup deadline.
+- Serialize classic HomeBase state refreshes with pending camera startup so background reads cannot open a competing session during live-view setup.
+- Keep HomeBase 2 motion handoffs exclusive with station refreshes, and cancel pending child starts before an interrupting station operation proceeds.
+- Drain the HomeBase state reader's final disconnect before releasing its UDP socket and station ownership, with immediate logical cancellation and a finite cleanup deadline.
+- Add real UDP and provider lifecycle regressions for disconnect delivery, cancellation, late callbacks and refresh/media handoff. Intermittent hardware startup remains tracked separately in #465 until the required physical behaviour is confirmed.
+
 ## 0.1.213
 
 - Fixed integration startup on Home Assistant 2026.11 after its camera timeout constant moved.
