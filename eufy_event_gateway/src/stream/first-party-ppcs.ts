@@ -165,13 +165,15 @@ export function acceptsSoloCamAudio(cameraModel: string, homeBaseAttached: boole
  * Command 1003 starts a child camera and must advertise the session's RSA
  * modulus so the camera can wrap its media key. Command 1004 stops the child
  * channel and deliberately carries an empty payload. The caller applies
- * level-two encryption after this function returns.
+ * level-two encryption after this function returns. The owning route selects
+ * the codec request, retaining H.265 for routes without an exact H.264 contract.
  */
 export function buildAttachedMediaControlValue(
   command: 1003 | 1004,
   channel: number,
   accountId: string,
   publicKey?: string,
+  streamType: 0 | 1 = 1,
 ): Buffer {
   if (command === 1003 && !publicKey) throw new Error("Attached media start requires an RSA public key");
   return Buffer.from(JSON.stringify({
@@ -186,7 +188,7 @@ export function buildAttachedMediaControlValue(
           camera_type: 0,
           entrytype: 0,
           key: publicKey,
-          streamtype: 1,
+          streamtype: streamType,
         }
       : {},
   }));
@@ -3488,11 +3490,18 @@ export class FirstPartyPpcsSession {
       this.stats.mediaStopAttempts++;
       this.stats.mediaStopProtocol = "level2-payload";
     }
+
+    // The authenticated native T8113-Z/T8010 channel-zero start requests H.264.
+    // Stream-slot IDs are independent of codec selection. Other routes retain
+    // their existing request until an exact contract establishes a change.
+    const nativeH264 = this.#options.stationModel === "T8010"
+      && this.#options.cameraModel === "T8113-Z" && this.#options.channel === 0;
     const value = buildAttachedMediaControlValue(
       command,
       this.#options.channel,
       this.#options.accountId ?? "",
       command === 1003 ? publicModulus(this.#rsa.publicKey) : undefined,
+      nativeH264 ? 0 : 1,
     );
 
     // The level-2 body is AES-GCM encrypted. The RSA modulus inside the JSON
