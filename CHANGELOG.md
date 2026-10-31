@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.220
+
+- Keep normal opt-in NVR live views open while the viewer remains attached and picture-bearing video continues, instead of forcing a reconnect at two minutes.
+- Retire an NVR live source after 45 seconds without picture-bearing output. Heartbeats and parameter sets cannot keep a stalled source alive. Startup, first-frame, stop, diagnostic and security-trial timeouts remain finite.
+- Preserve the required remaining video-progress budget before sending existing opt-in live controls. Physical confirmation of the longer NVR view remains outstanding.
+
 ## 0.1.219
 
 - Match the account-specific password format required by Eufy before signing in, including verification and CAPTCHA submissions. Failed format checks stop without trying another password format.

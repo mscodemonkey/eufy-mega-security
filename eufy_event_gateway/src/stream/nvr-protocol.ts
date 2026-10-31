@@ -23,7 +23,7 @@ const nvrTrialReasons = [
   "ptcs_packet_geometry", "ptcs_magic", "ptcs_type", "ptcs_flags", "ptcs_length", "ptcs_index",
   "ptcs_final_marker", "ptcs_channel", "ptcs_frame_too_large", "ptcs_metadata_conflict",
   "ptcs_duplicate_conflict", "ptcs_decompression", "ptcs_replay", "ptcs_capacity", "ptcs_poisoned",
-  "frame_sequence_gap", "frame_reorder_limit", "frame_reorder_timeout", "clock_reversed", "state_binding_changed", "state_inventory_expired",
+  "video_progress_timeout", "frame_sequence_gap", "frame_reorder_limit", "frame_reorder_timeout", "clock_reversed", "state_binding_changed", "state_inventory_expired",
 ] as const;
 
 /** Fixed failure reasons distinguish setup failures without retaining received values. */

@@ -100,6 +100,7 @@ for (const event of ["error", "end", "close", "finish"] as const) {
     try {
       await f.provider.startStream(serial);
       const old = f.sessions[0]!;
+      assert.equal((Reflect.get(old, "options") as { maximumLifetimeMilliseconds: unknown }).maximumLifetimeMilliseconds, null);
       if (event === "error") old.output.destroy(new NvrTrialError("video", "signalling_closed"));
       else if (event === "end") { old.output.resume(); await old.close(); }
       else if (event === "finish") await old.close();
@@ -163,6 +164,7 @@ test("a retiring diagnostic lease rejects without waiting or becoming normal rou
   try {
     const release = f.provider.reserveNvrLiveTrial(serial, new AbortController().signal);
     await f.provider.startStream(serial); f.hold();
+    assert.equal((Reflect.get(f.sessions[0]!, "options") as { maximumLifetimeMilliseconds: unknown }).maximumLifetimeMilliseconds, 75_000);
     const released = release(); await f.closeEntered;
     await assert.rejects(f.provider.startStream(serial), /cancelled/);
     assert.equal(f.sessions.length, 1);

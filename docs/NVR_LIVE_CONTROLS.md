@@ -19,7 +19,11 @@ Night vision and quality are persistent settings. Off, Standard or lower quality
 
 Close live views, recordings and preloading before changing Camera view. The choice applies to the next source and resets on restart or binding change. Changing it clears observed settings until the next explicit live start or capability refresh. Direction and zoom buttons disappear from availability on the Fixed T8E00 view.
 
-A setting needs 35 seconds of source lifetime remaining before the first write. The second quality write needs 25 seconds. Movement needs 10 seconds. The maximum source lifetime still applies, normally 120 seconds, and no control extends it. Use `max_stream_seconds` of 120 seconds or more. Below about 60 seconds, startup and discovery may leave too little time for a setting. Actions are exclusive per NVR and spaced at least one second apart. Explicit capability refresh has a ten-second cooldown. Refresh reads settings without starting video when the camera is idle.
+A setting needs 35 seconds of source lifetime remaining before the first write. The second quality write needs 25 seconds. Movement needs 10 seconds.
+
+Normal NVR live view keeps its source while the viewer owns it and usable video continues. Checked picture-bearing output renews a 45-second video-progress budget. Heartbeats, parameter sets and controls do not renew it. This tracks coded output rather than decoded or displayed pictures. A stalled source closes when that budget expires, and no setting is sent without its required remaining budget. Negotiation and the first usable frame retain their separate finite deadlines. Diagnostic and security-control trials retain their finite total lifetimes. The battery-camera and doorbell `max_stream_seconds` limits are unchanged.
+
+Actions are exclusive per NVR and spaced at least one second apart. Explicit capability refresh has a ten-second cooldown. Refresh reads settings without starting video when the camera is idle.
 
 ## Interpreting results
 
