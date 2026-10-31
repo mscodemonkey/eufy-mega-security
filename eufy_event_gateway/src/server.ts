@@ -69,6 +69,7 @@ const STREAM_TOKEN_MAX_FUTURE_SECONDS = STREAM_TOKEN_LIFETIME_SECONDS + 60;
  */
 export class GatewayServer {
   #server: Server | null = null;
+  #verificationSubmission: Promise<void> | null = null;
   #bundle: BundleCapture | null = null;
   #bundleCleanup: (() => void) | null = null;
   #sampleBundleTransport: (() => void) | null = null;
@@ -1121,7 +1122,7 @@ export class GatewayServer {
     const content = challenge
       ? `<p>Eufy needs you to solve this one-time challenge.</p><img src="${captchaDataUri(challenge.image)}" alt="Eufy CAPTCHA"><form method="post" action=""><label for="answer">Characters shown</label><input id="answer" name="answer" required maxlength="32" autocomplete="off" autocapitalize="none"><button type="submit">Connect to Eufy</button></form>`
       : this.captchaProvider?.isVerificationRequired()
-        ? `<p>Eufy sent a six-digit verification code to your account email.</p><form method="post" action=""><label for="code">Verification code</label><input id="code" name="code" required minlength="6" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code"><button type="submit">Verify and connect</button></form>`
+        ? `<p>Eufy sent a six-digit verification code to your account email.</p><form id="verification-form" method="post" action=""><label for="code">Verification code</label><input id="code" name="code" required minlength="6" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code"><button id="verification-submit" type="submit">Verify and connect</button></form><script>document.getElementById("verification-form").addEventListener("submit",()=>{const button=document.getElementById("verification-submit");button.disabled=true;button.textContent="Checking code...";});</script>`
       : connection.state === "connected"
         ? `<p><strong>Connected to Eufy.</strong></p><p>The gateway is ready. Return to Home Assistant to review your cameras and entities.</p><a class="button" href="/config/integrations/integration/eufy_event_gateway" target="_top">View Eufy integration</a>`
         : `<p>No authentication challenge is waiting.</p><p>Current connection: <strong>${escapeHtml(connection.state)}</strong>${connection.detail ? `; ${escapeHtml(connection.detail)}` : ""}.</p>`;
@@ -1158,11 +1159,14 @@ export class GatewayServer {
     if (!this.captchaProvider) return this.#authenticationPage(response, "Verification is unavailable.");
     const code = values.get("code")?.trim() ?? "";
     if (!/^\d{6}$/.test(code)) return this.#authenticationPage(response, "Enter the six-digit code Eufy sent you.");
+    const submission = this.#verificationSubmission ??= this.captchaProvider.submitVerification(code);
     try {
-      await this.captchaProvider.submitVerification(code);
+      await submission;
       return this.#authenticationPage(response, "Verification accepted.");
     } catch (error) {
       return this.#authenticationPage(response, `Eufy did not accept the verification code: ${safeError(error)}`);
+    } finally {
+      if (this.#verificationSubmission === submission) this.#verificationSubmission = null;
     }
   }
 

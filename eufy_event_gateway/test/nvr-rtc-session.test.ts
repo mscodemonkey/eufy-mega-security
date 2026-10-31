@@ -50,7 +50,7 @@ function keyframePackets(frame: Buffer, sequence: number): Buffer[] {
   });
 }
 
-for (const scenario of ['continuous-parameters', 'continuous-h265', 'continuous-controls', 'continuous-video', 'continuous-stall', 'continuous-heartbeat', 'continuous-gap', 'continuous-cancel', 'live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-nonzero', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
+for (const scenario of ['continuous-parameters', 'continuous-h265', 'continuous-controls', 'continuous-video', 'continuous-signalling-close', 'continuous-stall', 'continuous-heartbeat', 'continuous-gap', 'continuous-cancel', 'live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-nonzero', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
   const codec = scenario === 'h265' || scenario === 'sequence-gap' || scenario === 'continuous-h265' ? 'h265' : 'h264';
   const server = new WebSocketServer({ port: 0 });
   await once(server, 'listening');
@@ -435,7 +435,15 @@ for (const scenario of ['continuous-parameters', 'continuous-h265', 'continuous-
         assert.equal(session.stats.video, oldVideo);
         assert.equal(scheduled.length, videoTimer);
         assert.equal(dispatched, 0);
-      } else if (scenario === 'continuous-video' || scenario === 'continuous-h265') {
+      } else if (scenario === 'continuous-video' || scenario === 'continuous-h265' || scenario === 'continuous-signalling-close') {
+        if (scenario === 'continuous-signalling-close') {
+          const before = session.stats.video;
+          socket!.close();
+          await new Promise(resolve => setTimeout(resolve, 250));
+          assert.ok(session.stats.video > before);
+          assert.equal(session.stats.signallingClosuresAfterVideo, 1);
+          assert.equal(session.output.destroyed, false);
+        }
         const nativeNow = performance.now.bind(performance);
         context.mock.method(performance, 'now', () => nativeNow() + 180_000);
         await new Promise(resolve => setTimeout(resolve, 250));
