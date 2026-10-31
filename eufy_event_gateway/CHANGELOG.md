@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.218
+
+- Retire the headerless event-picture experiment. Pictures use normal authenticated requests even when the old setting remains enabled, and the retired setting is identified as ignored.
+- Explain read-only FamiLock status refusals with specific, privacy-safe reasons in Diagnostics and logs. Existing ownership and connection checks remain enforced, with no lock operation enabled.
+- Intermittent event-picture 404 failures remain unresolved. Physical T85V0 status behaviour still needs confirmation.
+
 ## 0.1.217
 
 - Correct notification registration to match the current Eufy app, including both token fields, and remove the unrelated app-review check that could leave delivery marked degraded.
