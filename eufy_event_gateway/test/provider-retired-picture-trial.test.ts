@@ -1,5 +1,5 @@
 /**
- * Exercises the exact-model native-picture gate through synthetic pushes. Tests
+ * Exercises authenticated pictures with retired settings through synthetic pushes. Tests
  * own authentication, fetches and event callbacks, with no external account.
  */
 import assert from "node:assert/strict";
@@ -9,8 +9,8 @@ import type { ProviderEvents } from "../src/provider/provider.js";
 import { MegaClient } from "../src/mega/client.js";
 import { MegaPushReceiver, parsePushEvent, type MegaPushEvent } from "../src/mega/push.js";
 
-for (const mode of ["selected", "off", "model", "type", "category", "unauthenticated", "failure", "decode", "downstream", "stale", "v8-bound"]) {
-  test(`event-picture request ${mode} selects only the reviewed job and marks only download failures`, async context => {
+for (const mode of ["legacy-on", "legacy-off", "model", "type", "category", "unauthenticated", "failure", "decode", "downstream", "stale", "v8-bound"]) {
+  test(`retired picture trial ${mode} preserves authenticated delivery and publication ownership`, async context => {
     context.mock.method(globalThis, "fetch", async () => { assert.fail("Network forbidden"); });
     context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
     context.mock.getter(MegaClient.prototype, "isAuthenticated", () => mode !== "unauthenticated");
@@ -21,12 +21,11 @@ for (const mode of ["selected", "off", "model", "type", "category", "unauthentic
     context.mock.method(MegaClient.prototype, "dskKeys", async () => ({}));
     let deliver!: (event: MegaPushEvent) => void;
     context.mock.method(MegaPushReceiver.prototype, "start", async function(this: MegaPushReceiver) { deliver = Reflect.get(this, "onEvent") as typeof deliver; });
-    let calls = 0, normal = 0, keys = 0, published = 0;
+    let calls = 0, keys = 0, published = 0;
     let release!: () => void, entered!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { entered = resolve; });
     const jpeg = Buffer.from([255,216,1,2,255,217]); let retained: Buffer = Buffer.from("last-good");
-    context.mock.method(MegaClient.prototype, "download", async function(this: MegaClient) { assert.ok(this instanceof MegaClient); normal++; return jpeg; });
-    context.mock.method(MegaClient.prototype, "downloadNativeEventImage", async function(this: MegaClient) {
+    context.mock.method(MegaClient.prototype, "download", async function(this: MegaClient) {
       assert.ok(this instanceof MegaClient); calls++; entered();
       if(mode === "stale") await gate;
       if(mode === "failure") throw Error("synthetic HTTP 404");
@@ -55,22 +54,20 @@ for (const mode of ["selected", "off", "model", "type", "category", "unauthentic
       if(mode === "downstream") throw Error("synthetic downstream failure"); retained = data; published++;
     } }, { get: (target, key) => Reflect.get(target, key) ?? (() => undefined) }) as unknown as ProviderEvents;
     const provider = new EufyProvider({ username: "fixture", password: "redacted", country: "AU", persistentDirectory: "/nonexistent/synthetic",
-      maxStreamSeconds: 120, experimentalEventImageRequest: mode !== "off" });
+      maxStreamSeconds: 120, experimentalEventImageRequest: mode !== "legacy-off" });
     try {
       await provider.start(events);
       deliver(parsePushEvent({ device_sn: serial, station_sn: serial, pic_url: "https://example.invalid/private", a: 1, unique_id: "fixture-event" })!);
       if(mode === "stale") { await started; const closing = provider.close(); release(); await closing; }
       for(let i = 0; i < 10; i++) await new Promise(resolve => setImmediate(resolve));
-      const selected = !["off", "model", "type", "category", "unauthenticated"].includes(mode);
-      assert.equal(calls, selected ? 1 : 0);
-      if(mode !== "category" && !selected) assert.equal(normal, 1);
+      assert.equal(calls, mode === "category" ? 0 : 1);
       const failures = logs.filter(line => line.includes("event=push_snapshot_unavailable"));
-      if(["failure", "decode", "v8-bound"].includes(mode)) assert.ok(failures.some(line => line.includes("request_style=native")));
-      if(mode === "downstream") assert.ok(failures.length > 0 && failures.every(line => !line.includes("request_style=native")));
+      if(["failure", "decode", "v8-bound", "downstream"].includes(mode)) assert.ok(failures.some(line => line.includes("request_style=authenticated")));
+      assert.equal(logs.some(line => line.includes("request_style=native")), false);
       assert.equal(keys, mode === "v8-bound" ? 1 : 0);
       if(["failure", "decode", "downstream", "stale", "v8-bound"].includes(mode)) { assert.equal(published, 0); assert.deepEqual(retained, Buffer.from("last-good")); }
       const success = logs.filter(line => line.includes("event=push_snapshot_retained"));
-      assert.equal(success.length, mode === "selected" ? 1 : 0);
+      assert.equal(success.length, ["failure", "decode", "downstream", "stale", "v8-bound", "category"].includes(mode) ? 0 : 1);
       assert.equal(success.some(line => /SYNTHETIC|fixture-owner|https:/.test(line)), false);
     } finally { release(); await provider.close(); }
   });

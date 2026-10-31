@@ -82,4 +82,4 @@ them, include them in Claude review prompts, normal diagnostic reports or status
 emails. Derive synthetic regression fixtures after establishing the actual format.
 Capture availability is not a decoder fix or confirmation on reporter hardware.
 
-For the optional T8172 request-style comparison, see [Experimental T8172 event-picture request](T8172_EVENT_PICTURE_TEST.md).
+The headerless T8172 experiment is retired. See [Retired T8172 event-picture request test](T8172_EVENT_PICTURE_TEST.md) for saved-setting compatibility and current failure reporting.
