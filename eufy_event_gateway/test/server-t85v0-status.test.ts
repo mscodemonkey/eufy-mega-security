@@ -103,6 +103,8 @@ for (const supplied of ["owner_account_required", "PRIVATE_OWNER_DATA"]) {
 
 test("read-only admission explanations render as valid script without changing consent", () => {
   const page = diagnosticsPage();
-  for (const match of page.matchAll(/<script>([\s\S]*?)<\/script>/g)) assert.doesNotThrow(() => new Function(match[1]!));
+  const scripts = [...page.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)];
+  assert.ok(scripts.length > 0);
+  for (const match of scripts) assert.doesNotThrow(() => new Function(match[1]!));
   assert.match(page, /Do not switch accounts just for this test/);
 });
