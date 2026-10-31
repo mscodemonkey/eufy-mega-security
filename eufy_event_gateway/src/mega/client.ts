@@ -116,20 +116,19 @@ class MegaHttpRejection extends Error {
   }
 }
 
-/** Result of registering one Firebase token with Eufy's notification backends. */
-export interface PushActivationResult {
+/**
+ * Acceptance of a Firebase token by Eufy's notification registration backend.
+ *
+ * The receiver owns its transport and retries. Acceptance does not prove that a
+ * later physical detection will be delivered to this account.
+ */
+export interface PushRegistrationResult {
 
-  /** Whether Security confirmed the final application activation check. */
-  readonly activated: boolean;
+  /** Whether the notification backend accepted this token. */
+  readonly registered: boolean;
 
   /** Numeric application result when Eufy supplied one, otherwise `null`. */
   readonly code: number | null;
-
-  /** Security step that rejected the token after Mega accepted it. */
-  readonly failedSecurityStage?: "registration" | "activation";
-
-  /** Whether a final Mega registration restored the pre-Security delivery path. */
-  readonly megaRegistrationRestored?: boolean;
 }
 
 /** Runtime dependencies and account settings for {@link MegaClient}. */
@@ -704,69 +703,22 @@ export class MegaClient {
   }
 
   /**
-   * Register one Firebase identity with both account notification backends.
+   * Register the connected Firebase receiver through Eufy's notification backend.
    *
-   * Security delivery requires its registration and activation check even when
-   * Mega registration succeeds. Reuse this session, never perform a second
-   * login. The receiver must log in before these requests and owns retries.
-   * A rejected Security step restores the proven Mega registration last and
-   * returns a degraded result. Failure of that restoration still throws so the
-   * receiver can retry without claiming either notification route is usable.
+   * Reuse the authenticated regional session and match the Android token fields.
+   * The receiver must complete its login first and owns bounded retries. App
+   * review invitations are unrelated to notification registration and must not
+   * gate readiness. Backend acceptance is separate from actual event delivery.
    */
-  async registerPushToken(token: string): Promise<PushActivationResult> {
+  async registerPushToken(token: string): Promise<PushRegistrationResult> {
     this.#requireAuthentication();
-    await this.#registerMegaPushToken(token);
-    const securityRegistration = await this.#securityPushStep("/v1/apppush/register_push_token", {
-      token,
-      is_notification_enable: true,
-      transaction: `${this.#now()}`,
-    });
-    if (!securityRegistration || !isSuccess(securityRegistration.code)) {
-      const code = typeof securityRegistration?.code === "number" && Number.isFinite(securityRegistration.code)
-        ? securityRegistration.code
-        : null;
-      await this.#registerMegaPushToken(token);
-      return {
-        activated: false,
-        code,
-        failedSecurityStage: "registration",
-        megaRegistrationRestored: true,
-      };
-    }
-    const activation = await this.#securityPushStep("/v1/app/review/app_push_check", {
-      app_type: "eufySecurity",
-      transaction: `${this.#now()}`,
-    });
-    const code = typeof activation?.code === "number" && Number.isFinite(activation.code)
-      ? activation.code
-      : null;
-    if (activation && isSuccess(activation.code)) return { activated: true, code };
-    await this.#registerMegaPushToken(token);
-    return { activated: false, code, failedSecurityStage: "activation", megaRegistrationRestored: true };
-  }
-
-  /** Treat a failed Security step as degraded so the accepted Mega registration can be restored once. */
-  async #securityPushStep(path: "/v1/apppush/register_push_token" | "/v1/app/review/app_push_check",
-    payload: unknown): Promise<MegaResult | null> {
-    const lifetime = this.#requestLifetime.signal;
-    try {
-      return await this.#call("security", path, payload, false);
-    } catch {
-
-      // Closing or replacing this client's request lifetime must never revive registration.
-      lifetime.throwIfAborted();
-      return null;
-    }
-  }
-
-  /** Register the current Firebase identity through the proven Mega notification path. */
-  async #registerMegaPushToken(token: string): Promise<void> {
     const result = await this.#call("push", "/app/push/register_push_token", {
       token,
       is_notification_enable: true,
-      voip_token: "",
+      voip_token: token,
     }, false);
     if (!isSuccess(result.code)) throw new Error(`Mega push registration failed (${result.code})`);
+    return { registered: true, code: result.code };
   }
 
   /** Download authenticated temporary media through Eufy's allowlisted object-store redirect. */

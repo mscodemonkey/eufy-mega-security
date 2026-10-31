@@ -298,10 +298,10 @@ test(`provider ${replacement} retires the old receiver and retry before replacem
   let entered!: () => void;
   let reject!: (error: Error) => void;
   const entering = new Promise<void>((resolve) => { entered = resolve; });
-  const pending = new Promise<{ activated: boolean; code: number | null }>((_resolve, failed) => { reject = failed; });
+  const pending = new Promise<{ registered: boolean; code: number | null }>((_resolve, failed) => { reject = failed; });
   context.mock.method(MegaClient.prototype, "registerPushToken", async () => {
     if (++calls === 3) { entered(); return pending; }
-    return { activated: false, code: -1 };
+    return { registered: false, code: -1 };
   });
   const logs: string[] = [];
   context.mock.method(process.stderr, "write", (chunk: unknown) => { logs.push(String(chunk)); return true; });
@@ -356,7 +356,7 @@ for (const step of ["connect", "inventory"] as const) {
 }
 
 for (const code of [-1, 10003]) {
-  test(`camera readiness survives returned unconfirmed activation ${code}`, async (context) => {
+  test(`camera readiness survives returned unconfirmed registration ${code}`, async (context) => {
     const directory = await mkdtemp(join(tmpdir(), "eufy-provider-activation-"));
     await writeFile(join(directory, "mega-push.json"), JSON.stringify({ version: 2, persistentIds: [], credentials: {
       fid: "synthetic", androidId: "123", securityToken: "456", fcmToken: "synthetic", createdAt: 1,
@@ -366,7 +366,7 @@ for (const code of [-1, 10003]) {
     let closed = 0;
     context.mock.method(PushClient.prototype, "connect", function (this: PushClient) { live.add(this); this.emit("connect"); });
     context.mock.method(PushClient.prototype, "close", function (this: PushClient) { live.delete(this); ++closed; this.emit("disconnect"); });
-    const register = context.mock.method(MegaClient.prototype, "registerPushToken", async () => ({ activated: false, code }));
+    const register = context.mock.method(MegaClient.prototype, "registerPushToken", async () => ({ registered: false, code }));
     const logs: string[] = [];
     context.mock.method(process.stderr, "write", (chunk: unknown) => { logs.push(String(chunk)); return true; });
     const timers = retryTimers(context);
@@ -390,7 +390,7 @@ for (const code of [-1, 10003]) {
   });
 }
 
-test("camera readiness keeps a restored Mega registration stably degraded", async (context) => {
+test("camera readiness accepts notification registration without review activation", async (context) => {
   context.mock.timers.enable({ apis: ["setTimeout"] });
   const directory = await mkdtemp(join(tmpdir(), "eufy-provider-mega-restored-"));
   await writeFile(join(directory, "mega-push.json"), JSON.stringify({ version: 2, persistentIds: [], credentials: {
@@ -401,7 +401,7 @@ test("camera readiness keeps a restored Mega registration stably degraded", asyn
   context.mock.method(PushClient.prototype, "connect", function (this: PushClient) { live.add(this); this.emit("connect"); });
   context.mock.method(PushClient.prototype, "close", function (this: PushClient) { live.delete(this); this.emit("disconnect"); });
   const register = context.mock.method(MegaClient.prototype, "registerPushToken", async () => ({
-    activated: false, code: 10003, failedSecurityStage: "activation" as const, megaRegistrationRestored: true,
+    registered: true, code: 0,
   }));
   const timers = retryTimers(context);
   try {
@@ -411,7 +411,7 @@ test("camera readiness keeps a restored Mega registration stably degraded", asyn
     }
     assert.equal(f.connections.at(-1)?.state, "connected");
     assert.equal(register.mock.callCount(), 1);
-    assert.equal(f.state.eventDeliveryDiagnostic().receiverState, "degraded");
+    assert.equal(f.state.eventDeliveryDiagnostic().receiverState, "connected");
     assert.equal(live.size, 1);
     assert.equal(timers.size, 0);
     context.mock.timers.tick(1_000_000);
