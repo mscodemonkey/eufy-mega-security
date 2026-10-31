@@ -18,7 +18,11 @@ const ADMISSION_REASONS = [
 /** Finite, value-free explanations of an existing read-only admission check. */
 export type T85V0AdmissionReason = typeof ADMISSION_REASONS[number];
 
-/** Owns only fixed failure categories, never device/account values or transport exceptions. */
+/**
+ * Describes one failed status read until its caller finishes reporting it.
+ * The provider owns connection cleanup. Only fixed categories and allowlisted
+ * reasons cross the reporting boundary, without identifiers or protocol payloads.
+ */
 export class T85V0StatusError extends Error {
 
   /** Available only for admission errors with an allowlisted explanation. */
