@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.217
+
+- Correct notification registration to match the current Eufy app, including both token fields, and remove the unrelated app-review check that could leave delivery marked degraded.
+- Keep successful registration separate from confirmed event delivery. Notification delivery on the affected shared account still needs confirmation.
+
 ## 0.1.216
 
 - Fix E21 live-view readiness by requesting its camera transport key with the correct care-device category.
