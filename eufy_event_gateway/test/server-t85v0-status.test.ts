@@ -77,3 +77,26 @@ test("FamiLock browser consent is unchecked and cancels on selection or departur
   assert.match(page, /change', cancelLockStatus/);
   assert.match(page, /without operating the lock/);
 });
+
+
+for (const supplied of ["owner_account_required", "PRIVATE_OWNER_DATA"]) {
+  test(`read-only admission response exposes only a fixed reason: ${supplied}`, async context => {
+    const directory = await mkdtemp(join(tmpdir(), "lock-admission-"));
+    const logs: string[] = [];
+    context.mock.method(process.stderr, "write", (chunk: unknown) => { logs.push(String(chunk)); return true; });
+    const provider = { readT85V0StatusTrial: async () => {
+      throw new T85V0StatusError("admission", supplied as never);
+    } } as unknown as CameraProvider;
+    const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "x".repeat(32), experimentalModelControls: true },
+      new GatewayState(), new SnapshotStore(directory), { hasActiveSession: () => false } as unknown as LiveStreamManager, provider, null);
+    try {
+      await server.listen();
+      const response = await fetch(`http://127.0.0.1:${server.port}/api/locks/synthetic/status-trial`, { method: "POST", headers, body });
+      assert.equal(response.status, 409);
+      assert.deepEqual(await response.json(), supplied === "owner_account_required"
+        ? { stage: "admission", reason: "owner_account_required" } : { stage: "admission" });
+      assert.doesNotMatch(logs.join(""), /PRIVATE_OWNER_DATA/);
+      if (supplied === "owner_account_required") assert.match(logs.join(""), /stage=admission reason=owner_account_required/);
+    } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
+  });
+}

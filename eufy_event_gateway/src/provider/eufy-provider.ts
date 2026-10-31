@@ -22,7 +22,7 @@ import { NvrPowerError, runNvrPowerTrial, type NvrPowerRequest, type NvrPowerSum
 import { NvrGuardError, runNvrGuardTrial, type NvrGuardRequest, type NvrGuardState, type NvrGuardSummary } from "./nvr-guard-trial.js";
 import { nvrGuardTimeZone, type NvrGuardEffective } from "./nvr-guard-schedule.js";
 import { eventPictureUrl } from "./event-picture-url.js";
-import { T85V0StatusError, validT85V0StatusIdentity, type T85V0StatusSummary } from "./t85v0-status.js";
+import { T85V0StatusError, validT85V0StatusIdentity, type T85V0AdmissionReason, type T85V0StatusSummary } from "./t85v0-status.js";
 import { LocalMotionCollector, LocalMotionError, type LocalMotionSummary } from "../stream/local-motion-trial.js";
 import { C31IndexError, type C31IndexSummary } from "../stream/c31-recording-index.js";
 import type { E30LockSettingChange, SmartLockState } from "../domain/types.js";
@@ -1131,23 +1131,29 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#assertRtcPreparationIdle();
     const device = this.#devices.get(serial), generation = this.#startupGeneration;
     const peer = device ? this.#devices.get(device.parentSerial) : undefined;
-    const admitted = (rows: readonly MegaInventoryDevice[]): boolean => {
-      if (!device || !peer || device.model !== "T85V0" || device.deviceType !== 203
-        || device.channel === null || !Number.isInteger(device.channel) || device.channel < 0 || device.channel > 254
-        || !device.adminUserId || device.adminUserId !== peer.adminUserId
-        || !(peer.model === "T8030" && peer.deviceType === 18)
-        || !validT85V0StatusIdentity({ serial, accountId: device.adminUserId, channel: device.channel })
-        || !this.#client.isAuthenticatedUser(device.adminUserId) || device.parentSerial === device.serial || !peer.p2pDid || !peer.p2pConnection
-        || !this.#dskKeys.has(peer.serial)) return false;
+    const admissionReason = (rows: readonly MegaInventoryDevice[]): T85V0AdmissionReason | null => {
+      if (!device) return "device_unavailable";
+      if (device.model !== "T85V0" || device.deviceType !== 203) return "unsupported_model";
+      if (device.channel === null || !Number.isInteger(device.channel) || device.channel < 0 || device.channel > 254) return "channel_unavailable";
+      if (!peer || !(peer.model === "T8030" && peer.deviceType === 18) || device.parentSerial === device.serial
+        || !peer.p2pDid || !peer.p2pConnection) return "station_route_unavailable";
+      if (!device.adminUserId || device.adminUserId !== peer.adminUserId) return "owner_binding_unavailable";
+      if (!validT85V0StatusIdentity({ serial, accountId: device.adminUserId, channel: device.channel })) return "identity_unavailable";
+      if (!this.#client.isAuthenticatedUser(device.adminUserId)) return "owner_account_required";
+      if (!this.#dskKeys.has(peer.serial)) return "connection_key_unavailable";
       const children = rows.filter(row => row.serial === serial);
       const parents = rows.filter(row => row.serial === peer.serial);
-      return children.length === 1 && parents.length === 1
-        && rows.filter(row => row.parentSerial === peer.serial && row.channel === device.channel).length === 1
-        && !inventoryBindingChanged(device, children[0]!) && children[0]!.adminUserId === device.adminUserId
-        && !inventoryBindingChanged(peer, parents[0]!) && parents[0]!.adminUserId === peer.adminUserId
-        && parents[0]!.p2pDid === peer.p2pDid && parents[0]!.p2pConnection === peer.p2pConnection;
+      if (children.length !== 1 || parents.length !== 1) return "ambiguous_inventory";
+      if (inventoryBindingChanged(device, children[0]!) || children[0]!.adminUserId !== device.adminUserId
+        || inventoryBindingChanged(peer, parents[0]!) || parents[0]!.adminUserId !== peer.adminUserId
+        || parents[0]!.p2pDid !== peer.p2pDid || parents[0]!.p2pConnection !== peer.p2pConnection) return "inventory_changed";
+      if (rows.filter(row => row.parentSerial === peer.serial && row.channel === device.channel).length !== 1) return "ambiguous_inventory";
+      return null;
     };
-    if (!this.config.experimentalModelControls || !admitted([...this.#devices.values()]) || signal.aborted || this.#recordingClosing) throw new T85V0StatusError("admission");
+    if (!this.config.experimentalModelControls) throw new T85V0StatusError("admission", "feature_disabled");
+    if (signal.aborted || this.#recordingClosing) throw new T85V0StatusError("admission", "operation_unavailable");
+    const initialReason = admissionReason([...this.#devices.values()]);
+    if (initialReason) throw new T85V0StatusError("admission", initialReason);
     const station = peer!;
     const related = [...this.#devices.values()].filter(row => row.serial === station.serial || row.parentSerial === station.serial);
     const controls = [this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations,
@@ -1165,7 +1171,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const abort = (): void => { controller.abort(); session?.close(); };
     const deadline = setTimeout(() => { failure = new T85V0StatusError("timeout"); abort(); }, 60_000);
     const bindingTimer = setInterval(() => {
-      if (!admitted([...this.#devices.values()]) || generation !== this.#startupGeneration || this.#recordingClosing) {
+      if (admissionReason([...this.#devices.values()]) !== null || generation !== this.#startupGeneration || this.#recordingClosing) {
         failure = new T85V0StatusError("cancelled"); abort();
       }
     }, 1_000);
@@ -1175,7 +1181,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (controller.signal.aborted || signal.aborted || this.#recordingClosing || generation !== this.#startupGeneration || (session !== null && session.stats.closeReason !== "open")) {
         throw failure ?? new T85V0StatusError("cancelled");
       }
-      if (!admitted([...this.#devices.values()])) throw new T85V0StatusError("admission");
+      const reason = admissionReason([...this.#devices.values()]);
+      if (reason) throw new T85V0StatusError("admission", reason);
     };
     const owned = async <T>(operation: () => Promise<T>): Promise<T> => {
       current();
@@ -1191,13 +1198,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const fresh = async (): Promise<void> => {
       const inventory = await owned(() => this.#client.inventory(controller.signal));
       if (inventory.devices.filter(row => row.device_sn === serial).length !== 1
-        || inventory.devices.filter(row => row.device_sn === station.serial).length !== 1
-        || !admitted(parseMegaInventory(inventory))) throw new T85V0StatusError("admission");
+        || inventory.devices.filter(row => row.device_sn === station.serial).length !== 1) throw new T85V0StatusError("admission", "ambiguous_inventory");
+      const reason = admissionReason(parseMegaInventory(inventory));
+      if (reason) throw new T85V0StatusError("admission", reason);
     };
     try {
       await fresh();
       const dsk = await owned(() => this.#dskKey(station.serial));
-      if (!dsk) throw new T85V0StatusError("admission");
+      if (!dsk) throw new T85V0StatusError("admission", "connection_key_unavailable");
       session = new FirstPartyPpcsSession({ stationSerial: station.serial, p2pDid: station.p2pDid!,
         appConnection: station.p2pConnection!, localAddress: station.localAddress, dskKey: dsk.key,
         channel: device!.channel!, cameraModel: "T85V0", stationModel: station.model,
@@ -1211,7 +1219,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       await fresh(); current();
       const now = Math.floor(Date.now() / 1000);
       const keyTime = Math.max(now, this.#lockStatusTime + 1);
-      if (keyTime > 0xffffffff || this.#lockStatusSequence >= 0xffffffff) throw new T85V0StatusError("admission");
+      if (keyTime > 0xffffffff || this.#lockStatusSequence >= 0xffffffff) throw new T85V0StatusError("admission", "query_counter_exhausted");
       this.#lockStatusTime = keyTime;
       const sequence = ++this.#lockStatusSequence;
       const summary = await owned(() => session!.readT85V0Status({ serial, accountId: device!.adminUserId!, channel: device!.channel! }, keyTime, sequence, current));

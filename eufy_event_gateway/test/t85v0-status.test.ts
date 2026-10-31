@@ -78,3 +78,14 @@ test("native ASCII identity bounds and uint32 counters reject ambiguous derivati
   }
   assert.throws(() => decodeT85V0StatusReply(envelope(replyVector), { ...identity, accountId: "another-account" }, time, sequence), /malformed|rejected/);
 });
+
+
+test("admission explanations exclude unclassified values and non-admission failures", () => {
+  assert.equal(new T85V0StatusError("admission", "owner_account_required").reason, "owner_account_required");
+  for (const reason of [undefined, "PRIVATE_OWNER_DATA", "toString", null, 1]) {
+    const error = new T85V0StatusError("admission", reason as never);
+    assert.equal(error.reason, undefined);
+    assert.doesNotMatch(JSON.stringify(error), /PRIVATE_OWNER_DATA/);
+  }
+  assert.equal(new T85V0StatusError("cancelled", "owner_account_required").reason, undefined);
+});

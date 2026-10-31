@@ -61,7 +61,24 @@ for (const mode of ["valid", "hung", "shutdown", "disabled", "model", "type", "c
       await provider.start(events); await new Promise(resolve => setImmediate(resolve));
       context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: Date.now() });
       const operation = provider.readT85V0StatusTrial("SYNTHETICLOCK001", controller.signal);
-      const expected = ["valid", "busy"].includes(mode) ? operation : assert.rejects(operation, T85V0StatusError);
+      const reasons: Record<string, string> = {
+        disabled: "feature_disabled", model: "unsupported_model", type: "unsupported_model",
+        channel: "channel_unavailable", owner: "owner_binding_unavailable", shared: "owner_account_required",
+        parent: "station_route_unavailable", "parent-type": "station_route_unavailable", serial: "device_unavailable",
+      };
+      const expected = ["valid", "busy"].includes(mode) ? operation : assert.rejects(operation, error => {
+        assert.ok(error instanceof T85V0StatusError);
+        if (reasons[mode]) {
+          assert.equal(error.reason, reasons[mode]);
+          assert.equal(start.mock.callCount(), 0);
+          assert.equal(query.mock.callCount(), 0);
+        }
+        if (mode === "after-reply") {
+          assert.equal(error.reason, "inventory_changed");
+          assert.equal(query.mock.callCount(), 1);
+        }
+        return true;
+      });
       for (let index = 0; index < 15; index++) await new Promise(resolve => setImmediate(resolve));
       if (mode === "busy") {
         await assert.rejects(provider.readT85V0StatusTrial("SYNTHETICLOCK001", new AbortController().signal), /busy/);
