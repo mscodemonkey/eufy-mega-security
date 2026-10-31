@@ -1,5 +1,5 @@
 /**
- * Exercises the optional event-picture HTTP shape with a synthetic saved account.
+ * Exercises the authenticated event-picture HTTP shape with a synthetic saved account.
  * Tests own fetch, clocks, retry delays and temporary session files. No request
  * can leave the injected fetch boundary or reach an Eufy account.
  */
@@ -32,51 +32,53 @@ async function fixture(context: TestContext) {
     expire: () => { now = 2_100_000_000_000; }, onWait: (value: () => void) => { wait = value; } };
 }
 
-for (const native of [false, true]) test(`initial and redirect header policy native=${native}`, async context => {
+test("authenticated initial requests strip account headers before object-store redirects", async context => {
   const f = await fixture(context);
   f.respond(async () => f.requests.length === 1 ? new Response(null, { status: 302,
     headers: { location: "https://zhixin-security-au.s3.ap-southeast-2.amazonaws.com/private-image" } }) : new Response(Buffer.from([255, 216, 255, 217])));
-  const result = await (native ? f.client.downloadNativeEventImageWithMetadata("https://security-app-eu.eufylife.com/image")
-    : f.client.downloadWithMetadata("https://security-app-eu.eufylife.com/image"));
+  const result = await f.client.downloadWithMetadata("https://security-app-eu.eufylife.com/image");
   assert.equal(result.data.length, 4); assert.equal(f.requests.length, 2);
-  assert.equal(Object.hasOwn(f.requests[0]!, "headers"), !native);
-  assert.equal(new Headers(f.requests[0]!.headers).get("x-auth-token"), native ? null : "synthetic-media-token");
+  const headers = new Headers(f.requests[0]!.headers);
+  assert.equal(headers.get("x-auth-token"), "synthetic-media-token");
+  assert.equal(headers.get("gtoken"), "5f06b85e1619b2b8b56f7b758a0a310a");
+  assert.equal(headers.get("app-name"), "eufy_mega");
+  assert.equal(headers.get("model-type"), "PHONE");
   assert.equal(Object.hasOwn(f.requests[1]!, "headers"), false);
 });
 
-test("native 404 schedule has no authenticated fallback and expires after five attempts", async context => {
+test("authenticated 404 schedule and expires after five attempts", async context => {
   const f = await fixture(context); f.respond(async () => new Response(null, { status: 404 }));
-  await assert.rejects(f.client.downloadNativeEventImage("https://security-app-eu.eufylife.com/image"), /HTTP 404/);
+  await assert.rejects(f.client.download("https://security-app-eu.eufylife.com/image"), /HTTP 404/);
   assert.deepEqual(f.waits, [1000, 2000, 2000, 5000]); assert.equal(f.requests.length, 5);
-  assert.ok(f.requests.every(request => !Object.hasOwn(request, "headers")));
+  assert.ok(f.requests.every(request => new Headers(request.headers).get("x-auth-token") === "synthetic-media-token"));
 });
 
-test("native retries recheck authentication and shutdown cancels without another request", async context => {
+test("authenticated retries recheck authentication and shutdown cancels without another request", async context => {
   const f = await fixture(context); f.respond(async () => new Response(null, { status: 404 }));
   f.onWait(f.expire);
-  await assert.rejects(f.client.downloadNativeEventImage("https://security-app-eu.eufylife.com/image"), /authentication/);
+  await assert.rejects(f.client.download("https://security-app-eu.eufylife.com/image"), /authentication/);
   assert.equal(f.requests.length, 1);
 });
 
-test("native shutdown retires retries under the same request lifetime", async context => {
+test("authenticated shutdown retires retries under the same request lifetime", async context => {
   const f = await fixture(context); f.respond(async () => new Response(null, { status: 404 }));
   f.onWait(() => f.client.cancelPendingRequests());
-  await assert.rejects(f.client.downloadNativeEventImage("https://security-app-eu.eufylife.com/image"));
+  await assert.rejects(f.client.download("https://security-app-eu.eufylife.com/image"));
   assert.equal(f.requests.length, 1);
 });
 
-test("native requests preserve URL, redirect and byte bounds", async context => {
+test("authenticated requests preserve URL, redirect and byte bounds", async context => {
   const f = await fixture(context);
   for (const url of ["http://security-app-eu.eufylife.com/image", "https://evil.invalid/image", "https://user@security-app-eu.eufylife.com/image",
-    "https://security-app-eu.eufylife.com:444/image"]) await assert.rejects(f.client.downloadNativeEventImage(url));
+    "https://security-app-eu.eufylife.com:444/image"]) await assert.rejects(f.client.download(url));
   assert.equal(f.requests.length, 0);
   f.respond(async () => new Response(Buffer.alloc(10)));
-  await assert.rejects(f.client.downloadNativeEventImage("https://security-app-eu.eufylife.com/image", 4));
+  await assert.rejects(f.client.download("https://security-app-eu.eufylife.com/image", 4));
   f.respond(async () => new Response(null, { status: 302, headers: { location: "https://evil.invalid/image" } }));
-  await assert.rejects(f.client.downloadNativeEventImage("https://security-app-eu.eufylife.com/image"));
+  await assert.rejects(f.client.download("https://security-app-eu.eufylife.com/image"));
 });
 
-test("option is strict, defaults off, needs no API token and has consistent Supervisor wiring", async () => {
+test("retired option preserves strict saved-setting compatibility and Supervisor wiring", async () => {
   assert.equal(loadConfig({}).experimentalEventImageRequest, false);
   assert.equal(loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_EVENT_IMAGE_REQUEST: "true" }).experimentalEventImageRequest, true);
   assert.equal(loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_EVENT_IMAGE_REQUEST: "false" }).experimentalEventImageRequest, false);
@@ -87,5 +89,5 @@ test("option is strict, defaults off, needs no API token and has consistent Supe
   const translation = await readFile(new URL("translations/en.yaml", root), "utf8");
   assert.match(config, /experimental_event_image_request: false/); assert.match(config, /experimental_event_image_request: bool\?/);
   assert.match(shell, /EUFY_GATEWAY_EXPERIMENTAL_EVENT_IMAGE_REQUEST=.*experimental_event_image_request \/\/ false/);
-  assert.match(translation, /experimental_event_image_request:/); assert.match(translation, /Pictures may stop while enabled/);
+  assert.match(translation, /experimental_event_image_request:/); assert.match(translation, /option has no effect/);
 });

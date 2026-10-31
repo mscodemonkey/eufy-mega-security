@@ -141,7 +141,7 @@ export interface EufyProviderConfig {
   /** Default-off existing cloud recording download, independent of live camera capabilities. */
   readonly experimentalCloudRecordings?: boolean;
 
-  /** Default-off alternate request for exact attributed T8172 event pictures only. */
+  /** Retained for saved configuration. This retired option never changes picture authentication. */
   readonly experimentalEventImageRequest?: boolean;
   readonly experimentalNvrRegion?: "auto" | "us" | "eu" | "ie";
 
@@ -5350,7 +5350,6 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (this.#rtcPreparation.gated) return;
     const generation = this.#startupGeneration;
     const previous = this.#pushSnapshotQueues.get(event.cameraSerial) ?? Promise.resolve();
-    let selected = false;
     const current = previous.then(async () => {
       if (generation !== this.#startupGeneration) return;
       const camera = this.#devices.get(event.cameraSerial);
@@ -5359,26 +5358,17 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         ...(camera.deviceType !== null ? { deviceType: camera.deviceType } : {}),
         ...(camera.parentSerial ? { topology: camera.parentSerial !== camera.serial ? "attached" : "direct" } : {}),
       } : {};
-      const native = this.config.experimentalEventImageRequest === true && camera?.model === "T8172"
-        && camera.deviceType === 89 && camera.category === "eufy_security" && this.#client.isAuthenticated;
-      const client = native ? {
-        download: (url: string, maximumBytes?: number) => this.#client.downloadNativeEventImage(url, maximumBytes),
-        downloadWithMetadata: (url: string, maximumBytes?: number) => this.#client.downloadNativeEventImageWithMetadata(url, maximumBytes),
-        getEventImageKey: (keyId: number, owner: string) => this.#client.getEventImageKey(keyId, owner),
-      } : this.#client;
-      selected = native;
-      const picture = await downloadPushSnapshot(client, event, this.#devices, this.config.eventImageCapture, context);
-      selected = false;
+      const picture = await downloadPushSnapshot(this.#client, event, this.#devices, this.config.eventImageCapture, context);
       if (picture) {
         if (generation !== this.#startupGeneration) {
           picture.data.fill(0);
           return;
         }
         events.snapshot(event.cameraSerial, picture.data, "image/jpeg");
-        if (native) logger.info("push_snapshot_retained", "Eufy push snapshot retained request_style=native");
+        logger.info("push_snapshot_retained", "Eufy push snapshot retained request_style=authenticated");
       }
     }).catch((error: unknown) => {
-      logger.warn("push_snapshot_unavailable", `Eufy push snapshot unavailable: ${safeError(error)}${selected ? " request_style=native" : ""}`);
+      logger.warn("push_snapshot_unavailable", `Eufy push snapshot unavailable: ${safeError(error)} request_style=authenticated`);
     });
     this.#pushSnapshotQueues.set(event.cameraSerial, current);
     void current.finally(() => {
