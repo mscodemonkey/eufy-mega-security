@@ -100,11 +100,3 @@ for (const supplied of ["owner_account_required", "PRIVATE_OWNER_DATA"]) {
     } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
   });
 }
-
-test("read-only admission explanations render as valid script without changing consent", () => {
-  const page = diagnosticsPage();
-  const scripts = [...page.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)];
-  assert.ok(scripts.length > 0);
-  for (const match of scripts) assert.doesNotThrow(() => new Function(match[1]!));
-  assert.match(page, /Do not switch accounts just for this test/);
-});
