@@ -1,5 +1,7 @@
 /**
  * Owns one provider-admitted NVR RTC connection from join through bounded close.
+ * Normal live view renews its lease through checked video output. Diagnostics
+ * and separately admitted security trials retain a finite total lifetime.
  * The provider owns the station lease and supplies private Mega credentials.
  * Checked video reaches the media boundary. Normal opt-in controls and separately
  * consented guard/power trials retain distinct admission and request ownership.
@@ -24,6 +26,29 @@ import { NvrLiveControlError } from "../provider/nvr-live-controls.js";
 import { nvrLiveCommand, nvrLiveJson, nvrLiveReceipt, nvrLivePanReply, nvrLiveSettings, type NvrLiveSettings, type NvrLiveWrite } from "./nvr-live-control-protocol.js";
 
 const HEARTBEAT_ECHO = nvrHeartbeat();
+
+/**
+ * Identify supported coded-picture NAL units in already checked Annex-B output.
+ * Parameter sets and metadata cannot renew live ownership. This distinguishes
+ * picture-bearing output from transport activity, without claiming decode or
+ * displayed-frame progression.
+ */
+function hasCodedPicture(bytes: Buffer, codec: VideoCodec): boolean {
+  for (let offset = 0; offset + 4 < bytes.length; offset++) {
+    if (bytes[offset] !== 0 || bytes[offset + 1] !== 0) continue;
+    const prefix = bytes[offset + 2] === 1 ? 3 : bytes[offset + 2] === 0 && bytes[offset + 3] === 1 ? 4 : 0;
+    if (!prefix) continue;
+    const header = offset + prefix;
+    const width = codec === "h264" ? 1 : 2;
+    if (header + width >= bytes.length || (bytes[header]! & 0x80) !== 0) continue;
+    const type = codec === "h264" ? bytes[header]! & 0x1f : (bytes[header]! >> 1) & 0x3f;
+    if (codec === "h264" ? type >= 1 && type <= 5
+      : (bytes[header + 1]! & 7) !== 0 && (type <= 9 || type >= 16 && type <= 21)) return true;
+    offset = header;
+  }
+  return false;
+}
+
 
 /** Private join credentials are short-lived and must never enter diagnostics. */
 export interface NvrSignallingContext {
@@ -73,8 +98,12 @@ export interface NvrRtcOptions {
   readonly current: () => boolean;
   readonly ready: (output: PassThrough, codec: () => VideoCodec | null) => void;
 
-  /** Total owned session lifetime, including signalling and media delivery. */
-  readonly maximumLifetimeMilliseconds?: number;
+  /**
+   * Total owned lifetime, including signalling and media. Omission keeps the
+   * finite diagnostic default. Null permits viewer-owned live delivery with a
+   * rolling video-progress deadline, never a guard or camera-power trial.
+   */
+  readonly maximumLifetimeMilliseconds?: number | null;
 
   /** Separate provider admission for the manual camera-power trial, never ordinary live view. */
   readonly powerTrial?: boolean;
@@ -202,7 +231,9 @@ export class NvrRtcSession {
   #deadline: NodeJS.Timeout | null = null;
   #firstFrame: NodeJS.Timeout | null = null;
   #lastNow = 0;
-  readonly #maximumLifetimeMilliseconds: number;
+  readonly #maximumLifetimeMilliseconds: number | null;
+  #videoProgressTimer: NodeJS.Timeout | null = null;
+  #videoProgressExpiresAt: number | null = null;
   readonly #externalAbort: () => void;
 
   constructor(private readonly options: NvrRtcOptions, private readonly dependencies: NvrRtcDependencies = {
@@ -210,9 +241,11 @@ export class NvrRtcSession {
     peer: servers => new RTCPeerConnection({ iceServers: servers }),
   }) {
     if (!["security-smart.eufylife.com", "security-smart-eu.eufylife.com", "security-smart-ie.eufylife.com"].includes(options.context.host)) throw new NvrTrialError("admission");
-    this.#maximumLifetimeMilliseconds = options.maximumLifetimeMilliseconds ?? 75_000;
-    if (!Number.isSafeInteger(this.#maximumLifetimeMilliseconds) || this.#maximumLifetimeMilliseconds < 1_000
-      || this.#maximumLifetimeMilliseconds > 2_147_483_647) throw new NvrTrialError("admission");
+    this.#maximumLifetimeMilliseconds = options.maximumLifetimeMilliseconds === null ? null
+      : options.maximumLifetimeMilliseconds ?? 75_000;
+    if (this.#maximumLifetimeMilliseconds === null ? options.powerTrial || options.guardTrial
+      : !Number.isSafeInteger(this.#maximumLifetimeMilliseconds) || this.#maximumLifetimeMilliseconds < 1_000
+        || this.#maximumLifetimeMilliseconds > 2_147_483_647) throw new NvrTrialError("admission");
     this.#externalAbort = () => this.#fail("cancelled");
     options.signal.addEventListener("abort", this.#externalAbort, { once: true });
     this.output.on("error", () => {});
@@ -230,9 +263,16 @@ export class NvrRtcSession {
     }
   }
 
-  /** Remaining owned lifetime, including negotiation. Callers cannot extend it. */
+  /**
+   * Remaining guaranteed budget before retirement without further video.
+   * Finite trials include negotiation. Viewer-owned live budgets renew only
+   * when checked video reaches the output, never from heartbeat traffic.
+   */
   get remainingLifetimeMilliseconds(): number {
-    return this.#started && !this.#retired ? Math.max(0, this.#maximumLifetimeMilliseconds - (performance.now() - this.#lifetimeStartedAt)) : 0;
+    if (!this.#started || this.#retired) return 0;
+    const expires = this.#maximumLifetimeMilliseconds === null ? this.#videoProgressExpiresAt
+      : this.#lifetimeStartedAt + this.#maximumLifetimeMilliseconds;
+    return expires === null ? 0 : Math.max(0, expires - performance.now());
   }
 
   /** Negotiate, correlate fresh discovery, attach the sink, and request video once. */
@@ -246,7 +286,10 @@ export class NvrRtcSession {
     await this.#request(1003, 5000);
     this.#stage = "video";
     if (this.options.liveControls) this.#settingsFlight = this.readLiveSettings().catch(() => ({ night: null, quality: null }));
-    if (!this.#bootstrapped) this.#firstFrame = setTimeout(() => this.#fail("video"), 20_000);
+    if (!this.#bootstrapped) {
+      if (this.#maximumLifetimeMilliseconds === null) this.#videoProgressExpiresAt = performance.now() + 20_000;
+      this.#firstFrame = setTimeout(() => this.#fail("video"), 20_000);
+    }
   }
 
   /**
@@ -256,6 +299,7 @@ export class NvrRtcSession {
    */
   async readState(): Promise<NvrStateSummary> {
     try {
+      if (this.#maximumLifetimeMilliseconds === null) throw new NvrTrialError("admission");
       await this.#connectAndDiscover();
       this.#stage = "state";
       const response = await this.#request(1103, 5000);
@@ -300,7 +344,7 @@ export class NvrRtcSession {
     this.#guard();
     if (!this.options.liveControls || this.options.powerTrial || this.options.guardTrial || !this.#startSent
       || this.#channels.get("WebrtcDataChannel")?.ordered !== true) throw new NvrLiveControlError("disabled");
-    if (performance.now() - this.#lifetimeStartedAt > this.#maximumLifetimeMilliseconds - (movement ? 10000 : 35000)) {
+    if (this.remainingLifetimeMilliseconds < (movement ? 10000 : 35000)) {
       throw new NvrLiveControlError("unavailable", "source_lifetime");
     }
     if (this.#segment + (movement ? 3 : 16) + 2 > 254) throw new NvrLiveControlError("unavailable", "segment_budget");
@@ -310,7 +354,7 @@ export class NvrRtcSession {
   async writeLiveControl(request: NvrLiveWrite, signal: AbortSignal, beforeDispatch: () => void): Promise<void> {
     this.#guard();
     const movement = request.kind === "pan" || request.kind === "zoom";
-    if (performance.now() - this.#lifetimeStartedAt > this.#maximumLifetimeMilliseconds - (movement ? 10000 : request.kind === "quality" && request.sensor === 1 ? 25000 : 35000)) throw new NvrLiveControlError("unavailable", "source_lifetime");
+    if (this.remainingLifetimeMilliseconds < (movement ? 10000 : request.kind === "quality" && request.sensor === 1 ? 25000 : 35000)) throw new NvrLiveControlError("unavailable", "source_lifetime");
     if (!this.options.liveControls || !this.#startSent || this.#pending || this.#livePending || this.#segment >= 252) throw new NvrLiveControlError("busy");
     const channel = this.#channels.get("WebrtcDataChannel");
     if (!channel || channel.readyState !== "open" || channel.ordered !== true || channel.bufferedAmount > 1024 * 1024) throw new NvrLiveControlError("unavailable");
@@ -342,7 +386,7 @@ export class NvrRtcSession {
       try {
         this.#guard(); signal.throwIfAborted();
         const floor = movement ? 10000 : request.kind === "quality" && request.sensor === 1 ? 25000 : 35000;
-        if (performance.now() - this.#lifetimeStartedAt > this.#maximumLifetimeMilliseconds - floor) throw new NvrLiveControlError("unavailable", "source_lifetime");
+        if (this.remainingLifetimeMilliseconds < floor) throw new NvrLiveControlError("unavailable", "source_lifetime");
         if (channel.readyState !== "open" || channel.bufferedAmount > 1024 * 1024) throw new NvrLiveControlError("unavailable");
         beforeDispatch();
         dispatched = true;
@@ -522,7 +566,9 @@ export class NvrRtcSession {
     if (this.#started || this.options.signal.aborted) throw new NvrTrialError("cancelled");
     this.#started = true;
     this.#lifetimeStartedAt = performance.now();
-    this.#deadline = setTimeout(() => this.#fail("deadline"), this.#maximumLifetimeMilliseconds);
+    if (this.#maximumLifetimeMilliseconds !== null) {
+      this.#deadline = setTimeout(() => this.#fail("deadline"), this.#maximumLifetimeMilliseconds);
+    }
     const ready = new Promise<void>((resolve, reject) => { this.#readyResolve = resolve; this.#readyReject = reject; });
     const timer = setTimeout(() => this.#fail(this.#stage), 30_000);
     try {
@@ -576,7 +622,8 @@ export class NvrRtcSession {
     if (this.#pending) {
       clearTimeout(this.#pending.timer); this.#pending.reject(new NvrTrialError("cancelled")); this.#pending = null;
     }
-    for (const timer of [this.#deadline, this.#firstFrame, this.#heartbeat, this.#sweep]) if (timer) clearTimeout(timer);
+    for (const timer of [this.#deadline, this.#firstFrame, this.#heartbeat, this.#sweep, this.#videoProgressTimer]) if (timer) clearTimeout(timer);
+    this.#videoProgressTimer = null; this.#videoProgressExpiresAt = null;
     this.#closing = (async () => {
       if (this.#startSent && this.#channels.get("WebrtcDataChannel")?.readyState === "open") {
         try { await this.#request(1004, 1500, true); } catch { this.stats.stopUnconfirmed++; }
@@ -752,6 +799,20 @@ export class NvrRtcSession {
     };
   }
 
+  /** Renew only after usable video reaches the caller-owned output. */
+  #renewVideoProgress(): void {
+    if (this.#maximumLifetimeMilliseconds !== null) return;
+    if (this.#videoProgressTimer) clearTimeout(this.#videoProgressTimer);
+
+    // Leave enough guaranteed budget for the existing 35-second control lease.
+    this.#videoProgressExpiresAt = performance.now() + 45_000;
+    const timer = this.#videoProgressTimer = setTimeout(() => {
+      if (this.#videoProgressTimer !== timer) return;
+      this.#videoProgressTimer = null;
+      this.#fail("video", "video_progress_timeout");
+    }, 45_000);
+  }
+
   #now(): number {
     const now = Math.floor(performance.now());
     if (now < this.#lastNow) throw new NvrTrialError("framing", "clock_reversed");
@@ -824,6 +885,7 @@ export class NvrRtcSession {
       if (this.#codec && this.#codec !== video.codec) throw new NvrTrialError("video");
       this.#videoSequence = video.sequence; this.#codec = video.codec; this.stats.video++;
       this.#cache.push(video.bytes, video.codec);
+      let delivered = video.bytes;
       if (!this.#bootstrapped) {
         const startup = this.#cache.startup;
         if (!startup) return;
@@ -831,7 +893,9 @@ export class NvrRtcSession {
         if (this.#firstFrame) clearTimeout(this.#firstFrame);
         this.#markTiming("firstVideo");
         if (!this.output.write(startup)) throw new NvrTrialError("video");
+        delivered = startup;
       } else if (!this.output.write(video.bytes)) throw new NvrTrialError("video");
+      if (this.#maximumLifetimeMilliseconds === null && hasCodedPicture(delivered, video.codec)) this.#renewVideoProgress();
       return;
     }
     if (this.#livePending) {

@@ -50,8 +50,8 @@ function keyframePackets(frame: Buffer, sequence: number): Buffer[] {
   });
 }
 
-for (const scenario of ['live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-nonzero', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
-  const codec = scenario === 'h265' || scenario === 'sequence-gap' ? 'h265' : 'h264';
+for (const scenario of ['continuous-parameters', 'continuous-h265', 'continuous-controls', 'continuous-video', 'continuous-stall', 'continuous-heartbeat', 'continuous-gap', 'continuous-cancel', 'live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-nonzero', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
+  const codec = scenario === 'h265' || scenario === 'sequence-gap' || scenario === 'continuous-h265' ? 'h265' : 'h264';
   const server = new WebSocketServer({ port: 0 });
   await once(server, 'listening');
   const address = server.address(); assert.equal(typeof address, 'object');
@@ -61,11 +61,25 @@ for (const scenario of ['live-zero-identity', 'live-abort', 'live-read-close', '
   const generated = spawnSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=10', '-t', '2', '-c:v', codec === 'h264' ? 'libx264' : 'libx265', '-preset', 'ultrafast', '-g', '10', '-f', codec === 'h264' ? 'h264' : 'hevc', 'pipe:1'], { maxBuffer: 4 * 1024 * 1024 });
   assert.equal(generated.status, 0, generated.stderr.toString());
   const commands: number[] = [], receiver = new NvrPtcsReassembler();
+  const scheduled: { delay: number; fire: () => void }[] = [];
+  if (scenario.startsWith('continuous-')) {
+    const schedule = globalThis.setTimeout;
+    context.mock.method(globalThis, 'setTimeout', ((callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+      const handle = schedule(callback, delay, ...args);
+      if (delay === 45_000 || delay === 75_000 || delay === 120_000) {
+        scheduled.push({ delay, fire: () => { clearTimeout(handle); callback(...args); } });
+      }
+      return handle;
+    }) as typeof setTimeout);
+  }
+  let sendHeartbeat = (): void => {};
+
   let powerValue = 0, guardReadVariant = 0;
   let cancelPower = (): void => {};
   let sequence = 0, videoSequence = 0, socket: WebSocket | undefined, sendVideo: NodeJS.Timeout | undefined;
   peer.onDataChannel.subscribe(channel => {
     if (channel.label !== 'WebrtcDataChannel') return;
+    sendHeartbeat = () => channel.send(nvrHeartbeat());
     channel.onmessage = event => {
       if (Buffer.isBuffer(event.data) && event.data.equals(nvrHeartbeat())) {
         if (scenario === 'h265') for (let index = 0; index < 40; index++) channel.send(event.data);
@@ -76,7 +90,7 @@ for (const scenario of ['live-zero-identity', 'live-abort', 'live-read-close', '
       if (assembled.status !== 'complete') return;
       const request = nvrApplication(assembled.frame), body = JSON.parse(request.payload.toString());
       commands.push(body.cmd);
-      if (scenario.startsWith('live-') && [6030, 6203, 1277, 2730].includes(body.cmd)) {
+      if ((scenario.startsWith('live-') || scenario === 'continuous-controls') && [6030, 6203, 1277, 2730].includes(body.cmd)) {
         assert.equal(request.channel, 3); assert.ok(request.segment > 0);
         if (body.cmd === 6030) {
           assert.equal(request.command, 1700); assert.equal(body.data.cmd_type, 1);
@@ -143,7 +157,7 @@ for (const scenario of ['live-zero-identity', 'live-abort', 'live-read-close', '
         for (const packet of nvrPackets(effective, sequence++, 1)) channel.send(packet);
         return;
       }
-      if (body.cmd === 1103 && scenario.startsWith('live-')) {
+      if (body.cmd === 1103 && (scenario.startsWith('live-') || scenario === 'continuous-controls')) {
         if (scenario === 'live-read-close' && commands.filter(command => command === 1103).length > 1) return;
         const text = scenario === 'live-malformed-read' ? '{' : scenario === 'live-oversized-read' ? ' '.repeat(65537)
           : JSON.stringify({ cmd: 1103, payload: { params: [{ dev_type: 3, param_type: 1277, param_value: 1 }] } });
@@ -243,11 +257,14 @@ for (const scenario of ['live-zero-identity', 'live-abort', 'live-read-close', '
       if (body.cmd === 1003) {
         assert.equal(body.payload.chn_list[0].sensor, scenario === 'legacy-first-lens' ? 0 : 1);
         sendVideo = setInterval(() => {
-        if (scenario === 'sequence-gap' && videoSequence === 3) videoSequence += 20;
-        const media = Buffer.alloc(22 + generated.stdout.length); media.writeUInt32LE(generated.stdout.length, 0);
+        if ((scenario === 'sequence-gap' || scenario === 'continuous-gap') && videoSequence === 3) videoSequence += 20;
+        const videoBytes = scenario === 'continuous-gap' && videoSequence > 3
+          ? Buffer.from([0, 0, 0, 1, 0x41, 0x9a, 0x01]) : scenario === 'continuous-parameters' && videoSequence >= 3
+            ? Buffer.from([0, 0, 0, 1, 0x67, 0x42, 0, 0x1e, 0x80]) : generated.stdout;
+        const media = Buffer.alloc(22 + videoBytes.length); media.writeUInt32LE(videoBytes.length, 0);
         media[4] = 1; media[5] = codec === 'h264' ? 0 : 1; media.writeUInt16LE(videoSequence, 6);
         media[8] = 10; media.writeUInt16LE(320, 10); media.writeUInt16LE(180, 12); media.writeBigUInt64LE(BigInt(videoSequence) * 2000n, 14);
-        generated.stdout.copy(media, 22);
+        videoBytes.copy(media, 22);
         const frame = application(1300, 0, media); frame[12] = codec === 'h265' ? 101 : 3; frame[14] = 1;
         const parts = codec === 'h265' ? keyframePackets(frame, videoSequence++) : nvrPackets(frame, videoSequence++, 1, 1);
         for (const packet of parts) channel.send(packet);
@@ -291,12 +308,13 @@ for (const scenario of ['live-zero-identity', 'live-abort', 'live-read-close', '
   }
   const timingReports: NvrTimings[] = [];
   const session = new NvrRtcSession({ onTimings: value => timingReports.push(value), station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
-    powerTrial: scenario.startsWith('power'), liveControls: scenario.startsWith('live-'),
+    powerTrial: scenario.startsWith('power'), liveControls: scenario.startsWith('live-') || scenario === 'continuous-controls',
+    ...(scenario.startsWith('continuous-') ? { maximumLifetimeMilliseconds: null } : {}),
     guardTrial: scenario === 'guard', ...(scenario === 'guard' ? { userName: 'Synthetic' } : {}),
     cameraType: scenario === 'legacy-first-lens' ? 14 : 301, sensor: scenario === 'legacy-first-lens' ? 0 : 1,
     administrator: scenario === 'live-encode-failure' ? 'invalid owner!' : 'synthetic-administrator', context: { host: 'security-smart-ie.eufylife.com', region: 'IE',
       authToken: 'synthetic-token', gtoken: 'synthetic-gtoken', sign: 'synthetic-sign' },
-    signal: controller.signal, current: () => true, ready: (output, hint) => { attached++; if (!scenario.startsWith('live-')) manager.attachSource('synthetic-camera', output, hint); } }, {
+    signal: controller.signal, current: () => true, ready: (output, hint) => { attached++; if (!scenario.startsWith('live-') && !scenario.startsWith('continuous-')) manager.attachSource('synthetic-camera', output, hint); } }, {
     socket: (url, protocols, options) => {
       assert.equal(url, 'wss://security-smart-ie.eufylife.com/v1/rtc/ws/join?reqtype=nvr');
       assert.equal(options.followRedirects, false); assert.equal(options.maxPayload, 65536);
@@ -378,6 +396,85 @@ for (const scenario of ['live-zero-identity', 'live-abort', 'live-read-close', '
       assert.ok(session.output.writableEnded || session.output.destroyed);
       assert.deepEqual(commands, [9100, 1103]); assert.equal(attached, 0); assert.equal(snapshots, 0); assert.equal(diagnosticMedia, 0);
       await session.close(); return;
+    }
+    if (scenario.startsWith('continuous-')) {
+      const errors: NvrTrialError[] = [];
+      session.output.on('error', error => { errors.push(error as NvrTrialError); });
+      session.output.resume();
+      await session.start();
+      await new Promise(resolve => setTimeout(resolve, 550));
+      assert.ok(session.stats.video >= 3);
+      assert.ok(scheduled.length >= 2);
+      assert.ok(scheduled.every(timer => timer.delay === 45_000));
+      const activeTimer = scheduled.at(-1)!;
+      scheduled[0]!.fire();
+      assert.equal(session.output.destroyed, false);
+      if (scenario === 'continuous-controls') {
+        await session.initialLiveSettings();
+        await session.prepareLiveControl(false);
+        await session.writeLiveControl({ kind: 'night', value: 1 }, controller.signal, () => {});
+        assert.equal(commands.filter(command => command === 1277).length, 1);
+        const nativeNow = performance.now.bind(performance);
+        let offset = 11_000;
+        clearInterval(sendVideo);
+        await new Promise(resolve => setTimeout(resolve, 100));
+        context.mock.method(performance, 'now', () => nativeNow() + offset);
+        let dispatched = 0;
+        await assert.rejects(session.writeLiveControl({ kind: 'night', value: 1 }, controller.signal, () => { dispatched++; }), { stage: 'source_lifetime' });
+        assert.equal(dispatched, 0);
+        assert.equal(commands.filter(command => command === 1277).length, 1);
+
+        // Heartbeats cannot restore the guaranteed budget needed by a control.
+        const oldVideo = session.stats.video;
+        offset = 12_000;
+        sendHeartbeat();
+        await new Promise(resolve => setTimeout(resolve, 50));
+        assert.ok(session.remainingLifetimeMilliseconds < 35_000);
+        const videoTimer = scheduled.length;
+        await session.close();
+        assert.equal(session.stats.video, oldVideo);
+        assert.equal(scheduled.length, videoTimer);
+        assert.equal(dispatched, 0);
+      } else if (scenario === 'continuous-video' || scenario === 'continuous-h265') {
+        const nativeNow = performance.now.bind(performance);
+        context.mock.method(performance, 'now', () => nativeNow() + 180_000);
+        await new Promise(resolve => setTimeout(resolve, 250));
+        assert.ok(session.remainingLifetimeMilliseconds > 35_000);
+        assert.equal(session.output.destroyed, false);
+        assert.equal(commands.includes(1004), false);
+        activeTimer.fire();
+        assert.equal(session.output.destroyed, false);
+        await session.close();
+        scheduled.at(-1)!.fire();
+        assert.equal(errors.length, 0);
+      } else if (scenario === 'continuous-cancel') {
+        controller.abort(); await session.close();
+        activeTimer.fire();
+        await new Promise<void>(resolve => setImmediate(resolve));
+        assert.deepEqual(errors.map(error => error.stage), ['cancelled']);
+      } else {
+        if (scenario === 'continuous-gap' || scenario === 'continuous-parameters') {
+          assert.equal(session.stats.videoSequenceRecoveries >= 1, scenario === 'continuous-gap');
+          assert.ok(scheduled.length < session.stats.video);
+        } else {
+          clearInterval(sendVideo);
+          if (scenario === 'continuous-heartbeat') {
+            const before = session.stats.controlPackets;
+            sendHeartbeat(); sendHeartbeat();
+            await new Promise(resolve => setTimeout(resolve, 100));
+            assert.ok(session.stats.controlPackets >= before + 2);
+            assert.equal(scheduled.at(-1), activeTimer);
+          }
+        }
+        activeTimer.fire();
+        await session.close();
+        await new Promise<void>(resolve => setImmediate(resolve));
+        assert.deepEqual(errors.map(error => [error.stage, error.reason]), [['video', 'video_progress_timeout']]);
+      }
+      assert.equal(commands.filter(command => command === 1003).length, 1);
+      assert.equal(commands.filter(command => command === 1004).length, 1);
+      assert.equal(session.stats.stopUnconfirmed, 0);
+      return;
     }
     if (scenario.startsWith('live-')) {
       session.output.on('data', () => {});
@@ -535,3 +632,26 @@ for (const reason of ['session_mismatch', 'station_mismatch', 'channel_mismatch'
     }
   });
 }
+
+
+test('viewer-owned lifetime cannot be used for guard or camera-power trials', () => {
+  for (const trial of [{ guardTrial: true }, { powerTrial: true }]) {
+    assert.throws(() => new NvrRtcSession({ station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
+      administrator: 'synthetic-administrator', context: { host: 'security-smart-ie.eufylife.com', region: 'IE',
+        authToken: 'synthetic', gtoken: 'synthetic', sign: 'synthetic' }, maximumLifetimeMilliseconds: null,
+      ...trial, signal: new AbortController().signal, current: () => true, ready: () => {} }), { stage: 'admission' });
+  }
+});
+
+
+test('standalone state queries require the finite diagnostic lifetime', async () => {
+  const session = new NvrRtcSession({ station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
+    administrator: 'synthetic-administrator', context: { host: 'security-smart-ie.eufylife.com', region: 'IE',
+      authToken: 'synthetic', gtoken: 'synthetic', sign: 'synthetic' }, maximumLifetimeMilliseconds: null,
+    signal: new AbortController().signal, current: () => true, ready: () => {} }, {
+    socket: () => { assert.fail('State must refuse viewer-owned lifetime before opening a socket'); },
+    peer: () => { assert.fail('State must refuse viewer-owned lifetime before creating a peer'); },
+  });
+  await assert.rejects(session.readState(), { stage: 'admission' });
+  assert.equal(session.remainingLifetimeMilliseconds, 0);
+});

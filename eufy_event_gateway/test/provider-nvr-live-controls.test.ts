@@ -237,3 +237,19 @@ test("a restarted provider cannot write through a session from an older generati
   await assert.rejects(value.provider.refreshCameraCapabilities("synthetic-camera"), { code: "busy" });
   assert.equal(value.writes.length, 0);
 });
+
+
+test("idle settings refresh retains a finite lifetime without starting video", async context => {
+  const value = await fixture(context);
+  let reads = 0, starts = 0;
+  context.mock.method(NvrRtcSession.prototype, "start", async () => { starts++; });
+  context.mock.method(NvrRtcSession.prototype, "readLiveSettings", async function (this: NvrRtcSession) {
+    assert.equal((Reflect.get(this, "options") as { maximumLifetimeMilliseconds: unknown }).maximumLifetimeMilliseconds, 120_000);
+    reads++;
+    return { night: 1, quality: 0 };
+  });
+  await value.provider.refreshCameraCapabilities("synthetic-camera");
+  assert.equal(reads, 1);
+  assert.equal(starts, 0);
+  assert.equal(value.state.getCamera("synthetic-camera").nightVisionMode, 1);
+});
