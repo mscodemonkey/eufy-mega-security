@@ -119,6 +119,25 @@ class MegaHttpRejection extends Error {
 }
 
 /**
+ * Carries a bounded HTTP authentication classification without response text.
+ * MegaClient owns classification and the provider owns one-shot recovery.
+ * A refusal without an explicit rejected token must preserve the saved session.
+ */
+class MegaHttpAuthenticationRejection extends Error {
+  constructor(readonly sessionRejected: boolean, code: number | null, responseKind: "empty" | "json" | "non_json" | "unavailable", operation: MegaOperation) {
+    super(`Mega request failed (HTTP 401 response=${responseKind}${code === null ? "" : ` code=${code}`}${sessionRejected ? " session rejected" : ""}) operation=${operation}`);
+    this.name = "MegaHttpAuthenticationRejection";
+  }
+}
+
+/** Recognize token-specific clauses, excluding a different header or permission refusal. */
+function rejectedAuthToken(code: number | null, message: unknown): boolean {
+  if (code === 26084 || code === 26884) return true;
+  if (code !== 401 || typeof message !== "string") return false;
+  return /\binvalid\s+token\b|\btoken\b[^,;\r\n]{0,256}\b(?:expired|error|not exist|does not exist|kicked out)\b/i.test(message);
+}
+
+/**
  * Acceptance of a Firebase token by Eufy's notification registration backend.
  *
  * The receiver owns its transport and retries. Acceptance does not prove that a
@@ -373,10 +392,10 @@ export class MegaClient {
       const previous = this.#session;
       this.#session = null;
       const stored = previous ?? await this.#store.load();
-      if (stored?.generalRtcIdentity) {
-        await this.#store.save(nativeOnlySession(stored));
-        createLogger("mega").info("general_rtc_identity_dropped", "reason=binding");
-      }
+      const openUdid = stored?.openUdid ?? randomIdentifier();
+      this.#session = emptySession(this.#country, openUdid, credentialVerifier(openUdid, this.#email, this.#password));
+      await this.#store.save(this.#session);
+      if (stored?.generalRtcIdentity) createLogger("mega").info("general_rtc_identity_dropped", "reason=binding");
     }
     if (!this.#session && !forceLogin) await this.#restore();
     lifetime.throwIfAborted();
@@ -626,6 +645,7 @@ export class MegaClient {
    * The normal login path retains CAPTCHA and verification challenges.
    */
   isSessionInvalidError(error: unknown): boolean {
+    if (error instanceof MegaHttpAuthenticationRejection) return error.sessionRejected;
     return error instanceof Error && (error.message === "Mega request failed (HTTP 401)" || [...AUTH_SESSION_INVALID_CODES].some((code) => error.message.includes(`Mega request failed (${code}:`)) ||
       /Mega request failed \(401:.*token not exist/i.test(error.message));
   }
@@ -1181,6 +1201,26 @@ export class MegaClient {
     }
     signal.throwIfAborted();
     if (response.status !== 200) {
+      if (response.status === 401) {
+        let code: number | null = null;
+        let rejected = false;
+        let responseKind: "empty" | "json" | "non_json" | "unavailable" = "unavailable";
+        try {
+          const body = await readBoundedResponse(response, 64 * 1024, signal);
+          responseKind = body.length === 0 ? "empty" : "non_json";
+          const value: unknown = JSON.parse(body.toString("utf8"));
+          responseKind = "json";
+          if (isRecord(value) && Number.isSafeInteger(value.code)) {
+            code = value.code as number;
+            if (TRANSIENT_IDENTITY_ERRORS.has(code)) return value as unknown as MegaResult;
+            rejected = !!headers["x-auth-token"] && !["login", "account_check", "captcha"].includes(megaOperation(path))
+              && rejectedAuthToken(code, value.msg);
+          }
+        } catch {
+          signal.throwIfAborted();
+        }
+        throw new MegaHttpAuthenticationRejection(rejected, code, responseKind, megaOperation(path));
+      }
       if (response.status === 463) {
         let applicationCode: number | undefined;
         let responseKind = "unavailable";

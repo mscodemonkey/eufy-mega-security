@@ -115,7 +115,7 @@ test("registers only the regional notification backend using the connected Fireb
 
 test("replaces and persists only classified stale identities", async () => {
   for (const code of [4404, 4406, 100030]) {
-    for (const status of [200, 463]) {
+    for (const status of [200, 401, 463]) {
       const directory = await mkdtemp(join(tmpdir(), "mega-identity-recovery-"));
       const sessionPath = join(directory, "mega-session.json");
       const host = "app-openapi-eu-pr.eufy.com";
@@ -573,7 +573,7 @@ test("restored inventory and media HTTP401 retain distinct recovery decisions", 
     authToken: "token", tokenExpiresAt: 2_000_000_000, userId: "user", megaDomain: "mega-eu-pr.eufy.com", domains: {},
     identities: { [host]: { keyIdent: "identity", sharedKey: "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100", clientPublicKey: "public" } } };
   const urls: string[] = [];
-  const fakeFetch: typeof fetch = async (input) => { urls.push(String(input)); return new Response("", { status: 401 }); };
+  const fakeFetch: typeof fetch = async (input) => { urls.push(String(input)); return new Response(JSON.stringify({ code: 26084, msg: "token error" }), { status: 401 }); };
   try {
     await writeFile(join(directory, "mega-session.json"), JSON.stringify(session));
     const client = new MegaClient({ email: "fixture@example.invalid", password: "redacted", country: "AU",
@@ -581,7 +581,7 @@ test("restored inventory and media HTTP401 retain distinct recovery decisions", 
     await client.connect();
     await assert.rejects(client.inventory(), (error: unknown) => {
       assert.ok(error instanceof Error);
-      assert.equal(error.message, "Mega request failed (HTTP 401)");
+      assert.equal(error.message, "Mega request failed (HTTP 401 response=json code=26084 session rejected) operation=inventory");
       assert.equal(client.isSessionInvalidError(error), true);
       return true;
     });
@@ -628,4 +628,53 @@ for (const region of ["us", "ie"]) test(`inventory rejection identifies its phas
     });
     assert.equal(requests, 1, "an unknown application error must not cause sign-in or retries");
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+
+test("forced sign-in preserves the installed device identity and retires old token headers", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mega-force-login-"));
+  const path = join(directory, "mega-session.json");
+  await writeFile(path, JSON.stringify({ version: 2, country: "au", openUdid: "fixture-device",
+    credentialVerifier: credentialVerifier("fixture-device", "fixture@example.invalid", "redacted"),
+    authToken: "old-token", tokenExpiresAt: 2_000_000_000, userId: "fixture-user",
+    megaDomain: "mega-eu-pr.eufy.com", domains: {}, identities: {} }));
+  const requests: string[] = [];
+  let sharedKey = "";
+  const client = new MegaClient({ email: "fixture@example.invalid", password: "redacted", country: "AU",
+    persistentDirectory: directory, minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000,
+    fetch: async (url, options) => {
+      const endpoint = new URL(String(url)).pathname;
+      requests.push(endpoint);
+      const headers = new Headers(options?.headers);
+      assert.equal(headers.has("x-auth-token"), false);
+      if (endpoint === "/passport/estimate_domain") return new Response(JSON.stringify({
+        code: 0, data: { domain: "mega-eu-pr.eufy.com", product_domains: {} } }));
+      assert.equal(headers.get("openudid"), "fixture-device");
+      if (endpoint === "/openapi/oauth/key/exchange") {
+        const body = JSON.parse(String(options?.body)) as { client_public_key: string };
+        const publicKey = decryptEnvelope(body.client_public_key, presetKey());
+        const server = createECDH("prime256v1"); server.generateKeys();
+        sharedKey = server.computeSecret(Buffer.from(publicKey, "hex")).toString("hex");
+        return new Response(JSON.stringify({ code: 0, data: {
+          server_public_key: encryptEnvelope(server.getPublicKey("hex"), presetKey()) } }));
+      }
+      const body = JSON.parse(decryptEnvelope(String(options?.body), sharedAesKey(sharedKey)));
+      if (endpoint === "/passport/validate_email") {
+        assert.deepEqual(body, { email: "fixture@example.invalid" });
+        return new Response(JSON.stringify({ code: 0, data: { enc_text: "sha2" } }));
+      }
+      assert.equal(endpoint, "/passport/login");
+      return new Response(JSON.stringify({ code: 0, data: { auth_token: "new-token", user_id: "fixture-user", token_expires_at: 2_000_000_000 } }));
+    } });
+  try {
+    assert.equal((await client.connect()).state, "authenticated");
+    assert.deepEqual(requests, []);
+    assert.equal((await client.connect(undefined, undefined, true)).state, "authenticated");
+    assert.deepEqual(requests, ["/passport/estimate_domain", "/openapi/oauth/key/exchange", "/passport/validate_email", "/passport/login"]);
+    const saved = JSON.parse(await readFile(path, "utf8"));
+    assert.equal(saved.openUdid, "fixture-device");
+    assert.equal(saved.authToken, "new-token");
+    assert.equal(saved.credentialVerifier, credentialVerifier("fixture-device", "fixture@example.invalid", "redacted"));
+    assert.doesNotMatch(await readFile(path, "utf8"), /old-token/);
+  } finally { client.cancelPendingRequests(); await rm(directory, { recursive: true, force: true }); }
 });

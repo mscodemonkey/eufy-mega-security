@@ -92,6 +92,15 @@ fixed `sha2` or `original` category, with no credential, digest or account ident
 
 Login encrypts the prepared password with Eufy's published login public key and a fresh client key pair. The plaintext password never enters the request body. A successful response yields an auth token, user ID, and expiry. The session store also records the country, a `scrypt` credential verifier, open device identifier, domains, and host identities so a restart can reuse a valid session without storing the password.
 
+Periodic inventory refresh applies the same one-shot sign-in recovery used during
+startup when Eufy explicitly rejects the authenticated token. It retires old
+polling before recovery and keeps the existing device identifier while replacing
+the rejected token and transport keys. CAPTCHA and email verification return to
+the Web UI. A failed recovery stops polling and reports an error instead of
+repeatedly submitting credentials. HTTP 401 responses without a recognized token
+rejection preserve the session. Logs include only the HTTP status, response
+category and numeric application code, never the response body.
+
 The session file is private JSON with mode `0600` and is replaced atomically. It contains secret session material, so it must stay in the gateway's private data volume and must never be attached to an issue or committed to Git. Version 2 replaces the old fast password-derived guard; version 1 credentials and tokens are deliberately rejected, so the first start after upgrading to v0.1.20 requires a fresh Eufy sign-in. The non-secret device identifier is carried forward to avoid registering an unnecessary new client. When Eufy requests email verification, the limited token and user ID returned by that login are saved before the client exposes the challenge. This lets either the active Web UI or one documented app restart submit the code with the same limited session. Passwords, CAPTCHA answers, and email verification codes are not stored in the session file.
 
 ## Login challenges
