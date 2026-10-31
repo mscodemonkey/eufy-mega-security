@@ -131,6 +131,7 @@ for (const enabled of [false, true]) test(`natural CAPTCHA login commits only th
     experimentalGeneralRtc: enabled, minimumRequestIntervalMs: 0, fetch: async (url, options) => {
       const endpoint = new URL(String(url)).pathname;
       if (endpoint === "/passport/generate/captcha") return new Response(JSON.stringify({ code: 0, data: { captcha_id: "fixture", item: "data:image/png;base64,AA==" } }));
+      if (endpoint === "/passport/validate_email") return new Response(JSON.stringify({ code: 0, data: {} }));
       assert.equal(endpoint, "/passport/login");
       const body = JSON.parse(decryptEnvelope(String(options?.body), sharedAesKey(sharedKey)));
       keys.push(body.client_secret_info.public_key);

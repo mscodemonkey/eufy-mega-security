@@ -241,6 +241,7 @@ test("renews a rejected login identity once without looping", async () => {
         minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000,
         fetch: async (input, init) => {
           const path = new URL(String(input)).pathname;
+          if (path === "/passport/validate_email") return new Response(JSON.stringify({ code: 0, data: {} }));
           requests.push({ path, keyIdent: new Headers(init?.headers).get("x-key-ident") });
           if (path === "/passport/login" && requests.filter(({ path: seen }) => seen === path).length === 1) {
             return new Response(JSON.stringify({ code: 4404, msg: "get identity error", data: {} }));
@@ -355,6 +356,7 @@ test("retains the limited verification session across an app restart", async () 
   const fakeFetch: typeof fetch = async (input, init) => {
     const path = new URL(String(input)).pathname;
     const token = new Headers(init?.headers).get("x-auth-token");
+    if (path === "/passport/validate_email") return new Response(JSON.stringify({ code: 0, data: {} }));
     const body = JSON.parse(decryptEnvelope(String(init?.body), sharedAesKey(sharedKey))) as Record<string, unknown>;
     requests.push({ path, token, body });
     if (path === "/passport/login" && !token) {

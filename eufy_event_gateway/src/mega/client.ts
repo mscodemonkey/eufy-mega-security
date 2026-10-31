@@ -2,7 +2,8 @@
  * Owns the gateway's direct connection to Eufy's current Mega cloud API.
  *
  * This client discovers regional hosts, performs the per-host ECDH identity
- * exchange, encrypts and signs requests, handles login challenge states,
+ * exchange, checks account password formats, encrypts and signs requests,
+ * handles login challenge states,
  * persists a reusable session, retrieves inventory/DSK/cipher material,
  * registers push, and downloads bounded HTTPS media. It returns checked values
  * to `EufyProvider`; it deliberately knows nothing about Home Assistant entities,
@@ -82,13 +83,14 @@ interface GeneralRtcCallOptions {
 }
 
 /** Fixed operation names may cross the logging boundary without request data. */
-type MegaOperation = "login" | "inventory" | "lock_credentials" | "cloud_history" | "cloud_playback" | "cipher" | "dsk" | "push" | "captcha" | "general_rtc_hubs" | "general_rtc_params" | "general_rtc_pin" | "general_rtc_sign" | "unknown";
+type MegaOperation = "login" | "account_check" | "inventory" | "lock_credentials" | "cloud_history" | "cloud_playback" | "cipher" | "dsk" | "push" | "captcha" | "general_rtc_hubs" | "general_rtc_params" | "general_rtc_pin" | "general_rtc_sign" | "unknown";
 
 /** Project a known internal endpoint into a fixed, privacy-safe diagnostic label. */
 export function megaOperation(path: string): MegaOperation {
   const operations: Readonly<Record<string, MegaOperation>> = {
     "/app/house/get_devs_list": "inventory",
     "/passport/login": "login",
+    "/passport/validate_email": "account_check",
     "/app/devicemanage/get_user_mqtt_info": "lock_credentials",
     "/v3/event/app/get_all_video_record": "cloud_history",
     "/v3/app/cipher/get_ciphers": "cipher",
@@ -395,7 +397,9 @@ export class MegaClient {
     const openApiHost = this.#clusterHost("openapi");
     await this.#identity(openApiHost);
     lifetime.throwIfAborted();
-    const password = encryptPassword(this.#password, this.#experimentalGeneralRtc);
+    const passwordInput = await this.#passwordForAccount();
+    lifetime.throwIfAborted();
+    const password = encryptPassword(passwordInput, this.#experimentalGeneralRtc);
     const result = await this.#call("passport", "/passport/login", {
       email: this.#email,
       password: password.encrypted,
@@ -447,6 +451,29 @@ export class MegaClient {
     }
     await this.#save();
     return { state: "authenticated" };
+  }
+
+  /**
+   * Read the account format before each actual login or challenge submission.
+   * Valid saved sessions bypass this boundary. Lookup failures stop before a
+   * password attempt, and login rejection never chooses a different format.
+   */
+  async #passwordForAccount(): Promise<string> {
+    const result = await this.#call("passport", "/passport/validate_email", { email: this.#email });
+    if (!isSuccess(result.code)) {
+      throw new Error(`Mega account format check failed (${result.code}) operation=account_check`);
+    }
+    const metadata = this.#decodeResult(result);
+    if (metadata != null && !isRecord(metadata)) {
+      throw new Error("Mega account format check returned invalid metadata operation=account_check");
+    }
+    const format = isRecord(metadata) && metadata.enc_text === "sha2" ? "sha2" : "original";
+    createLogger("mega").info("login_account_format", `format=${format}`);
+    if (format === "original") return this.#password;
+
+    // Match Java String.trim before the app's SHA-256 step, without changing stored credentials.
+    const trimmed = this.#password.replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, "");
+    return createHash("sha256").update(trimmed, "utf8").digest("hex");
   }
 
   /** Fetch transient lock credentials in Security scope without another login or persistence. */
