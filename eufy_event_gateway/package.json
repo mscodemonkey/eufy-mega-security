@@ -1,6 +1,6 @@
 {
   "name": "eufy-ha-gateway",
-  "version": "0.1.218",
+  "version": "0.1.219",
   "private": true,
   "description": "Event-first Eufy camera gateway for Home Assistant",
   "type": "module",

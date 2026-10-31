@@ -1272,3 +1272,156 @@ for (const validContact of [false, true]) test(`future motion cannot become last
     assert.equal(f.state.listSensors()[0]!.lastSeen, validContact ? new Date(now - 5_000).toISOString() : null);
   } finally { await f.provider.close(); }
 });
+
+
+/** Read the most recently installed inventory poll without advancing transport timers. */
+function latestInventoryPoll(f: ReturnType<typeof discoveryFixture>): () => void {
+  const timer = f.intervals.mock.calls.at(-1)!;
+  assert.equal(timer.arguments[1], 60_000);
+  return timer.arguments[0] as () => void;
+}
+
+test("periodic session rejection uses one-shot recovery and retires old poll callbacks", async context => {
+  const f = discoveryFixture(context);
+  const modes: (boolean | undefined)[] = [];
+  context.mock.method(MegaClient.prototype, "connect", async (_code?: string, _answer?: string, force?: boolean) => {
+    modes.push(force); return { state: "authenticated" as const };
+  });
+  let reads = 0;
+  const inventory = context.mock.method(MegaClient.prototype, "inventory", async () => {
+    if ([2, 3].includes(++reads)) throw new Error("Mega request failed (HTTP 401)");
+    return { devices: [] };
+  });
+  try {
+    await f.provider.start(f.events);
+    const oldPoll = latestInventoryPoll(f);
+    oldPoll(); await settleDiscovery();
+    assert.deepEqual(modes, [undefined, true]);
+    assert.equal(inventory.mock.callCount(), 4);
+    assert.equal(f.connections.at(-1)?.state, "connected");
+    oldPoll(); await settleDiscovery();
+    assert.equal(inventory.mock.callCount(), 4);
+    latestInventoryPoll(f)(); await settleDiscovery();
+    assert.equal(inventory.mock.callCount(), 5);
+    assert.deepEqual(modes, [undefined, true]);
+  } finally { await f.provider.close(); f.state.close(); }
+});
+
+for (const challenge of ["verification", "captcha"] as const) {
+  test(`periodic recovery exposes ${challenge} once and resumes after user submission`, async context => {
+    const f = discoveryFixture(context);
+    let logins = 0, reads = 0;
+    const connect = context.mock.method(MegaClient.prototype, "connect", async () => {
+      if (++logins !== 2) return { state: "authenticated" as const };
+      return challenge === "verification" ? { state: "verification-required" as const }
+        : { state: "captcha-required" as const, captcha: { id: "fixture", image: "AA==" } };
+    });
+    const inventory = context.mock.method(MegaClient.prototype, "inventory", async () => {
+      if ([2, 3].includes(++reads)) throw new Error("Mega request failed (HTTP 401)");
+      return { devices: [] };
+    });
+    try {
+      await f.provider.start(f.events);
+      const oldPoll = latestInventoryPoll(f);
+      oldPoll(); await settleDiscovery();
+      assert.equal(f.connections.at(-1)?.state, "authentication-required");
+      assert.equal(f.provider.isVerificationRequired(), challenge === "verification");
+      assert.equal(!!f.provider.getCaptchaChallenge(), challenge === "captcha");
+      for (let i = 0; i < 3; ++i) oldPoll();
+      await settleDiscovery();
+      assert.equal(connect.mock.callCount(), 2);
+      assert.equal(inventory.mock.callCount(), 3);
+      if (challenge === "verification") await f.provider.submitVerification("123456");
+      else await f.provider.submitCaptcha("fixture-answer");
+      assert.equal(f.connections.at(-1)?.state, "connected");
+      latestInventoryPoll(f)(); await settleDiscovery();
+      assert.equal(inventory.mock.callCount(), 5);
+      assert.equal(connect.mock.callCount(), 3);
+    } finally { await f.provider.close(); f.state.close(); }
+  });
+}
+
+test("concurrent rejected inventory polls cannot create multiple login recoveries", async context => {
+  const f = discoveryFixture(context);
+  let rejectRead!: (error: Error) => void;
+  const pending = new Promise<{ devices: [] }>((_resolve, reject) => { rejectRead = reject; });
+  let reads = 0;
+  const inventory = context.mock.method(MegaClient.prototype, "inventory", async () => {
+    if (++reads === 2) return pending;
+    if (reads === 3) throw new Error("Mega request failed (HTTP 401)");
+    return { devices: [] };
+  });
+  const connect = context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" as const }));
+  try {
+    await f.provider.start(f.events);
+    const poll = latestInventoryPoll(f);
+    poll(); poll(); await settleDiscovery();
+    assert.equal(inventory.mock.callCount(), 2);
+    rejectRead(new Error("Mega request failed (HTTP 401)")); await settleDiscovery();
+    assert.equal(connect.mock.callCount(), 2);
+    assert.equal(inventory.mock.callCount(), 4);
+  } finally { await f.provider.close(); f.state.close(); }
+});
+
+for (const failure of ["HTTP 403", "HTTP 503", "transport"]) {
+  test(`periodic ${failure} failure retains the session without a password attempt`, async context => {
+    const f = discoveryFixture(context);
+    let reads = 0;
+    context.mock.method(MegaClient.prototype, "inventory", async () => {
+      if (++reads === 2) throw new Error(`Mega request failed (${failure})`);
+      return { devices: [] };
+    });
+    const connect = context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" as const }));
+    try {
+      await f.provider.start(f.events);
+      const poll = latestInventoryPoll(f);
+      poll(); await settleDiscovery(); poll(); await settleDiscovery();
+      assert.equal(connect.mock.callCount(), 1);
+      assert.equal(reads, 3);
+    } finally { await f.provider.close(); f.state.close(); }
+  });
+}
+
+test("an old generation's rejected read cannot replace a newer successful startup", async context => {
+  const f = discoveryFixture(context);
+  let rejectRead!: (error: Error) => void;
+  const pending = new Promise<{ devices: [] }>((_resolve, reject) => { rejectRead = reject; });
+  let reads = 0;
+  context.mock.method(MegaClient.prototype, "inventory", async () => ++reads === 2 ? pending : { devices: [] });
+  const modes: (boolean | undefined)[] = [];
+  context.mock.method(MegaClient.prototype, "connect", async (_code?: string, _answer?: string, force?: boolean) => {
+    modes.push(force); return { state: "authenticated" as const };
+  });
+  try {
+    await f.provider.start(f.events);
+    latestInventoryPoll(f)(); await settleDiscovery();
+    await f.provider.close();
+    await f.provider.start(f.events);
+    rejectRead(new Error("Mega request failed (HTTP 401)")); await settleDiscovery();
+    assert.deepEqual(modes, [undefined, undefined]);
+    assert.equal(reads, 3);
+    assert.equal(f.connections.at(-1)?.state, "connected");
+  } finally { await f.provider.close(); f.state.close(); }
+});
+
+test("a refused automatic sign-in recovery is visible and does not loop", async context => {
+  const f = discoveryFixture(context);
+  let reads = 0, logins = 0;
+  context.mock.method(MegaClient.prototype, "inventory", async () => {
+    if (++reads > 1) throw new Error("Mega request failed (HTTP 401)");
+    return { devices: [] };
+  });
+  context.mock.method(MegaClient.prototype, "connect", async () => {
+    if (++logins > 1) throw new Error("Mega request failed (10019: attempt limit) operation=login");
+    return { state: "authenticated" as const };
+  });
+  try {
+    await f.provider.start(f.events);
+    const poll = latestInventoryPoll(f);
+    poll(); await settleDiscovery();
+    assert.equal(f.connections.at(-1)?.state, "error");
+    poll(); poll(); await settleDiscovery();
+    assert.equal(logins, 2);
+    assert.equal(reads, 3);
+  } finally { await f.provider.close(); f.state.close(); }
+});

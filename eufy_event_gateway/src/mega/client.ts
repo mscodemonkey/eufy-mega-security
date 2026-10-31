@@ -2,7 +2,8 @@
  * Owns the gateway's direct connection to Eufy's current Mega cloud API.
  *
  * This client discovers regional hosts, performs the per-host ECDH identity
- * exchange, encrypts and signs requests, handles login challenge states,
+ * exchange, checks account password formats, encrypts and signs requests,
+ * handles login challenge states,
  * persists a reusable session, retrieves inventory/DSK/cipher material,
  * registers push, and downloads bounded HTTPS media. It returns checked values
  * to `EufyProvider`; it deliberately knows nothing about Home Assistant entities,
@@ -82,13 +83,14 @@ interface GeneralRtcCallOptions {
 }
 
 /** Fixed operation names may cross the logging boundary without request data. */
-type MegaOperation = "login" | "inventory" | "lock_credentials" | "cloud_history" | "cloud_playback" | "cipher" | "dsk" | "push" | "captcha" | "general_rtc_hubs" | "general_rtc_params" | "general_rtc_pin" | "general_rtc_sign" | "unknown";
+type MegaOperation = "login" | "account_check" | "inventory" | "lock_credentials" | "cloud_history" | "cloud_playback" | "cipher" | "dsk" | "push" | "captcha" | "general_rtc_hubs" | "general_rtc_params" | "general_rtc_pin" | "general_rtc_sign" | "unknown";
 
 /** Project a known internal endpoint into a fixed, privacy-safe diagnostic label. */
 export function megaOperation(path: string): MegaOperation {
   const operations: Readonly<Record<string, MegaOperation>> = {
     "/app/house/get_devs_list": "inventory",
     "/passport/login": "login",
+    "/passport/validate_email": "account_check",
     "/app/devicemanage/get_user_mqtt_info": "lock_credentials",
     "/v3/event/app/get_all_video_record": "cloud_history",
     "/v3/app/cipher/get_ciphers": "cipher",
@@ -114,6 +116,25 @@ class MegaHttpRejection extends Error {
   constructor(readonly responseKind: string) {
     super(`Mega request failed (HTTP 463 response ${responseKind})`);
   }
+}
+
+/**
+ * Carries a bounded HTTP authentication classification without response text.
+ * MegaClient owns classification and the provider owns one-shot recovery.
+ * A refusal without an explicit rejected token must preserve the saved session.
+ */
+class MegaHttpAuthenticationRejection extends Error {
+  constructor(readonly sessionRejected: boolean, code: number | null, responseKind: "empty" | "json" | "non_json" | "unavailable", operation: MegaOperation) {
+    super(`Mega request failed (HTTP 401 response=${responseKind}${code === null ? "" : ` code=${code}`}${sessionRejected ? " session rejected" : ""}) operation=${operation}`);
+    this.name = "MegaHttpAuthenticationRejection";
+  }
+}
+
+/** Recognize token-specific clauses, excluding a different header or permission refusal. */
+function rejectedAuthToken(code: number | null, message: unknown): boolean {
+  if (code === 26084 || code === 26884) return true;
+  if (code !== 401 || typeof message !== "string") return false;
+  return /\binvalid\s+token\b|\btoken\b[^,;\r\n]{0,256}\b(?:expired|error|not exist|does not exist|kicked out)\b/i.test(message);
 }
 
 /**
@@ -371,10 +392,10 @@ export class MegaClient {
       const previous = this.#session;
       this.#session = null;
       const stored = previous ?? await this.#store.load();
-      if (stored?.generalRtcIdentity) {
-        await this.#store.save(nativeOnlySession(stored));
-        createLogger("mega").info("general_rtc_identity_dropped", "reason=binding");
-      }
+      const openUdid = stored?.openUdid ?? randomIdentifier();
+      this.#session = emptySession(this.#country, openUdid, credentialVerifier(openUdid, this.#email, this.#password));
+      await this.#store.save(this.#session);
+      if (stored?.generalRtcIdentity) createLogger("mega").info("general_rtc_identity_dropped", "reason=binding");
     }
     if (!this.#session && !forceLogin) await this.#restore();
     lifetime.throwIfAborted();
@@ -395,7 +416,9 @@ export class MegaClient {
     const openApiHost = this.#clusterHost("openapi");
     await this.#identity(openApiHost);
     lifetime.throwIfAborted();
-    const password = encryptPassword(this.#password, this.#experimentalGeneralRtc);
+    const passwordInput = await this.#passwordForAccount();
+    lifetime.throwIfAborted();
+    const password = encryptPassword(passwordInput, this.#experimentalGeneralRtc);
     const result = await this.#call("passport", "/passport/login", {
       email: this.#email,
       password: password.encrypted,
@@ -447,6 +470,31 @@ export class MegaClient {
     }
     await this.#save();
     return { state: "authenticated" };
+  }
+
+  /**
+   * Read the account format before each actual login or challenge submission.
+   * Valid saved sessions bypass this boundary. Lookup failures stop before a
+   * password attempt, and login rejection never chooses a different format.
+   */
+  async #passwordForAccount(): Promise<string> {
+    const result = await this.#call("passport", "/passport/validate_email", { email: this.#email });
+    if (!isSuccess(result.code)) {
+      throw new Error(`Mega account format check failed (${result.code}) operation=account_check`);
+    }
+    const metadata = this.#decodeResult(result);
+    if (metadata != null && !isRecord(metadata)) {
+      throw new Error("Mega account format check returned invalid metadata operation=account_check");
+    }
+    const format = isRecord(metadata) && metadata.enc_text === "sha2" ? "sha2" : "original";
+    createLogger("mega").info("login_account_format", `format=${format}`);
+    if (format === "original") return this.#password;
+
+    // Eufy's wire protocol requires this fast digest before ECDH/AES encryption.
+    // It is never stored as a password verifier, which remains scrypt-derived.
+    // Match Java String.trim rather than removing additional Unicode whitespace.
+    const trimmed = this.#password.replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, "");
+    return createHash("sha256").update(trimmed, "utf8").digest("hex");
   }
 
   /** Fetch transient lock credentials in Security scope without another login or persistence. */
@@ -599,6 +647,7 @@ export class MegaClient {
    * The normal login path retains CAPTCHA and verification challenges.
    */
   isSessionInvalidError(error: unknown): boolean {
+    if (error instanceof MegaHttpAuthenticationRejection) return error.sessionRejected;
     return error instanceof Error && (error.message === "Mega request failed (HTTP 401)" || [...AUTH_SESSION_INVALID_CODES].some((code) => error.message.includes(`Mega request failed (${code}:`)) ||
       /Mega request failed \(401:.*token not exist/i.test(error.message));
   }
@@ -1154,6 +1203,26 @@ export class MegaClient {
     }
     signal.throwIfAborted();
     if (response.status !== 200) {
+      if (response.status === 401) {
+        let code: number | null = null;
+        let rejected = false;
+        let responseKind: "empty" | "json" | "non_json" | "unavailable" = "unavailable";
+        try {
+          const body = await readBoundedResponse(response, 64 * 1024, signal);
+          responseKind = body.length === 0 ? "empty" : "non_json";
+          const value: unknown = JSON.parse(body.toString("utf8"));
+          responseKind = "json";
+          if (isRecord(value) && Number.isSafeInteger(value.code)) {
+            code = value.code as number;
+            if (TRANSIENT_IDENTITY_ERRORS.has(code)) return value as unknown as MegaResult;
+            rejected = !!headers["x-auth-token"] && !["login", "account_check", "captcha"].includes(megaOperation(path))
+              && rejectedAuthToken(code, value.msg);
+          }
+        } catch {
+          signal.throwIfAborted();
+        }
+        throw new MegaHttpAuthenticationRejection(rejected, code, responseKind, megaOperation(path));
+      }
       if (response.status === 463) {
         let applicationCode: number | undefined;
         let responseKind = "unavailable";

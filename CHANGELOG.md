@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.219
+
+- Match the account-specific password format required by Eufy before signing in, including verification and CAPTCHA submissions. Failed format checks stop without trying another password format.
+- Recover once when Eufy explicitly rejects the running gateway's session during an inventory refresh. Show any required verification or CAPTCHA prompt without requiring an app restart.
+- Preserve the gateway device identity during session renewal and stop automatic retries when recovery fails. Unrelated HTTP 401 responses retain the saved session and report a privacy-safe response category and code.
+
+- Account-specific sign-in and session-recovery behaviour still need confirmation on affected accounts. This release does not address NVR live-view session rollover or missing event pictures.
+
 ## 0.1.218
 
 - Retire the headerless event-picture experiment. Pictures use normal authenticated requests even when the old setting remains enabled, and the retired setting is identified as ignored.

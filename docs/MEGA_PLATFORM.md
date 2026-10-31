@@ -43,6 +43,7 @@ The production operations are:
 
 | Operation | Endpoint | Why we call it | Output used by |
 | --- | --- | --- | --- |
+| Account format | `/passport/validate_email` | Read the required password format before signing in | Mega client |
 | Login | `/passport/login` | Establish or refresh account session | provider startup |
 | CAPTCHA | `/passport/generate/captcha` | Obtain an image challenge | gateway Web UI |
 | Verification | `/app/sendmsg/verify_code` | Ask Eufy to send an email code | gateway Web UI |
@@ -80,7 +81,25 @@ Identity setup uses P-256 ECDH (`prime256v1`). The client starts with a Mega pre
 
 Two protocol fields retain older hash names without using them as security controls. Mega requires `gtoken` to be the MD5 digest of the public user ID, and Eufy's older event-image wrapper includes MD5 as one step in its fixed key transformation. Neither operation stores a password, verifies a credential, signs a request, or makes a trust decision. They must remain byte-compatible with Eufy's wire format.
 
-Login encrypts the password with Eufy's published login public key and a fresh client key pair. The plaintext password never enters the request body. A successful response yields an auth token, user ID, and expiry. The session store also records the country, a `scrypt` credential verifier, open device identifier, domains, and host identities so a restart can reuse a valid session without storing the password.
+Before a real sign-in or challenge submission, the client reads the account's
+password format from the regional passport service. The exact `enc_text: sha2`
+response selects lowercase SHA-256 of the Java-trimmed UTF-8 password before
+password encryption. Other successful metadata preserves the original password.
+A failed or malformed format response stops before submitting a password. Login
+rejection never triggers a retry using a different format. Valid saved sessions
+bypass both the format check and login. `login_account_format` records only the
+fixed `sha2` or `original` category, with no credential, digest or account identity.
+
+Login encrypts the prepared password with Eufy's published login public key and a fresh client key pair. The plaintext password never enters the request body. A successful response yields an auth token, user ID, and expiry. The session store also records the country, a `scrypt` credential verifier, open device identifier, domains, and host identities so a restart can reuse a valid session without storing the password.
+
+Periodic inventory refresh applies the same one-shot sign-in recovery used during
+startup when Eufy explicitly rejects the authenticated token. It retires old
+polling before recovery and keeps the existing device identifier while replacing
+the rejected token and transport keys. CAPTCHA and email verification return to
+the Web UI. A failed recovery stops polling and reports an error instead of
+repeatedly submitting credentials. HTTP 401 responses without a recognized token
+rejection preserve the session. Logs include only the HTTP status, response
+category and numeric application code, never the response body.
 
 The session file is private JSON with mode `0600` and is replaced atomically. It contains secret session material, so it must stay in the gateway's private data volume and must never be attached to an issue or committed to Git. Version 2 replaces the old fast password-derived guard; version 1 credentials and tokens are deliberately rejected, so the first start after upgrading to v0.1.20 requires a fresh Eufy sign-in. The non-secret device identifier is carried forward to avoid registering an unnecessary new client. When Eufy requests email verification, the limited token and user ID returned by that login are saved before the client exposes the challenge. This lets either the active Web UI or one documented app restart submit the code with the same limited session. Passwords, CAPTCHA answers, and email verification codes are not stored in the session file.
 

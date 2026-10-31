@@ -4012,7 +4012,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
+  /** Replace generation-owned read polling before startup or sign-in recovery. */
   async #completeStartup(events: ProviderEvents, generation = ++this.#startupGeneration, allowLoginRecovery = true): Promise<void> {
+    if (this.#stationRefreshTimer) clearInterval(this.#stationRefreshTimer);
+    this.#stationRefreshTimer = null;
+    if (this.#inventoryRefreshTimer) clearInterval(this.#inventoryRefreshTimer);
+    this.#inventoryRefreshTimer = null;
     this.#retireInventoryRefresh();
     try { await this.#runStartup(events, generation, allowLoginRecovery); }
     catch (error) { if (generation !== this.#startupGeneration) return; throw error; }
@@ -4208,7 +4213,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (generation !== this.#startupGeneration) return;
     if (this.#stationRefreshTimer) clearInterval(this.#stationRefreshTimer);
     this.#stationRefreshTimer = setInterval(() => {
-      if (this.#rtcPreparation.gated) return;
+      if (generation !== this.#startupGeneration || this.#rtcPreparation.gated) return;
       for (const station of this.#stations.values()) {
         const identity = this.#devices.get(station.serial);
         if (!identity || !isDiscoveredHomeBase(identity)) continue;
@@ -4224,12 +4229,33 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#inventoryReadyGeneration = generation;
     if (this.#inventoryRefreshTimer) clearInterval(this.#inventoryRefreshTimer);
     this.#inventoryRefreshTimer = setInterval(() => {
-      if (this.#rtcPreparation.gated) return;
-      void this.#refreshInventoryReads(false).catch((error: unknown) => {
-        logger.warn("inventory_refresh_unavailable", `Mega read refresh unavailable: ${safeError(error)}`);
-      });
+      if (generation !== this.#startupGeneration || this.#rtcPreparation.gated) return;
+      void this.#refreshInventoryReads(false).catch((error: unknown) =>
+        this.#handleInventoryRefreshFailure(events, generation, error));
     }, 60_000);
     this.#inventoryRefreshTimer.unref();
+  }
+
+  /**
+   * Reuse one-shot startup recovery for a current inventory session rejection.
+   * Advancing the generation before awaiting coalesces concurrent failed polls.
+   * Challenges leave polling retired until user submission completes startup.
+   * A failed recovery is surfaced rather than generating more sign-in attempts.
+   */
+  async #handleInventoryRefreshFailure(events: ProviderEvents, failedGeneration: number, error: unknown): Promise<void> {
+    if (failedGeneration !== this.#startupGeneration) return;
+    if (!this.#client.isSessionInvalidError(error)) {
+      logger.warn("inventory_refresh_unavailable", `Mega read refresh unavailable: ${safeError(error)}`);
+      return;
+    }
+    const replacement = ++this.#startupGeneration;
+    try { await this.#completeStartup(events, replacement); }
+    catch (recoveryError) {
+      if (replacement !== this.#startupGeneration) return;
+      logger.warn("inventory_session_recovery_failed", `Mega sign-in recovery failed: ${safeError(recoveryError)}`);
+      try { events.connection("error", "Eufy sign-in recovery failed. Check the app log before trying again."); }
+      catch { }
+    }
   }
 
   /** Detach generation-owned flights so replacement startup cannot join retired work. */

@@ -21,7 +21,12 @@ async function fixture(fetcher: typeof fetch) {
     identities: { "app-openapi-eu-pr.eufy.com": { keyIdent: "fixture", sharedKey, clientPublicKey: "fixture" } },
   }));
   const client = new MegaClient({ email: "fixture@example.invalid", password: "redacted", country: "AU", persistentDirectory: directory,
-    minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000, fetch: fetcher });
+    minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000, fetch: async (url, options) => {
+      if (new URL(String(url)).pathname === "/passport/validate_email") {
+        return new Response(JSON.stringify({ code: 0, data: {} }));
+      }
+      return fetcher(url, options);
+    } });
   return { client, close: async () => { client.cancelPendingRequests(); await rm(directory, { recursive: true, force: true }); } };
 }
 

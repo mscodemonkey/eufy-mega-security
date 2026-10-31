@@ -131,6 +131,7 @@ for (const enabled of [false, true]) test(`natural CAPTCHA login commits only th
     experimentalGeneralRtc: enabled, minimumRequestIntervalMs: 0, fetch: async (url, options) => {
       const endpoint = new URL(String(url)).pathname;
       if (endpoint === "/passport/generate/captcha") return new Response(JSON.stringify({ code: 0, data: { captcha_id: "fixture", item: "data:image/png;base64,AA==" } }));
+      if (endpoint === "/passport/validate_email") return new Response(JSON.stringify({ code: 0, data: {} }));
       assert.equal(endpoint, "/passport/login");
       const body = JSON.parse(decryptEnvelope(String(options?.body), sharedAesKey(sharedKey)));
       keys.push(body.client_secret_info.public_key);
@@ -147,7 +148,7 @@ for (const enabled of [false, true]) test(`natural CAPTCHA login commits only th
   client.cancelPendingRequests();
 });
 
-for (const mode of ["credentials", "force"] as const) test(`${mode} retirement removes only the optional identity even if subsequent discovery fails`, async context => {
+for (const mode of ["credentials", "force"] as const) test(`${mode} retirement preserves the device binding when subsequent discovery fails`, async context => {
   const directory = await mkdtemp(join(tmpdir(), "rtc-retire-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
   const saved = { ...session, credentialVerifier: credentialVerifier(session.openUdid, "fixture@example.invalid", "redacted") };
@@ -158,7 +159,8 @@ for (const mode of ["credentials", "force"] as const) test(`${mode} retirement r
   if (mode === "force") { assert.equal((await client.connect()).state, "authenticated"); assert.ok(client.generalRtcCipher()); }
   await assert.rejects(client.connect(undefined, undefined, mode === "force"));
   const loaded = JSON.parse(await readFile(path, "utf8"));
-  assert.equal(loaded.generalRtcIdentity, undefined); assert.equal(loaded.authToken, saved.authToken);
+  assert.equal(loaded.generalRtcIdentity, undefined); assert.equal(loaded.authToken, mode === "force" ? "" : saved.authToken);
+  assert.equal(loaded.openUdid, saved.openUdid);
   assert.equal(loaded.credentialVerifier, saved.credentialVerifier); assert.equal(client.generalRtcCipher(), null);
   client.cancelPendingRequests();
 });
