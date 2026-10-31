@@ -417,7 +417,12 @@ action('lock-status-start', async () => {
       body:JSON.stringify({consent:true}), cache:'no-store', signal:job.signal });
     const result = await response.json();
     if(job.signal.aborted || el('device').value !== selected) return;
-    if(!response.ok) throw Error('Status check did not complete: ' + (['admission','busy','cancelled','timeout','session','malformed','rejected'].includes(result.stage) ? result.stage : 'session') + '. A timeout is inconclusive.');
+    if(!response.ok) {
+      const stage = ['admission','busy','cancelled','timeout','session','malformed','rejected'].includes(result.stage) ? result.stage : 'session';
+      const reasons = {"feature_disabled": "Experimental model controls are disabled.", "device_unavailable": "The selected device is not in the current inventory.", "unsupported_model": "This check supports only the exact T85V0 model and type.", "channel_unavailable": "A valid child channel is unavailable.", "owner_binding_unavailable": "Current device and HomeBase ownership could not be verified.", "owner_account_required": "This read needs an existing owner-authorized connection. Do not switch accounts just for this test.", "station_route_unavailable": "The required HomeBase 3 connection is unavailable.", "identity_unavailable": "The selected device identity cannot support this read.", "connection_key_unavailable": "The HomeBase connection key is unavailable.", "ambiguous_inventory": "Current inventory does not identify one device and child channel.", "inventory_changed": "Device ownership or connection binding changed during the check.", "operation_unavailable": "The check was cancelled or its provider is shutting down.", "query_counter_exhausted": "The current read sequence cannot safely allocate another query."};
+      const detail = stage === 'admission' && typeof result.reason === 'string' && Object.hasOwn(reasons, result.reason) ? reasons[result.reason] : stage === 'timeout' ? 'A timeout is inconclusive.' : 'Check the matching lock_status_trial_failed log line.';
+      throw Error('Status check did not complete: ' + stage + '. ' + detail);
+    }
     if(!['locked','unlocked','unknown'].includes(result.reportedState) || !Number.isInteger(result.batteryPercent) || result.batteryPercent < 0 || result.batteryPercent > 100) throw Error('Status reply could not be displayed.');
     el('lock-status-result').textContent = 'Reported state: ' + result.reportedState + '. Battery: ' + result.batteryPercent +
       '%. Compare with the existing physical state and Eufy app without operating the lock. Hardware behaviour is unconfirmed. Share only this summary and whether it matches.';

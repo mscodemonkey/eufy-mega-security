@@ -698,8 +698,8 @@ export class GatewayServer {
           json(response, 200, { reportedState: result.reportedState, batteryPercent: result.batteryPercent, physicalConfirmationRequired: true });
         } catch (error) {
           const failure = error instanceof T85V0StatusError ? error : new T85V0StatusError(controller.signal.aborted ? "cancelled" : "session");
-          logger.warn("lock_status_trial_failed", `stage=${failure.stage}`);
-          if (!response.destroyed) json(response, 409, { stage: failure.stage });
+          logger.warn("lock_status_trial_failed", `stage=${failure.stage}${failure.reason ? ` reason=${failure.reason}` : ""}`);
+          if (!response.destroyed) json(response, 409, { stage: failure.stage, ...(failure.reason ? { reason: failure.reason } : {}) });
         } finally {
           controller.abort(); clearTimeout(deadline); response.removeListener("close", abort);
           request.removeListener("aborted", abort); this.#recordingIndexJobs.delete(controller);

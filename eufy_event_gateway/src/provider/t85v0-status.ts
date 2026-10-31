@@ -8,9 +8,27 @@ import { createCipheriv, createDecipheriv } from "node:crypto";
 /** Closed diagnostic failure categories safe to expose without private context. */
 export type T85V0StatusStage = "admission" | "busy" | "cancelled" | "timeout" | "session" | "malformed" | "rejected";
 
-/** Owns only a public failure category, never payloads or transport exceptions. */
+const ADMISSION_REASONS = [
+  "feature_disabled", "device_unavailable", "unsupported_model", "channel_unavailable",
+  "owner_binding_unavailable", "owner_account_required", "station_route_unavailable",
+  "identity_unavailable", "connection_key_unavailable", "ambiguous_inventory",
+  "inventory_changed", "operation_unavailable", "query_counter_exhausted",
+] as const;
+
+/** Finite, value-free explanations of an existing read-only admission check. */
+export type T85V0AdmissionReason = typeof ADMISSION_REASONS[number];
+
+/** Owns only fixed failure categories, never device/account values or transport exceptions. */
 export class T85V0StatusError extends Error {
-  constructor(readonly stage: T85V0StatusStage) { super(stage); this.name = "T85V0StatusError"; }
+
+  /** Available only for admission errors with an allowlisted explanation. */
+  readonly reason?: T85V0AdmissionReason;
+
+  constructor(readonly stage: T85V0StatusStage, reason?: T85V0AdmissionReason) {
+    super(stage);
+    this.name = "T85V0StatusError";
+    if (stage === "admission" && reason !== undefined && ADMISSION_REASONS.includes(reason)) this.reason = reason;
+  }
 }
 
 /** Private, provider-validated child and account binding for this one query. */

@@ -33,3 +33,14 @@ child channel. Shared accounts, changed bindings and a busy HomeBase are
 refused. It checks cloud inventory around the request and may contact Eufy to
 find the HomeBase. The reply must match the encrypted connection, selected
 channel and this query. There is no command replay or alternative write path.
+
+
+Admission failures can now include a fixed reason in the displayed summary and the
+`lock_status_trial_failed` line. This distinguishes an owner-account requirement,
+an unavailable HomeBase route or key, an unsupported model, and missing or changed
+inventory binding. No account or device values appear in these reasons. Please do
+not change accounts or operate the lock to get past a refusal.
+
+Fresh ownership checks also run around the read. An admission failure can therefore
+occur after a read was attempted. Its reason does not prove whether a wire command
+was sent, and no rejected or stale result is published as the lock's current state.
