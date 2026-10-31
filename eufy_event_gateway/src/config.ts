@@ -23,7 +23,7 @@ export interface GatewayConfig {
   /** Opt-in private evidence session; requires bearer authentication even on loopback. */
   readonly captureFailedEventImages: boolean;
 
-  /** Default-off T8172 event-picture request comparison, without changing its account authorization. */
+  /** Retained for saved configuration. This retired option never changes picture authentication. */
   readonly experimentalEventImageRequest: boolean;
 
   /** Default-off official-model control trials, requiring bearer authentication. */

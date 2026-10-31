@@ -45,6 +45,9 @@ process.once("unhandledRejection", (error) => fatal("unhandled_rejection", error
 logger.info("gateway_start", `Eufy Mega Security starting with Node.js ${process.version}`);
 
 const config = loadConfig();
+if (config.experimentalEventImageRequest) {
+  logger.info("event_image_trial_retired", "The retired event-picture test is ignored. Pictures use authenticated requests.");
+}
 const eventImageCapture = config.captureFailedEventImages ? new EventImageCapture() : null;
 if (eventImageCapture) {
   logger.warn("event_image_capture_enabled", "Private failed event-image capture is on for 30 minutes, with export for 60 minutes. Restarting reopens capture while the option remains enabled.");
