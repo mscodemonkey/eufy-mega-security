@@ -86,3 +86,68 @@ for (const errorMessage of [
     }
   });
 }
+
+test("disables the verification form while Eufy checks the code", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "eufy-auth-http-"));
+  const captcha: CaptchaProvider = {
+    getCaptchaChallenge: () => null,
+    isVerificationRequired: () => true,
+    submitCaptcha: async () => { assert.fail("CAPTCHA must not be submitted"); },
+    submitVerification: async () => { assert.fail("verification must not be submitted"); },
+  };
+  const server = new GatewayServer({ ...loadConfig({}), port: 0 }, new GatewayState(), new SnapshotStore(directory),
+    {} as LiveStreamManager, {} as CameraProvider, null, captcha);
+  try {
+    await server.listen();
+    const body = await (await fetch(`http://127.0.0.1:${server.port}/`)).text();
+    assert.match(body, /id="verification-form"/);
+    assert.match(body, /button\.disabled=true/);
+    assert.match(body, /Checking code\.\.\./);
+  } finally {
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("shares one in-flight verification attempt across duplicate submissions", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "eufy-auth-http-"));
+  let submissions = 0;
+  let signalVerificationStarted!: () => void;
+  let completeVerification!: () => void;
+  const verificationStarted = new Promise<void>(resolve => { signalVerificationStarted = resolve; });
+  const verification = new Promise<void>(resolve => { completeVerification = resolve; });
+  const captcha: CaptchaProvider = {
+    getCaptchaChallenge: () => null,
+    isVerificationRequired: () => true,
+    submitCaptcha: async () => { assert.fail("CAPTCHA must not be submitted"); },
+    submitVerification: async code => {
+      assert.equal(code, "123456");
+      submissions++;
+      signalVerificationStarted();
+      await verification;
+    },
+  };
+  const server = new GatewayServer({ ...loadConfig({}), port: 0 }, new GatewayState(), new SnapshotStore(directory),
+    {} as LiveStreamManager, {} as CameraProvider, null, captcha);
+  try {
+    await server.listen();
+    const submit = (): Promise<Response> => fetch(`http://127.0.0.1:${server.port}/`, {
+      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "code=123456",
+    });
+    const first = submit();
+    await verificationStarted;
+    const second = submit();
+    await new Promise(resolve => setTimeout(resolve, 25));
+    assert.equal(submissions, 1);
+    completeVerification();
+    for (const response of await Promise.all([first, second])) {
+      assert.equal(response.status, 200);
+      assert.match(await response.text(), /Verification accepted\./);
+    }
+    assert.equal(submissions, 1);
+  } finally {
+    completeVerification();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

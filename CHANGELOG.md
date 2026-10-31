@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.221
+
+- Keep normal NVR live views running when Eufy's signalling socket closes after valid video has started, while retaining fail-closed setup and finite diagnostic sessions.
+- Prevent duplicate Eufy verification-code submissions while the first accepted code is still completing startup.
+
 ## 0.1.220
 
 - Keep normal opt-in NVR live views open while the viewer remains attached and picture-bearing video continues, instead of forcing a reconnect at two minutes.

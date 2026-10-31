@@ -142,6 +142,9 @@ export interface NvrRtcStats {
 
   /** Video sequence gaps that forced decoder bootstrap to restart. */
   videoSequenceRecoveries: number;
+
+  /** Signalling sockets retired after a normal viewer had valid video. */
+  signallingClosuresAfterVideo: number;
   stopUnconfirmed: number;
   channel0Frames: number;
   channel1Frames: number;
@@ -166,7 +169,7 @@ export class NvrRtcSession {
   readonly output = new PassThrough({ highWaterMark: 4 * 1024 * 1024 + 64 });
   readonly stats: NvrRtcStats = { packets: 0, frames: 0, video: 0, controlPackets: 0, rejected: 0,
     segmentNotEchoed: 0, staleReplies: 0, ignoredAudio: 0, ignoredUnknownMedia: 0,
-    applicationSequenceRecoveries: 0, videoSequenceRecoveries: 0, stopUnconfirmed: 0,
+    applicationSequenceRecoveries: 0, videoSequenceRecoveries: 0, signallingClosuresAfterVideo: 0, stopUnconfirmed: 0,
     channel0Frames: 0, channel1Frames: 0, channel2Frames: 0, channel3Frames: 0, channel4Frames: 0, channel5Frames: 0 };
   readonly #abort = new AbortController();
   readonly #negotiation = new AbortController();
@@ -220,6 +223,7 @@ export class NvrRtcSession {
   #accepted = false;
   #offerApplied = false;
   #answerSent = false;
+  #signallingUnavailable = false;
   #mid = "";
   #codec: VideoCodec | null = null;
   #videoSequence: number | null = null;
@@ -582,8 +586,12 @@ export class NvrRtcSession {
         try { this.#send({ code: 200, action: 1, data: this.options.context.sign, sn: this.options.station,
           source: "WEB", ts: Math.floor(Date.now() / 1000) }, true); } catch { this.#fail("join"); }
       });
-      this.#socket.on("error", () => this.#fail(this.#stage, "signalling_error"));
-      this.#socket.on("close", () => { if (!this.#retired) this.#fail(this.#stage, "signalling_closed"); });
+      this.#socket.on("error", () => {
+        if (!this.#canRetireSignalling()) this.#fail(this.#stage, "signalling_error");
+      });
+      this.#socket.on("close", () => {
+        if (!this.#retired && !this.#canRetireSignalling()) this.#fail(this.#stage, "signalling_closed");
+      });
       this.#socket.on("message", data => {
         if (this.#retired) return;
         if (++this.#operations > 32) { this.#fail("negotiation", "signalling_queue_limit"); return; }
@@ -655,6 +663,15 @@ export class NvrRtcSession {
 
   #guard(): void {
     if (this.#retired || this.options.signal.aborted || !this.options.current()) throw new NvrTrialError("cancelled");
+  }
+
+  #canRetireSignalling(): boolean {
+    if (this.#maximumLifetimeMilliseconds !== null || !this.#startSent || !this.#bootstrapped) return false;
+    if (!this.#signallingUnavailable) {
+      this.#signallingUnavailable = true;
+      this.stats.signallingClosuresAfterVideo++;
+    }
+    return true;
   }
 
   #fail(stage: NvrTrialStage, reason: NvrTrialReason = "unspecified"): void {
