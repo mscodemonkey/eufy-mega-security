@@ -69,125 +69,44 @@ test("E30 credential scope uses the existing session and never persists credenti
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test("completes encrypted push registration and activation using one restored regional session", async () => {
+test("registers only the regional notification backend using the connected Firebase token", async () => {
   const sharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
-  const pushPath = "/app/push/register_push_token";
-  const securityPath = "/v1/apppush/register_push_token";
-  const activationPath = "/v1/app/review/app_push_check";
   for (const region of ["us", "eu", "ie"]) {
-    for (const failedStep of [-1, 0, 1, 2]) {
+    for (const failure of ["none", "application", "transport", "http", "cancelled"]) {
       const directory = await mkdtemp(join(tmpdir(), "mega-push-registration-"));
       const openHost = `app-openapi-${region}-pr.eufy.com`;
-      const securityHost = `security-app${region === "us" ? "" : `-${region}`}.eufylife.com`;
-      const requests: Array<{ url: URL; body: unknown; headers: Headers }> = [];
+      const requests: URL[] = [];
       try {
         await writeFile(join(directory, "mega-session.json"), JSON.stringify({
           version: 2, country: "au", openUdid: "device",
           credentialVerifier: credentialVerifier("device", "user@example.invalid", "password"),
           authToken: "synthetic-token", tokenExpiresAt: 2_000_000_000, userId: "synthetic-user",
-          megaDomain: `mega-${region}-pr.eufy.com`, domains: { eufy_security: securityHost },
-          identities: {
-            [openHost]: { keyIdent: "mega-identity", sharedKey, clientPublicKey: "public" },
-            [securityHost]: { keyIdent: "security-identity", sharedKey, clientPublicKey: "public" },
-          },
+          megaDomain: `mega-${region}-pr.eufy.com`, domains: {},
+          identities: { [openHost]: { keyIdent: "identity", sharedKey, clientPublicKey: "public" } },
         }));
         const client = new MegaClient({
           email: "user@example.invalid", password: "password", country: "AU", persistentDirectory: directory,
           minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000,
           fetch: async (input, init) => {
-            const url = new URL(String(input));
-            const body = JSON.parse(decryptEnvelope(String(init?.body), sharedAesKey(sharedKey)));
-            requests.push({ url, body, headers: new Headers(init?.headers) });
-            return new Response(JSON.stringify({ code: requests.length - 1 === failedStep ? 9999 : 0, data: {} }));
+            const url = new URL(String(input)); requests.push(url);
+            assert.equal(url.hostname, `app-push-${region}-pr.eufy.com`);
+            assert.equal(url.pathname, "/app/push/register_push_token");
+            const headers = new Headers(init?.headers);
+            assert.equal(headers.get("x-auth-token"), "synthetic-token");
+            assert.equal(headers.has("x-signature"), true);
+            assert.deepEqual(JSON.parse(decryptEnvelope(String(init?.body), sharedAesKey(sharedKey))), {
+              token: "synthetic-fcm", is_notification_enable: true, voip_token: "synthetic-fcm",
+            });
+            if (failure === "cancelled") client.cancelPendingRequests();
+            if (failure === "transport" || failure === "cancelled") throw new Error("synthetic network failure");
+            if (failure === "http") return new Response("", { status: 463 });
+            return new Response(JSON.stringify({ code: failure === "application" ? 9999 : 0, data: {} }));
           },
         });
         await client.connect();
-        if (failedStep === -1) {
-          assert.deepEqual(await client.registerPushToken("synthetic-fcm"), { activated: true, code: 0 });
-        } else if (failedStep === 1 || failedStep === 2) {
-          assert.deepEqual(await client.registerPushToken("synthetic-fcm"), {
-            activated: false,
-            code: 9999,
-            failedSecurityStage: failedStep === 1 ? "registration" : "activation",
-            megaRegistrationRestored: true,
-          });
-        } else {
-          await assert.rejects(client.registerPushToken("synthetic-fcm"), /Mega push registration failed \(9999\)/);
-        }
-        const expectedPaths = failedStep === -1
-          ? [pushPath, securityPath, activationPath]
-          : failedStep === 0 ? [pushPath]
-          : failedStep === 1 ? [pushPath, securityPath, pushPath]
-          : [pushPath, securityPath, activationPath, pushPath];
-        assert.deepEqual(requests.map(({ url }) => url.pathname), expectedPaths);
-        assert.deepEqual(requests[0]?.body, { token: "synthetic-fcm", is_notification_enable: true, voip_token: "" });
-        assert.equal(requests[0]?.url.hostname, `app-push-${region}-pr.eufy.com`);
-        for (const request of requests.filter(({ url }) => url.pathname !== pushPath)) {
-          assert.equal(request.url.hostname, securityHost);
-          assert.equal(request.headers.get("x-auth-token"), "synthetic-token");
-          assert.equal(request.headers.get("x-key-ident"), "security-identity");
-          assert.equal(request.headers.has("x-signature"), true);
-        }
-        if (requests.some(({ url }) => url.pathname === securityPath)) assert.deepEqual(requests[1]?.body, {
-          token: "synthetic-fcm", is_notification_enable: true, transaction: "1700000000000",
-        });
-        if (requests.some(({ url }) => url.pathname === activationPath)) assert.deepEqual(requests[2]?.body, {
-          app_type: "eufySecurity", transaction: "1700000000000",
-        });
-        for (const request of requests.filter(({ url }) => url.pathname === pushPath)) {
-          assert.equal(request.url.hostname, `app-push-${region}-pr.eufy.com`);
-          assert.deepEqual(request.body, { token: "synthetic-fcm", is_notification_enable: true, voip_token: "" });
-        }
-      } finally {
-        await rm(directory, { recursive: true, force: true });
-      }
-    }
-  }
-});
-
-test("Security transport failures restore Mega once without login or reviving cancelled work", async () => {
-  const sharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
-  const megaHost = "app-openapi-us-pr.eufy.com", securityHost = "security-app.eufylife.com";
-  const pushPath = "/app/push/register_push_token", securityPath = "/v1/apppush/register_push_token";
-  const activationPath = "/v1/app/review/app_push_check";
-  for (const stage of ["registration", "activation"] as const) {
-    for (const failure of ["http", "transport", "cancelled", "restoration"] as const) {
-      const directory = await mkdtemp(join(tmpdir(), "mega-push-http-"));
-      const paths: string[] = [];
-      try {
-        await writeFile(join(directory, "mega-session.json"), JSON.stringify({
-          version: 2, country: "au", openUdid: "device",
-          credentialVerifier: credentialVerifier("device", "user@example.invalid", "password"),
-          authToken: "synthetic-token", tokenExpiresAt: 2_000_000_000, userId: "synthetic-user",
-          megaDomain: "mega-us-pr.eufy.com", domains: { eufy_security: securityHost },
-          identities: Object.fromEntries([megaHost, securityHost].map(host => [host,
-            { keyIdent: "synthetic-identity", sharedKey, clientPublicKey: "public" }])),
-        }));
-        const client = new MegaClient({ email: "user@example.invalid", password: "password", country: "AU",
-          persistentDirectory: directory, minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000,
-          fetch: async (input, init) => {
-            const url = new URL(String(input)); paths.push(url.pathname);
-            assert.equal(new Headers(init?.headers).get("x-auth-token"), "synthetic-token");
-            if (url.pathname === (stage === "registration" ? securityPath : activationPath)) {
-              if (failure === "cancelled") client.cancelPendingRequests();
-              if (failure === "transport" || failure === "cancelled") throw new Error("synthetic network failure");
-              return new Response("", { status: 463 });
-            }
-            if (failure === "restoration" && url.pathname === pushPath && paths.length > 1) {
-              return new Response(JSON.stringify({ code: 9999 }));
-            }
-            return new Response(JSON.stringify({ code: 0, data: {} }));
-          } });
-        await client.connect();
-        if (failure === "cancelled" || failure === "restoration") {
-          await assert.rejects(client.registerPushToken("synthetic-fcm"));
-        } else {
-          assert.deepEqual(await client.registerPushToken("synthetic-fcm"), {
-            activated: false, code: null, failedSecurityStage: stage, megaRegistrationRestored: true,
-          });
-        }
-        assert.deepEqual(paths, [pushPath, securityPath, ...(stage === "activation" ? [activationPath] : []),
-          ...(failure === "cancelled" ? [] : [pushPath])]);
+        if (failure === "none") assert.deepEqual(await client.registerPushToken("synthetic-fcm"), { registered: true, code: 0 });
+        else await assert.rejects(client.registerPushToken("synthetic-fcm"));
+        assert.equal(requests.length, 1);
         assert.equal(JSON.parse(await readFile(join(directory, "mega-session.json"), "utf8")).authToken, "synthetic-token");
       } finally { await rm(directory, { recursive: true, force: true }); }
     }

@@ -17,7 +17,7 @@ import { createLogger } from "../logging.js";
 import { FcmRegistrar } from "./android-push/fcm.js";
 import { PushClient } from "./android-push/push-client.js";
 import type { FcmCredentials, RawPushMessage } from "./android-push/types.js";
-import type { MegaClient, PushActivationResult } from "./client.js";
+import type { MegaClient, PushRegistrationResult } from "./client.js";
 
 const logger = createLogger("push");
 
@@ -31,7 +31,7 @@ const MAXIMUM_DELIVERY_FUTURE_SKEW_MILLISECONDS = 60_000;
 export type MegaPushDetectionEvidence = "person" | "vehicle" | "pet" | "dog" | "crying" | "sound";
 
 /** Final cloud-registration state for one connected Firebase receiver. */
-export type PushRegistrationStatus = "ready" | "activation-unconfirmed";
+export type PushRegistrationStatus = "ready" | "registration-unconfirmed";
 
 const RETRY_DELAYS = [15_000, 30_000, 60_000, 120_000, 300_000] as const;
 
@@ -140,7 +140,7 @@ export class MegaPushReceiver {
   ) {}
 
   /**
-   * Start delivery without rejecting for initialization, login or activation failure.
+   * Start delivery without rejecting for initialization, login or registration failure.
    * Resolves after the initial attempt settles or is retired. Later attempts are
    * owned internally and never replace an established Firebase identity.
    */
@@ -163,8 +163,8 @@ export class MegaPushReceiver {
   }
 
   async #runAttempt(lifetime: AbortController, initial: boolean): Promise<void> {
-    let stage: "initialization" | "login" | "registration" | "activation" = "initialization";
-    let activationCode: number | undefined;
+    let stage: "initialization" | "login" | "registration" = "initialization";
+    let registrationCode: number | undefined;
     let counted = false;
     try {
       if (!this.#active(lifetime)) return;
@@ -207,25 +207,14 @@ export class MegaPushReceiver {
       stage = "registration";
       const result = await abortable(this.client.registerPushToken(credentials.fcmToken), lifetime.signal);
       if (!this.#active(lifetime)) return;
-      if (result?.activated !== true) {
-        stage = result?.failedSecurityStage ?? "activation";
+      if (result?.registered !== true) {
         const code = result?.code;
-        if (typeof code === "number" && Number.isSafeInteger(code) && Math.abs(code) <= 999999999) activationCode = code;
-        if (result?.megaRegistrationRestored === true) {
-          this.#failed = true;
-          if (!this.#disconnected) this.#publish("degraded");
-          try { logger.warn("push_registration_degraded", [
-            "Security push activation unavailable. Mega registration restored.", `stage=${stage}`,
-            ...(activationCode !== undefined ? [`code=${activationCode}`] : []),
-            `attempt=${this.#attempt}`, `max_retries=${RETRY_DELAYS.length}`, "restoration=mega", "retry=false",
-          ].join(" ")); } catch {}
-          return;
-        }
-        throw new Error("Push activation unavailable");
+        if (typeof code === "number" && Number.isSafeInteger(code) && Math.abs(code) <= 999999999) registrationCode = code;
+        throw new Error("Push registration acceptance unavailable");
       }
       this.#registered = true;
       if (this.#connected) this.#publish("connected");
-      try { logger.info("push_token_registered", "Mega and Security accepted push registration and activation"); } catch {}
+      try { logger.info("push_token_registered", "Eufy accepted the Firebase notification token"); } catch {}
       try { logger.info("push_receiver_ready", "Android FCM receiver and Eufy notification registration are ready"); } catch {}
     } catch (error) {
       if (!this.#active(lifetime)) return;
@@ -243,7 +232,7 @@ export class MegaPushReceiver {
       const match = error instanceof Error
         ? /^(Mega push registration|Security push registration) failed \((-?\d{1,9})\)$/.exec(error.message)
         : null;
-      const code = stage === "activation" ? activationCode : match ? Number(match[2]) : undefined;
+      const code = registrationCode ?? (match ? Number(match[2]) : undefined);
       const diagnostic = stage === "registration" && code === undefined
         ? registrationFailureDiagnostic(error)
         : undefined;
@@ -378,7 +367,7 @@ function mcsTimestampMilliseconds(value: unknown): number | null {
   return parsed <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(parsed) : null;
 }
 
-/** Minimal receiver lifecycle used to order Firebase login before cloud activation. */
+/** Minimal receiver lifecycle used to order Firebase login before cloud registration. */
 export interface PushReceiverTransport {
   once(event: "connect", listener: () => void): this;
   off(event: "connect", listener: () => void): this;
@@ -387,23 +376,22 @@ export interface PushReceiverTransport {
 }
 
 /**
- * Connect Firebase before registering and checking its token with Eufy.
+ * Connect Firebase before registering its token with Eufy.
  *
- * Eufy's activation check can reject a freshly issued token until the Android
- * receiver has completed its MCS login. A non-ready return leaves transport ownership with the caller. A registration failure closes the
- * receiver so callers never expose a half-ready notification connection.
- * Cancellation closes the transport and retires login and registration waits.
- * Late registration results remain handled after cancellation.
+ * A non-ready return leaves transport ownership with the caller. A failed
+ * registration closes the receiver. Cancellation closes the transport and
+ * retires login and registration waits, including late registration results.
+ * Successful registration does not establish physical notification delivery.
  */
 export async function connectAndRegisterPush(
   receiver: PushReceiverTransport,
-  register: () => Promise<PushActivationResult>,
+  register: () => Promise<PushRegistrationResult>,
   signal?: AbortSignal,
 ): Promise<PushRegistrationStatus> {
   try {
     await waitForReceiverReady(receiver, signal, 20_000, true);
     const result = await abortable(Promise.resolve().then(register), signal);
-    return result?.activated === true ? "ready" : "activation-unconfirmed";
+    return result?.registered === true ? "ready" : "registration-unconfirmed";
   } catch (error) {
     receiver.close();
     throw error;

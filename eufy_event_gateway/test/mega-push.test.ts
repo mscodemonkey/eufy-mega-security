@@ -49,7 +49,7 @@ test("connects Firebase before Eufy push registration", async () => {
 
   await connectAndRegisterPush(receiver, async () => {
     receiver.calls.push("register");
-    return { activated: true, code: 0 };
+    return { registered: true, code: 0 };
   });
 
   assert.deepEqual(receiver.calls, ["connect", "register"]);
@@ -70,7 +70,7 @@ test("abort while awaiting login removes the listener and closes the transport",
   const receiver = new FakePushReceiver();
   receiver.connect = () => { receiver.calls.push("connect"); };
   const controller = new AbortController();
-  const pending = connectAndRegisterPush(receiver, async () => ({ activated: true, code: 0 }), controller.signal);
+  const pending = connectAndRegisterPush(receiver, async () => ({ registered: true, code: 0 }), controller.signal);
   controller.abort(new Error("Retired"));
   await assert.rejects(pending, /Retired/);
   assert.equal(receiver.listenerCount("connect"), 0);
@@ -83,7 +83,7 @@ test("abort handles a later registration rejection", async () => {
   let reject!: (error: Error) => void;
   let entered!: () => void;
   const entering = new Promise<void>((resolve) => { entered = resolve; });
-  const registration = new Promise<{ activated: boolean; code: number | null }>((_resolve, failed) => { reject = failed; });
+  const registration = new Promise<{ registered: boolean; code: number | null }>((_resolve, failed) => { reject = failed; });
   const unhandled: unknown[] = [];
   const listener = (error: unknown): void => { unhandled.push(error); };
   process.on("unhandledRejection", listener);
@@ -106,7 +106,7 @@ test("synchronous connect failure leaves no timer rejection or listener", async 
   const listener = (error: unknown): void => { unhandled.push(error); };
   process.on("unhandledRejection", listener);
   try {
-    await assert.rejects(connectAndRegisterPush(receiver, async () => ({ activated: true, code: 0 })), /Connect failed/);
+    await assert.rejects(connectAndRegisterPush(receiver, async () => ({ registered: true, code: 0 })), /Connect failed/);
     context.mock.timers.tick(20_000);
     await new Promise<void>((resolve) => setImmediate(resolve));
     assert.equal(receiver.listenerCount("connect"), 0);
@@ -274,11 +274,11 @@ test("prefers the station effective-mode field and retains only its source name"
   assert.equal(result?.effectiveModeField, "station_current_mode");
 });
 
-for (const activated of [true, false, undefined, null, 1, "true"]) {
-  test(`connection helper preserves status for activation ${typeof activated}:${String(activated)}`, async () => {
+for (const registered of [true, false, undefined, null, 1, "true"]) {
+  test(`connection helper preserves status for registration ${typeof registered}:${String(registered)}`, async () => {
     const receiver = new FakePushReceiver();
-    const status = await connectAndRegisterPush(receiver, async () => ({ activated, code: 0 }) as never);
-    assert.equal(status, activated === true ? "ready" : "activation-unconfirmed");
+    const status = await connectAndRegisterPush(receiver, async () => ({ registered, code: 0 }) as never);
+    assert.equal(status, registered === true ? "ready" : "registration-unconfirmed");
     assert.deepEqual(receiver.calls, ["connect"]);
     assert.equal(receiver.listenerCount("connect"), 0);
   });

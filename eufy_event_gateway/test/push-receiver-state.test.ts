@@ -66,7 +66,7 @@ test("re-registers after reconnect before restoring connected and leaves stopped
   const reconnectRegistration = new Promise<void>((resolve) => { finishReconnect = resolve; });
   const receiver = new MegaPushReceiver({ registerPushToken: async () => {
     if (++registrations > 1) await reconnectRegistration;
-    return { activated: true, code: 0 };
+    return { registered: true, code: 0 };
   } } as never, path,
     () => undefined, (state) => states.push(state), undefined, () => transport as unknown as PushClient);
   try {
@@ -99,7 +99,7 @@ test("validates protobuf send times against the current startup without rounding
 });
 
 /** Provide a stored synthetic identity and a fresh transport per start without network calls. */
-async function receiverFixture(register: () => Promise<void | { activated: boolean; code: number | null }>, automaticLogin = true, storedCredentials = true,
+async function receiverFixture(register: () => Promise<void | { registered: boolean; code: number | null }>, automaticLogin = true, storedCredentials = true,
   onState: (state: string) => void = () => undefined, now: () => number = () => 1_800_000_000_000) {
   const directory = await mkdtemp(join(tmpdir(), "eufy-push-race-"));
   const path = join(directory, "state.json");
@@ -111,7 +111,7 @@ async function receiverFixture(register: () => Promise<void | { activated: boole
   const events: unknown[] = [];
   let created!: () => void;
   const ready = new Promise<void>((resolve) => { created = resolve; });
-  const client = { registerPushToken: async () => (await register()) ?? { activated: true, code: 0 } };
+  const client = { registerPushToken: async () => (await register()) ?? { registered: true, code: 0 } };
   const receiver = new MegaPushReceiver(client as never, path, (event) => { events.push(event); },
     (state) => { states.push(state); onState(state); }, undefined, () => {
       const transport = Object.assign(new EventEmitter(), {
@@ -200,13 +200,13 @@ test("closing while login is pending cannot publish a later state", async (conte
 });
 
 for (const code of [-1, 10003]) {
-  test(`activation ${code} retains notifications, retries exactly five times and stops`, async (context) => {
+  test(`registration ${code} retains notifications, retries exactly five times and stops`, async (context) => {
     context.mock.timers.enable({ apis: ["setTimeout"] });
     const timers = retryTimers(context);
     const logs: string[] = [];
     context.mock.method(process.stderr, "write", (chunk: unknown) => { logs.push(String(chunk)); return true; });
     let calls = 0;
-    const fixture = await receiverFixture(async () => { ++calls; return { activated: false, code }; });
+    const fixture = await receiverFixture(async () => { ++calls; return { registered: false, code }; });
     try {
       await assert.doesNotReject(fixture.receiver.start());
       fixture.transports[0]!.emit("message", { sent: "1800000000000", payload: { device_sn: "camera", a: 3102 } });
@@ -233,7 +233,7 @@ for (const code of [-1, 10003]) {
       assert.equal(fixture.states.at(-1), "degraded");
       const failures = logs.filter((line) => line.includes("event=push_registration_degraded"));
       assert.equal(failures.length, 6);
-      assert.match(failures[0]!, new RegExp(`stage=activation code=${code} attempt=1 max_retries=5 next_retry_seconds=15`));
+      assert.match(failures[0]!, new RegExp(`stage=registration code=${code} attempt=1 max_retries=5 next_retry_seconds=15`));
       assert.match(failures[5]!, /attempt=6 max_retries=5 exhausted=true/);
       await fixture.receiver.close();
       assert.equal(timers.size, 0);
@@ -265,40 +265,11 @@ test("suppresses queued startup events while retaining fresh and post-registrati
   } finally { await fixture.cleanup(); }
 });
 
-for (const failedSecurityStage of ["registration", "activation"] as const) {
-  test(`restored Mega registration leaves ${failedSecurityStage} failure stably degraded without retries`, async (context) => {
-    context.mock.timers.enable({ apis: ["setTimeout"] });
-    const timers = retryTimers(context);
-    const logs: string[] = [];
-    context.mock.method(process.stderr, "write", (chunk: unknown) => { logs.push(String(chunk)); return true; });
-    let calls = 0;
-    const fixture = await receiverFixture(async () => {
-      ++calls;
-      return { activated: false, code: 10003, failedSecurityStage, megaRegistrationRestored: true };
-    });
-    try {
-      await fixture.receiver.start();
-      assert.equal(calls, 1);
-      assert.equal(fixture.states.at(-1), "degraded");
-      assert.equal(timers.size, 0);
-      context.mock.timers.tick(1_000_000);
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      assert.equal(calls, 1);
-      fixture.transports[0]!.emit("disconnect");
-      fixture.transports[0]!.emit("connect");
-      assert.equal(fixture.states.at(-1), "degraded");
-      const warning = logs.find((line) => line.includes("event=push_registration_degraded"));
-      assert.match(warning ?? "", new RegExp(`stage=${failedSecurityStage} code=10003 .*restoration=mega retry=false`));
-    } finally { await fixture.cleanup(); }
-    assert.equal(timers.size, 0);
-    assert.equal(fixture.transports[0]!.closeCalls, 1);
-  });
-}
 
 test("a disconnected retry waits for login without consuming the registration budget", async (context) => {
   context.mock.timers.enable({ apis: ["setTimeout"] });
   let calls = 0;
-  const fixture = await receiverFixture(async () => { if (++calls === 1) return { activated: false, code: -1 }; });
+  const fixture = await receiverFixture(async () => { if (++calls === 1) return { registered: false, code: -1 }; });
   try {
     await fixture.receiver.start();
     fixture.transports[0]!.emit("disconnect");
@@ -511,7 +482,7 @@ test("synchronous transport connect failure is login and retries the same transp
   const transport = Object.assign(new EventEmitter(), { setPersistentIds() {}, close() {},
     connect() { if (++connects === 1) throw new Error("PRIVATE_CONNECT_MARKER"); transport.emit("connect"); } });
   const states: string[] = [];
-  const receiver = new MegaPushReceiver({ registerPushToken: async () => ({ activated: true, code: 0 }) } as never, path,
+  const receiver = new MegaPushReceiver({ registerPushToken: async () => ({ registered: true, code: 0 }) } as never, path,
     () => undefined, (state) => states.push(state), undefined, () => transport as unknown as PushClient);
   try {
     await receiver.start();
@@ -588,13 +559,13 @@ test("registration warnings contain only fixed fields, codes and failure reasons
 });
 
 for (const code of [-1, 10003]) {
-  test(`returned activation ${code} recovers without replacing transport`, async (context) => {
+  test(`returned registration ${code} recovers without replacing transport`, async (context) => {
     context.mock.timers.enable({ apis: ["setTimeout"] });
     const timers = retryTimers(context);
     const logs: string[] = [];
     context.mock.method(process.stderr, "write", (chunk: unknown) => { logs.push(String(chunk)); return true; });
     let calls = 0;
-    const f = await receiverFixture(async () => ({ activated: ++calls > 1, code: calls === 1 ? code : 0 }));
+    const f = await receiverFixture(async () => ({ registered: ++calls > 1, code: calls === 1 ? code : 0 }));
     try {
       assert.equal(await f.receiver.start(), undefined);
       assert.equal(f.states.at(-1), "degraded");
@@ -606,7 +577,7 @@ for (const code of [-1, 10003]) {
       assert.equal(timers.size, 0);
       assert.equal(f.transports.length, 1);
       assert.equal(f.transports[0]!.closeCalls, 0);
-      assert.match(logs.find((line) => line.includes("push_registration_degraded"))!, new RegExp(`stage=activation code=${code}`));
+      assert.match(logs.find((line) => line.includes("push_registration_degraded"))!, new RegExp(`stage=registration code=${code}`));
     } finally { await f.cleanup(); }
     assert.equal(f.transports[0]!.closeCalls, 1);
     assert.equal(timers.size, 0);
@@ -615,13 +586,13 @@ for (const code of [-1, 10003]) {
 
 for (const [label, result, printed] of [
   ["missing", undefined, undefined], ["null result", null, undefined],
-  ...[null, 1.5, NaN, Infinity, 1e21, -1000000000, 1000000000, "private"].map((code) => [String(code), { activated: false, code }, undefined]),
-  ["negative limit", { activated: false, code: -999999999 }, -999999999],
-  ["positive limit", { activated: false, code: 999999999 }, 999999999],
-  ["negative zero", { activated: false, code: -0 }, 0],
-  ["truthy activation", { activated: 1, code: null }, undefined],
+  ...[null, 1.5, NaN, Infinity, 1e21, -1000000000, 1000000000, "private"].map((code) => [String(code), { registered: false, code }, undefined]),
+  ["negative limit", { registered: false, code: -999999999 }, -999999999],
+  ["positive limit", { registered: false, code: 999999999 }, 999999999],
+  ["negative zero", { registered: false, code: -0 }, 0],
+  ["truthy registration", { registered: 1, code: null }, undefined],
 ] as const) {
-  test(`unconfirmed activation sanitizes ${label}`, async (context) => {
+  test(`unconfirmed registration sanitizes ${label}`, async (context) => {
     context.mock.timers.enable({ apis: ["setTimeout"] });
     const timers = retryTimers(context);
     const logs: string[] = [];
@@ -633,7 +604,7 @@ for (const [label, result, printed] of [
       await f.receiver.start();
       const failures = logs.filter((line) => line.includes("event=push_registration_degraded"));
       assert.equal(failures.length, 1);
-      assert.match(failures[0]!, /stage=activation/);
+      assert.match(failures[0]!, /stage=registration/);
       assert.equal(f.states.at(-1), "degraded");
       assert.equal(timers.size, 1);
       assert.equal(logs.some((line) => /event=push_token_registered|event=push_receiver_ready|event=push_activation_unconfirmed/.test(line)), false);
@@ -646,7 +617,7 @@ for (const [label, result, printed] of [
 }
 
 test("unconfirmed receiver remains degraded across reconnects", async () => {
-  const f = await receiverFixture(async () => ({ activated: false, code: -1 }));
+  const f = await receiverFixture(async () => ({ registered: false, code: -1 }));
   try {
     assert.equal(await f.receiver.start(), undefined);
     f.transports[0]!.emit("disconnect");
@@ -659,10 +630,10 @@ test("unconfirmed receiver remains degraded across reconnects", async () => {
 test("unconfirmed result after disconnect counts once and waits for reconnect", async (context) => {
   context.mock.timers.enable({ apis: ["setTimeout"] });
   const timers = retryTimers(context);
-  let finish!: (result: { activated: boolean; code: number }) => void;
+  let finish!: (result: { registered: boolean; code: number }) => void;
   let entered!: () => void;
   const entering = new Promise<void>((resolve) => { entered = resolve; });
-  const result = new Promise<{ activated: boolean; code: number }>((resolve) => { finish = resolve; });
+  const result = new Promise<{ registered: boolean; code: number }>((resolve) => { finish = resolve; });
   let calls = 0;
   const logs: string[] = [];
   context.mock.method(process.stderr, "write", (chunk: unknown) => { logs.push(String(chunk)); return true; });
@@ -671,7 +642,7 @@ test("unconfirmed result after disconnect counts once and waits for reconnect", 
     const starting = f.receiver.start();
     await entering;
     f.transports[0]!.emit("disconnect");
-    finish({ activated: false, code: 10003 });
+    finish({ registered: false, code: 10003 });
     await starting;
     assert.equal(f.states.at(-1), "disconnected");
     assert.match(logs.find((line) => line.includes("push_registration_degraded"))!, /attempt=1/);
@@ -703,7 +674,7 @@ test("retry login timeout after connect throw retains the same transport", async
   const states: string[] = [];
   const transport = Object.assign(new EventEmitter(), { setPersistentIds() {},
     close() { ++closes; }, connect() { if (++connects === 1) throw new Error("PRIVATE_CONNECT_MARKER"); } });
-  const receiver = new MegaPushReceiver({ registerPushToken: async () => ({ activated: true, code: 0 }) } as never,
+  const receiver = new MegaPushReceiver({ registerPushToken: async () => ({ registered: true, code: 0 }) } as never,
     path, () => undefined, (state) => states.push(state), undefined, () => transport as unknown as PushClient);
   try {
     await receiver.start();

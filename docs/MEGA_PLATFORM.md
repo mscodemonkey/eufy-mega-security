@@ -53,6 +53,13 @@ The production operations are:
 
 The actual host is selected from the discovered product-domain map. Hard-coding one global Eufy host would break accounts in other regions and is one reason host discovery belongs in `MegaClient`.
 
+Notification registration starts after the Firebase receiver acknowledges its connection.
+The gateway sends that receiver's token as both `token` and `voip_token`, with
+`is_notification_enable: true`, to the regional push backend. It reuses the current
+account session. The app-review invitation endpoint does not activate notifications
+and is not part of this operation. A successful registration confirms backend
+acceptance. A fresh received event is still needed to confirm actual delivery.
+
 ## Wire formats and encryption
 
 Most Mega responses have an outer JSON shape:
