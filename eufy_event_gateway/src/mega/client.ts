@@ -490,7 +490,9 @@ export class MegaClient {
     createLogger("mega").info("login_account_format", `format=${format}`);
     if (format === "original") return this.#password;
 
-    // Match Java String.trim before the app's SHA-256 step, without changing stored credentials.
+    // Eufy's wire protocol requires this fast digest before ECDH/AES encryption.
+    // It is never stored as a password verifier, which remains scrypt-derived.
+    // Match Java String.trim rather than removing additional Unicode whitespace.
     const trimmed = this.#password.replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, "");
     return createHash("sha256").update(trimmed, "utf8").digest("hex");
   }

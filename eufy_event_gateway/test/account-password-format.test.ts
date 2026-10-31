@@ -14,7 +14,8 @@ import { MegaClient, megaOperation } from "../src/mega/client.js";
 import { credentialVerifier, decryptEnvelope, encryptEnvelope, LOGIN_SERVER_PUBLIC_KEY, sharedAesKey } from "../src/mega/crypto.js";
 
 /** Create a signed-out fixture with a reusable synthetic transport identity. */
-async function fixture(t: TestContext, password: string, metadata: unknown, challenge = "none", code = 0) {
+async function fixture(t: TestContext, input: { password: string }, metadata: unknown, challenge = "none", code = 0) {
+  const { password } = input;
   const directory = await mkdtemp(join(tmpdir(), "mega-account-format-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const sessionPath = join(directory, "mega-session.json");
@@ -87,7 +88,7 @@ test("account format controls the plaintext inside the actual password envelope"
     ["case-sensitive", " password ", { enc_text: "SHA2" }, " password "],
   ] as const) {
     await t.test(name, async context => {
-      const f = await fixture(context, password, metadata);
+      const f = await fixture(context, { password }, metadata);
       assert.deepEqual(await f.client.connect(), { state: "authenticated" });
       assert.deepEqual(f.paths, ["/passport/validate_email", "/passport/login"]);
       assert.deepEqual(f.passwords, [expected]);
@@ -104,13 +105,13 @@ test("account format controls the plaintext inside the actual password envelope"
 test("failed or invalid account metadata never submits a password or challenge", async t => {
   for (const code of [26006, 10019, 26052, 100032]) {
     await t.test(String(code), async context => {
-      const f = await fixture(context, "fixture-password", {}, "none", code);
+      const f = await fixture(context, { password: "fixture-password" }, {}, "none", code);
       await assert.rejects(f.client.connect(), /account format check failed/);
       assert.deepEqual(f.paths, ["/passport/validate_email"]);
       assert.deepEqual(f.passwords, []);
     });
   }
-  const f = await fixture(t, "fixture-password", []);
+  const f = await fixture(t, { password: "fixture-password" }, []);
   await assert.rejects(f.client.connect(), /invalid metadata/);
   assert.deepEqual(f.paths, ["/passport/validate_email"]);
   assert.equal(megaOperation("/passport/validate_email"), "account_check");
@@ -120,7 +121,7 @@ test("failed or invalid account metadata never submits a password or challenge",
 test("verification and CAPTCHA submissions recheck the format without hashing twice", async t => {
   for (const challenge of ["verification", "captcha"]) {
     await t.test(challenge, async context => {
-      const f = await fixture(context, "password", { enc_text: "sha2" }, challenge);
+      const f = await fixture(context, { password: "password" }, { enc_text: "sha2" }, challenge);
       assert.equal((await f.client.connect()).state, challenge === "verification" ? "verification-required" : "captcha-required");
       const continued = challenge === "verification"
         ? new MegaClient({ email: "user@example.invalid", password: "password", country: "AU", persistentDirectory: f.directory,
@@ -138,7 +139,7 @@ test("verification and CAPTCHA submissions recheck the format without hashing tw
 test("transport failure, cancellation and credential rejection never choose a fallback format", async t => {
   for (const failure of ["transport", "cancelled", "credentials"]) {
     await t.test(failure, async context => {
-      const f = await fixture(context, "password", { enc_text: "sha2" });
+      const f = await fixture(context, { password: "password" }, { enc_text: "sha2" });
       if (failure === "transport") f.controls.transportError = true;
       if (failure === "cancelled") f.controls.onMetadata = () => f.client.cancelPendingRequests();
       if (failure === "credentials") f.controls.loginCode = 26006;
