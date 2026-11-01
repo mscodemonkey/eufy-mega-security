@@ -355,8 +355,11 @@ export interface HomeBaseState {
   readonly guardModeNames: Readonly<Record<number, string>>;
   readonly effectiveMode: number | null;
 
-  /** Last fresh NVR push observation. Its absence must not be treated as a live readback. */
+  /** Last fresh NVR observation. Its absence must not be treated as a live readback. */
   readonly effectiveModeReportedAt?: string | null;
+
+  /** Owning observation transport. Omission preserves compatibility with older push-only gateways. */
+  readonly effectiveModeSource?: "eufy_push" | "nvr_rtc" | null;
   readonly alarmActive: boolean | null;
   readonly alarmVolume: number | null;
   readonly promptVolume: number | null;

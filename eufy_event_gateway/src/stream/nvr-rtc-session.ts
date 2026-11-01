@@ -23,6 +23,7 @@ import { NvrTrialError, nvrCameraPowerCommand, nvrGuardModeCommand, nvrApplicati
   nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrRecord, nvrVideo, nvrStateSummary, type NvrStateSummary, type NvrTrialStage, type NvrTrialReason } from "./nvr-protocol.js";
 
 import { NvrLiveControlError } from "../provider/nvr-live-controls.js";
+import { nvrEffectiveModeBroadcast, type NvrEffectiveModeObservation } from "./nvr-effective-mode.js";
 import { nvrLiveCommand, nvrLiveJson, nvrLiveReceipt, nvrLivePanReply, nvrLiveSettings, type NvrLiveSettings, type NvrLiveWrite } from "./nvr-live-control-protocol.js";
 
 const HEARTBEAT_ECHO = nvrHeartbeat();
@@ -80,6 +81,13 @@ export interface NvrRtcOptions {
 
   /** Receives one immutable live-start summary on close, never state/control queries. */
   readonly onTimings?: (timings: NvrTimings) => void;
+
+  /**
+   * Receives station-wide mode broadcasts on this existing connection only.
+   * A null observation retires this connection's readings. No initial mode is
+   * inferred and no query, polling or independent observer session is started.
+   */
+  readonly onEffectiveMode?: (observation: NvrEffectiveModeObservation | null) => void;
   readonly station: string;
   readonly camera: string;
   readonly channel: number;
@@ -170,6 +178,7 @@ export interface NvrRtcStats {
 export class NvrRtcSession {
   #startInvoked = false;
   #timingsEmitted = false;
+  #modeObserved = false;
   readonly #timings: { -readonly [Key in keyof NvrTimings]: NvrTimings[Key] } = {
     offer: null, firstLocalCandidate: null, answerSent: null, channelOpen: null, mediaRequest: null, firstVideo: null,
   };
@@ -629,6 +638,10 @@ export class NvrRtcSession {
     if (this.#closing) return this.#closing;
     this.#livePending?.reject(new NvrLiveControlError("outcome_unknown", "dispatch"));
     this.#retired = true;
+    if (this.#modeObserved) {
+      this.#modeObserved = false;
+      try { this.options.onEffectiveMode?.(null); } catch { /* State listeners must not prevent retirement. */ }
+    }
     this.#finishPowerReceipt(new NvrPowerError("shutdown"));
     this.#finishGuardReceipt(new NvrGuardError("shutdown"));
     this.#negotiation.abort();
@@ -890,14 +903,22 @@ export class NvrRtcSession {
         continue;
       }
       this.#reorder.delete(key); this.#reorderBytes -= item.frame.length;
-      this.#lastSequence.set(item.channel, item.sequence); this.#frame(item.frame);
+      this.#lastSequence.set(item.channel, item.sequence); this.#frame(item.frame, item.channel);
       this.#drain(); break;
     }
   }
 
-  #frame(bytes: Buffer): void {
+  #frame(bytes: Buffer, transportChannel: number): void {
     this.stats.frames++;
     const frame = nvrApplication(bytes);
+    const mode = nvrEffectiveModeBroadcast(frame, transportChannel);
+    if (mode) {
+      if (!this.#retired && this.options.current() && this.options.onEffectiveMode) {
+        this.#modeObserved = true;
+        this.options.onEffectiveMode(mode);
+      }
+      return;
+    }
     if (frame.command === 1301) { this.stats.ignoredAudio++; return; }
     if (frame.command === 1303) { this.stats.ignoredUnknownMedia++; return; }
     if (frame.command === 1300) {
