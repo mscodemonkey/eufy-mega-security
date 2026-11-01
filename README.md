@@ -724,6 +724,8 @@ relay selection and cancellation are covered by local connection tests. Startup
 timings are recorded without connection identities. Real NVR latency and its
 acceptance of late candidates still need hardware confirmation.
 
+`camera_viewer_start_timings` separates source arrival, source random-access video, conversion start, first converted output and the first random-access group queued to each HTTP viewer. It is emitted when that group is queued, or when the viewer/source attempt ends without one. Headers alone do not count as a ready picture. Warm source/viewer flags identify milestones observed before the request, and each converter retry replaces its own timings. These are gateway observations. They do not measure network receipt, Home Assistant HLS packaging, decoding or the displayed picture.
+
 ### Optional shorter Home Assistant live-view idle timeout
 
 In **Settings → Devices & services → Eufy Mega Security → Configure**, enable
