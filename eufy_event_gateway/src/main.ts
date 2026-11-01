@@ -223,8 +223,11 @@ const providerEvents: ProviderEvents = {
   motion(serial, detected) {
     if (state.hasCamera(serial)) state.recordMotion(serial, detected);
   },
-  person(serial, detected, personName) {
-    if (state.hasCamera(serial)) state.recordPerson(serial, detected, personName);
+  person(serial, detected, personName, eventIdentity) {
+    if (state.hasCamera(serial)) state.recordPerson(serial, detected, personName, new Date(), eventIdentity);
+  },
+  personName(serial, eventIdentity, personName) {
+    if (state.hasCamera(serial)) state.enrichPersonName(serial, eventIdentity, personName);
   },
   detection(serial, kind, detected) {
     if (state.hasCamera(serial)) state.recordDetection(serial, kind, detected);

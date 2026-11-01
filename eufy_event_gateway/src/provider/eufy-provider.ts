@@ -5237,7 +5237,17 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       return;
     }
     if (delivery.retainPicture && isSupportedMegaCamera(device)) this.#queuePushSnapshot(events, event);
-    if (!delivery.handleState) return;
+    const personEventIdentity = event.eventId
+      ? JSON.stringify([this.#startupGeneration, event.eventId, event.eventType]) : null;
+    if (!delivery.handleState) {
+      const personDelivery = cameraDetectionKind(event.eventType) === "person"
+        || event.eventType === 1 && genericSecurityDetectionKinds(event).includes("person")
+        || isDoorbellDevice(device) && doorbellPushKind(event) === "detection";
+      if (isSupportedMegaCamera(device) && personDelivery && personEventIdentity && personName !== null) {
+        events.personName?.(event.cameraSerial, personEventIdentity, personName);
+      }
+      return;
+    }
     if ((device.deviceType === 2 || device.deviceType === 126) && event.eventType === 3 && event.sensorOpen !== null) {
       events.sensorContact(event.cameraSerial, event.sensorOpen);
       return;
@@ -5255,7 +5265,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       }
       const kinds = new Set(event.detectionEvidence);
       if (personName !== null) kinds.add("person");
-      if (kinds.has("person")) events.person(event.cameraSerial, true, personName);
+      if (kinds.has("person")) events.person(event.cameraSerial, true, personName, personEventIdentity);
       events.motion(event.cameraSerial, true);
       for (const kind of kinds) {
         if (kind !== "person") events.detection(event.cameraSerial, kind, true);
@@ -5273,10 +5283,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const kinds = event.eventType === 1 ? genericSecurityDetectionKinds(event) : ["motion"] as const;
       for (const kind of kinds) {
         if (kind === "motion") events.motion(event.cameraSerial, true);
-        else if (kind === "person") events.person(event.cameraSerial, true, personName);
+        else if (kind === "person") events.person(event.cameraSerial, true, personName, personEventIdentity);
         else events.detection(event.cameraSerial, kind, true);
       }
-    } else if (detection === "person") events.person(event.cameraSerial, true, personName);
+    } else if (detection === "person") events.person(event.cameraSerial, true, personName, personEventIdentity);
     else events.detection(event.cameraSerial, detection, true);
   }
 

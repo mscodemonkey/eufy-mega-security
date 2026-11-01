@@ -50,7 +50,12 @@ export interface ProviderEvents {
   sensor(state: SecuritySensorState): void;
   connection(state: "connected" | "disconnected" | "authentication-required" | "error", detail: string | null): void;
   motion(serial: string, detected: boolean): void;
-  person(serial: string, detected: boolean, personName: string | null): void;
+
+  /** Retain an optional private source identity so a later name can enrich this detection. */
+  person(serial: string, detected: boolean, personName: string | null, eventIdentity?: string | null): void;
+
+  /** Enrich an already published person event without emitting another detection or refreshing its hold timer. */
+  personName?(serial: string, eventIdentity: string, personName: string): void;
   detection(serial: string, kind: Exclude<DetectionKind, "motion" | "person" | "doorbell">, detected: boolean): void;
   doorbell(serial: string, pressed: boolean): void;
   sensorContact(serial: string, open: boolean): void;
