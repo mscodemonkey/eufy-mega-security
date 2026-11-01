@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.222
+
+- Preserve the original dimensions and JPEG headers of supported encrypted V2 event pictures instead of reconstructing them. Existing picture recovery remains available when decryption cannot be used.
+
 ## 0.1.221
 
 - Keep normal NVR live views running when Eufy's signalling socket closes after valid video has started, while retaining fail-closed setup and finite diagnostic sessions.

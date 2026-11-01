@@ -2,11 +2,12 @@
  * Owns the conversion from Eufy's event-image variants to JPEG.
  *
  * The Mega notification may reference ordinary JPEG bytes, a
- * `v2_eufysecurity` wrapper whose JPEG tables need reconstruction, or an older
+ * `v2_eufysecurity` wrapper with an authenticated encrypted prefix, or an older
  * encrypted `eufysecurity` body keyed by the station's P2P DID. This module
  * accepts raw bytes and an optional DID, performs local decoding, and lets the
  * provider verify the final JPEG before handing it to SnapshotStore. It does
- * not download URLs or decide when a camera event should be retained.
+ * not download URLs or decide when a camera event should be retained. V2 bodies
+ * that cannot be authenticated retain the existing scan-reconstruction fallback.
  */
 import { createDecipheriv, createHash } from "node:crypto";
 import { recoverJpegHeader } from "./jpeg-header-recovery.js";
@@ -32,6 +33,8 @@ const JPEG_PREFIX = Buffer.from(
 export function decodeEventImage(data: Buffer, p2pDid = ""): Buffer {
   if (isJpeg(data)) return data;
   if (data.subarray(0, V2_PREFIX.length).toString("latin1") === V2_PREFIX) {
+    const decrypted = decryptV2Prefix(data, p2pDid);
+    if (decrypted) return decrypted;
     const payload = afterThirdColon(data);
     const tail = payload ? v2PlaintextTail(payload) : null;
     if (tail) return recoverJpegHeader(JPEG_PREFIX, tail) ?? data;
@@ -45,6 +48,34 @@ export function decodeEventImage(data: Buffer, p2pDid = ""): Buffer {
   decipher.setAutoPadding(false);
   Buffer.concat([decipher.update(encrypted), decipher.final()]).copy(body);
   return body;
+}
+
+/** Authenticate the fixed V2 prefix before exposing any decrypted image bytes. */
+function decryptV2Prefix(data: Buffer, p2pDid: string): Buffer | null {
+  if (!p2pDid || data.length < 330 || data[32] !== 0x3a || data[43] !== 0x3a ||
+      data[56] !== 0x3a || data[73] !== 0x3a) return null;
+  const serial = data.subarray(16, 32).toString("ascii");
+  const code = data.subarray(33, 43).toString("ascii");
+  if (!/^\d{10}$/.test(code)) return null;
+
+  // The wire format uses all 32 ASCII hex characters, not 16 decoded hex bytes.
+  const key = Buffer.from(imageKey(serial, p2pDid, code), "ascii");
+  let prefix: Buffer | undefined;
+  let final: Buffer | undefined;
+  try {
+    const decipher = createDecipheriv("aes-256-gcm", key, data.subarray(44, 56));
+    decipher.setAAD(Buffer.from("eufy security", "ascii"));
+    decipher.setAuthTag(data.subarray(57, 73));
+    prefix = decipher.update(data.subarray(74, 330));
+    final = decipher.final();
+    return Buffer.concat([prefix, final, data.subarray(330)]);
+  } catch {
+    return null;
+  } finally {
+    key.fill(0);
+    prefix?.fill(0);
+    final?.fill(0);
+  }
 }
 
 /**
@@ -90,7 +121,10 @@ function afterThirdColon(data: Buffer): Buffer | null {
   return null;
 }
 
-/** Derive the native legacy media code; callers keep its first sixteen ASCII key bytes private. */
+/**
+ * Derive the native media code. Legacy uses its first sixteen ASCII bytes and
+ * V2 uses all thirty-two. Callers must keep the resulting key material private.
+ */
 export function imageKey(serial: string, p2pDid: string, code: string): string {
   const suffix = idSuffix(p2pDid);
   const offset = (Number.parseInt(serial.at(-1) ?? "0", 16) + 10) % 10;
