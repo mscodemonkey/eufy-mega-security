@@ -2504,7 +2504,7 @@ export class FirstPartyPpcsSession {
   }
 
   /**
-   * Send the source-defined C31 index query once on this exclusive control session.
+   * Send the app-observed standalone C31 index query once on this exclusive control session.
    * The owner rechecks binding after key negotiation. Hardware effects remain
    * unconfirmed, and a timeout never establishes an empty recording list.
    */
@@ -2520,7 +2520,7 @@ export class FirstPartyPpcsSession {
     current();
     if (this.#closed || !this.#level2Key) throw new C31IndexError("cancelled");
     const transaction = `${Date.now()}`;
-    const value = buildCameraControlQueryValue(6003, { begin_time: begin, end_time: end,
+    const value = buildCameraControlQueryValue(6000, { begin_time: begin, end_time: end,
       device_sn: this.#options.stationSerial, transaction });
     return new Promise<C31IndexSummary>((resolve, reject) => {
       const timer = setTimeout(() => this.#finishC31Index(new C31IndexError("timeout")), 15_000);
@@ -3013,7 +3013,7 @@ export class FirstPartyPpcsSession {
       }
       const decoded = decodePpcsControlRecord(payload, signCode,
         commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key);
-      if (decoded?.cmd === 6003) {
+      if (decoded?.cmd === 6000) {
         const pending = this.#c31Index, body = jsonRecord(decoded.payload);
         if ((decoded.transaction !== undefined && decoded.transaction !== pending.transaction)
           || (body?.transaction !== undefined && body.transaction !== pending.transaction)) return;

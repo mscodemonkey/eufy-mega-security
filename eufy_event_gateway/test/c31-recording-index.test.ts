@@ -81,7 +81,7 @@ for (const mode of ["reply", "owner", "transaction", "closed", "timeout", "media
       decipher.setAAD(Buffer.from("eufy security")); decipher.setAuthTag(encrypted.subarray(0, 16));
       const request = JSON.parse(Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]).toString());
       assert.deepEqual(Object.keys(request).sort(), ["commandType", "data"]);
-      assert.equal(request.commandType, 6003);
+      assert.equal(request.commandType, 6000);
       assert.deepEqual(Object.keys(request.data).sort(), ["begin_time", "device_sn", "end_time", "transaction"]);
       assert.equal(request.data.begin_time, begin); assert.equal(request.data.end_time, end);
       assert.equal(request.data.device_sn, "SYNTHETIC1234567"); assert.match(request.data.transaction, /^\d{13}$/);
@@ -89,8 +89,9 @@ for (const mode of ["reply", "owner", "transaction", "closed", "timeout", "media
     const reply = { begin_time: begin, end_time: end, account: mode === "owner" ? "wrong" : "synthetic-account", id: 1, videos: [] };
     if (["reply", "owner", "transaction"].includes(mode)) {
       deliver(p.socket, 1351, Buffer.from(JSON.stringify({ cmd: 6004, payload: reply })), 0, 1);
-      deliver(p.socket, 1351, Buffer.from(JSON.stringify({ cmd: 6003, payload: { ack: true } })), 0, 2);
-      deliver(p.socket, 1351, Buffer.from(JSON.stringify({ cmd: 6003, payload: { ...reply, ...(mode === "transaction" ? { transaction: "wrong" } : {}) } })), 0, 3);
+      deliver(p.socket, 1351, Buffer.from(JSON.stringify({ cmd: 6003, payload: reply })), 0, 2);
+      deliver(p.socket, 1351, Buffer.from(JSON.stringify({ cmd: 6000, payload: { ack: true } })), 0, 3);
+      deliver(p.socket, 1351, Buffer.from(JSON.stringify({ cmd: 6000, payload: { ...reply, ...(mode === "transaction" ? { transaction: "wrong" } : {}) } })), 0, 4);
       if (mode === "transaction") context.mock.timers.tick(15_000);
     } else if (mode === "media") deliver(p.socket, 1300, Buffer.alloc(0), 0, 1);
     else if (mode === "oversized") deliver(p.socket, 1351, Buffer.alloc(256 * 1024 + 1), 0, 1);
