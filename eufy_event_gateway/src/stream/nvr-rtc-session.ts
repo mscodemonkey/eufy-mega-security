@@ -105,6 +105,13 @@ export interface NvrRtcOptions {
    */
   readonly maximumLifetimeMilliseconds?: number | null;
 
+  /**
+   * Monotonic rolling-video lease clock. Omission uses performance.now.
+   * Tests may advance this budget without ageing real transport fragments,
+   * signalling deadlines or finite trials. The session owns all expiry timers.
+   */
+  readonly videoProgressNow?: () => number;
+
   /** Separate provider admission for the manual camera-power trial, never ordinary live view. */
   readonly powerTrial?: boolean;
 
@@ -276,7 +283,9 @@ export class NvrRtcSession {
     if (!this.#started || this.#retired) return 0;
     const expires = this.#maximumLifetimeMilliseconds === null ? this.#videoProgressExpiresAt
       : this.#lifetimeStartedAt + this.#maximumLifetimeMilliseconds;
-    return expires === null ? 0 : Math.max(0, expires - performance.now());
+    const now = this.#maximumLifetimeMilliseconds === null
+      ? (this.options.videoProgressNow?.() ?? performance.now()) : performance.now();
+    return expires === null ? 0 : Math.max(0, expires - now);
   }
 
   /** Negotiate, correlate fresh discovery, attach the sink, and request video once. */
@@ -291,7 +300,7 @@ export class NvrRtcSession {
     this.#stage = "video";
     if (this.options.liveControls) this.#settingsFlight = this.readLiveSettings().catch(() => ({ night: null, quality: null }));
     if (!this.#bootstrapped) {
-      if (this.#maximumLifetimeMilliseconds === null) this.#videoProgressExpiresAt = performance.now() + 20_000;
+      if (this.#maximumLifetimeMilliseconds === null) this.#videoProgressExpiresAt = (this.options.videoProgressNow?.() ?? performance.now()) + 20_000;
       this.#firstFrame = setTimeout(() => this.#fail("video"), 20_000);
     }
   }
@@ -822,7 +831,7 @@ export class NvrRtcSession {
     if (this.#videoProgressTimer) clearTimeout(this.#videoProgressTimer);
 
     // Leave enough guaranteed budget for the existing 35-second control lease.
-    this.#videoProgressExpiresAt = performance.now() + 45_000;
+    this.#videoProgressExpiresAt = (this.options.videoProgressNow?.() ?? performance.now()) + 45_000;
     const timer = this.#videoProgressTimer = setTimeout(() => {
       if (this.#videoProgressTimer !== timer) return;
       this.#videoProgressTimer = null;
