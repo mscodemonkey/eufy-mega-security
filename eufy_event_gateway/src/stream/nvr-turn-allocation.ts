@@ -3,6 +3,7 @@
  * registers successful protocols and retires them after its camera stop request.
  * Public Werift TURN primitives retain authentication, framing and permissions.
  */
+import { observeRawSocket } from "../diagnostics/raw-network.js";
 import { connect, type Socket } from "node:net";
 import { TurnProtocol, StunOverTurnProtocol, UdpTransport, Message, methods, classes,
   type Address, type InterfaceAddresses, type Transport, type TransactionRequestOptions } from "werift";
@@ -41,6 +42,7 @@ async function abortable<T>(operation: Promise<T>, signal: AbortSignal): Promise
 async function tcpTransport(server: Address, signal: AbortSignal): Promise<Transport> {
   signal.throwIfAborted();
   const socket: Socket = connect({ host: server[0], port: server[1], signal });
+  observeRawSocket(socket, "nvr_turn_tcp", "tcp");
   const transport: Transport = {
     type: "tcp",
     get address() {

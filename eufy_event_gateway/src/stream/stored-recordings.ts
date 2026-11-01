@@ -4,8 +4,8 @@
  * history replies, bounded downloads and recorded-media decryption. Only the
  * provider may retain its private storage paths; HTTP consumers receive opaque IDs.
  */
+import { createRecordedDecipheriv as createDecipheriv } from "../diagnostics/raw-crypto.js";
 import { spawn } from "node:child_process";
-import { createDecipheriv } from "node:crypto";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
