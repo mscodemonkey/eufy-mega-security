@@ -53,6 +53,11 @@ export function diagnosticsPage(): string {
 <button id="nvr-power-start">Test and restore camera power</button><button id="nvr-power-cancel">Cancel and request restoration</button>
 <p>Cancelling or leaving this page requests restoration on the gateway, but cannot show its final result. It is not an immediate stop. Check the camera against your recorded original state and restore it manually if needed. A lost connection or gateway restart can prevent automatic restoration.</p>
 <pre id="nvr-power-status" role="status">No power test started. If you left an earlier test, check and restore its recorded original state in Eufy.</pre></details>
+<details><summary>Private raw message history</summary>
+<p>Enable Private raw message history in the app options to keep traffic for retrospective debugging. Storage is encrypted locally and limited to 24 hours or 1 GiB. It can contain account secrets and household media. Raw files are excluded from ordinary diagnostic downloads.</p>
+<p>Recording covers the application's instrumented connections. A stopped or failing recorder cannot establish that a device sent nothing.</p>
+<button id="raw-history-status">Check recorder status</button>
+<pre id="raw-history-result" role="status">Recorder status has not been checked.</pre></details>
 <details><summary>Experimental NVR Schedule guard-mode test</summary>
 <p>For a T8E00 camera through T8N00 only. Enable Experimental NVR video, Experimental model controls and Experimental NVR controls in the app options. Close all viewers first.</p>
 <p>This station-wide test is available only while the NVR is configured for Schedule. It temporarily changes the whole NVR to Home, which may arm cameras or alarms, then attempts to restore Schedule without changing its schedule.</p>
@@ -161,6 +166,10 @@ async function api(path, method = 'GET', body) {
   if(!result.ok) throw Error('Gateway returned HTTP ' + result.status + '. Check your token, selection and capture status.');
   return result;
 }
+el('raw-history-status').onclick = async () => {
+  try { el('raw-history-result').textContent = JSON.stringify(await (await api('raw-history')).json(), null, 2); }
+  catch (error) { el('raw-history-result').textContent = error.message; }
+};
 let parameterJob = null;
 function cancelParameterCheck() {
   if(parameterJob) parameterJob.abort();

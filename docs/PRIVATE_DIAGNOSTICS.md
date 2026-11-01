@@ -123,3 +123,24 @@ need the [separate image capture guide](EVENT_IMAGE_EVIDENCE.md).
 Home Assistant's ordinary **Download diagnostics** is a different, information-only download.
 
 [Technical details and troubleshooting](PRIVATE_DIAGNOSTICS_REFERENCE.md)
+
+
+## Private raw message history
+
+Enable **Private raw message history** in the app options to keep receive and send
+traffic for retrospective debugging. It is off by default. The local journal is
+encrypted and retains up to 24 hours or 1 GiB, with a 256 MiB free-space reserve.
+It can contain account secrets, device identifiers and household media. Its key
+and raw files are excluded from ordinary diagnostic downloads.
+
+The diagnostics page shows recorder health, including dropped records, storage
+errors and retention. A stopped recorder, a cancelled HTTP body or an observation
+gap cannot establish that a device sent nothing. UDP, application TLS, WebSocket,
+cloud HTTP, MQTT and RTC observations retain their own boundaries. Commands are
+recorded as dispatch attempts, which do not prove device acknowledgement.
+
+Private export requires the API bearer token and explicit private-raw consent.
+It reads one bounded journal file at a time. The private local analysis tools can
+authenticate retained records and distinguish an incomplete final record from a
+failed authentication tag. Code and dependency fingerprints identify the build
+that produced each new record. Recording does not change device settings.

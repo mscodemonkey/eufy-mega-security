@@ -10,6 +10,9 @@
  * stream plus safe counters, so the rest of the gateway never handles PPCS
  * packet layout or camera encryption directly.
  */
+import { createRecordedCipheriv as createCipheriv } from "../diagnostics/raw-crypto.js";
+import { createRecordedDecipheriv as createDecipheriv } from "../diagnostics/raw-crypto.js";
+import { observeRawSocket } from "../diagnostics/raw-network.js";
 import { e21PreferenceContracts, validateE21Preference, type E21Preference } from "../provider/e21-profile.js";
 
 import { cameraSettingProfile, cameraSettingWireValue, type CameraSettingChange } from "../provider/camera-settings.js";
@@ -17,7 +20,7 @@ import { buildT85V0StatusQuery, decodeT85V0StatusReply, T85V0StatusError, type T
 import { C31IndexError, summarizeC31Index, validateC31IndexWindow, type C31IndexSummary } from "./c31-recording-index.js";
 import { buildS100SirenCommand } from "./s100-siren-command.js";
 import { S100SirenTrialError, type S100SirenTrialTransport, type S100SirenFailureStage } from "../provider/s100-siren-trial.js";
-import { createCipheriv, createDecipheriv, createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes } from "node:crypto";
+import { createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes } from "node:crypto";
 import { unwrapAuthenticatedMediaKey } from "../crypto/media-key.js";
 import { modelControlTrialCommand, type ModelControlRoute, type ModelControlTrial, type AlarmStateTrialResult } from "../provider/model-control-trials.js";
 import { validateC31Preference, type C31Preference } from "../provider/c31-preferences.js";
@@ -1756,6 +1759,7 @@ export class FirstPartyPpcsSession {
           if (this.#handle(message, info, socket)) { clearTimeout(timeout); this.#lookupCancel = null; resolve(); }
         } catch (error) { clearTimeout(timeout); this.#lookupCancel = null; reject(error); }
       };
+      observeRawSocket(this.#socket, "ppcs", "udp");
       this.#socket.on("message", (message, info) => onMessage(message, info, this.#socket));
       this.#socket.bind(0, async () => {
         try {

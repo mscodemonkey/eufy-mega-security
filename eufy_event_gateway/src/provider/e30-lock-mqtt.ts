@@ -4,6 +4,7 @@
  * authority and cancellation; this boundary validates broker routing and
  * returns correlated queries, never interpreting PUBACK as motor completion.
  */
+import { observeRawSocket } from "../diagnostics/raw-network.js";
 import { checkServerIdentity } from "node:tls";
 import { resolve4 } from "node:dns/promises";
 import { connect, type MqttClient, type IClientOptions } from "mqtt";
@@ -89,6 +90,8 @@ export class E30MqttSession {
         cert: credentials.certificate, key: credentials.privateKey, clientId: credentials.clientId,
         protocolVersion: 4, clean: true, reconnectPeriod: 0, resubscribe: false,
         queueQoSZero: false, connectTimeout: 8_000, keepalive: 30 });
+      observeRawSocket(client, "lock_mqtt", "mqtt");
+      if (client.stream) observeRawSocket(client.stream, "lock_mqtt_tls", "tls");
       this.#client = client;
       client.on("error", this.#ignoreVendorError);
       let phase = "connect";

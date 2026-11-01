@@ -4,6 +4,9 @@
  * session owns socket, peer, timers and bounded H.264 assembly until retirement.
  * It never authenticates an account, changes settings or publishes snapshots.
  */
+import { observeRawPeer } from "../diagnostics/raw-rtc.js";
+import { recordRaw } from "../diagnostics/raw-history.js";
+import { observeRawSocket } from "../diagnostics/raw-network.js";
 import { createHash, randomUUID } from "node:crypto";
 import { PassThrough } from "node:stream";
 import WebSocket from "ws";
@@ -122,6 +125,7 @@ export class GeneralRtcSession {
       this.#socket = dependencies.socket(`wss://${options.host}/v1/smart/ws/join?sign=${encodeURIComponent(options.sign)}&pin=${encodeURIComponent(options.pin)}`,
         [options.token], { headers: { Origin: "https://mysecurity.eufylife.com" }, followRedirects: false,
           maxPayload: 65536, handshakeTimeout: 10000, perMessageDeflate: false });
+      observeRawSocket(this.#socket, "general_rtc_signal", "ws");
       this.#socket.on("error", () => this.#fail(new GeneralRtcError(this.#stage, "socket")));
       this.#socket.on("close", () => { if (!this.#retired) this.#fail(new GeneralRtcError(this.#stage, "socket")); });
       this.#socket.on("open", () => { try { if (this.#started) this.#authenticate(); } catch { this.#fail(new GeneralRtcError("join", "socket")); } });
@@ -319,6 +323,7 @@ export class GeneralRtcSession {
     this.#negotiating = true; this.#stage = "peer";
     const offer = this.#offer;
     const peer = this.#peer = this.dependencies.peer(this.#turn, offer);
+    observeRawPeer(peer, { station: this.options.parent, camera: this.options.child });
     peer.connectionStateChange.subscribe(state => {
       if (state === "failed" || state === "disconnected") this.#fail(new GeneralRtcError("peer", "transport"));
     });
@@ -338,6 +343,8 @@ export class GeneralRtcSession {
           || offer.ssrc !== null && track.ssrc !== undefined && track.ssrc !== offer.ssrc) throw new GeneralRtcError("video", "media");
         this.#ssrc = track.ssrc ?? offer.ssrc ?? -1;
         track.onReceiveRtp.subscribe(packet => {
+          recordRaw({ boundary: "general_rtc_rtp", connection: String(track.ssrc ?? "unbound"), direction: "receive",
+            metadata: { header: packet.header, decrypted: true } }, packet.payload);
           try {
             this.#guard();
             if (packet.header.payloadType !== offer.payloadType) throw new GeneralRtcError("video", "media");

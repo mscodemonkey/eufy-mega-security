@@ -4,8 +4,8 @@
  * boundary borrows media and a key for one operation, rejects unsupported legacy
  * formats and returns a fully decoded video-only MP4 without retaining secrets.
  */
+import { createRecordedDecipheriv as createDecipheriv } from "../diagnostics/raw-crypto.js";
 import { spawn } from "node:child_process";
-import { createDecipheriv } from "node:crypto";
 import { validateStoredMedia } from "./stored-recordings.js";
 
 const MAX_BYTES = 32 * 1024 * 1024;

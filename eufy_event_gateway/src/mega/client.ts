@@ -10,6 +10,7 @@
  * SSE, or the PPCS packet stream. Keeping those concerns out of this class is
  * what makes the Mega layer reusable by a probe or another application.
  */
+import { observeRawFetch } from "../diagnostics/raw-network.js";
 import { ParameterCheckError, projectReportedParameters, type ParameterCheckModel, type ParameterCheckSummary } from "../provider/reported-parameter-check.js";
 import { MEDIA_HOST, MEDIA_OBJECT_HOST, MediaHttpError, mediaRequestDiagnostic } from "./media-request-diagnostic.js";
 import type { NvrSignallingContext } from "../stream/nvr-rtc-session.js";
@@ -202,7 +203,7 @@ export class MegaClient {
     this.#email = options.email;
     this.#password = options.password;
     this.#country = options.country.toLowerCase();
-    this.#fetch = options.fetch ?? globalThis.fetch;
+    this.#fetch = observeRawFetch(options.fetch ?? globalThis.fetch);
     this.#now = options.now ?? Date.now;
     this.#wait = options.wait;
     this.#minimumRequestIntervalMs = options.minimumRequestIntervalMs ?? 3_000;

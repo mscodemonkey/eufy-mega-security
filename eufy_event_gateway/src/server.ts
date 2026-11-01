@@ -8,6 +8,7 @@
  * module owns request authentication, response framing, and route selection;
  * it does not parse Mega payloads or open camera sockets.
  */
+import { rawHistoryStatus, rawHistoryFiles, rawHistoryPrivateFile } from "./diagnostics/raw-history.js";
 import { ParameterCheckError, parameterCheckStages, validateParameterSummary } from "./provider/reported-parameter-check.js";
 import { GeneralRtcPreparationError } from "./provider/provider.js";
 import { E21ControlError, validateE21Preference } from "./provider/e21-profile.js";
@@ -68,6 +69,7 @@ const STREAM_TOKEN_MAX_FUTURE_SECONDS = STREAM_TOKEN_LIFETIME_SECONDS + 60;
  * connected to Eufy.
  */
 export class GatewayServer {
+  #rawHistoryExports = 0;
   #server: Server | null = null;
   #verificationSubmission: Promise<void> | null = null;
   #bundle: BundleCapture | null = null;
@@ -305,6 +307,49 @@ export class GatewayServer {
       }
       if (url.pathname === "/diagnostics" && request.method === "GET") {
         return html(response, 200, diagnosticsPage());
+      }
+      if (["/api/diagnostics/raw-history/files", "/api/diagnostics/raw-history/export"].includes(url.pathname)) {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) {
+          return json(response, 401, { error: "Unauthorized" });
+        }
+        if (url.pathname.endsWith("/files") && request.method === "GET") {
+          return json(response, 200, { files: await rawHistoryFiles() });
+        }
+        if (url.pathname.endsWith("/export") && request.method === "POST") {
+          const body = await readJson(request);
+          if (body.consentPrivateRaw !== true || typeof body.file !== "string"
+            || Object.keys(body).some(key => !["consentPrivateRaw", "file"].includes(key))
+            || body.file !== "key" && !/^\d+-[a-f0-9-]+\.raw$/.test(body.file)) {
+            return json(response, 400, { error: "A journal file and explicit private-raw consent are required" });
+          }
+          if (this.#rawHistoryExports >= 2) return json(response, 429, { error: "Private exports busy" });
+          this.#rawHistoryExports++;
+          let bytes: Buffer | undefined;
+          let released = false;
+          const release = (): void => {
+            if (released) return;
+            released = true; clearTimeout(deadline); this.#rawHistoryExports--;
+            if (body.file === "key") bytes?.fill(0);
+          };
+          const deadline = setTimeout(() => { response.destroy(); release(); }, 30_000);
+          response.once("finish", release); response.once("close", release);
+          try { bytes = await rawHistoryPrivateFile(body.file); }
+          catch { release(); return json(response, 404, { error: "Private file unavailable or evicted" }); }
+          if (!bytes) { release(); return json(response, 404, { error: "Private recording unavailable" }); }
+          if (response.destroyed) { if (body.file === "key") bytes.fill(0); release(); return; }
+          response.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": bytes.length });
+          response.end(bytes);
+          return;
+        }
+        return json(response, 405, { error: "Method not allowed" });
+      }
+      if (url.pathname === "/api/diagnostics/raw-history" && request.method === "GET") {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) {
+          return json(response, 401, { error: "Unauthorized" });
+        }
+        return json(response, 200, rawHistoryStatus());
       }
       if (url.pathname.startsWith("/api/diagnostics/bundle") || url.pathname === "/api/diagnostics/summary") {
         response.setHeader("cache-control", "no-store");

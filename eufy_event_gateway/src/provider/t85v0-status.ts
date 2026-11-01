@@ -3,7 +3,8 @@
  * correlated reply. The provider owns identity and lifetime, and PPCS supplies
  * authenticated plaintext. This boundary neither actuates locks nor logs secrets.
  */
-import { createCipheriv, createDecipheriv } from "node:crypto";
+import { createRecordedCipheriv as createCipheriv } from "../diagnostics/raw-crypto.js";
+import { createRecordedDecipheriv as createDecipheriv } from "../diagnostics/raw-crypto.js";
 
 /** Closed diagnostic failure categories safe to expose without private context. */
 export type T85V0StatusStage = "admission" | "busy" | "cancelled" | "timeout" | "session" | "malformed" | "rejected";

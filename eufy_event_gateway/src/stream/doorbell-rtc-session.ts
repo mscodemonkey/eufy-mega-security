@@ -4,6 +4,9 @@
  * exclusive media lease. This session never issues settings or binary commands,
  * and sends only checked H.264 access units to the diagnostic clip recorder.
  */
+import { observeRawPeer } from "../diagnostics/raw-rtc.js";
+import { recordRaw } from "../diagnostics/raw-history.js";
+import { observeRawSocket } from "../diagnostics/raw-network.js";
 import { createHash, randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 import { PassThrough } from "node:stream";
@@ -131,6 +134,7 @@ export class DoorbellRtcSession {
             source: "WEB", ts: Math.floor(Date.now() / 1000) }, true);
         } catch { this.#fail("join"); }
       });
+      observeRawSocket(this.#socket, "doorbell_rtc_signal", "ws");
       this.#socket.on("error", () => this.#fail(this.#stage));
       this.#socket.on("close", () => { if (!this.#retired) this.#fail(this.#stage); });
       this.#socket.on("message", raw => {
@@ -303,6 +307,7 @@ export class DoorbellRtcSession {
     this.#offer = offer;
     this.#stage = "peer";
     const peer = this.#peer = this.dependencies.peer(this.#turn, offer);
+    observeRawPeer(peer, { target: this.options.station });
     peer.connectionStateChange.subscribe(state => {
       if (state === "failed" || state === "disconnected") this.#fail("peer");
     });
@@ -321,6 +326,8 @@ export class DoorbellRtcSession {
       if (track.codec?.payloadType !== offer.payloadType) { this.#fail("video"); return; }
       this.#videoSsrc = track.ssrc ?? -1;
       track.onReceiveRtp.subscribe(packet => {
+          recordRaw({ boundary: "doorbell_rtc_rtp", connection: String(track.ssrc ?? "unbound"), direction: "receive",
+            metadata: { header: packet.header, decrypted: true } }, packet.payload);
         try {
           this.#guard();
           if (packet.header.payloadType !== offer.payloadType) return;
