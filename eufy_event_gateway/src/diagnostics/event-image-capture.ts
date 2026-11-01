@@ -1,12 +1,14 @@
 /**
  * Keeps opt-in failed event responses in process memory for private analysis.
  * The composition root owns this bounded session and its expiry timer. Only the
- * authenticated diagnostic export consumes bodies; ordinary diagnostics never do.
+ * authenticated diagnostic export consumes bodies and failure references.
+ * Ordinary diagnostics consume counts only.
  */
-import { createHash } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { performance } from "node:perf_hooks";
 
 import { createLogger } from "../logging.js";
+import { MediaHttpError, type MediaHttpFailure } from "../mega/media-request-diagnostic.js";
 import { safeCameraModel } from "../domain/safe-camera-model.js";
 
 const logger = createLogger("provider");
@@ -48,6 +50,22 @@ export function eventImageResponseMetadata(response: Response): EventImageRespon
   };
 }
 
+/** Private values hashed only for matching within one capture session. */
+export interface EventImageReferences {
+  readonly cameraSerial?: string;
+  readonly stationSerial?: string;
+  readonly filePath?: string | null;
+  readonly pictureUrl?: string | null;
+}
+
+/** A terminal HTTP receipt without a response body or reusable device identity. */
+export interface EventImageDownloadFailure {
+  readonly context: EventImageContext;
+  readonly failure: MediaHttpFailure;
+  readonly capturedOffsetMinutes: number;
+  readonly references: Readonly<Partial<Record<"camera" | "station" | "recording" | "picture", string>>>;
+}
+
 interface Sample {
   readonly body: Buffer;
   readonly sha256: string;
@@ -56,12 +74,15 @@ interface Sample {
 
 /**
  * Owns one optional, non-persistent capture session and its private buffers.
- * Inserts are synchronous across camera queues, with one sample per family.
+ * Inserts are synchronous across camera queues, with one body sample per family
+ * and up to 16 distinct HTTP receipts. Reference salts last only for this session.
  * Capture closes after 30 minutes; export and retention end after 60 minutes.
  * The root must close the session on shutdown. No camera or network work occurs.
  */
 export class EventImageCapture {
   readonly #samples = new Map<string, Sample>();
+  readonly #downloadFailures: EventImageDownloadFailure[] = [];
+  readonly #referenceSalt = randomBytes(32);
   readonly #startedAt = Date.now();
   readonly #startedMonotonic: number;
   readonly #timer: ReturnType<typeof setTimeout>;
@@ -126,11 +147,47 @@ export class EventImageCapture {
     }
   }
 
+  /**
+   * Retain a bounded terminal HTTP receipt without fetching or saving an error body.
+   * Only the client's typed HTTP error qualifies. HMAC-SHA256 uses a random salt
+   * exported privately with this session, domain plus NUL plus the exact value.
+   * Matching references establish identity, not that the app fetched equal bytes.
+   */
+  captureDownloadFailure(error: unknown, context: EventImageContext, values: EventImageReferences): void {
+    try {
+      if (!this.#accepting() || !(error instanceof MediaHttpError)) return;
+      const failure = error.failure;
+      if (!Number.isInteger(failure.status) || failure.status < 400 || failure.status > 599
+          || !Number.isInteger(failure.attempts) || failure.attempts < 1 || failure.attempts > 5) return;
+      const references: Partial<Record<"camera" | "station" | "recording" | "picture", string>> = {};
+      for (const [domain, value] of [["camera", values.cameraSerial], ["station", values.stationSerial],
+        ["recording", values.filePath], ["picture", values.pictureUrl]] as const) {
+        if (typeof value === "string" && value.length > 0 && value.length <= 2_048) {
+          references[domain] = createHmac("sha256", this.#referenceSalt).update(domain + "\0" + value).digest("hex");
+        }
+      }
+      if (this.#downloadFailures.some(value => JSON.stringify(value.references) === JSON.stringify(references)
+          && JSON.stringify(value.failure) === JSON.stringify(failure))) return;
+      if (this.#downloadFailures.length >= 16) { this.#dropped++; return; }
+      const model = context.model ? safeCameraModel(context.model) : "unknown";
+      this.#downloadFailures.push({
+        context: {
+          ...(model !== "unknown" ? { model } : {}),
+          ...(Number.isSafeInteger(context.deviceType) && context.deviceType! >= 0 && context.deviceType! <= 65_535 ? { deviceType: context.deviceType } : {}),
+          ...(context.topology === "direct" || context.topology === "attached" ? { topology: context.topology } : {}),
+        },
+        failure: { ...failure }, capturedOffsetMinutes: Math.max(0, Math.floor(this.#elapsed() / 60_000)), references,
+      });
+    } catch {
+      logger.warn("event_image_capture_unavailable", "Failed event-image evidence could not be captured");
+    }
+  }
+
   /** Return counts and deadlines only, suitable for authenticated status polling. */
   status() {
     this.#expire();
     return {
-      state: this.#state, sampleCount: this.#samples.size,
+      state: this.#state, sampleCount: this.#samples.size, downloadFailureCount: this.#downloadFailures.length,
       acceptingSamples: this.#state === "active" && this.#elapsed() < CAPTURE_WINDOW,
       captureEndsAt: new Date(this.#startedAt + CAPTURE_WINDOW).toISOString(),
       expiresAt: new Date(this.#startedAt + EXPORT_WINDOW).toISOString(),
@@ -139,11 +196,15 @@ export class EventImageCapture {
   }
 
   /** Build a retryable sensitive archive; null means no retained samples remain. */
-  archive(): { schemaVersion: number; samples: { bodyBase64: string; sha256: string; length: number; metadata: Sample["metadata"] }[] } | null {
+  archive(): { schemaVersion: number; referenceSalt?: string; downloadFailures?: EventImageDownloadFailure[]; samples: { bodyBase64: string; sha256: string; length: number; metadata: Sample["metadata"] }[] } | null {
     this.#expire();
-    if (this.#state !== "active" || !this.#samples.size) return null;
+    if (this.#state !== "active" || (!this.#samples.size && !this.#downloadFailures.length)) return null;
     return {
-      schemaVersion: 1,
+      schemaVersion: this.#downloadFailures.length ? 2 : 1,
+      ...(this.#downloadFailures.length ? {
+        referenceSalt: this.#referenceSalt.toString("hex"),
+        downloadFailures: this.#downloadFailures.map(value => ({ ...value, context: { ...value.context }, failure: { ...value.failure }, references: { ...value.references } })),
+      } : {}),
       samples: [...this.#samples.values()].map((sample) => ({
         bodyBase64: sample.body.toString("base64"), sha256: sample.sha256,
         length: sample.body.length, metadata: { ...sample.metadata },
@@ -171,6 +232,8 @@ export class EventImageCapture {
     clearTimeout(this.#timer);
     for (const sample of this.#samples.values()) sample.body.fill(0);
     this.#samples.clear();
+    this.#downloadFailures.length = 0;
+    this.#referenceSalt.fill(0);
     this.#bytes = 0;
     this.#state = state;
   }

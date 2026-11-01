@@ -11,7 +11,8 @@ import { mediaRequestDiagnostic } from "../src/mega/media-request-diagnostic.js"
 import { MegaClient } from "../src/mega/client.js";
 import { credentialVerifier } from "../src/mega/crypto.js";
 import { MegaPushReceiver, parsePushEvent, type MegaPushEvent } from "../src/mega/push.js";
-import { EufyProvider } from "../src/provider/eufy-provider.js";
+import { EventImageCapture } from "../src/diagnostics/event-image-capture.js";
+import { downloadPushSnapshot, EufyProvider } from "../src/provider/eufy-provider.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
 
 const initialUrl = "https://security-app-eu.eufylife.com/v1/image/PRIVATE_FILE.jpg?token=PRIVATE_QUERY#PRIVATE_FRAGMENT";
@@ -69,7 +70,9 @@ for (const mode of ["initial404", "redirect404", "redirect403", "mixed"]) {
         },
       });
       await client.connect();
-      await assert.rejects(client.download(initialUrl), (error: unknown) => {
+      const capture = new EventImageCapture();
+      try {
+      await assert.rejects(downloadPushSnapshot(client, { pictureUrl: initialUrl, stationSerial: "fixture-parent", cameraSerial: "fixture-child", filePath: "fixture-record" }, new Map(), capture), (error: unknown) => {
         assert.ok(error instanceof Error);
         const redirected = mode === "redirect404" || mode === "redirect403";
         assert.equal(error.message, `Mega media download failed (HTTP ${mode === "redirect403" ? 403 : 404}); attempts=${mode === "redirect403" ? 1 : 5}; hop=${redirected ? "redirect" : "initial"}; initial=eufy-eu /v1/image/[redacted].jpg segments=3 q=present${redirected ? "; redirect=object-store /[redacted]/[redacted].png segments=2 q=present" : ""}`);
@@ -78,7 +81,12 @@ for (const mode of ["initial404", "redirect404", "redirect403", "mixed"]) {
       });
       assert.deepEqual(waits, mode === "redirect403" ? [] : [1000, 2000, 2000, 5000]);
       assert.equal(initialRequests, mode === "redirect403" ? 1 : 5);
-      client.cancelPendingRequests();
+      const receipt = capture.archive()!.downloadFailures![0]!;
+      assert.equal(receipt.failure.status, mode === "redirect403" ? 403 : 404);
+      assert.equal(receipt.failure.attempts, mode === "redirect403" ? 1 : 5);
+      assert.equal(receipt.failure.hop, mode === "redirect404" || mode === "redirect403" ? "redirect" : "initial");
+      assert.doesNotMatch(JSON.stringify(capture.archive()), /PRIVATE|fixture|signature|token|amazonaws/);
+      } finally { capture.close(); client.cancelPendingRequests(); }
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
 }

@@ -39,3 +39,34 @@ export function mediaRequestDiagnostic(url: URL): string {
     return UNAVAILABLE;
   }
 }
+
+
+/** Closed HTTP failure details, independent of URLs, headers and error text. */
+export interface MediaHttpFailure {
+  readonly status: number;
+  readonly attempts: number;
+  readonly hop: "initial" | "redirect";
+  readonly initialHost: "eufy-us" | "eufy-eu" | "eufy-ie" | "object-store" | "unknown";
+  readonly finalHost: MediaHttpFailure["initialHost"];
+}
+
+/**
+ * Carries a terminal media HTTP failure after the client has retired its body.
+ * MegaClient owns construction and retries. Private diagnostics consume only
+ * the closed failure fields, while existing callers retain the same safe message.
+ */
+export class MediaHttpError extends Error {
+
+  /** URL-free terminal response details for the private capture boundary. */
+  readonly failure: MediaHttpFailure;
+
+  /** Descriptions must come from mediaRequestDiagnostic, never an upstream URL. */
+  constructor(status: number, attempts: number, initial: string, redirect?: string) {
+    super(`Mega media download failed (HTTP ${status}); attempts=${attempts}; hop=${redirect ? "redirect" : "initial"}; initial=${initial}${redirect ? `; redirect=${redirect}` : ""}`);
+    const host = (value: string): MediaHttpFailure["initialHost"] => {
+      const candidate = value.split(" ", 1)[0];
+      return candidate === "eufy-us" || candidate === "eufy-eu" || candidate === "eufy-ie" || candidate === "object-store" ? candidate : "unknown";
+    };
+    this.failure = Object.freeze({ status, attempts, hop: redirect ? "redirect" : "initial", initialHost: host(initial), finalHost: host(redirect ?? initial) });
+  }
+}

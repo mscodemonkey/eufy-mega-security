@@ -14,6 +14,7 @@ import hashlib
 import json
 import multiprocessing
 import os
+import re
 from pathlib import Path
 import sys
 import time
@@ -105,8 +106,12 @@ def validate_archive(body: bytes) -> None:
     """Verify structure and exact body integrity before saving sensitive evidence."""
     archive = json.loads(body)
     samples = archive.get("samples")
-    if archive.get("schemaVersion") != 1 or not isinstance(samples, list) or not 1 <= len(samples) <= 4:
+    version = archive.get("schemaVersion")
+    if (version not in {1, 2} or isinstance(version, bool) or not isinstance(samples, list)
+            or not (1 if version == 1 else 0) <= len(samples) <= 4):
         raise ExportError("The evidence archive is invalid.")
+    if version == 2:
+        validate_download_failures(archive)
     total = 0
     for sample in samples:
         data = base64.b64decode(sample["bodyBase64"], validate=True)
@@ -118,6 +123,48 @@ def validate_archive(body: bytes) -> None:
     if total > 6 * 1024 * 1024:
         raise ExportError("The evidence archive exceeded its size limit.")
 
+
+
+def validate_download_failures(archive: dict) -> None:
+    """Reject open-ended fields before saving session-scoped HTTP receipts.
+
+    Reference tokens use the archive's random salt. They support private identity
+    comparison only and never establish that the app downloaded matching bytes.
+    """
+    failures = archive.get("downloadFailures")
+    salt = archive.get("referenceSalt")
+    hexadecimal = re.compile(r"[0-9a-f]{64}")
+    hosts = {"eufy-us", "eufy-eu", "eufy-ie", "object-store", "unknown"}
+
+    def integer(value, low, high):
+        return type(value) is int and low <= value <= high
+
+    if (set(archive) != {"schemaVersion", "samples", "referenceSalt", "downloadFailures"}
+            or not isinstance(salt, str) or hexadecimal.fullmatch(salt) is None
+            or not isinstance(failures, list) or not 1 <= len(failures) <= 16):
+        raise ExportError("The HTTP failure evidence is invalid.")
+    for receipt in failures:
+        if (not isinstance(receipt, dict)
+                or set(receipt) != {"context", "failure", "capturedOffsetMinutes", "references"}
+                or not integer(receipt["capturedOffsetMinutes"], 0, 29)):
+            raise ExportError("The HTTP failure evidence is invalid.")
+        context, failure, references = receipt["context"], receipt["failure"], receipt["references"]
+        if (not isinstance(context, dict) or set(context) - {"model", "deviceType", "topology"}
+                or ("model" in context and (not isinstance(context["model"], str)
+                    or re.fullmatch(r"T[0-9A-Z-]{3,12}", context["model"]) is None))
+                or ("deviceType" in context and not integer(context["deviceType"], 0, 65535))
+                or ("topology" in context and context["topology"] not in {"direct", "attached"})
+                or not isinstance(failure, dict)
+                or set(failure) != {"status", "attempts", "hop", "initialHost", "finalHost"}
+                or not integer(failure["status"], 400, 599)
+                or not integer(failure["attempts"], 1, 5)
+                or failure["hop"] not in {"initial", "redirect"}
+                or failure["initialHost"] not in hosts or failure["finalHost"] not in hosts
+                or not isinstance(references, dict)
+                or set(references) - {"camera", "station", "recording", "picture"}
+                or any(not isinstance(value, str) or hexadecimal.fullmatch(value) is None
+                       for value in references.values())):
+            raise ExportError("The HTTP failure evidence is invalid.")
 
 def output_path(config_path: Path, destination: Path) -> Path:
     """Reject symlinks, existing files and Home Assistant's public www directory."""

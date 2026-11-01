@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.223
+
+- Capture terminal event-picture HTTP failures in the opt-in private diagnostic session, with bounded receipts and session-specific references for comparing the same event in the Eufy app.
+- Preserve existing image samples and download behaviour. This adds the evidence needed to investigate missing pictures and does not claim to fix intermittent HTTP 404 responses.
+
 ## 0.1.222
 
 - Preserve the original dimensions and JPEG headers of supported encrypted V2 event pictures instead of reconstructing them. Existing picture recovery remains available when decryption cannot be used.
