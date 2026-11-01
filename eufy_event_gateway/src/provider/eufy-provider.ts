@@ -4432,7 +4432,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const known = this.#stations.get(device.serial);
       const station = known
         ? {
-          ...refreshInventoryStationState(known, device),
+          ...refreshInventoryStationState(known, device, this.#nvrModeObservationOwners.has(device.serial)),
           cameraRouteReady: initialHomeBaseState(device, this.#dskKeys.has(device.serial)).cameraRouteReady,
         }
         : initialHomeBaseState(device, this.#dskKeys.has(device.serial));
@@ -6264,12 +6264,18 @@ export function initialHomeBaseState(device: MegaInventoryDevice, dskReady: bool
 export function refreshInventoryStationState(
   existing: HomeBaseState,
   device: MegaInventoryDevice,
+  rtcConnected = false,
 ): HomeBaseState {
+
+  // A configured change can leave the effective mode as it was, and the NVR
+  // broadcasts only effective changes. A reading whose RTC source is still
+  // connected has therefore seen any change; push readings cannot tell.
+  const preserved = rtcConnected && existing.effectiveModeSource === "nvr_rtc";
   return {
     ...existing,
     firmware: device.firmware ?? existing.firmware,
     guardMode: device.reads.guardMode ?? existing.guardMode,
-    ...(existing.effectiveModeReportedAt && device.reads.guardMode !== undefined && device.reads.guardMode !== existing.guardMode
+    ...(!preserved && existing.effectiveModeReportedAt && device.reads.guardMode !== undefined && device.reads.guardMode !== existing.guardMode
       ? { effectiveMode: null, effectiveModeReportedAt: null, effectiveModeSource: null } : {}),
     guardModeNames: device.guardModeNames ?? existing.guardModeNames,
   };
