@@ -7,6 +7,8 @@
  * consented guard/power trials retain distinct admission and request ownership.
  * Vendor assets and captures are not dependencies, and hardware needs testing.
  */
+import { observeRawPeer, observeRawDataChannel } from "../diagnostics/raw-rtc.js";
+import { observeRawSocket } from "../diagnostics/raw-network.js";
 import { createHash, randomUUID } from "node:crypto";
 import { PassThrough } from "node:stream";
 import WebSocket from "ws";
@@ -629,6 +631,7 @@ export class NvrRtcSession {
       this.#socket.on("close", () => {
         if (!this.#retired && !this.#canRetireSignalling()) this.#fail(this.#stage, "signalling_closed");
       });
+      observeRawSocket(this.#socket, "nvr_rtc_signal", "ws");
       this.#socket.on("message", data => {
         if (this.#retired) return;
         if (++this.#operations > 32) { this.#fail("negotiation", "signalling_queue_limit"); return; }
@@ -782,7 +785,8 @@ export class NvrRtcSession {
       const offer = nvrOffer(data.value); this.#mid = offer.mid; this.#stage = "negotiation";
       this.#markTiming("offer");
       let peer: RTCPeerConnection;
-      try { peer = this.#peer = this.dependencies.peer(this.#turn); }
+      try { peer = this.#peer = this.dependencies.peer(this.#turn);
+        observeRawPeer(peer, { station: this.options.station, camera: this.options.camera }); }
       catch { throw new NvrTrialError("negotiation", "peer_setup"); }
       peer.connectionStateChange.subscribe(state => { if (state === "failed" || state === "disconnected") this.#fail("negotiation", state === "failed" ? "peer_failed" : "peer_disconnected"); });
       peer.onIceCandidate.subscribe(candidate => {
@@ -850,6 +854,7 @@ export class NvrRtcSession {
       } catch { this.#fail("channel"); }
     };
     channel.onclose = () => { if (!this.#retired) this.#fail("channel"); };
+    observeRawDataChannel(channel, { station: this.options.station, camera: this.options.camera });
     channel.onmessage = event => {
       if (this.#retired && this.#pending?.command !== 1004) return;
       if (!Buffer.isBuffer(event.data)) { this.stats.rejected++; return; }
