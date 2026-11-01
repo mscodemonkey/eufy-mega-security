@@ -146,7 +146,7 @@ test("capture is optional, metadata method is bound, and successful images are n
   } finally { capture.close(); }
 });
 
-test("captures missing identity and thrown decryption failures, but not failed downloads", async () => {
+test("captures missing identity and thrown decryption failures, but not untyped transport errors", async () => {
   const capture = new EventImageCapture();
   try {
     const body = Buffer.from("eufysecurity:incomplete");
@@ -184,4 +184,55 @@ test("successful legacy decryption leaves no private evidence behind", async () 
 test("collector failure cannot replace the original provider error", async () => {
   const broken = { prepare: () => Buffer.from([1]), capture: () => { throw new Error("synthetic collector error"); } } as unknown as EventImageCapture;
   await assert.rejects(downloadPushSnapshot({ download: async () => Buffer.from([1]) }, event, new Map(), broken), /format=binary.*missing_both/);
+});
+
+test("HTTP failures retain session-scoped references and no upstream body or private text", async () => {
+  const first = new EventImageCapture();
+  const second = new EventImageCapture();
+  const { MediaHttpError } = await import("../src/mega/media-request-diagnostic.js");
+  const { createHmac } = await import("node:crypto");
+  const failure = new MediaHttpError(404, 5, "eufy-eu /image/[redacted]", "object-store /[redacted]");
+  const selected = { ...event, cameraSerial: "PRIVATE_CAMERA", filePath: "PRIVATE_RECORD" };
+  try {
+    await assert.rejects(downloadPushSnapshot({ download: async () => { throw failure; } }, selected, new Map(), first,
+      { model: "T8113", deviceType: 1, topology: "attached" }), actual => actual === failure);
+    second.captureDownloadFailure(failure, {}, selected);
+    const archive = first.archive()!;
+    assert.equal(archive.schemaVersion, 2);
+    assert.equal(archive.samples.length, 0);
+    assert.equal(first.status().downloadFailureCount, 1);
+    const receipt = archive.downloadFailures![0]!;
+    assert.deepEqual(receipt.failure, { status: 404, attempts: 5, hop: "redirect", initialHost: "eufy-eu", finalHost: "object-store" });
+    assert.equal(receipt.references.recording, createHmac("sha256", Buffer.from(archive.referenceSalt!, "hex"))
+      .update("recording\0PRIVATE_RECORD").digest("hex"));
+    assert.notEqual(receipt.references.picture, second.archive()!.downloadFailures![0]!.references.picture);
+    assert.doesNotMatch(JSON.stringify(archive), /PRIVATE|example.invalid|redacted|bodyBase64/);
+    assert.doesNotMatch(JSON.stringify(first.status()), /referenceSalt|references|T8113|404/);
+    Object.assign(receipt.failure, { status: 500 });
+    assert.equal(first.archive()!.downloadFailures![0]!.failure.status, 404);
+  } finally { first.close(); second.close(); }
+});
+
+test("HTTP receipts obey count and lifetime limits, and arbitrary errors are never serialized", async () => {
+  const { MediaHttpError } = await import("../src/mega/media-request-diagnostic.js");
+  let elapsed = 0;
+  const capture = new EventImageCapture(() => elapsed);
+  try {
+    capture.captureDownloadFailure(new Error("PRIVATE_NETWORK_MESSAGE"), {}, event);
+    assert.equal(capture.archive(), null);
+    const failure = new MediaHttpError(403, 1, "eufy-us /[redacted]");
+    for (let index = 0; index < 20; index++) capture.captureDownloadFailure(failure, {}, { ...event, filePath: `fixture-${index}` });
+    capture.captureDownloadFailure(failure, {}, { ...event, filePath: "fixture-0" });
+    assert.equal(capture.status().downloadFailureCount, 16);
+    assert.equal(capture.status().dropped, 4);
+    elapsed = 30 * minute;
+    capture.captureDownloadFailure(failure, {}, event);
+    assert.equal(capture.status().dropped, 4);
+    assert.ok(capture.archive());
+    elapsed = 60 * minute;
+    assert.equal(capture.archive(), null);
+    assert.equal(capture.status().downloadFailureCount, 0);
+    capture.captureDownloadFailure(failure, {}, event);
+    assert.equal(capture.archive(), null);
+  } finally { capture.close(); }
 });

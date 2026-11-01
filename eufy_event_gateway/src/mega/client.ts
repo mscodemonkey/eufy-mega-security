@@ -11,7 +11,7 @@
  * what makes the Mega layer reusable by a probe or another application.
  */
 import { ParameterCheckError, projectReportedParameters, type ParameterCheckModel, type ParameterCheckSummary } from "../provider/reported-parameter-check.js";
-import { MEDIA_HOST, MEDIA_OBJECT_HOST, mediaRequestDiagnostic } from "./media-request-diagnostic.js";
+import { MEDIA_HOST, MEDIA_OBJECT_HOST, MediaHttpError, mediaRequestDiagnostic } from "./media-request-diagnostic.js";
 import type { NvrSignallingContext } from "../stream/nvr-rtc-session.js";
 import { NvrTrialError } from "../stream/nvr-protocol.js";
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -806,7 +806,7 @@ export class MegaClient {
     if (!response.ok) {
       await this.#discardMediaResponse(response, signal);
       signal.throwIfAborted();
-      throw new Error(`Mega media download failed (HTTP ${response.status}); attempts=${attempts}; hop=${request?.redirect ? "redirect" : "initial"}; initial=${request?.initial}${request?.redirect ? `; redirect=${request.redirect}` : ""}`);
+      throw new MediaHttpError(response.status, attempts, request?.initial ?? "unknown", request?.redirect);
     }
     const data = await readBoundedResponse(response, maximumBytes, signal);
     return { data, ...eventImageResponseMetadata(response) };

@@ -12,7 +12,8 @@ build before its configuration option appears. It is not in v0.1.125.
 
 In the Eufy Mega Security app configuration, enable **Capture failed event
 images**, save and restart the app. Trigger the affected camera's motion event.
-The gateway retains failed decode inputs only. A valid JPEG is not collected,
+The gateway retains failed decode inputs and terminal HTTP failure receipts.
+A valid JPEG is not collected,
 and the last good event picture remains in place.
 
 Collection lasts 30 minutes from startup. Samples remain available for export
@@ -23,7 +24,12 @@ the option stays enabled. Disable the option and restart after exporting.
 The session accepts one sample per model, device type and direct/attached route,
 up to four samples. Each sample is at most 2 MiB, with at most 6 MiB retained
 in total. Oversized samples and additional samples are skipped, without truncation.
-An HTTP error, empty response or failed download-integrity check is not captured.
+Up to 16 distinct terminal HTTP failures are retained separately. Their receipts
+contain status, retry count, initial or redirect failure hop, host categories and
+session-specific reference tokens. HTTP error bodies, URLs and auth headers are
+never retained. Transport errors and failed download-integrity checks do not
+produce HTTP receipts. Existing downloaded decode failures retain their usual
+body samples.
 
 ## Export from a trusted Home Assistant terminal
 
@@ -65,7 +71,19 @@ gateway port publicly to collect evidence.
 ## Share the archive privately
 
 The archive contains the exact bytes passed to the image decoder, represented
-as base64, with SHA-256 hashes and limited response metadata. Fetch may already
+as base64, with SHA-256 hashes and limited response metadata. Schema version 2
+also supports HTTP-only exports with no image body. Use the export script from
+the matching release because older scripts accept only schema version 1.
+
+HTTP reference tokens use HMAC-SHA256 with the archive's random `referenceSalt`
+as a hex-decoded key. The input is the reference domain (`camera`, `station`,
+`recording` or `picture`), one NUL byte, then the exact UTF-8 value. Match these
+privately against an independently qualified app event. The salt changes on each
+capture session, and neither salt nor tokens appear in status or ordinary logs.
+Equal tokens establish an exact reference only. They do not establish matching
+image bytes, successful app access or an alternative download route.
+
+Fetch may already
 have decompressed the HTTP body. The recorded content encoding and declared
 length refer to the final server response and do not by themselves prove
 truncation of the decoded body.

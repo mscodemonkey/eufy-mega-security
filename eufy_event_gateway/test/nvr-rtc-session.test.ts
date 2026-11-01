@@ -445,8 +445,11 @@ for (const scenario of ['continuous-parameters', 'continuous-h265', 'continuous-
           assert.equal(session.output.destroyed, false);
         }
         const nativeNow = performance.now.bind(performance);
+
+        // The lease assertion needs output after the clock jump, not a guessed UDP delay.
+        const freshVideo = once(session.output, 'data', { signal: AbortSignal.timeout(5_000) });
         context.mock.method(performance, 'now', () => nativeNow() + 180_000);
-        await new Promise(resolve => setTimeout(resolve, 250));
+        await freshVideo;
         assert.ok(session.remainingLifetimeMilliseconds > 35_000);
         assert.equal(session.output.destroyed, false);
         assert.equal(commands.includes(1004), false);

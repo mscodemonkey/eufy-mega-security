@@ -37,7 +37,7 @@ import { modelControlTrialActions, parseModelControlTrial, runModelControlTrial,
 import { join } from "node:path";
 import { setTimeout as cancellableDelay } from "node:timers/promises";
 import { createHmac, randomBytes } from "node:crypto";
-import type { EventImageCapture, EventImageContext } from "../diagnostics/event-image-capture.js";
+import type { EventImageCapture, EventImageContext, EventImageReferences } from "../diagnostics/event-image-capture.js";
 import { validateRecordingDate, type CameraStoredRecord, type StoredRecordingSummary } from "../stream/stored-recordings.js";
 
 import type { BatteryState, CameraIdentity, CameraPresetPosition, DetectionKind, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
@@ -5405,20 +5405,29 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
 /**
  * Download and decode the image referenced by one normalized push event.
- * An opt-in process-owned collector can retain original failed decode inputs.
+ * An opt-in process-owned collector retains failed decode inputs and typed HTTP receipts.
  * Download errors and last-good image ownership stay with their existing boundaries.
  */
 export async function downloadPushSnapshot(
   client: Pick<MegaClient, "download"> & Partial<Pick<MegaClient, "downloadWithMetadata" | "getEventImageKey">>,
-  event: Pick<MegaPushEvent, "pictureUrl" | "stationSerial">,
+  event: Pick<MegaPushEvent, "pictureUrl" | "stationSerial"> & EventImageReferences,
   devices: ReadonlyMap<string, Pick<MegaInventoryDevice, "p2pDid"> & Partial<Pick<MegaInventoryDevice, "adminUserId">>>,
   capture?: EventImageCapture,
   context: EventImageContext = {},
 ): Promise<{ data: Buffer } | null> {
   const pictureUrl = eventPictureUrl(event.pictureUrl);
   if (!pictureUrl) return null;
-  const response = capture && client.downloadWithMetadata ? await client.downloadWithMetadata(pictureUrl) : null;
-  const encoded = response?.data ?? await client.download(pictureUrl);
+  let response: Awaited<ReturnType<MegaClient["downloadWithMetadata"]>> | null;
+  let encoded: Buffer;
+  try {
+    response = capture && client.downloadWithMetadata ? await client.downloadWithMetadata(pictureUrl) : null;
+    encoded = response?.data ?? await client.download(pictureUrl);
+  } catch (error) {
+    try { capture?.captureDownloadFailure(error, context, event); } catch {
+      logger.warn("event_image_capture_unavailable", "Failed event-image evidence could not be captured");
+    }
+    throw error;
+  }
   if (isJpeg(encoded)) return { data: encoded };
   let original: Buffer | null = null;
   try { original = capture?.prepare(encoded) ?? null; } catch {

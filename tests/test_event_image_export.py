@@ -50,6 +50,34 @@ class Response(io.BytesIO):
 class EventImageExportTests(unittest.TestCase):
     """Verify exports stay private and failures preserve prior user files."""
 
+    def test_http_only_archive_and_closed_fields(self):
+        """Accept bounded HTTP evidence and reject private text or invalid counts."""
+        receipt = {
+            "context": {"model": "T8113", "deviceType": 1, "topology": "attached"},
+            "failure": {"status": 404, "attempts": 5, "hop": "redirect",
+                        "initialHost": "eufy-eu", "finalHost": "object-store"},
+            "references": {"camera": "a" * 64, "recording": "b" * 64},
+            "capturedOffsetMinutes": 0,
+        }
+        value = {"schemaVersion": 2, "samples": [], "referenceSalt": "c" * 64,
+                 "downloadFailures": [receipt]}
+        EXPORT.validate_archive(json.dumps(value).encode())
+        mutations = [
+            lambda x: x.update(referenceSalt="private"),
+            lambda x: x.update(downloadFailures=[]),
+            lambda x: x.update(downloadFailures=[receipt] * 17),
+            lambda x: x["downloadFailures"][0]["references"].update(camera="PRIVATE"),
+            lambda x: x["downloadFailures"][0]["failure"].update(status=True),
+            lambda x: x["downloadFailures"][0]["failure"].update(finalHost="PRIVATE"),
+            lambda x: x["downloadFailures"][0]["context"].update(model="PRIVATE"),
+            lambda x: x["downloadFailures"][0].update(url="PRIVATE"),
+        ]
+        for mutate in mutations:
+            changed = json.loads(json.dumps(value))
+            mutate(changed)
+            with self.assertRaises(EXPORT.ExportError):
+                EXPORT.validate_archive(json.dumps(changed).encode())
+
     def setUp(self):
         """Create an isolated Home Assistant-shaped configuration root."""
         self.temporary = tempfile.TemporaryDirectory()
