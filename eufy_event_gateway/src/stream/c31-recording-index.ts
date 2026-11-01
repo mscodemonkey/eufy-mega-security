@@ -1,5 +1,5 @@
 /**
- * Validates the source-defined C31 continuous-index diagnostic response.
+ * Validates the app-observed standalone C31 continuous-index diagnostic response.
  * The PPCS session owns the request, keys and bytes. This pure boundary returns
  * only structural counts to Diagnostics and never supplies playback references.
  */
