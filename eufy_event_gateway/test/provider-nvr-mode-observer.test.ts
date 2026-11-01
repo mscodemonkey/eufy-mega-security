@@ -20,9 +20,10 @@ const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 /** Own fake cloud rows and output lifetimes, and expose only public provider operations. */
 async function fixture(context: TestContext, enabled = true, authentication = true, variant = "normal") {
   const directory = await mkdtemp(join(tmpdir(), "nvr-mode-provider-"));
+  const guard = { param_type: 1224, param_value: "2" };
   const raw = { devices: [
-    { device_sn: "synthetic-station", device_model: "T8N00", device_type: 300, category: "eufy_security", member: { admin_user_id: "synthetic-owner" } },
-    { device_sn: "synthetic-camera", device_model: "T8E00", device_type: 301, category: "eufy_security", parent_sn: "synthetic-station", device_channel: 3, member: { admin_user_id: "synthetic-owner" } },
+    { device_sn: "synthetic-station", device_model: "T8N00", device_type: 300, category: "eufy_security", member: { admin_user_id: "synthetic-owner" }, params: [guard] },
+    { device_sn: "synthetic-camera", device_model: "T8E00", device_type: 301, category: "eufy_security", parent_sn: "synthetic-station", device_channel: 3, member: { admin_user_id: "synthetic-owner" }, params: [] as (typeof guard)[] },
   ] };
   if (variant === "wrong-station") raw.devices[0]!.device_model = "T9000";
   if (variant === "wrong-type") raw.devices[1]!.device_type = 302;
@@ -51,9 +52,9 @@ async function fixture(context: TestContext, enabled = true, authentication = tr
     if (variant === "pending-context") return await new Promise<NvrSignallingContext>(resolve => { finishContext = resolve; });
     return contextValue;
   });
-  const sessions: NvrRtcSession[] = [];
+  const sessions: NvrRtcSession[] = [], viewers: NvrRtcSession[] = [];
   context.mock.method(NvrRtcSession.prototype, "observeEffectiveMode", async function(this: NvrRtcSession) { sessions.push(this); });
-  context.mock.method(NvrRtcSession.prototype, "start", async () => { video++; });
+  context.mock.method(NvrRtcSession.prototype, "start", async function(this: NvrRtcSession) { video++; viewers.push(this); });
   context.mock.method(NvrRtcSession.prototype, "writeGuardTrial", async () => { writes++; });
   context.mock.method(NvrRtcSession.prototype, "writePowerTrial", async () => { writes++; });
   context.mock.method(NvrRtcSession.prototype, "close", async function(this: NvrRtcSession) {
@@ -69,7 +70,8 @@ async function fixture(context: TestContext, enabled = true, authentication = tr
     experimentalModelControls: variant !== "observer-only", experimentalNvrControls: variant !== "observer-only" });
   await provider.start(events); await tick();
   context.after(async () => { await provider.close(); await rm(directory, { recursive: true, force: true }); assert.equal(network.mock.callCount(), 0); });
-  return { provider, events, raw, sessions, stations, signs: () => signs, video: () => video, writes: () => writes, connections: () => connections,
+  return { provider, events, raw, sessions, viewers, stations,
+    setGuardMode: (value: string) => { guard.param_value = value; }, signs: () => signs, video: () => video, writes: () => writes, connections: () => connections,
     finishContext: () => finishContext?.(contextValue),
     clock: (value: number) => { now = value; }, refresh: async () => { intervals.at(-1)!(); await tick(); await tick(); } };
 }
@@ -100,6 +102,55 @@ test("the opted-in watcher receives without a viewer and coexists with an explic
   await f.provider.close();
   assert.equal(f.stations.at(-1)!.effectiveMode, null);
   options.onEffectiveMode!({ mode: 1 }); assert.equal(f.stations.at(-1)!.effectiveMode, null);
+});
+
+test("a connected RTC reading survives a configured-mode refresh and clears when its source retires", async context => {
+  const f = await fixture(context);
+  const options = Reflect.get(f.sessions[0]!, "options") as NvrRtcOptions;
+  options.onEffectiveMode!({ mode: 3 });
+
+  // The app moved the configured mode without changing the effective one, so no broadcast came.
+  f.setGuardMode("3"); await f.refresh();
+  assert.equal(f.stations.at(-1)!.guardMode, 3); assert.equal(f.stations.at(-1)!.effectiveMode, 3);
+  assert.equal(f.stations.at(-1)!.effectiveModeSource, "nvr_rtc");
+  f.sessions[0]!.output.destroy(new NvrTrialError("cancelled")); await tick();
+  assert.equal(f.stations.at(-1)!.effectiveMode, null);
+  f.setGuardMode("2"); await f.refresh();
+  assert.equal(f.stations.at(-1)!.guardMode, 2); assert.equal(f.stations.at(-1)!.effectiveMode, null);
+});
+
+for (const first of ["observer", "viewer"] as const) {
+  test(`a live view and the observer share a reading the ${first} reported first`, async context => {
+    const f = await fixture(context);
+    await f.provider.startStream("synthetic-camera"); await tick();
+    const observer = Reflect.get(f.sessions[0]!, "options") as NvrRtcOptions;
+    const viewer = Reflect.get(f.viewers[0]!, "options") as NvrRtcOptions;
+    const [owner, joiner] = first === "observer" ? [observer, viewer] : [viewer, observer];
+    owner.onEffectiveMode!({ mode: 3 });
+    const published = f.stations.length;
+    joiner.onEffectiveMode!({ mode: 3 });
+    assert.equal(f.stations.length, published);
+    owner.onEffectiveMode!(null);
+    assert.equal(f.stations.at(-1)!.effectiveMode, 3);
+    joiner.onEffectiveMode!(null);
+    assert.equal(f.stations.at(-1)!.effectiveMode, null);
+    await f.provider.stopStream("synthetic-camera");
+  });
+}
+
+test("a new mode from one source replaces the shared reading", async context => {
+  const f = await fixture(context);
+  await f.provider.startStream("synthetic-camera"); await tick();
+  const observer = Reflect.get(f.sessions[0]!, "options") as NvrRtcOptions;
+  const viewer = Reflect.get(f.viewers[0]!, "options") as NvrRtcOptions;
+  observer.onEffectiveMode!({ mode: 3 }); viewer.onEffectiveMode!({ mode: 3 });
+  viewer.onEffectiveMode!({ mode: 1 });
+  assert.equal(f.stations.at(-1)!.effectiveMode, 1);
+  viewer.onEffectiveMode!(null);
+  assert.equal(f.stations.at(-1)!.effectiveMode, null);
+  observer.onEffectiveMode!({ mode: 1 });
+  await f.provider.stopStream("synthetic-camera");
+  assert.equal(f.stations.at(-1)!.effectiveMode, 1);
 });
 
 test("watching modes does not require enabling video or model controls", async context => {

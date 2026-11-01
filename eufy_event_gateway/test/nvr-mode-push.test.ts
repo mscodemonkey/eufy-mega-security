@@ -54,6 +54,13 @@ test("fresh observed transitions preserve configured Schedule and publish effect
   const changed = refreshInventoryStationState(station, { ...identity, reads: { guardMode: 0 } });
   assert.equal(changed.guardMode, 0); assert.equal(changed.effectiveMode, null); assert.equal(changed.effectiveModeReportedAt, null);
   assert.equal(refreshInventoryStationState(station, identity).effectiveMode, 1);
+
+  // Only a reading whose RTC source is still connected survives a configured change.
+  assert.equal(refreshInventoryStationState(station, { ...identity, reads: { guardMode: 0 } }, true).effectiveMode, null);
+  const rtc = { ...station, effectiveModeSource: "nvr_rtc" as const };
+  const kept = refreshInventoryStationState(rtc, { ...identity, reads: { guardMode: 0 } }, true);
+  assert.equal(kept.guardMode, 0); assert.equal(kept.effectiveMode, 1); assert.equal(kept.effectiveModeSource, "nvr_rtc");
+  assert.equal(refreshInventoryStationState(rtc, { ...identity, reads: { guardMode: 0 } }, false).effectiveMode, null);
   const line = safePushLogSummary(event(3, 1), identity, true, true);
   assert.match(line, /model=T8N00/); assert.match(line, /effective_mode_field=mode/);
   assert.doesNotMatch(line, /effective_mode=3|configured=2|PRIVATE_/);

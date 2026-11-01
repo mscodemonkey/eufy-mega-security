@@ -17,7 +17,7 @@ import { classicLockInventory } from "./classic-lock-inventory.js";
 import { ParameterCheckError, parameterCheckLog, type ParameterCheckModel, type ParameterCheckSummary } from "./reported-parameter-check.js";
 import { nvrLiveProfile, NvrLiveControlError, type NvrLiveControl, type NvrLiveControlResult } from "./nvr-live-controls.js";
 import { NvrModeObserver } from "./nvr-mode-observer.js";
-import type { NvrEffectiveModeObservation } from "../stream/nvr-effective-mode.js";
+import type { NvrEffectiveMode, NvrEffectiveModeObservation } from "../stream/nvr-effective-mode.js";
 import type { NvrLiveSettings } from "../stream/nvr-live-control-protocol.js";
 import { InventoryMotionClock, type InventoryMotionOutcome } from "./inventory-motion.js";
 
@@ -608,8 +608,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #generalRtcLockOperations = new Map<string, number>();
   readonly #nvrModePushTimes = new Map<string, number>();
 
-  // A retiring RTC source cannot erase a newer push or a replacement source.
-  readonly #nvrModeObservationOwners = new Map<string, NvrRtcSession>();
+  // Connected RTC sources that reported the current mode. A retiring source
+  // cannot erase a newer push, a replacement, or a still-connected co-observer.
+  readonly #nvrModeObservationOwners = new Map<string, { mode: NvrEffectiveMode | null; sources: Set<NvrRtcSession> }>();
   readonly #nvrModeObserver = new NvrModeObserver((state, retry, reason) => {
     logger.info("nvr_mode_observer_state", `state=${state} retry_ms=${retry ?? "none"} reason=${reason ?? "none"}`);
   });
@@ -4432,7 +4433,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const known = this.#stations.get(device.serial);
       const station = known
         ? {
-          ...refreshInventoryStationState(known, device),
+          ...refreshInventoryStationState(known, device, this.#nvrModeObservationOwners.has(device.serial)),
           cameraRouteReady: initialHomeBaseState(device, this.#dskKeys.has(device.serial)).cameraRouteReady,
         }
         : initialHomeBaseState(device, this.#dskKeys.has(device.serial));
@@ -5079,12 +5080,17 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   #publishNvrMode(serial: string, source: NvrRtcSession, observation: NvrEffectiveModeObservation | null,
     current: () => boolean): void {
+    const owners = this.#nvrModeObservationOwners.get(serial);
     if (observation === null) {
-      if (this.#nvrModeObservationOwners.get(serial) !== source) return;
+      if (!owners?.sources.delete(source) || owners.sources.size) return;
       this.#nvrModeObservationOwners.delete(serial);
     } else {
       if (!current()) return;
-      this.#nvrModeObservationOwners.set(serial, source);
+
+      // The observer and a live view hear the same broadcast. A second source
+      // confirming the reading joins it; a new mode or a repeat replaces it.
+      if (owners && owners.mode === observation.mode && !owners.sources.has(source)) { owners.sources.add(source); return; }
+      this.#nvrModeObservationOwners.set(serial, { mode: observation.mode, sources: new Set([source]) });
       this.#nvrModePushTimes.set(serial, Math.max(this.#nvrModePushTimes.get(serial) ?? 0, Date.now()));
     }
     const identity = this.#devices.get(serial), previous = this.#stations.get(serial);
@@ -6264,12 +6270,18 @@ export function initialHomeBaseState(device: MegaInventoryDevice, dskReady: bool
 export function refreshInventoryStationState(
   existing: HomeBaseState,
   device: MegaInventoryDevice,
+  rtcConnected = false,
 ): HomeBaseState {
+
+  // A configured change can leave the effective mode as it was, and the NVR
+  // broadcasts only effective changes. A reading whose RTC source is still
+  // connected has therefore seen any change; push readings cannot tell.
+  const preserved = rtcConnected && existing.effectiveModeSource === "nvr_rtc";
   return {
     ...existing,
     firmware: device.firmware ?? existing.firmware,
     guardMode: device.reads.guardMode ?? existing.guardMode,
-    ...(existing.effectiveModeReportedAt && device.reads.guardMode !== undefined && device.reads.guardMode !== existing.guardMode
+    ...(!preserved && existing.effectiveModeReportedAt && device.reads.guardMode !== undefined && device.reads.guardMode !== existing.guardMode
       ? { effectiveMode: null, effectiveModeReportedAt: null, effectiveModeSource: null } : {}),
     guardModeNames: device.guardModeNames ?? existing.guardModeNames,
   };
