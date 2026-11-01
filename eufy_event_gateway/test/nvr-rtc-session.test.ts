@@ -50,7 +50,7 @@ function keyframePackets(frame: Buffer, sequence: number): Buffer[] {
   });
 }
 
-for (const scenario of ['continuous-modes', 'continuous-parameters', 'continuous-h265', 'continuous-controls', 'continuous-video', 'continuous-signalling-close', 'continuous-stall', 'continuous-heartbeat', 'continuous-gap', 'continuous-cancel', 'live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-nonzero', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
+for (const scenario of ['observer', 'observer-signalling-close', 'continuous-modes', 'continuous-parameters', 'continuous-h265', 'continuous-controls', 'continuous-video', 'continuous-signalling-close', 'continuous-stall', 'continuous-heartbeat', 'continuous-gap', 'continuous-cancel', 'live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-nonzero', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
   const codec = scenario === 'h265' || scenario === 'sequence-gap' || scenario === 'continuous-h265' ? 'h265' : 'h264';
   const server = new WebSocketServer({ port: 0 });
   await once(server, 'listening');
@@ -62,7 +62,7 @@ for (const scenario of ['continuous-modes', 'continuous-parameters', 'continuous
   assert.equal(generated.status, 0, generated.stderr.toString());
   const commands: number[] = [], receiver = new NvrPtcsReassembler();
   const scheduled: { delay: number; fire: () => void }[] = [];
-  if (scenario.startsWith('continuous-')) {
+  if (scenario.startsWith('continuous-') || scenario.startsWith('observer')) {
     const schedule = globalThis.setTimeout;
     context.mock.method(globalThis, 'setTimeout', ((callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
       const handle = schedule(callback, delay, ...args);
@@ -320,6 +320,7 @@ for (const scenario of ['continuous-modes', 'continuous-parameters', 'continuous
   const nativeVideoNow = performance.now.bind(performance);
   let videoProgressOffset = 0;
   const session = new NvrRtcSession({ onEffectiveMode: value => modes.push(value), onTimings: value => timingReports.push(value), station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
+    ...(scenario.startsWith('observer') ? { modeObserver: true, maximumLifetimeMilliseconds: null } : {}),
     powerTrial: scenario.startsWith('power'), liveControls: scenario.startsWith('live-') || scenario === 'continuous-controls',
     ...(scenario.startsWith('continuous-') ? { maximumLifetimeMilliseconds: null, videoProgressNow: () => nativeVideoNow() + videoProgressOffset } : {}),
     guardTrial: scenario === 'guard', ...(scenario === 'guard' ? { userName: 'Synthetic' } : {}),
@@ -350,6 +351,29 @@ for (const scenario of ['continuous-modes', 'continuous-parameters', 'continuous
         return true;
       }); } finally { clearTimeout(deadline); }
       assert.equal(commands.includes(1003), false); return;
+    }
+    if (scenario.startsWith('observer')) {
+      await assert.rejects(session.start(), { stage: "admission" });
+      await session.observeEffectiveMode();
+      assert.deepEqual(commands, [9100]);
+      assert.equal(attached, 0); assert.equal(session.stats.video, 0);
+      assert.deepEqual(scheduled, []);
+      await assert.rejects(session.readState(), { stage: "admission" });
+      if (scenario === 'observer-signalling-close') {
+        socket!.close(); await new Promise(resolve => setTimeout(resolve, 100));
+        assert.equal(session.stats.signallingClosuresAfterModeObservation, 1);
+        assert.equal(session.stats.signallingClosuresAfterVideo, 0);
+      }
+      sendMode(-106, 0, 1, 132); sendMode(3);
+      const until = performance.now() + 2000;
+      while (modes.length < 1 && performance.now() < until) await new Promise(resolve => setTimeout(resolve, 10));
+      assert.deepEqual(modes, [{ mode: 3 }]);
+      assert.equal(session.output.destroyed, false);
+      await session.close();
+      assert.deepEqual(modes, [{ mode: 3 }, null]);
+      assert.deepEqual(commands, [9100]);
+      assert.equal(session.stats.video, 0); assert.equal(diagnosticMedia, 0);
+      return;
     }
     if(scenario.startsWith('power')) {
       if(scenario === 'power-unordered' || scenario === 'power-undefined') {

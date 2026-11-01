@@ -70,6 +70,16 @@ test("private image capture defaults off and accepts only explicit booleans with
   for (const value of ["1", "yes", "invalid"]) assert.throws(() => loadConfig({ EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES: value }), /must be true or false/);
 });
 
+test("the independent read-only NVR observer requires explicit consent and a gateway token", () => {
+  assert.equal(loadConfig({}).experimentalNvrModeObserver, false);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_NVR_MODE_OBSERVER: "true" }), /requires EUFY_GATEWAY_API_TOKEN/);
+  const value = loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_NVR_MODE_OBSERVER: "true", EUFY_GATEWAY_API_TOKEN: "x".repeat(32) });
+  assert.equal(value.experimentalNvrModeObserver, true);
+  assert.equal(value.experimentalNvrLive, false);
+  assert.equal(value.experimentalNvrControls, false);
+  for (const input of ["yes", "1", "invalid"]) assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_NVR_MODE_OBSERVER: input }));
+});
+
 test("fixed H.265 viewer resolution defaults off and accepts only explicit booleans", () => {
   assert.equal(loadConfig({}).experimentalFixedH265Resolution, false);
   for (const value of ["true", " TRUE "]) {
