@@ -12,28 +12,29 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { MegaClient } from "../src/mega/client.js";
-import { MegaPushReceiver } from "../src/mega/push.js";
+import { MegaPushReceiver, parsePushEvent, type MegaPushEvent } from "../src/mega/push.js";
 import { EufyProvider } from "../src/provider/eufy-provider.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
 import { GatewayState } from "../src/domain/gateway-state.js";
 import { LiveStreamManager } from "../src/stream/live-stream-manager.js";
-import { NvrRtcSession } from "../src/stream/nvr-rtc-session.js";
+import { NvrRtcSession, type NvrRtcOptions } from "../src/stream/nvr-rtc-session.js";
 import { NvrTrialError } from "../src/stream/nvr-protocol.js";
 
 const serial = "synthetic-camera";
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 
 /** Build an offline normal-route provider with an optionally real media manager. */
-async function fixture(context: TestContext, withManager = false) {
+async function fixture(context: TestContext, withManager = false, parent: "T8N00" | "T9000" = "T8N00") {
   const directory = await mkdtemp(join(tmpdir(), "nvr-reopen-"));
   const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
   context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
   context.mock.getter(MegaClient.prototype, "isAuthenticated", () => true);
   context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [
-    { device_sn: "synthetic-station", device_model: "T8N00", device_type: 300, category: "eufy_security", member: { admin_user_id: "synthetic-owner" } },
-    { device_sn: serial, device_model: "T8E00", device_type: 301, category: "eufy_security", parent_sn: "synthetic-station", device_channel: 3, member: { admin_user_id: "synthetic-owner" } },
+    { device_sn: "synthetic-station", device_model: parent, device_type: parent === "T8N00" ? 300 : 27, category: "eufy_security", member: { admin_user_id: "synthetic-owner" } },
+    { device_sn: serial, device_model: parent === "T8N00" ? "T8E00" : "T8140-Z", device_type: parent === "T8N00" ? 301 : 14, category: "eufy_security", parent_sn: "synthetic-station", device_channel: 3, member: { admin_user_id: "synthetic-owner" } },
   ] }));
-  context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
+  let pushReceiver: MegaPushReceiver;
+  context.mock.method(MegaPushReceiver.prototype, "start", async function(this: MegaPushReceiver) { pushReceiver = this; });
   let joins = 0, stopped = 0, held = false, failClose = false, enterClose!: () => void, finishClose!: () => void;
   const closing = new Promise<void>(resolve => { finishClose = resolve; });
   const closeEntered = new Promise<void>(resolve => { enterClose = resolve; });
@@ -62,8 +63,10 @@ async function fixture(context: TestContext, withManager = false) {
     await retired;
   });
   const state = new GatewayState();
+  const observedStations: Parameters<ProviderEvents["station"]>[0][] = [];
   let manager: LiveStreamManager | undefined;
   const events = new Proxy({
+    station: (value: Parameters<ProviderEvents["station"]>[0]) => observedStations.push(value),
     camera: (value: Parameters<ProviderEvents["camera"]>[0]) => state.registerCamera(value),
     streamStarted: (id: string, output: PassThrough, codec: () => "h264") => manager?.attachSource(id, output, codec),
     streamStopped: (id: string) => { stopped++; manager?.markStopped(id); },
@@ -78,7 +81,9 @@ async function fixture(context: TestContext, withManager = false) {
     manager.on("warning", () => {});
   }
   await provider.start(events);
-  return { provider, events, manager, sessions, closed, closeEntered, state,
+  return { provider, events, manager, sessions, closed, closeEntered, state, observedStations,
+    disconnectPush: () => (Reflect.get(pushReceiver, "onReceiverState") as (state: string) => void)("disconnected"),
+    push: (event: MegaPushEvent) => (Reflect.get(pushReceiver, "onEvent") as (event: MegaPushEvent) => void)(event),
     joins: () => joins, stopped: () => stopped, hold: () => { held = true; }, finish: () => finishClose(), failClose: () => { failClose = true; },
     close: async () => {
       finishClose();
@@ -93,6 +98,57 @@ async function fixture(context: TestContext, withManager = false) {
     },
   };
 }
+
+test("the NVR mode observer is not attached to a T9000 live route", async context => {
+  const value = await fixture(context, false, "T9000");
+  try {
+    await value.provider.startStream(serial); await tick();
+    const options = Reflect.get(value.sessions[0]!, "options") as NvrRtcOptions;
+    assert.equal(options.onEffectiveMode, undefined);
+  } finally { await value.close(); }
+});
+
+test("only the current live source owns its mode reading and retirement", async context => {
+  const value = await fixture(context);
+  try {
+    await value.provider.startStream(serial); await tick();
+    const first = Reflect.get(value.sessions[0]!, "options") as NvrRtcOptions;
+    assert.equal(typeof first.onEffectiveMode, "function");
+    first.onEffectiveMode!({ mode: 1 });
+    assert.equal(value.observedStations.at(-1)!.effectiveMode, 1);
+    assert.equal(typeof value.observedStations.at(-1)!.effectiveModeReportedAt, "string");
+    assert.equal(value.observedStations.at(-1)!.effectiveModeSource, "nvr_rtc");
+    assert.equal(value.observedStations.at(-1)!.stateReadSupported, true);
+    value.disconnectPush();
+    assert.equal(value.observedStations.at(-1)!.effectiveMode, 1);
+    first.onEffectiveMode!(null);
+    assert.equal(value.observedStations.at(-1)!.effectiveMode, null);
+    await value.provider.stopStream(serial);
+    await value.provider.startStream(serial); await tick();
+    const second = Reflect.get(value.sessions[1]!, "options") as NvrRtcOptions;
+    second.onEffectiveMode!({ mode: 3 });
+    first.onEffectiveMode!(null);
+    first.onEffectiveMode!({ mode: 1 });
+    assert.equal(value.observedStations.at(-1)!.effectiveMode, 3);
+    const push = parsePushEvent({ device_sn: "synthetic-station", station_sn: "synthetic-station",
+      payload: JSON.stringify({ a: 9, arming: 2, mode: 1, before_change_mode: 3 }) });
+    assert.ok(push);
+    value.push({ ...push, transportSentAtMilliseconds: Date.now() + 10 });
+    assert.equal(value.observedStations.at(-1)!.effectiveMode, 1);
+    second.onEffectiveMode!(null);
+    assert.equal(value.observedStations.at(-1)!.effectiveMode, 1);
+    second.onEffectiveMode!({ mode: 3 });
+    value.push({ ...push, transportSentAtMilliseconds: Date.now() - 1000 });
+    assert.equal(value.observedStations.at(-1)!.effectiveMode, 3);
+    second.onEffectiveMode!({ mode: null });
+    assert.equal(value.observedStations.at(-1)!.effectiveMode, null);
+    assert.equal(value.observedStations.at(-1)!.effectiveModeReportedAt, null);
+    second.onEffectiveMode!(null);
+    const count = value.observedStations.length;
+    second.onEffectiveMode!(null);
+    assert.equal(value.observedStations.length, count);
+  } finally { await value.close(); }
+});
 
 for (const event of ["error", "end", "close", "finish"] as const) {
   test(`${event} retires an established normal NVR lease before reopen`, async context => {

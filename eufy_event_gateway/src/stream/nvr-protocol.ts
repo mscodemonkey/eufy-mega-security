@@ -214,6 +214,8 @@ export interface NvrApplicationFrame {
   readonly command: number;
   readonly segment: number;
   readonly channel: number;
+
+  /** Byte 14 is the response flag for control frames and the stream ID for media. */
   readonly stream: number;
   readonly payload: Buffer;
 }

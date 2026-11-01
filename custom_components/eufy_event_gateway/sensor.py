@@ -422,8 +422,8 @@ class EufyEffectiveModeSensor(EufyStationEntity, SensorEntity):
     """Expose the latest reported station mode independently of configured policy.
 
     The coordinator owns state for this read-only entity. Schedule and geofencing
-    can produce a different effective mode. Push-owned NVR observations include
-    their report time and become unknown when the receiver loses its connection.
+    can produce a different effective mode. NVR observations include their
+    transport and report time and become unknown when their owning source ends.
     """
 
     _attr_translation_key = "eufy_effective_mode_sensor"
@@ -449,10 +449,11 @@ class EufyEffectiveModeSensor(EufyStationEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, str] | None:
-        """Identify the last device push observation without inferring a live query."""
+        """Identify the last observation's transport without inferring a live query."""
         reported = self.station.get("effectiveModeReportedAt")
-        if isinstance(reported, str):
-            return {"state_source": "eufy_push", "last_reported": reported}
+        source = self.station.get("effectiveModeSource", "eufy_push")
+        if isinstance(reported, str) and source in ("eufy_push", "nvr_rtc"):
+            return {"state_source": source, "last_reported": reported}
         return None
 
 

@@ -602,6 +602,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #generalRtcPins = new GeneralRtcPinLimiter();
   readonly #generalRtcLockOperations = new Map<string, number>();
   readonly #nvrModePushTimes = new Map<string, number>();
+
+  // A retiring RTC source cannot erase a newer push or a replacement source.
+  readonly #nvrModeObservationOwners = new Map<string, NvrRtcSession>();
   #nvrModePushStartedAt = 0;
   readonly #doorbellTrials = new Map<string, { controller: AbortController; device: MegaInventoryDevice; diagnostic: boolean;
     generation: number; connecting: boolean; retiring: boolean; terminalRetirement: boolean;
@@ -1785,6 +1788,30 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         liveControls: !entry.diagnostic && this.#nvrLiveAdmitted(entry.device, entry.station),
         administrator: entry.station.adminUserId!, context, signal: entry.controller.signal, current,
         maximumLifetimeMilliseconds: entry.diagnostic ? 75_000 : entry.stateOnly ? this.config.maxStreamSeconds * 1_000 : null,
+        ...(!entry.diagnostic && !entry.stateOnly && entry.station.model === "T8N00" && entry.station.deviceType === 300 ? {
+          onEffectiveMode: (observation: import("../stream/nvr-effective-mode.js").NvrEffectiveModeObservation | null): void => {
+            const source = entry.session;
+            if (!source) return;
+            if (observation === null) {
+              if (this.#nvrModeObservationOwners.get(entry.station.serial) !== source) return;
+              this.#nvrModeObservationOwners.delete(entry.station.serial);
+            } else {
+              if (!current()) return;
+              this.#nvrModeObservationOwners.set(entry.station.serial, source);
+              this.#nvrModePushTimes.set(entry.station.serial,
+                Math.max(this.#nvrModePushTimes.get(entry.station.serial) ?? 0, Date.now()));
+            }
+            const identity = this.#devices.get(entry.station.serial), previous = this.#stations.get(entry.station.serial);
+            if (!previous || identity?.model !== "T8N00" || identity.deviceType !== 300 || identity.category !== "eufy_security") return;
+            const mode = observation?.mode ?? null;
+            const updated = { ...previous, effectiveMode: mode,
+              stateReadSupported: true,
+              effectiveModeSource: mode === null ? null : "nvr_rtc" as const,
+              effectiveModeReportedAt: mode === null ? null : new Date().toISOString() };
+            this.#stations.set(updated.serial, updated);
+            try { this.#events?.station(updated); } catch {}
+          },
+        } : {}),
         ...(!entry.stateOnly ? { onTimings: (timings: import("../stream/nvr-rtc-session.js").NvrTimings): void => {
           const model = safeLogModel(entry.device.model);
           logger.info("nvr_live_timings", `model=${model} offer_ms=${timings.offer ?? "none"} first_local_candidate_ms=${timings.firstLocalCandidate ?? "none"} answer_sent_ms=${timings.answerSent ?? "none"} channel_open_ms=${timings.channelOpen ?? "none"} media_request_ms=${timings.mediaRequest ?? "none"} first_video_ms=${timings.firstVideo ?? "none"}`);
@@ -4185,7 +4212,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       (event) => { if (this.#push === push) this.#handlePush(events, event); },
       (state) => {
         if (this.#push !== push) return;
-        if (["disconnected", "stopped", "degraded", "activation-unconfirmed"].includes(state)) this.#clearNvrEffectiveModes(events);
+        if (["disconnected", "stopped", "degraded", "activation-unconfirmed"].includes(state)) this.#clearNvrEffectiveModes(events, true);
         events.eventReceiverState(state);
       },
       (outcome) => { if (this.#push === push) events.eventDelivery(outcome); },
@@ -5044,13 +5071,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (failures > 0) logger.info("station_refresh_recovered", `HomeBase state refresh recovered after failures=${failures}`);
   }
 
-  #clearNvrEffectiveModes(events: ProviderEvents): void {
+  #clearNvrEffectiveModes(events: ProviderEvents, preserveRtc = false): void {
     for (const station of this.#stations.values()) {
       if (!station.effectiveModeReportedAt) continue;
-      const updated = { ...station, effectiveMode: null, effectiveModeReportedAt: null };
+      if (preserveRtc && station.effectiveModeSource === "nvr_rtc" && this.#nvrModeObservationOwners.has(station.serial)) continue;
+      const updated = { ...station, effectiveMode: null, effectiveModeReportedAt: null, effectiveModeSource: null };
       this.#stations.set(station.serial, updated);
       try { events.station(updated); } catch {}
     }
+    if (!preserveRtc) this.#nvrModeObservationOwners.clear();
   }
 
   #handlePush(events: ProviderEvents, event: MegaPushEvent): void {
@@ -5060,6 +5089,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const nvrState = station && stationIdentity ? applyNvrModePush(station, stationIdentity, event,
       this.#nvrModePushStartedAt, this.#nvrModePushTimes.get(station.serial) ?? null, Date.now()) : null;
     if (nvrState) {
+      this.#nvrModeObservationOwners.delete(station!.serial);
       this.#nvrModePushTimes.set(station!.serial, event.transportSentAtMilliseconds!);
       this.#stations.set(station!.serial, nvrState); events.station(nvrState);
     } else if (station?.guardModeControlSupported && event.eventType === 9) {
@@ -6070,10 +6100,10 @@ export function applyNvrModePush(station: HomeBaseState,
     || ![0, 1, 3, 4, 5, 63].includes(change.previous)
     || event.guardMode !== null && event.guardMode !== change.configured
     || event.effectiveMode !== null && event.effectiveMode !== change.effective) {
-    return { ...station, effectiveMode: null, effectiveModeReportedAt: null };
+    return { ...station, effectiveMode: null, effectiveModeReportedAt: null, effectiveModeSource: null };
   }
   return { ...station, stateReadSupported: true, guardMode: change.configured, effectiveMode: change.effective,
-    effectiveModeReportedAt: new Date(sent).toISOString() };
+    effectiveModeReportedAt: new Date(sent).toISOString(), effectiveModeSource: "eufy_push" };
 }
 
 /** Return whether inventory proves support for the wrapped guard-mode command. */
@@ -6140,7 +6170,7 @@ export function refreshInventoryStationState(
     firmware: device.firmware ?? existing.firmware,
     guardMode: device.reads.guardMode ?? existing.guardMode,
     ...(existing.effectiveModeReportedAt && device.reads.guardMode !== undefined && device.reads.guardMode !== existing.guardMode
-      ? { effectiveMode: null, effectiveModeReportedAt: null } : {}),
+      ? { effectiveMode: null, effectiveModeReportedAt: null, effectiveModeSource: null } : {}),
     guardModeNames: device.guardModeNames ?? existing.guardModeNames,
   };
 }

@@ -123,6 +123,11 @@ class StationModeSensorTest(unittest.TestCase):
         self.assertIn("Night", self.effective.options)
         self.assertEqual(self.effective.extra_state_attributes,
                          {"state_source": "eufy_push", "last_reported": "2026-10-15T12:00:00.000Z"})
+        self.effective.station["effectiveModeSource"] = "nvr_rtc"
+        self.assertEqual(self.effective.extra_state_attributes,
+                         {"state_source": "nvr_rtc", "last_reported": "2026-10-15T12:00:00.000Z"})
+        self.effective.station["effectiveModeSource"] = "unqualified"
+        self.assertIsNone(self.effective.extra_state_attributes)
         self.effective.station["effectiveMode"] = True
         self.assertIsNone(self.effective.native_value)
         self.effective.station["effectiveMode"] = None

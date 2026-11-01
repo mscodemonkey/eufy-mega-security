@@ -50,7 +50,7 @@ function keyframePackets(frame: Buffer, sequence: number): Buffer[] {
   });
 }
 
-for (const scenario of ['continuous-parameters', 'continuous-h265', 'continuous-controls', 'continuous-video', 'continuous-signalling-close', 'continuous-stall', 'continuous-heartbeat', 'continuous-gap', 'continuous-cancel', 'live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-nonzero', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
+for (const scenario of ['continuous-modes', 'continuous-parameters', 'continuous-h265', 'continuous-controls', 'continuous-video', 'continuous-signalling-close', 'continuous-stall', 'continuous-heartbeat', 'continuous-gap', 'continuous-cancel', 'live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-nonzero', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
   const codec = scenario === 'h265' || scenario === 'sequence-gap' || scenario === 'continuous-h265' ? 'h265' : 'h264';
   const server = new WebSocketServer({ port: 0 });
   await once(server, 'listening');
@@ -73,6 +73,8 @@ for (const scenario of ['continuous-parameters', 'continuous-h265', 'continuous-
     }) as typeof setTimeout);
   }
   let sendHeartbeat = (): void => {};
+  let sendMode = (_value: number, _channel = 2, _response = 0, _length = 8): void => {};
+  const modes: ({ mode: number | null } | null)[] = [];
 
   let powerValue = 0, guardReadVariant = 0;
   let cancelPower = (): void => {};
@@ -80,6 +82,14 @@ for (const scenario of ['continuous-parameters', 'continuous-h265', 'continuous-
   peer.onDataChannel.subscribe(channel => {
     if (channel.label !== 'WebrtcDataChannel') return;
     sendHeartbeat = () => channel.send(nvrHeartbeat());
+    const modeSequences = new Map<number, number>();
+    sendMode = (value, transportChannel = 2, response = 0, length = 8) => {
+      const frame = application(1151, 0, Buffer.alloc(length));
+      frame[14] = response; frame.writeInt32LE(value, 16);
+      const sequence = modeSequences.get(transportChannel) ?? 0;
+      modeSequences.set(transportChannel, sequence + 1);
+      for (const packet of receivePackets(frame, sequence, transportChannel)) channel.send(packet);
+    };
     channel.onmessage = event => {
       if (Buffer.isBuffer(event.data) && event.data.equals(nvrHeartbeat())) {
         if (scenario === 'h265') for (let index = 0; index < 40; index++) channel.send(event.data);
@@ -309,7 +319,7 @@ for (const scenario of ['continuous-parameters', 'continuous-h265', 'continuous-
   const timingReports: NvrTimings[] = [];
   const nativeVideoNow = performance.now.bind(performance);
   let videoProgressOffset = 0;
-  const session = new NvrRtcSession({ onTimings: value => timingReports.push(value), station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
+  const session = new NvrRtcSession({ onEffectiveMode: value => modes.push(value), onTimings: value => timingReports.push(value), station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
     powerTrial: scenario.startsWith('power'), liveControls: scenario.startsWith('live-') || scenario === 'continuous-controls',
     ...(scenario.startsWith('continuous-') ? { maximumLifetimeMilliseconds: null, videoProgressNow: () => nativeVideoNow() + videoProgressOffset } : {}),
     guardTrial: scenario === 'guard', ...(scenario === 'guard' ? { userName: 'Synthetic' } : {}),
@@ -411,7 +421,23 @@ for (const scenario of ['continuous-parameters', 'continuous-h265', 'continuous-
       const activeTimer = scheduled.at(-1)!;
       scheduled[0]!.fire();
       assert.equal(session.output.destroyed, false);
-      if (scenario === 'continuous-controls') {
+      if (scenario === 'continuous-modes') {
+        assert.deepEqual(modes, []);
+        sendMode(-106, 0, 1, 132);
+        sendMode(1, 2, 1);
+        sendMode(1);
+        sendMode(47);
+        sendMode(3);
+        const until = performance.now() + 2000;
+        while (modes.length < 3 && performance.now() < until) await new Promise(resolve => setTimeout(resolve, 10));
+        assert.deepEqual(modes, [{ mode: 1 }, { mode: null }, { mode: 3 }]);
+        assert.equal(session.output.destroyed, false);
+        assert.equal(commands.includes(1151), false);
+        assert.equal(commands.includes(1224), false);
+        await session.close();
+        await session.close();
+        assert.deepEqual(modes, [{ mode: 1 }, { mode: null }, { mode: 3 }, null]);
+      } else if (scenario === 'continuous-controls') {
         await session.initialLiveSettings();
         await session.prepareLiveControl(false);
         await session.writeLiveControl({ kind: 'night', value: 1 }, controller.signal, () => {});
