@@ -16,6 +16,8 @@ import { ppcsSourceDiagnostic } from "../diagnostics/ppcs-source-diagnostic.js";
 import { classicLockInventory } from "./classic-lock-inventory.js";
 import { ParameterCheckError, parameterCheckLog, type ParameterCheckModel, type ParameterCheckSummary } from "./reported-parameter-check.js";
 import { nvrLiveProfile, NvrLiveControlError, type NvrLiveControl, type NvrLiveControlResult } from "./nvr-live-controls.js";
+import { NvrModeObserver } from "./nvr-mode-observer.js";
+import type { NvrEffectiveModeObservation } from "../stream/nvr-effective-mode.js";
 import type { NvrLiveSettings } from "../stream/nvr-live-control-protocol.js";
 import { InventoryMotionClock, type InventoryMotionOutcome } from "./inventory-motion.js";
 
@@ -123,6 +125,9 @@ export interface EufyProviderConfig {
 
   /** Default-off NVR transport admission for private Diagnostics tests. */
   readonly experimentalNvrLive?: boolean;
+
+  /** Independent default-off station mode observer, with no media or security writes. */
+  readonly experimentalNvrModeObserver?: boolean;
 
   /** Independent opt-in for a manually observed NVR camera-power and restore test. */
   readonly experimentalNvrControls?: boolean;
@@ -605,6 +610,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   // A retiring RTC source cannot erase a newer push or a replacement source.
   readonly #nvrModeObservationOwners = new Map<string, NvrRtcSession>();
+  readonly #nvrModeObserver = new NvrModeObserver((state, retry, reason) => {
+    logger.info("nvr_mode_observer_state", `state=${state} retry_ms=${retry ?? "none"} reason=${reason ?? "none"}`);
+  });
+  #nvrModeInventoryAt: number | null = null;
+  #nvrModeAdmission: string | null = null;
   #nvrModePushStartedAt = 0;
   readonly #doorbellTrials = new Map<string, { controller: AbortController; device: MegaInventoryDevice; diagnostic: boolean;
     generation: number; connecting: boolean; retiring: boolean; terminalRetirement: boolean;
@@ -1328,6 +1338,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   /** Authenticate and publish cameras independently of background push readiness. */
   async start(events: ProviderEvents): Promise<void> {
     this.#assertRtcPreparationIdle();
+    const closingModeObserver = this.#nvrModeObserver.active || !this.#nvrModeObserver.settled
+      ? this.#nvrModeObserver.close() : null;
     for (const controller of this.#motionAborters) controller.abort();
     this.#nvrModePushStartedAt = Date.now();
     this.#nvrModePushTimes.clear();
@@ -1341,6 +1353,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#retireInventoryRefresh();
     this.#events = events;
     this.#rebuildLockAdapter(events, generation);
+    if (closingModeObserver) await closingModeObserver;
+    if (generation !== this.#startupGeneration) return;
     let auth;
     try { auth = await this.#client.connect(this.config.verifyCode); }
     catch (error) { if (generation !== this.#startupGeneration) return; throw error; }
@@ -1789,27 +1803,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         administrator: entry.station.adminUserId!, context, signal: entry.controller.signal, current,
         maximumLifetimeMilliseconds: entry.diagnostic ? 75_000 : entry.stateOnly ? this.config.maxStreamSeconds * 1_000 : null,
         ...(!entry.diagnostic && !entry.stateOnly && entry.station.model === "T8N00" && entry.station.deviceType === 300 ? {
-          onEffectiveMode: (observation: import("../stream/nvr-effective-mode.js").NvrEffectiveModeObservation | null): void => {
-            const source = entry.session;
-            if (!source) return;
-            if (observation === null) {
-              if (this.#nvrModeObservationOwners.get(entry.station.serial) !== source) return;
-              this.#nvrModeObservationOwners.delete(entry.station.serial);
-            } else {
-              if (!current()) return;
-              this.#nvrModeObservationOwners.set(entry.station.serial, source);
-              this.#nvrModePushTimes.set(entry.station.serial,
-                Math.max(this.#nvrModePushTimes.get(entry.station.serial) ?? 0, Date.now()));
-            }
-            const identity = this.#devices.get(entry.station.serial), previous = this.#stations.get(entry.station.serial);
-            if (!previous || identity?.model !== "T8N00" || identity.deviceType !== 300 || identity.category !== "eufy_security") return;
-            const mode = observation?.mode ?? null;
-            const updated = { ...previous, effectiveMode: mode,
-              stateReadSupported: true,
-              effectiveModeSource: mode === null ? null : "nvr_rtc" as const,
-              effectiveModeReportedAt: mode === null ? null : new Date().toISOString() };
-            this.#stations.set(updated.serial, updated);
-            try { this.#events?.station(updated); } catch {}
+          onEffectiveMode: (observation: NvrEffectiveModeObservation | null): void => {
+            if (entry.session) this.#publishNvrMode(entry.station.serial, entry.session, observation, current);
           },
         } : {}),
         ...(!entry.stateOnly ? { onTimings: (timings: import("../stream/nvr-rtc-session.js").NvrTimings): void => {
@@ -1926,6 +1921,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Test one separately admitted NVR camera and retain its lease through recovery. */
   async testNvrCameraPower(serial: string, request: NvrPowerRequest, signal: AbortSignal): Promise<NvrPowerSummary> {
+    if (this.#nvrModeObserver.active || !this.#nvrModeObserver.settled) throw new NvrPowerError("busy");
     this.#assertRtcPreparationIdle();
     const device = this.#devices.get(serial), generation = this.#startupGeneration;
     const station = device ? this.#devices.get(device.parentSerial) : undefined;
@@ -2058,6 +2054,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Temporarily change one exact T8N00 from Schedule to Home and restore it. */
   async testNvrGuardMode(serial: string, request: NvrGuardRequest, signal: AbortSignal): Promise<NvrGuardSummary> {
+    if (this.#nvrModeObserver.active || !this.#nvrModeObserver.settled) throw new NvrGuardError("busy");
     this.#assertRtcPreparationIdle();
     nvrGuardTimeZone(request.timeZone);
     const device = this.#devices.get(serial), generation = this.#startupGeneration;
@@ -3874,6 +3871,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Stop resources for either shutdown or an owned preparation, preserving cleanup ordering. */
   async #stopProviderResources(current: () => void = () => undefined): Promise<void> {
+    if (this.#nvrModeObserver.active || !this.#nvrModeObserver.settled) {
+      await this.#nvrModeObserver.close().catch(() => {
+        logger.warn("nvr_mode_observer_state", "state=cleanup_failed");
+      });
+      current();
+    }
+    this.#nvrModeInventoryAt = null;
     for (const controller of this.#motionAborters) controller.abort();
     for (const entry of this.#nvrGuardEntries.values()) {
       if (entry.attempted && !entry.warned) {
@@ -4260,6 +4264,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         this.#handleInventoryRefreshFailure(events, generation, error));
     }, 60_000);
     this.#inventoryRefreshTimer.unref();
+    this.#syncNvrModeObserver();
   }
 
   /**
@@ -4342,7 +4347,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#observeE21Inventory(refreshed, generation, sequence);
     this.#nvrObserveOwners(inventory);
     this.#observeLockInventory(inventory.devices);
-    if (refreshed.length === 0) return;
+    if (refreshed.length === 0) { this.#syncNvrModeObserver(); return; }
     try {
       for (const message of this.#t8417ReadShapes.observe(inventory.devices, generation, performance.now(), false)) {
         logger.info("camera_t8417_read_shape_observed", message);
@@ -4435,6 +4440,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       events.station(station);
     }
     events.inventory(inventoryDiagnostics(devices));
+    this.#syncNvrModeObserver();
     events.cameraCapabilities(devices.map((device) => describeCameraCapabilities(device, {
       doorbellSupported: isDoorbellDevice(device),
       streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeers) || this.#doorbellRtcBinding(device),
@@ -5069,6 +5075,90 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const failures = this.#stationRefreshFailures.get(serial) ?? 0;
     this.#stationRefreshFailures.delete(serial);
     if (failures > 0) logger.info("station_refresh_recovered", `HomeBase state refresh recovered after failures=${failures}`);
+  }
+
+  #publishNvrMode(serial: string, source: NvrRtcSession, observation: NvrEffectiveModeObservation | null,
+    current: () => boolean): void {
+    if (observation === null) {
+      if (this.#nvrModeObservationOwners.get(serial) !== source) return;
+      this.#nvrModeObservationOwners.delete(serial);
+    } else {
+      if (!current()) return;
+      this.#nvrModeObservationOwners.set(serial, source);
+      this.#nvrModePushTimes.set(serial, Math.max(this.#nvrModePushTimes.get(serial) ?? 0, Date.now()));
+    }
+    const identity = this.#devices.get(serial), previous = this.#stations.get(serial);
+    if (!previous || observation !== null
+      && (identity?.model !== "T8N00" || identity.deviceType !== 300 || identity.category !== "eufy_security")) return;
+    const mode = observation?.mode ?? null;
+    const updated = { ...previous, effectiveMode: mode, stateReadSupported: true,
+      effectiveModeSource: mode === null ? null : "nvr_rtc" as const,
+      effectiveModeReportedAt: mode === null ? null : new Date().toISOString() };
+    this.#stations.set(serial, updated);
+    try { this.#events?.station(updated); } catch {}
+  }
+
+  #modeObserverBinding(device: MegaInventoryDevice, parent: MegaInventoryDevice | undefined): parent is MegaInventoryDevice {
+    return device.model === "T8E00" && device.deviceType === 301 && device.category === "eufy_security"
+      && !!parent && parent.model === "T8N00" && parent.deviceType === 300 && parent.category === "eufy_security"
+      && (!parent.parentSerial || parent.parentSerial === parent.serial) && device.serial !== parent.serial
+      && Number.isInteger(device.channel) && device.channel !== null && device.channel >= 0 && device.channel <= 254
+      && typeof parent.adminUserId === "string" && /^[A-Za-z0-9_-]{1,255}$/.test(parent.adminUserId)
+      && device.adminUserId === parent.adminUserId
+      && this.#nvrExplicitOwners.get(device.serial) === parent.adminUserId
+      && this.#nvrExplicitOwners.get(parent.serial) === parent.adminUserId
+      && [...this.#devices.values()].filter(row => row.parentSerial === parent.serial && row.serial !== parent.serial && row.channel === device.channel).length === 1;
+  }
+
+  #syncNvrModeObserver(): void {
+    this.#nvrModeInventoryAt = performance.now();
+    const admission = (result: "disabled" | "unavailable" | "eligible"): void => {
+      if (this.#nvrModeAdmission === result) return;
+      this.#nvrModeAdmission = result;
+      if (result !== "disabled") logger.info("nvr_mode_observer_admission", `result=${result}`);
+    };
+    if (!this.config.experimentalNvrModeObserver) {
+      admission("disabled"); this.#nvrModeObserver.setTarget(null); return;
+    }
+    if (!this.config.apiAuthenticationConfigured
+      || this.#recordingClosing || this.#rtcPreparation.gated || !this.#client.isAuthenticated) {
+      admission("unavailable"); this.#nvrModeObserver.setTarget(null); return;
+    }
+    const eligible = [...this.#devices.values()].filter(device => this.#modeObserverBinding(device, this.#devices.get(device.parentSerial)));
+    if (new Set(eligible.map(device => device.parentSerial)).size !== 1) { admission("unavailable"); this.#nvrModeObserver.setTarget(null); return; }
+    admission("eligible");
+    const device = eligible.sort((a, b) => a.channel! - b.channel!)[0]!, parent = this.#devices.get(device.parentSerial)!;
+    const generation = this.#startupGeneration;
+    const current = (): boolean => {
+      const child = this.#devices.get(device.serial), station = this.#devices.get(parent.serial), now = performance.now();
+      return !this.#recordingClosing && !this.#rtcPreparation.gated && generation === this.#startupGeneration
+        && this.#client.isAuthenticated && this.#nvrModeInventoryAt !== null && now >= this.#nvrModeInventoryAt
+        && now - this.#nvrModeInventoryAt <= 180_000 && !!child && !!station
+        && !inventoryBindingChanged(device, child) && !inventoryBindingChanged(parent, station)
+        && this.#modeObserverBinding(child, station) && !this.#nvrControlReserved(parent.serial);
+    };
+    this.#nvrModeObserver.setTarget({ key: JSON.stringify([generation, this.#nvrBindingKey(device)]), current,
+      create: async (signal, active, report) => {
+        let abort: (() => void) | undefined;
+        try {
+          if (!active()) throw new NvrTrialError("cancelled");
+          const context = await Promise.race([
+            this.#client.nvrSignallingContext(parent.serial, this.config.experimentalNvrRegion ?? "auto", signal),
+            new Promise<never>((_, reject) => { abort = () => reject(new NvrTrialError("cancelled"));
+              signal.addEventListener("abort", abort, { once: true }); if (signal.aborted) abort(); }),
+          ]);
+          if (!active()) throw new NvrTrialError("cancelled");
+          return new NvrRtcSession({ station: parent.serial, camera: device.serial, channel: device.channel!, cameraType: 301,
+            administrator: parent.adminUserId!, context, signal, current: active, onEffectiveMode: report,
+            maximumLifetimeMilliseconds: null, modeObserver: true,
+            ready: () => { throw new NvrTrialError("admission"); } });
+        } catch (error) {
+          if (this.#client.isSessionInvalidError(error)) throw new NvrTrialError("region_or_authorization_rejected");
+          throw error;
+        } finally { if (abort) signal.removeEventListener("abort", abort); }
+      },
+      report: (source, observation) => this.#publishNvrMode(parent.serial, source, observation, current),
+    });
   }
 
   #clearNvrEffectiveModes(events: ProviderEvents, preserveRtc = false): void {

@@ -88,6 +88,9 @@ export interface NvrRtcOptions {
    * inferred and no query, polling or independent observer session is started.
    */
   readonly onEffectiveMode?: (observation: NvrEffectiveModeObservation | null) => void;
+
+  /** Provider-admitted receive-only connection. Media and all control/trial methods are unavailable. */
+  readonly modeObserver?: boolean;
   readonly station: string;
   readonly camera: string;
   readonly channel: number;
@@ -160,6 +163,9 @@ export interface NvrRtcStats {
 
   /** Signalling sockets retired after a normal viewer had valid video. */
   signallingClosuresAfterVideo: number;
+
+  /** Signalling sockets retired after read-only discovery, while the RTC observer remains active. */
+  signallingClosuresAfterModeObservation: number;
   stopUnconfirmed: number;
   channel0Frames: number;
   channel1Frames: number;
@@ -185,7 +191,7 @@ export class NvrRtcSession {
   readonly output = new PassThrough({ highWaterMark: 4 * 1024 * 1024 + 64 });
   readonly stats: NvrRtcStats = { packets: 0, frames: 0, video: 0, controlPackets: 0, rejected: 0,
     segmentNotEchoed: 0, staleReplies: 0, ignoredAudio: 0, ignoredUnknownMedia: 0,
-    applicationSequenceRecoveries: 0, videoSequenceRecoveries: 0, signallingClosuresAfterVideo: 0, stopUnconfirmed: 0,
+    applicationSequenceRecoveries: 0, videoSequenceRecoveries: 0, signallingClosuresAfterVideo: 0, signallingClosuresAfterModeObservation: 0, stopUnconfirmed: 0,
     channel0Frames: 0, channel1Frames: 0, channel2Frames: 0, channel3Frames: 0, channel4Frames: 0, channel5Frames: 0 };
   readonly #abort = new AbortController();
   readonly #negotiation = new AbortController();
@@ -240,6 +246,7 @@ export class NvrRtcSession {
   #offerApplied = false;
   #answerSent = false;
   #signallingUnavailable = false;
+  #modeObserverReady = false;
   #mid = "";
   #codec: VideoCodec | null = null;
   #videoSequence: number | null = null;
@@ -263,6 +270,8 @@ export class NvrRtcSession {
     if (!["security-smart.eufylife.com", "security-smart-eu.eufylife.com", "security-smart-ie.eufylife.com"].includes(options.context.host)) throw new NvrTrialError("admission");
     this.#maximumLifetimeMilliseconds = options.maximumLifetimeMilliseconds === null ? null
       : options.maximumLifetimeMilliseconds ?? 75_000;
+    if (options.modeObserver && (this.#maximumLifetimeMilliseconds !== null || !options.onEffectiveMode
+      || options.powerTrial || options.guardTrial || options.liveControls)) throw new NvrTrialError("admission");
     if (this.#maximumLifetimeMilliseconds === null ? options.powerTrial || options.guardTrial
       : !Number.isSafeInteger(this.#maximumLifetimeMilliseconds) || this.#maximumLifetimeMilliseconds < 1_000
         || this.#maximumLifetimeMilliseconds > 2_147_483_647) throw new NvrTrialError("admission");
@@ -299,6 +308,7 @@ export class NvrRtcSession {
 
   /** Negotiate, correlate fresh discovery, attach the sink, and request video once. */
   async start(): Promise<void> {
+    if (this.options.modeObserver) throw new NvrTrialError("admission");
     if (this.options.powerTrial || this.options.guardTrial) throw this.options.guardTrial
       ? new NvrGuardError("admission") : new NvrPowerError("admission");
     this.#startInvoked = true;
@@ -320,6 +330,7 @@ export class NvrRtcSession {
    * unsolicited or uncorrelated state push cannot become fresh readback.
    */
   async readState(): Promise<NvrStateSummary> {
+    if (this.options.modeObserver) throw new NvrTrialError("admission");
     try {
       if (this.#maximumLifetimeMilliseconds === null) throw new NvrTrialError("admission");
       await this.#connectAndDiscover();
@@ -328,6 +339,14 @@ export class NvrRtcSession {
       this.#guard();
       return nvrStateSummary(response, this.options.channel);
     } finally { await this.close(); }
+  }
+
+  /** Discover the admitted camera once, then receive station broadcasts without starting media. */
+  async observeEffectiveMode(): Promise<void> {
+    if (!this.options.modeObserver) throw new NvrTrialError("admission");
+    await this.#connectAndDiscover();
+    this.#modeObserverReady = true;
+    this.#stage = "state";
   }
 
   /** Return one background observation without delaying video startup. */
@@ -688,10 +707,11 @@ export class NvrRtcSession {
   }
 
   #canRetireSignalling(): boolean {
-    if (this.#maximumLifetimeMilliseconds !== null || !this.#startSent || !this.#bootstrapped) return false;
+    const mode = this.options.modeObserver && this.#modeObserverReady;
+    if (this.#maximumLifetimeMilliseconds !== null || !mode && (!this.#startSent || !this.#bootstrapped)) return false;
     if (!this.#signallingUnavailable) {
       this.#signallingUnavailable = true;
-      this.stats.signallingClosuresAfterVideo++;
+      if (mode) this.stats.signallingClosuresAfterModeObservation++; else this.stats.signallingClosuresAfterVideo++;
     }
     return true;
   }
@@ -1010,6 +1030,7 @@ export class NvrRtcSession {
   }
 
   #request(command: 9100 | 1003 | 1004 | 1103, timeout: number, closing = false, strict = false): Promise<Record<string, unknown>> {
+    if (this.options.modeObserver && command !== 9100) return Promise.reject(new NvrTrialError("admission"));
     if (!closing) this.#guard();
     if (this.#pending || this.#livePending || this.#segment >= 254 || this.options.liveControls && command !== 1004 && this.#segment >= 252) return Promise.reject(new NvrTrialError(this.#stage));
     const channel = this.#channels.get("WebrtcDataChannel");

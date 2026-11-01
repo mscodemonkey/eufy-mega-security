@@ -75,6 +75,7 @@ if (config.provider === "simulated") {
     experimentalModelControls: config.experimentalModelControls,
     experimentalE30Locks: config.experimentalE30Locks,
     experimentalNvrLive: config.experimentalNvrLive,
+    experimentalNvrModeObserver: config.experimentalNvrModeObserver,
     experimentalNvrControls: config.experimentalNvrControls,
     normalNvrLive: config.experimentalNvrLive,
     apiAuthenticationConfigured: !!config.apiToken,
