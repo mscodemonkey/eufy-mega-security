@@ -12,6 +12,7 @@
  * forwarding private event fields into the logger. Periodic cloud refreshes admit
  * newly added devices without replacing push receivers or active media sessions.
  */
+import { ppcsSourceDiagnostic } from "../diagnostics/ppcs-source-diagnostic.js";
 import { classicLockInventory } from "./classic-lock-inventory.js";
 import { ParameterCheckError, parameterCheckLog, type ParameterCheckModel, type ParameterCheckSummary } from "./reported-parameter-check.js";
 import { nvrLiveProfile, NvrLiveControlError, type NvrLiveControl, type NvrLiveControlResult } from "./nvr-live-controls.js";
@@ -606,6 +607,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     generation: number; connecting: boolean; retiring: boolean; terminalRetirement: boolean;
     session: DoorbellRtcSession | null; release: () => Promise<void> }>();
   readonly #ppcsStreams = new Map<string, FirstPartyPpcsSession>();
+  readonly #diagnosticSourceAttempts = new WeakMap<FirstPartyPpcsSession, number>();
+  #diagnosticSourceAttempt = 0;
   readonly #streamStarts = new Map<string, { promise: Promise<void>; cancelled: boolean }>();
   readonly #nvrExplicitOwners = new Map<string, string>();
   readonly #nvrLiveJobs = new Set<string>();
@@ -1500,20 +1503,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     else if (this.config.experimentalModelControls) this.#events?.locks?.(this.#classicLocks);
   }
 
-  /** Return numeric evidence from an existing source, excluding wire prefixes and identities. */
+  /** Snapshot an existing source, preserving sampled-instance identity without starting work. */
   streamDiagnostic(serial: string) {
-    const stats = this.#ppcsStreams.get(serial)?.stats;
-    if (!stats) return null;
-    return {
-      stage: stats.camId === 0 ? "lookup" as const : stats.videoFrames === 0 ? "first-frame" as const : "media" as const,
-      counters: {
-        dataDatagrams: stats.dataDatagrams, frameHeaders: stats.frameHeaders, videoFrames: stats.videoFrames,
-        videoOutputFrames: stats.videoOutputFrames, sequenceGaps: stats.sequenceGaps, sequenceRestarts: stats.sequenceRestarts,
-        duplicateDatagrams: stats.duplicateDatagrams, staleDatagrams: stats.staleDatagrams, parserResyncs: stats.parserResyncs,
-        pendingBytes: stats.pendingBytes, incompleteAccessUnits: stats.incompleteAccessUnits,
-        incompleteAccessUnitBytes: stats.incompleteAccessUnitBytes,
-      },
-    };
+    const stream = this.#ppcsStreams.get(serial);
+    if (!stream) return null;
+    let attempt = this.#diagnosticSourceAttempts.get(stream);
+    if (attempt === undefined) {
+      attempt = ++this.#diagnosticSourceAttempt;
+      this.#diagnosticSourceAttempts.set(stream, attempt);
+    }
+    return ppcsSourceDiagnostic(stream.stats, attempt);
   }
 
   #doorbellRtcBinding(device: MegaInventoryDevice | undefined): boolean {

@@ -200,3 +200,26 @@ contents are anonymous or scan media for personal information. Inspection succes
 integrity, not correct playback or a hardware fix. Compare evidence with the
 exact model and topology before changing support claims. Never execute a
 reporter's attachment or add private media to source-controlled test fixtures.
+
+
+## Startup evidence for sources that return no video
+
+A source-transport record can include a capture-local `sourceAttempt`, an observed
+`startupBoundary`, and distinct complete `frameKinds`. Each frame kind retains
+only the command, encryption discriminator and transport discriminator. Payload
+bytes, header sizes, channel identifiers, peer addresses and key material are
+excluded. These metadata fields do not require private-media capture.
+
+Startup counters distinguish a request that was never sent, a start without a
+transport acknowledgement, an acknowledged start without accepted video, and
+accepted video without output. An acknowledgement alone does not establish that
+the camera accepted the operation or delivered media. Complete frame kinds are
+distinct observations, not per-kind counts. Existing periodic samples remain,
+with an extra snapshot before a source closes, fails or is replaced.
+
+Source attempts are renumbered independently for each capture and device. They
+identify sampled source instances, not every connection attempt made before or
+between samples. Counter resets across distinct attempts must not be interpreted
+as one source losing packets. Older archives remain valid but cannot supply
+missing start/acknowledgement observations retrospectively. A successful capture
+on a different camera does not confirm a failing device's recovery.
