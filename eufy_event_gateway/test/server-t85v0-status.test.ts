@@ -100,3 +100,29 @@ for (const supplied of ["owner_account_required", "PRIVATE_OWNER_DATA"]) {
     } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
   });
 }
+
+
+for (const reason of ["api_authentication_required", "feature_disabled", "operation_unavailable"] as const) {
+  test(`status trial explains its server admission gate without calling the provider: ${reason}`, async context => {
+    const directory = await mkdtemp(join(tmpdir(), "lock-server-admission-"));
+    let calls = 0;
+    const provider = { readT85V0StatusTrial: reason === "operation_unavailable" ? undefined : async () => {
+      calls++; return summary;
+    } } as unknown as CameraProvider;
+    const logs: string[] = [];
+    context.mock.method(process.stderr, "write", (chunk: unknown) => { logs.push(String(chunk)); return true; });
+    const server = new GatewayServer({ ...loadConfig({}), port: 0,
+      apiToken: reason === "api_authentication_required" ? "" : "x".repeat(32),
+      experimentalModelControls: reason !== "feature_disabled" }, new GatewayState(), new SnapshotStore(directory),
+      { hasActiveSession: () => false } as unknown as LiveStreamManager, provider, null);
+    try {
+      await server.listen();
+      const response = await fetch(`http://127.0.0.1:${server.port}/api/locks/synthetic/status-trial`,
+        { method: "POST", headers, body });
+      assert.equal(response.status, 409);
+      assert.deepEqual(await response.json(), { stage: "admission", reason });
+      assert.equal(calls, 0);
+      assert.ok(logs.some(line => line.includes(`stage=admission reason=${reason}`)));
+    } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
+  });
+}

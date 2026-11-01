@@ -10,7 +10,7 @@ import { createRecordedDecipheriv as createDecipheriv } from "../diagnostics/raw
 export type T85V0StatusStage = "admission" | "busy" | "cancelled" | "timeout" | "session" | "malformed" | "rejected";
 
 const ADMISSION_REASONS = [
-  "feature_disabled", "device_unavailable", "unsupported_model", "channel_unavailable",
+  "api_authentication_required", "feature_disabled", "device_unavailable", "unsupported_model", "channel_unavailable",
   "owner_binding_unavailable", "owner_account_required", "station_route_unavailable",
   "identity_unavailable", "connection_key_unavailable", "ambiguous_inventory",
   "inventory_changed", "operation_unavailable", "query_counter_exhausted",
