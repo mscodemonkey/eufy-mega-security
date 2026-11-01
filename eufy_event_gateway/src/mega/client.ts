@@ -84,7 +84,7 @@ interface GeneralRtcCallOptions {
 }
 
 /** Fixed operation names may cross the logging boundary without request data. */
-type MegaOperation = "login" | "account_check" | "inventory" | "lock_credentials" | "cloud_history" | "cloud_playback" | "cipher" | "dsk" | "push" | "captcha" | "general_rtc_hubs" | "general_rtc_params" | "general_rtc_pin" | "general_rtc_sign" | "unknown";
+type MegaOperation = "login" | "account_check" | "inventory" | "lock_credentials" | "cloud_history" | "cloud_playback" | "cipher" | "dsk" | "push" | "captcha" | "general_rtc_hubs" | "general_rtc_devices" | "general_rtc_params" | "general_rtc_pin" | "general_rtc_sign" | "unknown";
 
 /** Project a known internal endpoint into a fixed, privacy-safe diagnostic label. */
 export function megaOperation(path: string): MegaOperation {
@@ -101,6 +101,7 @@ export function megaOperation(path: string): MegaOperation {
     "/passport/generate/captcha": "captcha",
     "/v3/event/app/get_kvs_urls": "cloud_playback",
     "/v3/web/get_hub_list": "general_rtc_hubs",
+    "/v3/web/get_devs_list": "general_rtc_devices",
     "/v3/app/overall/get_params": "general_rtc_params",
     "/v3/web/wp/verify_captcha": "general_rtc_pin",
     "/v1/smart/ws/sign": "general_rtc_sign",
@@ -270,28 +271,31 @@ export class MegaClient {
       country: this.#country.toUpperCase(), token: this.#session.authToken, cipher: this.generalRtcCipher() };
   }
 
-  /** Check both required native identities without waiting for or starting an exchange. */
+  /** Check the portal host identity without waiting for or starting an exchange. */
   generalRtcHasNativeIdentities(): boolean {
-    return !!this.#session && !!this.#cachedNativeIdentity(this.#clusterHost("openapi"))
-      && !!this.#cachedNativeIdentity(this.#clusterHost("security"));
+    return !!this.#session && !!this.#cachedNativeIdentity(this.#clusterHost("security"));
   }
 
-  /** Fetch both native inventory lists with no identity recovery or suppressed failure. */
+  /** Fetch complete portal inventory pages with no identity recovery or suppressed failure. */
   async generalRtcInventory(signal: AbortSignal): Promise<MegaInventory> {
     if (!this.#experimentalGeneralRtc || !this.isAuthenticated) throw new GeneralRtcError("admission");
     try {
-      const first = await this.#call("house", "/app/house/get_devs_list", { house_id: "", device_sns: {} }, false,
-        undefined, AbortSignal.any([signal, AbortSignal.timeout(10_000)]), { cachedIdentityOnly: true });
-      const value = this.#generalRtcResult(first, "inventory");
-      if (!isRecord(value) || !Array.isArray(value.devices)) throw new GeneralRtcError("inventory", "response");
-      const second = await this.#call("security", "/v2/house/device_list", {
-        device_sn: "", num: 1000, orderby: "", page: 0, station_sn: "",
-        time_zone: new Date(this.#now()).getTimezoneOffset() * -60_000, transaction: `${this.#now()}`,
-      }, false, undefined, AbortSignal.any([signal, AbortSignal.timeout(10_000)]), { cachedIdentityOnly: true });
-      const legacy = this.#generalRtcResult(second, "inventory");
-      const rows = Array.isArray(legacy) ? legacy : isRecord(legacy) && Array.isArray(legacy.devices) ? legacy.devices : null;
-      if (!rows) throw new GeneralRtcError("inventory", "response");
-      return projectMegaInventory(value, chargingDaysFromRows(rows));
+      const readPages = async (path: "/v3/web/get_hub_list" | "/v3/web/get_devs_list"): Promise<readonly unknown[]> => {
+        const rows: unknown[] = [];
+        for (let page = 0; page <= 4; page++) {
+          const result = await this.#call("security", path,
+            { page, num: 100, station_sn: "", device_sn: "", ...(path === "/v3/web/get_devs_list" ? { orderby: "" } : {}) }, false,
+            undefined, AbortSignal.any([signal, AbortSignal.timeout(10_000)]), { cachedIdentityOnly: true });
+          const data = this.#generalRtcResult(result, "inventory");
+          if (!Array.isArray(data) || data.length > 100) throw new GeneralRtcError("inventory", "response");
+          rows.push(...data);
+          if (data.length < 100) return rows;
+        }
+        throw new GeneralRtcError("inventory", "shape");
+      };
+      const hubs = await readPages("/v3/web/get_hub_list");
+      const devices = await readPages("/v3/web/get_devs_list");
+      return projectGeneralRtcInventory(hubs, devices);
     } catch (error) { throw generalRtcRequestFailure(error, "inventory"); }
   }
 
@@ -1373,14 +1377,6 @@ function generalRtcRequestFailure(error: unknown, stage: GeneralRtcStage): Gener
   return new GeneralRtcError(stage, error instanceof GeneralRtcError ? error.reason : "response");
 }
 
-function chargingDaysFromRows(rows: readonly unknown[]): ReadonlyMap<string, unknown> {
-  const values = new Map<string, unknown>();
-  for (const row of rows) {
-    if (isRecord(row) && typeof row.device_sn === "string" && "charging_days" in row) values.set(row.device_sn, row.charging_days);
-  }
-  return values;
-}
-
 function projectMegaInventory(value: Record<string, unknown>, chargingDays: ReadonlyMap<string, unknown>): MegaInventory {
   if (!Array.isArray(value.devices)) throw new Error("Mega returned an invalid device inventory");
   return {
@@ -1390,6 +1386,27 @@ function projectMegaInventory(value: Record<string, unknown>, chargingDays: Read
     }),
     groups: Array.isArray(value.groups) ? value.groups : [],
   };
+}
+
+function projectGeneralRtcInventory(hubs: readonly unknown[], devices: readonly unknown[]): MegaInventory {
+  const projectedDevices = devices.filter(isMegaDevice);
+  if (projectedDevices.length !== devices.length) throw new GeneralRtcError("inventory", "response");
+  const deviceSerials = new Set<string>();
+  for (const device of projectedDevices) {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(device.device_sn) || deviceSerials.has(device.device_sn)) {
+      throw new GeneralRtcError("inventory", "topology");
+    }
+    deviceSerials.add(device.device_sn);
+  }
+  const stationSerials = new Set<string>();
+  const projectedHubs: MegaInventory["devices"][number][] = [];
+  for (const hub of hubs) {
+    if (!isRecord(hub) || typeof hub.station_sn !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(hub.station_sn)
+      || stationSerials.has(hub.station_sn)) throw new GeneralRtcError("inventory", "topology");
+    stationSerials.add(hub.station_sn);
+    if (!deviceSerials.has(hub.station_sn)) projectedHubs.push({ ...hub, device_sn: hub.station_sn });
+  }
+  return { devices: [...projectedHubs, ...projectedDevices], groups: [] };
 }
 
 function allowedMediaUrl(value: string, hostPattern: RegExp): URL {
