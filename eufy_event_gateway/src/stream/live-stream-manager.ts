@@ -18,6 +18,7 @@ import type { DiagnosticMedia } from "../diagnostics/bundle-capture.js";
 import { GatewayState } from "../domain/gateway-state.js";
 import type { GatewayEvent, SnapshotInfo, VideoCodec } from "../domain/types.js";
 import { SnapshotStore } from "../storage/snapshot-store.js";
+import { ViewerStartupTimeline, type ViewerStartupMilestones } from "./viewer-startup-timeline.js";
 import { JpegParser } from "./jpeg-parser.js";
 import { LiveTransportMuxer, type VideoViewerResponse } from "./live-transport-muxer.js";
 
@@ -139,10 +140,24 @@ export interface ViewerClientSummary {
   readonly sourceChunks: number;
 }
 
+/** HTTP-write milestones for one viewer/source attempt. They do not prove HA rendering. */
+export interface ViewerStartupSummary extends ViewerStartupMilestones {
+  readonly model: string;
+  readonly profile: ViewerProfile;
+  readonly sourceCodec: VideoCodec | null;
+  readonly sourceAttempt: number;
+  readonly outcome: "random_access_queued" | "closed_before_random_access";
+  readonly firstWriteMilliseconds: number | null;
+  readonly readyWriteMilliseconds: number | null;
+}
+
 interface ViewerClientDelivery {
   readonly profile: ViewerProfile;
   startedCodec: VideoCodec | null;
   readonly requestedAtMilliseconds: number;
+  startupReported: boolean;
+  attemptFirstWriteAtMilliseconds: number | null;
+  randomAccessQueuedAtMilliseconds: number | null;
   deliveryStarted: boolean;
   firstWriteAtMilliseconds: number | null;
   lastWriteAtMilliseconds: number | null;
@@ -156,6 +171,8 @@ interface Session {
   readonly clients: Set<VideoViewerResponse>;
   readonly pendingClients: Set<VideoViewerResponse>;
   readonly clientDeliveries: Map<VideoViewerResponse, ViewerClientDelivery>;
+  viewerStartup: ViewerStartupTimeline;
+  viewerStartupAttempt: number;
   readonly recordings: Set<Recording>;
   readonly audioConsumers: Set<(chunk: Buffer) => void>;
   parameterSets: VideoParameterSetCache;
@@ -554,6 +571,9 @@ export class LiveStreamManager extends EventEmitter {
       profile,
       startedCodec: null,
       requestedAtMilliseconds: performance.now(),
+      startupReported: false,
+      attemptFirstWriteAtMilliseconds: null,
+      randomAccessQueuedAtMilliseconds: null,
       deliveryStarted: false,
       firstWriteAtMilliseconds: null,
       lastWriteAtMilliseconds: null,
@@ -575,7 +595,7 @@ export class LiveStreamManager extends EventEmitter {
     // Headers retained from a stopped source belong to its old encoding session.
     // Wait for the replacement source instead of sending two HTTP header blocks.
     if (session.source && session.state === "streaming" && viewerBootstrap && viewerCodec) {
-      this.#startClient(session, response, viewerCodec, viewerBootstrap);
+      this.#startClient(session, response, viewerCodec, viewerBootstrap, viewerParameterSets.startupIncludesLatest);
     } else {
       session.pendingClients.add(response);
       const startup = session.parameterSets.startup;
@@ -810,6 +830,12 @@ export class LiveStreamManager extends EventEmitter {
     });
     session.state = "streaming";
     session.parameterSets = new VideoParameterSetCache();
+    session.viewerStartup = new ViewerStartupTimeline();
+    session.viewerStartupAttempt = session.generation;
+    for (const delivery of session.clientDeliveries.values()) {
+      delivery.startupReported = false; delivery.attemptFirstWriteAtMilliseconds = null;
+      delivery.randomAccessQueuedAtMilliseconds = null;
+    }
     session.viewerParameterSets = new VideoParameterSetCache();
     for (const client of session.clients) session.pendingClients.add(client);
     session.ffmpeg = null;
@@ -839,6 +865,7 @@ export class LiveStreamManager extends EventEmitter {
     source.on("data", (chunk: Buffer) => {
       if (session.generation !== generation) return;
       if (chunk.length === 0) return;
+      session.viewerStartup.sourceByte();
       if (!session.privateTrial && !session.suppressSnapshots && this.listenerCount("diagnostic-media")) {
         this.emit("diagnostic-media", { serial, kind: "video", codec: codecHint() ?? "unknown", data: chunk } satisfies DiagnosticMedia);
       }
@@ -870,6 +897,7 @@ export class LiveStreamManager extends EventEmitter {
         || (codec === "h265" && compatibleClients.length > 0 && (!session.viewerFfmpeg
           || this.#shouldRestartViewerTranscoder(session)));
       const startup = needsStartup ? session.parameterSets.startup : null;
+      if (bootstrap && session.parameterSets.diagnostics.randomAccessPictures > 0) session.viewerStartup.sourceRandomAccess();
       if (bootstrap && codec) {
         for (const client of this.#profileClients(session, "native")) {
           const previous = session.clientDeliveries.get(client)?.startedCodec;
@@ -895,10 +923,10 @@ export class LiveStreamManager extends EventEmitter {
           // again would feed FFmpeg the same keyframe twice.
           if (!transcoderSeeded) this.#writeViewerTranscoderInput(session, chunk);
           this.#writeViewerChunk(session, chunk, "native");
-          if (startup) this.#startPendingClients(session, codec, startup, "native");
+          if (startup) this.#startPendingClients(session, codec, startup, "native", true);
         } else {
           this.#writeViewerChunk(session, chunk);
-          if (startup) this.#startPendingClients(session, codec, startup);
+          if (startup) this.#startPendingClients(session, codec, startup, undefined, true);
         }
         if (!snapshotStarted && session.ffmpeg?.stdin.writable) session.ffmpeg.stdin.write(chunk);
       }
@@ -994,6 +1022,8 @@ export class LiveStreamManager extends EventEmitter {
     if (this.#closed) throw new Error("Gateway closed before camera stream started");
     if (session.state !== "idle" && session.state !== "error") return;
     session.state = "starting";
+    session.viewerStartup = new ViewerStartupTimeline();
+    session.viewerStartupAttempt = session.generation + 1;
     session.owned = true;
     this.#updateState(serial, session);
     try {
@@ -1142,7 +1172,7 @@ export class LiveStreamManager extends EventEmitter {
     this.#updateState(serial, session, error?.message ?? null);
   }
 
-  #startClient(session: Session, response: VideoViewerResponse, codec: VideoCodec, bootstrap: Buffer): void {
+  #startClient(session: Session, response: VideoViewerResponse, codec: VideoCodec, bootstrap: Buffer, randomAccessQueued = false): void {
     if (!response.headersSent) {
       response.writeHead(200, {
         "Content-Type": codec === "h265" ? "video/h265" : "video/h264",
@@ -1154,17 +1184,17 @@ export class LiveStreamManager extends EventEmitter {
     const delivery = session.clientDeliveries.get(response);
     if (delivery) { delivery.deliveryStarted = true; delivery.startedCodec = codec; }
     const accepted = response.write(bootstrap);
-    this.#recordViewerClientWrite(session, response, bootstrap.length, accepted);
+    this.#recordViewerClientWrite(session, response, bootstrap.length, accepted, randomAccessQueued);
   }
 
   #profileClients(session: Session, profile: ViewerProfile): VideoViewerResponse[] {
     return [...session.clients].filter(client => session.clientDeliveries.get(client)?.profile === profile);
   }
 
-  #startPendingClients(session: Session, codec: VideoCodec, startup: Buffer, profile?: ViewerProfile): void {
+  #startPendingClients(session: Session, codec: VideoCodec, startup: Buffer, profile?: ViewerProfile, randomAccessQueued = false): void {
     for (const client of [...session.pendingClients]) {
       if (profile && session.clientDeliveries.get(client)?.profile !== profile) continue;
-      if (session.clients.has(client)) this.#startClient(session, client, codec, startup);
+      if (session.clients.has(client)) this.#startClient(session, client, codec, startup, randomAccessQueued);
       session.pendingClients.delete(client);
     }
   }
@@ -1185,7 +1215,9 @@ export class LiveStreamManager extends EventEmitter {
       delivered = true;
       session.viewerClientWrites += 1;
       const accepted = client.write(chunk);
-      this.#recordViewerClientWrite(session, client, chunk.length, accepted);
+      const converted = session.clientDeliveries.get(client)?.profile === "compatible" && session.parameterSets.codec === "h265";
+      this.#recordViewerClientWrite(session, client, chunk.length, accepted,
+        (converted ? session.viewerParameterSets : session.parameterSets).startupIncludesLatest);
       if (!accepted) session.viewerClientBackpressureEvents += 1;
       session.viewerMaximumClientWritableBytes = Math.max(
         session.viewerMaximumClientWritableBytes,
@@ -1209,6 +1241,7 @@ export class LiveStreamManager extends EventEmitter {
     preserveSummary = false,
   ): void {
     const generation = session.generation;
+    session.viewerStartup.conversionStarted();
     const process = this.createViewerTranscoder();
     session.viewerFfmpeg = process;
     session.viewerParameterSets = new VideoParameterSetCache();
@@ -1230,11 +1263,13 @@ export class LiveStreamManager extends EventEmitter {
       if (session.generation !== generation || session.viewerFfmpeg !== process) return;
       session.viewerTranscoderLastOutputAtMilliseconds = this.nowMilliseconds();
       session.viewerTranscoderLastOutputRandomAccessPicture = session.parameterSets.diagnostics.randomAccessPictures;
+      if (chunk.length > 0) session.viewerStartup.conversionOutput();
       session.viewerOutputBytes += chunk.length;
       session.viewerOutputChunks += 1;
       session.viewerOutputCadence.record();
       session.viewerParameterSets.push(chunk, "h264");
       const bootstrap = session.viewerParameterSets.bootstrap;
+      if (bootstrap && session.viewerParameterSets.diagnostics.randomAccessPictures > 0) session.viewerStartup.conversionRandomAccess();
       if (bootstrap) {
         this.#startPendingClients(session, "h264", bootstrap, "compatible");
       }
@@ -1327,7 +1362,10 @@ export class LiveStreamManager extends EventEmitter {
     session.suppressSnapshots = false;
     if (session.sourceQuietTimer) clearTimeout(session.sourceQuietTimer);
     session.sourceQuietTimer = null;
-    if (session.source) this.#emitViewerDeliverySummary(session);
+    if (session.source) {
+      for (const delivery of session.clientDeliveries.values()) this.#emitViewerStartup(session, delivery, true);
+      this.#emitViewerDeliverySummary(session);
+    }
     session.generation += 1;
     session.source?.removeAllListeners();
     session.source = null;
@@ -1378,21 +1416,50 @@ export class LiveStreamManager extends EventEmitter {
     response: VideoViewerResponse,
     bytes: number,
     accepted: boolean,
+    randomAccessQueued: boolean,
   ): void {
     const delivery = session.clientDeliveries.get(response);
     if (!delivery) return;
     const now = performance.now();
     if (delivery.firstWriteAtMilliseconds === null) delivery.firstWriteAtMilliseconds = now;
+    delivery.attemptFirstWriteAtMilliseconds ??= now;
+    if (randomAccessQueued) delivery.randomAccessQueuedAtMilliseconds ??= now;
     delivery.lastWriteAtMilliseconds = now;
     delivery.deliveredBytes += bytes;
     delivery.deliveredChunks += 1;
     if (!accepted) delivery.backpressureEvents += 1;
     delivery.maximumWritableBytes = Math.max(delivery.maximumWritableBytes, response.writableLength);
+    this.#emitViewerStartup(session, delivery, false);
+  }
+
+  #emitViewerStartup(session: Session, delivery: ViewerClientDelivery, closing: boolean): void {
+    if (delivery.startupReported) return;
+    const converted = delivery.profile === "compatible" && session.parameterSets.codec === "h265";
+    const ready = delivery.randomAccessQueuedAtMilliseconds !== null;
+    if (!ready && !closing) return;
+    delivery.startupReported = true;
+    const milestones = session.viewerStartup.snapshot(delivery.requestedAtMilliseconds, converted);
+    const summary: ViewerStartupSummary = {
+      ...milestones,
+      model: session.model, profile: delivery.profile,
+      sourceCodec: milestones.sourceFirstByteMilliseconds === null
+        ? null : session.parameterSets.codec,
+      sourceAttempt: session.viewerStartupAttempt, outcome: ready ? "random_access_queued" : "closed_before_random_access",
+      firstWriteMilliseconds: delivery.attemptFirstWriteAtMilliseconds === null ? null
+        : Math.round(Math.max(0, delivery.attemptFirstWriteAtMilliseconds - delivery.requestedAtMilliseconds)),
+      readyWriteMilliseconds: delivery.randomAccessQueuedAtMilliseconds === null ? null
+        : Math.round(Math.max(0, delivery.randomAccessQueuedAtMilliseconds - delivery.requestedAtMilliseconds)),
+    };
+    try { this.emit("viewer-startup-timings", summary); } catch {
+
+      // Diagnostics cannot interrupt media delivery.
+    }
   }
 
   #emitViewerClientSummary(session: Session, response: VideoViewerResponse): void {
     const delivery = session.clientDeliveries.get(response);
     if (!delivery) return;
+    this.#emitViewerStartup(session, delivery, true);
     session.clientDeliveries.delete(response);
     const now = performance.now();
     const summary: ViewerClientSummary = {
@@ -1429,6 +1496,8 @@ export class LiveStreamManager extends EventEmitter {
         clients: new Set(),
         pendingClients: new Set(),
         clientDeliveries: new Map(),
+        viewerStartup: new ViewerStartupTimeline(),
+        viewerStartupAttempt: 0,
         recordings: new Set(),
         audioConsumers: new Set(),
         parameterSets: new VideoParameterSetCache(),

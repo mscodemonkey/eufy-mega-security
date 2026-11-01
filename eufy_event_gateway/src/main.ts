@@ -25,6 +25,7 @@ import {
   LiveStreamManager,
   spawnH265ViewerTranscoder,
   type ViewerClientSummary,
+  type ViewerStartupSummary,
   type ViewerDeliverySummary,
   type ViewerTranscoderSummary,
 } from "./stream/live-stream-manager.js";
@@ -163,6 +164,19 @@ streams.on("viewer-delivery-stopped", (detail: ViewerDeliverySummary) => {
       `client_max_writable_bytes=${detail.maximumClientWritableBytes}`,
     ].join(" "),
   );
+});
+streams.on("viewer-startup-timings", (detail: ViewerStartupSummary) => {
+  logger.info("camera_viewer_start_timings", [
+    `model=${detail.model} profile=${detail.profile} codec=${detail.sourceCodec ?? "unknown"}`,
+    `source_attempt=${detail.sourceAttempt} conversion_attempt=${detail.conversionAttempt} outcome=${detail.outcome}`,
+    `source_first_byte_ms=${detail.sourceFirstByteMilliseconds ?? "none"}`,
+    `source_random_access_ms=${detail.sourceRandomAccessMilliseconds ?? "none"}`,
+    `conversion_start_ms=${detail.conversionStartMilliseconds ?? "none"}`,
+    `conversion_first_output_ms=${detail.conversionFirstOutputMilliseconds ?? "none"}`,
+    `viewer_random_access_ms=${detail.viewerRandomAccessMilliseconds ?? "none"}`,
+    `first_write_ms=${detail.firstWriteMilliseconds ?? "none"} ready_write_ms=${detail.readyWriteMilliseconds ?? "none"}`,
+    `warm_source=${detail.warmSource} warm_viewer=${detail.warmViewer}`,
+  ].join(" "));
 });
 streams.on("viewer-client-stopped", (detail: ViewerClientSummary) => {
   logger.info(
