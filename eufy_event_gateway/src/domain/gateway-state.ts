@@ -50,6 +50,9 @@ interface MutableCameraState {
   packageStrandedDetected: boolean;
   doorbellPressed: boolean;
   lastDetection: Detection | null;
+
+  /** Private provider correlation only. Never exposed in camera snapshots or SSE. */
+  personEventIdentity: string | null;
   snapshot: SnapshotInfo | null;
   eventImage: SnapshotInfo | null;
   streamState: StreamState;
@@ -119,6 +122,9 @@ export class GatewayState extends EventEmitter {
   registerCamera(identity: CameraIdentity): CameraState {
     const existing = this.#cameras.get(identity.serial);
     if (existing) {
+      if (existing.identity.stationSerial !== identity.stationSerial || existing.identity.model !== identity.model) {
+        existing.personEventIdentity = null;
+      }
       existing.identity = identity;
     } else {
       this.#cameras.set(identity.serial, {
@@ -137,6 +143,7 @@ export class GatewayState extends EventEmitter {
         packageStrandedDetected: false,
         doorbellPressed: false,
         lastDetection: null,
+        personEventIdentity: null,
         snapshot: null,
         eventImage: null,
         streamState: "idle",
@@ -290,13 +297,14 @@ export class GatewayState extends EventEmitter {
     this.#emitCamera(serial);
   }
 
-  /** Record person recognition, which takes precedence over same-moment motion. */
-  recordPerson(serial: string, detected: boolean, personName: string | null, occurredAt = new Date()): void {
+  /** Record person recognition and retain optional source ownership for later name enrichment. */
+  recordPerson(serial: string, detected: boolean, personName: string | null, occurredAt = new Date(), eventIdentity: string | null = null): void {
     const camera = this.#requireCamera(serial);
     camera.personDetected = detected;
     this.#refreshAggregateMotion(camera);
     this.#scheduleDetectionClear(this.#personClearTimers, serial, detected, () => this.recordPerson(serial, false, null));
     if (detected) {
+      camera.personEventIdentity = eventIdentity;
       const normalizedName = normalizePersonName(personName);
       const detection: Detection = {
         id: randomUUID(),
@@ -308,6 +316,21 @@ export class GatewayState extends EventEmitter {
       camera.lastDetection = detection;
       this.emit("event", { type: "detection", cameraSerial: serial, detection } satisfies GatewayEvent);
     }
+    this.#emitCamera(serial);
+  }
+
+  /**
+   * Add the first recognized name to the matching last person detection.
+   * Preserve its identity, time and expired detection flags. A newer event,
+   * changed camera binding or an existing name refuses the update. This emits
+   * camera state only, so subscribers do not receive a second detection.
+   */
+  enrichPersonName(serial: string, eventIdentity: string, personName: string): void {
+    const camera = this.#requireCamera(serial), previous = camera.lastDetection;
+    const name = normalizePersonName(personName);
+    if (!eventIdentity || camera.personEventIdentity !== eventIdentity || !name
+      || previous?.kind !== "person" || previous.recognized) return;
+    camera.lastDetection = { ...previous, personName: name, recognized: true };
     this.#emitCamera(serial);
   }
 
