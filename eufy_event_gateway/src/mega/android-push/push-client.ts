@@ -5,8 +5,11 @@
  *
  * Implements Google's FCM/MCS push protocol; live-verified against real account pushes.
  * Adapted from mega-yfue/eufy-sdk (Apache-2.0), with gateway-specific logging
- * and module boundaries. Raw push data is emitted to the caller and never logged.
+ * and module boundaries. Raw push data stays out of ordinary logs. The optional private history
+ * receives encrypted transport and delivery observations.
  */
+import { recordRaw } from "../../diagnostics/raw-history.js";
+import { observeRawSocket } from "../../diagnostics/raw-network.js";
 import { EventEmitter } from "node:events";
 import tls from "node:tls";
 import { mcsRoot } from "./proto.js";
@@ -171,6 +174,7 @@ export class PushClient extends EventEmitter {
   /** Consecutive MCS login rejections tolerated (self-healing propagation) before surfacing an error. */
   private static readonly MAX_LOGIN_FAILURES = 3;
   private socket: tls.TLSSocket | undefined;
+  private rawConnection = "not-connected";
   private readonly parser = new McsParser();
   private heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   private heartbeatReplyTimer: ReturnType<typeof setTimeout> | undefined;
@@ -221,6 +225,7 @@ export class PushClient extends EventEmitter {
     this.parser.reset();
     this.loggedIn = false;
     const socket = this.transport.connect();
+    this.rawConnection = observeRawSocket(socket, "android_push", "tls");
     this.socket = socket;
     socket.setKeepAlive(true, TCP_KEEPALIVE_INITIAL_DELAY_MS);
     this.clearLoginTimer();
@@ -244,6 +249,7 @@ export class PushClient extends EventEmitter {
       try {
         this.parser.handleData(d);
       } catch {
+        recordRaw({ boundary: "android_push_decode", connection: this.rawConnection, direction: "decode", metadata: { event: "parse_or_dispatch_failed" } });
         this.emit("error", new Error("Android MCS frame could not be decoded"));
         socket.destroy();
       }
@@ -292,6 +298,7 @@ export class PushClient extends EventEmitter {
   }
 
   private onMessage(m: McsMessage): void {
+    recordRaw({ boundary: "android_push_decode", connection: this.rawConnection, direction: "decode", metadata: { event: "frame_parsed", frame: m } });
     switch (m.tag) {
       case MessageTag.LoginResponse:
         if (m.object?.error) {
@@ -342,6 +349,8 @@ export class PushClient extends EventEmitter {
 
   private handleDataMessage(object: any): void {
     const duplicate = typeof object?.persistentId === "string" && this.persistentIds.includes(object.persistentId);
+    recordRaw({ boundary: "android_push_delivery", connection: this.rawConnection, direction: "decode",
+      metadata: { event: "dedup_decision", persistentId: object?.persistentId, duplicate } });
     logger.info("mcs_delivery_received", mcsDeliveryLogSummary(object, duplicate));
     if (typeof object?.persistentId === "string") {
       if (duplicate) return;
@@ -358,7 +367,9 @@ export class PushClient extends EventEmitter {
       sent: object?.sent,
       payload: data,
     };
+    recordRaw({ boundary: "android_push_delivery", connection: this.rawConnection, direction: "decode", metadata: { event: "dispatch_begin", message: raw } });
     this.emit("message", raw);
+    recordRaw({ boundary: "android_push_delivery", connection: this.rawConnection, direction: "decode", metadata: { event: "dispatch_returned" } });
     const event = normalizePushEvent(raw);
     if (event) this.emit("push", event);
   }

@@ -3,7 +3,9 @@
  * MegaClient owns persistence and account binding. This pure boundary retains
  * secrets only inside the returned cipher and performs no network operations.
  */
-import { createCipheriv, createDecipheriv, createECDH, createHash } from "node:crypto";
+import { createRecordedCipheriv as createCipheriv } from "../diagnostics/raw-crypto.js";
+import { createRecordedDecipheriv as createDecipheriv } from "../diagnostics/raw-crypto.js";
+import { createECDH, createHash } from "node:crypto";
 import { TextDecoder } from "node:util";
 import { LOGIN_SERVER_PUBLIC_KEY } from "./crypto.js";
 import type { MegaSession } from "./types.js";

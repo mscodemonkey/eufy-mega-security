@@ -8,6 +8,9 @@
  * change needs to parse Eufy data, alter state policy, or change an endpoint,
  * it belongs in the neighbouring boundary module instead.
  */
+import { rawBuildFingerprint } from "./diagnostics/raw-provenance.js";
+import { installRawRtcCapture } from "./diagnostics/raw-rtc.js";
+import { RawHistory, setRawHistory } from "./diagnostics/raw-history.js";
 import { join } from "node:path";
 import { EventImageCapture } from "./diagnostics/event-image-capture.js";
 
@@ -46,6 +49,21 @@ process.once("unhandledRejection", (error) => fatal("unhandled_rejection", error
 logger.info("gateway_start", `Eufy Mega Security starting with Node.js ${process.version}`);
 
 const config = loadConfig();
+let rawHistory: RawHistory | undefined;
+let stopRawRtc: () => void = () => undefined;
+if (["1", "true"].includes(process.env.EUFY_RAW_HISTORY ?? "")) {
+  try {
+    rawHistory = new RawHistory({ directory: join(config.dataDirectory, "private-raw-history"), buildFingerprint: await rawBuildFingerprint() });
+    await rawHistory.initialize();
+    setRawHistory(rawHistory);
+    stopRawRtc = installRawRtcCapture();
+    logger.info("raw_history_enabled", "Private encrypted raw history is active, limited to 24 hours and 1 GiB. Raw files are excluded from diagnostic bundles.");
+  } catch {
+    rawHistory = undefined;
+    setRawHistory(undefined, true);
+    logger.error("raw_history_unavailable", "Private raw history could not start. Check its storage and key permissions. Device connections will continue without raw recording.");
+  }
+}
 if (config.experimentalEventImageRequest) {
   logger.info("event_image_trial_retired", "The retired event-picture test is ignored. Pictures use authenticated requests.");
 }
@@ -320,6 +338,9 @@ async function shutdown(reason: string): Promise<void> {
   await server.close();
   await streams.close();
   await provider.close();
+  stopRawRtc();
+  await rawHistory?.close();
+  setRawHistory(undefined);
 }
 
 process.on("SIGINT", () => void shutdown("sigint").finally(() => process.exit(0)));

@@ -3,7 +3,7 @@
  * The provider owns inventory binding and key retrieval. This module retains
  * no state, performs no requests, and never reports private header fields.
  */
-import { createDecipheriv } from "node:crypto";
+import { createRecordedDecipheriv as createDecipheriv } from "../diagnostics/raw-crypto.js";
 import { unwrapAuthenticatedMediaKey } from "../crypto/media-key.js";
 import { isJpeg } from "./image.js";
 

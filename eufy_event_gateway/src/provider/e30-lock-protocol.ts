@@ -4,9 +4,11 @@
  * never logs payloads or performs network work, and supplies observations to
  * the lock registry. CBC and the frame checksum do not authenticate a reply.
  */
+import { createRecordedCipheriv as createCipheriv } from "../diagnostics/raw-crypto.js";
+import { createRecordedDecipheriv as createDecipheriv } from "../diagnostics/raw-crypto.js";
 import { performance } from "node:perf_hooks";
 import { inspect } from "node:util";
-import { createCipheriv, createDecipheriv, randomBytes, X509Certificate, createPrivateKey } from "node:crypto";
+import { randomBytes, X509Certificate, createPrivateKey } from "node:crypto";
 
 /** Private identity from the authenticated, exact-model standalone inventory. */
 export interface E30LockIdentity {

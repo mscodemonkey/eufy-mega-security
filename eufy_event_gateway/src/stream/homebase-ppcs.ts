@@ -7,7 +7,9 @@
  * receive validated station observations and command acknowledgements; raw
  * packets, account identifiers, and storage paths never cross this boundary.
  */
-import { createCipheriv, createDecipheriv } from "node:crypto";
+import { createRecordedCipheriv as createCipheriv } from "../diagnostics/raw-crypto.js";
+import { createRecordedDecipheriv as createDecipheriv } from "../diagnostics/raw-crypto.js";
+import { observeRawSocket } from "../diagnostics/raw-network.js";
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 
 import type { HomeBaseStorageState } from "../domain/types.js";
@@ -241,6 +243,7 @@ export class HomeBasePpcsSession {
         this.#lookupTimer = null;
         reject(error);
       });
+    observeRawSocket(this.#socket, "homebase_ppcs", "udp");
       this.#socket.on("message", (message, info) => {
         try {
           if (this.#handle(message, info)) {

@@ -9,7 +9,8 @@
  * not download URLs or decide when a camera event should be retained. V2 bodies
  * that cannot be authenticated retain the existing scan-reconstruction fallback.
  */
-import { createDecipheriv, createHash } from "node:crypto";
+import { createRecordedDecipheriv as createDecipheriv } from "../diagnostics/raw-crypto.js";
+import { createHash } from "node:crypto";
 import { recoverJpegHeader } from "./jpeg-header-recovery.js";
 
 const V2_PREFIX = "v2_eufysecurity:";
