@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.224
+
+- Preserve capture-local source attempts and separate header, acknowledgement and output counters in private diagnostics so a failed first-frame start can be tied to the source that actually stopped.
+- Correct the standalone C31 continuous-recording index test to use the command observed in the official app. This confirms index retrieval only and does not add continuous-recording playback.
+
 ## 0.1.223
 
 - Capture terminal event-picture HTTP failures in the opt-in private diagnostic session, with bounded receipts and session-specific references for comparing the same event in the Eufy app.
