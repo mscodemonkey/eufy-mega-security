@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.225
+
+- Add an optional, read-only NVR mode watcher so Home Assistant can receive mode changes without an open live view. It is off by default, starts with unknown effective mode and still needs NVR hardware confirmation. This does not enable arming controls.
+- Preserve a recognized person's name when it arrives in a repeated notification for the same visit, without firing another alert or applying it to a newer visit. This does not recover notifications that never reach the gateway.
+- Add viewer startup timings that separate source video, conversion and the video queued to each HTTP viewer. Headers alone do not count as ready video. Home Assistant display time remains a separate measurement.
+
 ## 0.1.224
 
 - Preserve capture-local source attempts and separate header, acknowledgement and output counters in private diagnostics so a failed first-frame start can be tied to the source that actually stopped.
