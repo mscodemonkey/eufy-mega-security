@@ -731,7 +731,13 @@ export class GatewayServer {
       if (request.method === "POST" && segments[0] === "api" && segments[1] === "locks"
         && segments[3] === "status-trial" && segments.length === 4) {
         response.setHeader("cache-control", "no-store");
-        if (!this.config.apiToken || !this.config.experimentalModelControls || !this.provider.readT85V0StatusTrial) return json(response, 409, { stage: "admission" });
+        const rejectAdmission = (reason: "api_authentication_required" | "feature_disabled" | "operation_unavailable"): void => {
+          logger.warn("lock_status_trial_failed", `stage=admission reason=${reason}`);
+          json(response, 409, { stage: "admission", reason });
+        };
+        if (!this.config.apiToken) return rejectAdmission("api_authentication_required");
+        if (!this.config.experimentalModelControls) return rejectAdmission("feature_disabled");
+        if (!this.provider.readT85V0StatusTrial) return rejectAdmission("operation_unavailable");
         if (url.search) return json(response, 400, { stage: "admission" });
         if ((request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase() !== "application/json") return json(response, 415, { stage: "admission" });
         let body: Record<string, unknown>;
