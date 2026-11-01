@@ -203,3 +203,63 @@ test("transport evidence rejects private extras and invalid numeric counter valu
     assert.doesNotMatch(JSON.stringify(row), /secret|private-|privateKey|firstDataHex/);
   } finally { capture.clear(); }
 });
+
+test("captures renumber sources independently and keep startup evidence within closed fields", () => {
+  const first = new BundleCapture({ target: null, seconds: 30, media: false });
+  const second = new BundleCapture({ target: null, seconds: 30, media: false });
+  const counters = { dataDatagrams: 5, frameHeaders: 5, videoFrames: 0, videoOutputFrames: 0,
+    sequenceGaps: 0, sequenceRestarts: 0, duplicateDatagrams: 0, staleDatagrams: 0,
+    parserResyncs: 0, pendingBytes: 0, incompleteAccessUnits: 0, incompleteAccessUnitBytes: 0,
+    mediaStartAcknowledged: 1, mediaStartAttempts: 1 };
+  const diagnostic = { stage: "first-frame", sourceAttempt: 99, startupBoundary: "start-acknowledged-no-video", counters,
+    frameKinds: [{ kind: "response", command: 1350, signCode: 1, transportType: 0, payload: "PRIVATE" },
+      { kind: "PRIVATE", command: 1, signCode: 0, transportType: 0 },
+      { kind: "other", command: 65536, signCode: 0, transportType: 0 }] };
+  try {
+    first.transport("private-camera", diagnostic as never);
+    first.transport("private-camera", diagnostic as never);
+    first.transport("private-camera", { ...diagnostic, sourceAttempt: 101 } as never);
+    second.transport("private-camera", { ...diagnostic, sourceAttempt: 101 } as never);
+    const rows = decode(first).records;
+    assert.deepEqual(rows.map((value: { sourceAttempt: number }) => value.sourceAttempt), [1, 1, 2]);
+    assert.equal(decode(second).records[0].sourceAttempt, 1);
+    assert.equal(rows[0].counters.mediaStartAcknowledged, 1);
+    assert.equal(rows[0].startupBoundary, "start-acknowledged-no-video");
+    assert.deepEqual(rows[0].frameKinds, [{ kind: "response", command: 1350, signCode: 1, transportType: 0 }]);
+    assert.doesNotMatch(JSON.stringify(rows), /PRIVATE|payload|65536|private-camera/);
+  } finally { first.clear(); second.clear(); }
+});
+
+test("HTTP capture snapshots a retiring source before its replacement resets counters", async () => {
+  const state = fixture(), streams = new EventEmitter();
+  const counters = { dataDatagrams: 5, frameHeaders: 5, videoFrames: 0, videoOutputFrames: 0,
+    sequenceGaps: 0, sequenceRestarts: 0, duplicateDatagrams: 0, staleDatagrams: 0,
+    parserResyncs: 0, pendingBytes: 0, incompleteAccessUnits: 0, incompleteAccessUnitBytes: 0,
+    mediaStartAcknowledged: 1, mediaStartAttempts: 1 };
+  let source = { stage: "first-frame", sourceAttempt: 42, counters };
+  const provider = { streamDiagnostic: (serial: string) => serial === "private-camera" ? source : null } as CameraProvider;
+  const server = new GatewayServer({ ...loadConfig({}), apiToken: "synthetic-token", port: 0 }, state,
+    new SnapshotStore("unused"), streams as LiveStreamManager, provider, null);
+  const headers = { authorization: "Bearer synthetic-token", "content-type": "application/json" };
+  try {
+    await server.listen();
+    const path = `http://127.0.0.1:${server.port}/api/diagnostics/bundle`;
+    assert.equal((await fetch(path, { method: "POST", headers,
+      body: JSON.stringify({ target: "private-camera", seconds: 30, media: false }) })).status, 201);
+    source.counters = { ...counters, frameHeaders: 6 };
+    createLogger("provider").info("camera_stream_closed", "synthetic close boundary");
+    source = { stage: "first-frame", sourceAttempt: 43, counters: { ...counters, frameHeaders: 0 } };
+    createLogger("provider").info("camera_stream_start_failed", "synthetic replacement boundary");
+    const response = await fetch(path + "/export", { method: "POST", headers });
+    const archive = JSON.parse(gunzipSync(Buffer.from(await response.arrayBuffer())).toString());
+    const rows = archive.records.filter((value: { event: string }) => value.event === "source-transport");
+    assert.deepEqual([...new Set(rows.map((value: { sourceAttempt: number }) => value.sourceAttempt))], [1, 2]);
+    const retiring = rows.findIndex((value: { sourceAttempt: number; counters: { frameHeaders: number } }) => value.sourceAttempt === 1 && value.counters.frameHeaders === 6);
+    const replacement = rows.findIndex((value: { sourceAttempt: number }) => value.sourceAttempt === 2);
+    assert.ok(retiring >= 0 && replacement > retiring);
+    assert.ok(rows.filter((value: { sourceAttempt: number }) => value.sourceAttempt === 2)
+      .every((value: { counters: { frameHeaders: number } }) => value.counters.frameHeaders === 0));
+    assert.equal(archive.media.length, 0);
+    assert.doesNotMatch(JSON.stringify(archive), /synthetic close|synthetic replacement|private-camera/);
+  } finally { await server.close(); }
+});

@@ -693,10 +693,36 @@ export interface CatalogueEventEvidence {
   readonly hasSenseId: boolean;
 }
 
+/** Complete received-frame categories, excluding sizes and vendor contents. */
+export interface StreamFrameKind {
+  readonly kind: "gateway-info" | "camera-info" | "video" | "audio" | "response" | "notification" | "other";
+
+  /** Numeric command from a complete header, never its payload or acceptance result. */
+  readonly command: number;
+
+  /** Unsigned header discriminator selecting the frame encryption representation. */
+  readonly signCode: number;
+
+  /** Unsigned transport discriminator, excluding channel and peer identity. */
+  readonly transportType: number;
+}
+
+/** Last observed startup boundary, without claiming transport ACK means camera acceptance. */
+export type StreamStartupBoundary = "lookup" | "start-not-sent" | "start-unacknowledged"
+  | "start-acknowledged-no-video" | "video-without-output" | "output" | "unknown";
+
 /** Numeric source-transport evidence without peer addresses, keys or payload bytes. */
 export interface StreamDiagnostic {
   readonly stage: "lookup" | "first-frame" | "media";
+
+  /** Transient provider source identity, renumbered within each private capture. */
+  readonly sourceAttempt?: number;
+  readonly startupBoundary?: StreamStartupBoundary;
+  readonly frameKinds?: readonly StreamFrameKind[];
   readonly counters: Readonly<Record<"dataDatagrams" | "frameHeaders" | "videoFrames" | "videoOutputFrames"
     | "sequenceGaps" | "sequenceRestarts" | "duplicateDatagrams" | "staleDatagrams"
-    | "parserResyncs" | "pendingBytes" | "incompleteAccessUnits" | "incompleteAccessUnitBytes", number>>;
+    | "parserResyncs" | "pendingBytes" | "incompleteAccessUnits" | "incompleteAccessUnitBytes", number>>
+    & Readonly<Partial<Record<"camId" | "gatewayInfo" | "level2" | "cameraInfoFrames" | "foreignVideoFrames"
+      | "gatewayInfoAcknowledged" | "gatewayInfoRetransmitted" | "gatewayInfoExpired"
+      | "mediaStartAttempts" | "mediaStartAcknowledged" | "mediaStartRetransmitted" | "mediaStartExpired", number>>>;
 }

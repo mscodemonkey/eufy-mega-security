@@ -183,7 +183,6 @@ export class GatewayServer {
       const media = (sample: DiagnosticMedia): void => capture.media(sample);
       this.state.on("event", events);
       if (value.media) this.streams.on("diagnostic-media", media);
-      const unsubscribe = observeLogEvents((component, event, level) => capture.record(`log:${component}:${event}`, undefined, level));
       const transport = (): void => {
         if (!this.provider.streamDiagnostic || capture.status().state !== "active") return;
         for (const camera of this.state.listCameras()) {
@@ -192,6 +191,12 @@ export class GatewayServer {
           if (diagnostic) capture.transport(camera.serial, diagnostic);
         }
       };
+      const unsubscribe = observeLogEvents((component, event, level) => {
+        capture.record(`log:${component}:${event}`, undefined, level);
+
+        // Observe the retiring source before the provider removes or replaces it.
+        if (component === "provider" && ["camera_stream_closed", "camera_stream_start_failed", "camera_stream_peer_recovery"].includes(event)) transport();
+      });
       this.#sampleBundleTransport = transport;
       transport();
       const transportTimer = setInterval(() => {

@@ -307,9 +307,11 @@ for (const scenario of ['continuous-parameters', 'continuous-h265', 'continuous-
     });
   }
   const timingReports: NvrTimings[] = [];
+  const nativeVideoNow = performance.now.bind(performance);
+  let videoProgressOffset = 0;
   const session = new NvrRtcSession({ onTimings: value => timingReports.push(value), station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
     powerTrial: scenario.startsWith('power'), liveControls: scenario.startsWith('live-') || scenario === 'continuous-controls',
-    ...(scenario.startsWith('continuous-') ? { maximumLifetimeMilliseconds: null } : {}),
+    ...(scenario.startsWith('continuous-') ? { maximumLifetimeMilliseconds: null, videoProgressNow: () => nativeVideoNow() + videoProgressOffset } : {}),
     guardTrial: scenario === 'guard', ...(scenario === 'guard' ? { userName: 'Synthetic' } : {}),
     cameraType: scenario === 'legacy-first-lens' ? 14 : 301, sensor: scenario === 'legacy-first-lens' ? 0 : 1,
     administrator: scenario === 'live-encode-failure' ? 'invalid owner!' : 'synthetic-administrator', context: { host: 'security-smart-ie.eufylife.com', region: 'IE',
@@ -414,11 +416,9 @@ for (const scenario of ['continuous-parameters', 'continuous-h265', 'continuous-
         await session.prepareLiveControl(false);
         await session.writeLiveControl({ kind: 'night', value: 1 }, controller.signal, () => {});
         assert.equal(commands.filter(command => command === 1277).length, 1);
-        const nativeNow = performance.now.bind(performance);
-        let offset = 11_000;
         clearInterval(sendVideo);
         await new Promise(resolve => setTimeout(resolve, 100));
-        context.mock.method(performance, 'now', () => nativeNow() + offset);
+        videoProgressOffset = 11_000;
         let dispatched = 0;
         await assert.rejects(session.writeLiveControl({ kind: 'night', value: 1 }, controller.signal, () => { dispatched++; }), { stage: 'source_lifetime' });
         assert.equal(dispatched, 0);
@@ -426,7 +426,7 @@ for (const scenario of ['continuous-parameters', 'continuous-h265', 'continuous-
 
         // Heartbeats cannot restore the guaranteed budget needed by a control.
         const oldVideo = session.stats.video;
-        offset = 12_000;
+        videoProgressOffset = 12_000;
         sendHeartbeat();
         await new Promise(resolve => setTimeout(resolve, 50));
         assert.ok(session.remainingLifetimeMilliseconds < 35_000);
@@ -444,11 +444,10 @@ for (const scenario of ['continuous-parameters', 'continuous-h265', 'continuous-
           assert.equal(session.stats.signallingClosuresAfterVideo, 1);
           assert.equal(session.output.destroyed, false);
         }
-        const nativeNow = performance.now.bind(performance);
 
-        // The lease assertion needs output after the clock jump, not a guessed UDP delay.
+        // Advance only the lease. Pending real-peer fragments retain real transport time.
         const freshVideo = once(session.output, 'data', { signal: AbortSignal.timeout(5_000) });
-        context.mock.method(performance, 'now', () => nativeNow() + 180_000);
+        videoProgressOffset = 180_000;
         await freshVideo;
         assert.ok(session.remainingLifetimeMilliseconds > 35_000);
         assert.equal(session.output.destroyed, false);

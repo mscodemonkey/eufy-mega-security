@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import type { GatewayState } from "../domain/gateway-state.js";
-import type { GatewayEvent, StreamDiagnostic } from "../domain/types.js";
+import type { GatewayEvent, StreamDiagnostic, StreamFrameKind, StreamStartupBoundary } from "../domain/types.js";
 import { safeCameraModel } from "../domain/safe-camera-model.js";
 import { getLogIdentity } from "../logging.js";
 
@@ -36,6 +36,9 @@ interface RecordEntry {
   readonly device?: string;
   readonly code?: string | number;
   readonly counters?: Readonly<Record<string, number>>;
+  readonly sourceAttempt?: number;
+  readonly startupBoundary?: StreamStartupBoundary;
+  readonly frameKinds?: readonly StreamFrameKind[];
 }
 
 interface MediaEntry {
@@ -65,6 +68,7 @@ export function diagnosticTargets(state: GatewayState) {
 export class BundleCapture {
   readonly #started: number;
   readonly #ids = new Map<string, string>();
+  readonly #sourceAttempts = new Map<string, Map<number, number>>();
   readonly #selected = new Set<string>();
   readonly #records: RecordEntry[] = [];
   readonly #media: MediaEntry[] = [];
@@ -175,12 +179,33 @@ export class BundleCapture {
     const counters: Record<string, number> = {};
     for (const key of ["dataDatagrams", "frameHeaders", "videoFrames", "videoOutputFrames", "sequenceGaps",
       "sequenceRestarts", "duplicateDatagrams", "staleDatagrams", "parserResyncs", "pendingBytes",
-      "incompleteAccessUnits", "incompleteAccessUnitBytes"] as const) {
+      "incompleteAccessUnits", "incompleteAccessUnitBytes", "camId", "gatewayInfo", "level2", "cameraInfoFrames",
+      "foreignVideoFrames", "gatewayInfoAcknowledged", "gatewayInfoRetransmitted", "gatewayInfoExpired",
+      "mediaStartAttempts", "mediaStartAcknowledged", "mediaStartRetransmitted", "mediaStartExpired"] as const) {
       const value = diagnostic.counters[key];
-      if (Number.isSafeInteger(value) && value >= 0) counters[key] = value;
+      if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) counters[key] = value;
+    }
+    let sourceAttempt: number | undefined;
+    if (typeof diagnostic.sourceAttempt === "number" && Number.isSafeInteger(diagnostic.sourceAttempt) && diagnostic.sourceAttempt > 0) {
+      let attempts = this.#sourceAttempts.get(serial);
+      if (!attempts) { attempts = new Map(); this.#sourceAttempts.set(serial, attempts); }
+      sourceAttempt = attempts.get(diagnostic.sourceAttempt);
+      if (sourceAttempt === undefined) { sourceAttempt = attempts.size + 1; attempts.set(diagnostic.sourceAttempt, sourceAttempt); }
+    }
+    const startupBoundary = ["lookup", "start-not-sent", "start-unacknowledged", "start-acknowledged-no-video",
+      "video-without-output", "output", "unknown"].includes(diagnostic.startupBoundary ?? "") ? diagnostic.startupBoundary : undefined;
+    const frameKinds: StreamFrameKind[] = [];
+    for (const value of Array.isArray(diagnostic.frameKinds) ? diagnostic.frameKinds.slice(0, 20) : []) {
+      if (!value || !["gateway-info", "camera-info", "video", "audio", "response", "notification", "other"].includes(value.kind)
+        || !Number.isInteger(value.command) || value.command < 0 || value.command > 65535
+        || !Number.isInteger(value.signCode) || value.signCode < 0 || value.signCode > 255 || !Number.isInteger(value.transportType)
+        || value.transportType < 0 || value.transportType > 65535) continue;
+      frameKinds.push({ kind: value.kind, command: value.command, signCode: value.signCode, transportType: value.transportType });
     }
     this.#records.push({ offsetMs: this.#elapsed(), event: "source-transport", device: this.#id(serial),
-      code: diagnostic.stage === "lookup" || diagnostic.stage === "first-frame" ? diagnostic.stage : "media", counters });
+      code: diagnostic.stage === "lookup" || diagnostic.stage === "first-frame" ? diagnostic.stage : "media", counters,
+      ...(sourceAttempt !== undefined ? { sourceAttempt } : {}), ...(startupBoundary ? { startupBoundary } : {}),
+      ...(diagnostic.frameKinds ? { frameKinds } : {}) });
   }
 
   /** Copy native media only during a consented session, before viewer conversion. */
@@ -206,7 +231,7 @@ export class BundleCapture {
     for (const sample of this.#media) sample.data.fill(0);
     this.#media.length = 0;
     this.#records.length = 0;
-    this.#ids.clear();
+    this.#ids.clear(); this.#sourceAttempts.clear();
     this.#selected.clear();
     this.#bytes = 0;
     this.#state = reason;
