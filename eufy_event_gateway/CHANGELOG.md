@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.226
+
+- Let Home Assistant scripts continue after motion and camera-enable requests are accepted, with pending state, background confirmation and visible failures. Remove an unrelated charging-history lookup from setting confirmation.
+- Add default-off S1 Home Assistant live-view trials for exact T8172, T8140, T8113-V and T8215 cameras, and a fixed-view NVR trial for exact T8P10 cameras. Hardware playback remains unconfirmed.
+- Add default-off standalone C37 movement, tracking, saved-position and spotlight controls, with fresh-state checks, explicit failures and original queued connection ownership.
+- Correct general RTC inventory admission and retain NVR mode observations across repeated readings and overlapping connections.
+- Add encrypted opt-in rolling raw history for private diagnostics, plus manual exact-recording name and thumbnail checks. Add an exact T8113-Z through HomeBase 3 missing-picture recovery experiment, disabled by default. Other picture failures and automatic missing-name recovery remain unresolved.
+- Explain read-only lock status admission failures without exposing private device details.
+
 ## 0.1.225
 
 - Add an optional, read-only NVR mode watcher so Home Assistant can receive mode changes without an open live view. It is off by default, starts with unknown effective mode and still needs NVR hardware confirmation. This does not enable arming controls.
