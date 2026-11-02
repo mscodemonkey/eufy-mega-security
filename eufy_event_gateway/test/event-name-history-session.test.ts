@@ -49,12 +49,12 @@ async function peer(context: TestContext) {
   return { session, socket, sent, key };
 }
 
-for (const tampered of [false, true]) test(`one authenticated history-name query, tampered=${tampered}`, async context => {
+for (const profile of ["gcm", "gcm_bad_tag", "legacy", "legacy_no_terminator", "legacy_long_tail", "legacy_wrong_key", "plaintext"] as const) test(`one history-name query with ${profile} reply`, async context => {
   context.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
   const { session, socket, sent, key } = await peer(context);
   try {
     const operation = session.readEventNameHistory("2026-10-31", "123");
-    const failed = tampered ? assert.rejects(operation, /invalid_response/) : null;
+    const failed = profile !== "gcm" && profile !== "legacy" ? assert.rejects(operation, /invalid_response/) : null;
     await new Promise(resolve => setImmediate(resolve));
     const commands = sent.filter(value => value.subarray(8, 12).toString() === "XZYH");
     assert.deepEqual(commands.map(value => value.readUInt16LE(12)), [1100, 1350]);
@@ -68,12 +68,25 @@ for (const tampered of [false, true]) test(`one authenticated history-name query
       end_id: 1, flag: 0, need_ai: 1, res_unzip: 1, update_time: "0", start_time: "0", alarm_id: "" });
     const value = { cmd: 10011, table: "history_record_info", transaction: request.payload.transaction, mIntRet: 0,
       data: ["history_record_info", "record_crop_picture_info", "person_basic_info"].map(table_name => ({ table_name, payload: [] })) };
-    const nonce = Buffer.alloc(12, 7), cipher = createCipheriv("aes-256-gcm", key, nonce);
-    cipher.setAAD(Buffer.from("eufy security"));
-    const encrypted = Buffer.concat([cipher.update(JSON.stringify(value)), cipher.final()]);
-    const response = Buffer.concat([cipher.getAuthTag(), nonce, Buffer.alloc(4), encrypted]);
-    if (tampered) response[0] = response[0]! ^ 1;
-    deliver(socket, 1306, response, 8, 1);
+    let response: Buffer, sign = 8;
+    if (profile.startsWith("legacy")) {
+      const json = Buffer.from(JSON.stringify(value));
+      const padding = Buffer.alloc(16 - json.length % 16, 0x5a);
+      if (profile !== "legacy_no_terminator") padding[0] = 0;
+      const body = Buffer.concat([json, padding, ...(profile === "legacy_long_tail" ? [Buffer.alloc(16)] : [])]);
+      const cipher = createCipheriv("aes-128-ecb", Buffer.from(profile === "legacy_wrong_key" ? "7654321-87654321" : "1234567-12345678"), null);
+      cipher.setAutoPadding(false);
+      response = Buffer.concat([cipher.update(body), cipher.final()]); sign = 1;
+    } else if (profile === "plaintext") {
+      response = Buffer.from(JSON.stringify(value)); sign = 0;
+    } else {
+      const nonce = Buffer.alloc(12, 7), cipher = createCipheriv("aes-256-gcm", key, nonce);
+      cipher.setAAD(Buffer.from("eufy security"));
+      const encrypted = Buffer.concat([cipher.update(JSON.stringify(value)), cipher.final()]);
+      response = Buffer.concat([cipher.getAuthTag(), nonce, Buffer.alloc(4), encrypted]);
+      if (profile === "gcm_bad_tag") response[0] = response[0]! ^ 1;
+    }
+    deliver(socket, 1306, response, sign, 1);
     if (failed) await failed;
     else assert.deepEqual(await operation, { scope: "one_history_page", records: 0, personCrops: 0, recordsWithFamiliarNames: 0, unresolvedPersonCrops: 0 });
     assert.equal(session.stats.mediaStartAttempts, 0);

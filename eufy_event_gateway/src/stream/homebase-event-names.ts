@@ -32,7 +32,10 @@ export interface EventNameHistoryTransport {
   /** Submit the fixed first-page operation at this explicit cursor, without retries. */
   query(transaction: string, date: string, startId: string): void;
 
-  /** Authenticate the station envelope, returning null for unsupported protection. */
+  /** Decode a supported station envelope, returning null for unsupported protection.
+   * Legacy ECB does not authenticate content, so checked transaction and ownership
+   * joins remain mandatory even after successful decryption.
+   */
   decodeReply(payload: Buffer, sign: number): Buffer | null;
 }
 

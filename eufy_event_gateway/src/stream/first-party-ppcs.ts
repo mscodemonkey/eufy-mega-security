@@ -2608,6 +2608,16 @@ export class FirstPartyPpcsSession {
       },
       decodeReply: (payload, sign) => {
         if ((sign === 8 || sign === 2) && this.#level2Key) return decryptLevel2(payload, this.#level2Key, sign) ?? null;
+        if (sign === 1 && payload.length > 0 && payload.length % 16 === 0) {
+          try {
+            const clear = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid));
+            const end = clear.indexOf(0);
+
+            // The captured legacy reply ends with NUL and unused bytes in its final AES block.
+            if (end < 0 || clear.length - end > 16) return null;
+            return clear.subarray(0, end);
+          } catch { return null; }
+        }
         return null;
       },
     });
