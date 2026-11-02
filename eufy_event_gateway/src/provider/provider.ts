@@ -156,7 +156,7 @@ export interface CameraProvider {
   diagnoseEventNames?(serial: string, date: string, startId: string, signal: AbortSignal): Promise<EventNameHistorySummary>;
 
   /** Run one manual history-owned thumbnail check without publishing the image. */
-  diagnoseEventPicture?(serial: string, date: string, startId: string, recordId: string | undefined, signal: AbortSignal): Promise<EventPictureSummary>;
+  diagnoseEventPicture?(serial: string, date: string, startId: string, recordId: string | undefined, signal: AbortSignal, recordingPath?: string): Promise<EventPictureSummary>;
 
   /** Retrieve a previously listed opaque ID; null means the reference expired or is unknown. */
   downloadStoredRecording?(serial: string, id: string, signal?: AbortSignal): Promise<Buffer | null>;

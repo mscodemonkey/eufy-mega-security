@@ -27,6 +27,7 @@ options:
   country: AU
   verification_code: ""
   experimental_event_image_request: false
+  experimental_homebase_event_images: false
   raw_message_history: false
   capture_failed_event_images: false
   experimental_model_controls: false
@@ -45,6 +46,7 @@ schema:
   country: str
   verification_code: str
   experimental_event_image_request: bool?
+  experimental_homebase_event_images: bool?
   raw_message_history: bool?
   capture_failed_event_images: bool
   experimental_model_controls: bool

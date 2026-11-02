@@ -26,6 +26,9 @@ export interface GatewayConfig {
   /** Retained for saved configuration. This retired option never changes picture authentication. */
   readonly experimentalEventImageRequest: boolean;
 
+  /** Default-off exact-record thumbnail recovery on the observed HomeBase 3 route. */
+  readonly experimentalHomeBaseEventImages: boolean;
+
   /** Default-off official-model control trials, requiring bearer authentication. */
   readonly experimentalModelControls: boolean;
 
@@ -78,6 +81,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
   const host = environment.EUFY_GATEWAY_HOST ?? "127.0.0.1";
   const apiToken = nonEmpty(environment.EUFY_GATEWAY_API_TOKEN);
   const experimentalEventImageRequest = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_EVENT_IMAGE_REQUEST, "EUFY_GATEWAY_EXPERIMENTAL_EVENT_IMAGE_REQUEST");
+  const experimentalHomeBaseEventImages = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_IMAGES, "EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_IMAGES");
+  if (experimentalHomeBaseEventImages && !apiToken) throw new Error("Experimental HomeBase picture recovery requires EUFY_GATEWAY_API_TOKEN");
   const captureFailedEventImages = captureBoolean(environment.EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES);
   const experimentalModelControls = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS, "EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS");
   const experimentalE30Locks = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_E30_LOCKS, "EUFY_GATEWAY_EXPERIMENTAL_E30_LOCKS");
@@ -120,6 +125,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
     apiToken,
     captureFailedEventImages,
     experimentalEventImageRequest,
+    experimentalHomeBaseEventImages,
     experimentalModelControls,
     experimentalE30Locks,
     experimentalNvrLive,

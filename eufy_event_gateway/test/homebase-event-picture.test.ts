@@ -36,7 +36,7 @@ function fixture() {
     return reader.handleFrame(header, Buffer.concat([Buffer.from(JSON.stringify(value)), suffix]));
   };
   return { reader, row, frame, sent: () => sent, imageCalls: () => imageCalls,
-    page: (rows = [row], tx = transaction) => frame(1306, { cmd: 10011, table: "history_record_info", transaction: tx,
+    page: (rows: Record<string, unknown>[] = [row], tx = transaction) => frame(1306, { cmd: 10011, table: "history_record_info", transaction: tx,
       mIntRet: 0, data: [{ table_name: "history_record_info", payload: rows }] }) };
 }
 
@@ -131,4 +131,20 @@ test("legacy image replies accept only the captured final-block terminator and k
   const missing = Buffer.alloc(padding.length, 0x5a);
   assert.equal(decodeLegacyEventPictureReply(protect(Buffer.concat([value, missing])), 1, key), null);
   assert.equal(decodeLegacyEventPictureReply(protect(Buffer.concat([value, padding, Buffer.alloc(16)])), 1, key), null);
+});
+
+const recordingPath = "/zx/hdd_data0/Camera00/202611/20261102090000/20261102092000.zxvideo";
+
+test("recovery transfers a private JPEG copy only after both opaque ID and complete recording path match", async () => {
+  const f = fixture(), result = f.reader.recover({ id: "123", storagePath: recordingPath, triggerMilliseconds: 1_793_568_000_000 });
+  f.page([{ ...f.row, storage_path: recordingPath }]);
+  f.frame(1308, { file, content: jpeg.toString("base64url") });
+  const recovered = await result; assert.deepEqual(recovered, jpeg); assert.notEqual(recovered, jpeg);
+  recovered.fill(0); assert.equal(jpeg[0], 255);
+});
+
+test("an ID collision with a different recording path is refused before any thumbnail read", async () => {
+  const f = fixture(), result = f.reader.recover({ id: "123", storagePath: recordingPath, triggerMilliseconds: 1_793_568_000_000 });
+  f.page([{ ...f.row, storage_path: recordingPath.replace("092000", "092100") }]);
+  await assert.rejects(result, /invalid_response/); assert.equal(f.imageCalls(), 0);
 });

@@ -193,7 +193,39 @@ An absent record leaves the check unfinished rather than selecting another one.
 There is no automatic pagination or retry. Cancellation or a changed camera or
 date prevents a late result from appearing under the new selection.
 
+Private investigations can additionally supply `recordingPath` with `recordId`
+to require the complete recording reference to match. This narrows the history
+selection. It is never used as the requested image path, and the response still
+contains counts only.
+
 The recording thumbnail and notification image can be different renditions.
 Retrieving the thumbnail does not establish why a cloud download failed, prove
 that both images contain identical bytes, or enable automatic recovery. Other
 models and HomeBase generations remain outside this check's observed contract.
+
+## Experimental HomeBase picture recovery
+
+The app option **Experimental HomeBase picture recovery** is off by default.
+For a T8113-Z/type 8 camera on HomeBase 3 T8030/type 18, it tries the matching
+recording thumbnail after the normal cloud-picture retries finish with HTTP 404.
+It can recover a lower-resolution picture of the same event. The cloud image
+and recording thumbnail are not assumed to contain identical bytes.
+
+Recovery requires a recent notification with an exact recording ID and complete
+supported recording path. Both must match the camera's HomeBase history row.
+One page of at most 50 rows is checked, with no retry or automatic pagination.
+Unsupported paths, missing records, other download errors and a busy HomeBase
+leave the last good image in place. There is at most one attempt per HomeBase
+per ten seconds. Live viewers and other reserved operations take precedence.
+
+A newer event, changed camera/account binding or gateway restart invalidates
+an older picture operation. Recovery only updates the image. It does not create
+another detection or extend its timer. `push_snapshot_recovered` records a
+successful thumbnail retrieval. `push_snapshot_recovery_unavailable` means the
+attempt could not recover that exact thumbnail. Neither line contains private
+recording references.
+
+The notification-to-history join and real protected replies have been replayed
+through EMS, and the exact thumbnail read has been exercised on local hardware.
+Automatic recovery on a fresh naturally failing notification still needs that
+separate confirmation. This option does not add HomeBase 2 or doorbell support.

@@ -120,3 +120,10 @@ test("NVR camera-power trials need a separate default-off authenticated option",
   assert.throws(()=>loadConfig({EUFY_GATEWAY_EXPERIMENTAL_NVR_CONTROLS:"true"}),/API_TOKEN/);
   assert.equal(loadConfig({EUFY_GATEWAY_EXPERIMENTAL_NVR_CONTROLS:"true",EUFY_GATEWAY_API_TOKEN:"x".repeat(32)}).experimentalNvrControls,true);
 });
+
+test("HomeBase event picture recovery is a separate authenticated opt-in", () => {
+  assert.equal(loadConfig({}).experimentalHomeBaseEventImages, false);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_IMAGES: "true" }), /API_TOKEN/);
+  assert.equal(loadConfig({ EUFY_GATEWAY_API_TOKEN: "x".repeat(32), EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_IMAGES: "true" }).experimentalHomeBaseEventImages, true);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_IMAGES: "yes" }), /true or false/);
+});

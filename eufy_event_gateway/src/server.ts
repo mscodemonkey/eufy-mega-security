@@ -20,6 +20,7 @@ import { nvrGuardTimeZone } from "./provider/nvr-guard-schedule.js";
 import { T85V0StatusError } from "./provider/t85v0-status.js";
 import { LocalMotionError } from "./stream/local-motion-trial.js";
 import { C31IndexError } from "./stream/c31-recording-index.js";
+import { recordingPathDate } from "./mega/push-recording-reference.js";
 import { projectEventPictureSummary } from "./stream/homebase-event-picture.js";
 import { EventNameHistoryError, eventHistoryCursor, eventHistoryId, nextEventHistoryDate, projectEventNameHistorySummary } from "./stream/homebase-event-names.js";
 import { CloudRecordingError } from "./stream/cloud-recordings.js";
@@ -617,16 +618,17 @@ export class GatewayServer {
         if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
         if (request.headers["content-type"]?.split(";", 1)[0]?.trim() !== "application/json") return json(response, 415, { error: "History check requires application/json" });
         const body = await readJson(request);
-        if (Object.keys(body).some(key => key !== "date" && key !== "startId" && key !== "recordId") || typeof body.date !== "string"
+        if (Object.keys(body).some(key => key !== "date" && key !== "startId" && key !== "recordId" && key !== "recordingPath") || typeof body.date !== "string"
           || body.startId !== undefined && typeof body.startId !== "string"
-          || body.recordId !== undefined && typeof body.recordId !== "string") throw new SyntaxError("Invalid history check request");
+          || body.recordId !== undefined && typeof body.recordId !== "string"
+          || body.recordingPath !== undefined && (typeof body.recordingPath !== "string" || body.recordId === undefined || recordingPathDate(body.recordingPath) !== body.date)) throw new SyntaxError("Invalid history check request");
         try { nextEventHistoryDate(body.date); eventHistoryCursor(body.startId ?? "0"); if (body.recordId !== undefined) eventHistoryId(body.recordId); }
         catch { throw new SyntaxError("Invalid history check request"); }
         const controller = new AbortController(), abort = (): void => controller.abort();
         const timeout = setTimeout(abort, 60_000);
         request.once("aborted", abort); response.once("close", abort);
         try {
-          const result = await this.provider.diagnoseEventPicture(segments[2]!, body.date, (body.startId as string | undefined) ?? "0", body.recordId as string | undefined, controller.signal);
+          const result = await this.provider.diagnoseEventPicture(segments[2]!, body.date, (body.startId as string | undefined) ?? "0", body.recordId as string | undefined, controller.signal, body.recordingPath as string | undefined);
           if (!response.destroyed) json(response, 200, projectEventPictureSummary(result));
         } catch (error) {
           const failure = error instanceof EventNameHistoryError ? error : new EventNameHistoryError(controller.signal.aborted ? "cancelled" : "unavailable");
