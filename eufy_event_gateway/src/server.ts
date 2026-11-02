@@ -20,6 +20,7 @@ import { nvrGuardTimeZone } from "./provider/nvr-guard-schedule.js";
 import { T85V0StatusError } from "./provider/t85v0-status.js";
 import { LocalMotionError } from "./stream/local-motion-trial.js";
 import { C31IndexError } from "./stream/c31-recording-index.js";
+import { EventNameHistoryError, eventHistoryCursor, nextEventHistoryDate, projectEventNameHistorySummary } from "./stream/homebase-event-names.js";
 import { CloudRecordingError } from "./stream/cloud-recordings.js";
 import { DoorbellRtcError } from "./stream/doorbell-rtc-offer.js";
 import { GeneralRtcError, generalRtcSubmission } from "./stream/general-rtc-protocol.js";
@@ -579,6 +580,33 @@ export class GatewayServer {
       }
       if (request.method === "GET" && url.pathname === "/api/device-capabilities") {
         return json(response, 200, { devices: this.state.listDeviceCapabilities() });
+      }
+      if (request.method === "POST" && segments.length === 5 && segments[0] === "api"
+        && segments[1] === "cameras" && segments[3] === "diagnostics" && segments[4] === "event-names") {
+        if (url.search) throw new SyntaxError("Invalid history check request");
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !this.provider.diagnoseEventNames) return json(response, 409, { error: "Event name history check unavailable", code: "unavailable" });
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
+        if (request.headers["content-type"]?.split(";", 1)[0]?.trim() !== "application/json") return json(response, 415, { error: "History check requires application/json" });
+        const body = await readJson(request);
+        if (Object.keys(body).some(key => key !== "date" && key !== "startId") || typeof body.date !== "string"
+          || body.startId !== undefined && typeof body.startId !== "string") throw new SyntaxError("Invalid history check request");
+        try { nextEventHistoryDate(body.date); eventHistoryCursor(body.startId ?? "0"); }
+        catch { throw new SyntaxError("Invalid history check request"); }
+        const controller = new AbortController(), abort = (): void => controller.abort();
+        const timeout = setTimeout(abort, 60_000);
+        request.once("aborted", abort); response.once("close", abort);
+        try {
+          const result = await this.provider.diagnoseEventNames(segments[2]!, body.date, (body.startId as string | undefined) ?? "0", controller.signal);
+          if (!response.destroyed) json(response, 200, projectEventNameHistorySummary(result));
+        } catch (error) {
+          const failure = error instanceof EventNameHistoryError ? error : new EventNameHistoryError(controller.signal.aborted ? "cancelled" : "unavailable");
+          if (!response.destroyed) json(response, failure.code === "invalid_request" ? 400 : failure.code === "timeout" ? 504
+            : failure.code === "invalid_response" ? 502 : 409, { error: failure.message, code: failure.code });
+        } finally {
+          clearTimeout(timeout); request.removeListener("aborted", abort); response.removeListener("close", abort);
+        }
+        return;
       }
       if (request.method === "POST" && segments.length === 4 && segments[0] === "api"
         && segments[1] === "cameras" && segments[3] === "speaker-audio") {

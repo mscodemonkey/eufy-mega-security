@@ -27,6 +27,7 @@ import { validateC31Preference, type C31Preference } from "../provider/c31-prefe
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
 import { HomeBaseRecordingReader } from "./homebase-recordings.js";
+import { EventNameHistoryError, EventNameHistoryReader, eventHistoryCursor, nextEventHistoryDate, type EventNameHistorySummary } from "./homebase-event-names.js";
 import { SoloCamRecordingReader, type CameraStoredRecord } from "./stored-recordings.js";
 import type { CameraPresetPosition, VideoCodec } from "../domain/types.js";
 import { PpcsAccessUnitAssembler } from "./ppcs-access-unit-assembler.js";
@@ -1673,6 +1674,9 @@ export class FirstPartyPpcsSession {
   /** Own correlated card reads separately from live media and camera-setting requests. */
   #recordings: SoloCamRecordingReader | HomeBaseRecordingReader | null = null;
 
+  /** Own one manually requested history-name check independently of saved media. */
+  #eventNames: EventNameHistoryReader | null = null;
+
   /** Return the codec proven by emitted NAL headers, or frame metadata as a fallback. */
   get videoCodec(): VideoCodec | null {
     const codec = this.#videoNormalizer.codec;
@@ -2580,6 +2584,46 @@ export class FirstPartyPpcsSession {
     return await reader.list(date, signal);
   }
 
+  /** Read one observed history page on the exact T8210/HomeBase 3 control route. */
+  async readEventNameHistory(date: string, startId: string, signal?: AbortSignal): Promise<EventNameHistorySummary> {
+    nextEventHistoryDate(date); eventHistoryCursor(startId);
+    if (this.#closed || !this.#options.homeBaseAttached || this.#options.cameraModel !== "T8210"
+      || this.#options.stationModel !== "T8030" || !this.#options.recordingCameraSerial
+      || this.#options.purpose !== "control" || !this.#options.accountId || this.#recordings
+      || this.#pendingControl || this.#pendingControlQuery || this.#pendingCameraInfo || this.#alarmRead || this.#lockStatus) {
+      throw new EventNameHistoryError("unavailable");
+    }
+    await this.#waitForLevel2Key();
+    if (this.#closed || signal?.aborted) throw new EventNameHistoryError("cancelled");
+    this.#eventNames ??= new EventNameHistoryReader({
+      serial: this.#options.recordingCameraSerial, stationSerial: this.#options.stationSerial,
+      query: (transaction, day, cursor) => {
+        const value = { account_id: this.#options.accountId, cmd: 1306, mChannel: 255, mValue3: 0,
+          payload: { cmd: 10011, table: "history_record_info", transaction, payload: {
+            count: 50, start_date: day.replaceAll("-", ""), end_date: nextEventHistoryDate(day),
+            start_id: Number(cursor), end_id: 1, flag: 0, need_ai: 1, res_unzip: 1,
+            update_time: "0", start_time: "0", alarm_id: "",
+          } } };
+        this.#sendCommand(1350, rawPayload(encryptLevel2(Buffer.from(JSON.stringify(value)), this.#level2Key!, this.#level2Seq++), 255, 8, [8, 0], 0));
+      },
+      decodeReply: (payload, sign) => {
+        if ((sign === 8 || sign === 2) && this.#level2Key) return decryptLevel2(payload, this.#level2Key, sign) ?? null;
+        if (sign === 1 && payload.length > 0 && payload.length % 16 === 0) {
+          try {
+            const clear = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid));
+            const end = clear.indexOf(0);
+
+            // The captured legacy reply ends with NUL and unused bytes in its final AES block.
+            if (end < 0 || clear.length - end > 16) return null;
+            return clear.subarray(0, end);
+          } catch { return null; }
+        }
+        return null;
+      },
+    });
+    return await this.#eventNames.read(date, startId, signal);
+  }
+
   /** Retrieve a provider-owned recording reference and verify all returned media tracks. */
   async downloadStoredRecording(record: CameraStoredRecord, signal?: AbortSignal): Promise<Buffer> {
     const reader = this.#recordingReader();
@@ -2684,6 +2728,7 @@ export class FirstPartyPpcsSession {
     this.#finishC31Index(new C31IndexError("cancelled"));
     this.#finishLockStatus(new T85V0StatusError("cancelled"));
     this.#recordings?.close();
+    this.#eventNames?.close();
     if (this.#maximumDurationTimer) clearTimeout(this.#maximumDurationTimer);
     if (this.#firstFrameTimer) clearTimeout(this.#firstFrameTimer);
     if (this.#heartbeat) clearInterval(this.#heartbeat);
@@ -2935,6 +2980,7 @@ export class FirstPartyPpcsSession {
    * HomeBase peer, media is accepted only from the requested child channel.
    */
   #handleFrame(header: Buffer, payload: Buffer, type: number): void {
+    if (this.#eventNames?.handleFrame(header, payload)) return;
     if (this.#recordings?.handleFrame(header, payload, type)) return;
     const command = header.readUInt16LE(4);
     if (this.#options.purpose === "passive" && command === 1300) { this.close("client_stop"); return; }

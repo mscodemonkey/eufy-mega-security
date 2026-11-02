@@ -14,6 +14,7 @@ import type { NvrLiveControl, NvrLiveControlResult } from "./nvr-live-controls.j
 import type { NvrPowerRequest, NvrPowerSummary } from "./nvr-power-trial.js";
 import type { NvrGuardRequest, NvrGuardSummary } from "./nvr-guard-trial.js";
 import type { T85V0StatusSummary } from "./t85v0-status.js";
+import type { EventNameHistorySummary } from "../stream/homebase-event-names.js";
 import type { LocalMotionSummary } from "../stream/local-motion-trial.js";
 import type { C31IndexSummary } from "../stream/c31-recording-index.js";
 import type { CameraSettingChange } from "./camera-settings.js";
@@ -149,6 +150,9 @@ export interface CameraProvider {
 
   /** Read local completed event clips without exposing card paths or recording keys. */
   listStoredRecordings?(serial: string, date: string, signal?: AbortSignal): Promise<readonly StoredRecordingSummary[]>;
+
+  /** Manually check one history page for names without changing detection state. */
+  diagnoseEventNames?(serial: string, date: string, startId: string, signal: AbortSignal): Promise<EventNameHistorySummary>;
 
   /** Retrieve a previously listed opaque ID; null means the reference expired or is unknown. */
   downloadStoredRecording?(serial: string, id: string, signal?: AbortSignal): Promise<Buffer | null>;
