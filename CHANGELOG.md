@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.232
+
+- Explain whether the manual T8425 direction test stopped before sending movement or failed after the gateway admitted it.
+- Show only closed admission reasons and keep private device, account, connection and server details out of the helper output.
+- Ask for `model_control_trial_failed` only when the movement request reached the gateway.
+- Physical T8425 movement and stopping remain unconfirmed.
+
 ## 0.1.231
 
 - Share pending live-source startup across concurrent viewers so every requester sees a failure and can retry.
