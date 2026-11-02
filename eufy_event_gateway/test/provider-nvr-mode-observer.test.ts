@@ -138,6 +138,27 @@ for (const first of ["observer", "viewer"] as const) {
   });
 }
 
+for (const repeating of ["observer", "viewer"] as const) {
+  test(`a repeated reading from the ${repeating} keeps the other source alive`, async context => {
+    const f = await fixture(context);
+    await f.provider.startStream("synthetic-camera"); await tick();
+    const observer = Reflect.get(f.sessions[0]!, "options") as NvrRtcOptions;
+    const viewer = Reflect.get(f.viewers[0]!, "options") as NvrRtcOptions;
+    observer.onEffectiveMode!({ mode: 3 }); viewer.onEffectiveMode!({ mode: 3 });
+    const [source, remaining] = repeating === "observer" ? [observer, viewer] : [viewer, observer];
+    const published = f.stations.length;
+    source.onEffectiveMode!({ mode: 3 });
+    assert.equal(f.stations.length, published + 1);
+    source.onEffectiveMode!(null);
+    assert.equal(f.stations.at(-1)!.effectiveMode, 3);
+    assert.equal(f.stations.at(-1)!.effectiveModeSource, "nvr_rtc");
+    remaining.onEffectiveMode!(null);
+    assert.equal(f.stations.at(-1)!.effectiveMode, null);
+    await f.provider.stopStream("synthetic-camera");
+    assert.equal(f.writes(), 0);
+  });
+}
+
 test("a new mode from one source replaces the shared reading", async context => {
   const f = await fixture(context);
   await f.provider.startStream("synthetic-camera"); await tick();

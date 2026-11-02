@@ -5087,10 +5087,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     } else {
       if (!current()) return;
 
-      // The observer and a live view hear the same broadcast. A second source
-      // confirming the reading joins it; a new mode or a repeat replaces it.
-      if (owners && owners.mode === observation.mode && !owners.sources.has(source)) { owners.sources.add(source); return; }
-      this.#nvrModeObservationOwners.set(serial, { mode: observation.mode, sources: new Set([source]) });
+      // Repeated readings refresh their source without retiring another connection
+      // that still confirms this mode. A changed mode replaces the old owners.
+      if (owners && owners.mode === observation.mode) {
+        const joining = !owners.sources.has(source);
+        owners.sources.add(source);
+        if (joining) return;
+      } else {
+        this.#nvrModeObservationOwners.set(serial, { mode: observation.mode, sources: new Set([source]) });
+      }
       this.#nvrModePushTimes.set(serial, Math.max(this.#nvrModePushTimes.get(serial) ?? 0, Date.now()));
     }
     const identity = this.#devices.get(serial), previous = this.#stations.get(serial);
