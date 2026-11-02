@@ -67,7 +67,7 @@ export function nvrJson(value: unknown): Record<string, unknown> {
  * trial's sensor selection. This does not establish hardware playback support.
  */
 export function nvrTrialSensor(model: string, deviceType: number | null): 0 | 1 | null {
-  const cameras = [["T8140", 14], ["T8140-Z", 14], ["T8113-V", 8], ["T8172", 89],
+  const cameras = [["T8140", 14], ["T8140-Z", 14], ["T8113-V", 8], ["T8172", 89], ["T8215", 97],
     ["T8162", 26], ["T8170", 48], ["T81A0", 10005], ["T8425", 47]] as const;
   if (model === "T8E00" && deviceType === 301) return 1;
   return cameras.some(([name, type]) => name === model && type === deviceType) ? 0 : null;

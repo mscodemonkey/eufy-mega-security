@@ -1802,6 +1802,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       && nvrTrialSensor(device.model, device.deviceType) !== null && device.channel !== null
       && Number.isInteger(device.channel) && device.channel >= 0 && device.channel <= 254
       && parents.some(([model, type]) => station.model === model && station.deviceType === type)
+      && (device.model !== "T8215" || station.model === "T9000" && station.deviceType === 27)
       && !!station.adminUserId && (device.adminUserId === null || device.adminUserId === station.adminUserId);
   }
 
@@ -1813,13 +1814,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const view = this.#nvrView(device);
     return {
       serial: device.serial, name: device.name, model: device.model, stationSerial: device.parentSerial,
-      catalogueStatus: profile ? "ready_to_test" : "recognised", firmware: null, hardwareVersion: null, firmwareSubVersion: null,
-      firmwareUpdateAvailable: null, rssi: null, audioSettings: null, reportedSettings: profile ? { streamingQualityTier: values.quality, imageFlipped: null, statusLedEnabled: null, soundDetectionEnabled: null } : null,
+      catalogueStatus: profile ? "ready_to_test" : "recognised", firmware: device.firmware, hardwareVersion: device.hardwareVersion ?? null, firmwareSubVersion: device.firmwareSubVersion ?? null,
+      firmwareUpdateAvailable: device.firmwareUpdateAvailable ?? null, rssi: device.reads.rssi ?? null, audioSettings: null, reportedSettings: profile ? { streamingQualityTier: values.quality, imageFlipped: null, statusLedEnabled: null, soundDetectionEnabled: null } : null,
       enabled: null, motionDetectionEnabled: null, guardMode: null, nightVisionMode: values.night,
       nvrPanControlSupported: !!profile && (!profile.opticalZoom || view === 1),
       nvrOpticalZoomControlSupported: !!profile?.opticalZoom && view === 1,
       nvrViewOptions: profile?.views ?? [], nvrSelectedView: profile ? view : null,
-      autoNightVisionEnabled: null, aiTrackingEnabled: null, battery: null,
+      autoNightVisionEnabled: null, aiTrackingEnabled: null, battery: batteryState(device),
       streamSupported: this.#normalNvrLiveBinding(device, station), startupSnapshotSupported: false,
       doorbellSupported: false, audioRecordingControlSupported: false,
       careMonitor: false, preferenceRanges: {}, carePreferences: {},
@@ -2439,7 +2440,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       || station.model === "T9000" && station.deviceType === 27 && (
         (device.model === "T8140-Z" || device.model === "T8140") && device.deviceType === 14
         || device.model === "T8113-V" && device.deviceType === 8
-        || device.model === "T8172" && device.deviceType === 89);
+        || device.model === "T8172" && device.deviceType === 89
+        || device.model === "T8215" && device.deviceType === 97);
   }
 
   /** Install read-only media facts. The manager remains the sole owner of sources and viewers. */
