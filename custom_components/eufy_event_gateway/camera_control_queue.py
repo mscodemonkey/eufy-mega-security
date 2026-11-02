@@ -84,6 +84,10 @@ class CameraControlQueue:
         self._changed()
 
     async def _run(self, peer: str) -> None:
+
+        # HA can start tasks eagerly. Let submit retain the worker before it
+        # can finish and release its peer, including an immediate rejection.
+        await asyncio.sleep(0)
         queue = self._queues[peer]
         try:
             while queue and not self._closed:

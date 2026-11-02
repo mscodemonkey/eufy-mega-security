@@ -34,8 +34,8 @@ class CameraQueueTests(unittest.IsolatedAsyncioTestCase):
             queue.submit('base', str(index), 'motion', lambda i=index: operation(i))
         self.assertEqual(results, [])
         self.assertTrue(queue.pending('5', 'motion'))
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
+        for _ in range(4):
+            await asyncio.sleep(0)
         self.assertEqual(calls, [0])
         gate.set()
         for _ in range(30):
@@ -258,4 +258,27 @@ class CameraQueueTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0)
         self.assertEqual(results,[])
         self.assertEqual(failures,[('camera','enabled','route_changed',False)])
+        await queue.close()
+
+    async def test_eager_ha_worker_start_cannot_strand_the_next_request(self):
+        """HA may enter a worker before its task factory returns to submit."""
+        failures = []
+        def eager(operation):
+            try:
+                operation.send(None)
+            except StopIteration:
+                done = asyncio.get_running_loop().create_future()
+                done.set_result(None)
+                return done
+            return asyncio.create_task(operation)
+        queue = MODULE.CameraControlQueue(eager, lambda v: None,
+                                          lambda *v: failures.append(v), lambda: None, lifetime=-1)
+        async def forbidden():
+            self.fail('expired request dispatched')
+        for _ in range(2):
+            queue.submit('base','camera','motion',forbidden)
+            for _ in range(5):
+                await asyncio.sleep(0)
+            self.assertFalse(queue.pending('camera','motion'))
+        self.assertEqual(failures,[('camera','motion','expired',False)]*2)
         await queue.close()

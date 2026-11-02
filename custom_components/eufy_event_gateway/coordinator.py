@@ -94,7 +94,7 @@ class EufyGatewayCoordinator(
         self, serial: str, action: str, reason: str, dispatched: bool,
     ) -> None:
         """Make background failure visible without exposing backend error contents."""
-        label = "motion detection" if action == "motion" else "camera power"
+        label = "motion detection" if action == "motion" else "camera enablement"
         name = self.cameras.get(serial, {}).get("name") or "the camera"
         detail = ("The result is unknown. Check the camera's setting before retrying."
                   if dispatched else "The request was not sent.")
