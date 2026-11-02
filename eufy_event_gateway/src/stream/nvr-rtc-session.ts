@@ -243,6 +243,9 @@ export class NvrRtcSession {
   #channelFailureScheduled = false;
   #started = false;
   #startSent = false;
+
+  /** Checked picture output proves this session started independently of a receipt. */
+  #startVideoObserved = false;
   #authenticated = false;
   #accepted = false;
   #offerApplied = false;
@@ -308,7 +311,12 @@ export class NvrRtcSession {
     return expires === null ? 0 : Math.max(0, expires - now);
   }
 
-  /** Negotiate, correlate fresh discovery, attach the sink, and request video once. */
+  /**
+   * Negotiate, correlate fresh discovery, attach the sink and request video once.
+   * Checked picture output from this session can satisfy a missing receipt at
+   * its five-second deadline. A receipt can resolve before video, so playback
+   * remains a separate boundary. Rejection, cancellation and stale ownership fail.
+   */
   async start(): Promise<void> {
     if (this.options.modeObserver) throw new NvrTrialError("admission");
     if (this.options.powerTrial || this.options.guardTrial) throw this.options.guardTrial
@@ -967,7 +975,9 @@ export class NvrRtcSession {
         if (!this.output.write(startup)) throw new NvrTrialError("video");
         delivered = startup;
       } else if (!this.output.write(video.bytes)) throw new NvrTrialError("video");
-      if (this.#maximumLifetimeMilliseconds === null && hasCodedPicture(delivered, video.codec)) this.#renewVideoProgress();
+      const picture = hasCodedPicture(delivered, video.codec);
+      if (picture) this.#startVideoObserved = true;
+      if (this.#maximumLifetimeMilliseconds === null && picture) this.#renewVideoProgress();
       return;
     }
     if (this.#livePending) {
@@ -1042,7 +1052,20 @@ export class NvrRtcSession {
     if (!channel || channel.readyState !== "open" || channel.bufferedAmount > 1024 * 1024) return Promise.reject(new NvrTrialError("channel"));
     return new Promise((resolve, reject) => {
       const segment = ++this.#segment;
-      const timer = setTimeout(() => { this.#pending = null; reject(new NvrTrialError(command === 1004 ? "stop" : this.#stage)); }, timeout);
+      const timer = setTimeout(() => {
+        if (this.#pending?.segment !== segment) return;
+        this.#pending = null;
+
+        // Some peers send usable video without a matching start receipt. Only
+        // this start's checked picture output can satisfy its missing receipt.
+        if (command === 1003 && this.#startVideoObserved) {
+          try { this.#guard(); resolve({}); }
+          catch (error) { reject(error instanceof Error ? error : new NvrTrialError("cancelled")); }
+          return;
+        }
+        reject(new NvrTrialError(command === 1004 ? "stop" : this.#stage,
+          command === 1003 ? "start_receipt_timeout" : "unspecified"));
+      }, timeout);
       this.#pending = { command, segment, resolve, reject, timer, strict, deadline: performance.now() + timeout };
       if (command === 1003) this.#startSent = true;
       try {
