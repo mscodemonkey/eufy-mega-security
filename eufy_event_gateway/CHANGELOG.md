@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.228
+
+- Cancel an obsolete cloud picture download and its retry delay when a newer accepted visit owns the image. This prevents the old read holding up the next request in the optional HomeBase 3 recovery experiment. It does not fix the intermittent cloud 404 failure.
+- Keep the S120 manual-light trial's shared HomeBase reserved until session disconnect finishes, preventing overlapping camera operations during cleanup. The existing owner-account requirement remains.
+- Add an authenticated, opt-in manual direction test for exact standalone T8425/type 47 on channel zero. It checks fresh owner and route information, sends once without retry, and reports acknowledgement separately from physical movement. Normal HA pan controls, other models and attached routes are excluded. Movement and stopping are unconfirmed. Observe the camera and restore the original view in Eufy after testing.
+- Full repository checks, focused regressions, local Home Assistant health and camera-image checks passed. Software validation does not establish reporter hardware success.
+
 ## 0.1.227
 
 - Prevent a cloud-picture download from a previous gateway session delaying pictures after that session restarts. New picture requests can start immediately, while late responses from the retired session are discarded. This does not resolve Eufy's separate cloud HTTP 404 picture failures.
