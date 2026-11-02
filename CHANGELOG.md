@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.233
+
+- Keep an acknowledged T8171 start through T8030 channel one alive until the existing first-frame deadline instead of restarting it at the five-second heartbeat.
+- Preserve delivery repair for unacknowledged starts, the original first-frame timeout, normal stall recovery after real video, and neighbouring model, station and channel behaviour.
+- The owned-camera candidate passed two 40-second T8171 views, including one that needed 9.3 seconds to start, plus 40-second T8210 and T8113-Z checks.
+- Longer-term intermittent reliability remains under investigation in #570.
+
 ## 0.1.232
 
 - Explain whether the manual T8425 direction test stopped before sending movement or failed after the gateway admitted it.
