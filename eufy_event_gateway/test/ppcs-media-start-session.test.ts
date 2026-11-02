@@ -49,7 +49,7 @@ async function peer(context: TestContext, attached = true, model = "T8113-Z", pu
     ...(startupDeadlineMilliseconds === undefined ? {} : { startupDeadlineMilliseconds }),
     purpose, cameraModel: model, accountId: "synthetic-owner", maxSeconds: 120,
     resolveCipherKey: async () => Buffer.alloc(32, 1).toString("hex") });
-  const receive = (packet: Buffer, port = 12345) => socket.emit("message", packet, { address: "127.0.0.1", port });
+  const receive = (packet: Buffer, port = 12345, address = "127.0.0.1") => socket.emit("message", packet, { address, port });
   const frame = (command: number, payload: Buffer, channel = 1, result = false, sign = 0) => {
     const packet = Buffer.alloc(24 + payload.length);
     packet.set([0xf1, 0xd0], 0); packet.writeUInt16BE(packet.length - 4, 2);
@@ -73,7 +73,7 @@ async function peer(context: TestContext, attached = true, model = "T8113-Z", pu
     frame(1300, Buffer.concat([header, data]), channel);
   };
   await session.start();
-  return { session, sent, frame, ack, negotiate, video };
+  return { session, sent, frame, ack, negotiate, video, receive };
 }
 
 test("T8171 acknowledged startup leaves a slow encoder alive until its first frame", async context => {
@@ -416,4 +416,62 @@ test("remaining owned startup budget also bounds replacement lookup", async cont
   await result;
   assert.equal(session.stats.closeReason, "start_failed");
   await session.waitUntilClosed();
+});
+
+
+test("selected HomeBase heartbeats receive a pong while video remains active", async context => {
+  const f = await peer(context, true, "T8113-Z", "media", "T8030", undefined, 3);
+  try {
+    await f.negotiate();
+    f.ack(f.sent.at(-1)!.readUInt16BE(6));
+    f.video(3);
+    for (let index = 0; index < 9; index++) {
+      context.mock.timers.tick(5000);
+      f.receive(Buffer.from([0xf1, 0xe0, 0, 0]));
+      f.video(3);
+    }
+    const pongs = f.sent.filter(packet => packet[0] === 0xf1 && packet[1] === 0xe1);
+    assert.equal(pongs.length, 9);
+    assert.ok(pongs.every(packet => packet.equals(Buffer.from([0xf1, 0xe1, 0, 0]))));
+    assert.equal(f.session.stats.closeReason, "open");
+    assert.equal(f.session.stats.mediaStartAttempts, 1);
+    assert.equal(f.session.stats.mediaStopAttempts, 0);
+  } finally { f.session.close(); }
+});
+
+test("heartbeats from another peer or a malformed packet receive no reply", async context => {
+  const f = await peer(context);
+  try {
+    const before = f.sent.length;
+    f.receive(Buffer.from([0xf1, 0xe0, 0, 0]), 12346);
+    f.receive(Buffer.from([0xf1, 0xe0, 0, 0]), 12345, "127.0.0.2");
+    f.receive(Buffer.from([0xf1, 0xe0, 0]));
+    f.receive(Buffer.from([0xf1, 0xe0, 0, 1]));
+    f.receive(Buffer.from([0xf1, 0xe0, 0, 0, 1]));
+    assert.equal(f.sent.length, before);
+    f.receive(Buffer.from([0xf1, 0xe0, 0, 0]));
+    assert.equal(f.sent.length, before + 1);
+    f.session.close();
+    const closed = f.sent.length;
+    f.receive(Buffer.from([0xf1, 0xe0, 0, 0]));
+    assert.equal(f.sent.length, closed);
+  } finally { f.session.close(); }
+});
+
+test("peer heartbeats do not extend an acknowledged start's first-frame deadline", async context => {
+  const f = await peer(context, true, "T8171", "media", "T8030");
+  try {
+    await f.negotiate();
+    f.ack(f.sent.at(-1)!.readUInt16BE(6));
+    for (let index = 0; index < 19; index++) {
+      context.mock.timers.tick(1000);
+      f.receive(Buffer.from([0xf1, 0xe0, 0, 0]));
+    }
+    assert.equal(f.session.stats.closeReason, "open");
+    assert.equal(f.sent.filter(packet => packet[1] === 0xe1).length, 19);
+    context.mock.timers.tick(1000);
+    assert.equal(f.session.stats.closeReason, "first_frame_timeout");
+    assert.equal(f.session.stats.videoOutputFrames, 0);
+    assert.equal(f.session.stats.mediaStartAttempts, 1);
+  } finally { f.session.close(); }
 });
