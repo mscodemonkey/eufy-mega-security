@@ -14,6 +14,7 @@ import { dirname } from "node:path";
 
 import type { EventReceiverState } from "../domain/types.js";
 import { createLogger } from "../logging.js";
+import { pushRecordingReference, type PushRecordingReference } from "./push-recording-reference.js";
 import { FcmRegistrar } from "./android-push/fcm.js";
 import { PushClient } from "./android-push/push-client.js";
 import type { FcmCredentials, RawPushMessage } from "./android-push/types.js";
@@ -70,6 +71,9 @@ export interface MegaPushEvent {
   readonly content: string | null;
   readonly pictureUrl: string | null;
   readonly filePath: string | null;
+
+  /** Exact private recording identity, present only when its complete innermost reference is supported. */
+  readonly recording?: PushRecordingReference;
   readonly fetchId: number | null;
   readonly senseId: string | null;
   readonly guardMode: number | null;
@@ -463,6 +467,7 @@ export function parsePushEvent(data: unknown): MegaPushEvent | null {
     && typeof payload.mode === "number" && Number.isSafeInteger(payload.mode)
     && typeof payload.before_change_mode === "number" && Number.isSafeInteger(payload.before_change_mode)
     ? { configured: payload.arming, effective: payload.mode, previous: payload.before_change_mode } : null;
+  const recording = pushRecordingReference(payload);
   return {
     cameraSerial,
     stationSerial: stationSerial ?? cameraSerial,
@@ -475,6 +480,7 @@ export function parsePushEvent(data: unknown): MegaPushEvent | null {
     content: field("content"),
     pictureUrl: text(payload.pic_url),
     filePath: text(payload.file_path) ?? text(payload.p),
+    ...(recording ? { recording } : {}),
     fetchId: integer(payload.fetch_id) ?? integer(payload.i),
     senseId: text(payload.sense_id) ?? text(payload.j),
     guardMode: integer(payload.station_guard_mode),

@@ -6,6 +6,7 @@
  * that the thumbnail is the notification's original cloud image.
  */
 import { createRecordedDecipheriv as createDecipheriv } from "../diagnostics/raw-crypto.js";
+import { recordingPathDate, type PushRecordingReference } from "../mega/push-recording-reference.js";
 import { decode } from "jpeg-js";
 import { EventNameHistoryError, eventHistoryCursor, eventHistoryId, nextEventHistoryDate } from "./homebase-event-names.js";
 import { recordTime } from "./stored-recordings.js";
@@ -29,6 +30,8 @@ export interface EventPictureTransport {
 
   /** Read only a file returned by this operation's owned history row. */
   image(file: string): void;
+
+  /** Decode supported history protection before the reader checks its transaction and ownership. */
   decodeHistory(payload: Buffer, sign: number): Buffer | null;
 
   /** Decode the observed reply protection without treating legacy ECB as authenticated content. */
@@ -107,39 +110,64 @@ export function projectEventPictureSummary(value: unknown): EventPictureSummary 
   return { scope: "one_history_thumbnail", records, imageBytes, width, height };
 }
 
+interface PictureResult {
+  readonly summary: EventPictureSummary;
+  readonly data?: Buffer;
+}
+
 /**
  * Own one manual two-stage read until completion, timeout or session closure.
  * History transaction, child, station, day and optional opaque record ID select
  * the file. Its exact echoed path correlates the later protected reply. Legacy
  * ECB protection does not establish cryptographic content authenticity.
  * No retry, automatic pagination, snapshot mutation or detection callback occurs.
+ * Recovery transfers a copy of validated bytes to its provider owner. Diagnostics returns counts only.
  */
 export class EventPictureReader {
-  #pending: { transaction: string; date: string; recordId: string | undefined; file?: string; records: number;
-    resolve: (summary: EventPictureSummary) => void; reject: (error: EventNameHistoryError) => void } | null = null;
+  #pending: { transaction: string; date: string; recordId: string | undefined; expectedPath: string | undefined; keepBytes: boolean; file?: string; records: number;
+    resolve: (result: PictureResult) => void; reject: (error: EventNameHistoryError) => void } | null = null;
   #closed = false;
   #used = false;
 
   /** Borrow this operation's immutable child and parent binding. */
   constructor(private readonly transport: EventPictureTransport) {}
 
-  /** Query at most fifty rows and retrieve one owned thumbnail within forty seconds. */
-  async read(date: string, startId: string, recordId?: string, signal?: AbortSignal): Promise<EventPictureSummary> {
+  /**
+   * Query at most fifty rows and check one thumbnail within forty seconds.
+   * An expected recording path narrows selection before any image read.
+   * This diagnostic returns counts only, even when that path is supplied.
+   */
+  async read(date: string, startId: string, recordId?: string, signal?: AbortSignal, expectedPath?: string): Promise<EventPictureSummary> {
+    return (await this.#read(date, startId, recordId, signal, expectedPath, false)).summary;
+  }
+
+  /** Return an owned JPEG only after the exact notification ID and recording path join. The caller must clear it. */
+  async recover(reference: PushRecordingReference, signal?: AbortSignal): Promise<Buffer> {
+    const date = recordingPathDate(reference.storagePath);
+    if (!date) throw new EventNameHistoryError("invalid_request");
+    const result = await this.#read(date, "0", reference.id, signal, reference.storagePath, true);
+    if (!result.data) throw new EventNameHistoryError("invalid_response");
+    return result.data;
+  }
+
+  async #read(date: string, startId: string, recordId: string | undefined, signal: AbortSignal | undefined,
+    expectedPath: string | undefined, keepBytes: boolean): Promise<PictureResult> {
     nextEventHistoryDate(date); eventHistoryCursor(startId);
     if (recordId !== undefined) eventHistoryId(recordId);
+    if (expectedPath !== undefined && (recordId === undefined || recordingPathDate(expectedPath) !== date)) throw new EventNameHistoryError("invalid_request");
     if (this.#closed || signal?.aborted) throw new EventNameHistoryError("cancelled");
     if (this.#pending) throw new EventNameHistoryError("busy");
     if (this.#used) throw new EventNameHistoryError("unavailable");
     this.#used = true;
     return await new Promise((resolve, reject) => {
-      const finish = (error?: EventNameHistoryError, value?: EventPictureSummary): void => {
+      const finish = (error?: EventNameHistoryError, value?: PictureResult): void => {
         this.#pending = null; clearTimeout(timer); signal?.removeEventListener("abort", abort);
         if (error) reject(error); else resolve(value!);
       };
       const abort = (): void => finish(new EventNameHistoryError("cancelled"));
       const timer = setTimeout(() => finish(new EventNameHistoryError("timeout")), 40_000);
       const transaction = `${Date.now()}`;
-      this.#pending = { transaction, date, recordId, records: 0, resolve: value => finish(undefined, value), reject: error => finish(error) };
+      this.#pending = { transaction, date, recordId, expectedPath, keepBytes, records: 0, resolve: value => finish(undefined, value), reject: error => finish(error) };
       signal?.addEventListener("abort", abort, { once: true });
       if (signal?.aborted) { abort(); return; }
       try { this.transport.query(transaction, date, startId); }
@@ -176,6 +204,7 @@ export class EventPictureReader {
         }
         const row = pending.recordId === undefined ? owned[0] : owned.find(v => eventHistoryId(v.record_id) === pending.recordId);
         if (!row) throw new EventNameHistoryError("unavailable");
+        if (pending.expectedPath !== undefined && row.storage_path !== pending.expectedPath) throw new EventNameHistoryError("invalid_response");
         const path = row.thumb_path;
         if (typeof path !== "string" || path.length > 1024 || !/^\/[A-Za-z0-9._/-]+$/.test(path)
           || path.split("/").slice(1).some(v => !v || v === "." || v === "..")) throw new EventNameHistoryError("invalid_response");
@@ -189,8 +218,8 @@ export class EventPictureReader {
           if (bytes.toString("base64url") !== value.content.replace(/=+$/, "") || bytes.length > 1024 * 1024
             || bytes[0] !== 255 || bytes[1] !== 216 || bytes.at(-2) !== 255 || bytes.at(-1) !== 217) throw new EventNameHistoryError("invalid_response");
           const image = decode(bytes, { useTArray: true, tolerantDecoding: false, maxResolutionInMP: 4, maxMemoryUsageInMB: 32 });
-          try { pending.resolve(projectEventPictureSummary({ scope: "one_history_thumbnail", records: pending.records,
-            imageBytes: bytes.length, width: image.width, height: image.height })); }
+          try { pending.resolve({ summary: projectEventPictureSummary({ scope: "one_history_thumbnail", records: pending.records,
+            imageBytes: bytes.length, width: image.width, height: image.height }), ...(pending.keepBytes ? { data: Buffer.from(bytes) } : {}) }); }
           finally { image.data.fill(0); }
         } finally { bytes.fill(0); }
       }

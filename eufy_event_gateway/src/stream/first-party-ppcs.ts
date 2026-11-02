@@ -27,6 +27,7 @@ import { validateC31Preference, type C31Preference } from "../provider/c31-prefe
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
 import { HomeBaseRecordingReader } from "./homebase-recordings.js";
+import type { PushRecordingReference } from "../mega/push-recording-reference.js";
 import { EventPictureReader, decodeEventPictureReply, decodeLegacyEventPictureReply, type EventPictureSummary } from "./homebase-event-picture.js";
 import { EventNameHistoryError, EventNameHistoryReader, eventHistoryCursor, nextEventHistoryDate, type EventNameHistorySummary } from "./homebase-event-names.js";
 import { SoloCamRecordingReader, type CameraStoredRecord } from "./stored-recordings.js";
@@ -2629,8 +2630,17 @@ export class FirstPartyPpcsSession {
   }
 
   /** Read one history-bound thumbnail on the observed T8113-Z/HomeBase 3 control route. */
-  async readEventPicture(date: string, startId: string, recordId?: string, signal?: AbortSignal): Promise<EventPictureSummary> {
+  async readEventPicture(date: string, startId: string, recordId?: string, signal?: AbortSignal, expectedPath?: string): Promise<EventPictureSummary> {
     nextEventHistoryDate(date); eventHistoryCursor(startId);
+    return await (await this.#eventPictureReader(signal)).read(date, startId, recordId, signal, expectedPath);
+  }
+
+  /** Retrieve only a notification-owned thumbnail. The provider owns returned bytes and stale-result rejection. */
+  async recoverEventPicture(reference: PushRecordingReference, signal: AbortSignal): Promise<Buffer> {
+    return await (await this.#eventPictureReader(signal)).recover(reference, signal);
+  }
+
+  async #eventPictureReader(signal?: AbortSignal): Promise<EventPictureReader> {
     if (this.#closed || !this.#options.homeBaseAttached || this.#options.cameraModel !== "T8113-Z"
       || this.#options.stationModel !== "T8030" || !this.#options.recordingCameraSerial
       || this.#options.purpose !== "control" || !this.#options.accountId || this.#recordings || this.#eventNames
@@ -2662,7 +2672,7 @@ export class FirstPartyPpcsSession {
       decodeImage: (payload, sign) => decodeEventPictureReply(payload, sign, this.#options.accountId!, this.#options.stationSerial)
         ?? decodeLegacyEventPictureReply(payload, sign, commandKey(this.#options.stationSerial, this.#options.p2pDid)),
     });
-    return await this.#eventPicture.read(date, startId, recordId, signal);
+    return this.#eventPicture;
   }
 
   /** Retrieve a provider-owned recording reference and verify all returned media tracks. */

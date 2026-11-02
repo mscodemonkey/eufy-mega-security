@@ -17,9 +17,10 @@ import type { LiveStreamManager } from "../src/stream/live-stream-manager.js";
 test("manual picture checks authenticate, validate before dispatch and expose only aggregate counts", async () => {
   const directory = await mkdtemp(join(tmpdir(), "event-picture-http-")), state = new GatewayState();
   state.registerCamera({ serial: "invented", name: "Invented", model: "T8113-Z", stationSerial: "parent", streamSupported: false, doorbellSupported: true });
-  let calls = 0;
+  let calls = 0, selectedPath: string | undefined;
   const summary = { scope: "one_history_thumbnail", records: 1, imageBytes: 600, width: 8, height: 4 };
-  const provider = { diagnoseEventPicture: async (_serial: string, date: string, cursor: string) => {
+  const provider = { diagnoseEventPicture: async (_serial: string, date: string, cursor: string, _recordId?: string, _signal?: AbortSignal, recordingPath?: string) => {
+    selectedPath = recordingPath;
     calls++; assert.equal(date, "2026-10-31"); assert.equal(cursor, "0"); return { ...summary, privateName: "PRIVATE-CANARY" };
   } } as unknown as CameraProvider;
   const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "invented-secret" }, state,
@@ -36,5 +37,10 @@ test("manual picture checks authenticate, validate before dispatch and expose on
     const response = await fetch(url, { method: "POST", headers, body });
     assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "no-store");
     assert.deepEqual(await response.json(), summary); assert.equal(calls, 1);
+    const recordingPath = "/zx/hdd_data0/Camera00/202610/20261031090000/20261031092000.zxvideo";
+    const bound = await fetch(url, { method: "POST", headers, body: JSON.stringify({ date: "2026-10-31", recordId: "42", recordingPath }) });
+    assert.equal(bound.status, 200); assert.equal(selectedPath, recordingPath); assert.deepEqual(await bound.json(), summary);
+    assert.equal((await fetch(url, { method: "POST", headers, body: JSON.stringify({ date: "2026-10-31", recordingPath }) })).status, 400);
+    assert.equal(calls, 2);
   } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
 });

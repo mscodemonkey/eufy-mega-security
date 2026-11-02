@@ -43,6 +43,8 @@ import { createHmac, randomBytes } from "node:crypto";
 import type { EventImageCapture, EventImageContext, EventImageReferences } from "../diagnostics/event-image-capture.js";
 import { validateRecordingDate, type CameraStoredRecord, type StoredRecordingSummary } from "../stream/stored-recordings.js";
 import type { EventPictureSummary } from "../stream/homebase-event-picture.js";
+import { MediaHttpError } from "../mega/media-request-diagnostic.js";
+import { recordingPathDate } from "../mega/push-recording-reference.js";
 import { EventNameHistoryError, eventHistoryCursor, eventHistoryId, nextEventHistoryDate, type EventNameHistorySummary } from "../stream/homebase-event-names.js";
 
 import type { BatteryState, CameraIdentity, CameraPresetPosition, DetectionKind, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
@@ -110,6 +112,15 @@ export function stationConnectedAfterRefreshFailure(
   return wasConnected && consecutiveFailures < STATION_REFRESH_DISCONNECT_FAILURES;
 }
 
+/** One accepted camera visit owns its private recovery controller and immutable inventory binding. */
+interface PushPictureOwner {
+  readonly event: MegaPushEvent;
+  readonly controller: AbortController;
+  readonly generation: number;
+  readonly device: MegaInventoryDevice;
+  readonly parent: MegaInventoryDevice;
+}
+
 /** Credentials, storage, and transport limits for one Mega account. */
 export interface EufyProviderConfig {
   readonly username: string;
@@ -151,6 +162,9 @@ export interface EufyProviderConfig {
 
   /** Retained for saved configuration. This retired option never changes picture authentication. */
   readonly experimentalEventImageRequest?: boolean;
+
+  /** Opt-in exact-record thumbnail recovery after a terminal cloud HTTP404. */
+  readonly experimentalHomeBaseEventImages?: boolean;
   readonly experimentalNvrRegion?: "auto" | "us" | "eu" | "ie";
 
   /** Optional process-owned evidence collector, closed by the composition root. */
@@ -699,6 +713,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #dskRefreshes = new Map<string, Promise<{ readonly key: string; readonly expiresAt: number | null } | null>>();
   readonly #cipherKeys = new Map<string, string>();
   readonly #cipherFlights = new Map<string, Promise<PpcsCipherKeyOutcome>>();
+  readonly #pictureOwners = new Map<string, PushPictureOwner>();
+  readonly #pictureRecoveryCooldowns = new Map<string, number>();
   readonly #pushSnapshotQueues = new Map<string, Promise<void>>();
   readonly #pushDeduplicator = new PushEventDeduplicator();
   readonly #t8417ReadShapes = new T8417ReadShapeTracker();
@@ -1327,15 +1343,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   /** Check one history-owned thumbnail without changing event pictures or detection state. */
-  async diagnoseEventPicture(serial: string, date: string, startId: string, recordId: string | undefined, signal: AbortSignal): Promise<EventPictureSummary> {
+  async diagnoseEventPicture(serial: string, date: string, startId: string, recordId: string | undefined, signal: AbortSignal, recordingPath?: string): Promise<EventPictureSummary> {
     this.#assertRtcPreparationIdle();
     if (!this.config.apiAuthenticationConfigured) throw new EventNameHistoryError("unavailable");
     if (this.#panControlOperations.has(serial) || this.#recordingPeerReserved(serial)) throw new EventNameHistoryError("busy");
     nextEventHistoryDate(date); eventHistoryCursor(startId);
     if (recordId !== undefined) eventHistoryId(recordId);
+    if (recordingPath !== undefined && (recordId === undefined || recordingPathDate(recordingPath) !== date)) throw new EventNameHistoryError("invalid_request");
     try {
       return await this.#recordingOperation(serial, signal,
-        async session => await session.readEventPicture(date, startId, recordId, signal), "event_picture");
+        async session => await session.readEventPicture(date, startId, recordId, signal, recordingPath), "event_picture");
     } catch (error) {
       throw error instanceof EventNameHistoryError ? error : new EventNameHistoryError(signal.aborted ? "cancelled" : "unavailable");
     }
@@ -1425,6 +1442,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   /** Authenticate and publish cameras independently of background push readiness. */
   async start(events: ProviderEvents): Promise<void> {
     this.#assertRtcPreparationIdle();
+    this.#retirePictureOwners();
     const closingModeObserver = this.#nvrModeObserver.active || !this.#nvrModeObserver.settled
       ? this.#nvrModeObserver.close() : null;
     for (const controller of this.#motionAborters) controller.abort();
@@ -3958,6 +3976,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Stop resources for either shutdown or an owned preparation, preserving cleanup ordering. */
   async #stopProviderResources(current: () => void = () => undefined): Promise<void> {
+    this.#retirePictureOwners();
     if (this.#nvrModeObserver.active || !this.#nvrModeObserver.settled) {
       await this.#nvrModeObserver.close().catch(() => {
         logger.warn("nvr_mode_observer_state", "state=cleanup_failed");
@@ -4131,6 +4150,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Replace generation-owned read polling before startup or sign-in recovery. */
   async #completeStartup(events: ProviderEvents, generation = ++this.#startupGeneration, allowLoginRecovery = true): Promise<void> {
+    this.#retirePictureOwners();
     if (this.#stationRefreshTimer) clearInterval(this.#stationRefreshTimer);
     this.#stationRefreshTimer = null;
     if (this.#inventoryRefreshTimer) clearInterval(this.#inventoryRefreshTimer);
@@ -5325,6 +5345,26 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       event.eventType,
       event.pictureUrl !== null,
     );
+    if (this.config.experimentalHomeBaseEventImages && delivery.handleState && isSupportedMegaCamera(device)
+      && (delivery.retainPicture || cameraDetectionKind(event.eventType) !== null
+        || event.eventType === 1 && genericSecurityDetectionKinds(event).length > 0)) {
+      const previous = this.#pictureOwners.get(device.serial);
+      const olderVisit = previous && this.#pictureOwnerCurrent(previous) && previous.event.recording && event.recording
+        && event.recording.triggerMilliseconds < previous.event.recording.triggerMilliseconds;
+      if (!olderVisit) {
+        this.#pictureOwners.get(device.serial)?.controller.abort();
+        this.#pictureOwners.delete(device.serial);
+        const route = ppcsStreamRoute(device, this.#devices);
+        if (supportsEventPictureHistory(device, route, true) && event.stationSerial === route!.peer.serial) {
+          this.#pictureOwners.set(device.serial, { event, controller: new AbortController(), generation: this.#startupGeneration,
+            device, parent: route!.peer });
+          if (this.#pictureOwners.size > 256) {
+            const first = this.#pictureOwners.keys().next().value!;
+            this.#pictureOwners.get(first)?.controller.abort(); this.#pictureOwners.delete(first);
+          }
+        }
+      }
+    }
     const careKind = careMonitorPushKind(device, event.messageType, event.eventType);
     if (isE21(device)) {
       if (careKind !== null && event.stationSerial === (device.parentSerial || device.serial)) {
@@ -5598,26 +5638,81 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     await Promise.all(serials.map(serial => this.stopStream(serial)));
   }
 
+  /** Retire only picture recovery owners, leaving normal cloud request ownership unchanged. */
+  #retirePictureOwners(): void {
+    for (const owner of this.#pictureOwners.values()) owner.controller.abort();
+    this.#pictureOwners.clear(); this.#pictureRecoveryCooldowns.clear();
+  }
+
+  /** Require the current accepted visit, original inventory binding and provider lifetime. */
+  #pictureOwnerCurrent(owner: PushPictureOwner): boolean {
+    return !owner.controller.signal.aborted && owner.generation === this.#startupGeneration
+      && this.#pictureOwners.get(owner.device.serial) === owner && !this.#rtcPreparation.gated
+      && !!this.#devices.get(owner.device.serial) && !!this.#devices.get(owner.parent.serial)
+      && !inventoryBindingChanged(owner.device, this.#devices.get(owner.device.serial)!)
+      && !inventoryBindingChanged(owner.parent, this.#devices.get(owner.parent.serial)!);
+  }
+
+  /** Recover once on an idle peer, returning bytes only while the same visit still owns the picture. */
+  async #recoverPushPicture(event: MegaPushEvent, owner: PushPictureOwner): Promise<Buffer> {
+    const reference = event.recording, age = reference ? Date.now() - reference.triggerMilliseconds : Infinity;
+    if (!this.config.experimentalHomeBaseEventImages || !this.config.apiAuthenticationConfigured || !event.eventId
+      || !reference || !recordingPathDate(reference.storagePath) || age < -5_000 || age > 300_000
+      || !this.#pictureOwnerCurrent(owner) || this.#panControlOperations.has(event.cameraSerial)
+      || this.#recordingPeerReserved(event.cameraSerial) || (this.#pictureRecoveryCooldowns.get(owner.parent.serial) ?? 0) > performance.now()) {
+      throw new EventNameHistoryError("unavailable");
+    }
+    const now = performance.now();
+    for (const [peer, until] of this.#pictureRecoveryCooldowns) if (until <= now) this.#pictureRecoveryCooldowns.delete(peer);
+    this.#pictureRecoveryCooldowns.set(owner.parent.serial, now + 10_000);
+    if (this.#pictureRecoveryCooldowns.size > 100) this.#pictureRecoveryCooldowns.delete(this.#pictureRecoveryCooldowns.keys().next().value!);
+    let bytes: Buffer | undefined;
+    try {
+      bytes = await this.#recordingOperation(event.cameraSerial, owner.controller.signal, async session => {
+        const data = await session.recoverEventPicture(reference, owner.controller.signal);
+        bytes = data;
+        if (!this.#pictureOwnerCurrent(owner)) throw new EventNameHistoryError("cancelled");
+        return data;
+      }, "event_picture");
+      if (!this.#pictureOwnerCurrent(owner)) throw new EventNameHistoryError("cancelled");
+      return bytes;
+    } catch (error) { bytes?.fill(0); throw error; }
+  }
+
   #queuePushSnapshot(events: ProviderEvents, event: MegaPushEvent): void {
     if (this.#rtcPreparation.gated) return;
-    const generation = this.#startupGeneration;
+    const generation = this.#startupGeneration, owner = this.#pictureOwners.get(event.cameraSerial);
+    if (owner && !(owner.event === event || event.eventId !== null && owner.event.eventId === event.eventId
+      && owner.event.eventType === event.eventType && (!owner.event.recording
+        || owner.event.recording.id === event.recording?.id && owner.event.recording.storagePath === event.recording.storagePath))) return;
     const previous = this.#pushSnapshotQueues.get(event.cameraSerial) ?? Promise.resolve();
     const current = previous.then(async () => {
-      if (generation !== this.#startupGeneration) return;
+      if (generation !== this.#startupGeneration || owner && !this.#pictureOwnerCurrent(owner)) return;
       const camera = this.#devices.get(event.cameraSerial);
       const context: EventImageContext = camera ? {
         model: camera.model,
         ...(camera.deviceType !== null ? { deviceType: camera.deviceType } : {}),
         ...(camera.parentSerial ? { topology: camera.parentSerial !== camera.serial ? "attached" : "direct" } : {}),
       } : {};
-      const picture = await downloadPushSnapshot(this.#client, event, this.#devices, this.config.eventImageCapture, context);
+      let picture: { data: Buffer } | null, recovered = false;
+      try { picture = await downloadPushSnapshot(this.#client, event, this.#devices, this.config.eventImageCapture, context); }
+      catch (error) {
+        if (!(error instanceof MediaHttpError) || error.failure.status !== 404 || !owner) throw error;
+        try {
+          picture = { data: await this.#recoverPushPicture(event, owner) }; recovered = true;
+          logger.info("push_snapshot_recovered", "Recovered the matching recording thumbnail from HomeBase");
+        } catch {
+          logger.info("push_snapshot_recovery_unavailable", "The matching recording thumbnail could not be recovered");
+          throw error;
+        }
+      }
       if (picture) {
-        if (generation !== this.#startupGeneration) {
+        if (generation !== this.#startupGeneration || owner && !this.#pictureOwnerCurrent(owner)) {
           picture.data.fill(0);
           return;
         }
         events.snapshot(event.cameraSerial, picture.data, "image/jpeg");
-        logger.info("push_snapshot_retained", "Eufy push snapshot retained request_style=authenticated");
+        logger.info("push_snapshot_retained", `Eufy push snapshot retained request_style=${recovered ? "homebase_recording" : "authenticated"}`);
       }
     }).catch((error: unknown) => {
       logger.warn("push_snapshot_unavailable", `Eufy push snapshot unavailable: ${safeError(error)} request_style=authenticated`);
