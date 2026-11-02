@@ -288,3 +288,25 @@ test("trial wire frames preserve command, channel, protection and native binary 
     }
   }
 });
+
+test("standalone T8425 movement retains its model-specific two-field command", () => {
+  const route: ModelControlRoute = { model: "T8425", deviceType: 47, peerModel: "T8425", channel: 0, selfPeer: true, homeBaseAttached: false };
+  assert.deepEqual(modelControlTrialActions(route), ["ptz"]);
+  for (const change of [{ model: "T8426" }, { deviceType: 87 }, { peerModel: "T8426" },
+    { channel: 1 }, { selfPeer: false }, { homeBaseAttached: true }]) {
+    assert.deepEqual(modelControlTrialActions({ ...route, ...change }), []);
+  }
+  const key = Buffer.alloc(16, 7);
+  for (const [direction, rotate_type] of [["left", 1], ["right", 2], ["up", 3], ["down", 4]] as const) {
+    const request: ModelControlTrial = { action: "ptz", direction };
+    const expected = { commandType: 6030, data: { cmd_type: 1, rotate_type } };
+    const semantic = modelControlTrialCommand(request, route, "synthetic", transaction);
+    assert.equal(semantic.command, 1700);
+    assert.deepEqual(JSON.parse(String(semantic.value)), expected);
+    const frame = buildModelControlTrialPayload(request, route, "synthetic", key, null, 5, transaction);
+    const decipher = createDecipheriv("aes-128-ecb", key, null);
+    decipher.setAutoPadding(false);
+    const plaintext = Buffer.concat([decipher.update(frame.payload.subarray(10)), decipher.final()]).toString().replace(/\0+$/, "");
+    assert.deepEqual(JSON.parse(plaintext), expected);
+  }
+});

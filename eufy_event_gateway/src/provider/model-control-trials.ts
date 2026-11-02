@@ -130,6 +130,7 @@ export function modelControlTrialActions(route: ModelControlRoute): readonly Mod
   }
   if (!route.selfPeer || route.channel !== 0) return [];
   if (route.model === "T814X" && route.deviceType === 10037 && route.peerModel === "T814X") return ["ptz", "spotlight", "aiTracking"];
+  if (route.model === "T8425" && route.deviceType === 47 && route.peerModel === "T8425") return ["ptz"];
   if (route.model === "T8170" && route.deviceType === 48 && route.peerModel === "T8170") return ["alarmState"];
   if (route.model === "T8423" && route.deviceType === 38) return ["motion", "spotlight", "ptz"];
   if (route.model === "T8417" && route.deviceType === 105) {
@@ -160,6 +161,12 @@ export function modelControlTrialCommand(
       data: { value: request.enabled ? 1 : 0, open: request.enabled ? 1 : 0, type: 2, transaction: `${transaction}` } }) };
   }
   if (request.action === "spotlight") return { command: 1403, value: request.enabled };
+  if (request.action === "ptz" && route.model === "T8425") {
+
+    // The exact standalone handler excludes the generic PTZ transaction and zoom fields.
+    return { command: 1700, value: JSON.stringify({ commandType: 6030,
+      data: { cmd_type: 1, rotate_type: { left: 1, right: 2, up: 3, down: 4 }[request.direction] } }) };
+  }
   const data = request.action === "motion" ? { status: request.enabled ? 1 : 0, transaction: `${transaction}` }
     : { cmd_type: 1, rotate_type: { left: 1, right: 2, up: 3, down: 4 }[request.direction],
       ...(["T8423", "T8417", "T814X"].includes(route.model) ? { zoom: 1, ivalue: -1 } : {}), transaction: `${transaction}` };

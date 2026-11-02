@@ -699,7 +699,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #lockStatusCooldowns = new Map<string, number>();
   #lockStatusTime = 0;
   #lockStatusSequence = 0;
-  readonly #manualLightAborters = new Map<string, AbortController>();
+  readonly #manualControlAborters = new Map<string, AbortController>();
   readonly #nvrPowerEntries = new Map<string, { controller: AbortController; session: NvrRtcSession | null }>();
   readonly #nvrPowerCooldowns = new Map<string, number>();
   readonly #nvrGuardEntries = new Map<string, { controller: AbortController; session: NvrRtcSession | null; attempted: boolean; warned: boolean }>();
@@ -1523,7 +1523,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations, this.#audioRecordingOperations,
       this.#motionOperations, this.#guardModeOperations, this.#nightVisionOperations, this.#lightOperations,
       this.#cameraSirenOperations, this.#cameraSirenAborters, this.#panControlOperations, this.#nvrTrials, this.#doorbellTrials,
-      this.#localMotionAborters, this.#lockStatusAborters, this.#manualLightAborters, this.#recordingSessions,
+      this.#localMotionAborters, this.#lockStatusAborters, this.#manualControlAborters, this.#recordingSessions,
       this.#trialSirenStops, this.#generalRtcLockOperations, this.#generalRtcTrials, this.#trialPeers, this.#trialSessions,
       this.#recordingReservations, this.#nvrLiveJobs, this.#nvrPowerEntries, this.#nvrGuardEntries,
       this.#nvrGuardLatches, this.#dskRefreshes, this.#cipherFlights, this.#pushSnapshotQueues];
@@ -1677,7 +1677,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations, this.#audioRecordingOperations,
       this.#motionOperations, this.#guardModeOperations, this.#nightVisionOperations, this.#lightOperations,
       this.#cameraSirenOperations, this.#cameraSirenAborters, this.#panControlOperations, this.#nvrTrials, this.#doorbellTrials,
-      this.#localMotionAborters, this.#lockStatusAborters, this.#manualLightAborters, this.#recordingSessions, this.#trialSirenStops,
+      this.#localMotionAborters, this.#lockStatusAborters, this.#manualControlAborters, this.#recordingSessions, this.#trialSirenStops,
       this.#generalRtcLockOperations];
     if (this.#recordingIndexActive || this.#recordingPeerReserved(serial) || this.#nvrControlReserved(parentSerial)
       || [...this.#nvrLiveJobs].some(id => related.has(id)) || [...this.#generalRtcTrials.values()].some(entry => entry.parent === parentSerial)
@@ -3166,6 +3166,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (!device.adminUserId) return { actions: [], unavailableReason: "owner_account_required" };
     const actions = modelControlTrialActions(this.#modelTrialRoute(device, route));
     if (!actions.length) return { actions: [], unavailableReason: "unsupported_identity" };
+    if (device.model === "T8425" && (!this.config.apiAuthenticationConfigured
+      || route.peer.adminUserId !== device.adminUserId || !this.#client.isAuthenticatedUser(device.adminUserId))) {
+      return { actions: [], unavailableReason: "owner_account_required" };
+    }
     if (device.model === "T814X" && device.deviceType === 10037) {
       if (!this.config.apiAuthenticationConfigured || route.peer.adminUserId !== device.adminUserId
         || !this.#client.isAuthenticatedUser(device.adminUserId)) return { actions: [], unavailableReason: "owner_account_required" };
@@ -3244,6 +3248,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const device = this.#devices.get(serial)!;
     const route = ppcsStreamRoute(device, this.#devices)!;
     const peer = route.peer;
+    if (device.model === "T8425" && request.action === "ptz") return await this.#performT8425DirectionTrial(serial, request, signal);
     const activeSiren = this.#trialSirenStops.get(peer.serial);
     if (request.action === "siren" && !request.enabled && activeSiren?.cameraId === serial) {
       try {
@@ -3352,6 +3357,87 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
+  /** Own a single explicit standalone floodlight move without publishing position or retrying it. */
+  async #performT8425DirectionTrial(serial: string, request: Extract<ModelControlTrial, { action: "ptz" }>,
+    signal?: AbortSignal): Promise<ModelControlTrialResult> {
+    const unknown = (): Error => new Error("Movement test did not confirm the camera position. Check it and restore the original view in Eufy before trying again.");
+    if (!this.modelControlTrials(serial).includes("ptz") || signal?.aborted) throw unknown();
+    const device = this.#devices.get(serial)!;
+    const route = ppcsStreamRoute(device, this.#devices)!;
+    const peer = route.peer;
+    const controls = [this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations,
+      this.#audioRecordingOperations, this.#motionOperations, this.#nightVisionOperations, this.#guardModeOperations,
+      this.#lightOperations, this.#panControlOperations, this.#cameraSirenOperations];
+    if (this.#localMotionAborters.size || this.#trialPeers.has(peer.serial) || this.#recordingPeerReserved(serial)
+      || this.#stationOperations.has(peer.serial) || this.#ppcsStreams.has(serial) || this.#streamStarts.has(serial)
+      || controls.some(map => map.has(serial))) throw new Error("Stop live view and wait for other device operations before a movement test");
+    const controller = new AbortController(), generation = this.#startupGeneration;
+    const release = this.#reserveTrialPeer(peer.serial);
+    this.#manualControlAborters.set(peer.serial, controller);
+    let session: FirstPartyPpcsSession | null = null;
+    let stage: ModelControlTrialFailureStage = "session_key";
+    const abort = (): void => { controller.abort(); session?.close(); };
+    const deadline = setTimeout(abort, 60_000);
+    signal?.addEventListener("abort", abort, { once: true });
+    const valid = (rows: readonly MegaInventoryDevice[]): boolean => {
+      const matches = rows.filter(row => row.serial === serial);
+      const fresh = matches[0];
+      return matches.length === 1 && !!fresh && !inventoryBindingChanged(device, fresh)
+        && fresh.p2pDid === peer.p2pDid && fresh.p2pConnection === peer.p2pConnection
+        && fresh.adminUserId === device.adminUserId;
+    };
+    const current = (): void => {
+      if (controller.signal.aborted || signal?.aborted || this.#recordingClosing || generation !== this.#startupGeneration
+        || (session !== null && session.stats.closeReason !== "open")
+        || !this.#client.isAuthenticatedUser(device.adminUserId!) || !valid([...this.#devices.values()])) throw unknown();
+    };
+    const owned = async <T>(operation: () => Promise<T>): Promise<T> => {
+      current();
+      let cancel!: () => void;
+      const cancelled = new Promise<never>((_resolve, reject) => {
+        cancel = () => reject(unknown()); controller.signal.addEventListener("abort", cancel, { once: true });
+        if (controller.signal.aborted) cancel();
+      });
+      try { const result = await Promise.race([operation(), cancelled]); current(); return result; }
+      finally { controller.signal.removeEventListener("abort", cancel); }
+    };
+    const fresh = async (): Promise<void> => {
+      const inventory = await owned(() => this.#client.inventory(controller.signal));
+      if (inventory.devices.filter(row => row.device_sn === serial).length !== 1
+        || !valid(parseMegaInventory(inventory))) throw unknown();
+    };
+    try {
+      await fresh();
+      const dsk = await owned(() => this.#dskKey(peer.serial));
+      if (!dsk) throw unknown();
+      stage = "session_connect";
+      session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!, appConnection: peer.p2pConnection!,
+        localAddress: peer.localAddress, dskKey: dsk.key, channel: 0, cameraModel: "T8425", accountId: device.adminUserId!,
+        homeBaseAttached: false, purpose: "control", modelControlTrial: true, maxSeconds: 40,
+        resolveCipherKey: id => this.#resolveCipherKey(id, peer) });
+      this.#trialSessions.set(peer.serial, session);
+      session.output.once("end", abort); session.output.resume();
+      await owned(() => session!.start());
+      stage = "session_prepare";
+      await fresh();
+      stage = "write";
+      await owned(() => session!.writeModelControlTrial(request, this.#modelTrialRoute(device, route), current));
+      logger.info("model_control_trial_result", "Model control trial: model=T8425 action=ptz outcome=acknowledged physical_confirmation_required=true");
+      return { outcome: "acknowledged", physicalConfirmationRequired: true };
+    } catch {
+      logger.warn("model_control_trial_failed", `Model control trial failed: model=T8425 action=ptz stage=${stage}`);
+      throw unknown();
+    } finally {
+      clearTimeout(deadline); signal?.removeEventListener("abort", abort);
+      session?.output.removeListener("end", abort); controller.abort(); session?.close();
+      try { await session?.waitUntilClosed(); }
+      finally {
+        if (this.#trialSessions.get(peer.serial) === session) this.#trialSessions.delete(peer.serial);
+        this.#manualControlAborters.delete(peer.serial); release();
+      }
+    }
+  }
+
   async #performS120LightTrial(serial: string, request: Extract<ModelControlTrial, { action: "manualLight" }>,
     signal?: AbortSignal): Promise<ModelControlTrialResult> {
     const unknown = (): Error => new Error("Manual light test did not confirm the light state. Check the light and restore it before trying again.");
@@ -3370,7 +3456,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       || this.#stationOperations.has(peer.serial) || related.some(row => this.#ppcsStreams.has(row.serial)
         || this.#streamStarts.has(row.serial) || controls.some(map => map.has(row.serial)))) throw unknown();
     const controller = new AbortController(), generation = this.#startupGeneration;
-    const releaseTrialPeer = this.#reserveTrialPeer(peer.serial); this.#manualLightAborters.set(peer.serial, controller);
+    const releaseTrialPeer = this.#reserveTrialPeer(peer.serial); this.#manualControlAborters.set(peer.serial, controller);
     let session: FirstPartyPpcsSession | null = null;
     const abort = (): void => { controller.abort(); session?.close(); };
     const deadline = setTimeout(abort, 60_000);
@@ -3427,7 +3513,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       try { await session?.waitUntilClosed(); }
       finally {
         if (this.#trialSessions.get(peer.serial) === session) this.#trialSessions.delete(peer.serial);
-        this.#manualLightAborters.delete(peer.serial); releaseTrialPeer();
+        this.#manualControlAborters.delete(peer.serial); releaseTrialPeer();
       }
     }
   }
@@ -4038,7 +4124,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
     this.#client.cancelPendingRequests();
     for (const controller of this.#localMotionAborters.values()) controller.abort();
-    for (const controller of this.#manualLightAborters.values()) controller.abort();
+    for (const controller of this.#manualControlAborters.values()) controller.abort();
     for (const entry of this.#nvrPowerEntries.values()) entry.controller.abort();
     for (const controller of this.#lockStatusAborters.values()) controller.abort();
     if (this.#stationRefreshTimer) clearInterval(this.#stationRefreshTimer);

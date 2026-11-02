@@ -11,7 +11,7 @@ models:
   - T8425
   - T8425121
 device_type: 47
-notes: The contributor physically confirmed manual floodlight on and off on exact standalone T8425 firmware 1.6.4.6. The momentary command has no independent light-state readback or automatic-off guarantee. An opt-in brightness number is implemented for exact standalone T8425 with an owner account and independent readback. Physical brightness behaviour is unconfirmed. Master spotlight settings, T8425121 and attached routes are not covered.
+notes: The contributor physically confirmed manual floodlight on and off on exact standalone T8425 firmware 1.6.4.6. The momentary command has no independent light-state readback or automatic-off guarantee. An opt-in brightness number is implemented for exact standalone T8425 with an owner account and independent readback. Physical brightness behaviour is unconfirmed. A separate authenticated manual diagnostic offers a single exact standalone directional trial with fresh owner and route checks. Movement, stopping and position remain physically unconfirmed. Normal HA pan controls are unchanged. Master spotlight settings, T8425121 and attached routes are not covered.
 capabilities:
   controls:
     motion_detection:
