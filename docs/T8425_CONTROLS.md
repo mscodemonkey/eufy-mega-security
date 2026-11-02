@@ -23,9 +23,30 @@ motion-switch test, note the current app setting, change it once, then restore
 it immediately and confirm the app agrees. Leave it in the original state. For
 sensitivity, try one nearby step and restore the original. These settings do not
 change notification types, zones or motion-triggered lighting schedules.
-Pan/tilt and the other remaining controls in #470 and #481 stay open.
+The remaining controls in #470 and #481 stay open.
 
 For a reversible test, note the current brightness in the Eufy app, choose a
 small different value in Home Assistant, compare both displays and the light's
 brightness, then restore the original value and confirm it in the app. Do not
 change motion detection, siren or camera power for this test.
+
+## Manual direction test
+
+For an exact standalone T8425/type 47 on channel zero, Experimental model
+controls now offers a **ptz** trial on the authenticated manual diagnostics page.
+The API token must be configured and the signed-in account must own the camera.
+T8426, aliases and HomeBase-attached cameras are excluded. Normal Home Assistant
+pan buttons remain unchanged.
+
+Close live viewers and note the original view in the Eufy app. Only try this
+while you can watch the camera and restore that view in Eufy. Choose one
+direction, confirm observation consent and submit once. The gateway checks a
+fresh, unique owner/route before opening the session and again before sending.
+It sends one command without retrying it. Acknowledgement does not confirm
+movement, stopping or position. There is no automatic return to the original
+view. Restore it in Eufy after the test, including after an error or cancelled
+request. Do not keep clicking if the result is uncertain.
+
+Physical behaviour remains unconfirmed. Report whether the camera moved in the
+chosen direction and stopped. If the test fails, share only the
+`model_control_trial_failed` log line. Do not send account details or captures.
