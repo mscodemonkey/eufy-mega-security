@@ -17,20 +17,22 @@ import type { ProviderEvents } from "../src/provider/provider.js";
 import { observeLogEvents } from "../src/logging.js";
 
 /** Own a normalized camera, confirmed settings and all synthetic session effects. */
-async function fixture(context: TestContext, standalone = false, stationModel = "T8010", extra = false, stationSerial = "base", cameraChannel = standalone ? 0 : 1) {
+async function fixture(context: TestContext, standalone = false, stationModel = "T8010", extra = false, stationSerial = "base", cameraChannel = standalone ? 0 : 1, chargingDays?: number) {
   const directory = await mkdtemp(join(tmpdir(), "motion-reliability-"));
   let motion = true;
   const sessions: FirstPartyPpcsSession[] = [];
   const closes: FirstPartyPpcsSession[] = [];
   const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
   context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
-  const inventory = context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [
+  const inventory = context.mock.method(MegaClient.prototype, "inventory", async (_signal?: AbortSignal, options?: { includeChargingDays?: boolean }) => ({ devices: [
     ...(!standalone ? [{ device_sn: stationSerial, device_model: stationModel, device_type: stationModel === "T8010" ? 0 : 18,
       p2p_did: stationSerial === "base" ? "synthetic-peer" : "TEST-12345678-TEST", p2p_conn: "synthetic-route", category: "eufy_security", member: { admin_user_id: "owner" } }] : []),
-    { device_sn: "camera", device_model: standalone ? "T8171" : "T8113-Z", device_type: standalone ? 88 : 8,
+    { ...(chargingDays !== undefined && options?.includeChargingDays !== false ? { charging_days: chargingDays } : {}),
+      device_sn: "camera", device_model: standalone ? "T8171" : "T8113-Z", device_type: standalone ? 88 : 8,
       parent_sn: standalone ? "camera" : stationSerial, device_channel: cameraChannel,
       p2p_did: "synthetic-camera", p2p_conn: "synthetic-route", category: "eufy_security", member: { admin_user_id: "owner" },
-      params: [{ param_type: standalone ? 6040 : 1011, param_value: motion ? "1" : "0" }] },
+      params: [{ param_type: standalone ? 6040 : 1011, param_value: motion ? "1" : "0" },
+        ...(chargingDays !== undefined ? [{ param_type: 1101, param_value: "60" }] : [])] },
     ...(extra ? [
       { device_sn: "base2", device_model: "T8010", device_type: 0, p2p_did: "synthetic-peer2", p2p_conn: "synthetic-route", category: "eufy_security", member: { admin_user_id: "owner" } },
       ...["camera2", "camera3"].map(id => ({ device_sn: id, device_model: "T8113-Z", device_type: 8,
@@ -478,5 +480,19 @@ test("a brief startup bootstrap that stalls is retired before its replacement is
     assert.ok(f.closes.includes(attempts[0]!));
     assert.equal(f.published.length, 1);
     assert.equal(f.published[0]![1], attempts[1]!.output);
+  } finally { await f.dispose(); }
+});
+
+
+test("motion readback skips optional charging history and retains its owned cached value", async context => {
+  const f = await fixture(context, false, "T8010", false, "base", 1, 44);
+  try {
+    const camera = await f.provider.setCameraMotionDetection("camera", false);
+    assert.equal(camera.motionDetectionEnabled, false);
+    assert.equal(camera.battery?.lastChargingDays, 44);
+    const confirmations = f.inventory.mock.calls.slice(1);
+    assert.ok(confirmations.length > 0);
+    assert.ok(confirmations.every(call => call.arguments[1]?.includeChargingDays === false));
+    assert.equal(f.write.mock.callCount(), 1);
   } finally { await f.dispose(); }
 });

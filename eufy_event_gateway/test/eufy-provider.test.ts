@@ -2018,3 +2018,23 @@ test("T8425 siren eligibility refuses unverified model and ownership combination
   assert.equal(supportsCameraSiren(device, { ...direct, homeBaseAttached: true }), false);
   assert.equal(supportsCameraSiren(device, { ...direct, peer: { ...device, serial: "other" } as MegaInventoryDevice }), false);
 });
+
+
+test("primary-only inventory retains charging days only within the same device binding", () => {
+  const raw = { device_sn: "camera", device_model: "T8113-Z", device_type: 8, category: "eufy_security",
+    parent_sn: "base", device_channel: 1, member: { admin_user_id: "owner" } };
+  const existing = parseMegaInventory({ devices: [{ ...raw, charging_days: 44,
+    params: [{ param_type: 1011, param_value: "1" }] }] })[0]!;
+  const fresh = parseMegaInventory({ devices: [{ ...raw,
+    params: [{ param_type: 1011, param_value: "0" }] }] })[0]!;
+  assert.equal(mergeInventoryMetadata(existing, fresh, true).reads.lastChargingDays, 44);
+  assert.equal(mergeInventoryMetadata(existing, fresh, true).reads.motionDetectionEnabled, false);
+  assert.equal(mergeInventoryMetadata(existing, fresh).reads.lastChargingDays, undefined);
+  const reset = parseMegaInventory({ devices: [{ ...raw, charging_days: 0 }] })[0]!;
+  assert.equal(mergeInventoryMetadata(existing, reset).reads.lastChargingDays, 0);
+  for (const changed of [{ parent_sn: "other" }, { device_channel: 2 },
+    { device_model: "T8113-V" }, { device_type: 14 }, { member: { admin_user_id: "other" } }]) {
+    const rebound = parseMegaInventory({ devices: [{ ...raw, ...changed }] })[0]!;
+    assert.equal(mergeInventoryMetadata(existing, rebound, true).reads.lastChargingDays, undefined);
+  }
+});

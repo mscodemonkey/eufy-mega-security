@@ -839,7 +839,7 @@ test("runtime timer polls coalesce and subsequent polls retry", async (context) 
     await f.provider.start(f.events);
     let finish!: (value: { devices: [] }) => void;
     const pending = new Promise<{ devices: [] }>((resolve) => { finish = resolve; });
-    const inventory = context.mock.method(MegaClient.prototype, "inventory", async () => pending);
+    const inventory = context.mock.method(MegaClient.prototype, "inventory", async (_signal?: AbortSignal, _options?: { includeChargingDays?: boolean }) => pending);
     pollDiscovery(f);
     pollDiscovery(f);
     await settleDiscovery();
@@ -849,6 +849,7 @@ test("runtime timer polls coalesce and subsequent polls retry", async (context) 
     pollDiscovery(f);
     await settleDiscovery();
     assert.equal(inventory.mock.callCount(), 2);
+    assert.ok(inventory.mock.calls.every(call => call.arguments[1]?.includeChargingDays === true));
   } finally { await f.provider.close(); }
 });
 
@@ -870,7 +871,7 @@ test("control readbacks share one fresh trailing refresh after a pending timer r
     let finish!: (value: ReturnType<typeof rows>) => void;
     const pending = new Promise<ReturnType<typeof rows>>((resolve) => { finish = resolve; });
     let reads = 0;
-    const inventory = context.mock.method(MegaClient.prototype, "inventory", async () =>
+    const inventory = context.mock.method(MegaClient.prototype, "inventory", async (_signal?: AbortSignal, _options?: { includeChargingDays?: boolean }) =>
       ++reads === 1 ? pending : rows(true));
     pollDiscovery(f);
     const first = f.provider.setCameraEnabled("camera", true);
@@ -882,6 +883,8 @@ test("control readbacks share one fresh trailing refresh after a pending timer r
     assert.equal((await first).enabled, true);
     assert.equal((await second).enabled, true);
     assert.equal(inventory.mock.callCount(), 2);
+    assert.equal(inventory.mock.calls[0]?.arguments[1]?.includeChargingDays, true);
+    assert.equal(inventory.mock.calls[1]?.arguments[1]?.includeChargingDays, false);
   } finally { await f.provider.close(); }
 });
 
