@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.229
+
+- Add the first observed closure cause and whether a source ever attached to the existing viewer_client_stopped summary. Failed starts, provider stops, source endings, conversion failures and consumer/transport closures can now be distinguished without private error text or URLs. This diagnostic does not yet establish the cause of a reporter's blank first HA view.
+- Preserve media timing, retries, viewer profiles and source ownership. Focused zero-byte, warm-source, conversion and codec-change tests plus full repository and local HA checks passed.
+
 ## 0.1.228
 
 - Cancel an obsolete cloud picture download and its retry delay when a newer accepted visit owns the image. This prevents the old read holding up the next request in the optional HomeBase 3 recovery experiment. It does not fix the intermittent cloud 404 failure.
