@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.227
+
+- Prevent a cloud-picture download from a previous gateway session delaying pictures after that session restarts. New picture requests can start immediately, while late responses from the retired session are discarded. This does not resolve Eufy's separate cloud HTTP 404 picture failures.
+
 ## 0.1.226
 
 - Let Home Assistant scripts continue after motion and camera-enable requests are accepted, with pending state, background confirmation and visible failures. Remove an unrelated charging-history lookup from setting confirmation.
