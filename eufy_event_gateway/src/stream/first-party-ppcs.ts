@@ -54,6 +54,7 @@ const REQ = {
   localLookup: Buffer.from([0xf1, 0x30]),
   check: Buffer.from([0xf1, 0x41]),
   ping: Buffer.from([0xf1, 0xe0]),
+  pong: Buffer.from([0xf1, 0xe1]),
   data: Buffer.from([0xf1, 0xd0]),
   ack: Buffer.from([0xf1, 0xd1]),
   end: Buffer.from([0xf1, 0xf0]),
@@ -64,6 +65,7 @@ const RESP = {
   localLookup: Buffer.from([0xf1, 0x41]),
   camId: Buffer.from([0xf1, 0x42]),
   turnServerCamId: Buffer.from([0xf1, 0x84]),
+  ping: Buffer.from([0xf1, 0xe0]),
   pong: Buffer.from([0xf1, 0xe1]),
   data: Buffer.from([0xf1, 0xd0]),
 } as const;
@@ -2957,6 +2959,16 @@ export class FirstPartyPpcsSession {
       } else this.#sendCommand(1100, voidPayload(255));
       if (!this.#options.homeBaseAttached && this.#options.purpose !== "control" && this.#options.purpose !== "passive") this.#startOwnMedia();
       return true;
+    }
+    if (has(message, RESP.ping)) {
+
+      // The selected peer also probes our side of the connection. Answer only
+      // its observed empty heartbeat, without resetting media or its deadlines.
+      if (this.#remote?.host === info.address && this.#remote.port === info.port
+        && message.length === 4 && message.readUInt16BE(2) === 0) {
+        this.#send(REQ.pong, Buffer.alloc(0), this.#remote);
+      }
+      return false;
     }
     if (has(message, RESP.pong)) return false;
     if (has(message, REQ.ack) && this.#remote?.host === info.address && this.#remote.port === info.port
