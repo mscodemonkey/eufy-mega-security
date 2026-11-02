@@ -27,13 +27,30 @@ async function run(): Promise<void> {
   const config = { iceServers: [{ urls: `turn:127.0.0.1:${scenario === "unreachable" ? sinkPort : relayPort}?transport=${scenario === "tcp" ? "tcp" : "udp"}`,
     username: "probe", credential: "local-fixture-only" }], iceUseIpv4: false, iceUseIpv6: false,
     iceAdditionalHostAddresses: ["127.0.0.1"], iceTransportPolicy: "relay" as const };
+  let failedDirectChecks = 0;
+  const lateRelay = scenario?.startsWith("late") || ["cancel-late", "remote-ended"].includes(scenario ?? "");
+
+  // Block incoming host checks too, so peer-reflexive checks cannot bypass the delayed relay.
   const a = new RTCPeerConnection(config), b = new RTCPeerConnection({ ...config,
-    ...(scenario?.startsWith("late") ? { iceTransportPolicy: "all" as const,
-      iceFilterCandidatePair: (pair: { localCandidate: { type: string } }) => scenario === "late" ? pair.localCandidate.type === "relay" : true } : {}) });
+    ...(lateRelay ? { iceTransportPolicy: "all" as const,
+      iceFilterStunResponse: (_message, _address, protocol) => protocol.type === "turn",
+      iceFilterCandidatePair: (pair: { localCandidate: { type: string } }) => scenario === "late-failed" ? true : pair.localCandidate.type === "relay" } : {}) });
   const channel = a.createDataChannel("data"); b.createDataChannel("owned");
   for (const peer of [a, b]) {
     peer.iceTransports[0]!.connection.stunServer = ["127.0.0.1", sinkPort];
     installNvrIceGathering(peer, cancellation.signal);
+  }
+  let endedChecks = 0;
+  if (scenario === "remote-ended") {
+    const ice = a.iceTransports[0]!.connection as unknown as { ensureProtocol(protocol: Protocol): void };
+    const ensure = ice.ensureProtocol.bind(ice);
+    ice.ensureProtocol = protocol => {
+      ensure(protocol);
+      const request = protocol.request.bind(protocol);
+      protocol.request = (message, address, key, policy, attempt) => key
+        ? (endedChecks++, Promise.reject(new Error("synthetic failed remote route")))
+        : request(message, address, key, policy, attempt);
+    };
   }
   const proxies: ReturnType<typeof createSocket>[] = [];
   const tcpSockets = new Set<Socket>();
@@ -55,12 +72,12 @@ async function run(): Promise<void> {
     ice.ensureProtocol = protocol => {
       original(protocol);
       const request = protocol.request.bind(protocol);
-      protocol.request = (message, address, key, policy, attempt) => protocol.type === "udp" && key
-        ? Promise.reject(new Error("synthetic initial direct-check failure"))
+      protocol.request = (message, address, key, policy, attempt) => protocol.type === "stun" && key
+        ? (failedDirectChecks++, Promise.reject(new Error("synthetic initial direct-check failure")))
         : request(message, address, key, policy, attempt);
     };
   }
-  if (scenario?.startsWith("late")) {
+  if (lateRelay) {
     const front = createSocket("udp4"), back = createSocket("udp4"); proxies.push(front, back);
     await Promise.all(proxies.map(socket => new Promise<void>(resolve => socket.bind(0, "127.0.0.1", resolve))));
     let target: { port: number; address: string } | undefined;
@@ -103,16 +120,47 @@ async function run(): Promise<void> {
     const answerAt = performance.now();
     await bounded(b.setLocalDescription(await b.createAnswer()));
     const answerMilliseconds = Math.round(performance.now() - answerAt);
-    if (scenario?.startsWith("late")) assert.ok(answerMilliseconds < 2000);
+    if (lateRelay) {
+      assert.ok(answerMilliseconds < 750);
+      assert.doesNotMatch(b.localDescription!.sdp, / typ relay /);
+    }
+    if (scenario === "cancel-late") {
+      cancellation.abort();
+      await bounded(Promise.all([a.close(), b.close()]), 2000);
+      assert.equal(b.iceTransports[0]!.connection.state, "closed");
+      console.log(JSON.stringify({ scenario, passed: true, answer_ms: answerMilliseconds }));
+      return;
+    }
+    let failed = false;
+    const remoteFailure = new Promise<void>(resolve => {
+      a.connectionStateChange.subscribe(state => { if (state === "failed") { failed = true; resolve(); } });
+    });
     await a.setRemoteDescription(b.localDescription!);
+    if (scenario === "remote-ended") {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      assert.ok(endedChecks > 0);
+      assert.equal(failed, false);
+      await a.addIceCandidate();
+      await bounded(remoteFailure, 2000);
+      console.log(JSON.stringify({ scenario, passed: true, failed_checks: endedChecks }));
+      return;
+    }
     for (const candidate of fromB) await a.addIceCandidate(candidate);
-    await bounded(open);
+    await bounded(open).catch(error => {
+      const states = [a, b].map(peer => {
+        const ice = peer.iceTransports[0]!.connection;
+        return { state: ice.state, candidates: ice.localCandidates.map(candidate => candidate.type),
+          pairs: ice.candidatePairs.map(pair => ({ local: pair.localCandidate.type, remote: pair.remoteCandidate.type, state: pair.state })) };
+      });
+      throw new Error(JSON.stringify(states), { cause: error });
+    });
     cancellation.abort();
     channel.send("camera-stop-1004");
     assert.equal(await bounded(received), "camera-stop-1004");
     assert.equal(await bounded(ack), "ack");
     const selected = b.iceTransports[0]!.connection.nominated;
     assert.equal(selected?.localCandidate.type, "relay");
+    if (scenario === "late-failed") assert.ok(failedDirectChecks > 0);
     console.log(JSON.stringify({ scenario, passed: true, answer_ms: answerMilliseconds,
       connected_ms: Math.round(performance.now() - started), selected: selected?.localCandidate.type }));
   } finally {

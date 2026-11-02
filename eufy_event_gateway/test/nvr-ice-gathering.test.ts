@@ -28,7 +28,7 @@ test("the pinned adapter contract requires the exact audited dependency", async 
   assert.equal(lock.packages["node_modules/werift"].version, "0.24.4");
 });
 
-for (const scenario of ["unreachable", "udp", "tcp", "late", "late-failed", "fallback"]) test(`isolated ${scenario} scenario exits naturally with no owned relay handles`, {
+for (const scenario of ["unreachable", "udp", "tcp", "late", "late-failed", "cancel-late", "remote-ended", "fallback"]) test(`isolated ${scenario} scenario exits naturally with no owned relay handles`, {
   skip: scenario !== "unreachable" && !process.env.NVR_TEST_TURN_PORT ? "requires the task-owned loopback coturn fixture" : false,
 }, async () => {
   const child = fileURLToPath(new URL("./fixtures/nvr-ice-process.ts", import.meta.url));
@@ -91,7 +91,7 @@ test("real early answer omits end-of-candidates, carries data and preserves stop
     await answerer.setRemoteDescription(offerer.localDescription!);
     const start = performance.now();
     await deadline(answerer.setLocalDescription(await answerer.createAnswer()));
-    assert.ok(performance.now() - start < 2500, "early answer should precede full gathering by a substantial margin");
+    assert.ok(performance.now() - start < 750, "the first usable candidate should release the answer without a fixed grace");
     assert.equal(ended, false);
     assert.doesNotMatch(answerer.localDescription!.sdp, /a=end-of-candidates/);
     await offerer.setRemoteDescription(answerer.localDescription!);
