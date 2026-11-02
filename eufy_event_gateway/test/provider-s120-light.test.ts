@@ -16,7 +16,7 @@ import type { ModelControlTrial, ModelControlRoute } from "../src/provider/model
 import type { ProviderEvents } from "../src/provider/provider.js";
 
 
-for (const mode of ["valid", "off", "hung", "shutdown", "account", "disabled", "model", "type", "channel", "owner", "parent", "duplicate", "changed", "cancelled", "closed", "busy", "generation"]) {
+for (const mode of ["valid", "off", "hung", "shutdown", "account", "disabled", "model", "type", "channel", "owner", "parent", "duplicate", "changed", "cancelled", "closed", "busy", "cleanup", "generation"]) {
   test(`manual light binding and cleanup: ${mode}`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "light-provider-"));
     const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
@@ -54,6 +54,7 @@ for (const mode of ["valid", "off", "hung", "shutdown", "account", "disabled", "
     });
     let release!: () => void;
     const held = new Promise<void>(resolve => { release = resolve; });
+    context.mock.method(FirstPartyPpcsSession.prototype, "waitUntilClosed", async () => { if (mode === "cleanup") await held; });
     const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeModelControlTrial", async (_request: ModelControlTrial, _route: ModelControlRoute, current?: () => void) => {
       current!(); if (mode === "busy") await held; current!();
     });
@@ -64,7 +65,7 @@ for (const mode of ["valid", "off", "hung", "shutdown", "account", "disabled", "
       const baseline = cameraEvents;
       const request = { action: "manualLight" as const, enabled: mode !== "off" };
       const operation = provider.performModelControlTrial("sensor", request, controller.signal);
-      const expected = ["valid", "off", "busy"].includes(mode) ? operation : assert.rejects(operation, /Manual light test did not confirm the light state/);
+      const expected = ["valid", "off", "busy", "cleanup"].includes(mode) ? operation : assert.rejects(operation, /Manual light test did not confirm the light state/);
       for (let index = 0; index < 10; index++) await new Promise(resolve => setImmediate(resolve));
       if (mode === "busy") {
         await assert.rejects(provider.performModelControlTrial("sensor", request), /Manual light test/);
@@ -78,8 +79,13 @@ for (const mode of ["valid", "off", "hung", "shutdown", "account", "disabled", "
         await provider.refreshStation("station");
         release();
       }
+      if (mode === "cleanup") {
+        await assert.rejects(provider.performModelControlTrial("sensor", request), /Manual light test/);
+        await assert.rejects(provider.startStream("camera"), /recording retrieval|Wait/i);
+        release();
+      }
       if (mode === "hung") context.mock.timers.tick(60_000);
-      if (["valid", "off", "busy"].includes(mode)) {
+      if (["valid", "off", "busy", "cleanup"].includes(mode)) {
         assert.deepEqual(await expected, { outcome: "acknowledged", physicalConfirmationRequired: true });
         assert.equal(cameraEvents, baseline); assert.equal(write.mock.callCount(), 1);
         assert.equal(start.mock.callCount(), 1); assert.ok(close.mock.callCount() >= 1);
