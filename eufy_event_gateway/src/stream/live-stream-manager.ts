@@ -1145,6 +1145,10 @@ export class LiveStreamManager extends EventEmitter {
 
   /** Release consumers immediately while a retired provider operation finishes its own cleanup. */
   #retireStart(session: Session, error: Error): void {
+
+    // Private recording keeps isolation until the provider itself settles. Its
+    // abandoned-start handler owns late cleanup before allowing other consumers.
+    if (session.privateTrial) return;
     const start = session.start;
     session.start = null;
     start?.reject(error);
