@@ -780,24 +780,27 @@ export class MegaClient {
     return { registered: true, code: result.code };
   }
 
-  /** Download authenticated temporary media through Eufy's allowlisted object-store redirect. */
-  async download(url: string, maximumBytes = 20 * 1024 * 1024): Promise<Buffer> {
-    return (await this.downloadWithMetadata(url, maximumBytes)).data;
+  /**
+   * Download authenticated temporary media through Eufy's allowlisted redirect.
+   * Caller cancellation retires only this read, leaving the client lifetime intact.
+   */
+  async download(url: string, maximumBytes = 20 * 1024 * 1024, signal?: AbortSignal): Promise<Buffer> {
+    return (await this.downloadWithMetadata(url, maximumBytes, signal)).data;
   }
 
   /**
    * Read allowlisted media within one 30-second lifetime, retrying only404 while
    * a cloud object becomes ready. Discarded bodies and delay timers retire on
-   * shutdown. Metadata contains no private headers or object-store URL.
+   * shutdown or caller cancellation. Metadata contains no private headers or URL.
    */
-  async downloadWithMetadata(url: string, maximumBytes = 20 * 1024 * 1024): Promise<{ data: Buffer } & EventImageResponseMetadata> {
-    return this.#downloadMedia(url, maximumBytes);
+  async downloadWithMetadata(url: string, maximumBytes = 20 * 1024 * 1024, signal?: AbortSignal): Promise<{ data: Buffer } & EventImageResponseMetadata> {
+    return this.#downloadMedia(url, maximumBytes, signal);
   }
 
   /** Own authenticated media retries, redirect handling, body limits and cancellation. */
-  async #downloadMedia(url: string, maximumBytes: number): Promise<{ data: Buffer } & EventImageResponseMetadata> {
+  async #downloadMedia(url: string, maximumBytes: number, ownerSignal?: AbortSignal): Promise<{ data: Buffer } & EventImageResponseMetadata> {
     const parsed = allowedMediaUrl(url, MEDIA_HOST);
-    const signal = AbortSignal.any([this.#requestLifetime.signal, AbortSignal.timeout(30_000)]);
+    const signal = AbortSignal.any([this.#requestLifetime.signal, AbortSignal.timeout(30_000), ...(ownerSignal ? [ownerSignal] : [])]);
     let response: Response | null = null;
     let request: { response: Response; initial: string; redirect?: string } | null = null;
     let attempts = 0;

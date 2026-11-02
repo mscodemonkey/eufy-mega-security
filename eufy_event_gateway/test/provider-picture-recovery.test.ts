@@ -46,8 +46,16 @@ async function fixture(context: TestContext, mode = "success") {
   context.mock.method(MegaPushReceiver.prototype, "start", async function(this: MegaPushReceiver) {
     deliver = Reflect.get(this, "onEvent") as typeof deliver;
   });
-  let releaseCloud: (() => void) | undefined, cloudBytes: Buffer | undefined;
-  const cloud = context.mock.method(MegaClient.prototype, "download", async () => {
+  let releaseCloud: (() => void) | undefined, cloudBytes: Buffer | undefined, cloudRequestSignal: AbortSignal | undefined;
+  const cloud = context.mock.method(MegaClient.prototype, "download", async (_url: string, _limit?: number, requestSignal?: AbortSignal) => {
+    if (mode === "cloud-cancelled") {
+      if (cloud.mock.callCount() > 0) return jpeg;
+      cloudRequestSignal = requestSignal;
+      return await new Promise<Buffer>((resolve, reject) => {
+        releaseCloud = () => { cloudBytes = Buffer.from(jpeg); resolve(cloudBytes); };
+        requestSignal?.addEventListener("abort", () => reject(requestSignal.reason), { once: true });
+      });
+    }
     if (mode === "cloud-success") return jpeg;
     if (mode === "cloud-superseded" || mode.startsWith("cloud-restarted") && cloud.mock.callCount() === 0) {
       await new Promise<void>(resolve => { releaseCloud = resolve; }); cloudBytes = Buffer.from(jpeg); return cloudBytes;
@@ -79,7 +87,7 @@ async function fixture(context: TestContext, mode = "success") {
       ...(mode === "no-reference" ? {} : { record_id: 42, file_path: path,
         trigger_time: Date.now() + (mode === "stale" ? -301_000 : mode === "future" ? 10_000 : 0) }) } })!;
   return { provider, events, network, cloud, recovery, drained, pictures, event, send: (value: MegaPushEvent) => deliver(value),
-    releaseCloud: () => releaseCloud?.(), cloudBytes: () => cloudBytes,
+    releaseCloud: () => releaseCloud?.(), cloudBytes: () => cloudBytes, cloudRequestSignal: () => cloudRequestSignal,
     motions: () => motions, signal: () => signal, returned: () => returned, release: () => release?.() };
 }
 
@@ -177,6 +185,26 @@ for (const mode of ["cloud-restarted", "cloud-restarted-off"]) {
       await settle();
       assert.equal(f.pictures.length, 1);
       assert.ok(f.cloudBytes()?.every(byte => byte === 0));
+    } finally {
+      f.releaseCloud();
+      await f.provider.close();
+    }
+  });
+}
+
+for (const newPicture of [true, false]) {
+  test(`a newer visit cancels its obsolete cloud picture: replacement=${newPicture}`, async context => {
+    const f = await fixture(context, "cloud-cancelled");
+    try {
+      f.send(f.event("older-visit"));
+      await settle();
+      assert.equal(f.cloud.mock.callCount(), 1);
+      f.send(f.event("current-visit", newPicture));
+      await settle();
+      assert.equal(f.cloudRequestSignal()?.aborted, true);
+      assert.equal(f.cloud.mock.callCount(), newPicture ? 2 : 1);
+      assert.equal(f.pictures.length, newPicture ? 1 : 0);
+      assert.equal(f.recovery.mock.callCount(), 0);
     } finally {
       f.releaseCloud();
       await f.provider.close();

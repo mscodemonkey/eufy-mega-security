@@ -5808,7 +5808,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         ...(camera.parentSerial ? { topology: camera.parentSerial !== camera.serial ? "attached" : "direct" } : {}),
       } : {};
       let picture: { data: Buffer } | null, recovered = false;
-      try { picture = await downloadPushSnapshot(this.#client, event, this.#devices, this.config.eventImageCapture, context); }
+      try { picture = await downloadPushSnapshot(this.#client, event, this.#devices, this.config.eventImageCapture, context, owner?.controller.signal); }
       catch (error) {
         if (!(error instanceof MediaHttpError) || error.failure.status !== 404 || !owner) throw error;
         try {
@@ -5828,6 +5828,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         logger.info("push_snapshot_retained", `Eufy push snapshot retained request_style=${recovered ? "homebase_recording" : "authenticated"}`);
       }
     }).catch((error: unknown) => {
+      if (generation !== this.#startupGeneration || owner && !this.#pictureOwnerCurrent(owner)) return;
       logger.warn("push_snapshot_unavailable", `Eufy push snapshot unavailable: ${safeError(error)} request_style=authenticated`);
     });
     this.#pushSnapshotQueues.set(event.cameraSerial, current);
@@ -5841,6 +5842,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
  * Download and decode the image referenced by one normalized push event.
  * An opt-in process-owned collector retains failed decode inputs and typed HTTP receipts.
  * Download errors and last-good image ownership stay with their existing boundaries.
+ * An optional picture-owner signal cancels only the obsolete cloud read.
  */
 export async function downloadPushSnapshot(
   client: Pick<MegaClient, "download"> & Partial<Pick<MegaClient, "downloadWithMetadata" | "getEventImageKey">>,
@@ -5848,14 +5850,15 @@ export async function downloadPushSnapshot(
   devices: ReadonlyMap<string, Pick<MegaInventoryDevice, "p2pDid"> & Partial<Pick<MegaInventoryDevice, "adminUserId">>>,
   capture?: EventImageCapture,
   context: EventImageContext = {},
+  signal?: AbortSignal,
 ): Promise<{ data: Buffer } | null> {
   const pictureUrl = eventPictureUrl(event.pictureUrl);
   if (!pictureUrl) return null;
   let response: Awaited<ReturnType<MegaClient["downloadWithMetadata"]>> | null;
   let encoded: Buffer;
   try {
-    response = capture && client.downloadWithMetadata ? await client.downloadWithMetadata(pictureUrl) : null;
-    encoded = response?.data ?? await client.download(pictureUrl);
+    response = capture && client.downloadWithMetadata ? await client.downloadWithMetadata(pictureUrl, undefined, signal) : null;
+    encoded = response?.data ?? await client.download(pictureUrl, undefined, signal);
   } catch (error) {
     try { capture?.captureDownloadFailure(error, context, event); } catch {
       logger.warn("event_image_capture_unavailable", "Failed event-image evidence could not be captured");
