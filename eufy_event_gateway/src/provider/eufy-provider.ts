@@ -5544,7 +5544,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       event.eventType,
       event.pictureUrl !== null,
     );
-    if (this.config.experimentalHomeBaseEventImages && delivery.handleState && isSupportedMegaCamera(device)
+    if (delivery.handleState && isSupportedMegaCamera(device)
       && (delivery.retainPicture || cameraDetectionKind(event.eventType) !== null
         || event.eventType === 1 && genericSecurityDetectionKinds(event).length > 0)) {
       const previous = this.#pictureOwners.get(device.serial);
@@ -5901,7 +5901,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       let picture: { data: Buffer } | null, recovered = false;
       try { picture = await downloadPushSnapshot(this.#client, event, this.#devices, this.config.eventImageCapture, context, owner?.controller.signal); }
       catch (error) {
-        if (!(error instanceof MediaHttpError) || error.failure.status !== 404 || !owner) throw error;
+        if (!(error instanceof MediaHttpError) || error.failure.status !== 404 || !owner
+          || !this.config.experimentalHomeBaseEventImages) throw error;
         try {
           picture = { data: await this.#recoverPushPicture(event, owner) }; recovered = true;
           logger.info("push_snapshot_recovered", "Recovered the matching recording thumbnail from HomeBase");
