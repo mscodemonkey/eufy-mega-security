@@ -125,7 +125,7 @@ class CameraQueueTests(unittest.IsolatedAsyncioTestCase):
         import ast
         from types import SimpleNamespace
         root = PATH.parent
-        namespace = {'HomeAssistantError': RuntimeError}
+        namespace = {'HomeAssistantError': RuntimeError, 'CameraControlNotSentError': MODULE.CameraControlNotSentError, 'Any': object}
         for file, names in [('coordinator.py', {'submit_camera_control'}),
                             ('switch.py', {'_async_set_enabled', '_async_set_motion'})]:
             tree = ast.parse((root / file).read_text())
@@ -135,14 +135,14 @@ class CameraQueueTests(unittest.IsolatedAsyncioTestCase):
             module = ast.fix_missing_locations(ast.Module(body=nodes,type_ignores=[]))
             exec(compile(module, file, 'exec'), namespace)
         gate = asyncio.Event()
-        results, calls = [], []
+        results, calls, failures = [], [], []
         async def operation(serial, enabled):
             calls.append((serial, enabled))
             await gate.wait()
             return {'serial':serial,'enabled':enabled}
         queue = MODULE.CameraControlQueue(asyncio.create_task, results.append,
-                                          lambda *v: self.fail(str(v)), lambda: None)
-        coordinator = SimpleNamespace(cameras={str(i):{'stationSerial':'base'} for i in range(6)},
+                                          lambda *v: failures.append(v), lambda: None)
+        coordinator = SimpleNamespace(cameras={str(i):{'stationSerial':'base','enableControlSupported':True,'motionDetectionControlSupported':True} for i in range(6)},
                                       client=SimpleNamespace(set_camera_enabled=operation,
                                           set_camera_motion_detection=operation), camera_controls=queue)
         coordinator.submit_camera_control = lambda *args: namespace['submit_camera_control'](coordinator,*args)
@@ -157,6 +157,13 @@ class CameraQueueTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0)
         self.assertEqual(calls,[(str(i),True) for i in range(6)])
         self.assertEqual(len(results),6)
+        self.assertEqual(failures,[])
+        await namespace['_async_set_motion'](switch,False)
+        coordinator.cameras['5']['stationSerial'] = 'new-base'
+        for _ in range(10):
+            await asyncio.sleep(0)
+        self.assertEqual(len(calls),6)
+        self.assertEqual(failures,[('5','motion','route_changed',False)])
         await queue.close()
 
     async def test_wrong_camera_confirmation_is_not_published(self):
@@ -238,3 +245,17 @@ class CameraQueueTests(unittest.IsolatedAsyncioTestCase):
         await queue.close()
         self.assertEqual(results,[])
         self.assertEqual(failures,[('camera','motion','cancelled',True)])
+
+    async def test_route_retirement_rejects_a_provably_unsent_request(self):
+        """A changed admission guard must not be reported as an uncertain device write."""
+        results, failures = [], []
+        queue = MODULE.CameraControlQueue(asyncio.create_task, results.append,
+                                          lambda *v: failures.append(v), lambda: None)
+        async def changed():
+            raise MODULE.CameraControlNotSentError('route retired')
+        queue.submit('base','camera','enabled',changed)
+        for _ in range(10):
+            await asyncio.sleep(0)
+        self.assertEqual(results,[])
+        self.assertEqual(failures,[('camera','enabled','route_changed',False)])
+        await queue.close()

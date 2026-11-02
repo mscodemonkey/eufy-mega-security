@@ -24,7 +24,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .client import GatewayClient, GatewayClientError
-from .camera_control_queue import CameraControlQueue
+from .camera_control_queue import CameraControlNotSentError, CameraControlQueue
 from .const import DOMAIN
 from .image_cache import CameraImageCache
 
@@ -73,10 +73,19 @@ class EufyGatewayCoordinator(
             raise HomeAssistantError("Camera setting is unavailable")
         operation = (self.client.set_camera_enabled if action == "enabled"
                      else self.client.set_camera_motion_detection)
+        binding = (camera.get("model"), camera.get("stationSerial"))
+        capability = "enableControlSupported" if action == "enabled" else "motionDetectionControlSupported"
+
+        async def execute() -> dict[str, Any]:
+            current = self.cameras.get(serial)
+            if (current is None or (current.get("model"), current.get("stationSerial")) != binding
+                    or current.get(capability) is not True):
+                raise CameraControlNotSentError("Camera control route changed before dispatch")
+            return await operation(serial, enabled)
+
         try:
             self.camera_controls.submit(
-                camera.get("stationSerial") or serial, serial, action,
-                lambda: operation(serial, enabled),
+                camera.get("stationSerial") or serial, serial, action, execute,
             )
         except RuntimeError as error:
             raise HomeAssistantError(str(error)) from error

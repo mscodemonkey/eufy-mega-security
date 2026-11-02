@@ -13,6 +13,10 @@ from dataclasses import dataclass
 from typing import Any
 
 
+class CameraControlNotSentError(RuntimeError):
+    """Reject queued work whose captured camera route is no longer eligible."""
+
+
 @dataclass
 class _Request:
     serial: str
@@ -100,6 +104,8 @@ class CameraControlQueue:
                 except asyncio.CancelledError:
                     self._failed(request.serial, request.action, "cancelled", request.started)
                     raise
+                except CameraControlNotSentError:
+                    self._failed(request.serial, request.action, "route_changed", False)
                 except asyncio.TimeoutError:
                     self._failed(request.serial, request.action, "timeout", True)
                 except Exception:
