@@ -7,6 +7,7 @@
  * sources after a grace period, and enforces the maximum stream lifetime. It
  * knows media lifecycle and process management, but not Mega login or PPCS
  * packet construction.
+ * Pending startup belongs to the session and is shared by all its consumers.
  */
 import { spawn, type ChildProcessWithoutNullStreams, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
@@ -24,7 +25,11 @@ import { LiveTransportMuxer, type VideoViewerResponse } from "./live-transport-m
 
 /** Provider operations needed to open and close a camera source. */
 export interface StreamController {
+
+  /** Retain ownership of provider I/O, including cleanup if startup rejects. */
   startStream(serial: string): Promise<void>;
+
+  /** Resolve after the old source's stop callbacks and owned media I/O have retired. */
   stopStream(serial: string): Promise<void>;
 }
 
@@ -182,6 +187,14 @@ interface ViewerClientDelivery {
   maximumWritableBytes: number;
 }
 
+/** One provider start shared by consumers until it settles or its session retires. */
+interface PendingSourceStart {
+  readonly promise: Promise<void>;
+
+  /** Reject waiters only. The provider's stop operation owns cancellation of I/O. */
+  readonly reject: (error: unknown) => void;
+}
+
 interface Session {
   readonly clients: Set<VideoViewerResponse>;
   readonly pendingClients: Set<VideoViewerResponse>;
@@ -192,6 +205,10 @@ interface Session {
   readonly audioConsumers: Set<(chunk: Buffer) => void>;
   parameterSets: VideoParameterSetCache;
   state: "idle" | "starting" | "streaming" | "stopping" | "error";
+  start: PendingSourceStart | null;
+
+  /** Viewers wait outside the retiring session until provider cleanup has completed. */
+  stop: Promise<boolean> | null;
   source: Readable | null;
   audioSource: Readable | null;
   ffmpeg: ChildProcessWithoutNullStreams | null;
@@ -576,10 +593,18 @@ export class LiveStreamManager extends EventEmitter {
     super();
   }
 
-  /** Attach an HTTP viewer, starting the shared provider source if needed. */
+  /**
+   * Attach a viewer to a shared source start. A retiring source finishes before
+   * registration, so its stop notification cannot close this new request.
+   * Startup failures reach every waiter. Closed requests never start a source.
+   */
   async addClient(serial: string, response: VideoViewerResponse, profile: ViewerProfile = "compatible"): Promise<void> {
     const session = this.#session(serial);
     this.#assertShareable(session);
+    if (session.stop) {
+      if (!await this.#waitForStop(session, response)) return;
+      this.#assertShareable(session);
+    }
     this.#cancelStop(session);
     session.clients.add(response);
     session.clientDeliveries.set(response, {
@@ -639,10 +664,18 @@ export class LiveStreamManager extends EventEmitter {
     }
   }
 
-  /** Share a normal video viewer with a bounded MPEG-TS muxer and validated camera audio. */
+  /**
+   * Share a video source with a bounded MPEG-TS muxer and checked camera audio.
+   * Wait for retirement before registering either media consumer, keeping audio
+   * from the old source out of a new viewer's startup buffer.
+   */
   async addTransportClient(serial: string, response: ServerResponse): Promise<void> {
     const session = this.#session(serial);
     this.#assertShareable(session);
+    if (session.stop) {
+      if (!await this.#waitForStop(session, response)) return;
+      this.#assertShareable(session);
+    }
     const consumeAudio = (chunk: Buffer): void => muxer.acceptAudio(chunk);
     const camera = this.state.getCamera(serial);
 
@@ -962,6 +995,7 @@ export class LiveStreamManager extends EventEmitter {
   markStopped(serial: string): void {
     const session = this.#session(serial);
     this.#cancelStop(session);
+    this.#retireStart(session, new Error("Camera stream stopped during startup"));
     this.#failRecordings(session, new Error("Camera video stopped before the recording completed"));
     this.#cleanupSource(session);
     session.state = "idle";
@@ -980,11 +1014,12 @@ export class LiveStreamManager extends EventEmitter {
     await Promise.all(
       [...this.#sessions.entries()].map(async ([serial, session]) => {
         if (session.stopTimer) clearTimeout(session.stopTimer);
+        this.#retireStart(session, new Error("Gateway closed during camera startup"));
         this.#cleanupSource(session);
         this.#failRecordings(session, new Error("Gateway closed while recording a clip"));
         for (const client of session.clients) { this.#markViewerClose(session, client, "gateway_closed"); client.end(); }
         session.pendingClients.clear();
-        if (session.owned) await this.controller.stopStream(serial).catch(() => undefined);
+        if (session.owned) await this.#stopOwnedSource(serial, session).catch(() => undefined);
       }),
     );
   }
@@ -1015,11 +1050,19 @@ export class LiveStreamManager extends EventEmitter {
     await this.#stopOwnedSource(serial, session);
   }
 
-  async #stopOwnedSource(serial: string, session: Session): Promise<void> {
-    session.state = "stopping";
-    this.#updateState(serial, session);
+  /** Serialize source retirement before a new viewer can register or acquire a source. */
+  async #stopOwnedSource(serial: string, session: Session): Promise<boolean> {
+    if (session.stop) return session.stop;
+    let resolve!: (stopped: boolean) => void;
+    const stop = new Promise<boolean>(accept => { resolve = accept; });
+    session.stop = stop;
+    let stopped = false;
     try {
+      this.#retireStart(session, new Error("Camera stream stopped during startup"));
+      session.state = "stopping";
+      this.#updateState(serial, session);
       await this.controller.stopStream(serial);
+      stopped = true;
       if (session.state === "stopping") {
         this.#cleanupSource(session);
         session.state = "idle";
@@ -1029,7 +1072,11 @@ export class LiveStreamManager extends EventEmitter {
     } catch (error) {
       session.state = "error";
       this.#updateState(serial, session, errorMessage(error));
+    } finally {
+      if (session.stop === stop) session.stop = null;
+      resolve(stopped);
     }
+    return stop;
   }
 
   #cancelStop(session: Session): void {
@@ -1038,22 +1085,61 @@ export class LiveStreamManager extends EventEmitter {
     session.stopTimer = null;
   }
 
+  /** Admit a waiting viewer only after the old source has stopped and the request is still live. */
+  async #waitForStop(session: Session, response: VideoViewerResponse): Promise<boolean> {
+    const stopped = await session.stop;
+    if (!stopped || this.#closed) { response.destroy(); return false; }
+    return !response.destroyed && !response.writableEnded;
+  }
+
+  /** Share a pending provider start while keeping its settlement inside the owning session. */
   async #ensureStarted(serial: string, session: Session): Promise<void> {
     if (this.#closed) throw new Error("Gateway closed before camera stream started");
+    if (session.stop) throw new Error("Camera stream is still stopping");
+    if (session.state === "error" && session.owned) throw new Error("Previous camera stream has not stopped");
+    if (session.start) return session.start.promise;
     if (session.state !== "idle" && session.state !== "error") return;
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<void>((accept, refuse) => { resolve = accept; reject = refuse; });
+    const start: PendingSourceStart = { promise, reject };
+    session.start = start;
     session.state = "starting";
     session.viewerStartup = new ViewerStartupTimeline();
     session.viewerStartupAttempt = session.generation + 1;
     session.owned = true;
-    this.#updateState(serial, session);
+    const failed = (error: unknown): void => {
+      if (session.start === start) {
+        session.start = null;
+        this.#failRecordings(session, error instanceof Error ? error : new Error("Camera source startup failed"));
+        this.#cleanupSource(session);
+        session.state = "error";
+        session.owned = false;
+        try { this.#updateState(serial, session, errorMessage(error)); }
+        catch (updateError) { reject(updateError); return; }
+      }
+      reject(error);
+    };
     try {
-      await this.controller.startStream(serial);
-    } catch (error) {
-      session.state = "error";
-      session.owned = false;
-      this.#updateState(serial, session, errorMessage(error));
-      throw error;
-    }
+      this.#updateState(serial, session);
+
+      // A synchronous state observer may have retired the start before I/O.
+      if (session.start === start && !this.#closed) {
+        void Promise.resolve(this.controller.startStream(serial)).then(() => {
+          if (session.start !== start) return;
+          session.start = null;
+          resolve();
+        }, failed).catch(reject);
+      }
+    } catch (error) { failed(error); }
+    return promise;
+  }
+
+  /** Release consumers immediately while a retired provider operation finishes its own cleanup. */
+  #retireStart(session: Session, error: Error): void {
+    const start = session.start;
+    session.start = null;
+    start?.reject(error);
   }
 
   #waitForSnapshot(
@@ -1182,6 +1268,7 @@ export class LiveStreamManager extends EventEmitter {
     if (session.generation !== generation) return;
     if (session.state === "idle") return;
     this.#cancelStop(session);
+    this.#retireStart(session, error ?? new Error("Camera video ended during startup"));
     this.#failRecordings(session, error ?? new Error("Camera video ended before the recording completed"));
     this.#cleanupSource(session);
     session.state = error ? "error" : "idle";
@@ -1532,6 +1619,8 @@ export class LiveStreamManager extends EventEmitter {
         audioConsumers: new Set(),
         parameterSets: new VideoParameterSetCache(),
         state: "idle",
+        start: null,
+        stop: null,
         source: null,
         audioSource: null,
         ffmpeg: null,
