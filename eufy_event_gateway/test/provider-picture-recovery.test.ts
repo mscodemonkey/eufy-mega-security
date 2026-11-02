@@ -26,7 +26,7 @@ async function settle(): Promise<void> {
 }
 
 /** Build an isolated provider whose only device effects are captured test callbacks. */
-async function fixture(context: TestContext, mode = "success") {
+async function fixture(context: TestContext, mode = "success", recoveryEnabled = true) {
   const directory = await mkdtemp(join(tmpdir(), "picture-recovery-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
   const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
@@ -75,7 +75,7 @@ async function fixture(context: TestContext, mode = "success") {
     return returned;
   });
   const provider = new EufyProvider({ username: "invented", password: "invented", country: "AU", persistentDirectory: directory,
-    maxStreamSeconds: 120, apiAuthenticationConfigured: mode !== "unauthenticated", experimentalHomeBaseEventImages: !["off", "cloud-restarted-off"].includes(mode) });
+    maxStreamSeconds: 120, apiAuthenticationConfigured: mode !== "unauthenticated", experimentalHomeBaseEventImages: recoveryEnabled && !["off", "cloud-restarted-off"].includes(mode) });
   const pictures: Buffer[] = [];
   let motions = 0;
   const events = new Proxy({ motion: (_serial: string, active: boolean) => { if (active) motions++; },
@@ -134,8 +134,8 @@ test("an older visit's delayed picture cannot take the current visit's owner", a
   } finally { await f.provider.close(); }
 });
 
-test("a newer event without a picture also invalidates an older cloud download", async context => {
-  const f = await fixture(context, "cloud-superseded");
+for (const recoveryEnabled of [true, false]) test(`a newer event without a picture invalidates a late cloud response: recovery=${recoveryEnabled}`, async context => {
+  const f = await fixture(context, "cloud-superseded", recoveryEnabled);
   try {
     f.send(f.event()); await settle(); f.send(f.event("visit-b", false));
     f.releaseCloud(); await settle();
@@ -192,9 +192,9 @@ for (const mode of ["cloud-restarted", "cloud-restarted-off"]) {
   });
 }
 
-for (const newPicture of [true, false]) {
-  test(`a newer visit cancels its obsolete cloud picture: replacement=${newPicture}`, async context => {
-    const f = await fixture(context, "cloud-cancelled");
+for (const recoveryEnabled of [true, false]) for (const newPicture of [true, false]) {
+  test(`a newer visit cancels its obsolete cloud picture: recovery=${recoveryEnabled}, replacement=${newPicture}`, async context => {
+    const f = await fixture(context, "cloud-cancelled", recoveryEnabled);
     try {
       f.send(f.event("older-visit"));
       await settle();
