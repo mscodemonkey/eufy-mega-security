@@ -234,3 +234,38 @@ test("a retiring private source still refuses public viewers immediately", async
     assert.equal(admitted.destroyed, false);
   } finally { abort.abort(); stopping.resolve(); await recording; await opening; await f.manager.close(); }
 });
+
+for (const transport of [false, true]) test(`viewer duration includes the retirement wait: transport=${transport}`, async context => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  let now = 0;
+  context.mock.method(performance, "now", () => now);
+  const stopping = deferred();
+  const durations: number[] = [];
+  const f = fixture({ async startStream() { f.manager.attachSource(camera.serial, new PassThrough()); },
+    async stopStream() { await stopping.promise; f.manager.markStopped(camera.serial); } }, 5);
+  f.manager.on("viewer-client-stopped", (summary: { durationMilliseconds: number }) => durations.push(summary.durationMilliseconds));
+  const first = response();
+  await f.manager.addClient(camera.serial, first);
+  first.destroy(); await settle(); context.mock.timers.tick(6);
+  now = 100;
+  const next = response();
+  const opening = transport ? f.manager.addTransportClient(camera.serial, next) : f.manager.addClient(camera.serial, next);
+  try {
+    await settle(); now = 1600; stopping.resolve(); await opening;
+    now = 1610; next.destroy(); await settle();
+    assert.equal(durations.at(-1), 1510);
+  } finally { stopping.resolve(); await opening; await f.manager.close(); }
+});
+
+for (const transport of [false, true]) test(`an already disconnected viewer never starts a source: transport=${transport}`, async () => {
+  let starts = 0;
+  const f = fixture({ async startStream() { starts++; }, async stopStream() {} });
+  const disconnected = response();
+  disconnected.destroy();
+  try {
+    if (transport) await f.manager.addTransportClient(camera.serial, disconnected);
+    else await f.manager.addClient(camera.serial, disconnected);
+    assert.equal(starts, 0);
+    assert.equal(f.state.getCamera(camera.serial).stream.viewers, 0);
+  } finally { await f.manager.close(); }
+});

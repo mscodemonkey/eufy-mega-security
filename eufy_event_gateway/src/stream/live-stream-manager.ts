@@ -598,7 +598,13 @@ export class LiveStreamManager extends EventEmitter {
    * registration, so its stop notification cannot close this new request.
    * Startup failures reach every waiter. Closed requests never start a source.
    */
-  async addClient(serial: string, response: VideoViewerResponse, profile: ViewerProfile = "compatible"): Promise<void> {
+  addClient(serial: string, response: VideoViewerResponse, profile: ViewerProfile = "compatible"): Promise<void> {
+    return this.#addClient(serial, response, profile, performance.now());
+  }
+
+  /** Keep the original request clock across retirement and transport setup. */
+  async #addClient(serial: string, response: VideoViewerResponse, profile: ViewerProfile, requestedAtMilliseconds: number): Promise<void> {
+    if (response.destroyed || response.writableEnded) return;
     const session = this.#session(serial);
     this.#assertShareable(session);
     if (session.stop) {
@@ -612,7 +618,7 @@ export class LiveStreamManager extends EventEmitter {
       sourceAttached: session.source !== null,
       profile,
       startedCodec: null,
-      requestedAtMilliseconds: performance.now(),
+      requestedAtMilliseconds,
       startupReported: false,
       attemptFirstWriteAtMilliseconds: null,
       randomAccessQueuedAtMilliseconds: null,
@@ -670,6 +676,8 @@ export class LiveStreamManager extends EventEmitter {
    * from the old source out of a new viewer's startup buffer.
    */
   async addTransportClient(serial: string, response: ServerResponse): Promise<void> {
+    const requestedAtMilliseconds = performance.now();
+    if (response.destroyed || response.writableEnded) return;
     const session = this.#session(serial);
     this.#assertShareable(session);
     if (session.stop) {
@@ -684,7 +692,7 @@ export class LiveStreamManager extends EventEmitter {
     const muxer = new LiveTransportMuxer(response, () => session.audioConsumers.delete(consumeAudio), audioWait,
       (reason) => this.emit("warning", new Error(`Camera live transport stopped: reason=${reason}`)));
     session.audioConsumers.add(consumeAudio);
-    await this.addClient(serial, muxer.videoInput);
+    await this.#addClient(serial, muxer.videoInput, "compatible", requestedAtMilliseconds);
   }
 
   /** Capture one fresh JPEG through the shared source and return its metadata. */
