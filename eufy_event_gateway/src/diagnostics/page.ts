@@ -58,6 +58,11 @@ export function diagnosticsPage(): string {
 <label>Recording date <input id="event-names-date" type="date"></label>
 <button id="event-names-start">Check names once</button><button id="event-names-cancel">Cancel name check</button>
 <pre id="event-names-status" role="status">No recording name check started.</pre></details>
+<details><summary>Check a recording picture</summary>
+<p>Read-only check for a T8113-Z camera connected to HomeBase 3. Select the camera and a date, then close live viewers. This checks one thumbnail from one page of recordings. It reports whether EMS could decode it and keeps the picture private. It does not replace event images.</p>
+<label>Recording date <input id="event-picture-date" type="date"></label>
+<button id="event-picture-start">Check one picture</button><button id="event-picture-cancel">Cancel picture check</button>
+<pre id="event-picture-status" role="status">No recording picture check started.</pre></details>
 <details><summary>Private raw message history</summary>
 <p>Enable Private raw message history in the app options to keep traffic for retrospective debugging. Storage is encrypted locally and limited to 24 hours or 1 GiB. It can contain account secrets and household media. Raw files are excluded from ordinary diagnostic downloads.</p>
 <p>Recording covers the application's instrumented connections. A stopped or failing recorder cannot establish that a device sent nothing.</p>
@@ -455,6 +460,43 @@ el('event-names-start').onclick = async () => {
       : 'Could not check recording names. This check needs the matching doorbell and an available HomeBase connection.';
   } finally {
     if(generation === eventNamesGeneration) { eventNamesJob = null; el('event-names-start').disabled = false; }
+  }
+};
+let eventPictureJob = null, eventPictureGeneration = 0;
+function cancelEventPicture() {
+  eventPictureGeneration++;
+  if(eventPictureJob) eventPictureJob.abort();
+  eventPictureJob = null;
+  el('event-picture-start').disabled = false;
+}
+el('event-picture-date').value = new Date().toLocaleDateString('en-CA');
+el('event-picture-cancel').onclick = () => { cancelEventPicture(); el('event-picture-status').textContent = 'Picture check cancelled.'; };
+el('device').addEventListener('change', () => { cancelEventPicture(); el('event-picture-status').textContent = 'No recording picture check started.'; });
+el('event-picture-date').addEventListener('change', () => { cancelEventPicture(); el('event-picture-status').textContent = 'No recording picture check started.'; });
+window.addEventListener('pagehide', cancelEventPicture);
+el('event-picture-start').onclick = async () => {
+  if(eventPictureJob) return;
+  const selected = el('device').value, date = el('event-picture-date').value;
+  if(!selected || !date || !el('token').value.trim()) { el('event-picture-status').textContent = 'Select a camera and date, and enter the API token first.'; return; }
+  const generation = ++eventPictureGeneration, job = new AbortController();
+  eventPictureJob = job; el('event-picture-start').disabled = true;
+  el('event-picture-status').textContent = 'Checking one recording thumbnail.';
+  try {
+    const response = await fetch('api/cameras/' + encodeURIComponent(selected) + '/diagnostics/event-picture', {
+      method: 'POST', headers: { Authorization: 'Bearer ' + el('token').value.trim(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date }), signal: job.signal
+    });
+    if(!response.ok) throw new Error('unavailable');
+    const value = await response.json();
+    if(generation !== eventPictureGeneration || job.signal.aborted || selected !== el('device').value || date !== el('event-picture-date').value) return;
+    if(value.scope !== 'one_history_thumbnail' || ![value.records, value.imageBytes, value.width, value.height].every(Number.isSafeInteger)) throw new Error('invalid');
+    el('event-picture-status').textContent = 'Decoded one ' + value.width + ' by ' + value.height + ' picture, ' + value.imageBytes
+      + ' bytes. The checked page contained ' + value.records + ' recording(s) for this camera. This does not confirm cloud picture delivery.';
+  } catch {
+    if(generation === eventPictureGeneration) el('event-picture-status').textContent = job.signal.aborted ? 'Picture check cancelled.'
+      : 'Could not check recording pictures. This check needs the matching camera and an available HomeBase connection.';
+  } finally {
+    if(generation === eventPictureGeneration) { eventPictureJob = null; el('event-picture-start').disabled = false; }
   }
 };
 action('lock-status-start', async () => {
