@@ -13,7 +13,37 @@ import { buildModelControlTrialPayload, decodeModelControlTrialAcknowledgement, 
 const direct: ModelControlRoute = { model: "T8423", deviceType: 38, channel: 0,
   homeBaseAttached: false, peerModel: "T8423", selfPeer: true };
 const e30: ModelControlRoute = { ...direct, model: "T8417", deviceType: 105, peerModel: "T8417" };
+const c37: ModelControlRoute = { ...direct, model: "T814X", deviceType: 10037, peerModel: "T814X" };
 const transaction = 1_800_000_000_000;
+
+test("C37 trials keep one-click movement and manual light separate from the spotlight master", () => {
+  assert.deepEqual(modelControlTrialActions(c37), ["ptz", "spotlight", "aiTracking"]);
+  for (const patch of [{ model: "T814XS" }, { deviceType: 10039 }, { channel: 1 },
+    { selfPeer: false }, { homeBaseAttached: true }, { peerModel: "T814XS" }]) {
+    assert.deepEqual(modelControlTrialActions({ ...c37, ...patch }), []);
+  }
+  const legacyKey = Buffer.alloc(16, 7);
+  for (const [direction, rotate_type] of [["left", 1], ["right", 2], ["up", 3], ["down", 4]] as const) {
+    const request: ModelControlTrial = { action: "ptz", direction };
+    const expected = { commandType: 6030, data: { cmd_type: 1, rotate_type, zoom: 1, ivalue: -1, transaction: `${transaction}` } };
+    const frame = buildModelControlTrialPayload(request, c37, "synthetic", legacyKey, null, 1, transaction);
+    assert.equal(frame.command, 1700);
+    const decipher = createDecipheriv("aes-128-ecb", legacyKey, null);
+    decipher.setAutoPadding(false);
+    const plain = Buffer.concat([decipher.update(frame.payload.subarray(10)), decipher.final()]).toString().replace(/\0+$/, "");
+    assert.deepEqual(JSON.parse(plain), expected);
+  }
+  for (const enabled of [false, true]) {
+    const tracking = modelControlTrialCommand({ action: "aiTracking", enabled }, c37, "synthetic", transaction);
+    assert.equal(tracking.command, 1700);
+    assert.deepEqual(JSON.parse(String(tracking.value)), { commandType: 6016,
+      data: { value: enabled ? 1 : 0, transaction: `${transaction}` } });
+    const frame = modelControlTrialCommand({ action: "spotlight", enabled }, c37, "synthetic", transaction);
+    assert.equal(frame.command, 1700);
+    assert.deepEqual(JSON.parse(String(frame.value)), { commandType: 1400,
+      data: { value: enabled ? 1 : 0, open: enabled ? 1 : 0, type: 2, transaction: `${transaction}` } });
+  }
+});
 
 test("model trials default off and require an authenticated explicit opt-in", () => {
   assert.equal(loadConfig({}).experimentalModelControls, false);

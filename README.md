@@ -559,6 +559,12 @@ open `/diagnostics`, enter your gateway token, select one camera and expand
 one operation and its value, confirm you can observe the camera, then **Try once**.
 Stop live views first. Record the original setting and restore it after testing.
 
+Exact standalone C37 T814X/type 10037 has opt-in HA tracking and saved-position
+controls, plus directional movement and spotlight trials in Diagnostics. These
+require the current owner account, API authentication and a ready direct route.
+Physical behaviour remains unconfirmed. See [the C37 trial guide](docs/C37_TEST.md)
+for the separate confirmation and restoration requirements.
+
 The separate [FamiLock S3 / S3 Max status check](docs/T85V0_STATUS_TEST.md) is a
 read-only, source-derived test for exact T85V0/type 203 through HomeBase 3.
 Its reported state and battery need comparison on actual hardware. It neither

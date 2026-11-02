@@ -1493,6 +1493,25 @@ export function parseCameraPresetPositions(payload: unknown): CameraPresetPositi
 }
 
 /**
+ * Read the C37's native slot array without inventing occupancy or a default.
+ * Its app indexes this array by slot. Explicit indexes must agree with that
+ * position, and an unrecognised response fails instead of becoming an empty list.
+ * Scene names, coordinates and image references are discarded.
+ */
+export function parseC37PresetPositions(payload: unknown): CameraPresetPosition[] {
+  if (!isRecord(payload) || !Array.isArray(payload.points) || payload.points.length > 10) {
+    throw new Error("C37 preset response is unrecognised");
+  }
+  return payload.points.map((point: unknown, index: number) => {
+    if (!isRecord(point) || (point.index !== undefined && point.index !== index)
+      || (point.enable !== 0 && point.enable !== 1) || (point.isdefault !== 0 && point.isdefault !== 1)) {
+      throw new Error("C37 preset occupancy is unrecognised");
+    }
+    return { index, enabled: point.enable === 1, isDefault: point.isdefault === 1 };
+  });
+}
+
+/**
  * Identifies a lookup that ended before any peer was selected.
  * The session has already retired its sockets. Only a media-start owner may
  * use this result to attempt a fresh connection, never replay a device write.
@@ -1526,7 +1545,8 @@ export class CameraControlAcknowledgementTimeoutError extends Error {
  *
  * Media sessions emit Annex-B bytes on `output` and optional validated AAC on
  * `audioOutput` for T8171 media consumers and direct T817L consumers. Control sessions suppress
- * media startup and expose the small set of verified writes below. Some writes
+ * media startup and expose the closed command set below, including explicitly
+ * admitted experimental controls. Some writes
  * wait for a result frame, while the observed fire-and-repeat forms return
  * after their bounded UDP transmissions.
  * `start` resolves after the peer answers the lookup, not after the first video
@@ -2479,10 +2499,13 @@ export class FirstPartyPpcsSession {
    * command identifies the preset query. A timeout means no readable preset
    * contract was observed and does not imply that the camera has no presets.
    */
-  async queryPresetPositions(): Promise<readonly CameraPresetPosition[]> {
+  async queryPresetPositions(current: () => void = () => undefined): Promise<readonly CameraPresetPosition[]> {
     if (this.#options.cameraModel === "T8171" && this.#options.homeBaseAttached) await this.#preparePanMotorView();
+    current();
     const payload = await this.#queryControlPayload(6034, this.#options.cameraModel === "T8171"
       ? buildSoloCamPanControlData(6034) : { value: 0 });
+    current();
+    if (this.#options.cameraModel === "T814X") return parseC37PresetPositions(payload);
     return parseCameraPresetPositions(payload);
   }
 
@@ -2490,10 +2513,23 @@ export class FirstPartyPpcsSession {
    * Move to a stored position using the model's native absolute command.
    * Direct C31 and SoloCam movement require decoded live video. An owned control
    * connection drains temporary video; an existing viewer retains its output.
+   * C37 sends once on its exclusive control session and requires a matching
+   * acknowledgement. That result does not establish physical position.
    */
-  async selectPresetPosition(index: number): Promise<void> {
+  async selectPresetPosition(index: number, current: () => void = () => undefined): Promise<void> {
     if (!Number.isSafeInteger(index) || index < 0 || index > 9) {
       throw new Error("Camera preset index must be between 0 and 9");
+    }
+    if (this.#options.cameraModel === "T814X") {
+      if (this.#closed || !this.#remote || this.#options.purpose !== "control"
+        || this.#options.homeBaseAttached || this.#options.channel !== 0) throw new Error("C37 preset route unavailable");
+      current();
+      const acknowledgement = this.#waitForControlResult(1700, 0, CONTROL_TIMEOUT_MILLISECONDS);
+      try { await this.#sendControlPayload(6035, { value: index, transaction: `${Date.now()}` }); }
+      catch (error) { void acknowledgement.catch(() => undefined); throw error; }
+      await acknowledgement;
+      current();
+      return;
     }
     const soloCam = this.#options.cameraModel === "T8171";
     const standaloneC31 = this.#options.cameraModel === "T817L" && !this.#options.homeBaseAttached
@@ -3128,7 +3164,8 @@ export class FirstPartyPpcsSession {
       }
     }
 
-    if (command === 1351 && this.#pendingControlQuery) {
+    if (command === 1351 && this.#pendingControlQuery
+      && (this.#options.cameraModel !== "T814X" || frameChannel === this.#options.channel)) {
       const decoded = decodePpcsControlRecord(payload, signCode,
         commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key);
       const responsePayload = decoded && decoded.cmd === this.#pendingControlQuery.command
