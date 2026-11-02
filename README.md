@@ -140,8 +140,15 @@ For every discovered camera, the integration creates:
 - a last-recognized-person sensor, including the detection type and timestamp.
 
 Cameras that report their master enablement state and have a ready PPCS control
-route also get a Camera enabled switch. The switch waits for a fresh cloud
-readback before Home Assistant publishes the new state. Hardware confirmation
+route also get a Camera enabled switch. Camera enabled and motion-detection
+service calls return after accepting background work, so an HA script can
+continue without waiting for each cloud readback. Acceptance does not confirm
+that a setting changed. The switch keeps its confirmed value and exposes
+`setting_update_pending` until the request finishes. Controls sharing one peer
+run in order. Requests expire after 120 seconds, queued work is limited, and
+failed or uncertain changes produce a Home Assistant notification. No uncertain
+write is automatically replayed. Fresh cloud readback still precedes publication
+of a changed setting. Hardware confirmation
 is still required across the reported HomeBase 2 camera families.
 
 The T817L gets one button for every enabled preset reported by the camera,
