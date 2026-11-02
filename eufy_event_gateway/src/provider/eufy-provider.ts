@@ -2431,11 +2431,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     finally { if (this.#streamStarts.get(serial) === ticket) this.#streamStarts.delete(serial); }
   }
 
+  /** Keep HA live trials behind opt-in and exact approved camera/station model-type pairs. */
   #normalNvrLiveBinding(device: MegaInventoryDevice, station: MegaInventoryDevice | undefined): boolean {
     if (this.#nvrLiveAdmitted(device, station) && device.model === "T8416") return true;
     if (!this.config.normalNvrLive || !this.#nvrBinding(device, station) || !station) return false;
     return station.model === "T8N00" && station.deviceType === 300 && device.model === "T8E00" && device.deviceType === 301
-      || station.model === "T9000" && station.deviceType === 27 && device.model === "T8140-Z" && device.deviceType === 14;
+      || station.model === "T9000" && station.deviceType === 27 && (
+        (device.model === "T8140-Z" || device.model === "T8140") && device.deviceType === 14
+        || device.model === "T8113-V" && device.deviceType === 8
+        || device.model === "T8172" && device.deviceType === 89);
   }
 
   /** Install read-only media facts. The manager remains the sole owner of sources and viewers. */
