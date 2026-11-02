@@ -34,8 +34,9 @@ interface PinnedPeer {
 const installed = new WeakSet<Connection>();
 
 /**
- * Start ICE after a useful UDP candidate and a one-second gathering grace. Late
- * relays remain eligible, and retirement cannot resurrect sockets or consent.
+ * Start ICE once a useful UDP candidate has been published. Gathering continues
+ * so late relays remain eligible. Retirement cannot resurrect sockets or consent.
+ * The caller owns the negotiation deadline while either peer can add candidates.
  * Unsupported pinned contracts fail before mutation. Install after ICE timing.
  */
 export function installNvrIceGathering(peer: RTCPeerConnection, signal: AbortSignal): void {
@@ -51,6 +52,7 @@ export function installNvrIceGathering(peer: RTCPeerConnection, signal: AbortSig
     "checkComplete", "queryConsent", "setState", "getCandidatePromises"] as const;
   if (installed.has(connection) || hooks.some(key => typeof ice[key] !== "function")
     || !Array.isArray(ice.protocols) || !Array.isArray(ice.checkList) || typeof ice.checkListDone !== "boolean"
+    || typeof connection.remoteCandidatesEnd !== "boolean"
     || typeof ice.checkListState?.put !== "function" || typeof pinnedPeer.gatherCandidates !== "function"
     || connection.options.turnTransport === "tls") {
     throw new NvrTrialError("timing");
@@ -77,21 +79,23 @@ export function installNvrIceGathering(peer: RTCPeerConnection, signal: AbortSig
   let deferredPair: CandidatePair | undefined;
   let completingPair: CandidatePair | undefined;
   let release: (() => void) | undefined;
-  let grace: NodeJS.Timeout | undefined;
   let early: Promise<void> | undefined;
   let eligible = false;
-  const clearGrace = (): void => { if (grace) clearTimeout(grace); grace = undefined; };
+
+  // Either peer may still add the route that recovers a failed initial check.
+  // The owning RTC session's deadline and cancellation limit this wait.
+  const awaitingCandidates = (): boolean => !gatherSettled || !connection.remoteCandidatesEnd;
   const closeKnown = (): void => {
     for (const protocol of known) void protocol.close().catch(() => {});
   };
   const retire = (): void => {
     retired = true;
-    clearGrace(); gathering.abort(); retirement.abort(); closeKnown(); release?.();
+    gathering.abort(); retirement.abort(); closeKnown(); release?.();
     signal.removeEventListener("abort", abort);
     restorePeerGather();
   };
   const abort = (): void => {
-    clearGrace(); gathering.abort(); release?.();
+    gathering.abort(); release?.();
     if (!connection.nominated && connection.state !== "connected") retire();
   };
   const append = ice.appendLocalCandidate.bind(connection);
@@ -134,7 +138,7 @@ export function installNvrIceGathering(peer: RTCPeerConnection, signal: AbortSig
       append(candidate);
       if (!eligible && candidate.transport.toLowerCase() === "udp" && (!connection.options.forceTurn || candidate.type === "relay")) {
         eligible = true;
-        if (release) grace = setTimeout(() => { clearGrace(); release?.(); }, 1000);
+        release?.();
       }
     });
     replace(ice, "getCandidatePromises", (addresses: string[], timeout?: number): Promise<unknown>[] => {
@@ -161,7 +165,13 @@ export function installNvrIceGathering(peer: RTCPeerConnection, signal: AbortSig
     });
     replace(ice, "schedulingChecks", (): boolean => {
       if (retired || terminalFailure) return false;
-      return schedule() || (!gatherSettled && !connection.nominated && !ice.checkListDone);
+      if (!awaitingCandidates() && deferredPair && !connection.nominated) {
+        const failed = deferredPair;
+        deferredPair = undefined;
+        const terminal = [CandidatePairState.SUCCEEDED, CandidatePairState.FAILED];
+        if (ice.checkList.every(value => terminal.includes(value.state))) complete(failed);
+      }
+      return schedule() || (awaitingCandidates() && !connection.nominated && !ice.checkListDone);
     });
     replace(ice, "checkComplete", (candidatePair: CandidatePair): void => {
       completingPair = candidatePair;
@@ -170,7 +180,7 @@ export function installNvrIceGathering(peer: RTCPeerConnection, signal: AbortSig
     replace(ice.checkListState, "put", (value: Promise<number>): void => {
       const candidatePair = completingPair;
       void value.then(result => {
-        if (result === ICE_FAILED && !gatherSettled && !retired) { deferredPair = candidatePair; return; }
+        if (result === ICE_FAILED && awaitingCandidates() && !retired) { deferredPair = candidatePair; return; }
         if (result === ICE_FAILED) {
           terminalFailure = true;
           const failed = Promise.reject<number>(new NvrTrialError("negotiation"));
@@ -210,8 +220,8 @@ export function installNvrIceGathering(peer: RTCPeerConnection, signal: AbortSig
       early = new Promise<void>((resolve, reject) => {
         release = resolve;
         if (retired || gathering.signal.aborted) { resolve(); return; }
-        if (eligible) grace = setTimeout(() => { clearGrace(); resolve(); }, 1000);
-        Promise.resolve().then(gatherPeer).then(resolve, reject).finally(clearGrace).catch(() => {});
+        if (eligible) resolve();
+        Promise.resolve().then(gatherPeer).then(resolve, reject).catch(() => {});
       });
       return early;
     });
