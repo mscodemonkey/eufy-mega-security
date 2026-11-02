@@ -939,9 +939,9 @@ export class LiveStreamManager extends EventEmitter {
 
         // Close stale viewers so HA can retry instead of holding a dead source.
         // Do not reopen the camera automatically or change the retained picture.
-        this.#sourceEnded(serial, generation, error);
+        if (owned) void this.#stopOwnedSource(serial, session, error).catch((stopError) => this.emit("warning", stopError));
+        else this.#sourceEnded(serial, generation, error);
         this.emit("warning", error);
-        if (owned) void this.controller.stopStream(serial).catch((stopError) => this.emit("warning", stopError));
       }, this.sourceQuietMilliseconds);
       session.sourceQuietTimer.unref?.();
       session.sourceBytes += chunk.length;
@@ -1058,14 +1058,23 @@ export class LiveStreamManager extends EventEmitter {
     await this.#stopOwnedSource(serial, session);
   }
 
-  /** Serialize source retirement before a new viewer can register or acquire a source. */
-  async #stopOwnedSource(serial: string, session: Session): Promise<boolean> {
+  /**
+   * Serialize source retirement before another viewer acquires a source. A quiet
+   * source fails its consumers only after this stop gate protects replacements.
+   */
+  async #stopOwnedSource(serial: string, session: Session, sourceError?: Error): Promise<boolean> {
     if (session.stop) return session.stop;
     let resolve!: (stopped: boolean) => void;
     const stop = new Promise<boolean>(accept => { resolve = accept; });
     session.stop = stop;
     let stopped = false;
     try {
+      if (sourceError) {
+        this.#sourceEnded(serial, session.generation, sourceError);
+
+        // The failed source still owns provider I/O until stop is confirmed.
+        session.owned = true;
+      }
       this.#retireStart(session, new Error("Camera stream stopped during startup"));
       session.state = "stopping";
       this.#updateState(serial, session);

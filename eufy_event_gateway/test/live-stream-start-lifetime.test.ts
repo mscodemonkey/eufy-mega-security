@@ -289,3 +289,38 @@ test("gateway close waits for provider cleanup after its stopped callback", asyn
     assert.equal(stops, 1);
   } finally { stopping.resolve(); await closing; }
 });
+
+for (const failedStop of [false, true]) test(`a viewer waits for quiet-stop cleanup: failedStop=${failedStop}`, async context => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const stopping = deferred();
+  let starts = 0, opened = false;
+  let source = new PassThrough();
+  const f = fixture({ async startStream() { starts++; source = new PassThrough(); f.manager.attachSource(camera.serial, source); },
+    async stopStream() { await stopping.promise; f.manager.markStopped(camera.serial); } });
+  await f.manager.addClient(camera.serial, response());
+  source.write(Buffer.from("synthetic-video"));
+  context.mock.timers.tick(30001);
+  const next = response();
+  const opening = f.manager.addClient(camera.serial, next).then(() => { opened = true; });
+  try {
+    await settle();
+    assert.equal(opened, false);
+    assert.equal(starts, 1);
+    if (failedStop) stopping.reject(new Error("synthetic-quiet-stop-failure"));
+    else stopping.resolve();
+    await opening;
+    if (failedStop) {
+      assert.equal(next.destroyed, true);
+      const blocked = response();
+      await f.manager.addClient(camera.serial, blocked);
+      assert.equal(blocked.destroyed, true);
+      assert.equal(starts, 1);
+      f.manager.markStopped(camera.serial);
+      await f.manager.addClient(camera.serial, response());
+      assert.equal(starts, 2);
+    } else {
+      assert.equal(starts, 2);
+      assert.equal(next.destroyed, false);
+    }
+  } finally { stopping.resolve(); await opening; await f.manager.close(); }
+});
