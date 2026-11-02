@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.230
+
+- Cancel obsolete event-picture cloud reads for the qualified HomeBase 3 camera route even when experimental thumbnail recovery is disabled. A newer accepted visit no longer waits behind the old download. Recovery itself still requires its opt-in setting.
+- Remove the fixed one-second NVR connection-gathering pause after the first usable candidate. Continue gathering and forwarding later candidates.
+- Keep NVR negotiation available to later candidates from either peer after a failed first route. The existing session deadline and cancellation still limit the attempt, and completed failed negotiations are rejected.
+- Add regression coverage for recovery-disabled picture cancellation, late picture replies, delayed relay candidates, failed direct checks, remote gathering completion, cancellation and stop acknowledgements.
+- Credit Heath Bexley (@heath-bexley) for both changes. Actual NVR startup improvement and the original intermittent cloud-picture failure remain unconfirmed on the affected reporter hardware.
+
 ## 0.1.229
 
 - Add the first observed closure cause and whether a source ever attached to the existing viewer_client_stopped summary. Failed starts, provider stops, source endings, conversion failures and consumer/transport closures can now be distinguished without private error text or URLs. This diagnostic does not yet establish the cause of a reporter's blank first HA view.
