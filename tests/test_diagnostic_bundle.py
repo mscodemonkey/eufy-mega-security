@@ -7,9 +7,11 @@ consumes only bytes and never extracts or executes content during inspection.
 from __future__ import annotations
 
 import base64
+from contextlib import redirect_stderr
 import gzip
 import hashlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -156,6 +158,60 @@ class DiagnosticBundleTests(unittest.TestCase):
                                    [{"serial": "private-camera"}], 1, "left")
         finally:
             TOOL.request = original
+
+    def test_movement_reports_closed_admission_reason_without_private_values(self):
+        """Explain a pre-command refusal using only the gateway's allowlisted reason."""
+        original = TOOL.request
+        TOOL.request = lambda *_args, **_kwargs: json.dumps({
+            "actions": [], "experimental": True, "unavailableReason": "owner_account_required",
+            "private": "must-not-escape",
+        }).encode()
+        try:
+            with self.assertRaisesRegex(TOOL.DiagnosticError, "configured account does not own") as failure:
+                TOOL.movement_test("http://private.invalid", "private-token",
+                                   [{"serial": "private-camera"}], 1, "left")
+        finally:
+            TOOL.request = original
+        message = str(failure.exception)
+        for private in ("private-camera", "private-token", "private.invalid", "must-not-escape"):
+            self.assertNotIn(private, message)
+
+    def test_movement_separates_admission_and_post_failures(self):
+        """Tell a refusal before dispatch from a failure after movement admission."""
+        original = TOOL.request
+
+        def admission_failure(*_args, **_kwargs):
+            raise TOOL.DiagnosticError("private admission detail")
+
+        TOOL.request = admission_failure
+        try:
+            with self.assertRaisesRegex(TOOL.DiagnosticError, "before any command was sent"):
+                TOOL.movement_test("http://private.invalid", "private-token",
+                                   [{"serial": "private-camera"}], 1, "left")
+
+            def post_failure(_url, _token, method="GET", value=None):
+                if method == "GET":
+                    return json.dumps({"actions": ["ptz"], "experimental": True}).encode()
+                raise TOOL.DiagnosticError("private post detail")
+
+            TOOL.request = post_failure
+            with self.assertRaisesRegex(TOOL.DiagnosticError, "model_control_trial_failed"):
+                TOOL.movement_test("http://private.invalid", "private-token",
+                                   [{"serial": "private-camera"}], 1, "left")
+        finally:
+            TOOL.request = original
+
+    def test_main_prints_safe_diagnostic_errors(self):
+        """Show actionable fixed text while retaining the generic unexpected-error boundary."""
+        original = TOOL.run
+        TOOL.run = lambda _options: (_ for _ in ()).throw(TOOL.DiagnosticError("Safe fixed explanation."))
+        output = io.StringIO()
+        try:
+            with redirect_stderr(output):
+                self.assertEqual(TOOL.main(["list"]), 1)
+        finally:
+            TOOL.run = original
+        self.assertEqual(output.getvalue(), "Safe fixed explanation.\n")
 
 
 if __name__ == "__main__":

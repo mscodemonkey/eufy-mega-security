@@ -36,6 +36,12 @@ MAX_JSON = 112 * 1024 * 1024
 MAX_MEDIA = 64 * 1024 * 1024
 MAX_RECORDS = 20_000
 MOVEMENT_DIRECTIONS = ("left", "right", "up", "down")
+MOVEMENT_ADMISSION_MESSAGES = {
+    "connection_key_unavailable": "The camera connection key is not ready.",
+    "direct_route_unavailable": "The direct camera route is not ready.",
+    "owner_account_required": "The configured account does not own the admitted camera route.",
+    "unsupported_identity": "The selected device identity is not admitted for this test.",
+}
 
 
 class DiagnosticError(Exception):
@@ -195,13 +201,21 @@ def movement_test(url: str, token: str, rows: list[dict], index: int, direction:
     """Send one admitted movement and return only its closed confirmation boundary."""
     target = selected_device(rows, index)
     endpoint = url + "/api/cameras/" + quote(target["serial"], safe="") + "/model-control-trial"
-    admission = json.loads(request(endpoint, token))
+    try:
+        admission = json.loads(request(endpoint, token))
+    except Exception:
+        raise DiagnosticError("Movement admission failed before any command was sent. Check the gateway connection and try the current list again.") from None
     actions = admission.get("actions") if isinstance(admission, dict) else None
     if not isinstance(actions, list) or any(not isinstance(action, str) for action in actions):
         raise DiagnosticError("Gateway returned an invalid movement admission.")
     if "ptz" not in actions:
-        raise DiagnosticError("The selected device has no admitted movement test.")
-    result = json.loads(request(endpoint, token, "POST", {"action": "ptz", "direction": direction}))
+        reason = admission.get("unavailableReason") if isinstance(admission, dict) else None
+        detail = MOVEMENT_ADMISSION_MESSAGES.get(reason, "The selected device has no admitted movement test.")
+        raise DiagnosticError(f"Movement was not sent. {detail}")
+    try:
+        result = json.loads(request(endpoint, token, "POST", {"action": "ptz", "direction": direction}))
+    except Exception:
+        raise DiagnosticError("Movement was admitted but did not complete. Check the gateway for the model_control_trial_failed line.") from None
     if not isinstance(result, dict) or result.get("outcome") != "acknowledged" or result.get("physicalConfirmationRequired") is not True:
         raise DiagnosticError("Gateway did not acknowledge the movement test.")
     return {"outcome": "acknowledged", "physicalConfirmationRequired": True,
@@ -287,6 +301,9 @@ def main(arguments=None) -> int:
     except KeyboardInterrupt:
         print("Diagnostic capture cancelled. Stopped evidence may still be exported.", file=sys.stderr)
         return 130
+    except DiagnosticError as error:
+        print(str(error), file=sys.stderr)
+        return 1
     except Exception:
         print("Diagnostic action failed. Check selection, consent, gateway connection and private file path.", file=sys.stderr)
         return 1
