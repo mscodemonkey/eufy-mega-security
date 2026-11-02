@@ -31,7 +31,7 @@ export interface EventPictureTransport {
   image(file: string): void;
   decodeHistory(payload: Buffer, sign: number): Buffer | null;
 
-  /** Authenticate the observed bootstrap-key envelope, independently of the outbound key. */
+  /** Decode the observed reply protection without treating legacy ECB as authenticated content. */
   decodeImage(payload: Buffer, sign: number): Buffer | null;
 }
 
@@ -65,6 +65,26 @@ export function decodeEventPictureReply(payload: Buffer, sign: number, accountId
   finally { key.fill(0); partial?.fill(0); }
 }
 
+/**
+ * Decode the separately observed legacy EMS reply using its peer command key.
+ * ECB does not authenticate content. The reader must still require the exact
+ * history transaction, child/station ownership and echoed file before accepting
+ * media. Only NUL plus unused bytes in the last AES block may follow the JSON.
+ */
+export function decodeLegacyEventPictureReply(payload: Buffer, sign: number, key: Buffer): Buffer | null {
+  if (sign !== 1 || key.length !== 16 || payload.length === 0 || payload.length % 16 !== 0 || payload.length > 2 * 1024 * 1024) return null;
+  let clear: Buffer | undefined;
+  try {
+    const decipher = createDecipheriv("aes-128-ecb", key, null);
+    decipher.setAutoPadding(false);
+    clear = Buffer.concat([decipher.update(payload), decipher.final()]);
+    const end = clear.indexOf(0);
+    if (end < 0 || clear.length - end > 16) return null;
+    return Buffer.from(clear.subarray(0, end));
+  } catch { return null; }
+  finally { clear?.fill(0); }
+}
+
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -90,7 +110,8 @@ export function projectEventPictureSummary(value: unknown): EventPictureSummary 
 /**
  * Own one manual two-stage read until completion, timeout or session closure.
  * History transaction, child, station, day and optional opaque record ID select
- * the file. Its exact echoed path correlates the later authenticated reply.
+ * the file. Its exact echoed path correlates the later protected reply. Legacy
+ * ECB protection does not establish cryptographic content authenticity.
  * No retry, automatic pagination, snapshot mutation or detection callback occurs.
  */
 export class EventPictureReader {

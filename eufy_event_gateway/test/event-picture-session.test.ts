@@ -50,7 +50,7 @@ async function peer(context: TestContext) {
   return { session, socket, sent, key };
 }
 
-test("thumbnail session uses distinct outbound and receive keys with the observed image command channels", async context => {
+for (const protection of ["bootstrap", "legacy"] as const) test(`thumbnail session uses distinct outbound and receive keys with ${protection} replies`, async context => {
   context.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
   const { session, socket, sent, key } = await peer(context);
   const commands = () => sent.filter(v => v.subarray(8, 12).toString() === "XZYH");
@@ -60,6 +60,11 @@ test("thumbnail session uses distinct outbound and receive keys with the observe
     return JSON.parse(Buffer.concat([decoder.update(body.subarray(32)), decoder.final()]).toString());
   };
   const reply = (value: unknown) => {
+    if (protection === "legacy") {
+      const body = Buffer.from(JSON.stringify(value)), padding = Buffer.alloc(16 - body.length % 16, 0x5a); padding[0] = 0;
+      const cipher = createCipheriv("aes-128-ecb", Buffer.from("1234567-12345678"), null); cipher.setAutoPadding(false);
+      return Buffer.concat([cipher.update(Buffer.concat([body, padding])), cipher.final()]);
+    }
     const receive = Buffer.alloc(32); Buffer.from("inventedaccount").copy(receive); Buffer.from("1234567").copy(receive);
     const nonce = Buffer.alloc(12, 4), cipher = createCipheriv("aes-256-gcm", receive, nonce);
     cipher.setAAD(Buffer.from("eufy security"));

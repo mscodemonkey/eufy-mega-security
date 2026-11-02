@@ -27,7 +27,7 @@ import { validateC31Preference, type C31Preference } from "../provider/c31-prefe
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
 import { HomeBaseRecordingReader } from "./homebase-recordings.js";
-import { EventPictureReader, decodeEventPictureReply, type EventPictureSummary } from "./homebase-event-picture.js";
+import { EventPictureReader, decodeEventPictureReply, decodeLegacyEventPictureReply, type EventPictureSummary } from "./homebase-event-picture.js";
 import { EventNameHistoryError, EventNameHistoryReader, eventHistoryCursor, nextEventHistoryDate, type EventNameHistorySummary } from "./homebase-event-names.js";
 import { SoloCamRecordingReader, type CameraStoredRecord } from "./stored-recordings.js";
 import type { CameraPresetPosition, VideoCodec } from "../domain/types.js";
@@ -2656,19 +2656,11 @@ export class FirstPartyPpcsSession {
       },
       decodeHistory: (payload, sign) => {
         if ((sign === 8 || sign === 2) && this.#level2Key) return decryptLevel2(payload, this.#level2Key, sign) ?? null;
-        if (sign !== 1) return null;
-        const authenticated = decodeEventPictureReply(payload, sign, this.#options.accountId!, this.#options.stationSerial);
-        if (authenticated) return authenticated;
-        if (payload.length > 0 && payload.length % 16 === 0) {
-          try {
-            const clear = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid));
-            const end = clear.indexOf(0);
-            if (end >= 0 && clear.length - end <= 16) return clear.subarray(0, end);
-          } catch { return null; }
-        }
-        return null;
+        return decodeEventPictureReply(payload, sign, this.#options.accountId!, this.#options.stationSerial)
+          ?? decodeLegacyEventPictureReply(payload, sign, commandKey(this.#options.stationSerial, this.#options.p2pDid));
       },
-      decodeImage: (payload, sign) => decodeEventPictureReply(payload, sign, this.#options.accountId!, this.#options.stationSerial),
+      decodeImage: (payload, sign) => decodeEventPictureReply(payload, sign, this.#options.accountId!, this.#options.stationSerial)
+        ?? decodeLegacyEventPictureReply(payload, sign, commandKey(this.#options.stationSerial, this.#options.p2pDid)),
     });
     return await this.#eventPicture.read(date, startId, recordId, signal);
   }

@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { createCipheriv } from "node:crypto";
 import test from "node:test";
 import { encode } from "jpeg-js";
-import { EventPictureReader, decodeEventPictureReply, eventPictureReceiveKey, projectEventPictureSummary } from "../src/stream/homebase-event-picture.js";
+import { EventPictureReader, decodeEventPictureReply, decodeLegacyEventPictureReply, eventPictureReceiveKey, projectEventPictureSummary } from "../src/stream/homebase-event-picture.js";
 import { supportsEventPictureHistory, type MegaInventoryDevice } from "../src/provider/eufy-provider.js";
 
 const serial = "invented-child", station = "InventedParent01", date = "2026-11-02", file = "/recordings/camera0/fixture.jpg";
@@ -118,4 +118,17 @@ test("the captured single NUL terminator is accepted without admitting arbitrary
     if (tail.length === 1 && tail[0] === 0) assert.equal((await result).imageBytes, jpeg.length);
     else await assert.rejects(result, /invalid_response/);
   }
+});
+
+test("legacy image replies accept only the captured final-block terminator and keep their ownership checks", () => {
+  const key = Buffer.alloc(16, 5), value = Buffer.from('{"file":"/recordings/fixture.jpg","content":"invented"}');
+  const protect = (plain: Buffer) => { const cipher = createCipheriv("aes-128-ecb", key, null); cipher.setAutoPadding(false); return Buffer.concat([cipher.update(plain), cipher.final()]); };
+  const padding = Buffer.alloc(16 - value.length % 16, 0x5a); padding[0] = 0;
+  const payload = protect(Buffer.concat([value, padding]));
+  assert.deepEqual(decodeLegacyEventPictureReply(payload, 1, key), value);
+  assert.equal(decodeLegacyEventPictureReply(payload, 0, key), null);
+  assert.equal(decodeLegacyEventPictureReply(payload, 1, Buffer.alloc(16, 7)), null);
+  const missing = Buffer.alloc(padding.length, 0x5a);
+  assert.equal(decodeLegacyEventPictureReply(protect(Buffer.concat([value, missing])), 1, key), null);
+  assert.equal(decodeLegacyEventPictureReply(protect(Buffer.concat([value, padding, Buffer.alloc(16)])), 1, key), null);
 });
