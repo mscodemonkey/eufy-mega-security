@@ -24,14 +24,14 @@ const serial = "synthetic-camera";
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 
 /** Build an offline normal-route provider with an optionally real media manager. */
-async function fixture(context: TestContext, withManager = false, parent: "T8N00" | "T9000" = "T8N00") {
+async function fixture(context: TestContext, withManager = false, parent: "T8N00" | "T9000" = "T8N00", camera?: { model: string; type: number }) {
   const directory = await mkdtemp(join(tmpdir(), "nvr-reopen-"));
   const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
   context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
   context.mock.getter(MegaClient.prototype, "isAuthenticated", () => true);
   context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [
     { device_sn: "synthetic-station", device_model: parent, device_type: parent === "T8N00" ? 300 : 27, category: "eufy_security", member: { admin_user_id: "synthetic-owner" } },
-    { device_sn: serial, device_model: parent === "T8N00" ? "T8E00" : "T8140-Z", device_type: parent === "T8N00" ? 301 : 14, category: "eufy_security", parent_sn: "synthetic-station", device_channel: 3, member: { admin_user_id: "synthetic-owner" } },
+    { device_sn: serial, device_model: camera?.model ?? (parent === "T8N00" ? "T8E00" : "T8140-Z"), device_type: camera?.type ?? (parent === "T8N00" ? 301 : 14), category: "eufy_security", parent_sn: "synthetic-station", device_channel: 3, member: { admin_user_id: "synthetic-owner" } },
   ] }));
   let pushReceiver: MegaPushReceiver;
   context.mock.method(MegaPushReceiver.prototype, "start", async function(this: MegaPushReceiver) { pushReceiver = this; });
@@ -228,8 +228,9 @@ test("a retiring diagnostic lease rejects without waiting or becoming normal rou
   } finally { await f.close(); }
 });
 
-test("real media manager keeps the replacement viewer owned and serving during cleanup handoff", async context => {
-  const f = await fixture(context, true);
+for (const camera of [undefined, { model: "T8140", type: 14 }, { model: "T8113-V", type: 8 }, { model: "T8172", type: 89 }]) {
+  test(`real media manager keeps ${camera?.model ?? "T8E00"} replacement viewer serving during cleanup handoff`, async context => {
+  const f = await fixture(context, true, camera ? "T9000" : "T8N00", camera);
   const viewer = () => {
     const response = new PassThrough(); Object.assign(response, { writeHead: () => response });
     response.on("error", () => {});
@@ -251,3 +252,4 @@ test("real media manager keeps the replacement viewer owned and serving during c
     assert.equal(f.stopped(), 0);
   } finally { await f.close(); }
 });
+}
