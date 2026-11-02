@@ -144,3 +144,33 @@ It reads one bounded journal file at a time. The private local analysis tools ca
 authenticate retained records and distinguish an incomplete final record from a
 failed authentication tag. Code and dependency fingerprints identify the build
 that produced each new record. Recording does not change device settings.
+
+## Check familiar names in existing recordings
+
+Use **Check familiar names in recordings** on the Diagnostics page when Eufy
+shows a familiar name in its recording list but Home Assistant did not receive
+it. This experimental read-only check supports T8210/type 7 attached to HomeBase
+3 T8030/type 18. Select the doorbell and date, close live viewers, then choose
+**Check names once**. It uses your existing authenticated connection and changes
+no device settings.
+
+The result counts recordings, person entries and recordings containing familiar
+names. Actual names and identifiers are excluded. Each request reads one page
+of at most 50 station recordings, so a zero count cannot establish that the
+whole day has no matching recording. Other cameras can occupy the same page.
+Cancelling, changing the selected device or date, or leaving the page cancels
+the request and prevents an old result appearing under a new selection.
+
+The authenticated API operation is
+`POST /api/cameras/{serial}/diagnostics/event-names` with JSON
+`{"date":"2026-10-31"}`. Private investigations can supply an optional `startId`
+string copied from a captured history request to check that exact page. This is
+an opaque database cursor. It must never be calculated from a recording time.
+The default cursor is `"0"`. The reader does not retry or fetch subsequent pages
+automatically.
+
+A successful name check establishes availability in recording history. It does
+not show when recognition became available after the event, prove the app's
+text-rendering path, or fix a missing late notification. It does not publish a
+new detection or update person sensors. Use it to distinguish a missing push
+from a name that is also absent in the corresponding history page.
