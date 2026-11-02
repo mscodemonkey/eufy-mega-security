@@ -5746,10 +5746,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     await Promise.all(serials.map(serial => this.stopStream(serial)));
   }
 
-  /** Retire only picture recovery owners, leaving normal cloud request ownership unchanged. */
+  /**
+   * Retire picture work at a provider lifetime boundary. The client still owns
+   * in-flight downloads, but their queues must not delay the replacement lifetime.
+   * Generation checks discard any picture returned by those retired downloads.
+   */
   #retirePictureOwners(): void {
     for (const owner of this.#pictureOwners.values()) owner.controller.abort();
     this.#pictureOwners.clear(); this.#pictureRecoveryCooldowns.clear();
+    this.#pushSnapshotQueues.clear();
   }
 
   /** Require the current accepted visit, original inventory binding and provider lifetime. */

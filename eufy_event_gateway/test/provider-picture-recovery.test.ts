@@ -49,9 +49,10 @@ async function fixture(context: TestContext, mode = "success") {
   let releaseCloud: (() => void) | undefined, cloudBytes: Buffer | undefined;
   const cloud = context.mock.method(MegaClient.prototype, "download", async () => {
     if (mode === "cloud-success") return jpeg;
-    if (mode === "cloud-superseded") {
+    if (mode === "cloud-superseded" || mode.startsWith("cloud-restarted") && cloud.mock.callCount() === 0) {
       await new Promise<void>(resolve => { releaseCloud = resolve; }); cloudBytes = Buffer.from(jpeg); return cloudBytes;
     }
+    if (mode.startsWith("cloud-restarted")) return jpeg;
     if (mode === "untyped-error") throw Error("HTTP404");
     throw new MediaHttpError(mode === "http500" ? 500 : 404, 5, "eufy-eu");
   });
@@ -66,7 +67,7 @@ async function fixture(context: TestContext, mode = "success") {
     return returned;
   });
   const provider = new EufyProvider({ username: "invented", password: "invented", country: "AU", persistentDirectory: directory,
-    maxStreamSeconds: 120, apiAuthenticationConfigured: mode !== "unauthenticated", experimentalHomeBaseEventImages: mode !== "off" });
+    maxStreamSeconds: 120, apiAuthenticationConfigured: mode !== "unauthenticated", experimentalHomeBaseEventImages: !["off", "cloud-restarted-off"].includes(mode) });
   const pictures: Buffer[] = [];
   let motions = 0;
   const events = new Proxy({ motion: (_serial: string, active: boolean) => { if (active) motions++; },
@@ -159,3 +160,26 @@ test("a previously unseen older notification cannot replace the newer recording'
     assert.equal(f.pictures.length, 1); assert.equal(f.cloud.mock.callCount(), 1); assert.equal(f.motions(), 2);
   } finally { await f.provider.close(); }
 });
+
+for (const mode of ["cloud-restarted", "cloud-restarted-off"]) {
+  test(`a restarted provider does not wait for a retired picture queue: ${mode}`, { timeout: 10_000 }, async context => {
+    const f = await fixture(context, mode);
+    try {
+      f.send(f.event("before-restart"));
+      await settle();
+      assert.equal(f.cloud.mock.callCount(), 1);
+      await f.provider.start(f.events);
+      f.send(f.event("after-restart"));
+      await settle();
+      assert.equal(f.cloud.mock.callCount(), 2);
+      assert.equal(f.pictures.length, 1);
+      f.releaseCloud();
+      await settle();
+      assert.equal(f.pictures.length, 1);
+      assert.ok(f.cloudBytes()?.every(byte => byte === 0));
+    } finally {
+      f.releaseCloud();
+      await f.provider.close();
+    }
+  });
+}
