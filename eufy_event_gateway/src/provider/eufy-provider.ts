@@ -1819,6 +1819,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       firmwareUpdateAvailable: device.firmwareUpdateAvailable ?? null, rssi: device.reads.rssi ?? null, audioSettings: null, reportedSettings: profile ? { streamingQualityTier: values.quality, imageFlipped: null, statusLedEnabled: null, soundDetectionEnabled: null } : null,
       enabled: null, motionDetectionEnabled: null, guardMode: null, nightVisionMode: values.night,
       nvrPanControlSupported: !!profile && (!profile.opticalZoom || view === 1),
+      directionalPanControlSupported: false,
       nvrOpticalZoomControlSupported: !!profile?.opticalZoom && view === 1,
       nvrViewOptions: profile?.views ?? [], nvrSelectedView: profile ? view : null,
       autoNightVisionEnabled: null, aiTrackingEnabled: null, battery: batteryState(device),
@@ -4838,7 +4839,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.adminUserId !== null
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === true
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
-      cameraLightControlSupported: cameraLightControlProtocol(device, route) !== null
+      directionalPanControlSupported: this.#c37ControlRouteReady(device),
+      cameraLightControlSupported: this.#c37ControlRouteReady(device) || cameraLightControlProtocol(device, route) !== null
         && (cameraLightControlProtocol(device, route) !== "c31-json"
           || supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)))
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === false
@@ -4876,7 +4878,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       enabled: null, enableControlSupported: false, streamingQualityControlSupported: false, streamingQualityModes: [],
       audioRecordingControlSupported: false, motionDetectionControlSupported: false, guardModeControlSupported: false,
       guardModeRefreshSupported: false, nightVisionControlSupported: false, nightVisionModes: [], autoNightVisionControlSupported: false,
-      cameraLightControlSupported: false, timedLightControlSupported: false, cameraSirenControlSupported: false,
+      cameraLightControlSupported: false, directionalPanControlSupported: false, timedLightControlSupported: false, cameraSirenControlSupported: false,
       presetPositionControlSupported: false, storedRecordingsSupported: false, aiTrackingControlSupported: false,
       autoCruiseControlSupported: false, motionSensitivityControlSupported: false, homebaseChimeControlSupported: false, lightBrightnessControlSupported: false, manualFloodlightControlSupported: false,
       battery: { supported: [], level: null, backupLevel: null, charging: null, health: null, temperature: null, lastChargingDays: null },
@@ -4887,11 +4889,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     };
   }
 
-  /** Send a source-backed momentary camera-light command over a ready direct route. */
+  /** Send an admitted manual-light action, requiring fresh C37 native readback. */
   setCameraLight(serial: string, enabled: boolean): Promise<void> {
     this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
+    const selected = this.#devices.get(serial);
+    if (selected?.model === "T814X" && selected.deviceType === 10_037) {
+      return this.performModelControlTrial(serial, { action: "spotlight", enabled }).then(() => undefined);
+    }
     const previous = this.#lightOperations.get(serial) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(async () => {
       const device = this.#devices.get(serial);
@@ -5027,6 +5033,25 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
+  /** Send one exact C37 direction through the same owned path as its diagnostic trial. */
+  panCamera(serial: string, direction: "left" | "right" | "up" | "down"): Promise<void> {
+    this.#assertRtcPreparationIdle();
+    this.#assertLegacyCamera(serial);
+    this.#assertNoModelTrial(serial);
+    const selected = this.#devices.get(serial);
+    if (!["left", "right", "up", "down"].includes(direction) || !selected || !this.#c37ControlRouteReady(selected)) {
+      return Promise.reject(new Error("Direct camera movement is unavailable"));
+    }
+    return this.#queuePanControl(serial, "pan", async (session, current, observe) => {
+      const device = this.#devices.get(serial)!;
+      const route = ppcsStreamRoute(device, this.#devices)!;
+      current();
+      observe("write");
+      await session.writeModelControlTrial({ action: "ptz", direction }, this.#modelTrialRoute(device, route), current);
+      current();
+    });
+  }
+
   /** Serialize a fresh preset query with movement and tracking on the verified camera route. */
   async getCameraPresetPositions(serial: string): Promise<readonly CameraPresetPosition[]> {
     this.#assertRtcPreparationIdle();
@@ -5114,13 +5139,19 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   ): Promise<void> {
     const selected = this.#devices.get(serial);
     const c37Request = selected?.model === "T814X" && selected.deviceType === 10_037;
+    const queuedGeneration = this.#startupGeneration;
     let c37Stage = "admission";
     const observe = (stage: "query" | "write" | "confirmation_read"): void => { c37Stage = stage; };
     const previous = this.#panControlOperations.get(serial) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(async () => {
       const device = this.#devices.get(serial);
       const c37 = device && this.#c37ControlRouteReady(device)
-        && (action === "ai_tracking" ? this.#c37TrackingReady(device) : action === "preset_query" || action === "preset_position");
+        && (action === "ai_tracking" ? this.#c37TrackingReady(device) : action === "pan" || action === "preset_query" || action === "preset_position");
+      if (c37Request && (!c37 || !device || queuedGeneration !== this.#startupGeneration
+        || inventoryBindingChanged(selected!, device) || selected!.p2pDid !== device.p2pDid
+        || selected!.p2pConnection !== device.p2pConnection)) {
+        throw new Error("Queued C37 control route changed or retired");
+      }
       if (!device || !isSupportedMegaCamera(device) || (!supportsPresetPositions(device) && !c37)) {
         throw new Error("Pan and tracking controls are not supported for this camera");
       }
@@ -5186,7 +5217,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         session.close();
       }
     }).catch((error: unknown) => {
-      if (c37Request) logger.warn("camera_c37_control_failed", `action=${["ai_tracking", "preset_query", "preset_position"].includes(action) ? action : "unsupported"} stage=${c37Stage}`);
+      if (c37Request) logger.warn("camera_c37_control_failed", `action=${["pan", "ai_tracking", "preset_query", "preset_position"].includes(action) ? action : "unsupported"} stage=${c37Stage}`);
       else logger.warn("camera_t817l_control_failed", `Camera pan control failed: action=${action} error=${safeError(error)}`);
       throw error;
     });
@@ -5197,7 +5228,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return current;
   }
 
-  /** Build a control session for a hardware-verified pan route without broadening AI tracking eligibility. */
+  /** Build an owned control session without broadening model-specific tracking eligibility. */
   async #panControlSession(device: MegaInventoryDevice): Promise<FirstPartyPpcsSession> {
     const route = ppcsStreamRoute(device, this.#devices);
     const peer = route?.peer;

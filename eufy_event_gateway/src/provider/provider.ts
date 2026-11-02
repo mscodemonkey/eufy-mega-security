@@ -211,6 +211,9 @@ export interface CameraProvider {
   /** Send the camera family's momentary manual-light command. */
   setCameraLight(serial: string, enabled: boolean): Promise<void>;
 
+  /** Send one admitted direct movement click, with physical position unconfirmed. */
+  panCamera?(serial: string, direction: "left" | "right" | "up" | "down"): Promise<void>;
+
   /** Trigger or stop the camera siren using its device-side duration. */
   setCameraSiren(serial: string, durationSeconds: number): Promise<void>;
 
@@ -220,7 +223,7 @@ export interface CameraProvider {
   /** Move a camera once to an enabled stored position. */
   selectCameraPresetPosition(serial: string, index: number): Promise<void>;
 
-  /** Send the camera's physically verified AI-tracking action. */
+  /** Send admitted tracking and require the model's independent setting confirmation. */
   setCameraAiTracking(serial: string, enabled: boolean): Promise<void>;
 
   /** Send the camera's physically verified automatic-cruise action. */
