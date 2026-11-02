@@ -5348,15 +5348,20 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (this.config.experimentalHomeBaseEventImages && delivery.handleState && isSupportedMegaCamera(device)
       && (delivery.retainPicture || cameraDetectionKind(event.eventType) !== null
         || event.eventType === 1 && genericSecurityDetectionKinds(event).length > 0)) {
-      this.#pictureOwners.get(device.serial)?.controller.abort();
-      this.#pictureOwners.delete(device.serial);
-      const route = ppcsStreamRoute(device, this.#devices);
-      if (supportsEventPictureHistory(device, route, true) && event.stationSerial === route!.peer.serial) {
-        this.#pictureOwners.set(device.serial, { event, controller: new AbortController(), generation: this.#startupGeneration,
-          device, parent: route!.peer });
-        if (this.#pictureOwners.size > 256) {
-          const first = this.#pictureOwners.keys().next().value!;
-          this.#pictureOwners.get(first)?.controller.abort(); this.#pictureOwners.delete(first);
+      const previous = this.#pictureOwners.get(device.serial);
+      const olderVisit = previous && this.#pictureOwnerCurrent(previous) && previous.event.recording && event.recording
+        && event.recording.triggerMilliseconds < previous.event.recording.triggerMilliseconds;
+      if (!olderVisit) {
+        this.#pictureOwners.get(device.serial)?.controller.abort();
+        this.#pictureOwners.delete(device.serial);
+        const route = ppcsStreamRoute(device, this.#devices);
+        if (supportsEventPictureHistory(device, route, true) && event.stationSerial === route!.peer.serial) {
+          this.#pictureOwners.set(device.serial, { event, controller: new AbortController(), generation: this.#startupGeneration,
+            device, parent: route!.peer });
+          if (this.#pictureOwners.size > 256) {
+            const first = this.#pictureOwners.keys().next().value!;
+            this.#pictureOwners.get(first)?.controller.abort(); this.#pictureOwners.delete(first);
+          }
         }
       }
     }

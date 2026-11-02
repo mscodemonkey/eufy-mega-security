@@ -7,8 +7,12 @@
 
 /** Private notification fields that must travel together from the same payload. */
 export interface PushRecordingReference {
+
+  /** Opaque station database identity, never interpreted as a time or sequence. */
   readonly id: string;
   readonly storagePath: string;
+
+  /** Camera trigger clock used for freshness and rejecting an explicitly older visit. */
   readonly triggerMilliseconds: number;
 }
 

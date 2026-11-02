@@ -148,3 +148,14 @@ test("automatic recovery leaves another operation's peer reservation alone", asy
     release(); assert.equal((await pending).scope, "one_history_thumbnail");
   } finally { release?.(); await pending.catch(() => undefined); await f.provider.close(); }
 });
+
+test("a previously unseen older notification cannot replace the newer recording's picture", async context => {
+  const f = await fixture(context, "cloud-success");
+  try {
+    const current = f.event("new-visit"), earlier = f.event("late-earlier-visit");
+    const delayed = { ...earlier, recording: { ...earlier.recording!, id: "41",
+      storagePath: path.replace("092000", "091900"), triggerMilliseconds: current.recording!.triggerMilliseconds - 1_000 } };
+    f.send(current); await settle(); f.send(delayed); await settle();
+    assert.equal(f.pictures.length, 1); assert.equal(f.cloud.mock.callCount(), 1); assert.equal(f.motions(), 2);
+  } finally { await f.provider.close(); }
+});

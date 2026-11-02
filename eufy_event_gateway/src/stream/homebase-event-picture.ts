@@ -30,6 +30,8 @@ export interface EventPictureTransport {
 
   /** Read only a file returned by this operation's owned history row. */
   image(file: string): void;
+
+  /** Decode supported history protection before the reader checks its transaction and ownership. */
   decodeHistory(payload: Buffer, sign: number): Buffer | null;
 
   /** Decode the observed reply protection without treating legacy ECB as authenticated content. */
@@ -130,7 +132,11 @@ export class EventPictureReader {
   /** Borrow this operation's immutable child and parent binding. */
   constructor(private readonly transport: EventPictureTransport) {}
 
-  /** Query at most fifty rows and retrieve one owned thumbnail within forty seconds. */
+  /**
+   * Query at most fifty rows and check one thumbnail within forty seconds.
+   * An expected recording path narrows selection before any image read.
+   * This diagnostic returns counts only, even when that path is supplied.
+   */
   async read(date: string, startId: string, recordId?: string, signal?: AbortSignal, expectedPath?: string): Promise<EventPictureSummary> {
     return (await this.#read(date, startId, recordId, signal, expectedPath, false)).summary;
   }
