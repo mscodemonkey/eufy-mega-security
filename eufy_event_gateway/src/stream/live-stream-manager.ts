@@ -122,8 +122,21 @@ export interface ViewerDeliverySummary {
 /** Selects existing H.264 compatibility conversion or unchanged source video for one viewer. */
 export type ViewerProfile = "compatible" | "native";
 
+/**
+ * First observed termination owner, without an error message or private identity.
+ * Consumer closure includes HTTP transport closure and does not prove user intent.
+ */
+export type ViewerCloseReason = "consumer_closed" | "consumer_error" | "start_failed" | "provider_stopped"
+  | "source_ended" | "source_error" | "gateway_closed" | "codec_changed" | "conversion_failed" | "backpressure";
+
 /** Privacy-safe delivery evidence captured when one HTTP viewer disconnects. */
 export interface ViewerClientSummary {
+
+  /** First observed closure cause, preserved through later error and close events. */
+  readonly closeReason: ViewerCloseReason;
+
+  /** Whether this viewer ever had a provider source attached, even if it sent no bytes. */
+  readonly sourceAttached: boolean;
   readonly profile: ViewerProfile;
   readonly model: string;
   readonly sourceCodec: VideoCodec | null;
@@ -152,6 +165,8 @@ export interface ViewerStartupSummary extends ViewerStartupMilestones {
 }
 
 interface ViewerClientDelivery {
+  closeReason: ViewerCloseReason | null;
+  sourceAttached: boolean;
   readonly profile: ViewerProfile;
   startedCodec: VideoCodec | null;
   readonly requestedAtMilliseconds: number;
@@ -568,6 +583,8 @@ export class LiveStreamManager extends EventEmitter {
     this.#cancelStop(session);
     session.clients.add(response);
     session.clientDeliveries.set(response, {
+      closeReason: null,
+      sourceAttached: session.source !== null,
       profile,
       startedCodec: null,
       requestedAtMilliseconds: performance.now(),
@@ -607,6 +624,7 @@ export class LiveStreamManager extends EventEmitter {
 
     response.on("close", () => this.#removeClient(serial, response));
     response.once("error", (error) => {
+      this.#markViewerClose(session, response, "consumer_error");
       this.emit("warning", error);
       this.#removeClient(serial, response);
     });
@@ -616,6 +634,7 @@ export class LiveStreamManager extends EventEmitter {
     try {
       await this.#ensureStarted(serial, session);
     } catch (error) {
+      this.#markViewerClose(session, response, "start_failed");
       response.destroy(error instanceof Error ? error : undefined);
     }
   }
@@ -805,6 +824,7 @@ export class LiveStreamManager extends EventEmitter {
     session.suppressSnapshots = session.privateTrial;
     const generation = session.generation;
     session.source = source;
+    for (const delivery of session.clientDeliveries.values()) delivery.sourceAttached = true;
     session.audioSource = audio ?? null;
     audio?.on("data", (chunk: Buffer) => {
       if (session.generation !== generation || chunk.length === 0) return;
@@ -901,7 +921,7 @@ export class LiveStreamManager extends EventEmitter {
       if (bootstrap && codec) {
         for (const client of this.#profileClients(session, "native")) {
           const previous = session.clientDeliveries.get(client)?.startedCodec;
-          if (previous && previous !== codec) { client.end(); this.#removeClient(serial, client); }
+          if (previous && previous !== codec) { this.#markViewerClose(session, client, "codec_changed"); client.end(); this.#removeClient(serial, client); }
         }
         let snapshotStarted = false;
         if (!session.suppressSnapshots && !session.ffmpeg && startup) {
@@ -946,7 +966,7 @@ export class LiveStreamManager extends EventEmitter {
     this.#cleanupSource(session);
     session.state = "idle";
     session.owned = false;
-    for (const client of session.clients) client.end();
+    for (const client of session.clients) { this.#markViewerClose(session, client, "provider_stopped"); client.end(); }
     session.clients.clear();
     session.pendingClients.clear();
     this.#updateState(serial, session);
@@ -962,7 +982,7 @@ export class LiveStreamManager extends EventEmitter {
         if (session.stopTimer) clearTimeout(session.stopTimer);
         this.#cleanupSource(session);
         this.#failRecordings(session, new Error("Gateway closed while recording a clip"));
-        for (const client of session.clients) client.end();
+        for (const client of session.clients) { this.#markViewerClose(session, client, "gateway_closed"); client.end(); }
         session.pendingClients.clear();
         if (session.owned) await this.controller.stopStream(serial).catch(() => undefined);
       }),
@@ -1166,7 +1186,7 @@ export class LiveStreamManager extends EventEmitter {
     this.#cleanupSource(session);
     session.state = error ? "error" : "idle";
     session.owned = false;
-    for (const client of session.clients) client.end();
+    for (const client of session.clients) { this.#markViewerClose(session, client, error ? "source_error" : "source_ended"); client.end(); }
     session.clients.clear();
     session.pendingClients.clear();
     this.#updateState(serial, session, error?.message ?? null);
@@ -1201,6 +1221,7 @@ export class LiveStreamManager extends EventEmitter {
 
   #failCompatibleClients(serial: string, session: Session, error: Error): void {
     for (const client of this.#profileClients(session, "compatible")) {
+      this.#markViewerClose(session, client, "conversion_failed");
       client.destroy(error);
       this.#removeClient(serial, client);
     }
@@ -1224,6 +1245,7 @@ export class LiveStreamManager extends EventEmitter {
         client.writableLength,
       );
       if (client.writableLength > 4 * 1024 * 1024) {
+        this.#markViewerClose(session, client, "backpressure");
         client.destroy(new Error("Live stream client exceeded the four-megabyte backpressure limit"));
       }
     }
@@ -1456,6 +1478,12 @@ export class LiveStreamManager extends EventEmitter {
     }
   }
 
+  /** Preserve the initiating owner before an owned end or destroy emits further events. */
+  #markViewerClose(session: Session, response: VideoViewerResponse, reason: ViewerCloseReason): void {
+    const delivery = session.clientDeliveries.get(response);
+    if (delivery) delivery.closeReason ??= reason;
+  }
+
   #emitViewerClientSummary(session: Session, response: VideoViewerResponse): void {
     const delivery = session.clientDeliveries.get(response);
     if (!delivery) return;
@@ -1463,6 +1491,8 @@ export class LiveStreamManager extends EventEmitter {
     session.clientDeliveries.delete(response);
     const now = performance.now();
     const summary: ViewerClientSummary = {
+      closeReason: delivery.closeReason ?? "consumer_closed",
+      sourceAttached: delivery.sourceAttached,
       profile: delivery.profile,
       model: session.model,
       sourceCodec: session.parameterSets.codec,

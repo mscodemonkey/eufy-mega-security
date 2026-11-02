@@ -223,3 +223,18 @@ between samples. Counter resets across distinct attempts must not be interpreted
 as one source losing packets. Older archives remain valid but cannot supply
 missing start/acknowledgement observations retrospectively. A successful capture
 on a different camera does not confirm a failing device's recovery.
+
+## A live viewer closes before its first picture
+
+The existing `viewer_client_stopped` line separates `source_active`, the source
+present at closure, from `source_attached`, whether that viewer ever had one.
+`closed_by` records the first observed termination cause. It distinguishes a
+consumer or HTTP transport closure from a failed start, provider stop, source
+end/error and gateway shutdown. Consumer closure does not prove that a person
+closed the viewer, or establish which browser, proxy or HA decision caused it.
+No error text, identity or URL is added to this summary.
+
+A zero-byte result with no attached source does not establish a decoding
+failure. Keep it separate from a source that attached and then ended before
+video arrived. Share only the complete line requested in the issue and any
+specifically requested same-attempt HA error, with private URLs and tokens removed.

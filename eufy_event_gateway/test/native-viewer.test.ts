@@ -76,6 +76,8 @@ for (const codec of ["h264", "h265"] as const) test(`native-only ${codec} starts
 
 test("mixed H.265 viewers get only their own encoding and native survives a conversion failure", async () => {
   const f = fixture("h265"), native = response(), compatible = response(), late = response();
+  const summaries: ViewerClientSummary[] = [];
+  f.manager.on("viewer-client-stopped", value => summaries.push(value));
   try {
     await f.manager.addClient("fixture", native.sink, "native");
     await f.manager.addClient("fixture", compatible.sink);
@@ -93,6 +95,7 @@ test("mixed H.265 viewers get only their own encoding and native survives a conv
     assert.equal(native.sink.destroyed, false);
     assert.equal(late.sink.destroyed, false);
     assert.equal(compatible.sink.destroyed, true);
+    assert.equal(summaries[0]?.closeReason, "conversion_failed");
     f.source.write(Buffer.from([0, 0, 0, 1, 2, 1, 0x80]));
     assert.equal(f.conversions, 1);
     assert.ok(Buffer.concat(native.bytes).length > sourceBytes.length);
@@ -114,6 +117,8 @@ test("the last compatible viewer retires its converter while native remains", as
 
 test("a native codec change ends the old response before incompatible bytes", async () => {
   const f = fixture("h265"), native = response();
+  const summaries: ViewerClientSummary[] = [];
+  f.manager.on("viewer-client-stopped", value => summaries.push(value));
   try {
     await f.manager.addClient("fixture", native.sink, "native");
     const original = media("h265");
@@ -121,6 +126,7 @@ test("a native codec change ends the old response before incompatible bytes", as
     f.setCodec("h264");
     f.source.write(media("h264"));
     assert.equal(native.sink.writableEnded, true);
+    assert.equal(summaries[0]?.closeReason, "codec_changed");
     assert.deepEqual(native.headers, ["video/h265"]);
     assert.deepEqual(Buffer.concat(native.bytes), original);
   } finally { await f.manager.close(); }
