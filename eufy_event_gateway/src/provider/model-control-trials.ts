@@ -12,6 +12,7 @@ export type ModelControlTrial =
   | { readonly action: "alarmState"; readonly enabled: false }
   | { readonly action: "manualLight"; readonly enabled: boolean }
   | { readonly action: "motion"; readonly enabled: boolean }
+  | { readonly action: "aiTracking"; readonly enabled: boolean }
   | { readonly action: "spotlight"; readonly enabled: boolean }
   | { readonly action: "siren"; readonly enabled: boolean }
   | { readonly action: "sirenConnection"; readonly enabled: false }
@@ -107,7 +108,7 @@ export function parseModelControlTrial(value: unknown): ModelControlTrial {
   if (Object.keys(row).length !== 2) throw new SyntaxError("Model control trial requires exactly two fields");
   if (row.action === "alarmState" && row.enabled === false) return { action: "alarmState", enabled: false };
   if (row.action === "sirenConnection" && row.enabled === false) return { action: "sirenConnection", enabled: false };
-  if ((row.action === "manualLight" || row.action === "motion" || row.action === "spotlight" || row.action === "siren") && typeof row.enabled === "boolean") {
+  if ((row.action === "manualLight" || row.action === "motion" || row.action === "aiTracking" || row.action === "spotlight" || row.action === "siren") && typeof row.enabled === "boolean") {
     return { action: row.action, enabled: row.enabled };
   }
   if (row.action === "ptz" && ["left", "right", "up", "down"].includes(String(row.direction))) {
@@ -128,6 +129,7 @@ export function modelControlTrialActions(route: ModelControlRoute): readonly Mod
       && route.channel >= 0 && route.channel <= 255 ? ["ptz"] : [];
   }
   if (!route.selfPeer || route.channel !== 0) return [];
+  if (route.model === "T814X" && route.deviceType === 10037 && route.peerModel === "T814X") return ["ptz", "spotlight", "aiTracking"];
   if (route.model === "T8170" && route.deviceType === 48 && route.peerModel === "T8170") return ["alarmState"];
   if (route.model === "T8423" && route.deviceType === 38) return ["motion", "spotlight", "ptz"];
   if (route.model === "T8417" && route.deviceType === 105) {
@@ -149,10 +151,18 @@ export function modelControlTrialCommand(
   if (!accountId || !modelControlTrialActions(route).includes(request.action)) throw new Error("Model control trial route unavailable");
   if (!Number.isSafeInteger(transaction) || transaction < 1_000_000_000_000) throw new Error("Invalid control transaction");
   if (request.action === "manualLight") return { command: 1400, value: request.enabled };
+  if (request.action === "aiTracking") {
+    return { command: 1700, value: JSON.stringify({ commandType: 6016,
+      data: { value: request.enabled ? 1 : 0, transaction: `${transaction}` } }) };
+  }
+  if (request.action === "spotlight" && route.model === "T814X") {
+    return { command: 1700, value: JSON.stringify({ commandType: 1400,
+      data: { value: request.enabled ? 1 : 0, open: request.enabled ? 1 : 0, type: 2, transaction: `${transaction}` } }) };
+  }
   if (request.action === "spotlight") return { command: 1403, value: request.enabled };
   const data = request.action === "motion" ? { status: request.enabled ? 1 : 0, transaction: `${transaction}` }
     : { cmd_type: 1, rotate_type: { left: 1, right: 2, up: 3, down: 4 }[request.direction],
-      ...(["T8423", "T8417"].includes(route.model) ? { zoom: 1, ivalue: -1 } : {}), transaction: `${transaction}` };
+      ...(["T8423", "T8417", "T814X"].includes(route.model) ? { zoom: 1, ivalue: -1 } : {}), transaction: `${transaction}` };
   const command = request.action === "motion" ? 6040 : 6030;
   if (request.action === "ptz" && route.model === "T8423") {
     return { command: 1350, value: JSON.stringify({ account_id: accountId, cmd: command,
@@ -163,7 +173,7 @@ export function modelControlTrialCommand(
 
 /** Minimal owned session used by the trial runner and synthetic failure tests. */
 export interface ModelControlTrialSession {
-  read(): Promise<{ readonly motionDetectionEnabled?: boolean; readonly spotlightEnabled?: boolean }>;
+  read(): Promise<{ readonly motionDetectionEnabled?: boolean; readonly spotlightEnabled?: boolean; readonly aiTrackingEnabled?: boolean }>;
   write(request: ModelControlTrial): Promise<void>;
 }
 
@@ -193,7 +203,8 @@ export async function runModelControlTrial(
     checkOwnership();
     return { outcome: "acknowledged", physicalConfirmationRequired: true };
   }
-  const field = request.action === "motion" ? "motionDetectionEnabled" : "spotlightEnabled";
+  const field = request.action === "motion" ? "motionDetectionEnabled"
+    : request.action === "aiTracking" ? "aiTrackingEnabled" : "spotlightEnabled";
   stage("initial_read");
   const original = (await session.read())[field];
   checkOwnership();
