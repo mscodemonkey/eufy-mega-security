@@ -128,6 +128,7 @@ for (const mode of [...additional.keys(), 'state-read', 'state-read-failure', 's
 
 for (const route of [
   { cameraModel: "T8E00", cameraType: 301, stationModel: "T8N00", stationType: 300 },
+  { cameraModel: "T8P10", cameraType: 303, stationModel: "T8N00", stationType: 300 },
   { cameraModel: "T8140-Z", cameraType: 14, stationModel: "T9000", stationType: 27 },
   { cameraModel: "T8140", cameraType: 14, stationModel: "T9000", stationType: 27 },
   { cameraModel: "T8113-V", cameraType: 8, stationModel: "T9000", stationType: 27 },
@@ -183,6 +184,13 @@ for (const route of [
       assert.equal(discovered?.startupSnapshotSupported, false);
       assert.equal(discovered?.firmware, "synthetic-firmware");
       if (route.stationModel === "T9000") assert.equal(discovered?.battery?.level, 67);
+      if (route.cameraModel === "T8P10") {
+        assert.ok(Object.entries(discovered!).filter(([key]) => key.endsWith("ControlSupported")).every(([, value]) => value === false));
+        assert.deepEqual(discovered?.nvrViewOptions, []);
+        const release = provider.reserveNvrLiveTrial("synthetic-camera", new AbortController().signal);
+        assert.equal(contexts, 0);
+        await release();
+      }
       await provider.startStream("synthetic-camera");
       assert.equal(contexts, 1);
       assert.equal(starts, 1);
@@ -208,6 +216,14 @@ for (const route of [
 
 for (const route of [
   { model: "T8E00", type: 301, parent: "T9000", parentType: 27, enabled: true },
+  { model: "T8P10", type: 303, parent: "T8N00", parentType: 300, enabled: false },
+  { model: "T8P10", type: 301, parent: "T8N00", parentType: 300, enabled: true },
+  { model: "T8P10X", type: 303, parent: "T8N00", parentType: 300, enabled: true },
+  { model: "t8p10", type: 303, parent: "T8N00", parentType: 300, enabled: true },
+  { model: "T8P10", type: 303, parent: "T9000", parentType: 27, enabled: true },
+  { model: "T8P10", type: 303, parent: "T8N00", parentType: 27, enabled: true },
+  { model: "T8P10", type: 303, parent: "T8030", parentType: 18, enabled: true },
+  ...[-1, 255, 1.5].map(channel => ({ model: "T8P10", type: 303, parent: "T8N00", parentType: 300, enabled: true, channel })),
   ...[{ model: "T8140", type: 14 }, { model: "T8113-V", type: 8 }, { model: "T8172", type: 89 }, { model: "T8215", type: 97 }]
     .flatMap(camera => [
       { ...camera, parent: "T9000", parentType: 27, enabled: false },
@@ -225,7 +241,7 @@ for (const route of [
     { device_sn: "synthetic-station", device_model: route.parent, device_type: route.parentType,
       category: "eufy_security", member: { admin_user_id: "synthetic-owner" } },
     { device_sn: "synthetic-camera", device_model: route.model, device_type: route.type,
-      category: "eufy_security", parent_sn: "synthetic-station", device_channel: 3,
+      category: "eufy_security", parent_sn: "synthetic-station", device_channel: "channel" in route ? route.channel : 3,
       member: { admin_user_id: "synthetic-owner" } },
   ] }));
   context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
@@ -245,6 +261,47 @@ for (const route of [
     if (route.model === "T8215" && route.parent === "T8N00") {
       assert.throws(() => provider.reserveNvrLiveTrial("synthetic-camera", new AbortController().signal), NvrTrialError);
     }
+    if (route.model === "T8P10" && route.parent !== "T8N00") {
+      assert.throws(() => provider.reserveNvrLiveTrial("synthetic-camera", new AbortController().signal), NvrTrialError);
+    }
+  } finally {
+    await provider.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("NVR provider discovers six T8P10 cameras while serializing diagnostic ownership", async context => {
+  const directory = await mkdtemp(join(tmpdir(), "nvr-t8p10-inventory-"));
+  context.mock.method(globalThis, "fetch", async () => { assert.fail("Network forbidden"); });
+  context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
+  context.mock.getter(MegaClient.prototype, "isAuthenticated", () => true);
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [
+    { device_sn: "synthetic-station", device_model: "T8N00", device_type: 300,
+      category: "eufy_security", member: { admin_user_id: "synthetic-owner" } },
+    ...Array.from({ length: 6 }, (_, index) => ({ device_sn: `synthetic-camera-${index}`,
+      device_model: "T8P10", device_type: 303, category: "eufy_security", parent_sn: "synthetic-station",
+      device_channel: index, member: { admin_user_id: "synthetic-owner" } })),
+    { device_sn: "synthetic-working", device_model: "T8E00", device_type: 301, category: "eufy_security",
+      parent_sn: "synthetic-station", device_channel: 6, member: { admin_user_id: "synthetic-owner" } },
+  ] }));
+  context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
+  context.mock.method(globalThis, "setInterval", () => ({ unref() {} }) as unknown as NodeJS.Timeout);
+  const state = new GatewayState();
+  const events = new Proxy({ camera: (value: Parameters<ProviderEvents["camera"]>[0]) => state.registerCamera(value) },
+    { get: (target, key) => Reflect.get(target, key) ?? (() => {}) }) as unknown as ProviderEvents;
+  const provider = new EufyProvider({ username: "fixture", password: "redacted", country: "AU",
+    persistentDirectory: directory, maxStreamSeconds: 120, experimentalNvrLive: true, normalNvrLive: true });
+  try {
+    await provider.start(events);
+    assert.equal(state.listCameras().length, 7);
+    assert.ok(state.listCameras().every(camera => camera.streamSupported));
+    const release = provider.reserveNvrLiveTrial("synthetic-camera-0", new AbortController().signal);
+    assert.throws(() => provider.reserveNvrLiveTrial("synthetic-camera-1", new AbortController().signal), NvrTrialError);
+    await assert.rejects(provider.startStream("synthetic-camera-1"), NvrTrialError);
+    await release();
+    const next = provider.reserveNvrLiveTrial("synthetic-camera-1", new AbortController().signal);
+    await next();
   } finally {
     await provider.close();
     await rm(directory, { recursive: true, force: true });

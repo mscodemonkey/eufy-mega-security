@@ -1803,6 +1803,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       && Number.isInteger(device.channel) && device.channel >= 0 && device.channel <= 254
       && parents.some(([model, type]) => station.model === model && station.deviceType === type)
       && (device.model !== "T8215" || station.model === "T9000" && station.deviceType === 27)
+      && (device.model !== "T8P10" || station.model === "T8N00" && station.deviceType === 300)
       && !!station.adminUserId && (device.adminUserId === null || device.adminUserId === station.adminUserId);
   }
 
@@ -2436,7 +2437,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #normalNvrLiveBinding(device: MegaInventoryDevice, station: MegaInventoryDevice | undefined): boolean {
     if (this.#nvrLiveAdmitted(device, station) && device.model === "T8416") return true;
     if (!this.config.normalNvrLive || !this.#nvrBinding(device, station) || !station) return false;
-    return station.model === "T8N00" && station.deviceType === 300 && device.model === "T8E00" && device.deviceType === 301
+    return station.model === "T8N00" && station.deviceType === 300
+      && (device.model === "T8E00" && device.deviceType === 301 || device.model === "T8P10" && device.deviceType === 303)
       || station.model === "T9000" && station.deviceType === 27 && (
         (device.model === "T8140-Z" || device.model === "T8140") && device.deviceType === 14
         || device.model === "T8113-V" && device.deviceType === 8

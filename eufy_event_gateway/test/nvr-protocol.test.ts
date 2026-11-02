@@ -126,7 +126,7 @@ test('NVR trial configuration is default-off and requires authentication and a f
 
 
 test('NVR trial profiles match only exact reported model and type pairs', () => {
-  for (const [model, type] of [['T8140', 14], ['T8140-Z', 14], ['T8113-V', 8], ['T8172', 89], ['T8215', 97], ['T8162', 26], ['T8170', 48], ['T81A0', 10005], ['T8425', 47]] as const) {
+  for (const [model, type] of [['T8P10', 303], ['T8140', 14], ['T8140-Z', 14], ['T8113-V', 8], ['T8172', 89], ['T8215', 97], ['T8162', 26], ['T8170', 48], ['T81A0', 10005], ['T8425', 47]] as const) {
     assert.equal(nvrTrialSensor(model, type), 0);
     for (const wrong of [model.toLowerCase(), model + 'X']) assert.equal(nvrTrialSensor(wrong, type), null);
     assert.equal(nvrTrialSensor(model, 301), null);
