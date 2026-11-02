@@ -194,6 +194,9 @@ export interface CameraState {
 
   /** Default-off exact-profile NVR controls, withdrawn when admission changes. */
   readonly nvrPanControlSupported?: boolean;
+
+  /** Opt-in direct single-click movement, without a position or held-motion claim. */
+  readonly directionalPanControlSupported?: boolean;
   readonly nvrOpticalZoomControlSupported?: boolean;
   readonly nvrViewOptions?: readonly string[];
   readonly nvrSelectedView?: number | null;
@@ -512,6 +515,9 @@ export interface CameraIdentity {
 
   /** Default-off exact-profile NVR controls, withdrawn when admission changes. */
   readonly nvrPanControlSupported?: boolean;
+
+  /** Current admission for the gateway-owned direct single-click movement path. */
+  readonly directionalPanControlSupported?: boolean;
   readonly nvrOpticalZoomControlSupported?: boolean;
   readonly nvrViewOptions?: readonly string[];
   readonly nvrSelectedView?: number | null;

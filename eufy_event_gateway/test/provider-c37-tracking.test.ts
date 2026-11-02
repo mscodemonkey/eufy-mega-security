@@ -84,6 +84,119 @@ async function fixture(context: TestContext, mode = "ready") {
     } };
 }
 
+test("queued C37 actions cannot follow a replacement connection binding", async context => {
+  const f = await fixture(context);
+  let enter!: () => void, finish!: () => void;
+  const entered = new Promise<void>(resolve => { enter = resolve; });
+  const held = new Promise<void>(resolve => { finish = resolve; });
+  let attempts = 0;
+  const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeModelControlTrial", async (
+    _request: ModelControlTrial, _route: ModelControlRoute, current?: () => void,
+  ) => {
+    attempts++;
+    if (attempts > 1) throw Error("Queued write reached a replacement connection");
+    enter(); await held; current?.();
+  });
+  try {
+    const first = assert.rejects(f.provider.setCameraAiTracking("synthetic-camera", false), /changed|retired/);
+    await entered;
+    const queued = assert.rejects(f.provider.setCameraAiTracking("synthetic-camera", false), /changed|retired/);
+    await f.rebind("did");
+    finish();
+    await Promise.all([first, queued]);
+    assert.equal(write.mock.callCount(), 1);
+  } finally { finish(); await f.dispose(); }
+});
+
+for (const direction of ["left", "right", "up", "down"] as const) test(`C37 HA movement sends one ${direction} click`, async context => {
+  const f = await fixture(context, "missing-state");
+  const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeModelControlTrial", async (
+    request: ModelControlTrial, route: ModelControlRoute, current?: () => void,
+  ) => {
+    current?.();
+    assert.deepEqual(request, { action: "ptz", direction });
+    assert.equal(route.model, "T814X");
+    assert.equal(route.deviceType, 10037);
+  });
+  try {
+    assert.equal(f.cameras.get("synthetic-camera")?.directionalPanControlSupported, true);
+    await f.provider.panCamera("synthetic-camera", direction);
+    assert.equal(write.mock.callCount(), 1);
+    assert.equal(f.close.mock.callCount(), 1);
+  } finally { await f.dispose(); }
+});
+
+for (const mode of ["disabled", "no-api-auth", "guest", "type", "model", "attached", "channel", "route"]) {
+  test(`C37 HA movement and spotlight reject before transport: ${mode}`, async context => {
+    const f = await fixture(context, mode);
+    try {
+      assert.notEqual(f.cameras.get("synthetic-camera")?.directionalPanControlSupported, true);
+      assert.notEqual(f.cameras.get("synthetic-camera")?.cameraLightControlSupported, true);
+      await assert.rejects(f.provider.panCamera("synthetic-camera", "left"));
+      await assert.rejects(f.provider.setCameraLight("synthetic-camera", true));
+      assert.equal(f.start.mock.callCount(), 0);
+    } finally { await f.dispose(); }
+  });
+}
+
+test("C37 HA light keeps fresh manual-setting readback and never retries a failed write", async context => {
+  const f = await fixture(context);
+  let light = false, rejectWrite = false;
+  context.mock.method(FirstPartyPpcsSession.prototype, "readCameraInfo", async () => [{ param_type: 1400, param_value: light ? "1" : "0" }]);
+  const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeModelControlTrial", async (
+    request: ModelControlTrial, _route: ModelControlRoute, current?: () => void,
+  ) => {
+    current?.();
+    assert.equal(request.action, "spotlight");
+    if (rejectWrite) throw Error("rejected");
+    if (request.action === "spotlight") light = request.enabled;
+  });
+  try {
+    assert.equal(f.cameras.get("synthetic-camera")?.cameraLightControlSupported, true);
+    await f.provider.setCameraLight("synthetic-camera", true);
+    assert.equal(light, true);
+    assert.equal(write.mock.callCount(), 1);
+    rejectWrite = true;
+    await assert.rejects(f.provider.setCameraLight("synthetic-camera", false), /rejected/);
+    assert.equal(write.mock.callCount(), 2);
+    assert.equal(light, true);
+    assert.equal(f.close.mock.callCount(), 2);
+  } finally { await f.dispose(); }
+});
+
+for (const action of ["pan", "light"] as const) test(`C37 HA ${action} leaves an existing viewer untouched`, async context => {
+  const f = await fixture(context);
+  try {
+    await f.provider.startStream("synthetic-camera");
+    await assert.rejects(action === "pan"
+      ? f.provider.panCamera("synthetic-camera", "up") : f.provider.setCameraLight("synthetic-camera", true), /live view/);
+    assert.equal(f.start.mock.callCount(), 1);
+    assert.equal(f.close.mock.callCount(), 0);
+  } finally { await f.dispose(); }
+});
+
+test("C37 HA movement refuses a changed connection after session startup", async context => {
+  const f = await fixture(context);
+  context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => { await f.rebind("did"); });
+  const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeModelControlTrial", async () => { assert.fail("Retired movement cannot write"); });
+  try {
+    await assert.rejects(f.provider.panCamera("synthetic-camera", "left"), /changed|retired/);
+    assert.equal(write.mock.callCount(), 0);
+    assert.equal(f.close.mock.callCount(), 1);
+  } finally { await f.dispose(); }
+});
+
+test("C37 HA light cannot write without its independent manual-setting read", async context => {
+  const f = await fixture(context);
+  context.mock.method(FirstPartyPpcsSession.prototype, "readCameraInfo", async () => [{ param_type: 1403, param_value: "1" }]);
+  const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeModelControlTrial", async () => { assert.fail("Unknown manual setting cannot write"); });
+  try {
+    await assert.rejects(f.provider.setCameraLight("synthetic-camera", false), /fresh reported original/);
+    assert.equal(write.mock.callCount(), 0);
+    assert.equal(f.close.mock.callCount(), 1);
+  } finally { await f.dispose(); }
+});
+
 test("C37 tracking is opt-in and confirms a write through fresh inventory", async context => {
   const f = await fixture(context);
   try {

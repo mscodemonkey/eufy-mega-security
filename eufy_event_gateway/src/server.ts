@@ -1133,6 +1133,12 @@ export class GatewayServer {
         return await this.#cameraLight(request, segments[2]!, response);
       }
       if (
+        request.method === "POST" &&
+        segments[0] === "api" && segments[1] === "cameras" && segments[3] === "pan" && segments.length === 4
+      ) {
+        return await this.#cameraPan(request, segments[2]!, response);
+      }
+      if (
         request.method === "GET" &&
         segments[0] === "api" && segments[1] === "cameras" && segments[3] === "preset-positions" && segments.length === 4
       ) {
@@ -1474,6 +1480,19 @@ export class GatewayServer {
     const body = await readJson(request);
     await this.provider.setCameraLight(serial, requiredBoolean(body.enabled));
     return json(response, 200, { ok: true });
+  }
+
+  /** Accept one direct click only, never a hold, repeat count or NVR command. */
+  async #cameraPan(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    const body = await readClosedNvrBody(request);
+    if (Object.keys(body).length !== 1 || typeof body.direction !== "string"
+      || !["left", "right", "up", "down"].includes(body.direction)) return json(response, 400, { error: "Choose one camera direction" });
+    if (!this.state.getCamera(serial).directionalPanControlSupported || !this.provider.panCamera) {
+      return json(response, 409, { error: "Direct camera movement is unavailable" });
+    }
+    await this.provider.panCamera(serial, body.direction as "left" | "right" | "up" | "down");
+    return json(response, 200, { outcome: "acknowledged", physicalConfirmationRequired: true });
   }
 
   /** Return only preset indexes, occupancy, and the default marker. */

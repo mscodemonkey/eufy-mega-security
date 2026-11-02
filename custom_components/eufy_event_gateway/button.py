@@ -66,6 +66,12 @@ async def async_setup_entry(
     def add_new() -> None:
         entities: list[ButtonEntity] = []
         for serial, camera in sorted(coordinator.cameras.items()):
+            if camera.get("directionalPanControlSupported") is True:
+                for direction in ("left", "right", "up", "down"):
+                    key = (serial, f"pan_{direction}")
+                    if key not in known:
+                        known.add(key)
+                        entities.append(EufyCameraPanButton(coordinator, serial, direction))
             for capability, actions in (
                 ("nvrPanControlSupported", ("left", "right", "up", "down")),
                 ("nvrOpticalZoomControlSupported", ("zoom_1", "zoom_2", "zoom_3")),
@@ -332,6 +338,36 @@ class EufyCameraAutoCruiseButton(EufyGatewayEntity, ButtonEntity):
             raise HomeAssistantError(
                 f"Could not change automatic cruise: {error}"
             ) from error
+
+
+class EufyCameraPanButton(EufyGatewayEntity, ButtonEntity):
+    """Own one direct movement button while the gateway controls route admission.
+
+    Each press requests a single click. The entity reports neither position nor
+    physical success, and withdraws availability when its capability disappears.
+    """
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, direction: str) -> None:
+        """Bind a closed direction using the existing translated movement labels."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        ButtonEntity.__init__(self)
+        if direction not in ("left", "right", "up", "down"):
+            raise ValueError("Choose one camera direction")
+        self._direction = direction
+        self._attr_unique_id = f"{serial}_camera_pan_{direction}"
+        self._attr_translation_key = f"nvr_{direction}"
+
+    @property
+    def available(self) -> bool:
+        """Withdraw stale buttons when the gateway retires this direct route."""
+        return super().available and self.camera.get("directionalPanControlSupported") is True
+
+    async def async_press(self) -> None:
+        """Request one click and show failures without repeating the command."""
+        try:
+            await self.coordinator.client.pan_camera(self.serial, self._direction)
+        except GatewayClientError as error:
+            raise HomeAssistantError(str(error)) from error
 
 
 class EufyNvrControlButton(EufyGatewayEntity, ButtonEntity):

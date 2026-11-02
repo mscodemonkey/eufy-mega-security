@@ -581,6 +581,7 @@ export class GatewayState extends EventEmitter {
       autoNightVisionEnabled: camera.identity.autoNightVisionEnabled ?? null,
       autoNightVisionControlSupported: camera.identity.autoNightVisionControlSupported ?? false,
       cameraLightControlSupported: camera.identity.cameraLightControlSupported ?? false,
+      directionalPanControlSupported: camera.identity.directionalPanControlSupported ?? false,
       timedLightControlSupported: camera.identity.timedLightControlSupported ?? false,
       cameraSirenControlSupported: camera.identity.cameraSirenControlSupported ?? false,
       presetPositionControlSupported: camera.identity.presetPositionControlSupported ?? false,

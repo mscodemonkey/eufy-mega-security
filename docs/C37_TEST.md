@@ -13,8 +13,8 @@ to run an owner-account experiment.
 | --- | --- | --- |
 | AI tracking | HA tracking buttons or Diagnostics | Current setting before the write and fresh reported setting afterwards. HA also requires a matching command acknowledgement. |
 | Saved positions | HA buttons for occupied slots | Fresh slot occupancy before selecting a position and a matching command acknowledgement. |
-| Directional movement | Diagnostics | One directional click and a matching acknowledgement. Observe actual movement. |
-| Spotlight | Diagnostics | Fresh original manual-light setting and matching reported setting after the write. |
+| Directional movement | HA pan buttons or Diagnostics | One directional click and a matching acknowledgement. Observe actual movement. |
+| Spotlight | HA light buttons or Diagnostics | Fresh original manual-light setting and matching reported setting after the write. |
 
 Unknown preset replies fail visibly. They are not reported as a successful empty
 list. Scene names, pictures and coordinates are discarded. These controls do not
@@ -35,11 +35,16 @@ controls, choose the operation and confirm that you can observe and restore the
 camera. AI tracking and spotlight require a fresh readable original value before
 any change. A missing value stops the test before a write.
 
+HA movement buttons send one click per press. They do not hold a direction or
+report position. Commands waiting in the queue are discarded if the camera's
+connection, ownership or provider lifetime changes before they start.
+
 Compare the result with the Eufy app and the camera's actual behaviour. Restore
 the starting setting or position afterwards. If a request fails or times out,
 check independently before retrying. A failed response can leave the outcome
 unknown, and the gateway never automatically repeats the C37 write.
 
-For an HA failure, share only the complete `camera_c37_control_failed` line.
-For a Diagnostics failure, share only `model_control_trial_failed`. Keep account
+For an HA movement, tracking or position failure, share only the complete
+`camera_c37_control_failed` line. HA light and Diagnostics failures use
+`model_control_trial_failed`. Keep account
 details, device identifiers, images and raw recordings private.

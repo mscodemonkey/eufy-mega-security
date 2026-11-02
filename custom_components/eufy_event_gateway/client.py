@@ -598,6 +598,22 @@ class GatewayClient:
             payload={"enabled": enabled},
         )
 
+    async def pan_camera(self, serial: str, direction: str) -> None:
+        """Send one direct movement click without retrying an unknown outcome."""
+        if direction not in ("left", "right", "up", "down"):
+            raise GatewayClientError("Choose one camera direction")
+        try:
+            result = await self._json(
+                f"/api/cameras/{serial}/pan", method="POST",
+                payload={"direction": direction}, timeout=60,
+            )
+        except GatewayAuthenticationError:
+            raise
+        except (GatewayClientError, ValueError):
+            raise GatewayClientError("Movement outcome is unknown. Check the camera before trying again.") from None
+        if result.get("outcome") != "acknowledged" or result.get("physicalConfirmationRequired") is not True:
+            raise GatewayClientError("Movement outcome is unknown. Check the camera before trying again.")
+
     async def camera_preset_positions(self, serial: str) -> list[dict[str, Any]]:
         """Return enabled-slot metadata without retaining names or thumbnails."""
         payload = await self._json(f"/api/cameras/{serial}/preset-positions")
