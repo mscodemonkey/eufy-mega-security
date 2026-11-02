@@ -269,3 +269,23 @@ for (const transport of [false, true]) test(`an already disconnected viewer neve
     assert.equal(f.state.getCamera(camera.serial).stream.viewers, 0);
   } finally { await f.manager.close(); }
 });
+
+test("gateway close waits for provider cleanup after its stopped callback", async context => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const stopping = deferred();
+  let stops = 0, closed = false;
+  const f = fixture({ async startStream() { f.manager.attachSource(camera.serial, new PassThrough()); },
+    async stopStream() { stops++; f.manager.markStopped(camera.serial); await stopping.promise; } }, 5);
+  const first = response();
+  await f.manager.addClient(camera.serial, first);
+  first.destroy(); await settle(); context.mock.timers.tick(6);
+  const closing = f.manager.close().then(() => { closed = true; });
+  try {
+    await settle();
+    assert.equal(stops, 1);
+    assert.equal(closed, false);
+    stopping.resolve(); await closing;
+    assert.equal(closed, true);
+    assert.equal(stops, 1);
+  } finally { stopping.resolve(); await closing; }
+});

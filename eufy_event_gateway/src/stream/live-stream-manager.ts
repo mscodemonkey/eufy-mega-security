@@ -1027,7 +1027,7 @@ export class LiveStreamManager extends EventEmitter {
         this.#failRecordings(session, new Error("Gateway closed while recording a clip"));
         for (const client of session.clients) { this.#markViewerClose(session, client, "gateway_closed"); client.end(); }
         session.pendingClients.clear();
-        if (session.owned) await this.#stopOwnedSource(serial, session).catch(() => undefined);
+        if (session.stop || session.owned) await this.#stopOwnedSource(serial, session).catch(() => undefined);
       }),
     );
   }
