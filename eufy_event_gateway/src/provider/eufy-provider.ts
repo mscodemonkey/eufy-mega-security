@@ -42,7 +42,8 @@ import { setTimeout as cancellableDelay } from "node:timers/promises";
 import { createHmac, randomBytes } from "node:crypto";
 import type { EventImageCapture, EventImageContext, EventImageReferences } from "../diagnostics/event-image-capture.js";
 import { validateRecordingDate, type CameraStoredRecord, type StoredRecordingSummary } from "../stream/stored-recordings.js";
-import { EventNameHistoryError, eventHistoryCursor, nextEventHistoryDate, type EventNameHistorySummary } from "../stream/homebase-event-names.js";
+import type { EventPictureSummary } from "../stream/homebase-event-picture.js";
+import { EventNameHistoryError, eventHistoryCursor, eventHistoryId, nextEventHistoryDate, type EventNameHistorySummary } from "../stream/homebase-event-names.js";
 
 import type { BatteryState, CameraIdentity, CameraPresetPosition, DetectionKind, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
 import { createLogger } from "../logging.js";
@@ -545,11 +546,30 @@ export function supportsEventNameHistory(
   route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
   routeReady: boolean,
 ): boolean {
-  return routeReady && device.model === "T8210" && device.deviceType === 7 && device.category === "eufy_security"
+  return device.model === "T8210" && device.deviceType === 7 && supportsOwnedHomeBaseHistory(device, route, routeReady);
+}
+
+/** Require a ready child route whose administrator and parent still agree. */
+function supportsOwnedHomeBaseHistory(
+  device: Pick<MegaInventoryDevice, "serial" | "channel" | "parentSerial" | "category" | "adminUserId">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return routeReady && device.category === "eufy_security"
     && device.channel !== null && Number.isInteger(device.channel) && device.channel >= 0 && device.channel <= 31
     && route?.homeBaseAttached === true && route.peer.model === "T8030" && route.peer.deviceType === 18 && route.peer.category === "eufy_security"
     && route.peer.serial !== device.serial && route.peer.serial === device.parentSerial && Boolean(route.peer.adminUserId)
     && device.adminUserId === route.peer.adminUserId;
+}
+
+/** Admit only the observed type-8 camera and its current owner-bound HomeBase 3. */
+export function supportsEventPictureHistory(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "parentSerial" | "category" | "adminUserId">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return device.model === "T8113-Z" && device.deviceType === 8
+    && supportsOwnedHomeBaseHistory(device, route, routeReady);
 }
 
 /** Admit tracking only on the exact tested standalone camera routes with a known preference. */
@@ -1306,6 +1326,21 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
+  /** Check one history-owned thumbnail without changing event pictures or detection state. */
+  async diagnoseEventPicture(serial: string, date: string, startId: string, recordId: string | undefined, signal: AbortSignal): Promise<EventPictureSummary> {
+    this.#assertRtcPreparationIdle();
+    if (!this.config.apiAuthenticationConfigured) throw new EventNameHistoryError("unavailable");
+    if (this.#panControlOperations.has(serial) || this.#recordingPeerReserved(serial)) throw new EventNameHistoryError("busy");
+    nextEventHistoryDate(date); eventHistoryCursor(startId);
+    if (recordId !== undefined) eventHistoryId(recordId);
+    try {
+      return await this.#recordingOperation(serial, signal,
+        async session => await session.readEventPicture(date, startId, recordId, signal), "event_picture");
+    } catch (error) {
+      throw error instanceof EventNameHistoryError ? error : new EventNameHistoryError(signal.aborted ? "cancelled" : "unavailable");
+    }
+  }
+
   /** Resolve an opaque owned reference only while its verified storage route remains available. */
   async downloadStoredRecording(serial: string, id: string, signal?: AbortSignal): Promise<Buffer | null> {
     this.#assertRtcPreparationIdle();
@@ -1317,17 +1352,18 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   async #recordingOperation<T>(serial: string, signal: AbortSignal | undefined,
-    operation: (session: FirstPartyPpcsSession) => Promise<T>, purpose: "recordings" | "event_names" = "recordings"): Promise<T> {
-    const generation = this.#startupGeneration;
+    operation: (session: FirstPartyPpcsSession) => Promise<T>, purpose: "recordings" | "event_names" | "event_picture" = "recordings"): Promise<T> {
+    const generation = this.#startupGeneration, diagnostic = purpose !== "recordings";
     const previous = this.#panControlOperations.get(serial) ?? Promise.resolve();
     let result!: T;
     const current = previous.catch(() => undefined).then(async () => {
       const device = this.#devices.get(serial);
       const route = device ? ppcsStreamRoute(device, this.#devices) : null;
       const ready = device ? isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys())) : false;
-      const admitted = device && (purpose === "event_names" ? supportsEventNameHistory(device, route, ready) : supportsSoloCamStoredRecordings(device, route, ready));
+      const admitted = device && (purpose === "event_picture" ? supportsEventPictureHistory(device, route, ready)
+        : diagnostic ? supportsEventNameHistory(device, route, ready) : supportsSoloCamStoredRecordings(device, route, ready));
       if (this.#recordingClosing || !device || !admitted || signal?.aborted
-        || purpose === "event_names" && generation !== this.#startupGeneration) {
+        || diagnostic && generation !== this.#startupGeneration) {
         throw new Error("Stored recordings require a verified ready SoloCam route");
       }
       if (this.#recordingPeerReserved(serial)) throw new Error("Wait for this camera peer's recording retrieval");
@@ -1338,7 +1374,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       try {
         const peer = route!.peer;
         await this.#stationOperations.get(peer.serial)?.catch(() => undefined);
-        if (purpose === "event_names") {
+        if (diagnostic) {
           const inventory = await this.#client.inventory(signal);
           if (inventory.devices.filter(row => row.device_sn === serial).length !== 1
             || inventory.devices.filter(row => row.device_sn === peer.serial).length !== 1) throw new EventNameHistoryError("unavailable");
@@ -1348,20 +1384,20 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         }
         const dsk = await this.#dskKey(peer.serial);
         if (!dsk || signal?.aborted || this.#recordingClosing || this.#ppcsStreams.has(serial)) throw new Error("Recording camera connection is unavailable");
-        if (purpose === "event_names" && (inventoryBindingChanged(device, this.#devices.get(serial) ?? device)
+        if (diagnostic && (inventoryBindingChanged(device, this.#devices.get(serial) ?? device)
           || this.#devices.get(serial) === undefined || !this.#devices.get(peer.serial)
           || inventoryBindingChanged(peer, this.#devices.get(peer.serial)!))) throw new EventNameHistoryError("cancelled");
         const session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!,
           appConnection: peer.p2pConnection!, localAddress: peer.localAddress, dskKey: dsk.key,
           channel: device.channel!, cameraModel: device.model, stationModel: peer.model, recordingCameraSerial: device.serial,
-          accountId: purpose === "event_names" ? peer.adminUserId! : device.adminUserId!, homeBaseAttached: route!.homeBaseAttached,
-          purpose: "control", maxSeconds: 120, resolveCipherKey: (id) => this.#resolveCipherKey(id, peer) });
+          accountId: diagnostic ? peer.adminUserId! : device.adminUserId!, homeBaseAttached: route!.homeBaseAttached,
+          purpose: "control", maxSeconds: purpose === "event_picture" ? 60 : 120, resolveCipherKey: (id) => this.#resolveCipherKey(id, peer) });
         this.#recordingSessions.set(serial, session);
         const abort = (): void => session.close();
         signal?.addEventListener("abort", abort, { once: true });
         try {
           await session.start();
-          if (purpose === "event_names" && (signal?.aborted || this.#recordingClosing || generation !== this.#startupGeneration
+          if (diagnostic && (signal?.aborted || this.#recordingClosing || generation !== this.#startupGeneration
             || !this.#devices.get(serial) || inventoryBindingChanged(device, this.#devices.get(serial)!)
             || !this.#devices.get(peer.serial) || inventoryBindingChanged(peer, this.#devices.get(peer.serial)!))) {
             throw new EventNameHistoryError("cancelled");
@@ -1369,14 +1405,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           result = await operation(session);
           const currentDevice = this.#devices.get(serial);
           if (!currentDevice || inventoryBindingChanged(device, currentDevice)
-            || purpose === "event_names" && (signal?.aborted || this.#recordingClosing || generation !== this.#startupGeneration
+            || diagnostic && (signal?.aborted || this.#recordingClosing || generation !== this.#startupGeneration
               || !this.#devices.get(peer.serial) || inventoryBindingChanged(peer, this.#devices.get(peer.serial)!))) {
             throw new Error("Camera connection changed during recording retrieval");
           }
         } finally {
           signal?.removeEventListener("abort", abort);
           session.close();
-          if (purpose === "event_names") await session.waitUntilClosed();
+          if (diagnostic) await session.waitUntilClosed();
           this.#recordingSessions.delete(serial);
         }
       } finally { this.#recordingReservations.delete(serial); }

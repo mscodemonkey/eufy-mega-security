@@ -174,3 +174,26 @@ not show when recognition became available after the event, prove the app's
 text-rendering path, or fix a missing late notification. It does not publish a
 new detection or update person sensors. Use it to distinguish a missing push
 from a name that is also absent in the corresponding history page.
+
+## Check a recording thumbnail
+
+Use **Check a recording picture** for a T8113-Z/type 8 camera attached to
+HomeBase 3 T8030/type 18. Select the camera and date, close live viewers, then
+choose **Check one picture**. EMS reads one history page, selects an owned
+recording and requests its exact thumbnail from the HomeBase. A successful check
+reports decoded dimensions and size. Image bytes, paths and recording identifiers
+stay private. This operation does not replace event images or update detections.
+
+The authenticated operation is
+`POST /api/cameras/{serial}/diagnostics/event-picture` with JSON
+`{"date":"2026-11-02"}`. It checks the first matching camera record in that
+page. Private investigations may supply an observed `startId` cursor and an exact
+`recordId`, both as strings. No caller-supplied image path or URL is accepted.
+An absent record leaves the check unfinished rather than selecting another one.
+There is no automatic pagination or retry. Cancellation or a changed camera or
+date prevents a late result from appearing under the new selection.
+
+The recording thumbnail and notification image can be different renditions.
+Retrieving the thumbnail does not establish why a cloud download failed, prove
+that both images contain identical bytes, or enable automatic recovery. Other
+models and HomeBase generations remain outside this check's observed contract.
