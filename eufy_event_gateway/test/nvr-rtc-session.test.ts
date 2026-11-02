@@ -50,8 +50,8 @@ function keyframePackets(frame: Buffer, sequence: number): Buffer[] {
   });
 }
 
-for (const scenario of ['observer', 'observer-signalling-close', 'continuous-modes', 'continuous-parameters', 'continuous-h265', 'continuous-controls', 'continuous-video', 'continuous-signalling-close', 'continuous-stall', 'continuous-heartbeat', 'continuous-gap', 'continuous-cancel', 'live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-nonzero', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
-  const codec = scenario === 'h265' || scenario === 'sequence-gap' || scenario === 'continuous-h265' ? 'h265' : 'h264';
+for (const scenario of ['start-no-ack-recording', 'start-late-video', 'start-stale-no-ack', 'start-no-ack-h264', 'start-no-ack-h265', 'start-parameters-only', 'start-empty', 'start-negative-ack', 'start-cancel-no-ack', 'observer', 'observer-signalling-close', 'continuous-modes', 'continuous-parameters', 'continuous-h265', 'continuous-controls', 'continuous-video', 'continuous-signalling-close', 'continuous-stall', 'continuous-heartbeat', 'continuous-gap', 'continuous-cancel', 'live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-nonzero', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
+  const codec = scenario === 'h265' || scenario === 'sequence-gap' || scenario === 'continuous-h265' || scenario === 'start-no-ack-h265' ? 'h265' : 'h264';
   const server = new WebSocketServer({ port: 0 });
   await once(server, 'listening');
   const address = server.address(); assert.equal(typeof address, 'object');
@@ -247,8 +247,8 @@ for (const scenario of ['observer', 'observer-signalling-close', 'continuous-mod
       if (scenario === 'legacy-zero-segment' || scenario === 'live-zero-identity' && commands.filter(command => command === 9100).length > 1) response[11] = 0;
       if ((scenario === 'state-read' || scenario === 'state-bad-ack-padding') && body.cmd === 9100) response[10] = 1;
       const responsePackets = (scenario === 'state-read' || scenario === 'state-bad-ack-padding') && body.cmd === 9100
-        ? receivePackets(response, sequence++, 1)
-        : nvrPackets(response, sequence++, 1);
+        ? receivePackets(response, sequence, 1)
+        : nvrPackets(response, sequence, 1);
       if (scenario === 'framing-flags' && body.cmd === 9100) {
         const malformed = responsePackets[0]!;
         malformed.writeUInt16LE(malformed.readUInt16LE(18) | 0x8000, 18);
@@ -263,20 +263,33 @@ for (const scenario of ['observer', 'observer-signalling-close', 'continuous-mod
         for (let index = 0; index < 32; index++) channel.send(malformed);
         return;
       }
-      for (const packet of responsePackets) channel.send(packet);
+      if (!scenario.startsWith('start-') || body.cmd !== 1003) {
+        sequence++;
+        for (const packet of responsePackets) channel.send(packet);
+      }
       if (body.cmd === 1003) {
+        if (scenario === 'start-empty') return;
+        if (scenario === 'start-negative-ack') setTimeout(() => {
+          const rejection = application(1350, request.segment, Buffer.alloc(4));
+          rejection.writeInt32LE(-1, 16);
+          for (const packet of nvrPackets(rejection, sequence++, 1)) channel.send(packet);
+        }, 350);
+        if (scenario === 'start-cancel-no-ack') setTimeout(() => controller.abort(), 350);
+        if (scenario === 'start-stale-no-ack') setTimeout(() => { current = false; }, 350);
         assert.equal(body.payload.chn_list[0].sensor, scenario === 'legacy-first-lens' ? 0 : 1);
+        const videoRequestedAt = performance.now();
         sendVideo = setInterval(() => {
+        if (scenario === 'start-late-video' && performance.now() - videoRequestedAt < 4500) return;
         if ((scenario === 'sequence-gap' || scenario === 'continuous-gap') && videoSequence === 3) videoSequence += 20;
         const videoBytes = scenario === 'continuous-gap' && videoSequence > 3
-          ? Buffer.from([0, 0, 0, 1, 0x41, 0x9a, 0x01]) : scenario === 'continuous-parameters' && videoSequence >= 3
+          ? Buffer.from([0, 0, 0, 1, 0x41, 0x9a, 0x01]) : (scenario === 'continuous-parameters' && videoSequence >= 3 || scenario === 'start-parameters-only')
             ? Buffer.from([0, 0, 0, 1, 0x67, 0x42, 0, 0x1e, 0x80]) : generated.stdout;
         const media = Buffer.alloc(22 + videoBytes.length); media.writeUInt32LE(videoBytes.length, 0);
         media[4] = 1; media[5] = codec === 'h264' ? 0 : 1; media.writeUInt16LE(videoSequence, 6);
         media[8] = 10; media.writeUInt16LE(320, 10); media.writeUInt16LE(180, 12); media.writeBigUInt64LE(BigInt(videoSequence) * 2000n, 14);
         videoBytes.copy(media, 22);
         const frame = application(1300, 0, media); frame[12] = codec === 'h265' ? 101 : 3; frame[14] = 1;
-        const parts = codec === 'h265' ? keyframePackets(frame, videoSequence++) : nvrPackets(frame, videoSequence++, 1, 1);
+        const parts = codec === 'h265' || scenario.startsWith('start-') ? keyframePackets(frame, videoSequence++) : nvrPackets(frame, videoSequence++, 1, 1);
         for (const packet of parts) channel.send(packet);
       }, 100);
       }
@@ -302,6 +315,7 @@ for (const scenario of ['observer', 'observer-signalling-close', 'continuous-mod
     });
   });
   const controller = new AbortController();
+  let current = true;
   let attached = 0;
   const state = new GatewayState(); state.registerCamera({ serial: 'synthetic-camera', name: 'Synthetic', model: 'T8E00', stationSerial: 'synthetic-station', streamSupported: false, doorbellSupported: false });
   let snapshots = 0, extractors = 0, diagnosticMedia = 0;
@@ -322,12 +336,12 @@ for (const scenario of ['observer', 'observer-signalling-close', 'continuous-mod
   const session = new NvrRtcSession({ onEffectiveMode: value => modes.push(value), onTimings: value => timingReports.push(value), station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
     ...(scenario.startsWith('observer') ? { modeObserver: true, maximumLifetimeMilliseconds: null } : {}),
     powerTrial: scenario.startsWith('power'), liveControls: scenario.startsWith('live-') || scenario === 'continuous-controls',
-    ...(scenario.startsWith('continuous-') ? { maximumLifetimeMilliseconds: null, videoProgressNow: () => nativeVideoNow() + videoProgressOffset } : {}),
+    ...(scenario.startsWith('continuous-') || scenario.startsWith('start-') ? { maximumLifetimeMilliseconds: null, videoProgressNow: () => nativeVideoNow() + videoProgressOffset } : {}),
     guardTrial: scenario === 'guard', ...(scenario === 'guard' ? { userName: 'Synthetic' } : {}),
     cameraType: scenario === 'legacy-first-lens' ? 14 : 301, sensor: scenario === 'legacy-first-lens' ? 0 : 1,
     administrator: scenario === 'live-encode-failure' ? 'invalid owner!' : 'synthetic-administrator', context: { host: 'security-smart-ie.eufylife.com', region: 'IE',
       authToken: 'synthetic-token', gtoken: 'synthetic-gtoken', sign: 'synthetic-sign' },
-    signal: controller.signal, current: () => true, ready: (output, hint) => { attached++; if (!scenario.startsWith('live-') && !scenario.startsWith('continuous-')) manager.attachSource('synthetic-camera', output, hint); } }, {
+    signal: controller.signal, current: () => current, ready: (output, hint) => { attached++; if (scenario.startsWith('start-') && scenario !== 'start-no-ack-recording') { output.resume(); return; } if (!scenario.startsWith('live-') && !scenario.startsWith('continuous-')) manager.attachSource('synthetic-camera', output, hint); } }, {
     socket: (url, protocols, options) => {
       assert.equal(url, 'wss://security-smart-ie.eufylife.com/v1/rtc/ws/join?reqtype=nvr');
       assert.equal(options.followRedirects, false); assert.equal(options.maxPayload, 65536);
@@ -432,6 +446,35 @@ for (const scenario of ['observer', 'observer-signalling-close', 'continuous-mod
       assert.ok(session.output.writableEnded || session.output.destroyed);
       assert.deepEqual(commands, [9100, 1103]); assert.equal(attached, 0); assert.equal(snapshots, 0); assert.equal(diagnosticMedia, 0);
       await session.close(); return;
+    }
+    if (scenario.startsWith('start-')) {
+      if (scenario === 'start-no-ack-recording') {
+        const clip = await manager.recordClip('synthetic-camera', 6, 15000, true);
+        const decoded = spawnSync('ffmpeg', ['-v', 'error', '-xerror', '-i', 'pipe:0', '-f', 'null', '-'], { input: clip });
+        assert.equal(decoded.status, 0, decoded.stderr.toString());
+        assert.ok(clip.length > 1000);
+        assert.equal(extractors, 0);
+      } else if (scenario === 'start-empty' || scenario === 'start-parameters-only') {
+        await assert.rejects(session.start(), { stage: 'start', reason: 'start_receipt_timeout' });
+        assert.equal(session.stats.video > 0, scenario === 'start-parameters-only');
+      } else if (scenario === 'start-negative-ack' || scenario === 'start-cancel-no-ack' || scenario === 'start-stale-no-ack') {
+        await assert.rejects(session.start(), { stage: scenario === 'start-negative-ack' ? 'start' : 'cancelled' });
+        assert.ok(session.stats.video > 0);
+      } else {
+        await session.start();
+        const before = session.stats.video;
+        await new Promise(resolve => setTimeout(resolve, 300));
+        assert.ok(before > 0);
+        assert.ok(session.stats.video > before);
+        assert.equal(session.output.destroyed, false);
+        assert.equal(session.codec, codec);
+        if (scenario === 'start-late-video') assert.ok(session.timings.firstVideo! - session.timings.mediaRequest! >= 4000);
+      }
+      await session.close();
+      assert.equal(commands.filter(command => command === 1003).length, 1);
+      assert.equal(commands.filter(command => command === 1004).length, 1);
+      assert.equal(session.stats.stopUnconfirmed, 0);
+      return;
     }
     if (scenario.startsWith('continuous-')) {
       const errors: NvrTrialError[] = [];
