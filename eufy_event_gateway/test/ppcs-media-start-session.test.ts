@@ -32,7 +32,7 @@ function gateway(): Buffer {
 }
 
 /** Own a synthetic CAM_ID handshake, inbound frames, packet loss and fake time. */
-async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" = "media", stationModel = "T8010", startupDeadlineMilliseconds?: number) {
+async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" = "media", stationModel = "T8010", startupDeadlineMilliseconds?: number, channelOverride?: number) {
   let socket!: Socket;
   let inbound = 0;
   const sent: Buffer[] = [];
@@ -45,7 +45,7 @@ async function peer(context: TestContext, attached = true, model = "T8113-Z", pu
   context.mock.method(Socket.prototype, "send", (packet: Buffer) => { sent.push(Buffer.from(packet)); });
   context.mock.method(Socket.prototype, "close", function (this: Socket) { return this; });
   const session = new FirstPartyPpcsSession({ stationSerial: "SYNTHETIC1234567", p2pDid: "TEST-12345678-TEST",
-    appConnection: "", dskKey: "synthetic", channel: attached ? 1 : 0, homeBaseAttached: attached, stationModel,
+    appConnection: "", dskKey: "synthetic", channel: channelOverride ?? (attached ? 1 : 0), homeBaseAttached: attached, stationModel,
     ...(startupDeadlineMilliseconds === undefined ? {} : { startupDeadlineMilliseconds }),
     purpose, cameraModel: model, accountId: "synthetic-owner", maxSeconds: 120,
     resolveCipherKey: async () => Buffer.alloc(32, 1).toString("hex") });
@@ -74,6 +74,102 @@ async function peer(context: TestContext, attached = true, model = "T8113-Z", pu
   };
   await session.start();
   return { session, sent, frame, ack, negotiate, video };
+}
+
+test("T8171 acknowledged startup leaves a slow encoder alive until its first frame", async context => {
+  const f = await peer(context, true, "T8171", "media", "T8030");
+  try {
+    await f.negotiate();
+    f.ack(f.sent.at(-1)!.readUInt16BE(6));
+    const firstFrame = setTimeout(() => f.video(), 6500);
+    try {
+      context.mock.timers.tick(5000);
+      assert.equal(f.session.stats.mediaStopAttempts, 0);
+      assert.equal(f.session.stats.mediaStartAttempts, 1);
+      context.mock.timers.tick(1500);
+      assert.ok(f.session.stats.videoOutputFrames > 0);
+      assert.equal(f.session.stats.closeReason, "open");
+      context.mock.timers.tick(8500);
+      assert.equal(f.session.stats.mediaStartAttempts, 1);
+    } finally { clearTimeout(firstFrame); }
+  } finally { f.session.close(); }
+});
+
+test("T8171 without a valid start ACK retains datagram repair and startup recovery", async context => {
+  const f = await peer(context, true, "T8171", "media", "T8030");
+  try {
+    await f.negotiate();
+    f.ack(f.sent.at(-1)!.readUInt16BE(6), "peer");
+    context.mock.timers.tick(150);
+    assert.ok(f.session.stats.mediaStartRetransmitted > 0);
+    context.mock.timers.tick(4850);
+    assert.equal(f.session.stats.mediaStartAcknowledged, 0);
+    assert.equal(f.session.stats.mediaStopAttempts, 1);
+    context.mock.timers.tick(250);
+    assert.equal(f.session.stats.mediaStartAttempts, 2);
+  } finally { f.session.close(); }
+});
+
+test("an acknowledged T8171 start still fails at its original first-frame deadline", async context => {
+  const f = await peer(context, true, "T8171", "media", "T8030");
+  try {
+    await f.negotiate();
+    f.ack(f.sent.at(-1)!.readUInt16BE(6));
+    context.mock.timers.tick(19999);
+    assert.equal(f.session.stats.closeReason, "open");
+    assert.equal(f.session.stats.mediaStopAttempts, 0);
+    context.mock.timers.tick(1);
+    assert.equal(f.session.stats.closeReason, "first_frame_timeout");
+    assert.equal(f.session.stats.videoOutputFrames, 0);
+    assert.equal(f.session.stats.mediaStartAttempts, 1);
+    assert.equal(f.session.stats.mediaStopAttempts, 1);
+  } finally { f.session.close(); }
+});
+
+test("closing an acknowledged T8171 startup stops once and retires its timers", async context => {
+  const f = await peer(context, true, "T8171", "media", "T8030");
+  try {
+    await f.negotiate();
+    f.ack(f.sent.at(-1)!.readUInt16BE(6));
+    context.mock.timers.tick(7500);
+    assert.equal(f.session.stats.mediaStopAttempts, 0);
+    f.session.close();
+    assert.equal(f.session.stats.mediaStopAttempts, 1);
+    const closedCount = f.sent.length;
+    context.mock.timers.tick(30000);
+    assert.equal(f.sent.length, closedCount);
+  } finally { f.session.close(); }
+});
+
+test("T8171 media-stall recovery remains active after the first real output", async context => {
+  const f = await peer(context, true, "T8171", "media", "T8030");
+  try {
+    await f.negotiate();
+    f.ack(f.sent.at(-1)!.readUInt16BE(6));
+    context.mock.timers.tick(6500);
+    f.video();
+    assert.ok(f.session.stats.videoOutputFrames > 0);
+    context.mock.timers.tick(13500);
+    assert.equal(f.session.stats.closeReason, "open");
+    assert.equal(f.session.stats.mediaStopAttempts, 1);
+    context.mock.timers.tick(250);
+    assert.equal(f.session.stats.mediaStartAttempts, 2);
+    f.ack(f.sent.at(-1)!.readUInt16BE(6));
+    f.video();
+    assert.equal(f.session.stats.closeReason, "open");
+  } finally { f.session.close(); }
+});
+
+for (const [model, station, channel] of [["T8113-Z", "T8030", 1], ["T8171", "T8010", 1], ["T8171", "T8030", 2]] as const) {
+  test(`startup deferral does not broaden to ${model}/${station}/channel${channel}`, async context => {
+    const f = await peer(context, true, model, "media", station, undefined, channel);
+    try {
+      await f.negotiate();
+      f.ack(f.sent.at(-1)!.readUInt16BE(6));
+      context.mock.timers.tick(5000);
+      assert.equal(f.session.stats.mediaStopAttempts, 1);
+    } finally { f.session.close(); }
+  });
 }
 
 for (const [attached, model] of [[true, "T8113-Z"], [false, "T817L"], [false, "T8200"]] as const) {
