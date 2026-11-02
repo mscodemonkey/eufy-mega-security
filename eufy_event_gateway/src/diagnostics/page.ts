@@ -53,6 +53,11 @@ export function diagnosticsPage(): string {
 <button id="nvr-power-start">Test and restore camera power</button><button id="nvr-power-cancel">Cancel and request restoration</button>
 <p>Cancelling or leaving this page requests restoration on the gateway, but cannot show its final result. It is not an immediate stop. Check the camera against your recorded original state and restore it manually if needed. A lost connection or gateway restart can prevent automatic restoration.</p>
 <pre id="nvr-power-status" role="status">No power test started. If you left an earlier test, check and restore its recorded original state in Eufy.</pre></details>
+<details><summary>Check familiar names in recordings</summary>
+<p>Experimental read-only check for a T8210 doorbell connected to HomeBase 3. Select the doorbell and a date, then close live viewers before starting. This checks one page of existing recordings and returns counts while keeping names private. It does not update person sensors.</p>
+<label>Recording date <input id="event-names-date" type="date"></label>
+<button id="event-names-start">Check names once</button><button id="event-names-cancel">Cancel name check</button>
+<pre id="event-names-status" role="status">No recording name check started.</pre></details>
 <details><summary>Private raw message history</summary>
 <p>Enable Private raw message history in the app options to keep traffic for retrospective debugging. Storage is encrypted locally and limited to 24 hours or 1 GiB. It can contain account secrets and household media. Raw files are excluded from ordinary diagnostic downloads.</p>
 <p>Recording covers the application's instrumented connections. A stopped or failing recorder cannot establish that a device sent nothing.</p>
@@ -415,6 +420,43 @@ const cancelLockStatus = () => { if(lockStatusJob) lockStatusJob.abort(); el('lo
 el('lock-status-cancel').addEventListener('click', cancelLockStatus);
 el('device').addEventListener('change', cancelLockStatus);
 window.addEventListener('pagehide', cancelLockStatus);
+let eventNamesJob = null, eventNamesGeneration = 0;
+function cancelEventNames() {
+  eventNamesGeneration++;
+  if(eventNamesJob) eventNamesJob.abort();
+  eventNamesJob = null;
+  el('event-names-start').disabled = false;
+}
+el('event-names-date').value = new Date().toLocaleDateString('en-CA');
+el('event-names-cancel').onclick = () => { cancelEventNames(); el('event-names-status').textContent = 'Name check cancelled.'; };
+el('device').addEventListener('change', () => { cancelEventNames(); el('event-names-status').textContent = 'No recording name check started.'; });
+el('event-names-date').addEventListener('change', () => { cancelEventNames(); el('event-names-status').textContent = 'No recording name check started.'; });
+window.addEventListener('pagehide', cancelEventNames);
+el('event-names-start').onclick = async () => {
+  if(eventNamesJob) return;
+  const selected = el('device').value, date = el('event-names-date').value;
+  if(!selected || !date || !el('token').value.trim()) { el('event-names-status').textContent = 'Select a doorbell and date, and enter the API token first.'; return; }
+  const generation = ++eventNamesGeneration, job = new AbortController();
+  eventNamesJob = job; el('event-names-start').disabled = true;
+  el('event-names-status').textContent = 'Checking one page of recordings.';
+  try {
+    const response = await fetch('api/cameras/' + encodeURIComponent(selected) + '/diagnostics/event-names', {
+      method: 'POST', headers: { Authorization: 'Bearer ' + el('token').value.trim(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date }), signal: job.signal
+    });
+    if(!response.ok) throw new Error('unavailable');
+    const value = await response.json();
+    if(generation !== eventNamesGeneration || job.signal.aborted || selected !== el('device').value || date !== el('event-names-date').value) return;
+    if(value.scope !== 'one_history_page' || ![value.records, value.recordsWithFamiliarNames, value.unresolvedPersonCrops].every(Number.isSafeInteger)) throw new Error('invalid');
+    el('event-names-status').textContent = 'Checked ' + value.records + ' recording(s) in this page. ' + value.recordsWithFamiliarNames
+      + ' contained a familiar name. ' + value.unresolvedPersonCrops + ' person entry/entries could not be joined. Other recordings may fall outside this page.';
+  } catch {
+    if(generation === eventNamesGeneration) el('event-names-status').textContent = job.signal.aborted ? 'Name check cancelled.'
+      : 'Could not check recording names. This check needs the matching doorbell and an available HomeBase connection.';
+  } finally {
+    if(generation === eventNamesGeneration) { eventNamesJob = null; el('event-names-start').disabled = false; }
+  }
+};
 action('lock-status-start', async () => {
   const selected = el('device').value;
   if(lockStatusJob || !selected || !el('lock-status-consent').checked) throw Error('Select one T85V0 and confirm status-check consent.');
