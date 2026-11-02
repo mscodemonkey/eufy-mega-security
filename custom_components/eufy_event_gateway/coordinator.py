@@ -18,10 +18,13 @@ from pathlib import Path
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.components import persistent_notification
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .client import GatewayClient, GatewayClientError
+from .camera_control_queue import CameraControlNotSentError, CameraControlQueue
 from .const import DOMAIN
 from .image_cache import CameraImageCache
 
@@ -54,6 +57,54 @@ class EufyGatewayCoordinator(
             hass.async_add_executor_job,
         )
         self._event_task: asyncio.Task[None] | None = None
+        self.camera_controls = CameraControlQueue(
+            lambda operation: self.config_entry.async_create_background_task(
+                self.hass, operation, "Eufy camera setting"
+            ),
+            self.async_set_camera,
+            self._camera_control_failed,
+            self.async_update_listeners,
+        )
+
+    def submit_camera_control(self, serial: str, action: str, enabled: bool) -> None:
+        """Accept only the two approved switch operations without optimistic state."""
+        camera = self.cameras.get(serial)
+        if camera is None or action not in {"enabled", "motion"}:
+            raise HomeAssistantError("Camera setting is unavailable")
+        operation = (self.client.set_camera_enabled if action == "enabled"
+                     else self.client.set_camera_motion_detection)
+        binding = (camera.get("model"), camera.get("stationSerial"))
+        capability = "enableControlSupported" if action == "enabled" else "motionDetectionControlSupported"
+
+        async def execute() -> dict[str, Any]:
+            current = self.cameras.get(serial)
+            if (current is None or (current.get("model"), current.get("stationSerial")) != binding
+                    or current.get(capability) is not True):
+                raise CameraControlNotSentError("Camera control route changed before dispatch")
+            return await operation(serial, enabled)
+
+        try:
+            self.camera_controls.submit(
+                camera.get("stationSerial") or serial, serial, action, execute,
+            )
+        except RuntimeError as error:
+            raise HomeAssistantError(str(error)) from error
+
+    def _camera_control_failed(
+        self, serial: str, action: str, reason: str, dispatched: bool,
+    ) -> None:
+        """Make background failure visible without exposing backend error contents."""
+        label = "motion detection" if action == "motion" else "camera enablement"
+        name = self.cameras.get(serial, {}).get("name") or "the camera"
+        detail = ("The result is unknown. Check the camera's setting before retrying."
+                  if dispatched else "The request was not sent.")
+        _LOGGER.warning("Camera setting not confirmed: action=%s reason=%s", action, reason)
+        if not self.hass.is_stopping:
+            persistent_notification.async_create(
+                self.hass, f"Eufy could not confirm {label} for {name}. {detail}",
+                title="Eufy setting not confirmed",
+                notification_id=f"eufy_camera_control_{serial}_{action}",
+            )
 
     async def _async_update_data(self) -> dict[str, dict[str, dict[str, Any]]]:
         """Fetch all inventories concurrently for startup and poll recovery."""
@@ -142,6 +193,7 @@ class EufyGatewayCoordinator(
 
     async def async_shutdown(self) -> None:
         """Cancel the SSE task so unloading never leaves a background request."""
+        await self.camera_controls.close()
         if self._event_task is not None:
             self._event_task.cancel()
             await asyncio.gather(self._event_task, return_exceptions=True)

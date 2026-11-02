@@ -119,29 +119,29 @@ class EufyCameraEnabledSwitch(EufyGatewayEntity, SwitchEntity):
         self._attr_unique_id = f"{serial}_camera_enabled"
 
     @property
+    def extra_state_attributes(self) -> dict[str, bool]:
+        """Distinguish an accepted request from the confirmed switch value."""
+        return {"setting_update_pending": self.coordinator.camera_controls.pending(
+            self.serial, "enabled"
+        )}
+
+    @property
     def is_on(self) -> bool | None:
         """Return the latest camera-reported enablement state."""
         value = self.camera.get("enabled")
         return value if isinstance(value, bool) else None
 
     async def async_turn_on(self, **kwargs: object) -> None:
-        """Enable the camera and publish only confirmed state."""
+        """Accept camera enablement without waiting for confirmation."""
         await self._async_set_enabled(True)
 
     async def async_turn_off(self, **kwargs: object) -> None:
-        """Disable the camera and publish only confirmed state."""
+        """Accept camera disablement without waiting for confirmation."""
         await self._async_set_enabled(False)
 
     async def _async_set_enabled(self, enabled: bool) -> None:
-        try:
-            camera = await self.coordinator.client.set_camera_enabled(
-                self.serial, enabled
-            )
-            self.coordinator.async_set_camera(camera)
-        except GatewayClientError as error:
-            raise HomeAssistantError(
-                f"Could not change camera enablement: {error}"
-            ) from error
+        self.coordinator.submit_camera_control(self.serial, "enabled", enabled)
+
 
 
 class EufyCameraMotionSwitch(EufyGatewayEntity, SwitchEntity):
@@ -156,29 +156,29 @@ class EufyCameraMotionSwitch(EufyGatewayEntity, SwitchEntity):
         self._attr_unique_id = f"{serial}_camera_motion_detection"
 
     @property
+    def extra_state_attributes(self) -> dict[str, bool]:
+        """Distinguish an accepted request from the confirmed switch value."""
+        return {"setting_update_pending": self.coordinator.camera_controls.pending(
+            self.serial, "motion"
+        )}
+
+    @property
     def is_on(self) -> bool | None:
         """Return the latest camera-reported motion setting."""
         value = self.camera.get("motionDetectionEnabled")
         return value if isinstance(value, bool) else None
 
     async def async_turn_on(self, **kwargs: object) -> None:
-        """Enable camera motion detection and publish confirmed state."""
+        """Accept motion enablement without optimistic state."""
         await self._async_set_motion(True)
 
     async def async_turn_off(self, **kwargs: object) -> None:
-        """Disable camera motion detection and publish confirmed state."""
+        """Accept motion disablement without optimistic state."""
         await self._async_set_motion(False)
 
     async def _async_set_motion(self, enabled: bool) -> None:
-        try:
-            camera = await self.coordinator.client.set_camera_motion_detection(
-                self.serial, enabled
-            )
-            self.coordinator.async_set_camera(camera)
-        except GatewayClientError as error:
-            raise HomeAssistantError(
-                f"Could not change camera motion detection: {error}"
-            ) from error
+        self.coordinator.submit_camera_control(self.serial, "motion", enabled)
+
 
 
 class EufyAudioRecordingSwitch(EufyGatewayEntity, SwitchEntity):
