@@ -3422,8 +3422,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     } finally {
       clearTimeout(deadline); signal?.removeEventListener("abort", abort);
       session?.output.removeListener("end", abort); controller.abort(); session?.close();
-      if (this.#trialSessions.get(peer.serial) === session) this.#trialSessions.delete(peer.serial);
-      this.#manualLightAborters.delete(peer.serial); releaseTrialPeer();
+
+      // A peer remains busy while its local disconnect is still retiring.
+      try { await session?.waitUntilClosed(); }
+      finally {
+        if (this.#trialSessions.get(peer.serial) === session) this.#trialSessions.delete(peer.serial);
+        this.#manualLightAborters.delete(peer.serial); releaseTrialPeer();
+      }
     }
   }
 
