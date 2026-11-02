@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.231
+
+- Share pending live-source startup across concurrent viewers so every requester sees a failure and can retry.
+- Wait for normal and silent-source retirement before admitting replacement viewers, and await outstanding provider cleanup during gateway shutdown.
+- Preserve private-recording isolation through late startup and include retirement waits in viewer timing.
+- Thanks to Heath Bexley (@heath-bexley) for the source and viewer lifecycle corrections in #569.
+- Intermittent T8030 playback interruptions remain under investigation in #570. The lifecycle correction does not establish a hardware fix for those interruptions.
+
 ## 0.1.230
 
 - Cancel obsolete event-picture cloud reads for the qualified HomeBase 3 camera route even when experimental thumbnail recovery is disabled. A newer accepted visit no longer waits behind the old download. Recovery itself still requires its opt-in setting.
