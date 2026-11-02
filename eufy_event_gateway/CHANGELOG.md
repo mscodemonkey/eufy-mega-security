@@ -8,6 +8,10 @@
 - Thanks to Heath Bexley (@heath-bexley) for the source and viewer lifecycle corrections in #569.
 - Intermittent T8030 playback interruptions remain under investigation in #570. The lifecycle correction does not establish a hardware fix for those interruptions.
 
+## Unreleased
+
+- Admit Indoor Cam C220 v3 (T8419N, type 10011) through the existing camera handler. APK reverse-engineering confirmed the TUTEK-based PPCS transport is identical across all C220 variants (v1/v2/v3). No protocol changes required—only device-type admission.
+
 ## 0.1.230
 
 - Cancel obsolete event-picture cloud reads for the qualified HomeBase 3 camera route even when experimental thumbnail recovery is disabled. A newer accepted visit no longer waits behind the old download. Recovery itself still requires its opt-in setting.
