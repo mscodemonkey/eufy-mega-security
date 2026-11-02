@@ -4407,8 +4407,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#dskRefreshes.clear();
   }
 
-  /** Join timer reads, but queue a post-command read when a control needs fresh state. */
-  async #refreshInventoryReads(requireFresh = true): Promise<void> {
+  /** Join timer reads, but keep unrelated charging history outside post-command confirmation. */
+  async #refreshInventoryReads(requireFresh = true, includeChargingDays = !requireFresh): Promise<void> {
     if (this.#rtcPreparation.gated) return;
     const generation = this.#startupGeneration;
     const events = this.#events;
@@ -4420,14 +4420,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const trailing = pending.catch(() => undefined).then(() => {
         if (generation !== this.#startupGeneration) throw new Error("Inventory refresh cancelled");
         if (this.#inventoryTrailingRefresh === trailing) this.#inventoryTrailingRefresh = null;
-        return this.#refreshInventoryReads(false);
+        return this.#refreshInventoryReads(false, includeChargingDays);
       }).finally(() => {
         if (this.#inventoryTrailingRefresh === trailing) this.#inventoryTrailingRefresh = null;
       });
       this.#inventoryTrailingRefresh = trailing;
       return trailing;
     }
-    const refresh = this.#runInventoryRefresh(events, generation).finally(() => {
+    const refresh = this.#runInventoryRefresh(events, generation, includeChargingDays).finally(() => {
       if (this.#inventoryRefresh === refresh) this.#inventoryRefresh = null;
     });
     this.#inventoryRefresh = refresh;
@@ -4435,7 +4435,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   /** Merge routing peers before publishing additive discovery through the captured generation. */
-  async #runInventoryRefresh(events: ProviderEvents, generation: number): Promise<void> {
+  async #runInventoryRefresh(events: ProviderEvents, generation: number, includeChargingDays: boolean): Promise<void> {
     const sequence = ++this.#e21FetchSequence;
     this.#e21Inventory.clear();
     for (const [serial, device] of this.#devices) {
@@ -4446,7 +4446,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const sensor = careMonitorSensorState(unknown);
       if (sensor) events.sensor(sensor);
     }
-    const inventory = await this.#client.inventory();
+    const inventory = await this.#client.inventory(undefined, { includeChargingDays });
     const receivedAt = Date.now();
     const pushesAtReceipt = new Map(this.#pendingSensorMotionCloudConfirmations);
     const refreshed = parseMegaInventory(inventory);
@@ -4464,7 +4464,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const motionOutcomes = new Map<string, InventoryMotionOutcome>();
     for (const device of refreshed) {
       const known = this.#devices.get(device.serial);
-      const refreshedDevice = known && !isE21(device) ? mergeInventoryMetadata(known, device) : device;
+      const refreshedDevice = known && !isE21(device) ? mergeInventoryMetadata(known, device, !includeChargingDays) : device;
       if (known && isE21(known) && !isE21(device)) {
         const withdrawn = careMonitorSensorState(known);
         if (withdrawn) events.sensor({ ...withdrawn, available: false, capabilities: [] });
@@ -5902,17 +5902,21 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
  * Refresh complete cloud device rows, including renamed cameras and new station bindings.
  * Clearly partial metadata rows retain their prior routing identity. The provider
  * retires sessions and route-local overlays before publishing a changed binding.
+ * A primary-only confirmation may retain an existing charging-days value for
+ * the same binding because that optional metadata was deliberately not queried.
  */
-export function mergeInventoryMetadata(existing: MegaInventoryDevice, fresh: MegaInventoryDevice): MegaInventoryDevice {
+export function mergeInventoryMetadata(existing: MegaInventoryDevice, fresh: MegaInventoryDevice, preserveChargingDays = false): MegaInventoryDevice {
   if (existing.serial !== fresh.serial) throw new Error("Inventory metadata ownership changed");
   const complete = fresh.model !== "Unknown Eufy device" && fresh.deviceType !== null && fresh.category !== null;
-  return {
+  const merged = {
     ...(complete ? fresh : existing),
     firmware: fresh.firmware,
     hardwareVersion: fresh.hardwareVersion ?? null,
     firmwareSubVersion: fresh.firmwareSubVersion ?? null,
     firmwareUpdateAvailable: fresh.firmwareUpdateAvailable ?? null,
   };
+  return preserveChargingDays && !inventoryBindingChanged(existing, merged) && existing.reads.lastChargingDays !== undefined
+    ? { ...merged, reads: { ...merged.reads, lastChargingDays: existing.reads.lastChargingDays } } : merged;
 }
 
 /** Identify changes that invalidate an already owned camera session or local parameter overlay. */

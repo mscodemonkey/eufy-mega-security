@@ -512,15 +512,20 @@ export class MegaClient {
       createHash("sha256").update(session.openUdid).digest("hex").slice(0, 16));
   }
 
-  /** Fetch current account inventory, cancelling only this read when its caller retires. */
-  async inventory(cancellation?: AbortSignal): Promise<MegaInventory> {
+  /**
+   * Fetch current account inventory, cancelling only this read when its caller retires.
+   * A control confirmation can omit unrelated charging history. That mode removes
+   * the house API's placeholder values and leaves charging metadata unqueried.
+   */
+  async inventory(cancellation?: AbortSignal, options: { includeChargingDays?: boolean } = {}): Promise<MegaInventory> {
     this.#requireAuthentication();
     const lifetime = cancellation ? AbortSignal.any([this.#requestLifetime.signal, cancellation]) : this.#requestLifetime.signal;
     const result = await this.#call("house", "/app/house/get_devs_list", { house_id: "", device_sns: {} }, true, undefined, cancellation);
     const value = this.#decodeResult(result);
     if (!isRecord(value) || !Array.isArray(value.devices)) throw new Error("Mega returned an invalid device inventory");
     lifetime.throwIfAborted();
-    const chargingDays = await this.#legacyChargingDays(cancellation).catch(() => new Map<string, unknown>());
+    const chargingDays = options.includeChargingDays === false ? new Map<string, unknown>()
+      : await this.#legacyChargingDays(cancellation).catch(() => new Map<string, unknown>());
     lifetime.throwIfAborted();
     return projectMegaInventory(value, chargingDays);
   }

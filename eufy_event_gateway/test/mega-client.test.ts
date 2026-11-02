@@ -473,6 +473,13 @@ test("uses the supported Mega inventory request and decrypts its response", asyn
     assert.equal(requests[0]?.headers.has("x-signature"), true);
     assert.equal(requests[1]?.url, "https://security-app-eu.eufylife.com/v2/house/device_list");
     assert.equal(requests[1]?.headers.get("x-key-ident"), "security-identity");
+
+    const before = requests.length;
+    assert.deepEqual(await client.inventory(undefined, { includeChargingDays: false }), { devices: [
+      { device_sn: "camera" }, { device_sn: "placeholder-only" },
+    ], groups: [] });
+    assert.equal(requests.length, before + 1);
+    assert.equal(requests.at(-1)?.url, "https://app-house-eu-pr.eufy.com/app/house/get_devs_list");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
