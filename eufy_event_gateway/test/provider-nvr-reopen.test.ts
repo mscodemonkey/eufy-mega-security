@@ -228,7 +228,7 @@ test("a retiring diagnostic lease rejects without waiting or becoming normal rou
   } finally { await f.close(); }
 });
 
-for (const camera of [undefined, { model: "T8140", type: 14 }, { model: "T8113-V", type: 8 }, { model: "T8172", type: 89 }]) {
+for (const camera of [undefined, { model: "T8140", type: 14 }, { model: "T8113-V", type: 8 }, { model: "T8172", type: 89 }, { model: "T8215", type: 97 }]) {
   test(`real media manager keeps ${camera?.model ?? "T8E00"} replacement viewer serving during cleanup handoff`, async context => {
   const f = await fixture(context, true, camera ? "T9000" : "T8N00", camera);
   const viewer = () => {

@@ -16,7 +16,7 @@ import { NvrTrialError } from '../src/stream/nvr-protocol.js';
 import { NvrRtcSession } from '../src/stream/nvr-rtc-session.js';
 import { GatewayState } from '../src/domain/gateway-state.js';
 
-const additional = new Map<string, number>([['T8140', 14], ['T8140-Z', 14], ['T8113-V', 8], ['T8172', 89], ['T8162', 26], ['T8170', 48], ['T81A0', 10005], ['T8425', 47]]);
+const additional = new Map<string, number>([['T8140', 14], ['T8140-Z', 14], ['T8113-V', 8], ['T8172', 89], ['T8215', 97], ['T8162', 26], ['T8170', 48], ['T81A0', 10005], ['T8425', 47]]);
 
 for (const mode of [...additional.keys(), 'state-read', 'state-read-failure', 'state-read-reason', 'live-reason', 'completed-log', 'cancelled-log', 'valid', 'pending-sign', 'binding-change', 'valid-t9000', 'channel-zero', 'channel-last', 'equal-owner', 'close-failure', 'disabled', 'unauthenticated', 'wrong-camera', 'wrong-type', 'wrong-station', 'missing-channel', 'missing-owner', 'wrong-parent-type', 't9000-cross-type', 'suffix-parent', 'case-parent', 'child-owner-mismatch', 'channel-negative', 'channel-over', 'channel-fraction']) test(`NVR provider ${mode} admits only an explicit exact-model lease`, async context => {
   const logLines: string[] = [];
@@ -132,6 +132,7 @@ for (const route of [
   { cameraModel: "T8140", cameraType: 14, stationModel: "T9000", stationType: 27 },
   { cameraModel: "T8113-V", cameraType: 8, stationModel: "T9000", stationType: 27 },
   { cameraModel: "T8172", cameraType: 89, stationModel: "T9000", stationType: 27 },
+  { cameraModel: "T8215", cameraType: 97, stationModel: "T9000", stationType: 27 },
 ]) {
   test(`NVR provider offers opted-in ${route.cameraModel} live view without startup capture`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "nvr-normal-live-"));
@@ -143,6 +144,7 @@ for (const route of [
         category: "eufy_security", member: { admin_user_id: "synthetic-owner" } },
       { device_sn: "synthetic-camera", device_model: route.cameraModel, device_type: route.cameraType,
         category: "eufy_security", parent_sn: "synthetic-station", device_channel: 3,
+        main_sw_version: "synthetic-firmware", params: [{ param_type: 1101, param_value: "67" }],
         member: { admin_user_id: "synthetic-owner" } },
     ] }));
     context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
@@ -179,6 +181,8 @@ for (const route of [
       await provider.start(events);
       assert.equal(state.getCamera("synthetic-camera").streamSupported, true);
       assert.equal(discovered?.startupSnapshotSupported, false);
+      assert.equal(discovered?.firmware, "synthetic-firmware");
+      if (route.stationModel === "T9000") assert.equal(discovered?.battery?.level, 67);
       await provider.startStream("synthetic-camera");
       assert.equal(contexts, 1);
       assert.equal(starts, 1);
@@ -204,11 +208,12 @@ for (const route of [
 
 for (const route of [
   { model: "T8E00", type: 301, parent: "T9000", parentType: 27, enabled: true },
-  ...[{ model: "T8140", type: 14 }, { model: "T8113-V", type: 8 }, { model: "T8172", type: 89 }]
+  ...[{ model: "T8140", type: 14 }, { model: "T8113-V", type: 8 }, { model: "T8172", type: 89 }, { model: "T8215", type: 97 }]
     .flatMap(camera => [
       { ...camera, parent: "T9000", parentType: 27, enabled: false },
       { ...camera, type: camera.type + 1, parent: "T9000", parentType: 27, enabled: true },
       { ...camera, parent: "T8030", parentType: 18, enabled: true },
+      ...(camera.model === "T8215" ? [{ ...camera, parent: "T8N00", parentType: 300, enabled: true }] : []),
       { ...camera, parent: "T9000", parentType: 300, enabled: true },
     ]),
 ]) test(`NVR provider rejects normal ${route.model}/${route.type} through ${route.parent}/${route.parentType} when enabled=${route.enabled}`, async context => {
@@ -237,6 +242,9 @@ for (const route of [
     assert.equal(state.listCameras().find(camera => camera.serial === "synthetic-camera")?.streamSupported ?? false, false);
     await assert.rejects(provider.startStream("synthetic-camera"));
     assert.equal(contexts, 0);
+    if (route.model === "T8215" && route.parent === "T8N00") {
+      assert.throws(() => provider.reserveNvrLiveTrial("synthetic-camera", new AbortController().signal), NvrTrialError);
+    }
   } finally {
     await provider.close();
     await rm(directory, { recursive: true, force: true });
