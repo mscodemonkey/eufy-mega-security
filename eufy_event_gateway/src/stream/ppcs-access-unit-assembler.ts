@@ -27,6 +27,9 @@ export interface PpcsVideoFrameHeader {
 
 /** One complete decoded access unit ready for media normalisation. */
 export interface PpcsAccessUnit {
+
+  /** Unsigned source clock word inherited from this complete unit's first transport header. */
+  readonly timestamp: number;
   readonly keyframe: boolean;
   readonly streamType: number;
   readonly width: number;
@@ -151,6 +154,7 @@ function beginsAccessUnit(body: Buffer): boolean {
 
 function unitOf(header: PpcsVideoFrameHeader, data: Buffer): PpcsAccessUnit {
   return {
+    timestamp: header.timestamp,
     keyframe: header.keyframe,
     streamType: header.streamType,
     width: header.width,

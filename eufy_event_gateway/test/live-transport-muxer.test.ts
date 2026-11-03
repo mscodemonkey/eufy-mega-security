@@ -3,6 +3,7 @@
  * These tests own synthetic video/audio and temporary processes. No camera,
  * filesystem media or account state enters the transport boundary.
  */
+import { markS340LiveFrameClock } from "../src/stream/live-frame-clock.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import type { OutgoingHttpHeaders, ServerResponse } from "node:http";
@@ -24,10 +25,11 @@ class Response extends PassThrough {
   }
 }
 
-function media(audio: boolean): Buffer {
+/** Encode finite synthetic media, optionally delimiting complete video access units. */
+function media(audio: boolean, delimitUnits = false): Buffer {
   const args = audio
     ? ["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=16000", "-t", "6", "-ac", "1", "-c:a", "aac", "-f", "adts", "pipe:1"]
-    : ["-f", "lavfi", "-i", "testsrc=size=96x64:rate=15", "-t", "6", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-f", "h264", "pipe:1"];
+    : ["-f", "lavfi", "-i", "testsrc=size=96x64:rate=15", "-t", "6", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", ...(delimitUnits ? ["-x264-params", "aud=1"] : []), "-f", "h264", "pipe:1"];
   const result = spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error", ...args], { maxBuffer: 4 * 1024 * 1024 });
   assert.equal(result.status, 0, result.stderr.toString());
   return result.stdout;
@@ -126,4 +128,54 @@ test("oversized startup releases the viewer and reports one bounded failure code
   assert.equal(closed, 1);
   muxer.close();
   assert.equal(failures.length, 1);
+});
+
+test("the admitted transport drains original paced video and AAC through real FFmpeg", { timeout: 20_000 }, async () => {
+  const response = new Response(), chunks: Buffer[] = [];
+  response.on("data", (data: Buffer) => chunks.push(Buffer.from(data)));
+  const epoch = Symbol();
+  let summary: { videoPackets: number; audioPackets: number; latePackets: number } | undefined;
+  const muxer = new LiveTransportMuxer(response as unknown as ServerResponse, () => undefined, 20,
+    reason => assert.fail(reason), () => true, value => { summary = value; });
+  try {
+    const video = media(false, true), sound = media(true);
+    const starts: number[] = [];
+    for (let index = 0; index + 5 < video.length; index++) {
+      if (video[index] === 0 && video[index + 1] === 0 && video[index + 2] === 0
+          && video[index + 3] === 1 && (video[index + 4]! & 31) === 9) starts.push(index);
+    }
+    assert.equal(starts.length, 90);
+    starts.push(video.length);
+    for (let index = 0; index < 90; index++) {
+      const unit = video.subarray(starts[index], starts[index + 1]);
+      markS340LiveFrameClock(unit, Math.round(index * 1_000 / 15), epoch);
+      muxer.videoInput.write(unit);
+    }
+    muxer.acceptAudio(sound);
+    await delay(12_800);
+    assert.equal(response.headersSent, true);
+    const output = Buffer.concat(chunks);
+    assert.ok(output.length > 10_000);
+    const probe = spawnSync("ffprobe", ["-v", "error", "-count_packets", "-show_entries", "stream=codec_type,codec_name,nb_read_packets", "-of", "json", "-i", "pipe:0"], { input: output });
+    assert.equal(probe.status, 0, probe.stderr.toString());
+    const streams = JSON.parse(probe.stdout.toString()).streams as { codec_type: string; codec_name: string; nb_read_packets: string }[];
+    assert.ok(streams.some(row => row.codec_type === "video" && Number(row.nb_read_packets) >= 60));
+    assert.ok(streams.some(row => row.codec_type === "audio" && Number(row.nb_read_packets) >= 50));
+  } finally { muxer.close(); }
+  assert.deepEqual(summary && { video: summary.videoPackets, audio: summary.audioPackets, late: summary.latePackets }, { video: 90, audio: 1, late: 0 });
+});
+
+test("a disconnected paced viewer cancels retained data before publishing headers", async () => {
+  const response = new Response();
+  let closed = 0;
+  const muxer = new LiveTransportMuxer(response as unknown as ServerResponse, () => closed++, 20,
+    () => undefined, () => true, () => { throw new Error("synthetic diagnostic failure"); });
+  const bytes = Buffer.from([1]);
+  markS340LiveFrameClock(bytes, 0, Symbol());
+  muxer.videoInput.write(bytes);
+  response.destroy();
+  await delay(20);
+  assert.equal(closed, 1);
+  assert.equal(muxer.videoInput.destroyed, true);
+  assert.equal(response.headersSent, false);
 });

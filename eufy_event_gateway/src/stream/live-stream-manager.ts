@@ -21,6 +21,7 @@ import type { GatewayEvent, SnapshotInfo, VideoCodec } from "../domain/types.js"
 import { SnapshotStore } from "../storage/snapshot-store.js";
 import { ViewerStartupTimeline, type ViewerStartupMilestones } from "./viewer-startup-timeline.js";
 import { JpegParser } from "./jpeg-parser.js";
+import { qualifiedS340LiveSource } from "./live-frame-clock.js";
 import { LiveTransportMuxer, type VideoViewerResponse } from "./live-transport-muxer.js";
 
 /** Provider operations needed to open and close a camera source. */
@@ -578,6 +579,7 @@ export class LiveStreamManager extends EventEmitter {
    * @param sourceQuietMilliseconds Maximum silence after source bytes first arrive.
    * Startup remains governed by the provider's separate first-frame deadline.
    * @param nowMilliseconds Monotonic clock used for bounded decoder recovery.
+   * @param experimentalS340SmoothLive Enable six-second transport-only pacing on the qualified S340 route.
    */
   constructor(
     private readonly state: GatewayState,
@@ -589,6 +591,7 @@ export class LiveStreamManager extends EventEmitter {
     private readonly createSnapshotExtractor: SnapshotExtractorFactory = spawnSnapshotExtractor,
     private readonly sourceQuietMilliseconds = 30_000,
     private readonly nowMilliseconds: () => number = () => performance.now(),
+    private readonly experimentalS340SmoothLive = false,
   ) {
     super();
   }
@@ -690,7 +693,8 @@ export class LiveStreamManager extends EventEmitter {
     // HomeBase 3 can deliver SoloCam AAC about eight seconds after its first video.
     const audioWait = camera.model === "T8171" && camera.stationSerial !== camera.serial ? 12_000 : 2_000;
     const muxer = new LiveTransportMuxer(response, () => session.audioConsumers.delete(consumeAudio), audioWait,
-      (reason) => this.emit("warning", new Error(`Camera live transport stopped: reason=${reason}`)));
+      (reason) => this.emit("warning", new Error(`Camera live transport stopped: reason=${reason}`)), () => this.experimentalS340SmoothLive && qualifiedS340LiveSource(session.source),
+      summary => this.emit("live-pacing-closed", summary));
     session.audioConsumers.add(consumeAudio);
     await this.#addClient(serial, muxer.videoInput, "compatible", requestedAtMilliseconds);
   }
