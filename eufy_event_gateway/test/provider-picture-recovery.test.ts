@@ -65,7 +65,7 @@ async function fixture(context: TestContext, mode = "success", recoveryEnabled =
     if (mode === "untyped-error") throw Error("HTTP404");
     throw new MediaHttpError(mode === "http500" ? 500 : 404, 5, "eufy-eu");
   });
-  context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => undefined);
+  const stationStarts = context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => undefined);
   context.mock.method(FirstPartyPpcsSession.prototype, "close", function(this: FirstPartyPpcsSession) { this.output.end(); });
   const drained = context.mock.method(FirstPartyPpcsSession.prototype, "waitUntilClosed", async () => undefined);
   let release: (() => void) | undefined, signal: AbortSignal | undefined, returned: Buffer | undefined;
@@ -87,7 +87,7 @@ async function fixture(context: TestContext, mode = "success", recoveryEnabled =
     payload: { event_type: 1, unique_id: id, ...(picture ? { pic_url: "https://example.invalid/picture" } : {}),
       ...(mode === "no-reference" ? {} : { record_id: 42, file_path: path,
         trigger_time: Date.now() + (mode === "stale" ? -301_000 : mode === "future" ? 10_000 : 0) }) } })!;
-  return { provider, events, network, cloud, recovery, drained, pictures, event, send: (value: MegaPushEvent) => deliver(value),
+  return { provider, events, network, cloud, recovery, drained, stationStarts, pictures, event, send: (value: MegaPushEvent) => deliver(value),
     releaseCloud: () => releaseCloud?.(), cloudBytes: () => cloudBytes, cloudRequestSignal: () => cloudRequestSignal,
     motions: () => motions, signal: () => signal, returned: () => returned, release: () => release?.() };
 }
@@ -240,3 +240,16 @@ for (const route of ["homebase2", "standalone"] as const) for (const recoveryEna
     } finally { f.releaseCloud(); await f.provider.close(); }
   });
 }
+
+
+for (const route of ["homebase2", "standalone"] as const) test(`cloud HTTP 404 does not admit station recovery on ${route}`, async context => {
+  const f = await fixture(context, "success", true, route);
+  try {
+    f.send(f.event("alert-with-missing-picture")); await settle();
+    assert.equal(f.cloud.mock.callCount(), 1);
+    assert.equal(f.recovery.mock.callCount(), 0);
+    assert.equal(f.stationStarts.mock.callCount(), 0);
+    assert.equal(f.pictures.length, 0);
+    assert.equal(f.network.mock.callCount(), 0);
+  } finally { await f.provider.close(); }
+});
