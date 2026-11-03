@@ -33,7 +33,7 @@ repeated sign-in attempts if Eufy rejects the account.
 ## Connect Home Assistant
 
 Install the Eufy Mega Security custom integration using the existing
-[HACS instructions](../README.md#install-the-integration-with-hacs), then restart Home
+[Marketplace or HACS instructions](../README.md#install-the-integration-with-marketplace-or-hacs), then restart Home
 Assistant if the integration was newly installed. Home Assistant Container can
 load custom integrations from its persistent `/config/custom_components` folder.
 
