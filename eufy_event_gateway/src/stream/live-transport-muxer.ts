@@ -4,6 +4,7 @@
  * manager owns the camera source and supplies audio without opening another
  * camera session. HTTP disconnects release both ownership boundaries.
  */
+import { LiveFramePacer, type LivePacingSummary } from "./live-frame-pacer.js";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { OutgoingHttpHeaders, ServerResponse } from "node:http";
 import { PassThrough, type Writable } from "node:stream";
@@ -50,15 +51,39 @@ export class LiveTransportMuxer {
   #closed = false;
   #starting = false;
   #audioReady = false;
+  #pacer: LiveFramePacer | undefined;
+  #pacingDecided = false;
+  #pacingAudioMissing = false;
 
-  /** Bind a viewer, release its audio subscription on close, and report bounded failure codes without media or process output. */
+  /**
+   * Bind a viewer and its finite process, buffer and audio-subscription lifetime.
+   *
+   * @param smoothS340Live Admit buffering only after the manager verifies the exact current source clock.
+   * @param onPacingClosed Receive content-free final counters after queued media and timers are discarded.
+   */
   constructor(
     private readonly response: ServerResponse,
     private readonly onClose: () => void,
     private readonly audioWaitMilliseconds = AUDIO_START_WAIT_MILLISECONDS,
     private readonly onFailure: (reason: string) => void = () => undefined,
+    smoothS340Live?: () => boolean,
+    private readonly onPacingClosed: (summary: LivePacingSummary) => void = () => undefined,
   ) {
-    this.videoInput.on("data", (chunk: Buffer) => this.#acceptVideo(chunk));
+    this.videoInput.on("data", (chunk: Buffer) => {
+      if (!this.#pacingDecided) {
+        this.#pacingDecided = true;
+        if (smoothS340Live?.() === true) {
+          this.#pacer = new LiveFramePacer(data => this.#acceptVideo(data), data => this.#acceptAudio(data), reason => this.close(reason),
+            undefined, this.audioWaitMilliseconds, available => { this.#pacingAudioMissing = !available; });
+          for (const audio of this.#audio.splice(0)) {
+            this.#bufferedBytes -= audio.length;
+            this.#pacer.acceptAudio(audio);
+          }
+        }
+      }
+      if (this.#pacer) this.#pacer.acceptVideo(chunk);
+      else this.#acceptVideo(chunk);
+    });
     this.videoInput.once("end", () => this.close());
     this.videoInput.once("error", () => this.close());
     this.videoInput.once("close", () => this.close());
@@ -68,6 +93,11 @@ export class LiveTransportMuxer {
 
   /** Consume only AAC already validated by the provider; retain bounded startup bytes. */
   acceptAudio(chunk: Buffer): void {
+    if (this.#pacer) this.#pacer.acceptAudio(chunk);
+    else this.#acceptAudio(chunk);
+  }
+
+  #acceptAudio(chunk: Buffer): void {
     if (this.#closed || chunk.length === 0) return;
     if (this.#process && this.#audioReady) {
       const input = this.#process.stdio[3] as Writable | null;
@@ -85,6 +115,7 @@ export class LiveTransportMuxer {
   close(reason?: string): void {
     if (this.#closed) return;
     this.#closed = true;
+    const pacing = this.#pacer?.close();
     if (this.#timer) clearTimeout(this.#timer);
     this.#timer = null;
     if (this.#outputTimer) clearTimeout(this.#outputTimer);
@@ -97,6 +128,13 @@ export class LiveTransportMuxer {
     this.videoInput.destroy();
     if (!this.response.destroyed) this.response.end();
     this.onClose();
+    if (pacing) {
+      try { this.onPacingClosed(pacing); }
+      catch {
+
+        // Diagnostic listeners cannot retain an already stopped viewer.
+      }
+    }
     if (reason) this.onFailure(reason);
   }
 
@@ -107,6 +145,7 @@ export class LiveTransportMuxer {
     this.#bufferedBytes += chunk.length;
     if (this.#bufferedBytes > MAX_INPUT_BYTES) return this.close("startup_input_limit");
     if (this.#audio.length) return this.#start(true);
+    if (this.#pacingAudioMissing) return this.#start(false);
     if (!this.#timer) {
       this.#timer = setTimeout(() => { this.#start(false); }, this.audioWaitMilliseconds);
     }

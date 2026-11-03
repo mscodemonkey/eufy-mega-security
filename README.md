@@ -454,6 +454,25 @@ docker build -t eufy-mega-security:test .
 Private diagnostic bundles for all discovered device families are described in
 [the private diagnostics guide](docs/PRIVATE_DIAGNOSTICS.md). Media requires explicit consent and private sharing.
 
+### Experimental smooth S340 live view
+
+The app option `experimental_s340_smooth_live` is off by default. It adds six
+seconds of buffering to live transport playback for the qualified SoloCam S340
+(type 88) through HomeBase 3, channel 1. The camera's original frame clock and
+validated audio sample clock smooth burst delivery. It retains real media only,
+with a 4 MiB and 1,024-packet queue limit. A changed source epoch, invalid clock
+or overflowing queue closes that experimental viewer.
+
+The existing audio startup wait runs before these clocks begin, so delayed
+audio does not turn buffered video into a burst. Cameras without audio still
+fall back to video-only playback.
+
+This is a source-qualified candidate. Physical playback and audio synchronisation
+still need confirmation. Snapshots and recordings consume the original source.
+Standalone installs can set `EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE=true`
+with a configured API token. Disabling the option restores ordinary transport
+playback after restarting the app.
+
 ### Experimental fixed H.265 viewer resolution
 
 The app option `experimental_fixed_h265_resolution` is off by default. When

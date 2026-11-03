@@ -56,6 +56,9 @@ export interface GatewayConfig {
   /** Default-off fixed 1080p output for diagnosing H.265 viewer reconfiguration drops. */
   readonly experimentalFixedH265Resolution: boolean;
 
+  /** Default-off six-second live-view jitter buffer for the qualified S340/HomeBase 3 route. */
+  readonly experimentalS340SmoothLive: boolean;
+
   /** Fixed regional service selection, never an arbitrary credential target. */
   readonly experimentalNvrRegion: "auto" | "us" | "eu" | "ie";
   readonly eufy: {
@@ -102,6 +105,10 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
     environment.EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION,
     "EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION",
   );
+  const experimentalS340SmoothLive = captureBoolean(
+    environment.EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE, "EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE",
+  );
+  if (experimentalS340SmoothLive && !apiToken) throw new Error("Experimental S340 smooth live view requires EUFY_GATEWAY_API_TOKEN");
   const experimentalNvrRegion = environment.EUFY_GATEWAY_EXPERIMENTAL_NVR_REGION ?? "auto";
   if (!["auto", "us", "eu", "ie"].includes(experimentalNvrRegion)) throw new Error("Choose auto, us, eu or ie for the experimental NVR service region");
   if (experimentalNvrLive && !apiToken) throw new Error("Experimental NVR live video requires EUFY_GATEWAY_API_TOKEN");
@@ -135,6 +142,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
     experimentalGeneralRtc,
     experimentalCloudRecordings,
     experimentalFixedH265Resolution,
+    experimentalS340SmoothLive,
     experimentalNvrRegion: experimentalNvrRegion as "auto" | "us" | "eu" | "ie",
     eufy: {
       username: nonEmpty(environment.EUFY_USERNAME),

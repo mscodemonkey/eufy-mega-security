@@ -32,6 +32,7 @@ import { EventPictureReader, decodeEventPictureReply, decodeLegacyEventPictureRe
 import { EventNameHistoryError, EventNameHistoryReader, eventHistoryCursor, nextEventHistoryDate, type EventNameHistorySummary } from "./homebase-event-names.js";
 import { SoloCamRecordingReader, type CameraStoredRecord } from "./stored-recordings.js";
 import type { CameraPresetPosition, VideoCodec } from "../domain/types.js";
+import { markS340LiveFrameClock, markS340LiveSource } from "./live-frame-clock.js";
 import { PpcsAccessUnitAssembler } from "./ppcs-access-unit-assembler.js";
 import { C31TalkbackSender, c31TalkbackBody } from "./c31-talkback.js";
 import { decodePpcsAac } from "./ppcs-audio.js";
@@ -1712,6 +1713,7 @@ export class FirstPartyPpcsSession {
   readonly #datagramOrder: PpcsDatagramReorderBuffer;
   readonly #videoNormalizer = new PpcsVideoStreamNormalizer();
   readonly #videoAssembler: PpcsAccessUnitAssembler;
+  readonly #videoClockEpoch = Symbol();
   #lastDeliveredMediaFrameAt: number | null = null;
   #lastAttachedMediaReassertAt: number | null = null;
   #heartbeat: ReturnType<typeof setInterval> | null = null;
@@ -3324,6 +3326,11 @@ export class FirstPartyPpcsSession {
       if (normalized.length === 0) {
         this.#recordVideoResult("framing-prefix-buffered");
         continue;
+      }
+      if (this.stats.videoCodec === "h264" && usesT8171AttachedMediaProfile(this.#options.channel, this.#options)
+          && (this.#options.purpose === undefined || this.#options.purpose === "media")) {
+        markS340LiveSource(this.output);
+        markS340LiveFrameClock(normalized, unit.timestamp, this.#videoClockEpoch);
       }
       this.output.write(normalized);
       this.stats.videoOutputFrames++;

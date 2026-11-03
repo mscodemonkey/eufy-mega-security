@@ -2,6 +2,7 @@
  * Exercises media-start repair and owned motion at the real UDP boundary.
  * Synthetic peer keys and sockets are test-owned. No account or camera is used.
  */
+import { qualifiedLiveFrameClock, qualifiedS340LiveSource } from "../src/stream/live-frame-clock.js";
 import assert from "node:assert/strict";
 import { createCipheriv, createECDH, createHmac } from "node:crypto";
 import { Socket } from "node:dgram";
@@ -630,5 +631,27 @@ for (const [model, station, channel, purpose, deviceType, qualified] of [
     context.mock.timers.tick(600); fragment(1, "second");
     assert.equal(f.session.stats.sequenceGaps, qualified ? 0 : 1);
     assert.equal(f.session.stats.closeReason, "open");
+  } finally { f.session.close(); }
+});
+
+for (const [model, station, channel, purpose, deviceType, qualified] of [
+  ["T8171", "T8030", 1, "media", 88, true],
+  ["T8171", "T8030", 1, "media", 87, false],
+  ["T8171", "T8030", 1, "media", null, false],
+  ["T8171", "T8010", 1, "media", 88, false],
+  ["T8171", "T8030", 2, "media", 88, false],
+  ["T8210", "T8030", 1, "media", 88, false],
+  ["T8171", "T8030", 1, "control", 88, false],
+  ["T8171", "T8030", 1, "passive", 88, false],
+] as const) test(`live clock admission ${model}/${station}/${channel}/${purpose}/${deviceType}`, async context => {
+  const f = await peer(context, true, model, purpose, station, undefined, channel, deviceType);
+  const chunks: Buffer[] = [];
+  f.session.output.on("data", (data: Buffer) => chunks.push(data));
+  try {
+    assert.equal(qualifiedS340LiveSource(f.session.output), false);
+    f.video(channel);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(qualifiedS340LiveSource(f.session.output), qualified);
+    assert.equal(chunks.some(chunk => qualifiedLiveFrameClock(chunk)?.timestampMilliseconds === 0), qualified);
   } finally { f.session.close(); }
 });

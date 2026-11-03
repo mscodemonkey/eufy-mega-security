@@ -1,4 +1,7 @@
 configuration:
+  experimental_s340_smooth_live:
+    name: Smooth S340 live view (experimental)
+    description: Add six seconds of buffering for smoother SoloCam S340 live view through HomeBase 3. Keeps live audio. Off by default. Hardware behaviour needs confirmation.
   experimental_homebase_event_images:
     name: Experimental HomeBase picture recovery
     description: Try the matching recording thumbnail when a cloud event picture is missing. Limited to T8113-Z cameras on HomeBase 3. The recovered thumbnail may have lower resolution. Leaves the last good picture in place if no exact match is available. Off by default.
