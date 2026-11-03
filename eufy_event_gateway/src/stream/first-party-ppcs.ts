@@ -1835,12 +1835,10 @@ export class FirstPartyPpcsSession {
       if ((this.#options.purpose === "control" || this.#options.purpose === "passive") && this.stats.mediaStartAttempts === 0) return;
       if (this.#options.homeBaseAttached && this.#level2Key) {
 
-        // The observed T8171/T8030 channel-one route can take longer than a
-        // heartbeat to produce its first picture. Do not STOP an acknowledged
-        // first start while its existing first-frame deadline still owns it.
-        const awaitingAcknowledgedStartup = this.#options.cameraModel === "T8171"
-          && this.#options.stationModel === "T8030" && this.#options.channel === 1
-          && this.#options.purpose !== "control" && this.#options.purpose !== "passive"
+        // Once the selected peer acknowledges our first media start, the
+        // existing first-frame deadline owns its slow encoder startup. A
+        // heartbeat must not STOP that start before it can produce a picture.
+        const awaitingAcknowledgedStartup = this.#options.purpose !== "control" && this.#options.purpose !== "passive"
           && this.stats.videoOutputFrames === 0 && this.stats.mediaStartAttempts === 1
           && this.stats.mediaStartAcknowledged === 1;
         const recovery = awaitingAcknowledgedStartup ? null : attachedMediaStallRecoveryAction(
