@@ -43,7 +43,7 @@ import { CloudCalendarError, cloudCalendarBounds, projectCloudCalendar, type Clo
 import { MegaSessionStore } from "./session-store.js";
 import { captureGeneralRtcIdentity, generalRtcCipher, type GeneralRtcCipher } from "./general-rtc-identity.js";
 import { createLogger } from "../logging.js";
-import { GeneralRtcError, generalRtcSmartHost, generalRtcAwait, type GeneralRtcStage } from "../stream/general-rtc-protocol.js";
+import { GeneralRtcError, generalRtcSmartHost, generalRtcAwait, type GeneralRtcStage, type GeneralRtcInventoryDiagnostic } from "../stream/general-rtc-protocol.js";
 import type { MegaAuthResult, MegaCaptcha, MegaIdentity, MegaInventory, MegaResult, MegaSession } from "./types.js";
 
 // These codes are handled at the transport boundary so every caller gets the
@@ -79,6 +79,9 @@ const CIPHER_IDENTITY_RECOVERY_INTERVAL_MS = 10 * 60_000;
 
 /** Internal dispatch checks, with cached-identity mode restricted to the RTC experiment. */
 interface GeneralRtcCallOptions {
+
+  /** Observe only the received HTTP status, including responses rejected before decoding. */
+  readonly onResponseStatus?: (status: number) => void;
   readonly cachedIdentityOnly?: true;
   readonly onDispatch?: () => void;
 }
@@ -283,11 +286,7 @@ export class MegaClient {
       const readPages = async (path: "/v3/web/get_hub_list" | "/v3/web/get_devs_list"): Promise<readonly unknown[]> => {
         const rows: unknown[] = [];
         for (let page = 0; page <= 4; page++) {
-          const result = await this.#call("security", path,
-            { page, num: 100, station_sn: "", device_sn: "", ...(path === "/v3/web/get_devs_list" ? { orderby: "" } : {}) }, false,
-            undefined, AbortSignal.any([signal, AbortSignal.timeout(10_000)]), { cachedIdentityOnly: true });
-          const data = this.#generalRtcResult(result, "inventory");
-          if (!Array.isArray(data) || data.length > 100) throw new GeneralRtcError("inventory", "response");
+          const data = await this.#generalRtcInventoryPage(path, page, signal);
           rows.push(...data);
           if (data.length < 100) return rows;
         }
@@ -295,21 +294,45 @@ export class MegaClient {
       };
       const hubs = await readPages("/v3/web/get_hub_list");
       const devices = await readPages("/v3/web/get_devs_list");
-      return projectGeneralRtcInventory(hubs, devices);
+      try { return projectGeneralRtcInventory(hubs, devices); }
+      catch (error) {
+        const failure = generalRtcRequestFailure(error, "inventory");
+        throw new GeneralRtcError("inventory", failure.reason, { operation: "projection", boundary: "projection" });
+      }
     } catch (error) { throw generalRtcRequestFailure(error, "inventory"); }
   }
 
   /** Read one bounded portal hub page through the existing native request queue. */
   async generalRtcHubs(page: number, signal: AbortSignal): Promise<readonly unknown[]> {
     if (!this.#experimentalGeneralRtc || !this.isAuthenticated || !Number.isInteger(page) || page < 0 || page > 4) throw new GeneralRtcError("admission");
+    return this.#generalRtcInventoryPage("/v3/web/get_hub_list", page, signal);
+  }
+
+  async #generalRtcInventoryPage(path: "/v3/web/get_hub_list" | "/v3/web/get_devs_list", page: number,
+    signal: AbortSignal): Promise<readonly unknown[]> {
+    let httpStatus: number | undefined, apiCode: number | undefined;
+    let boundary: GeneralRtcInventoryDiagnostic["boundary"] = "request";
     try {
-      const result = await this.#call("security", "/v3/web/get_hub_list",
-        { page, num: 100, station_sn: "", device_sn: "" }, false, undefined,
-        AbortSignal.any([signal, AbortSignal.timeout(10_000)]), { cachedIdentityOnly: true });
-      const data = this.#generalRtcResult(result, "inventory");
-      if (!Array.isArray(data)) throw new GeneralRtcError("inventory", "response");
+      const result = await this.#call("security", path,
+        { page, num: 100, station_sn: "", device_sn: "", ...(path === "/v3/web/get_devs_list" ? { orderby: "" } : {}) }, false, undefined,
+        AbortSignal.any([signal, AbortSignal.timeout(10_000)]), {
+          cachedIdentityOnly: true, onResponseStatus: status => { httpStatus = status; },
+        });
+      boundary = "application";
+      apiCode = result.code;
+      if (result.code !== 0) throw new GeneralRtcError("inventory", TRANSIENT_IDENTITY_ERRORS.has(result.code) ? "native_identity_rejected" : "response");
+      boundary = "decode";
+      const data = this.#decodeResult(result);
+      boundary = "shape";
+      if (!Array.isArray(data) || data.length > 100) throw new GeneralRtcError("inventory", "response");
       return data;
-    } catch (error) { throw generalRtcRequestFailure(error, "inventory"); }
+    } catch (error) {
+      const failure = generalRtcRequestFailure(error, "inventory");
+      throw new GeneralRtcError("inventory", failure.reason, {
+        operation: path === "/v3/web/get_hub_list" ? "hubs" : "devices", boundary, page,
+        ...(httpStatus === undefined ? {} : { httpStatus }), ...(apiCode === undefined ? {} : { apiCode }),
+      });
+    }
   }
 
   /** Read the portal's start-stream preflight configuration without issuing its commands. */
@@ -1062,7 +1085,7 @@ export class MegaClient {
     } : options?.onDispatch;
     let result: MegaResult;
     try {
-      const pending = this.#signedPost(host, path, payload, identity, undefined, appScope, cancellation, onDispatch);
+      const pending = this.#signedPost(host, path, payload, identity, undefined, appScope, cancellation, onDispatch, options?.onResponseStatus);
       result = options?.cachedIdentityOnly ? await generalRtcAwait(pending, lifetime, "admission") : await pending;
     } catch (error) {
       lifetime.throwIfAborted();
@@ -1127,6 +1150,7 @@ export class MegaClient {
     appScope?: "eufy_security",
     cancellation?: AbortSignal,
     onDispatch?: () => void,
+    onResponseStatus?: (status: number) => void,
   ): Promise<MegaResult> {
     return this.#enqueue(async (lifetime) => {
       const signal = cancellation ? AbortSignal.any([lifetime, cancellation]) : lifetime;
@@ -1153,7 +1177,7 @@ export class MegaClient {
       }
       if (appScope) headers["app-name"] = appScope;
       if (path === "/v3/web/wp/verify_captcha") headers["X-Auto-Ts"] = timestamp;
-      const result = await this.#post(host, path, body, headers, signal, onDispatch);
+      const result = await this.#post(host, path, body, headers, signal, onDispatch, onResponseStatus);
       this.#responseOperations.set(result, megaOperation(path));
       if (identity) {
 
@@ -1202,7 +1226,7 @@ export class MegaClient {
     return job;
   }
 
-  async #post(host: string, path: string, body: string, headers: Record<string, string>, signal: AbortSignal, onDispatch?: () => void): Promise<MegaResult> {
+  async #post(host: string, path: string, body: string, headers: Record<string, string>, signal: AbortSignal, onDispatch?: () => void, onResponseStatus?: (status: number) => void): Promise<MegaResult> {
     let response: Response;
     signal.throwIfAborted();
     onDispatch?.();
@@ -1215,6 +1239,7 @@ export class MegaClient {
       throw new Error("Mega request failed (transport)");
     }
     signal.throwIfAborted();
+    onResponseStatus?.(response.status);
     if (response.status !== 200) {
       if (response.status === 401) {
         let code: number | null = null;
@@ -1382,7 +1407,8 @@ function nativeOnlySession(session: MegaSession): MegaSession {
 }
 
 function generalRtcRequestFailure(error: unknown, stage: GeneralRtcStage): GeneralRtcError {
-  return new GeneralRtcError(stage, error instanceof GeneralRtcError ? error.reason : "response");
+  return new GeneralRtcError(stage, error instanceof GeneralRtcError ? error.reason : "response",
+    error instanceof GeneralRtcError ? error.inventory : undefined);
 }
 
 function projectMegaInventory(value: Record<string, unknown>, chargingDays: ReadonlyMap<string, unknown>): MegaInventory {

@@ -25,7 +25,7 @@ import { projectEventPictureSummary } from "./stream/homebase-event-picture.js";
 import { EventNameHistoryError, eventHistoryCursor, eventHistoryId, nextEventHistoryDate, projectEventNameHistorySummary } from "./stream/homebase-event-names.js";
 import { CloudRecordingError } from "./stream/cloud-recordings.js";
 import { DoorbellRtcError } from "./stream/doorbell-rtc-offer.js";
-import { GeneralRtcError, generalRtcSubmission } from "./stream/general-rtc-protocol.js";
+import { GeneralRtcError, generalRtcFailureDiagnostic, generalRtcSubmission } from "./stream/general-rtc-protocol.js";
 import { recordGeneralRtcClip } from "./stream/general-rtc-recording.js";
 import type { GeneralRtcTrialLease } from "./provider/general-rtc-trial.js";
 import { validateStoredMedia } from "./stream/stored-recordings.js";
@@ -481,7 +481,7 @@ export class GatewayServer {
           } catch (error) {
             const failure = controller.signal.aborted && controller.signal.reason instanceof GeneralRtcError ? controller.signal.reason
               : error instanceof GeneralRtcError ? error : new GeneralRtcError("video", "media");
-            logger.warn("general_rtc_trial_failed", `stage=${failure.stage} reason=${failure.reason}`);
+            logger.warn("general_rtc_trial_failed", generalRtcFailureDiagnostic(failure));
             if (!response.destroyed) json(response, 409, { stage: failure.stage });
           } finally {
             submission = undefined;

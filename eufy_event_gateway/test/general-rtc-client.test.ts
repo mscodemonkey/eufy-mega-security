@@ -187,3 +187,54 @@ test("a stalled native request uses the declared ten-second cap", async context 
   await turn(); assert.ok(times.includes(10_000)); controller.abort();
   await assert.rejects(pending, GeneralRtcError); assert.equal(f.requests.length, 1); await f.unchanged();
 });
+
+
+for (const target of [hubPath, devicePath]) {
+  const cases = [
+    { name: "HTTP refusal", reply: () => new Response("private-server-text", { status: 503 }), boundary: "request", httpStatus: 503 },
+    { name: "invalid JSON", reply: () => new Response("private-not-json"), boundary: "request", httpStatus: 200 },
+    { name: "API refusal", reply: () => new Response(JSON.stringify({ code: 20004, msg: "private-message", data: {} })), boundary: "application", httpStatus: 200, apiCode: 20004 },
+    { name: "undecodable data", reply: () => new Response(JSON.stringify({ code: 0, data: "private-invalid-ciphertext" })), boundary: "decode", httpStatus: 200, apiCode: 0 },
+    { name: "unexpected shape", reply: () => new Response(JSON.stringify({ code: 0, data: { secret: "private-device" } })), boundary: "shape", httpStatus: 200, apiCode: 0 },
+  ] as const;
+  for (const scenario of cases) test(`${target} identifies ${scenario.name} without exposing response content or replaying`, async context => {
+    const f = await fixture(context, async url => {
+      const path = new URL(String(url)).pathname;
+      return path === target ? scenario.reply() : response(path);
+    });
+    await assert.rejects(f.client.generalRtcInventory(new AbortController().signal), error => {
+      assert.ok(error instanceof GeneralRtcError);
+      assert.deepEqual(error.inventory, {
+        operation: target === hubPath ? "hubs" : "devices", boundary: scenario.boundary, page: 0,
+        httpStatus: scenario.httpStatus, ...("apiCode" in scenario ? { apiCode: scenario.apiCode } : {}),
+      });
+      assert.doesNotMatch(JSON.stringify(error), /private-/);
+      return true;
+    });
+    assert.equal(f.requests.filter(row => row.path === target).length, 1);
+    await f.unchanged();
+  });
+}
+
+test("transport failure keeps the inventory operation without inventing an HTTP status", async context => {
+  const f = await fixture(context, async () => { throw new Error("private-url-and-token"); });
+  await assert.rejects(f.client.generalRtcHubs(2, new AbortController().signal), error => {
+    assert.ok(error instanceof GeneralRtcError);
+    assert.deepEqual(error.inventory, { operation: "hubs", boundary: "request", page: 2 });
+    assert.doesNotMatch(JSON.stringify(error), /private-/);
+    return true;
+  });
+  await f.unchanged();
+});
+
+test("invalid device rows are distinguished from a failed HTTP inventory response", async context => {
+  const f = await fixture(context, async url => new URL(String(url)).pathname === devicePath
+    ? new Response(JSON.stringify({ code: 0, data: [{ wrong_key: "private-camera" }] })) : response(hubPath));
+  await assert.rejects(f.client.generalRtcInventory(new AbortController().signal), error => {
+    assert.ok(error instanceof GeneralRtcError);
+    assert.deepEqual(error.inventory, { operation: "projection", boundary: "projection" });
+    assert.doesNotMatch(JSON.stringify(error), /private-camera/);
+    return true;
+  });
+  await f.unchanged();
+});
