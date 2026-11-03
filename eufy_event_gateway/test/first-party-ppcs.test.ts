@@ -493,6 +493,49 @@ test("builds distinct HomeBase start and stop media envelopes", () => {
   );
 });
 
+test("T8171 through HomeBase 3 requests the native single-camera profile", () => {
+  const route = { cameraModel: "T8171", cameraDeviceType: 88, stationModel: "T8030", homeBaseAttached: true };
+  const value = JSON.parse(buildAttachedMediaControlValue(1003, 1, "synthetic-owner", "synthetic-modulus", route).toString());
+  assert.deepEqual(value, {
+    account_id: "synthetic-owner", cmd: 1003, mChannel: 1, mValue3: 1003,
+    payload: { streamtype: 0, camera_type: 0, entrytype: 0, accountId: "synthetic-owner",
+      chn_list: [{ cameraType: 0, chn: 1, index: 0, sensor: 0 }], view_mode: -1, extValue: 1000,
+      ClientOS: "ANDROID", station_video_type: 0, audio_chn: 1, pip_cord: "", stitch_mode: 1, key: "synthetic-modulus" },
+  });
+});
+
+test("T8171 attached stop supplies its channel and a fresh transaction", context => {
+  context.mock.timers.enable({ apis: ["Date"], now: 1800000000000 });
+  const route = { cameraModel: "T8171", cameraDeviceType: 88, stationModel: "T8030", homeBaseAttached: true };
+  const first = JSON.parse(buildAttachedMediaControlValue(1004, 1, "synthetic-owner", undefined, route).toString());
+  assert.deepEqual(first, { account_id: "synthetic-owner", cmd: 1004, mChannel: 1, mValue3: 0,
+    payload: { channel: 1, transaction: "1800000000000" } });
+  context.mock.timers.tick(25);
+  const second = JSON.parse(buildAttachedMediaControlValue(1004, 1, "synthetic-owner", undefined, route).toString());
+  assert.equal(second.payload.transaction, "1800000000025");
+});
+
+test("the T8171 profile requires the exact reported type, parent and child channel", () => {
+  for (const [channel, route] of [
+    [1, { cameraModel: "T8171", stationModel: "T8030", homeBaseAttached: true }],
+    [1, { cameraModel: "T8171", cameraDeviceType: 87, stationModel: "T8030", homeBaseAttached: true }],
+    [1, { cameraModel: "T8171", cameraDeviceType: 88, stationModel: "T8010", homeBaseAttached: true }],
+    [1, { cameraModel: "T8210", cameraDeviceType: 88, stationModel: "T8030", homeBaseAttached: true }],
+    [1, { cameraModel: "T8171", cameraDeviceType: 88, stationModel: "T8030" }],
+    [1, { cameraModel: "T8171", cameraDeviceType: 88, stationModel: "T8030", homeBaseAttached: false }],
+    [0, { cameraModel: "T8171", cameraDeviceType: 88, stationModel: "T8030", homeBaseAttached: true }],
+    [2, { cameraModel: "T8171", cameraDeviceType: 88, stationModel: "T8030", homeBaseAttached: true }],
+  ] as const) {
+    const start = JSON.parse(buildAttachedMediaControlValue(1003, channel, "synthetic-owner", "synthetic-modulus", route).toString());
+    assert.equal(start.payload.streamtype, 2);
+    assert.equal(start.payload.chn_list, undefined);
+    assert.equal(start.payload.ClientOS, "Android");
+    const stop = JSON.parse(buildAttachedMediaControlValue(1004, channel, "synthetic-owner", undefined, route).toString());
+    assert.deepEqual(stop.payload, {});
+    assert.equal(stop.mValue3, 1004);
+  }
+});
+
 test("builds the T8010 direct encrypted media stop command", () => {
   const key = Buffer.from("0123456789abcdef", "utf8");
   const payload = buildLegacyAttachedMediaStopPayload(4, key);

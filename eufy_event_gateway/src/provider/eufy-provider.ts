@@ -2724,7 +2724,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           ...(device.model === "T8170" && device.deviceType === 48 && !route.homeBaseAttached ? { lookupTimeoutMs: 8_000 } : {}),
           stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
           localAddress: peer.localAddress,
-          dskKey: dsk.key, channel: device.channel, cameraModel: device.model, stationModel: peer.model,
+          dskKey: dsk.key, channel: device.channel, cameraModel: device.model, cameraDeviceType: device.deviceType, stationModel: peer.model,
           accountId: device.adminUserId,
           homeBaseAttached: route.homeBaseAttached,
           cipherId: device.cipherId,
