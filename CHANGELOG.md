@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.235
+
+- Preserve the existing doorbell press sensor when the S4 doorbell uses experimental HomeBase Professional S1 video. Selecting that route previously withdrew the doorbell capability and Home Assistant removed the sensor. Thanks to Heath Bexley (@heath-bexley) for the correction and @jaimmor for reporting it.
+- This corrects sensor exposure. Doorbell-event delivery on that setup and separately reported video interruptions remain unconfirmed. Experimental video and controls remain off by default.
+
 ## 0.1.234
 
 - Keep acknowledged attached-camera starts alive until the existing first-picture deadline, avoiding a premature restart while a camera wakes (#578).
