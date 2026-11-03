@@ -3613,13 +3613,14 @@ export class FirstPartyPpcsSession {
   /**
    * Repair a stopped media source before a viewer's ten-second read timeout.
    *
-   * Only normalized output arms this timer, so slow first pictures keep their
+   * Only decoder-ready output arms this timer, so slow first pictures keep their
    * original deadline. Fresh output renews it. One silent interval borrows the
    * existing stop/start repair, whose later heartbeat window still owns finite
    * retirement if no new media arrives. Control and passive sessions never own it.
    */
   #armAttachedOutputStallRepair(): void {
-    if (!this.#options.homeBaseAttached || this.#options.purpose === "control" || this.#options.purpose === "passive") return;
+    if (!this.#options.homeBaseAttached || this.#options.purpose === "control" || this.#options.purpose === "passive"
+      || !hasDecoderReadyKeyframe(this.stats.videoCodec, this.stats.videoNalTypes)) return;
     if (this.#attachedOutputStallTimer) clearTimeout(this.#attachedOutputStallTimer);
     const deliveredAt = this.#lastDeliveredMediaFrameAt;
     this.#attachedOutputStallTimer = setTimeout(() => {

@@ -645,3 +645,23 @@ test("standalone video keeps its existing stall policy", async context => {
     assert.equal(f.session.stats.mediaStopAttempts, 0);
   } finally { f.session.close(); }
 });
+
+
+test("codec configuration alone does not arm early output-stall repair", async context => {
+  const f = await peer(context, true, "T8171", "media", "T8030");
+  try {
+    await f.negotiate();
+    f.ack(f.sent.at(-1)!.readUInt16BE(6));
+    const configuration = Buffer.from("000000016742001e898b600000000168ce3c80", "hex");
+    const header = Buffer.alloc(22);
+    header.writeUInt32LE(configuration.length);
+    header[5] = 1;
+    f.frame(1300, Buffer.concat([header, configuration]));
+    assert.ok(f.session.stats.videoOutputFrames > 0);
+    context.mock.timers.tick(7500);
+    assert.equal(f.session.stats.mediaStopAttempts, 0);
+    f.video();
+    context.mock.timers.tick(4999);
+    assert.equal(f.session.stats.mediaStopAttempts, 0);
+  } finally { f.session.close(); }
+});
