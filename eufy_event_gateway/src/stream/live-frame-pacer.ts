@@ -1,7 +1,8 @@
 /**
  * Smooths one opt-in transport viewer using qualified video and AAC clocks.
- * The viewer owns this buffer and closes it on disconnect. Camera sessions,
- * snapshots, recordings and other viewers retain their original byte delivery.
+ * The viewer owns this buffer, optional initial audio admission and disconnect
+ * cleanup. Camera sessions, snapshots, recordings and other viewers retain
+ * their original byte delivery.
  */
 import { performance } from "node:perf_hooks";
 import { parseAdtsAccessUnits } from "./ppcs-audio.js";
@@ -21,7 +22,7 @@ export interface LivePacingSummary {
 }
 
 interface PendingPacket {
-  readonly at: number;
+  at: number;
   readonly kind: "video" | "audio";
   readonly data: Buffer;
 }
@@ -48,14 +49,28 @@ export class LiveFramePacer {
   #late = 0;
   #videoPackets = 0;
   #audioPackets = 0;
+  #audioSeen = false;
+  #audioDisabled = false;
+  #startupWaiting: boolean;
+  #audioAdmissionTimer: NodeJS.Timeout | undefined;
 
-  /** Bind immutable-byte consumers and a monotonic viewer clock before accepting media. */
+  /**
+   * Bind immutable-byte consumers and a monotonic viewer clock before accepting media.
+   *
+   * @param audioWaitMilliseconds A positive value holds both clocks for initial
+   * AAC before pacing, with a finite muted fallback. Zero starts immediately.
+   * @param onAudioAdmission Report whether AAC was admitted before the clocks
+   * start, so the muxer avoids a second audio wait.
+   */
   constructor(
     private readonly video: (data: Buffer) => void,
     private readonly audio: (data: Buffer) => void,
     private readonly fail: (reason: string) => void,
     private readonly now: () => number = () => performance.now(),
+    private readonly audioWaitMilliseconds = 0,
+    private readonly onAudioAdmission: (available: boolean) => void = () => undefined,
   ) {
+    this.#startupWaiting = audioWaitMilliseconds > 0;
     this.#admissionTimer = setTimeout(() => {
       if (this.#epoch === undefined) this.#reject("pacing_clock_missing");
     }, 10_000);
@@ -94,17 +109,20 @@ export class LiveFramePacer {
       this.#previousTimestamp = clock.timestampMilliseconds;
     }
     this.#enqueue("video", data, this.#videoOrigin! + BUFFER_MILLISECONDS + this.#videoElapsed);
+    this.#admitStartup();
   }
 
-  /** Preserve complete checked AAC batches on their existing sample clock. */
+  /** Preserve checked AAC batches on their sample clock, ignoring late audio after muted admission. */
   acceptAudio(data: Buffer): void {
-    if (this.#closed || !data.length) return;
+    if (this.#closed || this.#audioDisabled || !data.length) return;
     const units = parseAdtsAccessUnits(data);
     if (!units) return this.#reject("pacing_audio_invalid");
     this.#audioOrigin ??= this.now();
     const at = this.#audioOrigin + BUFFER_MILLISECONDS + this.#audioElapsed;
     this.#audioElapsed += units.reduce((total, unit) => total + unit.samples / unit.sampleRate * 1_000, 0);
     this.#enqueue("audio", data, at);
+    this.#audioSeen = true;
+    this.#admitStartup();
   }
 
   /** Cancel all owned callbacks and release retained media without delivering after disconnect. */
@@ -112,8 +130,10 @@ export class LiveFramePacer {
     this.#closed = true;
     clearTimeout(this.#timer);
     clearTimeout(this.#admissionTimer);
+    clearTimeout(this.#audioAdmissionTimer);
     this.#timer = undefined;
     this.#admissionTimer = undefined;
+    this.#audioAdmissionTimer = undefined;
     this.#queue.length = 0;
     this.#bootstrap.length = 0;
     this.#bytes = 0;
@@ -132,7 +152,7 @@ export class LiveFramePacer {
     else this.#queue.splice(index, 0, packet);
     this.#bytes += data.length;
     if (!this.#checkLimit()) return;
-    if (at < this.now()) this.#late++;
+    if (!this.#startupWaiting && at < this.now()) this.#late++;
     this.#arm();
   }
 
@@ -148,7 +168,7 @@ export class LiveFramePacer {
   #arm(): void {
     clearTimeout(this.#timer);
     this.#timer = undefined;
-    if (this.#closed || !this.#queue.length || this.#epoch === undefined) return;
+    if (this.#closed || this.#startupWaiting || !this.#queue.length || this.#epoch === undefined) return;
     this.#timer = setTimeout(() => {
       this.#timer = undefined;
       while (!this.#closed && this.#queue[0] && this.#queue[0].at <= this.now()) {
@@ -166,5 +186,34 @@ export class LiveFramePacer {
     if (this.#closed) return;
     this.close();
     this.fail(reason);
+  }
+
+  #admitStartup(): void {
+    if (this.#closed || !this.#startupWaiting || this.#epoch === undefined) return;
+    if (this.#audioSeen) return this.#releaseStartup(true);
+    if (this.#audioAdmissionTimer) return;
+    this.#audioAdmissionTimer = setTimeout(() => this.#releaseStartup(false), this.audioWaitMilliseconds);
+    this.#audioAdmissionTimer.unref();
+  }
+
+  #releaseStartup(withAudio: boolean): void {
+    if (this.#closed || !this.#startupWaiting) return;
+    this.#startupWaiting = false;
+    this.#audioDisabled = !withAudio;
+    clearTimeout(this.#audioAdmissionTimer);
+    this.#audioAdmissionTimer = undefined;
+    const origin = this.now();
+
+    // Start both relative media clocks together after the existing audio wait.
+    // Otherwise FFmpeg buffers early paced video, then consumes it as a burst
+    // before AAC, outside HA's twenty-packet audio-detection window.
+    for (const packet of this.#queue) {
+      packet.at += origin - (packet.kind === "video" ? this.#videoOrigin! : this.#audioOrigin!);
+    }
+    this.#videoOrigin = origin;
+    this.#audioOrigin = origin;
+    this.#queue.sort((left, right) => left.at - right.at);
+    this.onAudioAdmission(withAudio);
+    this.#arm();
   }
 }

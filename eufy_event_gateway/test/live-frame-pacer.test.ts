@@ -11,18 +11,19 @@ import { markS340LiveFrameClock, markS340LiveSource, qualifiedS340LiveSource } f
 const adts = Buffer.from([0xff, 0xf1, 0x60, 0x40, 0x01, 0x1f, 0xfc, 0x00]);
 
 /** Own one synthetic epoch and collect delivered copies under fake timers. */
-function fixture(context: TestContext) {
+function fixture(context: TestContext, audioWaitMilliseconds = 0) {
   context.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 0 });
   const epoch = Symbol();
   const events: { kind: string; at: number; bytes: Buffer }[] = [];
   const failures: string[] = [];
+  const admissions: boolean[] = [];
   const pacer = new LiveFramePacer(
     data => events.push({ kind: "video", at: Date.now(), bytes: data }),
     data => events.push({ kind: "audio", at: Date.now(), bytes: data }),
-    reason => failures.push(reason), () => Date.now(),
+    reason => failures.push(reason), () => Date.now(), audioWaitMilliseconds, available => admissions.push(available),
   );
   context.after(() => pacer.close());
-  return { pacer, events, failures, epoch,
+  return { pacer, events, failures, admissions, epoch,
     frame(timestamp: number, byte = 1, sourceEpoch = epoch) {
       const data = Buffer.from([byte]);
       markS340LiveFrameClock(data, timestamp, sourceEpoch);
@@ -121,7 +122,7 @@ test("disconnect cancels both media clocks and admission callbacks", context => 
   f.pacer.acceptVideo(f.frame(167));
   f.pacer.acceptAudio(adts);
   context.mock.timers.tick(30_000);
-  assert.deepEqual(f.events, []);
+  assert.equal(f.events.length, 0);
   assert.deepEqual(f.failures, []);
 });
 
@@ -158,4 +159,61 @@ test("source qualification belongs to the original object", () => {
   assert.equal(qualifiedS340LiveSource({}), false);
   assert.equal(qualifiedS340LiveSource(null), false);
   assert.throws(() => markS340LiveFrameClock(Buffer.from([1]), -1, Symbol()), /Invalid qualified/);
+});
+
+test("late initial AAC admits both relative clocks together without a video burst", context => {
+  const f = fixture(context, 12_000);
+  f.pacer.acceptVideo(f.frame(0, 11));
+  f.pacer.acceptVideo(f.frame(100, 12));
+  f.pacer.acceptVideo(f.frame(200, 13));
+  context.mock.timers.tick(7_500);
+  assert.equal(f.events.length, 0);
+  for (let index = 0; index < 3; index++) f.pacer.acceptAudio(adts);
+  assert.deepEqual(f.admissions, [true]);
+  context.mock.timers.tick(5_999);
+  assert.equal(f.events.length, 0);
+  for (const delta of [1, 64, 36, 28, 72]) context.mock.timers.tick(delta);
+  assert.deepEqual(f.events.map(({ kind, at }) => ({ kind, at })), [
+    { kind: "video", at: 13_500 }, { kind: "audio", at: 13_500 },
+    { kind: "audio", at: 13_564 }, { kind: "video", at: 13_600 },
+    { kind: "audio", at: 13_628 }, { kind: "video", at: 13_700 },
+  ]);
+  assert.deepEqual(f.events.filter(event => event.kind === "video").map(event => event.bytes[0]), [11, 12, 13]);
+  assert.equal(f.pacer.close().latePackets, 0);
+});
+
+test("audio arriving before video shares the eventual qualified video origin", context => {
+  const f = fixture(context, 12_000);
+  f.pacer.acceptAudio(adts);
+  context.mock.timers.tick(1_000);
+  f.pacer.acceptVideo(f.frame(0));
+  context.mock.timers.tick(5_999);
+  assert.equal(f.events.length, 0);
+  context.mock.timers.tick(1);
+  assert.deepEqual(f.events.map(({ kind, at }) => ({ kind, at })), [
+    { kind: "audio", at: 7_000 }, { kind: "video", at: 7_000 },
+  ]);
+  assert.deepEqual(f.admissions, [true]);
+});
+
+test("a muted source uses its finite audio wait once and ignores later AAC", context => {
+  const f = fixture(context, 12_000);
+  f.pacer.acceptVideo(f.frame(0));
+  context.mock.timers.tick(12_000);
+  assert.deepEqual(f.admissions, [false]);
+  f.pacer.acceptAudio(adts);
+  context.mock.timers.tick(5_999);
+  assert.equal(f.events.length, 0);
+  context.mock.timers.tick(1);
+  assert.deepEqual(f.events.map(({ kind, at }) => ({ kind, at })), [{ kind: "video", at: 18_000 }]);
+});
+
+test("disconnect during initial audio admission cancels its timer and media", context => {
+  const f = fixture(context, 12_000);
+  f.pacer.acceptVideo(f.frame(0));
+  context.mock.timers.tick(500);
+  f.pacer.close();
+  context.mock.timers.tick(20_000);
+  assert.deepEqual(f.admissions, []);
+  assert.equal(f.events.length, 0);
 });

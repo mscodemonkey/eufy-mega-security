@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Add a default-off six-second smooth live-view buffer for the exact S340/type 88 through HomeBase 3 channel 1. It uses the camera frame clock and checked audio sample clock, retains original media, and keeps snapshots and recordings on their existing source. Hardware playback and audio synchronisation remain unconfirmed.
+- Add a default-off six-second smooth live-view buffer for the exact S340/type 88 through HomeBase 3 channel 1. It uses the camera frame clock and checked audio sample clock, retains original media, and keeps snapshots and recordings on their existing source. Both relative clocks start after the existing bounded audio wait, preventing an opening video burst from hiding AAC from Home Assistant. Muted sources retain video-only fallback. Hardware playback and audio synchronisation remain unconfirmed.
 - Use the current portal's Security web identity and country headers for camera-list reads in the default-off general RTC trial. Keep the admitted session and existing no-login, no-key-exchange and no-retry limits. This corrects the request profile, but HTTP 463 and T8420X playback still need a reporter check.
 
 ## 0.1.237

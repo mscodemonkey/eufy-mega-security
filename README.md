@@ -463,6 +463,10 @@ validated audio sample clock smooth burst delivery. It retains real media only,
 with a 4 MiB and 1,024-packet queue limit. A changed source epoch, invalid clock
 or overflowing queue closes that experimental viewer.
 
+The existing audio startup wait runs before these clocks begin, so delayed
+audio does not turn buffered video into a burst. Cameras without audio still
+fall back to video-only playback.
+
 This is a source-qualified candidate. Physical playback and audio synchronisation
 still need confirmation. Snapshots and recordings consume the original source.
 Standalone installs can set `EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE=true`

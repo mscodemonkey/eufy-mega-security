@@ -53,6 +53,7 @@ export class LiveTransportMuxer {
   #audioReady = false;
   #pacer: LiveFramePacer | undefined;
   #pacingDecided = false;
+  #pacingAudioMissing = false;
 
   /**
    * Bind a viewer and its finite process, buffer and audio-subscription lifetime.
@@ -72,7 +73,8 @@ export class LiveTransportMuxer {
       if (!this.#pacingDecided) {
         this.#pacingDecided = true;
         if (smoothS340Live?.() === true) {
-          this.#pacer = new LiveFramePacer(data => this.#acceptVideo(data), data => this.#acceptAudio(data), reason => this.close(reason));
+          this.#pacer = new LiveFramePacer(data => this.#acceptVideo(data), data => this.#acceptAudio(data), reason => this.close(reason),
+            undefined, this.audioWaitMilliseconds, available => { this.#pacingAudioMissing = !available; });
           for (const audio of this.#audio.splice(0)) {
             this.#bufferedBytes -= audio.length;
             this.#pacer.acceptAudio(audio);
@@ -143,6 +145,7 @@ export class LiveTransportMuxer {
     this.#bufferedBytes += chunk.length;
     if (this.#bufferedBytes > MAX_INPUT_BYTES) return this.close("startup_input_limit");
     if (this.#audio.length) return this.#start(true);
+    if (this.#pacingAudioMissing) return this.#start(false);
     if (!this.#timer) {
       this.#timer = setTimeout(() => { this.#start(false); }, this.audioWaitMilliseconds);
     }
