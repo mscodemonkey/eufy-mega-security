@@ -47,7 +47,8 @@ async function peer(context: TestContext, attached = true, model = "T8113-Z", pu
   const session = new FirstPartyPpcsSession({ stationSerial: "SYNTHETIC1234567", p2pDid: "TEST-12345678-TEST",
     appConnection: "", dskKey: "synthetic", channel: channelOverride ?? (attached ? 1 : 0), homeBaseAttached: attached, stationModel,
     ...(startupDeadlineMilliseconds === undefined ? {} : { startupDeadlineMilliseconds }),
-    purpose, cameraModel: model, accountId: "synthetic-owner", maxSeconds: 120,
+    purpose, cameraModel: model, ...(model === "T8171" ? { cameraDeviceType: 88 } : {}),
+    accountId: "synthetic-owner", maxSeconds: 120,
     resolveCipherKey: async () => Buffer.alloc(32, 1).toString("hex") });
   const receive = (packet: Buffer, port = 12345, address = "127.0.0.1") => socket.emit("message", packet, { address, port });
   const frame = (command: number, payload: Buffer, channel = 1, result = false, sign = 0) => {
@@ -573,7 +574,7 @@ for (const [model, station, channel] of [["T8171", "T8030", 1], ["T8210", "T8030
       assert.equal(value?.mChannel, channel);
       assert.equal(value?.mValue3, 1003);
       const payload = value?.payload as Record<string, unknown> | undefined;
-      assert.equal(payload?.streamtype, 2);
+      assert.equal(payload?.streamtype, model === "T8171" ? 0 : 2);
       assert.equal(payload?.camera_type, 0);
       assert.equal(payload?.entrytype, 0);
       assert.equal(typeof payload?.key, "string");
@@ -581,3 +582,26 @@ for (const [model, station, channel] of [["T8171", "T8030", 1], ["T8210", "T8030
     } finally { f.session.close(); }
   });
 }
+
+test("T8171 native start and stop retain their distinct encrypted wire slots", async context => {
+  const f = await peer(context, true, "T8171", "media", "T8030");
+  try {
+    await f.negotiate();
+    const start = f.sent.at(-1)!;
+    assert.equal(start[22], 10);
+    const value = decodePpcsControlRecord(start.subarray(24), 8, Buffer.alloc(16), Buffer.alloc(32, 9));
+    const payload = value?.payload as Record<string, unknown>;
+    assert.deepEqual(payload.chn_list, [{ cameraType: 0, chn: 1, index: 0, sensor: 0 }]);
+    assert.equal(payload.ClientOS, "ANDROID");
+    f.session.close();
+    const stop = f.sent.filter(packet => packet.length > 24 && packet[0] === 0xf1 && packet[1] === 0xd0
+      && packet.readUInt16LE(12) === 1350).at(-1)!;
+    assert.equal(stop[20], 1);
+    assert.equal(stop[21], 8);
+    assert.equal(stop[22], 0);
+    const stopped = decodePpcsControlRecord(stop.subarray(24), 8, Buffer.alloc(16), Buffer.alloc(32, 9));
+    assert.equal(stopped?.cmd, 1004);
+    assert.equal(stopped?.mValue3, 0);
+    assert.deepEqual(stopped?.payload, { channel: 1, transaction: "1800000000000" });
+  } finally { f.session.close(); }
+});

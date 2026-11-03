@@ -172,25 +172,42 @@ export function acceptsSoloCamAudio(cameraModel: string, homeBaseAttached: boole
  *
  * Command 1003 starts a child camera and must advertise the session's RSA
  * modulus so the camera can wrap its media key. The app's attached live
- * selector is 2. Frame-level codec detection remains downstream.
- * Command 1004 stops the child
- * channel and deliberately carries an empty payload. The caller applies
- * level-two encryption after this function returns.
+ * selector is 2. The exact reported T8171/type-88 route through HomeBase 3
+ * instead uses its app-observed single-camera descriptor and selector 0.
+ * Its stop includes the child channel and a fresh transaction. Other stops
+ * retain the empty payload. The caller owns route admission and applies
+ * level-two encryption afterwards. Frame-level codec detection remains downstream.
  */
 export function buildAttachedMediaControlValue(
   command: 1003 | 1004,
   channel: number,
   accountId: string,
   publicKey?: string,
+  route?: AttachedMediaControlRoute,
 ): Buffer {
   if (command === 1003 && !publicKey) throw new Error("Attached media start requires an RSA public key");
+  const nativeT8171 = usesT8171AttachedMediaProfile(channel, route);
   return Buffer.from(JSON.stringify({
     account_id: accountId,
     cmd: command,
     mChannel: channel,
-    mValue3: command,
+    mValue3: nativeT8171 && command === 1004 ? 0 : command,
     payload: command === 1003
-      ? {
+      ? nativeT8171 ? {
+          streamtype: 0,
+          camera_type: 0,
+          entrytype: 0,
+          accountId,
+          chn_list: [{ cameraType: 0, chn: channel, index: 0, sensor: 0 }],
+          view_mode: -1,
+          extValue: 1000,
+          ClientOS: "ANDROID",
+          station_video_type: 0,
+          audio_chn: channel,
+          pip_cord: "",
+          stitch_mode: 1,
+          key: publicKey,
+        } : {
           ClientOS: "Android",
           accountId,
           camera_type: 0,
@@ -198,8 +215,26 @@ export function buildAttachedMediaControlValue(
           key: publicKey,
           streamtype: 2,
         }
-      : {},
+      : nativeT8171 ? { channel, transaction: String(Date.now()) } : {},
   }));
+}
+
+/**
+ * Reported identity and topology supplied by the owning provider for media framing.
+ * These facts select only a qualified request shape. They do not discover a peer,
+ * authorize a camera, or change persistent device settings.
+ */
+export interface AttachedMediaControlRoute {
+  readonly cameraModel?: string;
+  readonly cameraDeviceType?: number | null;
+  readonly stationModel?: string;
+  readonly homeBaseAttached?: boolean;
+}
+
+/** Select the current app's exact type-88 T8171 single-camera HomeBase 3 route. */
+function usesT8171AttachedMediaProfile(channel: number, route?: AttachedMediaControlRoute): boolean {
+  return channel === 1 && route?.homeBaseAttached === true && route.cameraModel === "T8171"
+    && route.cameraDeviceType === 88 && route.stationModel === "T8030";
 }
 
 /** Build the encrypted direct stop command required by a T8010 HomeBase 2. */
@@ -1334,8 +1369,11 @@ export interface PpcsCameraOptions {
   /** Child-camera channel, or the standalone camera's own channel. */
   readonly channel: number;
 
-  /** Public model identifier used by higher-level diagnostics. */
+  /** Reported model used by qualified media profiles and higher-level diagnostics. */
   readonly cameraModel: string;
+
+  /** Reported numeric identity. Missing types retain the generic media shape. */
+  readonly cameraDeviceType?: number | null;
 
   /** Parent peer model used only where HomeBase generations have different media lifecycle commands. */
   readonly stationModel?: string;
@@ -3662,13 +3700,16 @@ export class FirstPartyPpcsSession {
       this.#options.channel,
       this.#options.accountId ?? "",
       command === 1003 ? publicModulus(this.#rsa.publicKey) : undefined,
+      this.#options,
     );
 
     // The level-2 body is AES-GCM encrypted. The RSA modulus inside the JSON
     // lets the camera establish the per-stream video key for frame payloads.
     const level2Sequence = this.#level2Seq++;
     const body = encryptLevel2(value, this.#level2Key, level2Sequence);
-    const streamId = this.#options.channel === 0 || this.#options.channel === 255 ? 0 : 10 + (this.#level2Seq & 127);
+    const streamId = usesT8171AttachedMediaProfile(this.#options.channel, this.#options)
+      ? command === 1003 ? 10 : 0
+      : this.#options.channel === 0 || this.#options.channel === 255 ? 0 : 10 + (this.#level2Seq & 127);
     const header = commandHeader(this.#seq++, 1350);
     const packet = Buffer.concat([header, rawPayload(body, this.#options.channel, 8, [8, 0], streamId)]);
     if (!this.stats.startHex) this.stats.startHex = packet.subarray(0, 32).toString("hex");
