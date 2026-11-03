@@ -1249,8 +1249,8 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
       "T8419N"
     ],
     "deviceType": 10011,
-    "status": "recognised",
-    "handler": null
+    "status": "ready_to_test",
+    "handler": "camera"
   },
   {
     "id": "t817l",
@@ -1313,7 +1313,7 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
 ] as const;
 
 /** Device types admitted to the implemented camera handler. */
-export const GENERATED_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([1,3,5,7,8,9,14,15,16,19,23,24,26,30,31,32,33,37,38,45,47,48,49,61,62,63,64,87,88,89,91,94,95,96,97,98,104,105,111,151,203,10005,10008,10009,10010,10031,10035,10037,10039]);
+export const GENERATED_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([1,3,5,7,8,9,14,15,16,19,23,24,26,30,31,32,33,37,38,45,47,48,49,61,62,63,64,87,88,89,91,94,95,96,97,98,104,105,111,151,203,10005,10008,10009,10010,10011,10031,10035,10037,10039]);
 
 /** Device types admitted to the implemented standalone-sensor handler. */
 export const GENERATED_SENSOR_DEVICE_TYPES: ReadonlySet<number> = new Set([2,10,20,126,127]);
