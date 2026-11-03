@@ -931,13 +931,16 @@ export class NvrRtcSession {
   #drain(): void {
     for (const [key, item] of this.#reorder) {
       const previous = this.#lastSequence.get(item.channel);
-      if (previous !== undefined && item.sequence !== (previous + 1) % 65536) {
-        if (this.#now() - item.at >= 1000) throw new NvrTrialError("framing", "frame_reorder_timeout");
-        continue;
-      }
+      if (previous !== undefined && item.sequence !== (previous + 1) % 65536) continue;
       this.#reorder.delete(key); this.#reorderBytes -= item.frame.length;
       this.#lastSequence.set(item.channel, item.sequence); this.#frame(item.frame, item.channel);
-      this.#drain(); break;
+      this.#drain(); return;
+    }
+
+    // Arrival order can place a repaired predecessor after an older waiter.
+    // Drain every ready frame before deciding whether a gap still exists.
+    for (const item of this.#reorder.values()) {
+      if (this.#now() - item.at >= 1000) throw new NvrTrialError("framing", "frame_reorder_timeout");
     }
   }
 

@@ -50,7 +50,7 @@ function keyframePackets(frame: Buffer, sequence: number): Buffer[] {
   });
 }
 
-for (const scenario of ['start-no-ack-recording', 'start-late-video', 'start-stale-no-ack', 'start-no-ack-h264', 'start-no-ack-h265', 'start-parameters-only', 'start-empty', 'start-negative-ack', 'start-cancel-no-ack', 'observer', 'observer-signalling-close', 'continuous-modes', 'continuous-parameters', 'continuous-h265', 'continuous-controls', 'continuous-video', 'continuous-signalling-close', 'continuous-stall', 'continuous-heartbeat', 'continuous-gap', 'continuous-cancel', 'live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-nonzero', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
+for (const scenario of ['repaired-gap', 'missing-gap', 'start-no-ack-recording', 'start-late-video', 'start-stale-no-ack', 'start-no-ack-h264', 'start-no-ack-h265', 'start-parameters-only', 'start-empty', 'start-negative-ack', 'start-cancel-no-ack', 'observer', 'observer-signalling-close', 'continuous-modes', 'continuous-parameters', 'continuous-h265', 'continuous-controls', 'continuous-video', 'continuous-signalling-close', 'continuous-stall', 'continuous-heartbeat', 'continuous-gap', 'continuous-cancel', 'live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-nonzero', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
   const codec = scenario === 'h265' || scenario === 'sequence-gap' || scenario === 'continuous-h265' || scenario === 'start-no-ack-h265' ? 'h265' : 'h264';
   const server = new WebSocketServer({ port: 0 });
   await once(server, 'listening');
@@ -333,6 +333,7 @@ for (const scenario of ['start-no-ack-recording', 'start-late-video', 'start-sta
   const timingReports: NvrTimings[] = [];
   const nativeVideoNow = performance.now.bind(performance);
   let videoProgressOffset = 0;
+  let clientDataChannel: ReturnType<RTCPeerConnection["createDataChannel"]> | undefined;
   const session = new NvrRtcSession({ onEffectiveMode: value => modes.push(value), onTimings: value => timingReports.push(value), station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
     ...(scenario.startsWith('observer') ? { modeObserver: true, maximumLifetimeMilliseconds: null } : {}),
     powerTrial: scenario.startsWith('power'), liveControls: scenario.startsWith('live-') || scenario === 'continuous-controls',
@@ -346,9 +347,53 @@ for (const scenario of ['start-no-ack-recording', 'start-late-video', 'start-sta
       assert.equal(url, 'wss://security-smart-ie.eufylife.com/v1/rtc/ws/join?reqtype=nvr');
       assert.equal(options.followRedirects, false); assert.equal(options.maxPayload, 65536);
       return new WebSocket(`ws://127.0.0.1:${(address as { port: number }).port}`, protocols, options);
-    }, peer: () => new RTCPeerConnection({ iceServers: [], iceUseIpv6: false }),
+    }, peer: () => {
+      const client = new RTCPeerConnection({ iceServers: [], iceUseIpv6: false });
+      if (scenario === 'repaired-gap' || scenario === 'missing-gap') {
+        const create = client.createDataChannel.bind(client);
+        client.createDataChannel = (label, options) => {
+          const channel = create(label, options);
+          if (label === 'WebrtcDataChannel') clientDataChannel = channel;
+          return channel;
+        };
+      }
+      return client;
+    },
   });
   try {
+    if (scenario === 'repaired-gap' || scenario === 'missing-gap') {
+      await session.start();
+      if (sendVideo) clearInterval(sendVideo);
+      await new Promise(resolve => setTimeout(resolve, 250));
+      assert.ok(clientDataChannel);
+      const errors: NvrTrialError[] = [];
+      session.output.on('error', error => { errors.push(error as NvrTrialError); });
+      const nativeNow = performance.now.bind(performance);
+      let offset = 0;
+      const clock = context.mock.method(performance, 'now', () => nativeNow() + offset);
+      const inject = (sequence: number, mode: number): void => {
+        const frame = application(1151, 0, Buffer.alloc(8));
+        frame[14] = 0; frame.writeInt32LE(mode, 16);
+        for (const packet of receivePackets(frame, sequence, 2)) clientDataChannel!.onmessage?.({ data: packet });
+      };
+      try {
+        inject(0, 1);
+        inject(2, 3);
+        offset += 1001;
+        inject(scenario === 'repaired-gap' ? 1 : 3, 0);
+        if (scenario === 'repaired-gap') {
+          assert.deepEqual(modes, [{ mode: 1 }, { mode: 0 }, { mode: 3 }]);
+          assert.equal(session.output.destroyed, false);
+          assert.equal(session.stats.applicationSequenceRecoveries, 0);
+        } else assert.equal(session.output.destroyed, true);
+        await new Promise(resolve => setImmediate(resolve));
+        if (scenario === 'missing-gap') assert.equal(errors[0]?.reason, 'frame_reorder_timeout');
+        else assert.deepEqual(errors, []);
+        await session.close();
+        if (scenario === 'repaired-gap') assert.equal(session.stats.stopUnconfirmed, 0);
+      } finally { clock.mock.restore(); }
+      return;
+    }
     if (['identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags'].includes(scenario) || scenario.startsWith('heartbeat-')) {
       const deadline = setTimeout(() => controller.abort(), 5000);
       try { await assert.rejects(session.start(), error => {
