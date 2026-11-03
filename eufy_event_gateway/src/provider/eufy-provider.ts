@@ -2333,7 +2333,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
-  /** Share an in-flight media start and retire bounded lookup retries on stop. */
+  /**
+   * Share an in-flight media start and wait for existing pan/preset ownership.
+   * Stop cancels that wait without waking a peer after the control has retired.
+   * Control waits and lookup retries retain their existing bounded deadlines.
+   */
   async startStream(serial: string): Promise<void> {
     this.#assertRtcPreparationIdle();
     const nvrStartingDevice = this.#devices.get(serial);
@@ -2364,6 +2368,21 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     };
     ticket.promise = Promise.resolve().then(async () => {
       current();
+      if (this.#panControlOperations.has(serial)) {
+        try {
+          await withCameraControlDeadline(async scope => {
+            let reservation: Promise<void> | undefined;
+            while ((reservation = this.#panControlOperations.get(serial))) {
+              current();
+              await scope.wait(() => reservation!.catch(() => undefined));
+              current();
+            }
+          }, cancellation.signal);
+        } catch {
+          current();
+          throw new Error("Camera stream start timed out waiting for preset or pan control");
+        }
+      }
       const doorbell = this.#devices.get(serial);
       if (this.#doorbellRtcBinding(doorbell)) {
         this.#reserveDoorbellRtc(serial, cancellation.signal, false);
@@ -5143,7 +5162,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     });
   }
 
-  /** Serialize a fresh preset query with movement and tracking on the verified camera route. */
+  /**
+   * Read fresh preset slots on the admitted route, sharing a decoded viewer.
+   * A read during live startup rejects instead of replacing its media owner.
+   * Idle reads still own and retire their separate control connection.
+   */
   async getCameraPresetPositions(serial: string): Promise<readonly CameraPresetPosition[]> {
     this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
@@ -5293,6 +5316,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         // C31 tracking retains its separately verified owned control session.
         await operation(active, current, observe);
         return;
+      }
+      if (action === "preset_query" && (this.#streamStarts.has(serial)
+        || active?.stats.closeReason === "open")) {
+        throw new Error("Wait for live video to finish starting before reading presets");
       }
       await this.stopStream(serial);
       current();
