@@ -100,6 +100,14 @@ export interface NvrRtcOptions {
   /** Expected cloud inventory type, checked against fresh station discovery. */
   readonly cameraType?: number;
 
+  /**
+   * Let the provider-qualified experimental T8172 route use its existing
+   * twenty-second picture budget when the start receipt is absent. The session
+   * independently requires type 89 and the existing sensor-0 selection. No
+   * start is repeated or receipt invented.
+   */
+  readonly s1FirstPictureGrace?: boolean;
+
   /** Provider-selected lens. Omission preserves the original T8E00 trial. */
   readonly sensor?: 0 | 1;
   readonly administrator: string;
@@ -143,6 +151,9 @@ interface PendingRequest {
   readonly reject: (error: Error) => void;
   readonly timer: NodeJS.Timeout;
   readonly deadline: number;
+
+  /** The receipt window ended, but this start still owns a finite picture wait. */
+  readonly pictureGrace?: boolean;
 }
 
 /** Content-free counters explain an unconfirmed trial without exposing its route. */
@@ -246,6 +257,9 @@ export class NvrRtcSession {
 
   /** Checked picture output proves this session started independently of a receipt. */
   #startVideoObserved = false;
+
+  /** Fixed S1 first-picture bound, independent of a delayed timer or start receipt. */
+  #firstPictureDeadline: number | null = null;
   #authenticated = false;
   #accepted = false;
   #offerApplied = false;
@@ -313,9 +327,10 @@ export class NvrRtcSession {
 
   /**
    * Negotiate, correlate fresh discovery, attach the sink and request video once.
-   * Checked picture output from this session can satisfy a missing receipt at
-   * its five-second deadline. A receipt can resolve before video, so playback
-   * remains a separate boundary. Rejection, cancellation and stale ownership fail.
+   * Checked picture output can satisfy a missing receipt at five seconds. The
+   * qualified experimental S1 route can then await its first picture within one
+   * twenty-second media budget. A receipt can resolve before video, so playback
+   * remains separate. Rejection, cancellation and stale ownership still fail.
    */
   async start(): Promise<void> {
     if (this.options.modeObserver) throw new NvrTrialError("admission");
@@ -325,12 +340,16 @@ export class NvrRtcSession {
     await this.#connectAndDiscover();
     this.options.ready(this.output, () => this.#codec);
     this.#stage = "start";
-    await this.#request(1003, 5000);
+    const pictureDeadline = this.options.s1FirstPictureGrace && this.options.cameraType === 89 && this.options.sensor === 0
+      ? performance.now() + 20_000 : undefined;
+    this.#firstPictureDeadline = pictureDeadline ?? null;
+    await this.#request(1003, 5000, false, false, pictureDeadline);
     this.#stage = "video";
     if (this.options.liveControls) this.#settingsFlight = this.readLiveSettings().catch(() => ({ night: null, quality: null }));
     if (!this.#bootstrapped) {
-      if (this.#maximumLifetimeMilliseconds === null) this.#videoProgressExpiresAt = (this.options.videoProgressNow?.() ?? performance.now()) + 20_000;
-      this.#firstFrame = setTimeout(() => this.#fail("video"), 20_000);
+      const wait = pictureDeadline === undefined ? 20_000 : Math.max(0, pictureDeadline - performance.now());
+      if (this.#maximumLifetimeMilliseconds === null) this.#videoProgressExpiresAt = (this.options.videoProgressNow?.() ?? performance.now()) + wait;
+      this.#firstFrame = setTimeout(() => this.#fail("video"), wait);
     }
   }
 
@@ -959,6 +978,9 @@ export class NvrRtcSession {
     if (frame.command === 1303) { this.stats.ignoredUnknownMedia++; return; }
     if (frame.command === 1300) {
       if (!this.#startSent || this.#retired) return;
+      if (!this.#startVideoObserved && this.#firstPictureDeadline !== null && performance.now() >= this.#firstPictureDeadline) {
+        throw new NvrTrialError(this.#stage, this.#stage === "start" ? "start_receipt_timeout" : "unspecified");
+      }
       const video = nvrVideo(frame, this.options.channel);
       if (this.#videoSequence !== null && video.sequence !== (this.#videoSequence + 1) % 65536) {
         this.#cache = new VideoParameterSetCache();
@@ -979,7 +1001,16 @@ export class NvrRtcSession {
         delivered = startup;
       } else if (!this.output.write(video.bytes)) throw new NvrTrialError("video");
       const picture = hasCodedPicture(delivered, video.codec);
-      if (picture) this.#startVideoObserved = true;
+      if (picture) {
+        this.#startVideoObserved = true;
+        const pending = this.#pending;
+        if (pending?.command === 1003 && pending.pictureGrace) {
+          this.#guard();
+          this.#pending = null;
+          clearTimeout(pending.timer);
+          pending.resolve({});
+        }
+      }
       if (this.#maximumLifetimeMilliseconds === null && picture) this.#renewVideoProgress();
       return;
     }
@@ -1047,7 +1078,7 @@ export class NvrRtcSession {
     clearTimeout(pending.timer); this.#pending = null;
   }
 
-  #request(command: 9100 | 1003 | 1004 | 1103, timeout: number, closing = false, strict = false): Promise<Record<string, unknown>> {
+  #request(command: 9100 | 1003 | 1004 | 1103, timeout: number, closing = false, strict = false, pictureDeadline?: number): Promise<Record<string, unknown>> {
     if (this.options.modeObserver && command !== 9100) return Promise.reject(new NvrTrialError("admission"));
     if (!closing) this.#guard();
     if (this.#pending || this.#livePending || this.#segment >= 254 || this.options.liveControls && command !== 1004 && this.#segment >= 252) return Promise.reject(new NvrTrialError(this.#stage));
@@ -1055,20 +1086,39 @@ export class NvrRtcSession {
     if (!channel || channel.readyState !== "open" || channel.bufferedAmount > 1024 * 1024) return Promise.reject(new NvrTrialError("channel"));
     return new Promise((resolve, reject) => {
       const segment = ++this.#segment;
-      const timer = setTimeout(() => {
-        if (this.#pending?.segment !== segment) return;
-        this.#pending = null;
+      const expired = (): void => {
+        const pending = this.#pending;
+        if (pending?.segment !== segment) return;
 
         // Some peers send usable video without a matching start receipt. Only
         // this start's checked picture output can satisfy its missing receipt.
         if (command === 1003 && this.#startVideoObserved) {
+          this.#pending = null;
           try { this.#guard(); resolve({}); }
           catch (error) { reject(error instanceof Error ? error : new NvrTrialError("cancelled")); }
           return;
         }
+        if (command === 1003 && pictureDeadline !== undefined && !pending.pictureGrace
+          && performance.now() < pictureDeadline) {
+          try { this.#guard(); }
+          catch (error) {
+            this.#pending = null;
+            reject(error instanceof Error ? error : new NvrTrialError("cancelled"));
+            return;
+          }
+
+          // The source contract gives this S1 route a picture deadline rather
+          // than requiring a start ACK. Keep one request, the same identity and
+          // its original deadline. A checked picture can finish this grace.
+          this.#pending = { ...pending, pictureGrace: true, deadline: pictureDeadline,
+            timer: setTimeout(expired, Math.max(0, pictureDeadline - performance.now())) };
+          return;
+        }
+        this.#pending = null;
         reject(new NvrTrialError(command === 1004 ? "stop" : this.#stage,
           command === 1003 ? "start_receipt_timeout" : "unspecified"));
-      }, timeout);
+      };
+      const timer = setTimeout(expired, timeout);
       this.#pending = { command, segment, resolve, reject, timer, strict, deadline: performance.now() + timeout };
       if (command === 1003) this.#startSent = true;
       try {

@@ -268,6 +268,8 @@ for (const camera of [undefined, { model: "T8P10", type: 303 }, { model: "T8140"
       const first = viewer();
       const opening = f.manager!.addClient(serial, first as unknown as ServerResponse);
       await f.closeEntered; await tick(); await opening;
+      const options = Reflect.get(f.sessions[0]!, "options") as NvrRtcOptions;
+      assert.equal(options.s1FirstPictureGrace, camera?.model === "T8172" ? true : undefined);
       assert.equal(first.destroyed || first.writableEnded, true);
       const next = viewer(), shared = viewer(), bytes: Buffer[] = [];
       next.on("data", (data: Buffer) => bytes.push(data));
@@ -312,3 +314,15 @@ for (const interruption of ["stop", "shutdown", "generation"] as const) {
     } finally { await f.close(); }
   });
 }
+
+test("a diagnostic S1 lease keeps its ordinary receipt timeout", async context => {
+  const f = await fixture(context, false, "T9000", { model: "T8172", type: 89 });
+  try {
+    const release = f.provider.reserveNvrLiveTrial(serial, new AbortController().signal);
+    await f.provider.startStream(serial);
+    const options = Reflect.get(f.sessions[0]!, "options") as NvrRtcOptions;
+    assert.equal(options.s1FirstPictureGrace, undefined);
+    assert.equal(options.maximumLifetimeMilliseconds, 75_000);
+    await release();
+  } finally { await f.close(); }
+});

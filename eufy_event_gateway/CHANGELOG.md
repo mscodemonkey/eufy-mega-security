@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Keep an immediate NVR live-view retry separate from a failed startup while the old connection finishes closing. Concurrent retry viewers share one replacement, and stop, shutdown and changed ownership still cancel it.
+- Give the existing experimental S1 (T8172/type 89) HomeBase 3 route its twenty-second first-picture budget when start confirmation is missing. A checked picture must arrive before the deadline, and no start command is repeated. Other models, diagnostics and lens selection retain their existing behaviour. Hardware benefit on the reported S1 remains unconfirmed.
 - Add a default-off six-second smooth live-view buffer for the exact S340/type 88 through HomeBase 3 channel 1. It uses the camera frame clock and checked audio sample clock, retains original media, and keeps snapshots and recordings on their existing source. Both relative clocks start after the existing bounded audio wait, preventing an opening video burst from hiding AAC from Home Assistant. Muted sources retain video-only fallback. Hardware playback and audio synchronisation remain unconfirmed.
 - Use the current portal's Security web identity and country headers for camera-list reads in the default-off general RTC trial. Keep the admitted session and existing no-login, no-key-exchange and no-retry limits. This corrects the request profile, but HTTP 463 and T8420X playback still need a reporter check.
 
