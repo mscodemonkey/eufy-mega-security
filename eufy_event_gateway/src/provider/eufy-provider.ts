@@ -1824,7 +1824,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       nvrViewOptions: profile?.views ?? [], nvrSelectedView: profile ? view : null,
       autoNightVisionEnabled: null, aiTrackingEnabled: null, battery: batteryState(device),
       streamSupported: this.#normalNvrLiveBinding(device, station), startupSnapshotSupported: false,
-      doorbellSupported: false, audioRecordingControlSupported: false,
+      doorbellSupported: isDoorbellDevice(device), audioRecordingControlSupported: false,
       careMonitor: false, preferenceRanges: {}, carePreferences: {},
       supportedDetections: ["motion", "person", "stranger", "pet", "vehicle", "dog", "crying", "sound", "packageDelivered", "packageTaken", "packageStranded"],
       streamingQualityControlSupported: !!profile && values.quality !== null, storedRecordingsSupported: false, liveAudioSupported: false,
