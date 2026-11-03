@@ -35,7 +35,7 @@ async function fixture(context: TestContext, withManager = false, parent: "T8N00
   ] }));
   let pushReceiver: MegaPushReceiver;
   context.mock.method(MegaPushReceiver.prototype, "start", async function(this: MegaPushReceiver) { pushReceiver = this; });
-  let joins = 0, stopped = 0, held = false, failClose = false, enterClose!: () => void, finishClose!: () => void;
+  let joins = 0, stopped = 0, held = false, failClose = false, failStartup = false, enterClose!: () => void, finishClose!: () => void;
   const closing = new Promise<void>(resolve => { finishClose = resolve; });
   const closeEntered = new Promise<void>(resolve => { enterClose = resolve; });
   const sessions: NvrRtcSession[] = [], closed: NvrRtcSession[] = [], logs: string[] = [], unhandled: unknown[] = [];
@@ -50,6 +50,7 @@ async function fixture(context: TestContext, withManager = false, parent: "T8N00
     sessions.push(this);
     const options = Reflect.get(this, "options") as { ready: (output: PassThrough, codec: () => "h264") => void };
     options.ready(this.output, () => "h264");
+    if (failStartup && this === sessions[0]) throw new NvrTrialError("start", "start_receipt_timeout");
   });
   const retireSession = NvrRtcSession.prototype.close;
   context.mock.method(NvrRtcSession.prototype, "close", async function(this: NvrRtcSession) {
@@ -84,7 +85,7 @@ async function fixture(context: TestContext, withManager = false, parent: "T8N00
   return { provider, events, manager, sessions, closed, closeEntered, state, observedStations,
     disconnectPush: () => (Reflect.get(pushReceiver, "onReceiverState") as (state: string) => void)("disconnected"),
     push: (event: MegaPushEvent) => (Reflect.get(pushReceiver, "onEvent") as (event: MegaPushEvent) => void)(event),
-    joins: () => joins, stopped: () => stopped, hold: () => { held = true; }, finish: () => finishClose(), failClose: () => { failClose = true; },
+    joins: () => joins, stopped: () => stopped, hold: () => { held = true; }, finish: () => finishClose(), failClose: () => { failClose = true; }, failStartup: () => { failStartup = true; },
     close: async () => {
       finishClose();
       try { await manager?.close(); await provider.close(); await tick(); }
@@ -253,3 +254,75 @@ for (const camera of [undefined, { model: "T8P10", type: 303 }, { model: "T8140"
   } finally { await f.close(); }
 });
 }
+
+for (const camera of [undefined, { model: "T8P10", type: 303 }, { model: "T8140", type: 14 }, { model: "T8140-Z", type: 14 }, { model: "T8113-V", type: 8 }, { model: "T8172", type: 89 }, { model: "T8215", type: 97 }]) {
+  test(`a failed ${camera?.model ?? "T8E00"} start cannot take its immediate shared retry down`, async context => {
+    const f = await fixture(context, true, !camera || camera.model === "T8P10" ? "T8N00" : "T9000", camera);
+    const viewer = () => {
+      const response = new PassThrough(); Object.assign(response, { writeHead: () => response });
+      response.on("error", () => {});
+      return response;
+    };
+    try {
+      f.hold(); f.failStartup();
+      const first = viewer();
+      const opening = f.manager!.addClient(serial, first as unknown as ServerResponse);
+      await f.closeEntered; await tick(); await opening;
+      const options = Reflect.get(f.sessions[0]!, "options") as NvrRtcOptions;
+      assert.equal(options.s1FirstPictureGrace, camera?.model === "T8172" ? true : undefined);
+      assert.equal(first.destroyed || first.writableEnded, true);
+      const next = viewer(), shared = viewer(), bytes: Buffer[] = [];
+      next.on("data", (data: Buffer) => bytes.push(data));
+      const replacement = f.manager!.addClient(serial, next as unknown as ServerResponse);
+      const concurrent = f.manager!.addClient(serial, shared as unknown as ServerResponse);
+      await tick();
+      assert.equal(f.sessions.length, 1, "replacement must await the old transport");
+      f.finish(); await Promise.all([replacement, concurrent]);
+      assert.equal(f.sessions.length, 2, "retry must not share the already failed startup promise");
+      assert.equal(f.joins(), 2);
+      assert.equal(next.destroyed || next.writableEnded, false);
+      assert.equal(shared.destroyed || shared.writableEnded, false);
+      assert.equal(f.stopped(), 0, "old cleanup must not stop the replacement source");
+      const nal = (...data: number[]) => Buffer.from([0, 0, 0, 1, ...data]);
+      f.sessions[1]!.output.write(Buffer.concat([nal(0x67, 0x42, 0, 0x1f), nal(0x68, 0xce), nal(0x65, 0x80)]));
+      assert.ok(Buffer.concat(bytes).length > 0);
+    } finally { await f.close(); }
+  });
+}
+
+for (const interruption of ["stop", "shutdown", "generation"] as const) {
+  test(`${interruption} after failed startup cancels its queued NVR replacement`, async context => {
+    const f = await fixture(context, true, "T9000", { model: "T8172", type: 89 });
+    const viewer = () => {
+      const response = new PassThrough(); Object.assign(response, { writeHead: () => response });
+      response.on("error", () => {});
+      return response;
+    };
+    try {
+      f.hold(); f.failStartup();
+      const first = viewer();
+      const opening = f.manager!.addClient(serial, first as unknown as ServerResponse);
+      await f.closeEntered; await tick(); await opening;
+      const next = viewer();
+      const replacement = f.manager!.addClient(serial, next as unknown as ServerResponse);
+      await tick();
+      const interrupted = interruption === "stop" ? f.provider.stopStream(serial)
+        : interruption === "shutdown" ? f.provider.close() : f.provider.start(f.events);
+      f.finish(); await interrupted; await replacement;
+      assert.equal(f.sessions.length, 1);
+      assert.equal(next.destroyed || next.writableEnded, true);
+    } finally { await f.close(); }
+  });
+}
+
+test("a diagnostic S1 lease keeps its ordinary receipt timeout", async context => {
+  const f = await fixture(context, false, "T9000", { model: "T8172", type: 89 });
+  try {
+    const release = f.provider.reserveNvrLiveTrial(serial, new AbortController().signal);
+    await f.provider.startStream(serial);
+    const options = Reflect.get(f.sessions[0]!, "options") as NvrRtcOptions;
+    assert.equal(options.s1FirstPictureGrace, undefined);
+    assert.equal(options.maximumLifetimeMilliseconds, 75_000);
+    await release();
+  } finally { await f.close(); }
+});

@@ -684,7 +684,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #nvrMediaChecks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean } | null = null;
   readonly #nvrTrials = new Map<string, { controller: AbortController; device: MegaInventoryDevice;
     station: MegaInventoryDevice; stateOnly: boolean; diagnostic: boolean; generation: number; sensor: 0 | 1; connecting: boolean; retiring: boolean; terminalRetirement: boolean;
-    session: NvrRtcSession | null; release: () => Promise<void> }>();
+    sourceReported: boolean; startOwner: { promise: Promise<void>; cancelled: boolean } | undefined;
+    session: NvrRtcSession | null; retireStart: () => void; release: () => Promise<void> }>();
 
   /** Private card references expire in memory and are never published as filesystem paths. */
   readonly #recordingReferences = new Map<string, { serial: string; record: CameraStoredRecord; expiresAt: number }>();
@@ -1856,6 +1857,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       : null;
     const entry = { controller, device, station, stateOnly, diagnostic, generation: this.#startupGeneration,
       sensor: diagnostic ? nvrTrialSensor(device.model, device.deviceType)! : this.#nvrView(device), connecting: false, retiring: false, terminalRetirement: false,
+      sourceReported: false, startOwner: this.#streamStarts.get(serial), retireStart: (): void => {
+        entry.terminalRetirement = true;
+
+        // An attached source can end before its failed startup finishes closing.
+        // New viewers must queue a replacement instead of sharing that failed
+        // promise. Retire only this lease's ticket, never a queued replacement.
+        if (entry.sourceReported && entry.startOwner && this.#streamStarts.get(serial) === entry.startOwner) {
+          entry.startOwner.cancelled = true;
+        }
+      },
       session: null as NvrRtcSession | null, release: (): Promise<void> => {
       if (closed) return closed;
       entry.retiring = true;
@@ -1911,6 +1922,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const session = new NvrRtcSession({ station: entry.station.serial, camera: serial, channel: entry.device.channel!,
         cameraType: entry.device.deviceType!, sensor: entry.sensor,
         liveControls: !entry.diagnostic && this.#nvrLiveAdmitted(entry.device, entry.station),
+        ...(!entry.diagnostic && !entry.stateOnly && entry.sensor === 0 && entry.device.model === "T8172" && entry.device.deviceType === 89
+          && entry.station.model === "T9000" && entry.station.deviceType === 27 ? { s1FirstPictureGrace: true } : {}),
         administrator: entry.station.adminUserId!, context, signal: entry.controller.signal, current,
         maximumLifetimeMilliseconds: entry.diagnostic ? 75_000 : entry.stateOnly ? this.config.maxStreamSeconds * 1_000 : null,
         ...(!entry.diagnostic && !entry.stateOnly && entry.station.model === "T8N00" && entry.station.deviceType === 300 ? {
@@ -1922,7 +1935,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           const model = safeLogModel(entry.device.model);
           logger.info("nvr_live_timings", `model=${model} offer_ms=${timings.offer ?? "none"} first_local_candidate_ms=${timings.firstLocalCandidate ?? "none"} answer_sent_ms=${timings.answerSent ?? "none"} channel_open_ms=${timings.channelOpen ?? "none"} media_request_ms=${timings.mediaRequest ?? "none"} first_video_ms=${timings.firstVideo ?? "none"}`);
         } } : {}),
-        ready: (output, codec) => this.#events?.streamStarted(serial, output, codec) });
+        ready: (output, codec) => {
+          entry.sourceReported = true;
+          this.#events?.streamStarted(serial, output, codec);
+        } });
       entry.session = session;
       return session;
     } finally { if (phaseAbort) entry.controller.signal.removeEventListener("abort", phaseAbort); }
@@ -1936,7 +1952,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const retire = (): void => {
         if (terminalHandled || entry.retiring) return;
         terminalHandled = true;
-        entry.terminalRetirement = true;
+        entry.retireStart();
         void entry.release().catch(() => {});
       };
       const failure = (error: unknown): void => {
@@ -1968,6 +1984,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const failure = error instanceof NvrTrialError ? error : new NvrTrialError("sign");
       logger.warn(entry.diagnostic ? "nvr_live_trial_failed" : "nvr_live_stream_failed",
         `stage=${failure.stage} reason=${failure.reason}${entry.session ? " " + nvrTrialCounters(entry.session) : ""}`);
+      if (!entry.diagnostic && !entry.stateOnly && entry.sourceReported) entry.retireStart();
       await entry.release(); throw failure;
     }
   }
