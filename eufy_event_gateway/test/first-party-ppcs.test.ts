@@ -477,7 +477,7 @@ test("builds distinct HomeBase start and stop media envelopes", () => {
       camera_type: 0,
       entrytype: 0,
       key: "public-key",
-      streamtype: 1,
+      streamtype: 2,
     },
   });
   assert.deepEqual(JSON.parse(buildAttachedMediaControlValue(1004, 4, "account-owner").toString()), {

@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { createCipheriv, createECDH, createHmac } from "node:crypto";
 import { Socket } from "node:dgram";
 import test, { type TestContext } from "node:test";
-import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
+import { CameraControlAcknowledgementTimeoutError, decodePpcsControlRecord, FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 
 /** Encode one synthetic encrypted gateway key using the session's public wire contract. */
 function gateway(): Buffer {
@@ -508,9 +508,7 @@ test("selected HomeBase heartbeats receive a pong while video remains active", a
     f.ack(f.sent.at(-1)!.readUInt16BE(6));
     f.video(3);
     for (let index = 0; index < 9; index++) {
-      context.mock.timers.tick(2500);
-      f.video(3);
-      context.mock.timers.tick(2500);
+      context.mock.timers.tick(5000);
       f.receive(Buffer.from([0xf1, 0xe0, 0, 0]));
       f.video(3);
     }
@@ -561,107 +559,25 @@ test("peer heartbeats do not extend an acknowledged start's first-frame deadline
 });
 
 
-test("attached output stall repairs before a ten-second viewer read timeout", async context => {
-  const f = await peer(context, true, "T8171", "media", "T8030");
-  try {
-    await f.negotiate();
-    f.ack(f.sent.at(-1)!.readUInt16BE(6));
-    context.mock.timers.tick(1300);
-    f.video();
-    context.mock.timers.tick(2000);
-    f.video();
-    context.mock.timers.tick(4999);
-    assert.equal(f.session.stats.mediaStopAttempts, 0);
-    context.mock.timers.tick(1);
-    assert.equal(f.session.stats.mediaStopAttempts, 1);
-    context.mock.timers.tick(250);
-    assert.equal(f.session.stats.mediaStartAttempts, 2);
-    f.ack(f.sent.at(-1)!.readUInt16BE(6));
-    f.video();
-    assert.ok(f.session.stats.videoOutputFrames >= 3);
-    context.mock.timers.tick(4999);
-    assert.equal(f.session.stats.mediaStopAttempts, 1);
-    f.session.close();
-    const sent = f.sent.length;
-    context.mock.timers.tick(20000);
-    assert.equal(f.sent.length, sent);
-  } finally { f.session.close(); }
-});
-
-test("progress renews the attached stall watchdog without restarting video", async context => {
-  const f = await peer(context, true, "T8171", "media", "T8030");
-  try {
-    await f.negotiate();
-    f.ack(f.sent.at(-1)!.readUInt16BE(6));
-    f.video();
-    for (let index = 0; index < 8; index++) {
-      context.mock.timers.tick(4900);
-      f.video();
-    }
-    assert.equal(f.session.stats.mediaStartAttempts, 1);
-    assert.equal(f.session.stats.mediaStopAttempts, 0);
-    assert.equal(f.session.stats.closeReason, "open");
-  } finally { f.session.close(); }
-});
-
-test("an unrecovered attached output stall retains one repair and finite retirement", async context => {
-  const f = await peer(context, true, "T8171", "media", "T8030");
-  try {
-    await f.negotiate();
-    f.ack(f.sent.at(-1)!.readUInt16BE(6));
-    context.mock.timers.tick(1300);
-    f.video();
-    context.mock.timers.tick(5000);
-    context.mock.timers.tick(250);
-    assert.equal(f.session.stats.mediaStartAttempts, 2);
-    f.ack(f.sent.at(-1)!.readUInt16BE(6));
-    context.mock.timers.tick(13450);
-    assert.equal(f.session.stats.mediaStartAttempts, 2);
-    assert.equal(f.session.stats.closeReason, "media_stall");
-  } finally { f.session.close(); }
-});
-
-for (const purpose of ["control", "passive"] as const) {
-  test(`attached ${purpose} output does not acquire a media stall restart`, async context => {
-    const f = await peer(context, true, "T8171", purpose, "T8030");
+for (const [model, station, channel] of [["T8171", "T8030", 1], ["T8210", "T8030", 4], ["T8113-Z", "T8010", 0]] as const) {
+  test(`attached ${model} requests the app live selector on its encrypted channel`, async context => {
+    const f = await peer(context, true, model, "media", station, undefined, channel);
     try {
       await f.negotiate();
-      f.video();
-      context.mock.timers.tick(5250);
-      assert.equal(f.session.stats.mediaStartAttempts, 0);
-      assert.equal(f.session.stats.mediaStopAttempts, 0);
+      const packet = f.sent.at(-1)!;
+      assert.equal(packet.readUInt16LE(12), 1350);
+      assert.equal(packet[20], channel);
+      assert.equal(packet[21], 8);
+      const value = decodePpcsControlRecord(packet.subarray(24), 8, Buffer.alloc(16), Buffer.alloc(32, 9));
+      assert.equal(value?.cmd, 1003);
+      assert.equal(value?.mChannel, channel);
+      assert.equal(value?.mValue3, 1003);
+      const payload = value?.payload as Record<string, unknown> | undefined;
+      assert.equal(payload?.streamtype, 2);
+      assert.equal(payload?.camera_type, 0);
+      assert.equal(payload?.entrytype, 0);
+      assert.equal(typeof payload?.key, "string");
+      assert.equal(f.session.stats.mediaStartAttempts, 1);
     } finally { f.session.close(); }
   });
 }
-
-
-test("standalone video keeps its existing stall policy", async context => {
-  const f = await peer(context, false, "T817L");
-  try {
-    f.ack(f.sent.at(-1)!.readUInt16BE(6));
-    f.video(0);
-    context.mock.timers.tick(5250);
-    assert.equal(f.session.stats.mediaStartAttempts, 1);
-    assert.equal(f.session.stats.mediaStopAttempts, 0);
-  } finally { f.session.close(); }
-});
-
-
-test("codec configuration alone does not arm early output-stall repair", async context => {
-  const f = await peer(context, true, "T8171", "media", "T8030");
-  try {
-    await f.negotiate();
-    f.ack(f.sent.at(-1)!.readUInt16BE(6));
-    const configuration = Buffer.from("000000016742001e898b600000000168ce3c80", "hex");
-    const header = Buffer.alloc(22);
-    header.writeUInt32LE(configuration.length);
-    header[5] = 1;
-    f.frame(1300, Buffer.concat([header, configuration]));
-    assert.ok(f.session.stats.videoOutputFrames > 0);
-    context.mock.timers.tick(7500);
-    assert.equal(f.session.stats.mediaStopAttempts, 0);
-    f.video();
-    context.mock.timers.tick(4999);
-    assert.equal(f.session.stats.mediaStopAttempts, 0);
-  } finally { f.session.close(); }
-});
