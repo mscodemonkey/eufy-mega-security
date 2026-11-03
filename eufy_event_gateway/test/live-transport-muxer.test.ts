@@ -206,14 +206,23 @@ test("late paced audio stays inside Home Assistant's opening detection window", 
       offset += size;
     }
     await delay(7_500);
-    const probe = spawnSync("ffprobe", ["-v", "error", "-show_packets", "-show_entries", "packet=codec_type", "-of", "json", "-i", "pipe:0"], { input: Buffer.concat(chunks) });
+    const probe = spawnSync("ffprobe", ["-v", "error", "-show_packets", "-show_entries", "packet=codec_type,dts_time", "-of", "json", "-i", "pipe:0"], { input: Buffer.concat(chunks) });
     assert.equal(probe.status, 0, probe.stderr.toString());
-    const packets = JSON.parse(probe.stdout.toString()).packets as { codec_type: string }[];
+    const packets = JSON.parse(probe.stdout.toString()).packets as { codec_type: string; dts_time?: string }[];
 
     // HA checks only twenty opening packets when deciding whether AAC needs
     // conversion for MP4. Video buffered before audio must not hide it.
     assert.ok(packets.slice(0, 20).some(packet => packet.codec_type === "audio"),
       `The first audio packet appeared at ${packets.findIndex(packet => packet.codec_type === "audio")}`);
+    const videoTimes = packets.filter(packet => packet.codec_type === "video" && packet.dts_time !== undefined)
+      .map(packet => Number(packet.dts_time));
+    assert.ok(videoTimes.length > 10);
+
+    // The fixed-rate synthetic units must retain their paced duration through
+    // FFmpeg, rather than collapsing queued startup pictures into one burst.
+    const span = videoTimes.at(-1)! - videoTimes[0]!;
+    assert.ok(span >= (videoTimes.length - 3) / 15 - 0.1,
+      `${videoTimes.length} video packets collapsed into ${span} seconds`);
   } finally {
     muxer.close();
   }
