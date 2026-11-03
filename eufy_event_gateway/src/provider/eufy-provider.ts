@@ -5579,7 +5579,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       event.eventType,
       event.pictureUrl !== null,
     );
-    if (delivery.handleState && isSupportedMegaCamera(device)
+    const careKind = careMonitorPushKind(device, event.messageType, event.eventType);
+    const pictureEventAccepted = !isE21(device)
+      || careKind !== null && event.stationSerial === (device.parentSerial || device.serial);
+    if (delivery.handleState && isSupportedMegaCamera(device) && pictureEventAccepted
       && (delivery.retainPicture || cameraDetectionKind(event.eventType) !== null
         || event.eventType === 1 && genericSecurityDetectionKinds(event).length > 0)) {
       const previous = this.#pictureOwners.get(device.serial);
@@ -5599,7 +5602,6 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         }
       }
     }
-    const careKind = careMonitorPushKind(device, event.messageType, event.eventType);
     if (isE21(device)) {
       if (careKind !== null && event.stationSerial === (device.parentSerial || device.serial)) {
         if (delivery.handleState) events.sensorDetection(event.cameraSerial, careKind, true);
