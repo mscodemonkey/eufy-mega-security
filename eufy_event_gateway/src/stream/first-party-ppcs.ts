@@ -171,7 +171,9 @@ export function acceptsSoloCamAudio(cameraModel: string, homeBaseAttached: boole
  * Build the JSON value encrypted inside a HomeBase media start or stop.
  *
  * Command 1003 starts a child camera and must advertise the session's RSA
- * modulus so the camera can wrap its media key. Command 1004 stops the child
+ * modulus so the camera can wrap its media key. The app's attached live
+ * selector is 2. Frame-level codec detection remains downstream.
+ * Command 1004 stops the child
  * channel and deliberately carries an empty payload. The caller applies
  * level-two encryption after this function returns.
  */
@@ -194,7 +196,7 @@ export function buildAttachedMediaControlValue(
           camera_type: 0,
           entrytype: 0,
           key: publicKey,
-          streamtype: 1,
+          streamtype: 2,
         }
       : {},
   }));

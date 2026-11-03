@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { createCipheriv, createECDH, createHmac } from "node:crypto";
 import { Socket } from "node:dgram";
 import test, { type TestContext } from "node:test";
-import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
+import { CameraControlAcknowledgementTimeoutError, decodePpcsControlRecord, FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 
 /** Encode one synthetic encrypted gateway key using the session's public wire contract. */
 function gateway(): Buffer {
@@ -557,3 +557,27 @@ test("peer heartbeats do not extend an acknowledged start's first-frame deadline
     assert.equal(f.session.stats.mediaStartAttempts, 1);
   } finally { f.session.close(); }
 });
+
+
+for (const [model, station, channel] of [["T8171", "T8030", 1], ["T8210", "T8030", 4], ["T8113-Z", "T8010", 0]] as const) {
+  test(`attached ${model} requests the app live selector on its encrypted channel`, async context => {
+    const f = await peer(context, true, model, "media", station, undefined, channel);
+    try {
+      await f.negotiate();
+      const packet = f.sent.at(-1)!;
+      assert.equal(packet.readUInt16LE(12), 1350);
+      assert.equal(packet[20], channel);
+      assert.equal(packet[21], 8);
+      const value = decodePpcsControlRecord(packet.subarray(24), 8, Buffer.alloc(16), Buffer.alloc(32, 9));
+      assert.equal(value?.cmd, 1003);
+      assert.equal(value?.mChannel, channel);
+      assert.equal(value?.mValue3, 1003);
+      const payload = value?.payload as Record<string, unknown> | undefined;
+      assert.equal(payload?.streamtype, 2);
+      assert.equal(payload?.camera_type, 0);
+      assert.equal(payload?.entrytype, 0);
+      assert.equal(typeof payload?.key, "string");
+      assert.equal(f.session.stats.mediaStartAttempts, 1);
+    } finally { f.session.close(); }
+  });
+}
