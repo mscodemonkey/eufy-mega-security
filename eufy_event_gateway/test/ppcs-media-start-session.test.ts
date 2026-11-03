@@ -32,7 +32,7 @@ function gateway(): Buffer {
 }
 
 /** Own a synthetic CAM_ID handshake, inbound frames, packet loss and fake time. */
-async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" = "media", stationModel = "T8010", startupDeadlineMilliseconds?: number, channelOverride?: number) {
+async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" | "passive" = "media", stationModel = "T8010", startupDeadlineMilliseconds?: number, channelOverride?: number) {
   let socket!: Socket;
   let inbound = 0;
   const sent: Buffer[] = [];
@@ -421,14 +421,57 @@ for (const action of ["expiry", "close"] as const) test(`setup repair has bounde
   } finally { f.session.close(); }
 });
 
-for (const [model, station] of [["T8210", "T8010"], ["T8113-Z", "T8030"]] as const) test(`setup policy stays unchanged for ${model} on ${station}`, async context => {
-  const f = await peer(context, true, model, "media", station);
+for (const [model, station] of [["T8210", "T8010"], ["T8113-Z", "T8030"], ["T8210", "T8030"], ["T8171", "T8030"]] as const) {
+  test(`attached ${model} on ${station} repairs only the original unacknowledged setup`, async context => {
+    const f = await peer(context, true, model, "media", station);
+    try {
+      const original = Buffer.from(f.sent.at(-1)!);
+      assert.equal(original.readUInt16LE(12), 1100);
+      const sequence = original.readUInt16BE(6);
+      context.mock.timers.tick(150);
+      assert.deepEqual(f.sent.at(-1), original);
+      assert.equal(f.session.stats.gatewayInfoRetransmitted, 1);
+      for (const invalid of ["peer", "channel", "length", "count"]) f.ack(sequence, invalid);
+      context.mock.timers.tick(150);
+      assert.equal(f.session.stats.gatewayInfoRetransmitted, 2);
+      f.ack(sequence);
+      context.mock.timers.tick(1000);
+      assert.equal(f.session.stats.gatewayInfoAcknowledged, 1);
+      assert.equal(f.session.stats.gatewayInfoRetransmitted, 2);
+      assert.equal(f.session.stats.mediaStartAttempts, 0);
+    } finally { f.session.close(); }
+  });
+}
+
+for (const purpose of ["control", "passive"] as const) test(`HB3 ${purpose} setup retains its existing single send`, async context => {
+  const f = await peer(context, true, "T8210", purpose, "T8030");
   try {
     context.mock.timers.tick(150);
     assert.equal(f.session.stats.gatewayInfoRetransmitted, 0);
-    assert.equal(f.session.stats.gatewayInfoAcknowledged, 0);
   } finally { f.session.close(); }
 });
+
+for (const finish of ["response", "expiry", "close"] as const) {
+  test(`HB3 setup repair retires on ${finish} without extending startup`, async context => {
+    const f = await peer(context, true, "T8210", "media", "T8030");
+    try {
+      context.mock.timers.tick(150);
+      assert.equal(f.session.stats.gatewayInfoRetransmitted, 1);
+      if (finish === "response") await f.negotiate();
+      else if (finish === "close") f.session.close();
+      else context.mock.timers.tick(2850);
+      const repaired = f.session.stats.gatewayInfoRetransmitted;
+      context.mock.timers.tick(5000);
+      assert.equal(f.session.stats.gatewayInfoRetransmitted, repaired);
+      assert.equal(f.session.stats.gatewayInfoExpired, finish === "expiry" ? 1 : 0);
+      if (finish === "expiry") {
+        context.mock.timers.tick(12000);
+        assert.equal(f.session.stats.closeReason, "first_frame_timeout");
+        assert.equal(f.session.stats.mediaStartAttempts, 0);
+      }
+    } finally { f.session.close(); }
+  });
+}
 
 for (const remaining of [1000, 60000]) test(`absolute startup deadline cannot extend first-frame budget: ${remaining}`, async context => {
   context.mock.method(performance, "now", () => Date.now());
