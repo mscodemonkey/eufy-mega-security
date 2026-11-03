@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.234
+
+- Keep acknowledged attached-camera starts alive until the existing first-picture deadline, avoiding a premature restart while a camera wakes (#578).
+- Answer valid heartbeat requests from the connected camera or HomeBase so live connections are maintained in both directions (#576).
+- Prevent automatic preset discovery from cancelling a live view that is still opening. Live starts also wait for an earlier preset or pan operation to retire its control connection. Thanks to Heath Bexley (@heath-bexley) for this fix (#580).
+
 ## 0.1.233
 
 - Keep an acknowledged T8171 start through T8030 channel one alive until the existing first-frame deadline instead of restarting it at the five-second heartbeat.
