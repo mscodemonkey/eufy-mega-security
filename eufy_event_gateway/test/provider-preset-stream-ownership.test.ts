@@ -57,6 +57,7 @@ async function fixture(context: TestContext, model = "T8171") {
   let framesReady = true;
   let onStart = async (_session: FirstPartyPpcsSession): Promise<void> => {};
   let onQuery = async (): Promise<void> => {};
+  let onDisconnect = async (_session: FirstPartyPpcsSession): Promise<void> => {};
   context.mock.method(FirstPartyPpcsSession.prototype, "start", async function(this: FirstPartyPpcsSession) {
     sessions.push(this); order.push("start");
     await onStart(this);
@@ -65,6 +66,9 @@ async function fixture(context: TestContext, model = "T8171") {
   });
   context.mock.method(FirstPartyPpcsSession.prototype, "close", function(this: FirstPartyPpcsSession) {
     order.push("close"); this.stats.closeReason = "client_stop"; this.output.end();
+  });
+  context.mock.method(FirstPartyPpcsSession.prototype, "waitUntilClosed", function(this: FirstPartyPpcsSession) {
+    return onDisconnect(this);
   });
   const query = context.mock.method(FirstPartyPpcsSession.prototype, "queryPresetPositions", async (current?: () => void) => {
     await onQuery(); current?.(); return [{ index: 0, enabled: true, isDefault: true }];
@@ -77,6 +81,7 @@ async function fixture(context: TestContext, model = "T8171") {
     setFrames: (ready: boolean): void => { framesReady = ready; },
     setStart: (callback: typeof onStart): void => { onStart = callback; },
     setQuery: (callback: typeof onQuery): void => { onQuery = callback; },
+    setDisconnect: (callback: typeof onDisconnect): void => { onDisconnect = callback; },
     dispose: async (): Promise<void> => {
       await provider.close(); await rm(directory, { recursive: true, force: true });
       assert.equal(network.mock.callCount(), 0);
@@ -139,6 +144,47 @@ test("live lookup waits for an existing preset query and its control cleanup", a
     assert.deepEqual(f.order, ["start", "close", "start"]);
   } finally { held.release(); await Promise.allSettled([reading, opening]); await f.dispose(); }
 });
+
+for (const model of ["T8171", "T817L"]) {
+  for (const rejected of [false, true]) test(`live lookup retains ${model} preset ownership until disconnect, rejected=${rejected}`, async context => {
+    const f = await fixture(context, model), closing = gate(), drained = gate();
+    f.setQuery(async () => { if (rejected) throw new Error("Synthetic query failure"); });
+    f.setDisconnect(async session => {
+      if (session === f.sessions[0]) { closing.release(); await drained.promise; }
+    });
+    const reading = f.provider.getCameraPresetPositions("synthetic-camera");
+    const readResult = Promise.allSettled([reading]);
+    let opening: Promise<void> | undefined;
+    try {
+      await flush();
+      opening = f.provider.startStream("synthetic-camera");
+      void opening.catch(() => {});
+      await flush();
+      assert.equal(f.sessions.length, 1, "live lookup must not overtake a queued disconnect");
+      await closing.promise;
+      drained.release(); await opening;
+      const [result] = await readResult;
+      assert.equal(result.status, rejected ? "rejected" : "fulfilled");
+      if (result.status === "rejected") assert.match(String(result.reason), /Synthetic query failure/);
+      assert.equal(f.sessions.length, 2);
+    } finally { drained.release(); await Promise.allSettled([reading, opening]); await f.dispose(); }
+  });
+
+  test(`stopping ${model} during preset disconnect cannot start a replacement later`, async context => {
+    const f = await fixture(context, model), drained = gate();
+    f.setDisconnect(async session => { if (session === f.sessions[0]) await drained.promise; });
+    const reading = f.provider.getCameraPresetPositions("synthetic-camera");
+    let opening: Promise<void> | undefined;
+    try {
+      await flush();
+      opening = f.provider.startStream("synthetic-camera");
+      const cancelled = assert.rejects(opening, /cancelled/i);
+      await flush(); await f.provider.stopStream("synthetic-camera"); await cancelled;
+      drained.release(); await reading; await flush();
+      assert.equal(f.sessions.length, 1);
+    } finally { drained.release(); await Promise.allSettled([reading, opening]); await f.dispose(); }
+  });
+}
 
 test("stopping a lookup waiting on presets cannot wake it after the read finishes", async context => {
   const f = await fixture(context), entered = gate(), held = gate();

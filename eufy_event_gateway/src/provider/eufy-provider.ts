@@ -5244,7 +5244,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return this.#queuePanControl(serial, "auto_cruise", (session) => session.writeAutoCruise(enabled));
   }
 
-  /** Serialize pan actions on an existing decoded viewer or a newly owned control session. */
+  /**
+   * Serialize pan actions on a decoded viewer or a separately owned control peer.
+   * Separate peers retain their reservation through local disconnect completion,
+   * including query failures, so a queued live lookup cannot overtake their END.
+   */
   #queuePanControl(
     serial: string,
     action: string,
@@ -5333,6 +5337,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         current();
       } finally {
         session.close();
+        await session.waitUntilClosed();
       }
     }).catch((error: unknown) => {
       if (c37Request) logger.warn("camera_c37_control_failed", `action=${["pan", "ai_tracking", "preset_query", "preset_position"].includes(action) ? action : "unsupported"} stage=${c37Stage}`);
