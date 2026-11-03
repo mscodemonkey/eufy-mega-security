@@ -112,8 +112,11 @@ export function stationConnectedAfterRefreshFailure(
   return wasConnected && consecutiveFailures < STATION_REFRESH_DISCONNECT_FAILURES;
 }
 
-/** One accepted camera visit owns its private recovery controller and immutable inventory binding. */
+/** One accepted camera visit owns cloud cancellation and its original inventory binding. */
 interface PushPictureOwner {
+
+  /** Station recovery remains limited to the previously qualified model and route. */
+  readonly historyEligible: boolean;
   readonly event: MegaPushEvent;
   readonly controller: AbortController;
   readonly generation: number;
@@ -5586,13 +5589,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         this.#pictureOwners.get(device.serial)?.controller.abort();
         this.#pictureOwners.delete(device.serial);
         const route = ppcsStreamRoute(device, this.#devices);
-        if (supportsEventPictureHistory(device, route, true) && event.stationSerial === route!.peer.serial) {
-          this.#pictureOwners.set(device.serial, { event, controller: new AbortController(), generation: this.#startupGeneration,
-            device, parent: route!.peer });
-          if (this.#pictureOwners.size > 256) {
-            const first = this.#pictureOwners.keys().next().value!;
-            this.#pictureOwners.get(first)?.controller.abort(); this.#pictureOwners.delete(first);
-          }
+        const parent = route?.peer ?? this.#devices.get(device.parentSerial) ?? device;
+        const historyEligible = supportsEventPictureHistory(device, route, true) && event.stationSerial === route!.peer.serial;
+        this.#pictureOwners.set(device.serial, { event, controller: new AbortController(), generation: this.#startupGeneration,
+          device, parent, historyEligible });
+        if (this.#pictureOwners.size > 256) {
+          const first = this.#pictureOwners.keys().next().value!;
+          this.#pictureOwners.get(first)?.controller.abort(); this.#pictureOwners.delete(first);
         }
       }
     }
@@ -5892,7 +5895,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   /** Recover once on an idle peer, returning bytes only while the same visit still owns the picture. */
   async #recoverPushPicture(event: MegaPushEvent, owner: PushPictureOwner): Promise<Buffer> {
     const reference = event.recording, age = reference ? Date.now() - reference.triggerMilliseconds : Infinity;
-    if (!this.config.experimentalHomeBaseEventImages || !this.config.apiAuthenticationConfigured || !event.eventId
+    if (!owner.historyEligible || !this.config.experimentalHomeBaseEventImages || !this.config.apiAuthenticationConfigured || !event.eventId
       || !reference || !recordingPathDate(reference.storagePath) || age < -5_000 || age > 300_000
       || !this.#pictureOwnerCurrent(owner) || this.#panControlOperations.has(event.cameraSerial)
       || this.#recordingPeerReserved(event.cameraSerial) || (this.#pictureRecoveryCooldowns.get(owner.parent.serial) ?? 0) > performance.now()) {
@@ -5933,7 +5936,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       let picture: { data: Buffer } | null, recovered = false;
       try { picture = await downloadPushSnapshot(this.#client, event, this.#devices, this.config.eventImageCapture, context, owner?.controller.signal); }
       catch (error) {
-        if (!(error instanceof MediaHttpError) || error.failure.status !== 404 || !owner
+        if (!(error instanceof MediaHttpError) || error.failure.status !== 404 || !owner?.historyEligible
           || !this.config.experimentalHomeBaseEventImages) throw error;
         try {
           picture = { data: await this.#recoverPushPicture(event, owner) }; recovered = true;

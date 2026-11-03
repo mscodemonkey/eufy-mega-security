@@ -26,17 +26,18 @@ async function settle(): Promise<void> {
 }
 
 /** Build an isolated provider whose only device effects are captured test callbacks. */
-async function fixture(context: TestContext, mode = "success", recoveryEnabled = true) {
+async function fixture(context: TestContext, mode = "success", recoveryEnabled = true, route: "homebase3" | "homebase2" | "standalone" = "homebase3") {
   const directory = await mkdtemp(join(tmpdir(), "picture-recovery-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
   const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
   context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
-  const parent = { device_sn: "invented-parent", device_model: mode === "homebase2" ? "T8010" : "T8030", device_type: 18,
+  const parent = { device_sn: "invented-parent", device_model: mode === "homebase2" || route === "homebase2" ? "T8010" : "T8030", device_type: route === "homebase2" ? 0 : 18,
     category: "eufy_security", p2p_did: "TEST-12345678-TEST", p2p_conn: "invented", member: { admin_user_id: "invented-owner" }, params: [] };
-  const child = { device_sn: "invented-child", device_model: mode === "wrong-model" ? "T8113" : "T8113-Z", device_type: 8,
-    device_channel: 2, parent_sn: parent.device_sn, category: "eufy_security", member: { admin_user_id: "invented-owner" }, params: [] };
+  const child = { device_sn: "invented-child", device_model: route === "standalone" ? "T8172" : route === "homebase2" ? "T8210" : mode === "wrong-model" ? "T8113" : "T8113-Z",
+    device_type: route === "standalone" ? 89 : route === "homebase2" ? 7 : 8,
+    device_channel: route === "standalone" ? 0 : 2, parent_sn: route === "standalone" ? "invented-child" : parent.device_sn, category: "eufy_security", member: { admin_user_id: "invented-owner" }, params: [] };
   let inventories = 0;
-  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [parent,
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [...(route === "standalone" ? [] : [parent]),
     { ...child, ...(mode === "changed-inventory" && ++inventories > 1 ? { device_channel: 3 } : {}) }] }));
   context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ "invented-parent": { key: "invented", expiresAt: null } }));
   context.mock.method(HomeBasePpcsSession.prototype, "connect", async () => undefined);
@@ -82,7 +83,7 @@ async function fixture(context: TestContext, mode = "success", recoveryEnabled =
     snapshot: (_serial: string, bytes: Buffer) => { pictures.push(Buffer.from(bytes)); } },
   { get: (target, key) => Reflect.get(target, key) ?? (() => undefined) }) as unknown as ProviderEvents;
   await provider.start(events); await settle();
-  const event = (id = "visit-a", picture = true) => parsePushEvent({ device_sn: child.device_sn, station_sn: parent.device_sn,
+  const event = (id = "visit-a", picture = true) => parsePushEvent({ device_sn: child.device_sn, station_sn: route === "standalone" ? child.device_sn : parent.device_sn,
     payload: { event_type: 1, unique_id: id, ...(picture ? { pic_url: "https://example.invalid/picture" } : {}),
       ...(mode === "no-reference" ? {} : { record_id: 42, file_path: path,
         trigger_time: Date.now() + (mode === "stale" ? -301_000 : mode === "future" ? 10_000 : 0) }) } })!;
@@ -209,5 +210,33 @@ for (const recoveryEnabled of [true, false]) for (const newPicture of [true, fal
       f.releaseCloud();
       await f.provider.close();
     }
+  });
+}
+
+
+for (const route of ["homebase2", "standalone"] as const) for (const recoveryEnabled of [false, true]) {
+  for (const replacement of [false, true]) test(`normal cloud pictures retire old visits without a recovery route: ${route}, opt-in=${recoveryEnabled}, replacement=${replacement}`, async context => {
+    const f = await fixture(context, "cloud-cancelled", recoveryEnabled, route);
+    try {
+      f.send(f.event("old-alert")); await settle();
+      assert.equal(f.cloud.mock.callCount(), 1);
+      f.send(f.event("new-alert", replacement)); await settle();
+      assert.equal(f.cloudRequestSignal()?.aborted, true);
+      assert.equal(f.cloud.mock.callCount(), replacement ? 2 : 1);
+      assert.equal(f.pictures.length, replacement ? 1 : 0);
+      assert.equal(f.recovery.mock.callCount(), 0);
+      assert.equal(f.network.mock.callCount(), 0);
+    } finally { f.releaseCloud(); await f.provider.close(); }
+  });
+
+  test(`a late cloud reply cannot overwrite a newer visit without a recovery route: ${route}, opt-in=${recoveryEnabled}`, async context => {
+    const f = await fixture(context, "cloud-superseded", recoveryEnabled, route);
+    try {
+      f.send(f.event("old-alert")); await settle(); f.send(f.event("new-alert", false));
+      f.releaseCloud(); await settle();
+      assert.equal(f.pictures.length, 0);
+      assert.ok(f.cloudBytes()?.every(byte => byte === 0));
+      assert.equal(f.recovery.mock.callCount(), 0);
+    } finally { f.releaseCloud(); await f.provider.close(); }
   });
 }
