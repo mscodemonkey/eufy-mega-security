@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.236
+
+- Use the app-compatible attached live-view selector for HomeBase cameras. The previous selector could start video that later stopped. Encrypted-session regression coverage checks the outgoing request on both HomeBase generations. Thanks to Heath Bexley (@heath-bexley) for the correction in #585.
+- Admit Indoor Cam C220 v3 (T8419N, type 10011) through the existing camera handler. Forlorned_Fable (@ilxfauno-dev) contributed the mapping and confirmed moving video on their hardware. Other features still need separate confirmation.
+- Explain which optional general-portal inventory read failed without logging response bodies or account details. Thanks to Heath Bexley (@heath-bexley) for #586. This diagnostic does not establish T8420X playback support.
+- Local development checks passed for all six home-camera source windows and Home Assistant live opens and reopens on the two affected cameras. Rare HomeBase 2 startup recovery and reporter-specific failures remain under investigation.
+
 ## 0.1.235
 
 - Repair lost HomeBase setup-query delivery for attached camera live view. Retransmissions keep the original packet and sequence, stop on a matching receipt or response, expire after three seconds, and retain the existing first-frame deadline. This addresses a retained T8210 Home Assistant open that never reached media startup.
@@ -33,10 +40,6 @@
 - Preserve private-recording isolation through late startup and include retirement waits in viewer timing.
 - Thanks to Heath Bexley (@heath-bexley) for the source and viewer lifecycle corrections in #569.
 - Intermittent T8030 playback interruptions remain under investigation in #570. The lifecycle correction does not establish a hardware fix for those interruptions.
-
-## Unreleased
-
-- Admit Indoor Cam C220 v3 (T8419N, type 10011) through the existing camera handler. APK reverse-engineering confirmed the TUTEK-based PPCS transport is identical across all C220 variants (v1/v2/v3). No protocol changes required—only device-type admission.
 
 ## 0.1.230
 
