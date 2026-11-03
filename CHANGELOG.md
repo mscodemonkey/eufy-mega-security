@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.237
+
+- Correct the SoloCam S340 (T8171/type 88) live-view start and stop through HomeBase 3 on channel 1 using the current native-app profile. The correction addresses the observed blank first view and stays limited to this identity and topology.
+- Preserve T8171 video frames while the observed late packets are repaired. Its video channel now waits up to one second before discarding an incomplete frame. Other routes and control channels retain their existing wait, with the same packet, memory, startup and session limits. The retained failed interval replays with zero gaps and zero parser resynchronisations.
+- Retain preset-control ownership until its connection finishes disconnecting, including failed queries. A queued live view can no longer overtake that disconnect. Thanks to Heath Bexley (@heath-bexley) for the connection cleanup and packet-repair corrections in #590 and #592.
+- Actual development checks passed for Home Assistant opens and reopens on both affected cameras, all six 60-second source windows with decoded video, and Home Assistant image delivery. The separate rare HomeBase 2 recovery conditions in #465 remain physically unconfirmed.
+
 ## 0.1.236
 
 - Use the app-compatible attached live-view selector for HomeBase cameras. The previous selector could start video that later stopped. Encrypted-session regression coverage checks the outgoing request on both HomeBase generations. Thanks to Heath Bexley (@heath-bexley) for the correction in #585.
