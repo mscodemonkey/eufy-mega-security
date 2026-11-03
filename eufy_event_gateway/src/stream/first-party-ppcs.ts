@@ -315,9 +315,10 @@ interface PpcsSequenceEvidence {
  * Delivers PPCS datagrams in channel sequence order before command reassembly.
  *
  * One session owns this buffer and closes it before releasing its UDP socket.
- * A missing packet gets 250 ms to arrive, with at most 128 packets or 2 MiB
- * retained per channel. Expiry discards the partial command through `onSkip`
- * before delivering the earliest successor. Acknowledgements remain the
+ * Missing packets normally get 250 ms. The owning session may select a
+ * one-second video-channel wait for its qualified late-repair route. Both
+ * policies retain at most 128 packets or 2 MiB per channel. Expiry discards
+ * the partial command through `onSkip` before delivering the earliest successor. Acknowledgements remain the
  * session's responsibility, including duplicates and retransmissions.
  */
 export class PpcsDatagramReorderBuffer {
@@ -325,10 +326,17 @@ export class PpcsDatagramReorderBuffer {
   readonly #evidence = new Map<number, PpcsSequenceEvidence>();
   #closed = false;
 
+  /**
+   * Own callbacks and a fixed video repair policy until close.
+   *
+   * @param videoRepairWaitMilliseconds Select 1000 only for a source-qualified
+   * media route. Control channels always retain their 250 ms wait.
+   */
   constructor(
     private readonly deliver: (data: Buffer, type: number) => void,
     private readonly onSkip: (type: number, reason: "gap" | "restart") => void,
     private readonly onRepeat: (reason: "duplicate" | "stale") => void,
+    private readonly videoRepairWaitMilliseconds: 250 | 1000 = 250,
   ) {}
 
   /** Accept an acknowledged packet, retaining successors until missing data arrives or expires. */
@@ -462,7 +470,7 @@ export class PpcsDatagramReorderBuffer {
     channel.timer = setTimeout(() => {
       channel.timer = undefined;
       this.#abandonHole(type, channel);
-    }, 250);
+    }, type === 1 ? this.videoRepairWaitMilliseconds : 250);
     channel.timer.unref?.();
   }
 
@@ -1701,19 +1709,7 @@ export class FirstPartyPpcsSession {
 
   // PPCS sequences are independent for each inner data type. Combining them
   // would manufacture false gaps when command and video datagrams interleave.
-  #datagramOrder = new PpcsDatagramReorderBuffer(
-    (data, type) => this.#consumeData(data, type),
-    (type, reason) => {
-      if (reason === "restart") this.stats.sequenceRestarts++;
-      else this.stats.sequenceGaps++;
-      this.#pendingByType.delete(type);
-      this.#updatePendingBytes();
-    },
-    (reason) => {
-      if (reason === "duplicate") this.stats.duplicateDatagrams++;
-      else this.stats.staleDatagrams++;
-    },
-  );
+  readonly #datagramOrder: PpcsDatagramReorderBuffer;
   readonly #videoNormalizer = new PpcsVideoStreamNormalizer();
   readonly #videoAssembler: PpcsAccessUnitAssembler;
   #lastDeliveredMediaFrameAt: number | null = null;
@@ -1757,6 +1753,21 @@ export class FirstPartyPpcsSession {
       throw new RangeError("Invalid PPCS lookup deadline");
     }
     this.#options = options;
+    this.#datagramOrder = new PpcsDatagramReorderBuffer(
+      (data, type) => this.#consumeData(data, type),
+      (type, reason) => {
+        if (reason === "restart") this.stats.sequenceRestarts++;
+        else this.stats.sequenceGaps++;
+        this.#pendingByType.delete(type);
+        this.#updatePendingBytes();
+      },
+      (reason) => {
+        if (reason === "duplicate") this.stats.duplicateDatagrams++;
+        else this.stats.staleDatagrams++;
+      },
+      usesT8171AttachedMediaProfile(options.channel, options)
+        && options.purpose !== "control" && options.purpose !== "passive" ? 1000 : 250,
+    );
     const transmitStartup = (packet: Buffer): void => {
       if (!this.#closed && this.#remote) this.#socket.send(packet, this.#remote.port, this.#remote.host);
     };

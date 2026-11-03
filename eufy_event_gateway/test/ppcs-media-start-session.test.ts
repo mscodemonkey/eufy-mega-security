@@ -32,7 +32,7 @@ function gateway(): Buffer {
 }
 
 /** Own a synthetic CAM_ID handshake, inbound frames, packet loss and fake time. */
-async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" | "passive" = "media", stationModel = "T8010", startupDeadlineMilliseconds?: number, channelOverride?: number) {
+async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" | "passive" = "media", stationModel = "T8010", startupDeadlineMilliseconds?: number, channelOverride?: number, deviceTypeOverride?: number | null) {
   let socket!: Socket;
   let inbound = 0;
   const sent: Buffer[] = [];
@@ -47,7 +47,7 @@ async function peer(context: TestContext, attached = true, model = "T8113-Z", pu
   const session = new FirstPartyPpcsSession({ stationSerial: "SYNTHETIC1234567", p2pDid: "TEST-12345678-TEST",
     appConnection: "", dskKey: "synthetic", channel: channelOverride ?? (attached ? 1 : 0), homeBaseAttached: attached, stationModel,
     ...(startupDeadlineMilliseconds === undefined ? {} : { startupDeadlineMilliseconds }),
-    purpose, cameraModel: model, ...(model === "T8171" ? { cameraDeviceType: 88 } : {}),
+    purpose, cameraModel: model, ...(model === "T8171" ? { cameraDeviceType: deviceTypeOverride === undefined ? 88 : deviceTypeOverride } : {}),
     accountId: "synthetic-owner", maxSeconds: 120,
     resolveCipherKey: async () => Buffer.alloc(32, 1).toString("hex") });
   const receive = (packet: Buffer, port = 12345, address = "127.0.0.1") => socket.emit("message", packet, { address, port });
@@ -603,5 +603,32 @@ test("T8171 native start and stop retain their distinct encrypted wire slots", a
     assert.equal(stopped?.cmd, 1004);
     assert.equal(stopped?.mValue3, 0);
     assert.deepEqual(stopped?.payload, { channel: 1, transaction: "1800000000000" });
+  } finally { f.session.close(); }
+});
+
+for (const [model, station, channel, purpose, deviceType, qualified] of [
+  ["T8171", "T8030", 1, "media", 88, true],
+  ["T8171", "T8030", 1, "media", 87, false],
+  ["T8171", "T8030", 1, "media", null, false],
+  ["T8171", "T8010", 1, "media", 88, false],
+  ["T8171", "T8030", 2, "media", 88, false],
+  ["T8210", "T8030", 4, "media", 88, false],
+  ["T8171", "T8030", 1, "control", 88, false],
+  ["T8171", "T8030", 1, "passive", 88, false],
+] as const) test(`late video repair admission ${model}/${station}/${channel}/${purpose}/${deviceType}`, async context => {
+  const f = await peer(context, true, model, purpose, station, undefined, channel, deviceType);
+  const fragment = (sequence: number, text: string): void => {
+    const body = Buffer.from(text), packet = Buffer.alloc(8 + body.length);
+    packet.set([0xf1, 0xd0], 0); packet.writeUInt16BE(packet.length - 4, 2);
+    packet.set([0xd1, 1], 4); packet.writeUInt16BE(sequence, 6); body.copy(packet, 8);
+    f.receive(packet);
+  };
+  try {
+    fragment(0, "first"); fragment(2, "third");
+    context.mock.timers.tick(300);
+    assert.equal(f.session.stats.sequenceGaps, qualified ? 0 : 1);
+    context.mock.timers.tick(600); fragment(1, "second");
+    assert.equal(f.session.stats.sequenceGaps, qualified ? 0 : 1);
+    assert.equal(f.session.stats.closeReason, "open");
   } finally { f.session.close(); }
 });
