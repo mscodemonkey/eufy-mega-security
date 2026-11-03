@@ -508,7 +508,9 @@ test("selected HomeBase heartbeats receive a pong while video remains active", a
     f.ack(f.sent.at(-1)!.readUInt16BE(6));
     f.video(3);
     for (let index = 0; index < 9; index++) {
-      context.mock.timers.tick(5000);
+      context.mock.timers.tick(2500);
+      f.video(3);
+      context.mock.timers.tick(2500);
       f.receive(Buffer.from([0xf1, 0xe0, 0, 0]));
       f.video(3);
     }
@@ -555,5 +557,91 @@ test("peer heartbeats do not extend an acknowledged start's first-frame deadline
     assert.equal(f.session.stats.closeReason, "first_frame_timeout");
     assert.equal(f.session.stats.videoOutputFrames, 0);
     assert.equal(f.session.stats.mediaStartAttempts, 1);
+  } finally { f.session.close(); }
+});
+
+
+test("attached output stall repairs before a ten-second viewer read timeout", async context => {
+  const f = await peer(context, true, "T8171", "media", "T8030");
+  try {
+    await f.negotiate();
+    f.ack(f.sent.at(-1)!.readUInt16BE(6));
+    context.mock.timers.tick(1300);
+    f.video();
+    context.mock.timers.tick(2000);
+    f.video();
+    context.mock.timers.tick(4999);
+    assert.equal(f.session.stats.mediaStopAttempts, 0);
+    context.mock.timers.tick(1);
+    assert.equal(f.session.stats.mediaStopAttempts, 1);
+    context.mock.timers.tick(250);
+    assert.equal(f.session.stats.mediaStartAttempts, 2);
+    f.ack(f.sent.at(-1)!.readUInt16BE(6));
+    f.video();
+    assert.ok(f.session.stats.videoOutputFrames >= 3);
+    context.mock.timers.tick(4999);
+    assert.equal(f.session.stats.mediaStopAttempts, 1);
+    f.session.close();
+    const sent = f.sent.length;
+    context.mock.timers.tick(20000);
+    assert.equal(f.sent.length, sent);
+  } finally { f.session.close(); }
+});
+
+test("progress renews the attached stall watchdog without restarting video", async context => {
+  const f = await peer(context, true, "T8171", "media", "T8030");
+  try {
+    await f.negotiate();
+    f.ack(f.sent.at(-1)!.readUInt16BE(6));
+    f.video();
+    for (let index = 0; index < 8; index++) {
+      context.mock.timers.tick(4900);
+      f.video();
+    }
+    assert.equal(f.session.stats.mediaStartAttempts, 1);
+    assert.equal(f.session.stats.mediaStopAttempts, 0);
+    assert.equal(f.session.stats.closeReason, "open");
+  } finally { f.session.close(); }
+});
+
+test("an unrecovered attached output stall retains one repair and finite retirement", async context => {
+  const f = await peer(context, true, "T8171", "media", "T8030");
+  try {
+    await f.negotiate();
+    f.ack(f.sent.at(-1)!.readUInt16BE(6));
+    context.mock.timers.tick(1300);
+    f.video();
+    context.mock.timers.tick(5000);
+    context.mock.timers.tick(250);
+    assert.equal(f.session.stats.mediaStartAttempts, 2);
+    f.ack(f.sent.at(-1)!.readUInt16BE(6));
+    context.mock.timers.tick(13450);
+    assert.equal(f.session.stats.mediaStartAttempts, 2);
+    assert.equal(f.session.stats.closeReason, "media_stall");
+  } finally { f.session.close(); }
+});
+
+for (const purpose of ["control", "passive"] as const) {
+  test(`attached ${purpose} output does not acquire a media stall restart`, async context => {
+    const f = await peer(context, true, "T8171", purpose, "T8030");
+    try {
+      await f.negotiate();
+      f.video();
+      context.mock.timers.tick(5250);
+      assert.equal(f.session.stats.mediaStartAttempts, 0);
+      assert.equal(f.session.stats.mediaStopAttempts, 0);
+    } finally { f.session.close(); }
+  });
+}
+
+
+test("standalone video keeps its existing stall policy", async context => {
+  const f = await peer(context, false, "T817L");
+  try {
+    f.ack(f.sent.at(-1)!.readUInt16BE(6));
+    f.video(0);
+    context.mock.timers.tick(5250);
+    assert.equal(f.session.stats.mediaStartAttempts, 1);
+    assert.equal(f.session.stats.mediaStopAttempts, 0);
   } finally { f.session.close(); }
 });

@@ -74,6 +74,7 @@ const RESP = {
 // inside the same outer F1 D0 PPCS transport packet.
 const DATA = { data: Buffer.from([0xd1, 0]), video: Buffer.from([0xd1, 1]) } as const;
 const ATTACHED_MEDIA_STALL_MILLISECONDS = 10_000;
+const ATTACHED_OUTPUT_REPAIR_MILLISECONDS = 5_000;
 const ATTACHED_MEDIA_RESTART_DELAY_MILLISECONDS = 250;
 const FIRST_VIDEO_FRAME_TIMEOUT_MILLISECONDS = 20_000;
 const CONTROL_TIMEOUT_MILLISECONDS = 10_000;
@@ -1680,6 +1681,7 @@ export class FirstPartyPpcsSession {
   #lastAttachedMediaReassertAt: number | null = null;
   #heartbeat: ReturnType<typeof setInterval> | null = null;
   #attachedMediaRestartTimer: ReturnType<typeof setTimeout> | null = null;
+  #attachedOutputStallTimer: ReturnType<typeof setTimeout> | null = null;
   #lookupTimer: ReturnType<typeof setInterval> | null = null;
   #selfAddress: { host: string; port: number } | null = null;
   #pendingControl: PendingControl | null = null;
@@ -2829,6 +2831,7 @@ export class FirstPartyPpcsSession {
     if (this.#firstFrameTimer) clearTimeout(this.#firstFrameTimer);
     if (this.#heartbeat) clearInterval(this.#heartbeat);
     if (this.#attachedMediaRestartTimer) clearTimeout(this.#attachedMediaRestartTimer);
+    if (this.#attachedOutputStallTimer) clearTimeout(this.#attachedOutputStallTimer);
     if (this.#lookupTimer) clearInterval(this.#lookupTimer);
     if (this.#pendingControl) {
       clearTimeout(this.#pendingControl.timer);
@@ -3221,6 +3224,7 @@ export class FirstPartyPpcsSession {
         this.#mediaStart.mediaReceived();
         const decoderReady = hasDecoderReadyKeyframe(this.stats.videoCodec, this.stats.videoNalTypes);
         this.#lastDeliveredMediaFrameAt = Date.now();
+        this.#armAttachedOutputStallRepair();
         if ((!this.#options.homeBaseAttached || decoderReady) && this.#firstFrameTimer) {
           clearTimeout(this.#firstFrameTimer);
           this.#firstFrameTimer = null;
@@ -3604,6 +3608,27 @@ export class FirstPartyPpcsSession {
         commandKey(this.#options.stationSerial, this.#options.p2pDid),
       ));
     }
+  }
+
+  /**
+   * Repair a stopped media source before a viewer's ten-second read timeout.
+   *
+   * Only normalized output arms this timer, so slow first pictures keep their
+   * original deadline. Fresh output renews it. One silent interval borrows the
+   * existing stop/start repair, whose later heartbeat window still owns finite
+   * retirement if no new media arrives. Control and passive sessions never own it.
+   */
+  #armAttachedOutputStallRepair(): void {
+    if (!this.#options.homeBaseAttached || this.#options.purpose === "control" || this.#options.purpose === "passive") return;
+    if (this.#attachedOutputStallTimer) clearTimeout(this.#attachedOutputStallTimer);
+    const deliveredAt = this.#lastDeliveredMediaFrameAt;
+    this.#attachedOutputStallTimer = setTimeout(() => {
+      this.#attachedOutputStallTimer = null;
+      if (this.#closed || deliveredAt === null || this.#lastDeliveredMediaFrameAt !== deliveredAt
+        || this.#lastAttachedMediaReassertAt !== null && deliveredAt < this.#lastAttachedMediaReassertAt) return;
+      this.#startAttachedMedia();
+    }, ATTACHED_OUTPUT_REPAIR_MILLISECONDS);
+    this.#attachedOutputStallTimer.unref?.();
   }
 
   /** Start an attached channel, or restart it after output has genuinely stalled. */
