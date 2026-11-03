@@ -26,7 +26,7 @@ async function fixture(context: TestContext, enabled = true, providerAvailable =
   const directory = await mkdtemp(join(tmpdir(), "general-http-"));
   const state = new GatewayState();
   state.registerCamera({ serial: "synthetic", name: "Synthetic", model: "T8171", stationSerial: "synthetic", streamSupported: false, doorbellSupported: false });
-  let acquired = 0, released = 0, busy = false, mode: GeneralRtcStage | "success" | "raw" | "wait" = "success";
+  let acquired = 0, released = 0, busy = false, mode: GeneralRtcStage | "success" | "raw" | "wait" | "inventory_detail" = "success";
   let entered!: () => void, retired!: () => void;
   const entering = new Promise<void>(resolve => { entered = resolve; }), retiring = new Promise<void>(resolve => { retired = resolve; });
   const logs: string[] = [];
@@ -38,6 +38,9 @@ async function fixture(context: TestContext, enabled = true, providerAvailable =
   const recorder: typeof recordGeneralRtcClip = async (value, submittedPin, signal) => {
     assert.equal(value, lease); assert.equal(submittedPin, pin); entered();
     if (mode === "raw") throw Error(sentinel);
+    if (mode === "inventory_detail") throw new GeneralRtcError("inventory", "response", {
+      operation: "devices", boundary: "application", page: 0, httpStatus: 200, apiCode: 20004,
+    });
     if (mode === "wait") await new Promise<void>((_resolve, reject) => {
       signal.addEventListener("abort", () => reject(signal.reason), { once: true });
     });
@@ -163,4 +166,17 @@ test("preparation default-deny gate blocks effects before parsing and retains ca
   for (const path of ["/diagnostics", "/api/cameras", "/api/stations", "/api/sensors", "/api/locks", "/api/camera-capabilities", "/api/device-capabilities"]) {
     assert.equal((await f.request(undefined, { method: "GET", body: null }, base + path)).status, 200, path);
   }
+});
+
+
+test("inventory failure details reach the support log while the HTTP response stays closed", async context => {
+  const f = await fixture(context);
+  f.mode("inventory_detail");
+  const result = await f.request();
+  assert.equal(result.status, 409);
+  assert.deepEqual(await result.json(), { stage: "inventory" });
+  await turn();
+  assert.match(f.logs.join(""), /stage=inventory reason=response operation=devices boundary=application page=0 http_status=200 api_code=20004/);
+  assert.doesNotMatch(f.logs.join(""), /SENTINEL|synthetic/);
+  assert.deepEqual(f.counts(), { acquired: 1, released: 1 });
 });
