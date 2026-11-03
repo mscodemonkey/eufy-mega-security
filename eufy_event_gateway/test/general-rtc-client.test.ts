@@ -65,6 +65,33 @@ function response(path: string): Response {
   return new Response(JSON.stringify({ code: 0, data }));
 }
 
+test("portal inventory uses Security web headers while preserving its cached session", async context => {
+  const f = await fixture(context, async url => response(new URL(String(url)).pathname));
+  await f.client.generalRtcInventory(new AbortController().signal);
+  for (const request of f.requests) {
+    const headers = new Headers(request.options?.headers);
+    assert.equal(headers.get("app-name"), "eufy_security");
+    assert.equal(headers.get("model_type"), "WEB");
+    assert.equal(headers.has("model-type"), false);
+    assert.equal(headers.get("web-country"), "AU");
+    assert.equal(headers.get("x-key-ident"), "synthetic");
+    assert.equal(headers.get("x-auth-token"), "synthetic-token");
+    assert.equal(headers.get("content-type"), "text/plain");
+  }
+  await f.unchanged();
+});
+
+test("normal inventory retains its native request profile", async context => {
+  const f = await fixture(context, async url => response(new URL(String(url)).pathname));
+  await f.client.inventory();
+  for (const request of f.requests) {
+    const headers = new Headers(request.options?.headers);
+    assert.equal(headers.get("app-name"), "eufy_mega");
+    assert.equal(headers.get("model-type"), "PHONE");
+    assert.equal(headers.has("web-country"), false);
+  }
+});
+
 test("request table uses exact native bodies, scoped headers and a GET-only smart sign", async context => {
   const f = await fixture(context, async url => response(new URL(String(url)).pathname));
   assert.equal(f.client.generalRtcHasNativeIdentities(), true);

@@ -83,6 +83,9 @@ interface GeneralRtcCallOptions {
   /** Observe only the received HTTP status, including responses rejected before decoding. */
   readonly onResponseStatus?: (status: number) => void;
   readonly cachedIdentityOnly?: true;
+
+  /** Use the source-qualified web profile only for experimental portal inventory. */
+  readonly portalInventory?: true;
   readonly onDispatch?: () => void;
 }
 
@@ -316,7 +319,7 @@ export class MegaClient {
       const result = await this.#call("security", path,
         { page, num: 100, station_sn: "", device_sn: "", ...(path === "/v3/web/get_devs_list" ? { orderby: "" } : {}) }, false, undefined,
         AbortSignal.any([signal, AbortSignal.timeout(10_000)]), {
-          cachedIdentityOnly: true, onResponseStatus: status => { httpStatus = status; },
+          cachedIdentityOnly: true, portalInventory: true, onResponseStatus: status => { httpStatus = status; },
         });
       boundary = "application";
       apiCode = result.code;
@@ -1085,7 +1088,7 @@ export class MegaClient {
     } : options?.onDispatch;
     let result: MegaResult;
     try {
-      const pending = this.#signedPost(host, path, payload, identity, undefined, appScope, cancellation, onDispatch, options?.onResponseStatus);
+      const pending = this.#signedPost(host, path, payload, identity, undefined, appScope, cancellation, onDispatch, options?.onResponseStatus, options?.portalInventory);
       result = options?.cachedIdentityOnly ? await generalRtcAwait(pending, lifetime, "admission") : await pending;
     } catch (error) {
       lifetime.throwIfAborted();
@@ -1151,6 +1154,7 @@ export class MegaClient {
     cancellation?: AbortSignal,
     onDispatch?: () => void,
     onResponseStatus?: (status: number) => void,
+    portalInventory?: true,
   ): Promise<MegaResult> {
     return this.#enqueue(async (lifetime) => {
       const signal = cancellation ? AbortSignal.any([lifetime, cancellation]) : lifetime;
@@ -1174,6 +1178,15 @@ export class MegaClient {
       // The native cipher API routes the Security family independently of app-name.
       if (!bootstrap && host.endsWith(".eufylife.com") && path === "/v3/app/cipher/get_ciphers") {
         headers["app-tab"] = "eufy_security";
+      }
+      if (portalInventory) {
+
+        // The portal inventory wrapper selects the Security web profile. Reuse
+        // the admitted identity without exchanging keys or changing the session.
+        headers["app-name"] = "eufy_security";
+        headers.model_type = "WEB";
+        headers["web-country"] = this.#country.toUpperCase();
+        delete headers["model-type"];
       }
       if (appScope) headers["app-name"] = appScope;
       if (path === "/v3/web/wp/verify_captcha") headers["X-Auto-Ts"] = timestamp;
