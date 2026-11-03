@@ -131,7 +131,7 @@ If a change is still exploratory, say so. A failed camera probe is useful eviden
 
 ## Releases
 
-Only maintainers should cut a release. A release updates the gateway package, app manifest, Home Assistant manifest, repository changelog, and `eufy_event_gateway/CHANGELOG.md` together, then tags the commit with the same version. `npm run release:check` enforces matching public versions and requires the current version heading in both changelogs. The HACS integration and the Home Assistant app are published from the same repository, but they are installed and updated separately. Do not claim a release is available until the tag and both published artifacts have been checked.
+Only maintainers should cut a release. A release updates the gateway package, app manifest, Home Assistant manifest, repository changelog, and `eufy_event_gateway/CHANGELOG.md` together, then tags the commit with the same version. `npm run release:check` enforces matching public versions and requires the current version heading in both changelogs. The Marketplace/HACS integration and the Home Assistant app are published from the same repository, but they are installed and updated separately. Do not claim a release is available until the tag and both published artifacts have been checked.
 
 ## Where to look first
 

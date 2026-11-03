@@ -257,8 +257,8 @@ Add the project as a custom repository in HACS:
 After every integration update, fully restart Home Assistant so it loads the
 new integration code. Updating or restarting the Eufy Mega Security app only
 restarts the gateway; it does not reload the integration running inside Home
-Assistant. If a release updates both parts, update the integration through Marketplace or HACS and
-the app separately, then restart Home Assistant.
+Assistant. If a release updates both parts, update the integration through
+Marketplace or HACS and the app separately, then restart Home Assistant.
 
 Marketplace installs the integration only. Install the gateway app separately
 through **Settings > Apps > App Store**, as described below. Home Assistant
