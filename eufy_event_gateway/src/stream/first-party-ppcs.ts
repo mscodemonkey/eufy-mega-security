@@ -2950,7 +2950,10 @@ export class FirstPartyPpcsSession {
       this.stats.camId++;
       this.#remote = { host: info.address, port: info.port };
       this.#send(REQ.ping, Buffer.alloc(0), this.#remote);
-      if (this.#options.stationModel === "T8010" && this.#options.cameraModel === "T8113-Z" && this.#options.homeBaseAttached) {
+      const repairAttachedSetup = this.#options.homeBaseAttached
+        && (this.#options.purpose !== "control" && this.#options.purpose !== "passive"
+          || this.#options.stationModel === "T8010" && this.#options.cameraModel === "T8113-Z");
+      if (repairAttachedSetup) {
         const sequence = this.#seq++;
         const payload = Buffer.concat([commandHeader(sequence, 1100), voidPayload(255)]);
         this.#gatewayInfoRequest.start(sequence, Buffer.concat([REQ.data, u16(payload.length), payload]));
