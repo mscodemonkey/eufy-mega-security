@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Use the current portal's Security web identity and country headers for camera-list reads in the default-off general RTC trial. Keep the admitted session and existing no-login, no-key-exchange and no-retry limits. This corrects the request profile, but HTTP 463 and T8420X playback still need a reporter check.
+
 ## 0.1.237
 
 - Correct the SoloCam S340 (T8171/type 88) live-view start and stop through HomeBase 3 on channel 1 using the current native-app profile. The correction addresses the observed blank first view and stays limited to this identity and topology.
