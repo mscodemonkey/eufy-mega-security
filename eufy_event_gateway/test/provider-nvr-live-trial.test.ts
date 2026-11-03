@@ -129,6 +129,8 @@ for (const mode of [...additional.keys(), 'state-read', 'state-read-failure', 's
 for (const route of [
   { cameraModel: "T8E00", cameraType: 301, stationModel: "T8N00", stationType: 300 },
   { cameraModel: "T8P10", cameraType: 303, stationModel: "T8N00", stationType: 300 },
+  { cameraModel: "T8416", cameraType: 104, stationModel: "T8N00", stationType: 300 },
+  { cameraModel: "T8214", cameraType: 94, stationModel: "T8N00", stationType: 300 },
   { cameraModel: "T8140-Z", cameraType: 14, stationModel: "T9000", stationType: 27 },
   { cameraModel: "T8140", cameraType: 14, stationModel: "T9000", stationType: 27 },
   { cameraModel: "T8113-V", cameraType: 8, stationModel: "T9000", stationType: 27 },
@@ -191,6 +193,12 @@ for (const route of [
         assert.equal(contexts, 0);
         await release();
       }
+      if (route.cameraModel === "T8416" || route.cameraModel === "T8214") {
+        assert.equal(discovered?.catalogueStatus, "supported");
+        assert.equal(discovered?.doorbellSupported, route.cameraModel === "T8214");
+        assert.equal(discovered?.liveAudioSupported, false);
+        assert.deepEqual(discovered?.nvrViewOptions ?? [], []);
+      }
       await provider.startStream("synthetic-camera");
       assert.equal(contexts, 1);
       assert.equal(starts, 1);
@@ -224,6 +232,12 @@ for (const route of [
   { model: "T8P10", type: 303, parent: "T8N00", parentType: 27, enabled: true },
   { model: "T8P10", type: 303, parent: "T8030", parentType: 18, enabled: true },
   ...[-1, 255, 1.5].map(channel => ({ model: "T8P10", type: 303, parent: "T8N00", parentType: 300, enabled: true, channel })),
+  ...[{ model: "T8416", type: 104 }, { model: "T8214", type: 94 }].flatMap(camera => [
+    { ...camera, parent: "T8N00", parentType: 300, enabled: false },
+    { ...camera, type: camera.type + 1, parent: "T8N00", parentType: 300, enabled: true },
+    { ...camera, parent: "T9000", parentType: 27, enabled: true },
+    { ...camera, parent: "T8030", parentType: 18, enabled: true },
+  ]),
   ...[{ model: "T8140", type: 14 }, { model: "T8113-V", type: 8 }, { model: "T8172", type: 89 }, { model: "T8215", type: 97 }]
     .flatMap(camera => [
       { ...camera, parent: "T9000", parentType: 27, enabled: false },
@@ -261,7 +275,7 @@ for (const route of [
     if (route.model === "T8215" && route.parent === "T8N00") {
       assert.throws(() => provider.reserveNvrLiveTrial("synthetic-camera", new AbortController().signal), NvrTrialError);
     }
-    if (route.model === "T8P10" && route.parent !== "T8N00") {
+    if (["T8P10", "T8416", "T8214"].includes(route.model) && route.parent !== "T8N00") {
       assert.throws(() => provider.reserveNvrLiveTrial("synthetic-camera", new AbortController().signal), NvrTrialError);
     }
   } finally {
