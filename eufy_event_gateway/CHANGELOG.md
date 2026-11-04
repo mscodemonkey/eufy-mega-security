@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.241
+
+- Preserve supplied visitor names on doorbell press events instead of replacing them with the generic ring label. Automatic recovery when no name reaches the gateway remains open.
+- Report refused read-only movement checks separately from connection failures, without moving the camera. Physical confirmation on the reported T8425 setup remains outstanding.
+- Send the authenticated NVR hangup before closing a joined live-view call so the NVR can accept the next camera promptly. Oliver Nixon contributed the fix and confirmed 29 consecutive switches on two Indoor Cam S350 cameras after reproducing eight failures before it.
+- Give the exact SoloCam S340 T8171 route through HomeBase 3 up to two seconds to finish repairing late video packets. Owned-camera checks passed a 90-second view and a fresh 60-second reopen, but the separate intermittent pause remains under normal-use observation.
+- Document Home Assistant Marketplace installation and updates alongside the existing HACS path. A normal Marketplace UI install and HACS migration still need isolated confirmation.
+
 ## 0.1.240
 
 - Experimental NVR S4 live video can now open for attached Indoor Cam S350 and Video Doorbell E340 cameras. The existing camera identity is retained, and the route remains off by default behind Experimental NVR live.
