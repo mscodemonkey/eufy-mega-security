@@ -48,7 +48,10 @@ async function peer(context: TestContext, attached = true, model = "T8113-Z", pu
   const session = new FirstPartyPpcsSession({ stationSerial: "SYNTHETIC1234567", p2pDid: "TEST-12345678-TEST",
     appConnection: "", dskKey: "synthetic", channel: channelOverride ?? (attached ? 1 : 0), homeBaseAttached: attached, stationModel,
     ...(startupDeadlineMilliseconds === undefined ? {} : { startupDeadlineMilliseconds }),
-    purpose, cameraModel: model, ...(model === "T8171" ? { cameraDeviceType: deviceTypeOverride === undefined ? 88 : deviceTypeOverride } : {}),
+    purpose, cameraModel: model,
+    ...(deviceTypeOverride !== undefined
+      ? { cameraDeviceType: deviceTypeOverride }
+      : model === "T8171" ? { cameraDeviceType: 88 } : {}),
     accountId: "synthetic-owner", maxSeconds: 120,
     resolveCipherKey: async () => Buffer.alloc(32, 1).toString("hex") });
   const receive = (packet: Buffer, port = 12345, address = "127.0.0.1") => socket.emit("message", packet, { address, port });
@@ -272,6 +275,33 @@ test("a late attached start defers heartbeat restart until its repair window end
     assert.equal(f.session.stats.mediaStopAttempts, 1);
     context.mock.timers.tick(250);
     assert.equal(f.session.stats.mediaStartAttempts, 2);
+  } finally { f.session.close(); }
+});
+
+test("the exact T8210 HomeBase 3 route receives station heartbeats without restarting child media", async context => {
+  const f = await peer(context, true, "T8210", "media", "T8030", undefined, 4, 7);
+  try {
+    await f.negotiate();
+    f.ack(f.sent.at(-1)!.readUInt16BE(6));
+    f.video(4);
+    const mediaStarts = f.session.stats.mediaStartAttempts;
+    context.mock.timers.tick(5000);
+    const heartbeat = f.sent.find(packet => packet.length >= 24
+      && packet.readUInt16LE(12) === 1139 && packet[20] === 255);
+    assert.ok(heartbeat);
+    assert.equal(f.session.stats.mediaStartAttempts, mediaStarts);
+    assert.equal(f.session.stats.mediaStopAttempts, 0);
+  } finally { f.session.close(); }
+});
+
+test("attached routes without the exact T8210 identity do not receive station command heartbeats", async context => {
+  const f = await peer(context, true, "T8113-Z", "media", "T8030", undefined, 4, 7);
+  try {
+    await f.negotiate();
+    f.ack(f.sent.at(-1)!.readUInt16BE(6));
+    f.video(4);
+    context.mock.timers.tick(5000);
+    assert.equal(f.sent.some(packet => packet.length >= 24 && packet.readUInt16LE(12) === 1139), false);
   } finally { f.session.close(); }
 });
 
