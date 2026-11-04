@@ -238,6 +238,12 @@ function usesT8171AttachedMediaProfile(channel: number, route?: AttachedMediaCon
     && route.cameraDeviceType === 88 && route.stationModel === "T8030";
 }
 
+/** Select the app-observed type-7 T8210 station-heartbeat route on HomeBase 3. */
+function usesT8210StationHeartbeatProfile(route: AttachedMediaControlRoute): boolean {
+  return route.homeBaseAttached === true && route.cameraModel === "T8210"
+    && route.cameraDeviceType === 7 && route.stationModel === "T8030";
+}
+
 /** Build the encrypted direct stop command required by a T8010 HomeBase 2. */
 export function buildLegacyAttachedMediaStopPayload(channel: number, key: Buffer): Buffer {
   const value = Buffer.alloc(4);
@@ -1887,6 +1893,12 @@ export class FirstPartyPpcsSession {
       if (!this.#remote) return;
       this.#send(REQ.ping, Buffer.alloc(0), this.#remote);
       if ((this.#options.purpose === "control" || this.#options.purpose === "passive") && this.stats.mediaStartAttempts === 0) return;
+      if (usesT8210StationHeartbeatProfile(this.#options)) {
+
+        // The official app keeps this exact attached route alive with a
+        // station-channel nudge while child-channel media continues flowing.
+        this.#sendCommand(1139, voidPayload(255));
+      }
       if (this.#options.homeBaseAttached && this.#level2Key) {
 
         // Once the selected peer acknowledges our first media start, the
