@@ -127,3 +127,10 @@ test("HomeBase event picture recovery is a separate authenticated opt-in", () =>
   assert.equal(loadConfig({ EUFY_GATEWAY_API_TOKEN: "x".repeat(32), EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_IMAGES: "true" }).experimentalHomeBaseEventImages, true);
   assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_IMAGES: "yes" }), /true or false/);
 });
+
+test("S340 smoothing is an explicit default-off authenticated playback option", () => {
+  assert.equal(loadConfig({}).experimentalS340SmoothLive, false);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE: "true" }), /requires EUFY_GATEWAY_API_TOKEN/);
+  assert.equal(loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE: "true", EUFY_GATEWAY_API_TOKEN: "x".repeat(32) }).experimentalS340SmoothLive, true);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE: "yes" }), /must be true or false/);
+});

@@ -40,12 +40,13 @@ hardware evidence and topology-specific results remain in
 | T8220 | Video Doorbell Slim (Battery, 1080p, T8220) | 16 | camera | supported |
 | T8223 | Video Doorbell C31 | 96 | camera | ready_to_test |
 | T8224 | Video Doorbell C30 | 96 | camera | supported |
-| T8400 | Indoor Cam C120 / 2K (Solo IndoorCam C24) | 30 | camera | ready_to_test |
+| T8400 | Indoor Cam C120 / 2K (Solo IndoorCam C24) | 30 | camera | supported |
 | T8410, T8413 | Indoor Cam E220 / 2K Pan & Tilt (Solo IndoorCam P24) | 31 | camera | supported |
 | T8410C, T8410C21 | Indoor Cam Pan & Tilt 2K (T8410C) | 31 | camera | supported |
 | T8416, T8416121 | Indoor Cam S350 | 104 | camera | supported |
 | T8417, T8417121 | Indoor Cam E30 | 105 | camera | supported |
 | T8419 | Indoor Cam C210 | 10009 | camera | supported |
+| T8419N | Indoor Cam C220 (T8419N, v3) | 10011 | camera | ready_to_test |
 | T8420 | Floodlight Cam 1080p | 3 | camera | ready_to_test |
 | T8420 | Floodlight Cam (T8420X hardware variant) | 3 | camera | ready_to_test |
 | T8422 | Floodlight Cam E 2K | 37 | camera | ready_to_test |

@@ -1,9 +1,11 @@
 /**
  * Multiplexes one shared viewer's H.264 and optional validated AAC into MPEG-TS.
- * Each instance owns its FFmpeg process and bounded input buffers. The stream
+ * Each instance owns its clocked writer or FFmpeg process and bounded buffers. The stream
  * manager owns the camera source and supplies audio without opening another
  * camera session. HTTP disconnects release both ownership boundaries.
  */
+import { LiveFramePacer, type LivePacingSummary } from "./live-frame-pacer.js";
+import { ClockedTransportWriter } from "./clocked-transport.js";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { OutgoingHttpHeaders, ServerResponse } from "node:http";
 import { PassThrough, type Writable } from "node:stream";
@@ -33,7 +35,7 @@ const MAX_INPUT_BYTES = 4 * 1024 * 1024;
 const AUDIO_START_WAIT_MILLISECONDS = 2_000;
 
 /**
- * Owns one live MPEG-TS viewer, its process, buffered startup and disconnect cleanup.
+ * Owns one live MPEG-TS viewer, its writer, buffered startup and disconnect cleanup.
  * Camera ownership remains with the manager through videoInput. Missing initial
  * audio selects video-only output so a muted camera cannot stall its viewer.
  */
@@ -50,15 +52,41 @@ export class LiveTransportMuxer {
   #closed = false;
   #starting = false;
   #audioReady = false;
+  #pacer: LiveFramePacer | undefined;
+  #pacingDecided = false;
+  #clocked: ClockedTransportWriter | undefined;
+  #clockedWithAudio = false;
 
-  /** Bind a viewer, release its audio subscription on close, and report bounded failure codes without media or process output. */
+  /**
+   * Bind a viewer and its finite process, buffer and audio-subscription lifetime.
+   *
+   * @param smoothS340Live Admit buffering only after the manager verifies the exact current source clock.
+   * @param onPacingClosed Receive content-free final counters after queued media and timers are discarded.
+   */
   constructor(
     private readonly response: ServerResponse,
     private readonly onClose: () => void,
     private readonly audioWaitMilliseconds = AUDIO_START_WAIT_MILLISECONDS,
     private readonly onFailure: (reason: string) => void = () => undefined,
+    smoothS340Live?: () => boolean,
+    private readonly onPacingClosed: (summary: LivePacingSummary) => void = () => undefined,
   ) {
-    this.videoInput.on("data", (chunk: Buffer) => this.#acceptVideo(chunk));
+    this.videoInput.on("data", (chunk: Buffer) => {
+      if (!this.#pacingDecided) {
+        this.#pacingDecided = true;
+        if (smoothS340Live?.() === true) {
+          this.#pacer = new LiveFramePacer((data, time) => this.#acceptPacedMedia("video", data, time),
+            (data, time) => this.#acceptPacedMedia("audio", data, time), reason => this.close(reason),
+            undefined, Math.max(1, this.audioWaitMilliseconds), available => { this.#clockedWithAudio = available; });
+          for (const audio of this.#audio.splice(0)) {
+            this.#bufferedBytes -= audio.length;
+            this.#pacer.acceptAudio(audio);
+          }
+        }
+      }
+      if (this.#pacer) this.#pacer.acceptVideo(chunk);
+      else this.#acceptVideo(chunk);
+    });
     this.videoInput.once("end", () => this.close());
     this.videoInput.once("error", () => this.close());
     this.videoInput.once("close", () => this.close());
@@ -68,6 +96,29 @@ export class LiveTransportMuxer {
 
   /** Consume only AAC already validated by the provider; retain bounded startup bytes. */
   acceptAudio(chunk: Buffer): void {
+    if (this.#pacer) this.#pacer.acceptAudio(chunk);
+    else this.#acceptAudio(chunk);
+  }
+
+  #acceptPacedMedia(kind: "video" | "audio", data: Buffer, time: number): void {
+    if (this.#closed) return;
+    this.#clocked ??= new ClockedTransportWriter(packet => {
+      if (this.#closed) return;
+      if (this.response.destroyed || this.response.writableEnded) return this.close();
+      if (this.response.writableLength + packet.length > MAX_INPUT_BYTES) return this.close("output_backpressure_limit");
+      if (!this.response.headersSent) this.response.writeHead(200, { "Content-Type": "video/mp2t", "Cache-Control": "no-store" });
+      this.response.write(packet);
+      this.#awaitOutput();
+    }, this.#clockedWithAudio);
+    try {
+      if (kind === "video") this.#clocked.video(data, time);
+      else this.#clocked.audio(data, time);
+    } catch {
+      this.close("clocked_transport_invalid");
+    }
+  }
+
+  #acceptAudio(chunk: Buffer): void {
     if (this.#closed || chunk.length === 0) return;
     if (this.#process && this.#audioReady) {
       const input = this.#process.stdio[3] as Writable | null;
@@ -85,6 +136,7 @@ export class LiveTransportMuxer {
   close(reason?: string): void {
     if (this.#closed) return;
     this.#closed = true;
+    const pacing = this.#pacer?.close();
     if (this.#timer) clearTimeout(this.#timer);
     this.#timer = null;
     if (this.#outputTimer) clearTimeout(this.#outputTimer);
@@ -92,11 +144,19 @@ export class LiveTransportMuxer {
     this.#video = [];
     this.#audio = [];
     this.#bufferedBytes = 0;
+    this.#clocked = undefined;
     this.#process?.kill("SIGKILL");
     this.#process = null;
     this.videoInput.destroy();
     if (!this.response.destroyed) this.response.end();
     this.onClose();
+    if (pacing) {
+      try { this.onPacingClosed(pacing); }
+      catch {
+
+        // Diagnostic listeners cannot retain an already stopped viewer.
+      }
+    }
     if (reason) this.onFailure(reason);
   }
 
@@ -151,13 +211,8 @@ export class LiveTransportMuxer {
     const audioInput = child.stdio[3] as Writable | null;
     audioInput?.once("error", () => this.close("audio_input_error"));
     this.response.writeHead(200, { "Content-Type": "video/mp2t", "Cache-Control": "no-store" });
-    const awaitOutput = (): void => {
-      if (this.#outputTimer) clearTimeout(this.#outputTimer);
-      this.#outputTimer = setTimeout(() => this.close("output_timeout"), 10_000);
-      this.#outputTimer.unref();
-    };
-    awaitOutput();
-    child.stdout?.on("data", awaitOutput);
+    this.#awaitOutput();
+    child.stdout?.on("data", () => this.#awaitOutput());
     child.stdout?.pipe(this.response);
     for (const chunk of this.#video) {
       if (child.stdin && !this.#closed) this.#write(child.stdin, chunk);
@@ -170,5 +225,12 @@ export class LiveTransportMuxer {
       this.#audio = [];
       this.#bufferedBytes = 0;
     }
+  }
+
+  #awaitOutput(): void {
+    if (this.#closed) return;
+    if (this.#outputTimer) clearTimeout(this.#outputTimer);
+    this.#outputTimer = setTimeout(() => this.close("output_timeout"), 10_000);
+    this.#outputTimer.unref();
   }
 }

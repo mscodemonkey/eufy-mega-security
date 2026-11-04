@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { GeneralRtcError, generalRtcSubmission, generalRtcSmartHost } from "../src/stream/general-rtc-protocol.js";
+import { GeneralRtcError, generalRtcFailureDiagnostic, generalRtcSubmission, generalRtcSmartHost } from "../src/stream/general-rtc-protocol.js";
 import { generalRtcCandidate, generalRtcRelays } from "../src/stream/general-rtc-network.js";
 
 test("strict submission decodes escapes and permits either key order", () => {
@@ -61,4 +61,16 @@ test("IP-only candidates permit local media while refusing DNS hosts and related
   assert.equal(generalRtcCandidate("candidate:fixture 1 udp 123 8.8.8.8 1234 typ srflx raddr 192.168.1.2 rport 2345").includes("192.168.1.2"), true);
   assert.throws(() => generalRtcCandidate(candidate.replace("192.168.1.2", "camera.local")));
   assert.throws(() => generalRtcCandidate("candidate:fixture 1 udp 123 8.8.8.8 1234 typ srflx raddr camera.local rport 2345"));
+});
+
+
+test("inventory log projection rejects arbitrary values and unknown fields", () => {
+  const bad = {
+    operation: "private-operation", boundary: "private-boundary", page: 7, httpStatus: 999,
+    apiCode: "private-code", token: "private-token",
+  } as unknown as NonNullable<GeneralRtcError["inventory"]>;
+  assert.equal(generalRtcFailureDiagnostic(new GeneralRtcError("inventory", "response", bad)), "stage=inventory reason=response");
+  assert.equal(generalRtcFailureDiagnostic(new GeneralRtcError("video", "media", {
+    operation: "hubs", boundary: "request", page: 0, httpStatus: 503,
+  })), "stage=video reason=media");
 });

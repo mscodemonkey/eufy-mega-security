@@ -16,11 +16,38 @@ export type GeneralRtcReason = "unspecified" | "shape" | "transport" | "response
   | "heartbeat" | "turn_address" | "turn_change" | "offer_shape" | "candidate" | "media"
   | "native_identity_missing" | "native_identity_rejected";
 
-/** Carries only fixed codes across asynchronous cleanup and HTTP responses. */
+/** Content-free inventory failure facts retained only for one diagnostic attempt. */
+export interface GeneralRtcInventoryDiagnostic {
+  readonly operation: "hubs" | "devices" | "projection";
+  readonly boundary: "request" | "application" | "decode" | "shape" | "projection";
+  readonly page?: number;
+  readonly httpStatus?: number;
+  readonly apiCode?: number;
+}
+
+/**
+ * Carries closed failure codes through a single trial and its cleanup.
+ * The client owns any content-free inventory facts. HTTP responses expose only
+ * the stage, while the support log consumes the explicitly projected facts.
+ */
 export class GeneralRtcError extends Error {
-  constructor(readonly stage: GeneralRtcStage, readonly reason: GeneralRtcReason = "unspecified") {
+  constructor(readonly stage: GeneralRtcStage, readonly reason: GeneralRtcReason = "unspecified",
+    readonly inventory?: GeneralRtcInventoryDiagnostic) {
     super(`General video trial failed at ${stage}`);
   }
+}
+
+/** Format inventory facts without retaining response text, identifiers or arbitrary fields. */
+export function generalRtcFailureDiagnostic(failure: GeneralRtcError): string {
+  const fields = [`stage=${failure.stage}`, `reason=${failure.reason}`];
+  const detail = failure.inventory;
+  if (failure.stage !== "inventory" || !detail) return fields.join(" ");
+  if (["hubs", "devices", "projection"].includes(detail.operation)) fields.push(`operation=${detail.operation}`);
+  if (["request", "application", "decode", "shape", "projection"].includes(detail.boundary)) fields.push(`boundary=${detail.boundary}`);
+  if (Number.isInteger(detail.page) && detail.page! >= 0 && detail.page! <= 4) fields.push(`page=${detail.page}`);
+  if (Number.isInteger(detail.httpStatus) && detail.httpStatus! >= 100 && detail.httpStatus! <= 599) fields.push(`http_status=${detail.httpStatus}`);
+  if (Number.isSafeInteger(detail.apiCode) && Math.abs(detail.apiCode!) <= 1_000_000_000) fields.push(`api_code=${detail.apiCode}`);
+  return fields.join(" ");
 }
 
 /** Explicit per-request consent. The route owns and discards the PIN after submission. */

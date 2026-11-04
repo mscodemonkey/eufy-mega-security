@@ -94,7 +94,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 - 🟠 Wired Wall Light Cam S100 T84A1: discovery and direct PPCS are confirmed. One setup has repeated working H.264 live video, while another receives only delta slices without the codec bootstrap, so snapshots and live video remain under investigation across hardware setups.
 - ✅ Indoor Cam Pan & Tilt T8410: discovered with sensors, a retained image, and a live stream through HomeBase 3.
 - ✅ Indoor Cam Pan & Tilt T8410C: discovered with sensors, a retained image, and a live stream through HomeBase 3.
-- 🟠 Indoor Cam 2K T8400: Mega type 30 is admitted through its reported ready route. Discovery, events, snapshots, and live video await reporter testing.
+- ✅ Indoor Cam 2K T8400: direct discovery, a fresh snapshot, live video, motion and person events are reporter-confirmed on firmware 2.3.2.6 with app and integration v0.1.237. Pet, sound and vehicle events, controls and other routes remain unconfirmed.
 - 🟠 Indoor Cam 2K Pan & Tilt T8419: Mega type 10009 is admitted through its reported ready route. Discovery, events, snapshots, and live video await reporter testing.
 - 🟠 Indoor Cam C220 T8W11C: Mega type 10010 is admitted as ready to test in v0.1.118. Inventory battery reads are reported. Live media is unavailable without a ready route. Hardware discovery, events and snapshots await confirmation. Exact T8W11C/type 10008 is also admitted for testing in v0.1.196 after a direct Wi-Fi report on firmware 4.0.9.4. Media, detections and controls for that variant remain hardware-unconfirmed. Its baseline detection list is limited to motion and person; T8W11 and other aliases remain unadmitted at type 10008.
 - 🟠 Indoor Cam S350 T8416: discovery and Home Assistant entities are confirmed on direct Wi-Fi and T9000-attached setups. There is no normal live binding through T9000. The T8N00 owner-only RTC path requires the experimental options described below and remains hardware-unconfirmed. Privacy-mode control is not exposed.
@@ -453,6 +453,30 @@ docker build -t eufy-mega-security:test .
 
 Private diagnostic bundles for all discovered device families are described in
 [the private diagnostics guide](docs/PRIVATE_DIAGNOSTICS.md). Media requires explicit consent and private sharing.
+
+### Experimental smooth S340 live view
+
+The app option `experimental_s340_smooth_live` is off by default. It adds six
+seconds of buffering to live transport playback for the qualified SoloCam S340
+(type 88) through HomeBase 3, channel 1. The camera's original frame clock and
+validated audio sample clock smooth burst delivery. It retains real media only,
+with a 4 MiB and 1,024-packet queue limit. A changed source epoch, invalid clock
+or overflowing queue closes that experimental viewer.
+
+The existing audio startup wait runs before these clocks begin, so delayed
+audio does not turn buffered video into a burst. Cameras without audio still
+fall back to video-only playback.
+
+An observed resolution-changing keyframe can continue on the measured frame
+cadence without replaying the encoder's missing interval. The transport retains
+these media timestamps even when delayed frames arrive together. Other clock
+changes still stop the experimental viewer.
+
+This is a source-qualified candidate. Physical playback and audio synchronisation
+still need confirmation. Snapshots and recordings consume the original source.
+Standalone installs can set `EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE=true`
+with a configured API token. Disabling the option restores ordinary transport
+playback after restarting the app.
 
 ### Experimental fixed H.265 viewer resolution
 

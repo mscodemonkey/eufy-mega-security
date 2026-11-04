@@ -112,8 +112,11 @@ export function stationConnectedAfterRefreshFailure(
   return wasConnected && consecutiveFailures < STATION_REFRESH_DISCONNECT_FAILURES;
 }
 
-/** One accepted camera visit owns its private recovery controller and immutable inventory binding. */
+/** One accepted camera visit owns cloud cancellation and its original inventory binding. */
 interface PushPictureOwner {
+
+  /** Station recovery remains limited to the previously qualified model and route. */
+  readonly historyEligible: boolean;
   readonly event: MegaPushEvent;
   readonly controller: AbortController;
   readonly generation: number;
@@ -681,7 +684,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #nvrMediaChecks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean } | null = null;
   readonly #nvrTrials = new Map<string, { controller: AbortController; device: MegaInventoryDevice;
     station: MegaInventoryDevice; stateOnly: boolean; diagnostic: boolean; generation: number; sensor: 0 | 1; connecting: boolean; retiring: boolean; terminalRetirement: boolean;
-    session: NvrRtcSession | null; release: () => Promise<void> }>();
+    sourceReported: boolean; startOwner: { promise: Promise<void>; cancelled: boolean } | undefined;
+    session: NvrRtcSession | null; retireStart: () => void; release: () => Promise<void> }>();
 
   /** Private card references expire in memory and are never published as filesystem paths. */
   readonly #recordingReferences = new Map<string, { serial: string; record: CameraStoredRecord; expiresAt: number }>();
@@ -1831,7 +1835,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       nvrViewOptions: profile?.views ?? [], nvrSelectedView: profile ? view : null,
       autoNightVisionEnabled: null, aiTrackingEnabled: null, battery: batteryState(device),
       streamSupported: this.#normalNvrLiveBinding(device, station), startupSnapshotSupported: false,
-      doorbellSupported: false, audioRecordingControlSupported: false,
+      doorbellSupported: isDoorbellDevice(device), audioRecordingControlSupported: false,
       careMonitor: false, preferenceRanges: {}, carePreferences: {},
       supportedDetections: ["motion", "person", "stranger", "pet", "vehicle", "dog", "crying", "sound", "packageDelivered", "packageTaken", "packageStranded"],
       streamingQualityControlSupported: !!profile && values.quality !== null, storedRecordingsSupported: false, liveAudioSupported: false,
@@ -1860,6 +1864,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       : null;
     const entry = { controller, device, station, stateOnly, diagnostic, generation: this.#startupGeneration,
       sensor: diagnostic ? nvrTrialSensor(device.model, device.deviceType)! : this.#nvrView(device), connecting: false, retiring: false, terminalRetirement: false,
+      sourceReported: false, startOwner: this.#streamStarts.get(serial), retireStart: (): void => {
+        entry.terminalRetirement = true;
+
+        // An attached source can end before its failed startup finishes closing.
+        // New viewers must queue a replacement instead of sharing that failed
+        // promise. Retire only this lease's ticket, never a queued replacement.
+        if (entry.sourceReported && entry.startOwner && this.#streamStarts.get(serial) === entry.startOwner) {
+          entry.startOwner.cancelled = true;
+        }
+      },
       session: null as NvrRtcSession | null, release: (): Promise<void> => {
       if (closed) return closed;
       entry.retiring = true;
@@ -1915,6 +1929,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const session = new NvrRtcSession({ station: entry.station.serial, camera: serial, channel: entry.device.channel!,
         cameraType: entry.device.deviceType!, sensor: entry.sensor,
         liveControls: !entry.diagnostic && this.#nvrLiveAdmitted(entry.device, entry.station),
+        ...(!entry.diagnostic && !entry.stateOnly && entry.sensor === 0 && entry.device.model === "T8172" && entry.device.deviceType === 89
+          && entry.station.model === "T9000" && entry.station.deviceType === 27 ? { s1FirstPictureGrace: true } : {}),
         administrator: entry.station.adminUserId!, context, signal: entry.controller.signal, current,
         maximumLifetimeMilliseconds: entry.diagnostic ? 75_000 : entry.stateOnly ? this.config.maxStreamSeconds * 1_000 : null,
         ...(!entry.diagnostic && !entry.stateOnly && entry.station.model === "T8N00" && entry.station.deviceType === 300 ? {
@@ -1926,7 +1942,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           const model = safeLogModel(entry.device.model);
           logger.info("nvr_live_timings", `model=${model} offer_ms=${timings.offer ?? "none"} first_local_candidate_ms=${timings.firstLocalCandidate ?? "none"} answer_sent_ms=${timings.answerSent ?? "none"} channel_open_ms=${timings.channelOpen ?? "none"} media_request_ms=${timings.mediaRequest ?? "none"} first_video_ms=${timings.firstVideo ?? "none"}`);
         } } : {}),
-        ready: (output, codec) => this.#events?.streamStarted(serial, output, codec) });
+        ready: (output, codec) => {
+          entry.sourceReported = true;
+          this.#events?.streamStarted(serial, output, codec);
+        } });
       entry.session = session;
       return session;
     } finally { if (phaseAbort) entry.controller.signal.removeEventListener("abort", phaseAbort); }
@@ -1940,7 +1959,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const retire = (): void => {
         if (terminalHandled || entry.retiring) return;
         terminalHandled = true;
-        entry.terminalRetirement = true;
+        entry.retireStart();
         void entry.release().catch(() => {});
       };
       const failure = (error: unknown): void => {
@@ -1972,6 +1991,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const failure = error instanceof NvrTrialError ? error : new NvrTrialError("sign");
       logger.warn(entry.diagnostic ? "nvr_live_trial_failed" : "nvr_live_stream_failed",
         `stage=${failure.stage} reason=${failure.reason}${entry.session ? " " + nvrTrialCounters(entry.session) : ""}`);
+      if (!entry.diagnostic && !entry.stateOnly && entry.sourceReported) entry.retireStart();
       await entry.release(); throw failure;
     }
   }
@@ -2340,7 +2360,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
-  /** Share an in-flight media start and retire bounded lookup retries on stop. */
+  /**
+   * Share an in-flight media start and wait for existing pan/preset ownership.
+   * Stop cancels that wait without waking a peer after the control has retired.
+   * Control waits and lookup retries retain their existing bounded deadlines.
+   */
   async startStream(serial: string): Promise<void> {
     this.#assertRtcPreparationIdle();
     const nvrStartingDevice = this.#devices.get(serial);
@@ -2371,6 +2395,21 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     };
     ticket.promise = Promise.resolve().then(async () => {
       current();
+      if (this.#panControlOperations.has(serial)) {
+        try {
+          await withCameraControlDeadline(async scope => {
+            let reservation: Promise<void> | undefined;
+            while ((reservation = this.#panControlOperations.get(serial))) {
+              current();
+              await scope.wait(() => reservation!.catch(() => undefined));
+              current();
+            }
+          }, cancellation.signal);
+        } catch {
+          current();
+          throw new Error("Camera stream start timed out waiting for preset or pan control");
+        }
+      }
       const doorbell = this.#devices.get(serial);
       if (this.#doorbellRtcBinding(doorbell)) {
         this.#reserveDoorbellRtc(serial, cancellation.signal, false);
@@ -2712,7 +2751,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           ...(device.model === "T8170" && device.deviceType === 48 && !route.homeBaseAttached ? { lookupTimeoutMs: 8_000 } : {}),
           stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
           localAddress: peer.localAddress,
-          dskKey: dsk.key, channel: device.channel, cameraModel: device.model, stationModel: peer.model,
+          dskKey: dsk.key, channel: device.channel, cameraModel: device.model, cameraDeviceType: device.deviceType, stationModel: peer.model,
           accountId: device.adminUserId,
           homeBaseAttached: route.homeBaseAttached,
           cipherId: device.cipherId,
@@ -5150,7 +5189,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     });
   }
 
-  /** Serialize a fresh preset query with movement and tracking on the verified camera route. */
+  /**
+   * Read fresh preset slots on the admitted route, sharing a decoded viewer.
+   * A read during live startup rejects instead of replacing its media owner.
+   * Idle reads still own and retire their separate control connection.
+   */
   async getCameraPresetPositions(serial: string): Promise<readonly CameraPresetPosition[]> {
     this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
@@ -5228,7 +5271,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return this.#queuePanControl(serial, "auto_cruise", (session) => session.writeAutoCruise(enabled));
   }
 
-  /** Serialize pan actions on an existing decoded viewer or a newly owned control session. */
+  /**
+   * Serialize pan actions on a decoded viewer or a separately owned control peer.
+   * Separate peers retain their reservation through local disconnect completion,
+   * including query failures, so a queued live lookup cannot overtake their END.
+   */
   #queuePanControl(
     serial: string,
     action: string,
@@ -5301,6 +5348,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         await operation(active, current, observe);
         return;
       }
+      if (action === "preset_query" && (this.#streamStarts.has(serial)
+        || active?.stats.closeReason === "open")) {
+        throw new Error("Wait for live video to finish starting before reading presets");
+      }
       await this.stopStream(serial);
       current();
       c37Stage = "session";
@@ -5313,6 +5364,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         current();
       } finally {
         session.close();
+        await session.waitUntilClosed();
       }
     }).catch((error: unknown) => {
       if (c37Request) logger.warn("camera_c37_control_failed", `action=${["pan", "ai_tracking", "preset_query", "preset_position"].includes(action) ? action : "unsupported"} stage=${c37Stage}`);
@@ -5551,7 +5603,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       event.eventType,
       event.pictureUrl !== null,
     );
-    if (delivery.handleState && isSupportedMegaCamera(device)
+    const careKind = careMonitorPushKind(device, event.messageType, event.eventType);
+    const pictureEventAccepted = !isE21(device)
+      || careKind !== null && event.stationSerial === (device.parentSerial || device.serial);
+    if (delivery.handleState && isSupportedMegaCamera(device) && pictureEventAccepted
       && (delivery.retainPicture || cameraDetectionKind(event.eventType) !== null
         || event.eventType === 1 && genericSecurityDetectionKinds(event).length > 0)) {
       const previous = this.#pictureOwners.get(device.serial);
@@ -5561,17 +5616,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         this.#pictureOwners.get(device.serial)?.controller.abort();
         this.#pictureOwners.delete(device.serial);
         const route = ppcsStreamRoute(device, this.#devices);
-        if (supportsEventPictureHistory(device, route, true) && event.stationSerial === route!.peer.serial) {
-          this.#pictureOwners.set(device.serial, { event, controller: new AbortController(), generation: this.#startupGeneration,
-            device, parent: route!.peer });
-          if (this.#pictureOwners.size > 256) {
-            const first = this.#pictureOwners.keys().next().value!;
-            this.#pictureOwners.get(first)?.controller.abort(); this.#pictureOwners.delete(first);
-          }
+        const parent = route?.peer ?? this.#devices.get(device.parentSerial) ?? device;
+        const historyEligible = supportsEventPictureHistory(device, route, true) && event.stationSerial === route!.peer.serial;
+        this.#pictureOwners.set(device.serial, { event, controller: new AbortController(), generation: this.#startupGeneration,
+          device, parent, historyEligible });
+        if (this.#pictureOwners.size > 256) {
+          const first = this.#pictureOwners.keys().next().value!;
+          this.#pictureOwners.get(first)?.controller.abort(); this.#pictureOwners.delete(first);
         }
       }
     }
-    const careKind = careMonitorPushKind(device, event.messageType, event.eventType);
     if (isE21(device)) {
       if (careKind !== null && event.stationSerial === (device.parentSerial || device.serial)) {
         if (delivery.handleState) events.sensorDetection(event.cameraSerial, careKind, true);
@@ -5867,7 +5921,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   /** Recover once on an idle peer, returning bytes only while the same visit still owns the picture. */
   async #recoverPushPicture(event: MegaPushEvent, owner: PushPictureOwner): Promise<Buffer> {
     const reference = event.recording, age = reference ? Date.now() - reference.triggerMilliseconds : Infinity;
-    if (!this.config.experimentalHomeBaseEventImages || !this.config.apiAuthenticationConfigured || !event.eventId
+    if (!owner.historyEligible || !this.config.experimentalHomeBaseEventImages || !this.config.apiAuthenticationConfigured || !event.eventId
       || !reference || !recordingPathDate(reference.storagePath) || age < -5_000 || age > 300_000
       || !this.#pictureOwnerCurrent(owner) || this.#panControlOperations.has(event.cameraSerial)
       || this.#recordingPeerReserved(event.cameraSerial) || (this.#pictureRecoveryCooldowns.get(owner.parent.serial) ?? 0) > performance.now()) {
@@ -5908,7 +5962,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       let picture: { data: Buffer } | null, recovered = false;
       try { picture = await downloadPushSnapshot(this.#client, event, this.#devices, this.config.eventImageCapture, context, owner?.controller.signal); }
       catch (error) {
-        if (!(error instanceof MediaHttpError) || error.failure.status !== 404 || !owner
+        if (!(error instanceof MediaHttpError) || error.failure.status !== 404 || !owner?.historyEligible
           || !this.config.experimentalHomeBaseEventImages) throw error;
         try {
           picture = { data: await this.#recoverPushPicture(event, owner) }; recovered = true;

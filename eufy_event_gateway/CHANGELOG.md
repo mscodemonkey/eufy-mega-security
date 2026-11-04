@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.1.238
+
+- Keep the exact T8210/type 7 doorbell through HomeBase 3 alive with the station heartbeat used by the current Eufy app. Three consecutive development sessions, including two 90-second windows, stayed below a 0.8-second media gap. The longer-term intermittent pause remains unconfirmed outside these observed sessions.
+- Keep the S340's video and audio on one playback clock through Home Assistant. The retained resolution-change failure now passes end to end, and owned-camera first-open and reopen checks produced decoded video without extending the existing source limits.
+- Add a default-off six-second smooth live-view buffer for the exact S340/type 88 through HomeBase 3 channel 1. It retains the original recording and snapshot sources. Hardware playback and audio synchronisation remain unconfirmed.
+- Do not close an S340 stream for a frame gap that has already been repaired, and cancel obsolete alert-picture downloads when a newer visit owns another supported camera route. The separate intermittent cloud-picture failure remains unresolved.
+- Keep an immediate NVR live-view retry separate from the failed source while it closes, and give the existing experimental S1 route its twenty-second first-picture budget without repeating the start command. The reported S1 benefit remains physically unconfirmed.
+- Use the current Security portal identity headers for the default-off general RTC inventory read. HTTP 463 and T8420X playback still need a reporter check.
+- Record the reporter-confirmed T8400 setup on the current release in the device catalogue without broadening its existing runtime support.
+
+## Unreleased
+
+- Keep an immediate NVR live-view retry separate from a failed startup while the old connection finishes closing. Concurrent retry viewers share one replacement, and stop, shutdown and changed ownership still cancel it.
+- Give the existing experimental S1 (T8172/type 89) HomeBase 3 route its twenty-second first-picture budget when start confirmation is missing. A checked picture must arrive before the deadline, and no start command is repeated. Other models, diagnostics and lens selection retain their existing behaviour. Hardware benefit on the reported S1 remains unconfirmed.
+- Add a default-off six-second smooth live-view buffer for the exact S340/type 88 through HomeBase 3 channel 1. It uses the camera frame clock and checked audio sample clock, retains original media, and keeps snapshots and recordings on their existing source. Both relative clocks start after the existing bounded audio wait, preventing an opening video burst from hiding AAC from Home Assistant. Muted sources retain video-only fallback. Hardware playback and audio synchronisation remain unconfirmed.
+- Use the current portal's Security web identity and country headers for camera-list reads in the default-off general RTC trial. Keep the admitted session and existing no-login, no-key-exchange and no-retry limits. This corrects the request profile, but HTTP 463 and T8420X playback still need a reporter check.
+
+## 0.1.237
+
+- Correct the SoloCam S340 (T8171/type 88) live-view start and stop through HomeBase 3 on channel 1 using the current native-app profile. The correction addresses the observed blank first view and stays limited to this identity and topology.
+- Preserve T8171 video frames while the observed late packets are repaired. Its video channel now waits up to one second before discarding an incomplete frame. Other routes and control channels retain their existing wait, with the same packet, memory, startup and session limits. The retained failed interval replays with zero gaps and zero parser resynchronisations.
+- Retain preset-control ownership until its connection finishes disconnecting, including failed queries. A queued live view can no longer overtake that disconnect. Thanks to Heath Bexley (@heath-bexley) for the connection cleanup and packet-repair corrections in #590 and #592.
+- Actual development checks passed for Home Assistant opens and reopens on both affected cameras, all six 60-second source windows with decoded video, and Home Assistant image delivery. The separate rare HomeBase 2 recovery conditions in #465 remain physically unconfirmed.
+
+## 0.1.236
+
+- Use the app-compatible attached live-view selector for HomeBase cameras. The previous selector could start video that later stopped. Encrypted-session regression coverage checks the outgoing request on both HomeBase generations. Thanks to Heath Bexley (@heath-bexley) for the correction in #585.
+- Admit Indoor Cam C220 v3 (T8419N, type 10011) through the existing camera handler. Forlorned_Fable (@ilxfauno-dev) contributed the mapping and confirmed moving video on their hardware. Other features still need separate confirmation.
+- Explain which optional general-portal inventory read failed without logging response bodies or account details. Thanks to Heath Bexley (@heath-bexley) for #586. This diagnostic does not establish T8420X playback support.
+- Local development checks passed for all six home-camera source windows and Home Assistant live opens and reopens on the two affected cameras. Rare HomeBase 2 startup recovery and reporter-specific failures remain under investigation.
+
+## 0.1.235
+
+- Repair lost HomeBase setup-query delivery for attached camera live view. Retransmissions keep the original packet and sequence, stop on a matching receipt or response, expire after three seconds, and retain the existing first-frame deadline. This addresses a retained T8210 Home Assistant open that never reached media startup.
+- Preserve the existing doorbell press sensor when the S4 doorbell uses experimental HomeBase Professional S1 video. Selecting that route previously withdrew the doorbell capability and Home Assistant removed the sensor. Thanks to Heath Bexley (@heath-bexley) for the correction and @jaimmor for reporting it.
+- This corrects sensor exposure. Doorbell-event delivery on that setup and separately reported video interruptions remain unconfirmed. Experimental video and controls remain off by default.
+
+## 0.1.234
+
+- Keep acknowledged attached-camera starts alive until the existing first-picture deadline, avoiding a premature restart while a camera wakes (#578).
+- Answer valid heartbeat requests from the connected camera or HomeBase so live connections are maintained in both directions (#576).
+- Prevent automatic preset discovery from cancelling a live view that is still opening. Live starts also wait for an earlier preset or pan operation to retire its control connection. Thanks to Heath Bexley (@heath-bexley) for this fix (#580).
+
 ## 0.1.233
 
 - Keep an acknowledged T8171 start through T8030 channel one alive until the existing first-frame deadline instead of restarting it at the five-second heartbeat.

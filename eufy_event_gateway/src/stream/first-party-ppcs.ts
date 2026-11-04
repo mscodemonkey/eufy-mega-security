@@ -32,6 +32,7 @@ import { EventPictureReader, decodeEventPictureReply, decodeLegacyEventPictureRe
 import { EventNameHistoryError, EventNameHistoryReader, eventHistoryCursor, nextEventHistoryDate, type EventNameHistorySummary } from "./homebase-event-names.js";
 import { SoloCamRecordingReader, type CameraStoredRecord } from "./stored-recordings.js";
 import type { CameraPresetPosition, VideoCodec } from "../domain/types.js";
+import { markS340LiveFrameClock, markS340LiveSource } from "./live-frame-clock.js";
 import { PpcsAccessUnitAssembler } from "./ppcs-access-unit-assembler.js";
 import { C31TalkbackSender, c31TalkbackBody } from "./c31-talkback.js";
 import { decodePpcsAac } from "./ppcs-audio.js";
@@ -171,33 +172,81 @@ export function acceptsSoloCamAudio(cameraModel: string, homeBaseAttached: boole
  * Build the JSON value encrypted inside a HomeBase media start or stop.
  *
  * Command 1003 starts a child camera and must advertise the session's RSA
- * modulus so the camera can wrap its media key. Command 1004 stops the child
- * channel and deliberately carries an empty payload. The caller applies
- * level-two encryption after this function returns.
+ * modulus so the camera can wrap its media key. The app's attached live
+ * selector is 2. The exact reported T8171/type-88 route through HomeBase 3
+ * instead uses its app-observed single-camera descriptor and selector 0.
+ * Its stop includes the child channel and a fresh transaction. Other stops
+ * retain the empty payload. The caller owns route admission and applies
+ * level-two encryption afterwards. Frame-level codec detection remains downstream.
  */
 export function buildAttachedMediaControlValue(
   command: 1003 | 1004,
   channel: number,
   accountId: string,
   publicKey?: string,
+  route?: AttachedMediaControlRoute,
 ): Buffer {
   if (command === 1003 && !publicKey) throw new Error("Attached media start requires an RSA public key");
+  const nativeT8171 = usesT8171AttachedMediaProfile(channel, route);
   return Buffer.from(JSON.stringify({
     account_id: accountId,
     cmd: command,
     mChannel: channel,
-    mValue3: command,
+    mValue3: nativeT8171 && command === 1004 ? 0 : command,
     payload: command === 1003
-      ? {
+      ? nativeT8171 ? {
+          streamtype: 0,
+          camera_type: 0,
+          entrytype: 0,
+          accountId,
+          chn_list: [{ cameraType: 0, chn: channel, index: 0, sensor: 0 }],
+          view_mode: -1,
+          extValue: 1000,
+          ClientOS: "ANDROID",
+          station_video_type: 0,
+          audio_chn: channel,
+          pip_cord: "",
+          stitch_mode: 1,
+          key: publicKey,
+        } : {
           ClientOS: "Android",
           accountId,
           camera_type: 0,
           entrytype: 0,
           key: publicKey,
-          streamtype: 1,
+          streamtype: 2,
         }
-      : {},
+      : nativeT8171 ? { channel, transaction: String(Date.now()) } : {},
   }));
+}
+
+/**
+ * Reported identity and topology supplied by the owning provider for media framing.
+ * These facts select only a qualified request shape. They do not discover a peer,
+ * authorize a camera, or change persistent device settings.
+ */
+export interface AttachedMediaControlRoute {
+  readonly cameraModel?: string;
+  readonly cameraDeviceType?: number | null;
+  readonly stationModel?: string;
+  readonly homeBaseAttached?: boolean;
+}
+
+/** Select the current app's exact type-88 T8171 single-camera HomeBase 3 route. */
+function usesT8171AttachedMediaProfile(channel: number, route?: AttachedMediaControlRoute): boolean {
+  return channel === 1 && route?.homeBaseAttached === true && route.cameraModel === "T8171"
+    && route.cameraDeviceType === 88 && route.stationModel === "T8030";
+}
+
+/** Select the app-observed type-7 T8210 station-heartbeat route on HomeBase 3. */
+function usesT8210StationHeartbeatProfile(route: AttachedMediaControlRoute): boolean {
+  return route.homeBaseAttached === true && route.cameraModel === "T8210"
+    && route.cameraDeviceType === 7 && route.stationModel === "T8030";
+}
+
+/** Limit the independently authenticated direct stop to its observed child route. */
+function usesT8210DirectMediaStop(channel: number, route: AttachedMediaControlRoute): boolean {
+  return channel === 4 && usesT8210StationHeartbeatProfile(route);
 }
 
 /** Build the encrypted direct stop command required by a T8010 HomeBase 2. */
@@ -278,9 +327,10 @@ interface PpcsSequenceEvidence {
  * Delivers PPCS datagrams in channel sequence order before command reassembly.
  *
  * One session owns this buffer and closes it before releasing its UDP socket.
- * A missing packet gets 250 ms to arrive, with at most 128 packets or 2 MiB
- * retained per channel. Expiry discards the partial command through `onSkip`
- * before delivering the earliest successor. Acknowledgements remain the
+ * Missing packets normally get 250 ms. The owning session may select a
+ * one-second video-channel wait for its qualified late-repair route. Both
+ * policies retain at most 128 packets or 2 MiB per channel. Expiry discards
+ * the partial command through `onSkip` before delivering the earliest successor. Acknowledgements remain the
  * session's responsibility, including duplicates and retransmissions.
  */
 export class PpcsDatagramReorderBuffer {
@@ -288,10 +338,17 @@ export class PpcsDatagramReorderBuffer {
   readonly #evidence = new Map<number, PpcsSequenceEvidence>();
   #closed = false;
 
+  /**
+   * Own callbacks and a fixed video repair policy until close.
+   *
+   * @param videoRepairWaitMilliseconds Select 1000 only for a source-qualified
+   * media route. Control channels always retain their 250 ms wait.
+   */
   constructor(
     private readonly deliver: (data: Buffer, type: number) => void,
     private readonly onSkip: (type: number, reason: "gap" | "restart") => void,
     private readonly onRepeat: (reason: "duplicate" | "stale") => void,
+    private readonly videoRepairWaitMilliseconds: 250 | 1000 = 250,
   ) {}
 
   /** Accept an acknowledged packet, retaining successors until missing data arrives or expires. */
@@ -425,7 +482,7 @@ export class PpcsDatagramReorderBuffer {
     channel.timer = setTimeout(() => {
       channel.timer = undefined;
       this.#abandonHole(type, channel);
-    }, 250);
+    }, type === 1 ? this.videoRepairWaitMilliseconds : 250);
     channel.timer.unref?.();
   }
 
@@ -1332,8 +1389,11 @@ export interface PpcsCameraOptions {
   /** Child-camera channel, or the standalone camera's own channel. */
   readonly channel: number;
 
-  /** Public model identifier used by higher-level diagnostics. */
+  /** Reported model used by qualified media profiles and higher-level diagnostics. */
   readonly cameraModel: string;
+
+  /** Reported numeric identity. Missing types retain the generic media shape. */
+  readonly cameraDeviceType?: number | null;
 
   /** Parent peer model used only where HomeBase generations have different media lifecycle commands. */
   readonly stationModel?: string;
@@ -1622,7 +1682,7 @@ export class FirstPartyPpcsSession {
     mediaStartExpired: 0,
     mediaStartProtocols: [] as ("level1" | "level2" | "t8200-clear")[],
     mediaStopAttempts: 0,
-    mediaStopProtocol: "none" as "none" | "level1-direct" | "level2-payload",
+    mediaStopProtocol: "none" as "none" | "level1-direct" | "level2-direct" | "level2-payload",
     closeReason: "open" as PpcsStreamCloseReason | "open",
   };
   readonly #options: PpcsCameraOptions;
@@ -1661,21 +1721,11 @@ export class FirstPartyPpcsSession {
 
   // PPCS sequences are independent for each inner data type. Combining them
   // would manufacture false gaps when command and video datagrams interleave.
-  #datagramOrder = new PpcsDatagramReorderBuffer(
-    (data, type) => this.#consumeData(data, type),
-    (type, reason) => {
-      if (reason === "restart") this.stats.sequenceRestarts++;
-      else this.stats.sequenceGaps++;
-      this.#pendingByType.delete(type);
-      this.#updatePendingBytes();
-    },
-    (reason) => {
-      if (reason === "duplicate") this.stats.duplicateDatagrams++;
-      else this.stats.staleDatagrams++;
-    },
-  );
+  readonly #datagramOrder: PpcsDatagramReorderBuffer;
   readonly #videoNormalizer = new PpcsVideoStreamNormalizer();
   readonly #videoAssembler: PpcsAccessUnitAssembler;
+  readonly #videoClockEpoch = Symbol();
+  #videoClockFormat: { width: number; height: number } | undefined;
   #lastDeliveredMediaFrameAt: number | null = null;
   #lastAttachedMediaReassertAt: number | null = null;
   #heartbeat: ReturnType<typeof setInterval> | null = null;
@@ -1717,6 +1767,21 @@ export class FirstPartyPpcsSession {
       throw new RangeError("Invalid PPCS lookup deadline");
     }
     this.#options = options;
+    this.#datagramOrder = new PpcsDatagramReorderBuffer(
+      (data, type) => this.#consumeData(data, type),
+      (type, reason) => {
+        if (reason === "restart") this.stats.sequenceRestarts++;
+        else this.stats.sequenceGaps++;
+        this.#pendingByType.delete(type);
+        this.#updatePendingBytes();
+      },
+      (reason) => {
+        if (reason === "duplicate") this.stats.duplicateDatagrams++;
+        else this.stats.staleDatagrams++;
+      },
+      usesT8171AttachedMediaProfile(options.channel, options)
+        && options.purpose !== "control" && options.purpose !== "passive" ? 1000 : 250,
+    );
     const transmitStartup = (packet: Buffer): void => {
       if (!this.#closed && this.#remote) this.#socket.send(packet, this.#remote.port, this.#remote.host);
     };
@@ -1833,14 +1898,18 @@ export class FirstPartyPpcsSession {
       if (!this.#remote) return;
       this.#send(REQ.ping, Buffer.alloc(0), this.#remote);
       if ((this.#options.purpose === "control" || this.#options.purpose === "passive") && this.stats.mediaStartAttempts === 0) return;
+      if (usesT8210StationHeartbeatProfile(this.#options)) {
+
+        // The official app keeps this exact attached route alive with a
+        // station-channel nudge while child-channel media continues flowing.
+        this.#sendCommand(1139, voidPayload(255));
+      }
       if (this.#options.homeBaseAttached && this.#level2Key) {
 
-        // The observed T8171/T8030 channel-one route can take longer than a
-        // heartbeat to produce its first picture. Do not STOP an acknowledged
-        // first start while its existing first-frame deadline still owns it.
-        const awaitingAcknowledgedStartup = this.#options.cameraModel === "T8171"
-          && this.#options.stationModel === "T8030" && this.#options.channel === 1
-          && this.#options.purpose !== "control" && this.#options.purpose !== "passive"
+        // Once the selected peer acknowledges our first media start, the
+        // existing first-frame deadline owns its slow encoder startup. A
+        // heartbeat must not STOP that start before it can produce a picture.
+        const awaitingAcknowledgedStartup = this.#options.purpose !== "control" && this.#options.purpose !== "passive"
           && this.stats.videoOutputFrames === 0 && this.stats.mediaStartAttempts === 1
           && this.stats.mediaStartAcknowledged === 1;
         const recovery = awaitingAcknowledgedStartup ? null : attachedMediaStallRecoveryAction(
@@ -2952,7 +3021,10 @@ export class FirstPartyPpcsSession {
       this.stats.camId++;
       this.#remote = { host: info.address, port: info.port };
       this.#send(REQ.ping, Buffer.alloc(0), this.#remote);
-      if (this.#options.stationModel === "T8010" && this.#options.cameraModel === "T8113-Z" && this.#options.homeBaseAttached) {
+      const repairAttachedSetup = this.#options.homeBaseAttached
+        && (this.#options.purpose !== "control" && this.#options.purpose !== "passive"
+          || this.#options.stationModel === "T8010" && this.#options.cameraModel === "T8113-Z");
+      if (repairAttachedSetup) {
         const sequence = this.#seq++;
         const payload = Buffer.concat([commandHeader(sequence, 1100), voidPayload(255)]);
         this.#gatewayInfoRequest.start(sequence, Buffer.concat([REQ.data, u16(payload.length), payload]));
@@ -3272,6 +3344,16 @@ export class FirstPartyPpcsSession {
       if (normalized.length === 0) {
         this.#recordVideoResult("framing-prefix-buffered");
         continue;
+      }
+      if (this.stats.videoCodec === "h264" && usesT8171AttachedMediaProfile(this.#options.channel, this.#options)
+          && (this.#options.purpose === undefined || this.#options.purpose === "media")) {
+        markS340LiveSource(this.output);
+        const format = this.#videoClockFormat;
+        const validFormat = unit.width > 0 && unit.height > 0;
+        const formatChanged = validFormat && unit.keyframe && format !== undefined
+          && (format.width !== unit.width || format.height !== unit.height);
+        if (validFormat) this.#videoClockFormat = { width: unit.width, height: unit.height };
+        markS340LiveFrameClock(normalized, unit.timestamp, this.#videoClockEpoch, formatChanged);
       }
       this.output.write(normalized);
       this.stats.videoOutputFrames++;
@@ -3634,6 +3716,19 @@ export class FirstPartyPpcsSession {
   #stopAttachedMedia(): void {
     this.#mediaStart.stop();
     if (!this.#remote || !this.#level2Key || this.stats.mediaStartAttempts === 0) return;
+    if (usesT8210DirectMediaStop(this.#options.channel, this.#options)) {
+
+      // This doorbell stops with an authenticated integer on command 1004,
+      // rather than another command 1350 JSON request. The peer remains open.
+      const value = Buffer.alloc(4);
+      value.writeUInt32LE(this.#options.channel);
+      this.stats.mediaStopAttempts++;
+      this.stats.mediaStopProtocol = "level2-direct";
+      this.#sendCommand(1004, rawPayload(
+        encryptLevel2(value, this.#level2Key, this.#level2Seq++), this.#options.channel, 8, [8, 0], 0,
+      ));
+      return;
+    }
     if (this.#options.stationModel === "T8010") {
       this.stats.mediaStopAttempts++;
       this.stats.mediaStopProtocol = "level1-direct";
@@ -3659,13 +3754,16 @@ export class FirstPartyPpcsSession {
       this.#options.channel,
       this.#options.accountId ?? "",
       command === 1003 ? publicModulus(this.#rsa.publicKey) : undefined,
+      this.#options,
     );
 
     // The level-2 body is AES-GCM encrypted. The RSA modulus inside the JSON
     // lets the camera establish the per-stream video key for frame payloads.
     const level2Sequence = this.#level2Seq++;
     const body = encryptLevel2(value, this.#level2Key, level2Sequence);
-    const streamId = this.#options.channel === 0 || this.#options.channel === 255 ? 0 : 10 + (this.#level2Seq & 127);
+    const streamId = usesT8171AttachedMediaProfile(this.#options.channel, this.#options)
+      ? command === 1003 ? 10 : 0
+      : this.#options.channel === 0 || this.#options.channel === 255 ? 0 : 10 + (this.#level2Seq & 127);
     const header = commandHeader(this.#seq++, 1350);
     const packet = Buffer.concat([header, rawPayload(body, this.#options.channel, 8, [8, 0], streamId)]);
     if (!this.stats.startHex) this.stats.startHex = packet.subarray(0, 32).toString("hex");

@@ -183,6 +183,9 @@ for (const route of [
     try {
       await provider.start(events);
       assert.equal(state.getCamera("synthetic-camera").streamSupported, true);
+      const doorbell = route.cameraModel === "T8215" || route.cameraModel === "T8214";
+      assert.equal(discovered?.doorbellSupported, doorbell);
+      assert.equal(state.getCamera("synthetic-camera").doorbellSupported, doorbell);
       assert.equal(discovered?.startupSnapshotSupported, false);
       assert.equal(discovered?.firmware, "synthetic-firmware");
       if (route.stationModel === "T9000") assert.equal(discovered?.battery?.level, 67);

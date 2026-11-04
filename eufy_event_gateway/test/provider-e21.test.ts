@@ -147,6 +147,7 @@ test("real MCS decoding and push parsing preserve all care kinds and attributabl
     const decoded = decodeMcsAppData({appData:[{key:"payload",value:Buffer.from(JSON.stringify(payload)).toString("base64")}]});
     const event = parsePushEvent(decoded.payload);
     assert.ok(event); f.deliver(event);
+    for (let n = 0; n < 6; n++) await new Promise(resolve => setImmediate(resolve));
   }
   for(let n=0;n<30;n++) await new Promise(resolve=>setImmediate(resolve));
   assert.equal(downloads.mock.callCount(),events.length); assert.equal(f.pictures.length,events.length);
@@ -157,4 +158,50 @@ test("real MCS decoding and push parsing preserve all care kinds and attributabl
   }
   for(let n=0;n<6;n++) await new Promise(resolve=>setImmediate(resolve));
   assert.equal(downloads.mock.callCount(),events.length);
+});
+
+
+test("an unrelated care notification cannot cancel the accepted picture", async context => {
+  const f = await fixture(context);
+  let release!: (value: Buffer) => void, signal: AbortSignal | undefined;
+  context.mock.method(MegaClient.prototype, "download", async (_url: string, _limit?: number, current?: AbortSignal) => {
+    signal = current;
+    return await new Promise<Buffer>(resolve => { release = resolve; });
+  });
+  const send = (station: string, kind: number, id: string) => {
+    const event = parsePushEvent({ device_sn: "synthetic-e21", station_sn: station,
+      msg_type: 18, a: kind, pic_url: "https://example.invalid/picture.jpg", unique_id: id });
+    assert.ok(event); f.deliver(event);
+  };
+  send("synthetic-e21", 3104, "current-care-alert");
+  for (let n = 0; n < 6; n++) await new Promise(resolve => setImmediate(resolve));
+  assert.ok(signal);
+  send("wrong-parent", 3104, "wrong-parent-alert");
+  send("synthetic-e21", 3102, "unattributed-alert");
+  assert.equal(signal.aborted, false);
+  release(Buffer.from([255, 216, 1, 2, 255, 217]));
+  for (let n = 0; n < 12; n++) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.pictures.length, 1);
+});
+
+test("a newer attributable care alert retires the old picture without losing care detections", async context => {
+  const f = await fixture(context);
+  let oldSignal: AbortSignal | undefined;
+  let requests = 0;
+  context.mock.method(MegaClient.prototype, "download", async (_url: string, _limit?: number, signal?: AbortSignal) => {
+    if (++requests > 1) return Buffer.from([255, 216, 1, 2, 255, 217]);
+    oldSignal = signal;
+    return await new Promise<Buffer>((_resolve, reject) => signal?.addEventListener("abort", () => reject(signal.reason), { once: true }));
+  });
+  for (const kind of [3104, 3105]) {
+    const event = parsePushEvent({ device_sn: "synthetic-e21", station_sn: "synthetic-e21",
+      msg_type: 18, a: kind, pic_url: "https://example.invalid/picture.jpg", unique_id: `care-${kind}` });
+    assert.ok(event); f.deliver(event);
+    for (let n = 0; n < 12; n++) await new Promise(resolve => setImmediate(resolve));
+  }
+  assert.equal(oldSignal?.aborted, true);
+  assert.equal(requests, 2);
+  assert.equal(f.pictures.length, 1);
+  assert.equal(f.state.listSensors()[0]?.cryingDetected, true);
+  assert.equal(f.state.listSensors()[0]?.soundDetected, true);
 });

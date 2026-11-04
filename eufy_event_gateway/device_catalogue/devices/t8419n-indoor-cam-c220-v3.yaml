@@ -5,7 +5,8 @@ id: t8419n
 name: Indoor Cam C220 (T8419N, v3)
 category: camera
 integration:
-  status: recognised
+  status: ready_to_test
+  handler: camera
 models:
   - T8419N
 device_type: 10011
