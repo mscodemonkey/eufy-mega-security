@@ -4,7 +4,7 @@
  */
 import { qualifiedLiveFrameClock, qualifiedS340LiveSource } from "../src/stream/live-frame-clock.js";
 import assert from "node:assert/strict";
-import { createCipheriv, createECDH, createHmac } from "node:crypto";
+import { createCipheriv, createDecipheriv, createECDH, createHmac } from "node:crypto";
 import { Socket } from "node:dgram";
 import test, { type TestContext } from "node:test";
 import { CameraControlAcknowledgementTimeoutError, decodePpcsControlRecord, FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
@@ -639,6 +639,63 @@ test("T8171 native start and stop retain their distinct encrypted wire slots", a
     assert.equal(stopped?.cmd, 1004);
     assert.equal(stopped?.mValue3, 0);
     assert.deepEqual(stopped?.payload, { channel: 1, transaction: "1800000000000" });
+  } finally { f.session.close(); }
+});
+
+test("the qualified T8210 close sends one authenticated direct integer stop", async context => {
+  const f = await peer(context, true, "T8210", "media", "T8030", undefined, 4, 7);
+  try {
+    await f.negotiate();
+    f.session.close();
+    const stops = f.sent.filter(packet => packet.length >= 24 && packet[1] === 0xd0
+      && packet.readUInt16LE(12) === 1004);
+    assert.equal(stops.length, 1);
+    const stop = stops[0]!;
+    assert.equal(stop[20], 4);
+    assert.equal(stop[21], 8);
+    assert.equal(stop[22], 0);
+    const body = stop.subarray(24);
+    assert.equal(body.length, 36);
+    const decipher = createDecipheriv("aes-256-gcm", Buffer.alloc(32, 9), body.subarray(16, 28));
+    decipher.setAAD(Buffer.from("eufy security"));
+    decipher.setAuthTag(body.subarray(0, 16));
+    assert.deepEqual(Buffer.concat([decipher.update(body.subarray(32)), decipher.final()]), Buffer.from([4, 0, 0, 0]));
+    assert.equal(f.session.stats.mediaStopProtocol, "level2-direct");
+    assert.equal(f.session.stats.mediaStopAttempts, 1);
+    const sent = f.sent.length;
+    f.session.close();
+    context.mock.timers.tick(30_000);
+    assert.equal(f.sent.length, sent);
+  } finally { f.session.close(); }
+});
+
+test("T8210 startup recovery sends its direct stop before the next start", async context => {
+  const f = await peer(context, true, "T8210", "media", "T8030", undefined, 4, 7);
+  try {
+    await f.negotiate();
+    context.mock.timers.tick(5000);
+    assert.equal(f.session.stats.mediaStopAttempts, 1);
+    assert.equal(f.session.stats.mediaStopProtocol, "level2-direct");
+    assert.equal(f.sent.at(-1)!.readUInt16LE(12), 1004);
+    assert.equal(f.session.stats.mediaStartAttempts, 1);
+    context.mock.timers.tick(250);
+    assert.equal(f.session.stats.mediaStartAttempts, 2);
+    assert.equal(f.sent.at(-1)!.readUInt16LE(12), 1350);
+    assert.equal(f.session.stats.closeReason, "open");
+  } finally { f.session.close(); }
+});
+
+for (const [model, channel, deviceType] of [
+  ["T8210", 4, null], ["T8210", 4, 88], ["T8210", 3, 7], ["T8211", 4, 7],
+] as const) test(`an unqualified ${model}/${channel}/${deviceType} retains its JSON stop`, async context => {
+  const f = await peer(context, true, model, "media", "T8030", undefined, channel, deviceType);
+  try {
+    await f.negotiate();
+    f.session.close();
+    assert.equal(f.sent.some(packet => packet.length >= 24 && packet[1] === 0xd0 && packet.readUInt16LE(12) === 1004), false);
+    const stop = f.sent.filter(packet => packet.length >= 24 && packet[1] === 0xd0 && packet.readUInt16LE(12) === 1350).at(-1)!;
+    assert.equal(decodePpcsControlRecord(stop.subarray(24), 8, Buffer.alloc(16), Buffer.alloc(32, 9))?.cmd, 1004);
+    assert.equal(f.session.stats.mediaStopProtocol, "level2-payload");
   } finally { f.session.close(); }
 });
 
