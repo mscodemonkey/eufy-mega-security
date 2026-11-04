@@ -7,7 +7,7 @@ consumes only bytes and never extracts or executes content during inspection.
 from __future__ import annotations
 
 import base64
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 import gzip
 import hashlib
 import importlib.util
@@ -16,6 +16,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+from urllib.error import HTTPError, URLError
 
 
 SOURCE = Path(__file__).parents[1] / "eufy_event_gateway/scripts/diagnostic-bundle.py"
@@ -200,6 +202,52 @@ class DiagnosticBundleTests(unittest.TestCase):
                                    [{"serial": "private-camera"}], 1, "left")
         finally:
             TOOL.request = original
+
+    def test_movement_admission_preserves_only_safe_http_status(self):
+        """Distinguish rejected reads without leaking response bodies or URLs."""
+        for status in (401, 403, 404, 409, 500, 503):
+            with self.subTest(status=status):
+                error = HTTPError("http://private.invalid/camera", status,
+                                  "private reason", {}, io.BytesIO(b"private response"))
+                with patch.object(TOOL, "build_opener") as opener:
+                    opener.return_value.open.side_effect = error
+                    with self.assertRaisesRegex(TOOL.DiagnosticError, f"HTTP {status}") as failure:
+                        TOOL.movement_test("http://private.invalid", "private-token",
+                                           [{"serial": "private-camera"}], 1, "left")
+                message = str(failure.exception)
+                self.assertIn("before any command was sent", message)
+                for value in ("private.invalid", "private-token", "private-camera",
+                              "private reason", "private response"):
+                    self.assertNotIn(value, message)
+
+    def test_movement_admission_distinguishes_invalid_json_and_connection(self):
+        """Malformed successful replies differ from a missing HTTP response."""
+        with patch.object(TOOL, "request", return_value=b"not json"):
+            with self.assertRaisesRegex(TOOL.DiagnosticError, "invalid movement admission"):
+                TOOL.movement_test("http://private.invalid", "private-token",
+                                   [{"serial": "private-camera"}], 1, "left")
+        with patch.object(TOOL, "build_opener") as opener:
+            opener.return_value.open.side_effect = URLError("private connection")
+            with self.assertRaisesRegex(TOOL.DiagnosticError, "connection failed") as failure:
+                TOOL.movement_test("http://private.invalid", "private-token",
+                                   [{"serial": "private-camera"}], 1, "left")
+        self.assertNotIn("private connection", str(failure.exception))
+
+    def test_read_only_movement_check_never_posts(self):
+        """The CLI can inspect admission without consent or camera movement."""
+        def respond(url, _token, method="GET", value=None):
+            self.assertEqual(method, "GET")
+            self.assertIsNone(value)
+            if url.endswith("/targets"):
+                return json.dumps({"devices": [{"serial": "private-camera"}]}).encode()
+            return json.dumps({"actions": ["ptz"], "private": "must-not-escape"}).encode()
+
+        output = io.StringIO()
+        with patch.object(TOOL.HELPERS, "gateway_connection", return_value=("http://private.invalid", "private-token")), \
+                patch.object(TOOL, "request", side_effect=respond) as request, redirect_stdout(output):
+            self.assertEqual(TOOL.main(["movement-check", "--target-index", "1"]), 0)
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(json.loads(output.getvalue()), {"movementAdmitted": True, "commandSent": False})
 
     def test_main_prints_safe_diagnostic_errors(self):
         """Show actionable fixed text while retaining the generic unexpected-error boundary."""

@@ -106,6 +106,18 @@ Reproduce the problem during those 30 seconds. To focus on one device, add
 `--target-index 1`, replacing `1` with its current index. A HomeBase selection
 also observes child cameras. Use a new output filename for each attempt.
 
+Check whether movement testing is available without moving the camera:
+
+```sh
+python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py movement-check --target-index 1
+```
+
+This only reads the gateway's current admission. It does not send a movement
+command, change accounts or open live video. A refusal includes a safe HTTP
+status when the gateway returned one. Share only the displayed sentence, not
+URLs, tokens or complete response bodies. A successful check does not authorize
+a later movement or establish the camera's physical position.
+
 For an explicitly requested experimental camera movement test, first enable
 **Experimental model controls** in the app options and restart the app. Record
 the camera's original view, stop live viewers, and use the current device index
