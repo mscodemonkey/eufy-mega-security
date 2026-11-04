@@ -74,7 +74,11 @@ export function nvrLivePanReply(value: unknown): boolean {
 /** Scoped readback values. Missing, ambiguous or malformed values remain unknown. */
 export interface NvrLiveSettings { readonly night: number | null; readonly quality: number | null }
 
-/** Read exact child rows only. The live-quality/web field pairing is hardware-unconfirmed. */
+/**
+ * Read exact child rows only. The live-quality/web field pairing is hardware-unconfirmed.
+ * T8416 keeps its live quality in a channel-scoped bypass row instead, encoded twice as base64,
+ * with the current mode selecting one of two values.
+ */
 export function nvrLiveSettings(response: Record<string, unknown>, channel: number): NvrLiveSettings {
   const unknown = { night: null, quality: null };
   if (response.cmd !== 1103) return unknown;
@@ -83,15 +87,14 @@ export function nvrLiveSettings(response: Record<string, unknown>, channel: numb
   if (tables(response) && tables(nested)) return unknown;
   const { params, db_bypass_str: bypass } = tables(nested) ? nested : response;
   if (!Array.isArray(params) || params.length > 1024 || bypass !== undefined && (!Array.isArray(bypass) || bypass.length > 1024)) return unknown;
-  const values = (command: number): unknown[] => {
-    const found: unknown[] = [];
+  const values = (command: number): { value: unknown; encoded: boolean }[] => {
+    const found: { value: unknown; encoded: boolean }[] = [], ambiguous = { value: null, encoded: false };
     for (const [rows, scope] of [[params, "dev_type"], [bypass ?? [], "channel"]] as const) {
       for (const row of rows) {
         if (!nvrRecord(row) || row.param_type !== command) continue;
-        if ((row.dev_type === channel || row.channel === channel) && row.dev_type !== undefined && row.channel !== undefined && row.dev_type !== row.channel) return [null, null];
+        if ((row.dev_type === channel || row.channel === channel) && row.dev_type !== undefined && row.channel !== undefined && row.dev_type !== row.channel) return [ambiguous, ambiguous];
         if (row[scope] !== channel) continue;
-        if (command === 2730 && scope !== "dev_type") return [null, null];
-        found.push(row.param_value);
+        found.push({ value: row.param_value, encoded: scope === "channel" });
       }
     }
     return found;
@@ -99,12 +102,26 @@ export function nvrLiveSettings(response: Record<string, unknown>, channel: numb
   const night = values(1277), quality = values(2730);
   const integer = (value: unknown): number | null => typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 4 ? value
     : typeof value === "string" && /^[0-4]$/.test(value) ? Number(value) : null;
+  const decoded = (text: string): string => {
+    let value = text;
+    for (let layer = 0; layer < 2 && value.length <= 4096 && /^(?:[A-Za-z0-9+/]{4})+(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value); layer++) {
+      const bytes = Buffer.from(value, "base64");
+      if (bytes.toString("base64") !== value) break;
+      value = bytes.toString("utf8");
+    }
+    return value;
+  };
   let q: number | null = null;
   if (quality.length === 1) {
+    const { value, encoded } = quality[0]!;
     try {
-      const parsed: unknown = typeof quality[0] === "string" ? nvrLiveJson(quality[0]) : quality[0];
-      if (nvrRecord(parsed) && Object.keys(parsed).filter(key => key === "web_video_quality").length === 1) q = integer(parsed.web_video_quality);
+      const parsed: unknown = typeof value === "string" ? nvrLiveJson(encoded ? decoded(value) : value) : value;
+      if (!encoded && nvrRecord(parsed) && Object.keys(parsed).filter(key => key === "web_video_quality").length === 1) q = integer(parsed.web_video_quality);
+      if (encoded && nvrRecord(parsed) && (parsed.cur_mode === 0 || parsed.cur_mode === 1)) {
+        const mode = parsed[`mode_${parsed.cur_mode}`];
+        if (nvrRecord(mode) && typeof mode.quality === "number") q = integer(mode.quality);
+      }
     } catch { /* Unreadable values remain unknown. */ }
   }
-  return { night: night.length === 1 ? integer(night[0]) : null, quality: q };
+  return { night: night.length === 1 ? integer(night[0]!.value) : null, quality: q };
 }

@@ -47,6 +47,20 @@ test("native reads reject missing, duplicate or malformed observations", () => {
   assert.deepEqual(nvrLiveSettings({ cmd: 1103, payload: { params: [] } }, 3), { night: null, quality: null });
 });
 
+test("T8416 quality reads the current mode from its twice-encoded channel row", () => {
+  const once = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64");
+  const twice = (value: unknown) => Buffer.from(once(value)).toString("base64");
+  const read = (value: unknown, extra: unknown[] = []) => nvrLiveSettings({ cmd: 1103, params: extra,
+    db_bypass_str: [{ channel: 3, param_type: 2730, param_value: value }, { channel: 3, param_type: 2731, param_value: twice({ cur_mode: 0, mode_0: { quality: 4 } }) }] }, 3).quality;
+  assert.equal(read(twice({ mode_0: { quality: 2 }, mode_1: { quality: 0 }, cur_mode: 0 })), 2);
+  assert.equal(read(twice({ mode_0: { quality: 2 }, mode_1: { quality: 1 }, cur_mode: 1 })), 1);
+  assert.equal(read(once({ mode_0: { quality: 3 }, cur_mode: 0 })), 3);
+  for (const value of [twice({ mode_0: { quality: 2 }, cur_mode: 2 }), twice({ mode_1: { quality: 2 }, cur_mode: 0 }), twice({ mode_0: { quality: 5 }, cur_mode: 0 }),
+    twice({ mode_0: { quality: "2" }, cur_mode: 0 }), twice({ web_video_quality: 2 }), "ZXlK", "not base64", 2]) assert.equal(read(value), null);
+  assert.equal(read(twice({ mode_0: { quality: 2 }, cur_mode: 0 }), [{ dev_type: 3, param_type: 2730, param_value: '{"web_video_quality":4}' }]), null);
+  assert.equal(nvrLiveSettings({ cmd: 1103, params: [], db_bypass_str: [{ channel: 4, param_type: 2730, param_value: twice({ mode_0: { quality: 2 }, cur_mode: 0 }) }] }, 3).quality, null);
+});
+
 test("exact model matrix excludes suffixes and cross types", () => {
   assert.deepEqual(nvrLiveProfile("T8E00", 301)?.quality.map(mode => mode.value), [0, 1, 3]);
   assert.equal(nvrLiveProfile("T8416", 104)?.defaultView, 0);
