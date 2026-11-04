@@ -5,11 +5,12 @@ id: t8400
 name: Indoor Cam C120 / 2K (Solo IndoorCam C24)
 category: camera
 integration:
-  status: ready_to_test
+  status: supported
   handler: camera
 models:
   - T8400
 device_type: 30
+notes: Issue 601 confirms direct discovery, live view, a fresh snapshot, motion and person events on firmware 2.3.2.6 (hardware P3), app and integration v0.1.237, and HA 2026.10.4. The earlier direct live-view failure reported by frcbn on 2026-09-20 remains historical evidence, not the current result. Other events and controls remain unconfirmed.
 capabilities:
   controls:
     enabled:
@@ -27,23 +28,29 @@ capabilities:
     live_view:
       connections:
         direct:
-          status: failing
-          tested_on: 2026-09-20
-          tested_by: frcbn
-          notes: The route is reached but does not produce a usable live picture.
+          status: reported
+          tested_on: 2026-11-04
+          tested_by: 3VITAERC
+          notes: Issue 601 reports moving video in the HA frontend on firmware 2.3.2.6 with app and integration v0.1.237.
     snapshot:
       connections:
         direct:
-          status: declared
+          status: reported
+          tested_on: 2026-11-04
+          tested_by: 3VITAERC
   events:
     motion:
       connections:
         direct:
-          status: declared
+          status: reported
+          tested_on: 2026-11-04
+          tested_by: 3VITAERC
     person:
       connections:
         direct:
-          status: declared
+          status: reported
+          tested_on: 2026-11-04
+          tested_by: 3VITAERC
     pet:
       connections:
         direct:

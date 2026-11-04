@@ -374,7 +374,7 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
       "T8400"
     ],
     "deviceType": 30,
-    "status": "ready_to_test",
+    "status": "supported",
     "handler": "camera"
   },
   {
