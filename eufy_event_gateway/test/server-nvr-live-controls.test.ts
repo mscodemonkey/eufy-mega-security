@@ -18,7 +18,7 @@ import type { LiveStreamManager } from "../src/stream/live-stream-manager.js";
 test("NVR routes reject unauthenticated, duplicate, unknown and conflicting inputs", async () => {
   const directory = await mkdtemp(join(tmpdir(), "nvr-live-http-")), state = new GatewayState();
   const identity = { serial: "synthetic", name: "Synthetic", model: "T8416", stationSerial: "synthetic-parent",
-    streamSupported: true, doorbellSupported: false, nvrViewOptions: ["Wide", "Telephoto"], nvrSelectedView: 0 };
+    streamSupported: true, doorbellSupported: false, nvrViewOptions: [], nvrSelectedView: null, nvrLiveControlsSupported: true };
   state.registerCamera(identity);
   let calls = 0, active = false, limited = false, admitted = false;
   const provider = {

@@ -1825,7 +1825,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       nvrPanControlSupported: !!profile && (profile.movementView === null || view === profile.movementView),
       directionalPanControlSupported: false,
       nvrOpticalZoomControlSupported: !!profile?.opticalZoom && (profile.movementView === null || view === profile.movementView),
-      nvrViewOptions: profile?.views ?? [], nvrSelectedView: profile ? view : null,
+      nvrViewOptions: profile?.views ?? [], nvrSelectedView: profile?.views.length ? view : null, nvrLiveControlsSupported: !!profile,
       autoNightVisionEnabled: null, aiTrackingEnabled: null, battery: batteryState(device),
       streamSupported: this.#normalNvrLiveBinding(device, station), startupSnapshotSupported: false,
       doorbellSupported: isDoorbellDevice(device), audioRecordingControlSupported: false,
@@ -2578,7 +2578,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#assertRtcPreparationIdle();
     const device = this.#devices.get(serial), station = device && this.#devices.get(device.parentSerial);
     if (!device || !this.#nvrLiveAdmitted(device, station)) throw new NvrLiveControlError("disabled");
-    if (view !== 0 && view !== 1) throw new NvrLiveControlError("unavailable");
+    if (view !== 0 && view !== 1 || view >= (nvrLiveProfile(device.model, device.deviceType)?.views.length ?? 0)) throw new NvrLiveControlError("unavailable");
     if (!this.#nvrMediaChecks || this.#nvrMediaChecks.active(serial) || this.#nvrTrials.has(serial) || this.#streamStarts.has(serial)
       || this.#nvrLiveJobs.has(device.parentSerial) || this.#recordingPeerReserved(serial) || this.#nvrControlReserved(device.parentSerial)) throw new NvrLiveControlError("busy");
     this.#nvrViews.set(serial, { binding: this.#nvrBindingKey(device), value: view });

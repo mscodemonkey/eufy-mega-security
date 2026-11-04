@@ -549,6 +549,7 @@ export class GatewayState extends EventEmitter {
       nvrOpticalZoomControlSupported: camera.identity.nvrOpticalZoomControlSupported ?? false,
       nvrViewOptions: camera.identity.nvrViewOptions ?? [],
       nvrSelectedView: camera.identity.nvrSelectedView ?? null,
+      nvrLiveControlsSupported: camera.identity.nvrLiveControlsSupported ?? false,
       preferenceControls: camera.identity.preferenceControls ?? [],
       preferenceRanges: camera.identity.preferenceRanges ?? {},
       carePreferences: camera.identity.carePreferences ?? {},

@@ -42,7 +42,10 @@ export interface NvrLiveProfile {
   readonly panReceiptOnly: boolean;
 }
 
-/** Match exact model/type pairs only. Telephoto is reporter-reported, not portal-source. */
+/**
+ * Match exact model/type pairs only. T8416 offers no view choice: its second NVR source showed the
+ * same wide picture on hardware, and zoom reaches the telephoto. Its quality names follow the eufy app.
+ */
 export function nvrLiveProfile(model: string, type: number | null): NvrLiveProfile | null {
   if (model === "T8E00" && type === 301) return {
     night: [{ value: 0, name: "Standard" }, { value: 1, name: "Infrared" }, { value: 2, name: "Spotlight" }],
@@ -51,8 +54,8 @@ export function nvrLiveProfile(model: string, type: number | null): NvrLiveProfi
   };
   if (model === "T8416" && type === 104) return {
     night: [{ value: 0, name: "Off" }, { value: 1, name: "Auto Infrared" }, { value: 3, name: "Infrared on" }],
-    quality: [{ value: 0, name: "Auto" }, { value: 1, name: "Low" }, { value: 2, name: "Full HD (1080P)" }, { value: 3, name: "High" }, { value: 4, name: "Highest" }],
-    views: ["Wide", "Telephoto"], defaultView: 0, opticalZoom: true, movementView: null, panReceiptOnly: true,
+    quality: [{ value: 0, name: "Auto" }, { value: 1, name: "HD (720P)" }, { value: 2, name: "Full HD (1080P)" }, { value: 3, name: "2K" }, { value: 4, name: "Ultra 4K" }],
+    views: [], defaultView: 0, opticalZoom: true, movementView: null, panReceiptOnly: true,
   };
   return null;
 }

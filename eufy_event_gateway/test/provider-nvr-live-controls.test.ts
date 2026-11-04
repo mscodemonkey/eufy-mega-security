@@ -100,17 +100,17 @@ for (const mode of ["disabled", "inherited", "recording", "drift", "partial", "v
   assert.equal(value.writes.length, mode === "partial" ? 2 : 0);
 });
 
-test("104 profile admits Wide default and Telephoto choice, with pan and optical zoom on either view", async context => {
+test("104 profile offers no view choice, with pan and optical zoom on its only source", async context => {
   const value = await fixture(context, "T8416", 104);
   const camera = () => value.state.getCamera("synthetic-camera");
   assert.equal(camera().streamSupported, true);
-  assert.equal(camera().nvrSelectedView, 0);
+  assert.equal(camera().nvrLiveControlsSupported, true);
+  assert.deepEqual(camera().nvrViewOptions, []); assert.equal(camera().nvrSelectedView, null);
   assert.equal(camera().nvrPanControlSupported, true); assert.equal(camera().nvrOpticalZoomControlSupported, true);
-  await value.provider.setNvrView("synthetic-camera", 1);
-  assert.equal(camera().nvrSelectedView, 1);
-  assert.equal(camera().nvrPanControlSupported, true); assert.equal(camera().nvrOpticalZoomControlSupported, true);
-  await value.provider.setNvrView("synthetic-camera", 0);
+  await assert.rejects(value.provider.setNvrView("synthetic-camera", 1), { code: "unavailable" });
+  await assert.rejects(value.provider.setNvrView("synthetic-camera", 0), { code: "unavailable" });
   await value.provider.startStream("synthetic-camera"); await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(camera().streamingQualityModes?.map(mode => mode.name), ["Auto", "HD (720P)", "Full HD (1080P)", "2K", "Ultra 4K"]);
   const accepted = { outcome: "request_accepted", physicalConfirmationRequired: true };
   assert.deepEqual(await value.provider.performNvrLiveControl("synthetic-camera", { kind: "zoom", level: 2 }), accepted);
   value.advance();
@@ -236,6 +236,7 @@ test("controls are not advertised when the normal route is disabled", async cont
   const camera = value.state.getCamera("synthetic-camera");
   assert.equal(camera.nvrPanControlSupported, false); assert.equal(camera.nvrOpticalZoomControlSupported, false);
   assert.deepEqual(camera.nvrViewOptions, []); assert.equal(camera.reportedSettings, null);
+  assert.equal(camera.nvrLiveControlsSupported, false);
 });
 
 
