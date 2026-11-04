@@ -41,4 +41,4 @@ The first control on a source reconfirms its child identity with a fresh echoed 
 
 T8E00 optical levels 1x to 3x deliberately restrict the vendor's 1x to 8x range to the reporter-tested subset. The T8416 profile deliberately withholds optical zoom despite another vendor path advertising it. The T8E00 Auto/Low/High choices follow the portal fallback UI, rather than an explicit resolution list in that model profile.
 
-A fresh inventory that omits explicit ownership withdraws control admission and the104 normal stream until membership returns. Raw ownership is mandatory for these controls, 104 streaming and the manual guard/power writes. Legacy video and diagnostic playback admission are unchanged.
+A fresh inventory that omits explicit ownership withdraws control admission until membership returns. Raw ownership is mandatory for these controls and the manual guard/power writes. T8416 live video itself needs only `experimental_nvr_live`: without control admission it plays the Wide view and offers no controls. Legacy video and diagnostic playback admission are unchanged.
