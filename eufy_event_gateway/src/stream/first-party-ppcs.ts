@@ -244,6 +244,11 @@ function usesT8210StationHeartbeatProfile(route: AttachedMediaControlRoute): boo
     && route.cameraDeviceType === 7 && route.stationModel === "T8030";
 }
 
+/** Limit the independently authenticated direct stop to its observed child route. */
+function usesT8210DirectMediaStop(channel: number, route: AttachedMediaControlRoute): boolean {
+  return channel === 4 && usesT8210StationHeartbeatProfile(route);
+}
+
 /** Build the encrypted direct stop command required by a T8010 HomeBase 2. */
 export function buildLegacyAttachedMediaStopPayload(channel: number, key: Buffer): Buffer {
   const value = Buffer.alloc(4);
@@ -1677,7 +1682,7 @@ export class FirstPartyPpcsSession {
     mediaStartExpired: 0,
     mediaStartProtocols: [] as ("level1" | "level2" | "t8200-clear")[],
     mediaStopAttempts: 0,
-    mediaStopProtocol: "none" as "none" | "level1-direct" | "level2-payload",
+    mediaStopProtocol: "none" as "none" | "level1-direct" | "level2-direct" | "level2-payload",
     closeReason: "open" as PpcsStreamCloseReason | "open",
   };
   readonly #options: PpcsCameraOptions;
@@ -3711,6 +3716,19 @@ export class FirstPartyPpcsSession {
   #stopAttachedMedia(): void {
     this.#mediaStart.stop();
     if (!this.#remote || !this.#level2Key || this.stats.mediaStartAttempts === 0) return;
+    if (usesT8210DirectMediaStop(this.#options.channel, this.#options)) {
+
+      // This doorbell stops with an authenticated integer on command 1004,
+      // rather than another command 1350 JSON request. The peer remains open.
+      const value = Buffer.alloc(4);
+      value.writeUInt32LE(this.#options.channel);
+      this.stats.mediaStopAttempts++;
+      this.stats.mediaStopProtocol = "level2-direct";
+      this.#sendCommand(1004, rawPayload(
+        encryptLevel2(value, this.#level2Key, this.#level2Seq++), this.#options.channel, 8, [8, 0], 0,
+      ));
+      return;
+    }
     if (this.#options.stationModel === "T8010") {
       this.stats.mediaStopAttempts++;
       this.stats.mediaStopProtocol = "level1-direct";
