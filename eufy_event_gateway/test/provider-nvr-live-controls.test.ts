@@ -109,10 +109,15 @@ test("104 profile admits Wide default and software Telephoto choice, without opt
   assert.equal(value.state.getCamera("synthetic-camera").nvrSelectedView, 1);
 });
 
-test("104 streaming stays unavailable with only the video flag", async context => {
+test("104 streams with only the video flag but offers no NVR controls", async context => {
   const value = await fixture(context, "T8416", 104, false);
-  assert.equal(value.state.getCamera("synthetic-camera").streamSupported, false);
-  await assert.rejects(value.provider.startStream("synthetic-camera"));
+  const camera = value.state.getCamera("synthetic-camera");
+  assert.equal(camera.streamSupported, true);
+  assert.deepEqual(camera.nvrViewOptions ?? [], []);
+  assert.equal(camera.nightVisionControlSupported, false);
+  assert.equal(camera.streamingQualityControlSupported, false);
+  await value.provider.startStream("synthetic-camera");
+  await assert.rejects(value.provider.setNvrView("synthetic-camera", 1));
   assert.equal(value.writes.length, 0);
 });
 

@@ -1807,8 +1807,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       && Number.isInteger(device.channel) && device.channel >= 0 && device.channel <= 254
       && parents.some(([model, type]) => station.model === model && station.deviceType === type)
       && (device.model !== "T8215" || station.model === "T9000" && station.deviceType === 27)
-      && (device.model !== "T8P10" || station.model === "T8N00" && station.deviceType === 300)
+      && (!["T8P10", "T8416", "T8214"].includes(device.model) || station.model === "T8N00" && station.deviceType === 300)
       && !!station.adminUserId && (device.adminUserId === null || device.adminUserId === station.adminUserId);
+  }
+
+  /** Supported cameras keep their normal identity, with NVR video added there, until NVR controls are admitted. */
+  #normalNvrIdentity(device: MegaInventoryDevice): Required<CameraIdentity> | null {
+    const station = this.#devices.get(device.parentSerial);
+    if (!this.#normalNvrLiveBinding(device, station)) return null;
+    return isSupportedMegaCamera(device) && !this.#nvrLiveAdmitted(device, station) ? null : this.#nvrTrialIdentity(device);
   }
 
   #nvrTrialIdentity(device: MegaInventoryDevice): Required<CameraIdentity> | null {
@@ -2475,10 +2482,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Keep HA live trials behind opt-in and exact approved camera/station model-type pairs. */
   #normalNvrLiveBinding(device: MegaInventoryDevice, station: MegaInventoryDevice | undefined): boolean {
-    if (this.#nvrLiveAdmitted(device, station) && device.model === "T8416") return true;
     if (!this.config.normalNvrLive || !this.#nvrBinding(device, station) || !station) return false;
     return station.model === "T8N00" && station.deviceType === 300
-      && (device.model === "T8E00" && device.deviceType === 301 || device.model === "T8P10" && device.deviceType === 303)
+      && (device.model === "T8E00" && device.deviceType === 301 || device.model === "T8P10" && device.deviceType === 303
+        || device.model === "T8416" && device.deviceType === 104 || device.model === "T8214" && device.deviceType === 94)
       || station.model === "T9000" && station.deviceType === 27 && (
         (device.model === "T8140-Z" || device.model === "T8140") && device.deviceType === 14
         || device.model === "T8113-V" && device.deviceType === 8
@@ -4374,8 +4381,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
     const dskPeerSerials = new Set(this.#dskKeys.keys());
     for (const device of devices) {
-      const normalNvr = this.#normalNvrLiveBinding(device, this.#devices.get(device.parentSerial))
-        ? this.#nvrTrialIdentity(device) : null;
+      const normalNvr = this.#normalNvrIdentity(device);
       if (normalNvr) events.camera(normalNvr);
       else if (isSupportedMegaCamera(device)) events.camera(this.#cameraIdentity(device));
       else { const trial = this.#nvrTrialIdentity(device); if (trial) events.camera(trial); }
@@ -4670,8 +4676,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const devices = [...this.#devices.values()];
     const dskPeers = new Set(this.#dskKeys.keys());
     for (const device of devices) {
-      const normalNvr = this.#normalNvrLiveBinding(device, this.#devices.get(device.parentSerial))
-        ? this.#nvrTrialIdentity(device) : null;
+      const normalNvr = this.#normalNvrIdentity(device);
       if (normalNvr) events.camera(normalNvr);
       else if (isSupportedMegaCamera(device)) events.camera(this.#cameraIdentity(device));
       else { const trial = this.#nvrTrialIdentity(device); if (trial) events.camera(trial); }
@@ -4840,6 +4845,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials),
     );
     const floodlight = device.model === "T8425" || device.model === "T8426";
+    const nvrLive = this.#normalNvrLiveBinding(device, this.#devices.get(device.parentSerial));
     const experimentalSettingsReady = this.config.experimentalModelControls === true && !!device.adminUserId
       && this.#client.isAuthenticatedUser(device.adminUserId);
     const supportedDetections = directCameraDetectionKinds(device, route?.homeBaseAttached);
@@ -4911,8 +4917,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       },
       stationSerial: device.parentSerial,
       doorbellSupported: isDoorbellDevice(device),
-      streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials) || this.#doorbellRtcBinding(device),
-      liveAudioSupported: supportsCameraLiveAudio(device, route, isPpcsStreamSupported(device, this.#devices, dskPeerSerials)),
+      streamSupported: nvrLive || isPpcsStreamSupported(device, this.#devices, dskPeerSerials) || this.#doorbellRtcBinding(device),
+      ...(nvrLive ? { startupSnapshotSupported: false } : {}),
+      liveAudioSupported: !nvrLive && supportsCameraLiveAudio(device, route, isPpcsStreamSupported(device, this.#devices, dskPeerSerials)),
       enabled: device.reads.enabled ?? null,
       enableControlSupported: supportsCameraEnablement(
         device,
