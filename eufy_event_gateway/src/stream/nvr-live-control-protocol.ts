@@ -32,7 +32,7 @@ export function nvrLiveJson(text: string): Record<string, unknown> {
 
 /** Internal closed setting request, never accepted directly from an HTTP client. */
 export type NvrLiveWrite = NvrLiveControl | { readonly kind: "night"; readonly value: number }
-  | { readonly kind: "quality"; readonly value: number; readonly sensor: 0 | 1 };
+  | { readonly kind: "quality"; readonly value: number; readonly sensor: 0 | 1 } | { readonly kind: "tracking"; readonly value: 0 | 1 };
 
 /** Encode portal wrappers. PTZ zoom:1 is the live click contract, never held movement. */
 export function nvrLiveCommand(account: string, segment: number, channel: number, request: NvrLiveWrite): Buffer {
@@ -50,10 +50,12 @@ export function nvrLiveCommand(account: string, segment: number, channel: number
     body = { account_id: account, cmd: 1277, payload: { night_sion: request.value } };
   } else if (request.kind === "quality" && [0, 1, 2, 3, 4].includes(request.value) && [0, 1].includes(request.sensor)) {
     body = { account_id: account, cmd: 2730, payload: { mode: -1, quality: request.value, primary_view: -1, sensor: request.sensor } };
+  } else if (request.kind === "tracking" && (request.value === 0 || request.value === 1)) {
+    body = { account_id: account, cmd: 6016, commandType: 6016, data: { value: request.value, transaction: `${Date.now()}` } };
   } else throw new NvrLiveControlError("unavailable");
   const payload = Buffer.from(JSON.stringify(body));
   const header = Buffer.alloc(16);
-  header.write("XZYH"); header.writeUInt16LE(pan ? 1700 : 1350, 4); header.writeUInt32LE(payload.length, 6);
+  header.write("XZYH"); header.writeUInt16LE(pan || request.kind === "tracking" ? 1700 : 1350, 4); header.writeUInt32LE(payload.length, 6);
   header[11] = segment; header[12] = channel; header[15] = 2;
   return Buffer.concat([header, payload]);
 }
@@ -72,7 +74,7 @@ export function nvrLivePanReply(value: unknown): boolean {
 }
 
 /** Scoped readback values. Missing, ambiguous or malformed values remain unknown. */
-export interface NvrLiveSettings { readonly night: number | null; readonly quality: number | null }
+export interface NvrLiveSettings { readonly night: number | null; readonly quality: number | null; readonly tracking: 0 | 1 | null }
 
 /**
  * Read exact child rows only. The live-quality/web field pairing is hardware-unconfirmed.
@@ -80,7 +82,7 @@ export interface NvrLiveSettings { readonly night: number | null; readonly quali
  * with the current mode selecting one of two values.
  */
 export function nvrLiveSettings(response: Record<string, unknown>, channel: number): NvrLiveSettings {
-  const unknown = { night: null, quality: null };
+  const unknown = { night: null, quality: null, tracking: null };
   if (response.cmd !== 1103) return unknown;
   const nested = nvrRecord(response.payload) ? response.payload : {};
   const tables = (value: Record<string, unknown>): boolean => value.params !== undefined || value.db_bypass_str !== undefined;
@@ -99,7 +101,7 @@ export function nvrLiveSettings(response: Record<string, unknown>, channel: numb
     }
     return found;
   };
-  const night = values(1277), quality = values(2730);
+  const night = values(1277), quality = values(2730), tracking = values(6016);
   const integer = (value: unknown): number | null => typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 4 ? value
     : typeof value === "string" && /^[0-4]$/.test(value) ? Number(value) : null;
   const decoded = (text: string): string => {
@@ -123,5 +125,7 @@ export function nvrLiveSettings(response: Record<string, unknown>, channel: numb
       }
     } catch { /* Unreadable values remain unknown. */ }
   }
-  return { night: night.length === 1 ? integer(night[0]!.value) : null, quality: q };
+  // T8416 reports AI tracking as one base64 digit in its channel row.
+  const flag = tracking.length === 1 && tracking[0]!.encoded && (tracking[0]!.value === "MA==" || tracking[0]!.value === "MQ==") ? tracking[0]!.value === "MQ==" ? 1 : 0 : null;
+  return { night: night.length === 1 ? integer(night[0]!.value) : null, quality: q, tracking: flag };
 }

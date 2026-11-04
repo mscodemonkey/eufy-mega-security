@@ -300,7 +300,8 @@ class EufyCameraAiTrackingButton(EufyGatewayEntity, ButtonEntity):
         """Send the verified model-specific action through the owning gateway."""
         try:
             await self.coordinator.client.set_camera_ai_tracking(
-                self.serial, self._enabled
+                self.serial, self._enabled,
+                **({"nvr": True} if self.camera.get("nvrLiveControlsSupported") is True else {}),
             )
         except GatewayClientError as error:
             raise HomeAssistantError(

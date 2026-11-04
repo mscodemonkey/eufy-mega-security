@@ -224,7 +224,7 @@ export interface CameraProvider {
   selectCameraPresetPosition(serial: string, index: number): Promise<void>;
 
   /** Send admitted tracking and require the model's independent setting confirmation. */
-  setCameraAiTracking(serial: string, enabled: boolean): Promise<void>;
+  setCameraAiTracking(serial: string, enabled: boolean, signal?: AbortSignal): Promise<void>;
 
   /** Send the camera's physically verified automatic-cruise action. */
   setCameraAutoCruise(serial: string, enabled: boolean): Promise<void>;

@@ -680,7 +680,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #nvrLiveIntervals = new Map<string, number>();
   readonly #nvrReadIntervals = new Map<string, number>();
   readonly #nvrViews = new Map<string, { binding: string; value: 0 | 1 }>();
-  readonly #nvrSettings = new Map<string, { binding: string; values: NvrLiveSettings; nightAt: number; qualityAt: number; timer: NodeJS.Timeout | null }>();
+  readonly #nvrSettings = new Map<string, { binding: string; values: NvrLiveSettings; nightAt: number; qualityAt: number; trackingAt: number; timer: NodeJS.Timeout | null }>();
   #nvrMediaChecks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean } | null = null;
   readonly #nvrTrials = new Map<string, { controller: AbortController; device: MegaInventoryDevice;
     station: MegaInventoryDevice; stateOnly: boolean; diagnostic: boolean; generation: number; sensor: 0 | 1; connecting: boolean; retiring: boolean; terminalRetirement: boolean;
@@ -1826,7 +1826,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       directionalPanControlSupported: false,
       nvrOpticalZoomControlSupported: !!profile?.opticalZoom && (profile.movementView === null || view === profile.movementView),
       nvrViewOptions: profile?.views ?? [], nvrSelectedView: profile?.views.length ? view : null, nvrLiveControlsSupported: !!profile,
-      autoNightVisionEnabled: null, aiTrackingEnabled: null, battery: batteryState(device),
+      autoNightVisionEnabled: null, aiTrackingEnabled: values.tracking === null ? null : values.tracking === 1, battery: batteryState(device),
       streamSupported: this.#normalNvrLiveBinding(device, station), startupSnapshotSupported: false,
       doorbellSupported: isDoorbellDevice(device), audioRecordingControlSupported: false,
       careMonitor: false, preferenceRanges: {}, carePreferences: {},
@@ -1835,7 +1835,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       talkbackSupported: false, enableControlSupported: false, motionDetectionControlSupported: false,
       guardModeControlSupported: false, guardModeRefreshSupported: false, nightVisionControlSupported: !!profile && values.night !== null,
       autoNightVisionControlSupported: false, cameraLightControlSupported: false, timedLightControlSupported: false,
-      cameraSirenControlSupported: false, presetPositionControlSupported: false, aiTrackingControlSupported: false,
+      cameraSirenControlSupported: false, presetPositionControlSupported: false, aiTrackingControlSupported: !!profile?.aiTracking && values.tracking !== null,
       autoCruiseControlSupported: false, motionSensitivityControlSupported: false, motionSensitivitySteps: null, homebaseChimeControlSupported: false, lightBrightnessControlSupported: false, manualFloodlightControlSupported: false, preferenceControls: [], streamingQualityModes: profile?.quality ?? [], nightVisionModes: profile?.night ?? [],
     };
   }
@@ -2538,38 +2538,43 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   #nvrCachedSettings(device: MegaInventoryDevice): NvrLiveSettings {
     if (!this.#nvrLiveAdmitted(device, this.#devices.get(device.parentSerial))) {
-      this.#clearNvrSettings(device.serial); return { night: null, quality: null };
+      this.#clearNvrSettings(device.serial); return { night: null, quality: null, tracking: null };
     }
     const value = this.#nvrSettings.get(device.serial), now = Date.now();
     if (value && value.binding === this.#nvrBindingKey(device)) return {
       night: now >= value.nightAt && now - value.nightAt < 1800000 ? value.values.night : null,
       quality: now >= value.qualityAt && now - value.qualityAt < 1800000 ? value.values.quality : null,
+      tracking: now >= value.trackingAt && now - value.trackingAt < 1800000 ? value.values.tracking : null,
     };
     if (value) this.#clearNvrSettings(device.serial);
-    return { night: null, quality: null };
+    return { night: null, quality: null, tracking: null };
   }
 
-  #publishNvrSettings(device: MegaInventoryDevice, values: NvrLiveSettings, field?: "night" | "quality" | "expiry"): void {
+  #publishNvrSettings(device: MegaInventoryDevice, values: NvrLiveSettings, field?: "night" | "quality" | "tracking" | "expiry"): void {
     const profile = nvrLiveProfile(device.model, device.deviceType), stored = this.#devices.get(device.serial);
     if (!stored || inventoryBindingChanged(device, stored) || !profile || !this.#nvrLiveAdmitted(stored, this.#devices.get(stored.parentSerial))) {
       this.#clearNvrSettings(device.serial); return;
     }
     const previous = this.#nvrSettings.get(device.serial); if (previous?.timer) clearTimeout(previous.timer);
     const bound = this.#nvrBindingKey(device), now = Date.now();
-    const nightAt = (field === "quality" || field === "expiry") && previous?.binding === bound ? previous.nightAt : now;
-    const qualityAt = (field === "night" || field === "expiry") && previous?.binding === bound ? previous.qualityAt : now;
+    // A single-field publish keeps the other fields' observation times.
+    const kept = (name: "night" | "quality" | "tracking"): boolean => field !== undefined && field !== name && previous?.binding === bound;
+    const nightAt = kept("night") ? previous!.nightAt : now, qualityAt = kept("quality") ? previous!.qualityAt : now;
+    const trackingAt = kept("tracking") ? previous!.trackingAt : now;
     const filtered = {
       night: profile.night.some(mode => mode.value === values.night) && now >= nightAt && now - nightAt < 1800000 ? values.night : null,
       quality: profile.quality.some(mode => mode.value === values.quality) && now >= qualityAt && now - qualityAt < 1800000 ? values.quality : null,
+      tracking: profile.aiTracking && values.tracking !== null && now >= trackingAt && now - trackingAt < 1800000 ? values.tracking : null,
     };
-    const expiries = [filtered.night === null ? Infinity : nightAt + 1800000, filtered.quality === null ? Infinity : qualityAt + 1800000];
+    const expiries = [filtered.night === null ? Infinity : nightAt + 1800000, filtered.quality === null ? Infinity : qualityAt + 1800000,
+      filtered.tracking === null ? Infinity : trackingAt + 1800000];
     const nextExpiry = Math.min(...expiries);
     const timer = Number.isFinite(nextExpiry) ? setTimeout(() => {
       if (this.#nvrSettings.get(device.serial)?.timer !== timer) return;
       const current = this.#devices.get(device.serial);
       if (current) this.#publishNvrSettings(current, this.#nvrCachedSettings(current), "expiry");
     }, Math.max(1, nextExpiry - now)) : null; timer?.unref();
-    this.#nvrSettings.set(device.serial, { binding: bound, nightAt, qualityAt, timer, values: filtered });
+    this.#nvrSettings.set(device.serial, { binding: bound, nightAt, qualityAt, trackingAt, timer, values: filtered });
     const identity = this.#nvrTrialIdentity(device); if (identity) this.#events?.camera(identity);
   }
 
@@ -2582,7 +2587,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (!this.#nvrMediaChecks || this.#nvrMediaChecks.active(serial) || this.#nvrTrials.has(serial) || this.#streamStarts.has(serial)
       || this.#nvrLiveJobs.has(device.parentSerial) || this.#recordingPeerReserved(serial) || this.#nvrControlReserved(device.parentSerial)) throw new NvrLiveControlError("busy");
     this.#nvrViews.set(serial, { binding: this.#nvrBindingKey(device), value: view });
-    this.#publishNvrSettings(device, { night: null, quality: null });
+    this.#publishNvrSettings(device, { night: null, quality: null, tracking: null });
     return this.#nvrTrialIdentity(device)!;
   }
 
@@ -2593,7 +2598,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return { outcome: "request_accepted", physicalConfirmationRequired: true };
   }
 
-  async #runNvrLiveControl(serial: string, request: NvrLiveControl | { kind: "night"; value: number } | { kind: "quality"; value: number }, external?: AbortSignal): Promise<CameraIdentity> {
+  async #runNvrLiveControl(serial: string, request: NvrLiveControl | { kind: "night"; value: number } | { kind: "quality"; value: number } | { kind: "tracking"; value: 0 | 1 },
+    external?: AbortSignal): Promise<CameraIdentity> {
     const device = this.#devices.get(serial), station = device && this.#devices.get(device.parentSerial);
     if (!device || !station || !this.#nvrLiveAdmitted(device, station)) throw new NvrLiveControlError("disabled");
     const profile = nvrLiveProfile(device.model, device.deviceType)!;
@@ -2612,7 +2618,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (this.#nvrLiveJobs.has(station.serial)) throw new NvrLiveControlError("busy");
     if (movement && profile.movementView !== null && view !== profile.movementView || request.kind === "zoom" && (!profile.opticalZoom || ![1, 2, 3].includes(request.level))
       || request.kind === "night" && !profile.night.some(mode => mode.value === request.value)
-      || request.kind === "quality" && !profile.quality.some(mode => mode.value === request.value)) throw new NvrLiveControlError("unavailable");
+      || request.kind === "quality" && !profile.quality.some(mode => mode.value === request.value)
+      || request.kind === "tracking" && !profile.aiTracking) throw new NvrLiveControlError("unavailable");
     const last = this.#nvrLiveIntervals.get(station.serial);
     if (last !== undefined && performance.now() - last < 1000) throw new NvrLiveControlError("rate_limited");
     this.#nvrLiveJobs.add(station.serial); this.#nvrLiveIntervals.set(station.serial, performance.now());
@@ -2628,7 +2635,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       }) || rows.filter(row => row.parentSerial === station.serial && row.serial !== station.serial && row.channel === device.channel).length !== 1) throw new NvrLiveControlError("unavailable");
       const session = entry!.session!;
       await session.prepareLiveControl(movement); current();
-      if (request.kind === "night" || request.kind === "quality") {
+      if (request.kind === "night" || request.kind === "quality" || request.kind === "tracking") {
         const field = request.kind;
         try {
           const initial = await session.readLiveSettings(signal);
@@ -2639,7 +2646,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         }
       }
       const before = (): void => { current(); dispatched = true; };
-      if (request.kind === "quality" || request.kind === "night") {
+      if (request.kind === "quality" || request.kind === "night" || request.kind === "tracking") {
         const field = request.kind;
         this.#publishNvrSettings(device, { ...this.#nvrCachedSettings(device), [field]: null }, field);
         if (request.kind === "quality") {
@@ -2686,7 +2693,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const session = entry.session ?? await this.#nvrTrialSession(serial);
       let values: NvrLiveSettings;
       try { await session.initialLiveSettings(); values = await session.readLiveSettings(entry.controller.signal); }
-      catch { this.#publishNvrSettings(device, { night: null, quality: null }); throw new NvrLiveControlError("unavailable", "reply"); }
+      catch { this.#publishNvrSettings(device, { night: null, quality: null, tracking: null }); throw new NvrLiveControlError("unavailable", "reply"); }
       if (this.#nvrTrials.get(serial) !== entry || entry.generation !== this.#startupGeneration || entry.controller.signal.aborted) throw new NvrLiveControlError("unavailable");
       this.#publishNvrSettings(device, values); return this.#nvrTrialIdentity(device)!;
     } catch (error) {
@@ -5221,9 +5228,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   /** Write verified tracking and require fresh cloud confirmation on admitted standalone routes. */
-  setCameraAiTracking(serial: string, enabled: boolean): Promise<void> {
+  setCameraAiTracking(serial: string, enabled: boolean, signal?: AbortSignal): Promise<void> {
     this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
+    const nvr = this.#devices.get(serial);
+    if (nvr && this.#nvrLiveAdmitted(nvr, this.#devices.get(nvr.parentSerial))) {
+      return this.#runNvrLiveControl(serial, { kind: "tracking", value: enabled ? 1 : 0 }, signal).then(() => undefined);
+    }
     this.#assertNoModelTrial(serial);
     return this.#queuePanControl(serial, "ai_tracking", async (session, current, observe) => {
       const device = this.#devices.get(serial);

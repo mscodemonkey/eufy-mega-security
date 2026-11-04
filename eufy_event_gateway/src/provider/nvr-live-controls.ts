@@ -40,6 +40,9 @@ export interface NvrLiveProfile {
 
   /** The camera confirms a pan with its receipt alone and sends no PTZ data reply. */
   readonly panReceiptOnly: boolean;
+
+  /** AI tracking is written on the PTZ transport and read back from the channel row. */
+  readonly aiTracking: boolean;
 }
 
 /**
@@ -50,12 +53,12 @@ export function nvrLiveProfile(model: string, type: number | null): NvrLiveProfi
   if (model === "T8E00" && type === 301) return {
     night: [{ value: 0, name: "Standard" }, { value: 1, name: "Infrared" }, { value: 2, name: "Spotlight" }],
     quality: [{ value: 0, name: "Auto" }, { value: 1, name: "Low" }, { value: 3, name: "High" }],
-    views: ["Fixed", "Movable"], defaultView: 1, opticalZoom: true, movementView: 1, panReceiptOnly: false,
+    views: ["Fixed", "Movable"], defaultView: 1, opticalZoom: true, movementView: 1, panReceiptOnly: false, aiTracking: false,
   };
   if (model === "T8416" && type === 104) return {
     night: [{ value: 0, name: "Off" }, { value: 1, name: "Auto Infrared" }, { value: 3, name: "Infrared on" }],
     quality: [{ value: 0, name: "Auto" }, { value: 1, name: "HD (720P)" }, { value: 2, name: "Full HD (1080P)" }, { value: 3, name: "2K" }, { value: 4, name: "Ultra 4K" }],
-    views: [], defaultView: 0, opticalZoom: true, movementView: null, panReceiptOnly: true,
+    views: [], defaultView: 0, opticalZoom: true, movementView: null, panReceiptOnly: true, aiTracking: true,
   };
   return null;
 }

@@ -638,12 +638,12 @@ class GatewayClient:
             payload={"index": index},
         )
 
-    async def set_camera_ai_tracking(self, serial: str, enabled: bool) -> None:
+    async def set_camera_ai_tracking(self, serial: str, enabled: bool, *, nvr: bool = False) -> None:
         """Send the physically verified AI-tracking action without local state."""
         await self._json(
             f"/api/cameras/{serial}/ai-tracking",
             method="POST",
-            payload={"enabled": enabled},
+            payload={"enabled": enabled}, timeout=120 if nvr else 60, nvr=nvr,
         )
 
     async def set_camera_auto_cruise(self, serial: str, enabled: bool) -> None:

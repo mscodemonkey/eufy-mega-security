@@ -4,12 +4,14 @@ These controls are off by default and hardware-unconfirmed. They are available o
 
 Enable `experimental_nvr_live`, `experimental_model_controls` and `experimental_nvr_controls`, and configure gateway API authentication. Enabling those flags also exposes the separate power and guard trials. Those trials retain their own consent and are never run by these normal controls. No physical control test runs automatically. Martin authorised implementation of #433, not unattended movement or security changes.
 
-| Camera | Night vision | Streaming quality | Camera view | Movement |
-| --- | --- | --- | --- | --- |
-| T8E00/type301 | Standard, Infrared, Spotlight | Auto, Low, High | Fixed or Movable, default Movable | Single pan clicks and optical zoom 1x, 2x, 3x on Movable only |
-| T8416/type104 | Off, Auto Infrared, Infrared on | Auto, HD (720P), Full HD (1080P), 2K, Ultra 4K | None (wide source) | Single pan clicks and zoom 1x, 2x, 3x |
+| Camera | Night vision | Streaming quality | Camera view | Movement | AI tracking |
+| --- | --- | --- | --- | --- | --- |
+| T8E00/type301 | Standard, Infrared, Spotlight | Auto, Low, High | Fixed or Movable, default Movable | Single pan clicks and optical zoom 1x, 2x, 3x on Movable only | No |
+| T8416/type104 | Off, Auto Infrared, Infrared on | Auto, HD (720P), Full HD (1080P), 2K, Ultra 4K | None (wide source) | Single pan clicks and zoom 1x, 2x, 3x | Enable or disable |
 
 T8416 offers no Camera view choice. A reporter described a Telephoto source, but on an owner-tested S350 the second NVR source showed the same wide picture, while zoom 2x and 3x narrowed it to the telephoto picture and 1x restored the wide one. T8416 quality names follow the eufy app's Streaming Quality. The T8416 NVR night values differ from the separate HomeBase connection.
+
+T8416 AI tracking is a persistent setting like night vision. The gateway sends 6016 on the PTZ transport, accepts the receipt, and then requires the channel row to read back the requested value before reporting success. The Home Assistant enable and disable buttons appear once a live start or capability refresh has read the current value. On an owner-tested S350 the eufy app showed each change.
 
 ## Using the controls
 

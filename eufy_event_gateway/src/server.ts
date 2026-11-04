@@ -1523,7 +1523,11 @@ export class GatewayServer {
   async #cameraAiTracking(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     const body = await readJson(request);
-    await this.provider.setCameraAiTracking(serial, requiredBoolean(body.enabled));
+    const enabled = requiredBoolean(body.enabled);
+    const nvr = this.provider.nvrLiveSettingAdmitted?.(serial) === true;
+    if (!nvr && this.state.getCamera(serial).nvrLiveControlsSupported) throw new NvrLiveControlError("disabled");
+    if (nvr) await this.#withNvrSettingSource(request, response, serial, signal => this.provider.setCameraAiTracking(serial, enabled, signal));
+    else await this.provider.setCameraAiTracking(serial, enabled);
     return json(response, 200, { ok: true });
   }
 

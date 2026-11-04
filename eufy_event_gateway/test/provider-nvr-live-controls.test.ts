@@ -19,7 +19,7 @@ async function fixture(context: TestContext, model = "T8E00", type = 301, flags 
   const directory = await mkdtemp(join(tmpdir(), "nvr-live-controls-"));
   let missing = false;
   let clock = 1000, viewer = true, recording = false, active = false, mismatch = false, partial = false;
-  let night = 1, quality = 0;
+  let night = 1, quality = 0, tracking: 0 | 1 = 1;
   const raw = { devices: [
     { device_sn: "synthetic-parent", device_model: "T8N00", device_type: 300, category: "eufy_security", member: { admin_user_id: "synthetic-owner" } },
     { device_sn: "synthetic-camera", parent_sn: "synthetic-parent", device_channel: 3, device_model: model, device_type: type,
@@ -39,8 +39,8 @@ async function fixture(context: TestContext, model = "T8E00", type = 301, flags 
   context.mock.method(MegaClient.prototype, "nvrSignallingContext", async () => ({ host: "security-smart-ie.eufylife.com", region: "IE", authToken: "synthetic", gtoken: "synthetic", sign: "synthetic" }));
   context.mock.method(NvrRtcSession.prototype, "start", async () => {});
   context.mock.method(NvrRtcSession.prototype, "close", async () => {});
-  context.mock.method(NvrRtcSession.prototype, "initialLiveSettings", async () => ({ night, quality }));
-  context.mock.method(NvrRtcSession.prototype, "readLiveSettings", async () => ({ night, quality: missing ? null : quality }));
+  context.mock.method(NvrRtcSession.prototype, "initialLiveSettings", async () => ({ night, quality, tracking }));
+  context.mock.method(NvrRtcSession.prototype, "readLiveSettings", async () => ({ night, quality: missing ? null : quality, tracking }));
   context.mock.method(NvrRtcSession.prototype, "prepareLiveControl", async () => {});
   context.mock.getter(NvrRtcSession.prototype, "remainingLifetimeMilliseconds", () => 120000);
   context.mock.method(NvrRtcSession.prototype, "writeLiveControl", async (request: NvrLiveWrite, signal: AbortSignal, before: () => void) => {
@@ -48,6 +48,7 @@ async function fixture(context: TestContext, model = "T8E00", type = 301, flags 
     if (partial && request.kind === "quality" && request.sensor === 1) throw Error("private canary");
     if (!mismatch && request.kind === "night") night = request.value;
     if (!mismatch && request.kind === "quality") quality = request.value;
+    if (!mismatch && request.kind === "tracking") tracking = request.value;
   });
   const state = new GatewayState();
   const events = new Proxy({ camera: (value: Parameters<ProviderEvents["camera"]>[0]) => state.registerCamera(value) }, { get: (target, key) => Reflect.get(target, key) ?? (() => {}) }) as unknown as ProviderEvents;
@@ -228,6 +229,28 @@ test("owner omission withdraws admission and restart clears observed cache", asy
   assert.equal(value.state.getCamera("synthetic-camera").nightVisionMode, null);
   value.raw.devices.push(child); await value.provider.close(); await value.provider.start(value.events);
   assert.equal(value.state.getCamera("synthetic-camera").nightVisionMode, null);
+});
+
+
+test("104 AI tracking writes on the NVR and confirms by read-back", async context => {
+  const value = await fixture(context, "T8416", 104);
+  const camera = () => value.state.getCamera("synthetic-camera");
+  assert.equal(camera().aiTrackingControlSupported, false);
+  await value.provider.startStream("synthetic-camera"); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(camera().aiTrackingControlSupported, true); assert.equal(camera().aiTrackingEnabled, true);
+  value.advance(); await value.provider.setCameraAiTracking("synthetic-camera", false);
+  assert.deepEqual(value.writes, [{ kind: "tracking", value: 0 }]); assert.equal(camera().aiTrackingEnabled, false);
+  value.advance(); value.mismatch();
+  await assert.rejects(value.provider.setCameraAiTracking("synthetic-camera", true), { code: "outcome_unknown" });
+  assert.equal(camera().aiTrackingEnabled, null);
+});
+
+test("T8E00 offers no NVR AI tracking", async context => {
+  const value = await fixture(context);
+  await value.provider.startStream("synthetic-camera"); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(value.state.getCamera("synthetic-camera").aiTrackingControlSupported, false);
+  await assert.rejects(value.provider.setCameraAiTracking("synthetic-camera", true), { code: "unavailable" });
+  assert.equal(value.writes.length, 0);
 });
 
 
