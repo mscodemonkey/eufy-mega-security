@@ -12,17 +12,25 @@ export interface QualifiedLiveFrameClock {
 
   /** Opaque owning-session identity, preventing queued data from spanning source replacements. */
   readonly epoch: symbol;
+
+  /** The owning session observed a keyframe with a different positive frame size. */
+  readonly encoderFormatChanged?: boolean;
 }
 
 const sources = new WeakSet<object>();
 const clocks = new WeakMap<Buffer, QualifiedLiveFrameClock>();
 
-/** Associate a complete normalized unit with its session-owned, unsigned source clock. */
-export function markS340LiveFrameClock(data: Buffer, timestampMilliseconds: number, epoch: symbol): void {
+/**
+ * Associate a complete normalized unit with its session-owned source clock.
+ *
+ * @param encoderFormatChanged True only when the owning PPCS session observes
+ * a keyframe whose positive dimensions differ from the preceding frame.
+ */
+export function markS340LiveFrameClock(data: Buffer, timestampMilliseconds: number, epoch: symbol, encoderFormatChanged = false): void {
   if (!Number.isInteger(timestampMilliseconds) || timestampMilliseconds < 0 || timestampMilliseconds > 0xffff_ffff) {
     throw new Error("Invalid qualified live frame clock");
   }
-  clocks.set(data, Object.freeze({ timestampMilliseconds, epoch }));
+  clocks.set(data, Object.freeze({ timestampMilliseconds, epoch, ...(encoderFormatChanged ? { encoderFormatChanged: true } : {}) }));
 }
 
 /** Read qualified timing without changing bytes or inferring clocks for other sources. */

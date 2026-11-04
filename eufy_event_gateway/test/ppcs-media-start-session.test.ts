@@ -69,9 +69,14 @@ async function peer(context: TestContext, attached = true, model = "T8113-Z", pu
     receive(packet, variant === "peer" ? 12346 : 12345);
   };
   const negotiate = async () => { frame(1100, gateway(), 0, false, 1); await new Promise(resolve => setImmediate(resolve)); };
-  const video = (channel = 1) => {
+  const video = (channel = 1, format?: { width: number; height: number; timestamp: number; keyframe?: boolean }) => {
     const data = Buffer.from("000000016742001e898b600000000168ce3c8000000001658884000000010940", "hex");
     const header = Buffer.alloc(22); header.writeUInt32LE(data.length); header[4] = 1; header[5] = 1;
+    if (format) {
+      header[4] = format.keyframe === false ? 0 : 1;
+      header.writeInt16LE(format.width, 10); header.writeInt16LE(format.height, 12);
+      header.writeUInt32LE(format.timestamp, 14);
+    }
     frame(1300, Buffer.concat([header, data]), channel);
   };
   await session.start();
@@ -653,5 +658,22 @@ for (const [model, station, channel, purpose, deviceType, qualified] of [
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(qualifiedS340LiveSource(f.session.output), qualified);
     assert.equal(chunks.some(chunk => qualifiedLiveFrameClock(chunk)?.timestampMilliseconds === 0), qualified);
+  } finally { f.session.close(); }
+});
+
+for (const [width, height, keyframe, changed] of [
+  [2560, 1440, true, true],
+  [2560, 1440, false, false],
+  [1280, 720, true, false],
+  [0, 0, true, false],
+] as const) test(`qualified format transition ${width}/${height}/${keyframe}`, async context => {
+  const f = await peer(context, true, "T8171", "media", "T8030");
+  const chunks: Buffer[] = [];
+  f.session.output.on("data", (data: Buffer) => chunks.push(data));
+  try {
+    f.video(1, { width: 1280, height: 720, timestamp: 1_000 });
+    assert.equal(qualifiedLiveFrameClock(chunks.at(-1)!)?.encoderFormatChanged, undefined);
+    f.video(1, { width, height, timestamp: 8_422, keyframe });
+    assert.equal(qualifiedLiveFrameClock(chunks.at(-1)!)?.encoderFormatChanged === true, changed);
   } finally { f.session.close(); }
 });

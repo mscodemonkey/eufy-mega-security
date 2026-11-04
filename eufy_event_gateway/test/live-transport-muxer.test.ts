@@ -7,6 +7,7 @@ import { markS340LiveFrameClock } from "../src/stream/live-frame-clock.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import type { OutgoingHttpHeaders, ServerResponse } from "node:http";
+import { performance } from "node:perf_hooks";
 import { PassThrough } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
@@ -130,7 +131,7 @@ test("oversized startup releases the viewer and reports one bounded failure code
   assert.equal(failures.length, 1);
 });
 
-test("the admitted transport drains original paced video and AAC through real FFmpeg", { timeout: 20_000 }, async () => {
+test("the admitted transport preserves paced video and AAC for independent decoding", { timeout: 20_000 }, async () => {
   const response = new Response(), chunks: Buffer[] = [];
   response.on("data", (data: Buffer) => chunks.push(Buffer.from(data)));
   const epoch = Symbol();
@@ -219,7 +220,7 @@ test("late paced audio stays inside Home Assistant's opening detection window", 
     assert.ok(videoTimes.length > 10);
 
     // The fixed-rate synthetic units must retain their paced duration through
-    // FFmpeg, rather than collapsing queued startup pictures into one burst.
+    // the transport, rather than collapsing queued startup pictures into one burst.
     const span = videoTimes.at(-1)! - videoTimes[0]!;
     assert.ok(span >= (videoTimes.length - 3) / 15 - 0.1,
       `${videoTimes.length} video packets collapsed into ${span} seconds`);
@@ -253,4 +254,41 @@ test("a muted paced viewer does not wait for audio twice", { timeout: 12_000 }, 
   } finally {
     muxer.close();
   }
+});
+
+test("a slow clocked response closes once at the existing output byte limit", context => {
+  context.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 0 });
+  context.mock.method(performance, "now", () => Date.now());
+  const response = new Response(), failures: string[] = [];
+  let closed = 0;
+  const muxer = new LiveTransportMuxer(response as unknown as ServerResponse, () => closed++, 20,
+    reason => failures.push(reason), () => true);
+  const data = Buffer.alloc(4 * 1024 * 1024);
+  markS340LiveFrameClock(data, 0, Symbol());
+  muxer.videoInput.write(data);
+  context.mock.timers.tick(20);
+  context.mock.timers.tick(6_000);
+  assert.deepEqual(failures, ["output_backpressure_limit"]);
+  assert.equal(closed, 1);
+  context.mock.timers.tick(20_000);
+  assert.equal(closed, 1);
+});
+
+test("disconnect during the first clocked write cannot rearm output or write more media", context => {
+  context.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 0 });
+  context.mock.method(performance, "now", () => Date.now());
+  const response = new Response(), failures: string[] = [];
+  let closed = 0, writes = 0;
+  const muxer = new LiveTransportMuxer(response as unknown as ServerResponse, () => closed++, 20,
+    reason => failures.push(reason), () => true);
+  response.on("data", () => { writes++; muxer.close(); });
+  const data = Buffer.from([0, 0, 0, 1, 0x65, 1]);
+  markS340LiveFrameClock(data, 0, Symbol());
+  muxer.videoInput.write(data);
+  context.mock.timers.tick(20);
+  context.mock.timers.tick(6_000);
+  context.mock.timers.tick(20_000);
+  assert.equal(closed, 1);
+  assert.equal(writes, 1);
+  assert.deepEqual(failures, []);
 });
