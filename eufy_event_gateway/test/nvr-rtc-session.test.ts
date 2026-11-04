@@ -50,7 +50,7 @@ function keyframePackets(frame: Buffer, sequence: number): Buffer[] {
   });
 }
 
-for (const scenario of ['repaired-gap', 'missing-gap', 'start-no-ack-recording', 'start-late-video', 'start-s1-late-video', 'start-s1-empty', 'start-s1-cancel-no-ack', 'start-s1-negative-ack', 'start-s1-wrong-type', 'start-s1-other-view', 'start-s1-stale-no-ack', 'start-s1-ack-empty', 'start-s1-after-deadline', 'start-stale-no-ack', 'start-no-ack-h264', 'start-no-ack-h265', 'start-parameters-only', 'start-empty', 'start-negative-ack', 'start-cancel-no-ack', 'observer', 'observer-signalling-close', 'continuous-modes', 'continuous-parameters', 'continuous-h265', 'continuous-controls', 'continuous-video', 'continuous-signalling-close', 'continuous-stall', 'continuous-heartbeat', 'continuous-gap', 'continuous-cancel', 'live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-nonzero', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
+for (const scenario of ['repaired-gap', 'missing-gap', 'start-no-ack-recording', 'start-late-video', 'start-s1-late-video', 'start-s1-empty', 'start-s1-cancel-no-ack', 'start-s1-negative-ack', 'start-s1-wrong-type', 'start-s1-other-view', 'start-s1-stale-no-ack', 'start-s1-ack-empty', 'start-s1-after-deadline', 'start-stale-no-ack', 'start-no-ack-h264', 'start-no-ack-h265', 'start-parameters-only', 'start-empty', 'start-negative-ack', 'start-cancel-no-ack', 'observer', 'observer-signalling-close', 'continuous-modes', 'continuous-parameters', 'continuous-h265', 'continuous-controls', 'continuous-video', 'continuous-signalling-close', 'continuous-stall', 'continuous-heartbeat', 'continuous-gap', 'continuous-cancel', 'live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-receiptonly', 'live-pan-nonzero', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
   const s1Grace = scenario.startsWith('start-s1-');
   const cameraType = s1Grace && scenario !== 'start-s1-wrong-type' ? 89 : scenario === 'legacy-first-lens' ? 14 : 301;
   let mediaRequested = false;
@@ -114,7 +114,7 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'start-no-ack-recording',
               for (const packet of nvrPackets(late, sequence++, 1)) channel.send(packet);
             }, 100); return;
           }
-          if (scenario === 'live-pan-ackonly' || scenario === 'live-pan-nonzero') {
+          if (['live-pan-ackonly', 'live-pan-receiptonly', 'live-pan-nonzero'].includes(scenario)) {
             const receipt = application(1700, request.segment, Buffer.alloc(132)); receipt[12] = 3;
             if (scenario === 'live-pan-nonzero') receipt.writeInt32LE(-1, 16);
             for (const packet of nvrPackets(receipt, sequence++, 1)) channel.send(packet);
@@ -346,7 +346,7 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'start-no-ack-recording',
   let clientDataChannel: ReturnType<RTCPeerConnection["createDataChannel"]> | undefined;
   const session = new NvrRtcSession({ onEffectiveMode: value => modes.push(value), onTimings: value => timingReports.push(value), station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
     ...(scenario.startsWith('observer') ? { modeObserver: true, maximumLifetimeMilliseconds: null } : {}),
-    powerTrial: scenario.startsWith('power'), liveControls: scenario.startsWith('live-') || scenario === 'continuous-controls',
+    powerTrial: scenario.startsWith('power'), liveControls: scenario.startsWith('live-') || scenario === 'continuous-controls', panReceiptOnly: scenario === 'live-pan-receiptonly',
     ...(scenario.startsWith('continuous-') || scenario.startsWith('start-') ? { maximumLifetimeMilliseconds: null, videoProgressNow: () => nativeVideoNow() + videoProgressOffset } : {}),
     guardTrial: scenario === 'guard', ...(scenario === 'guard' ? { userName: 'Synthetic' } : {}),
     cameraType, ...(s1Grace ? { s1FirstPictureGrace: true } : {}), sensor: scenario === 'legacy-first-lens' || s1Grace && cameraType === 89 && scenario !== 'start-s1-other-view' ? 0 : 1,
@@ -726,6 +726,12 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'start-no-ack-recording',
         assert.ok(session.stats.video > before); assert.equal(session.output.destroyed, false);
         assert.equal(commands.filter(command => command === 6030).length, 1);
         if (scenario === 'live-pan-ackonly') assert.equal(session.controlStats.panAcknowledgedWithoutData, 1);
+        await session.close(); return;
+      }
+      if (scenario === 'live-pan-receiptonly') {
+        await session.writeLiveControl({ kind: 'pan', direction: 'left' }, controller.signal, () => {});
+        assert.equal(session.controlStats.panReceipts, 1); assert.equal(session.controlStats.panData, 0);
+        assert.equal(session.controlStats.panTimeouts, 0); assert.equal(session.output.destroyed, false);
         await session.close(); return;
       }
       await session.writeLiveControl({ kind: 'pan', direction: 'left' }, controller.signal, () => {});

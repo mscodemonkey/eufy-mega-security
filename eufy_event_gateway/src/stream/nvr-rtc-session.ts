@@ -141,6 +141,9 @@ export interface NvrRtcOptions {
 
   /** Provider admission for default-off exact-model normal controls, never a trial. */
   readonly liveControls?: boolean;
+
+  /** The admitted profile accepts a pan receipt without waiting for PTZ data. */
+  readonly panReceiptOnly?: boolean;
 }
 
 interface PendingRequest {
@@ -236,7 +239,7 @@ export class NvrRtcSession {
   #livePending: { segment: number; pan: boolean; acknowledged: boolean; deadline: number; resolve: () => void; reject: (error: Error) => void; timer: NodeJS.Timeout } | null = null;
 
   /** Content-free PTZ settlement counters do not contain reply payloads. */
-  readonly controlStats = { panAcknowledgedWithoutData: 0, panTimeouts: 0, panData: 0, rejected: 0 };
+  readonly controlStats = { panAcknowledgedWithoutData: 0, panTimeouts: 0, panData: 0, panReceipts: 0, rejected: 0 };
   #powerMode = false;
   #powerReceipt: { readonly segment: number; readonly deadline: number; readonly resolve: () => void;
     readonly reject: (error: NvrPowerError) => void; readonly timer: NodeJS.Timeout; readonly detach: () => void } | null = null;
@@ -1020,8 +1023,12 @@ export class NvrRtcSession {
         || frame.channel !== this.options.channel && !(pending.pan && frame.channel === 255)) { this.stats.staleReplies++; return; }
       if (frame.command === (pending.pan ? 1700 : 1350)) {
         if (frame.channel !== this.options.channel) { this.stats.staleReplies++; return; }
-        if (nvrLiveReceipt(frame.payload)) { pending.acknowledged = true; if (!pending.pan) pending.resolve(); }
-        else { this.controlStats.rejected++; pending.reject(new NvrLiveControlError("outcome_unknown", "receipt")); }
+        if (!nvrLiveReceipt(frame.payload)) { this.controlStats.rejected++; pending.reject(new NvrLiveControlError("outcome_unknown", "receipt")); return; }
+        pending.acknowledged = true;
+
+        // Some profiles send no PTZ data after the receipt; others resolve on the data reply.
+        if (!pending.pan) pending.resolve();
+        else if (this.options.panReceiptOnly) { this.controlStats.panReceipts++; pending.resolve(); }
         return;
       }
       if (pending.pan && frame.command === 1351) {

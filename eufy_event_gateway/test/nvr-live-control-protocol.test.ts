@@ -50,5 +50,7 @@ test("native reads reject missing, duplicate or malformed observations", () => {
 test("exact model matrix excludes suffixes and cross types", () => {
   assert.deepEqual(nvrLiveProfile("T8E00", 301)?.quality.map(mode => mode.value), [0, 1, 3]);
   assert.equal(nvrLiveProfile("T8416", 104)?.defaultView, 0);
+  assert.equal(nvrLiveProfile("T8416", 104)?.panReceiptOnly, true);
+  assert.equal(nvrLiveProfile("T8E00", 301)?.panReceiptOnly, false);
   for (const [model, type] of [["T8416121", 104], ["T8416", 105], ["T8416", 301], ["T8E00121", 301]] as const) assert.equal(nvrLiveProfile(model, type), null);
 });

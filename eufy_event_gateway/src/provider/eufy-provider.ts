@@ -1924,6 +1924,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         liveControls: !entry.diagnostic && this.#nvrLiveAdmitted(entry.device, entry.station),
         ...(!entry.diagnostic && !entry.stateOnly && entry.sensor === 0 && entry.device.model === "T8172" && entry.device.deviceType === 89
           && entry.station.model === "T9000" && entry.station.deviceType === 27 ? { s1FirstPictureGrace: true } : {}),
+        panReceiptOnly: nvrLiveProfile(entry.device.model, entry.device.deviceType)?.panReceiptOnly === true,
         administrator: entry.station.adminUserId!, context, signal: entry.controller.signal, current,
         maximumLifetimeMilliseconds: entry.diagnostic ? 75_000 : entry.stateOnly ? this.config.maxStreamSeconds * 1_000 : null,
         ...(!entry.diagnostic && !entry.stateOnly && entry.station.model === "T8N00" && entry.station.deviceType === 300 ? {
@@ -2659,7 +2660,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         throw new NvrLiveControlError("outcome_unknown", "dispatch");
       }
       await session.writeLiveControl(request, signal, before);
-      logger.info("nvr_live_control_completed", `stage=request_accepted pan_data=${session.controlStats.panData} pan_ack_without_data=${session.controlStats.panAcknowledgedWithoutData}`);
+      logger.info("nvr_live_control_completed", `stage=request_accepted pan_data=${session.controlStats.panData} pan_receipts=${session.controlStats.panReceipts} pan_ack_without_data=${session.controlStats.panAcknowledgedWithoutData}`);
       return this.#nvrTrialIdentity(device)!;
     } catch (error) {
       logger.warn("nvr_live_control_failed", `stage=${error instanceof NvrLiveControlError ? error.stage : "request"} pan_data=${entry?.session?.controlStats.panData ?? 0} pan_ack_without_data=${entry?.session?.controlStats.panAcknowledgedWithoutData ?? 0} pan_timeouts=${entry?.session?.controlStats.panTimeouts ?? 0}`);
