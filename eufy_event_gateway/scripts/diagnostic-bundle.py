@@ -239,6 +239,9 @@ def movement_test(url: str, token: str, rows: list[dict], index: int, direction:
     endpoint = movement_admission(url, token, selected_device(rows, index))
     try:
         result = json.loads(request(endpoint, token, "POST", {"action": "ptz", "direction": direction}))
+    except DiagnosticRequestError as error:
+        detail = f"Gateway replied HTTP {error.status}." if error.status else "Gateway connection failed."
+        raise DiagnosticError(f"Movement request did not complete. {detail} Check the camera and restore its original view before trying again.") from None
     except Exception:
         raise DiagnosticError("Movement was admitted but did not complete. Check the gateway for the model_control_trial_failed line.") from None
     if not isinstance(result, dict) or result.get("outcome") != "acknowledged" or result.get("physicalConfirmationRequired") is not True:

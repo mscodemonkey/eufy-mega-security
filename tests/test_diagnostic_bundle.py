@@ -233,6 +233,21 @@ class DiagnosticBundleTests(unittest.TestCase):
                                    [{"serial": "private-camera"}], 1, "left")
         self.assertNotIn("private connection", str(failure.exception))
 
+    def test_movement_post_http_failure_never_retries_or_claims_no_write(self):
+        """A lost write result must not imply the camera stayed still."""
+        def respond(_url, _token, method="GET", value=None):
+            if method == "GET":
+                return b'{"actions":["ptz"]}'
+            raise TOOL.DiagnosticRequestError(503)
+
+        with patch.object(TOOL, "request", side_effect=respond) as request:
+            with self.assertRaisesRegex(TOOL.DiagnosticError, "HTTP 503") as failure:
+                TOOL.movement_test("http://private.invalid", "private-token",
+                                   [{"serial": "private-camera"}], 1, "left")
+        self.assertEqual(request.call_count, 2)
+        self.assertNotIn("No command was sent", str(failure.exception))
+        self.assertIn("Check the camera", str(failure.exception))
+
     def test_read_only_movement_check_never_posts(self):
         """The CLI can inspect admission without consent or camera movement."""
         def respond(url, _token, method="GET", value=None):
