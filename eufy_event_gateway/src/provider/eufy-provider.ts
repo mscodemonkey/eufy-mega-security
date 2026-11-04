@@ -2557,6 +2557,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
     const previous = this.#nvrSettings.get(device.serial); if (previous?.timer) clearTimeout(previous.timer);
     const bound = this.#nvrBindingKey(device), now = Date.now();
+
     // A single-field publish keeps the other fields' observation times.
     const kept = (name: "night" | "quality" | "tracking"): boolean => field !== undefined && field !== name && previous?.binding === bound;
     const nightAt = kept("night") ? previous!.nightAt : now, qualityAt = kept("quality") ? previous!.qualityAt : now;

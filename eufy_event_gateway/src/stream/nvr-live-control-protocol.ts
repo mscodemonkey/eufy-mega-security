@@ -125,6 +125,7 @@ export function nvrLiveSettings(response: Record<string, unknown>, channel: numb
       }
     } catch { /* Unreadable values remain unknown. */ }
   }
+
   // T8416 reports AI tracking as one base64 digit in its channel row.
   const flag = tracking.length === 1 && tracking[0]!.encoded && (tracking[0]!.value === "MA==" || tracking[0]!.value === "MQ==") ? tracking[0]!.value === "MQ==" ? 1 : 0 : null;
   return { night: night.length === 1 ? integer(night[0]!.value) : null, quality: q, tracking: flag };
