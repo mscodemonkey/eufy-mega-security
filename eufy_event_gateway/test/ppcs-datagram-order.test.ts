@@ -192,6 +192,22 @@ test("a qualified video repair waits for the observed late packet without discar
   } finally { order.close(); }
 });
 
+test("a qualified two-second repair window retains the observed later T8171 packet", context => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const delivered: string[] = [], gaps: number[] = [];
+  const order = new PpcsDatagramReorderBuffer(body => delivered.push(body.toString()), type => gaps.push(type), () => {}, 2000);
+  try {
+    order.push(Buffer.from("header"), 10, 1);
+    order.push(Buffer.from("tail"), 12, 1);
+    context.mock.timers.tick(1500);
+    assert.deepEqual(delivered, ["header"]);
+    assert.deepEqual(gaps, []);
+    order.push(Buffer.from("middle"), 11, 1);
+    assert.deepEqual(delivered, ["header", "middle", "tail"]);
+    assert.deepEqual(gaps, []);
+  } finally { order.close(); }
+});
+
 test("the longer video wait leaves control holes at their original deadline", context => {
   context.mock.timers.enable({ apis: ["setTimeout"] });
   const gaps: number[] = [];
