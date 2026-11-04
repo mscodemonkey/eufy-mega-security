@@ -720,7 +720,7 @@ for (const [model, station, channel, purpose, deviceType, qualified] of [
     fragment(0, "first"); fragment(2, "third");
     context.mock.timers.tick(300);
     assert.equal(f.session.stats.sequenceGaps, qualified ? 0 : 1);
-    context.mock.timers.tick(600); fragment(1, "second");
+    context.mock.timers.tick(1200); fragment(1, "second");
     assert.equal(f.session.stats.sequenceGaps, qualified ? 0 : 1);
     assert.equal(f.session.stats.closeReason, "open");
   } finally { f.session.close(); }
