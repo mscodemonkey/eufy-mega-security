@@ -1822,9 +1822,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       catalogueStatus: profile ? "ready_to_test" : "recognised", firmware: device.firmware, hardwareVersion: device.hardwareVersion ?? null, firmwareSubVersion: device.firmwareSubVersion ?? null,
       firmwareUpdateAvailable: device.firmwareUpdateAvailable ?? null, rssi: device.reads.rssi ?? null, audioSettings: null, reportedSettings: profile ? { streamingQualityTier: values.quality, imageFlipped: null, statusLedEnabled: null, soundDetectionEnabled: null } : null,
       enabled: null, motionDetectionEnabled: null, guardMode: null, nightVisionMode: values.night,
-      nvrPanControlSupported: !!profile && (!profile.opticalZoom || view === 1),
+      nvrPanControlSupported: !!profile && (profile.movementView === null || view === profile.movementView),
       directionalPanControlSupported: false,
-      nvrOpticalZoomControlSupported: !!profile?.opticalZoom && view === 1,
+      nvrOpticalZoomControlSupported: !!profile?.opticalZoom && (profile.movementView === null || view === profile.movementView),
       nvrViewOptions: profile?.views ?? [], nvrSelectedView: profile ? view : null,
       autoNightVisionEnabled: null, aiTrackingEnabled: null, battery: batteryState(device),
       streamSupported: this.#normalNvrLiveBinding(device, station), startupSnapshotSupported: false,
@@ -2610,7 +2610,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     };
     current();
     if (this.#nvrLiveJobs.has(station.serial)) throw new NvrLiveControlError("busy");
-    if (movement && profile.opticalZoom && view !== 1 || request.kind === "zoom" && (!profile.opticalZoom || ![1, 2, 3].includes(request.level))
+    if (movement && profile.movementView !== null && view !== profile.movementView || request.kind === "zoom" && (!profile.opticalZoom || ![1, 2, 3].includes(request.level))
       || request.kind === "night" && !profile.night.some(mode => mode.value === request.value)
       || request.kind === "quality" && !profile.quality.some(mode => mode.value === request.value)) throw new NvrLiveControlError("unavailable");
     const last = this.#nvrLiveIntervals.get(station.serial);

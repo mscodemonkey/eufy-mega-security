@@ -35,6 +35,9 @@ export interface NvrLiveProfile {
   readonly defaultView: 0 | 1;
   readonly opticalZoom: boolean;
 
+  /** The only view that accepts pan and zoom, or null when every view does. */
+  readonly movementView: 0 | 1 | null;
+
   /** The camera confirms a pan with its receipt alone and sends no PTZ data reply. */
   readonly panReceiptOnly: boolean;
 }
@@ -44,12 +47,12 @@ export function nvrLiveProfile(model: string, type: number | null): NvrLiveProfi
   if (model === "T8E00" && type === 301) return {
     night: [{ value: 0, name: "Standard" }, { value: 1, name: "Infrared" }, { value: 2, name: "Spotlight" }],
     quality: [{ value: 0, name: "Auto" }, { value: 1, name: "Low" }, { value: 3, name: "High" }],
-    views: ["Fixed", "Movable"], defaultView: 1, opticalZoom: true, panReceiptOnly: false,
+    views: ["Fixed", "Movable"], defaultView: 1, opticalZoom: true, movementView: 1, panReceiptOnly: false,
   };
   if (model === "T8416" && type === 104) return {
     night: [{ value: 0, name: "Off" }, { value: 1, name: "Auto Infrared" }, { value: 3, name: "Infrared on" }],
     quality: [{ value: 0, name: "Auto" }, { value: 1, name: "Low" }, { value: 2, name: "Full HD (1080P)" }, { value: 3, name: "High" }, { value: 4, name: "Highest" }],
-    views: ["Wide", "Telephoto"], defaultView: 0, opticalZoom: false, panReceiptOnly: true,
+    views: ["Wide", "Telephoto"], defaultView: 0, opticalZoom: true, movementView: null, panReceiptOnly: true,
   };
   return null;
 }

@@ -7,9 +7,9 @@ Enable `experimental_nvr_live`, `experimental_model_controls` and `experimental_
 | Camera | Night vision | Streaming quality | Camera view | Movement |
 | --- | --- | --- | --- | --- |
 | T8E00/type301 | Standard, Infrared, Spotlight | Auto, Low, High | Fixed or Movable, default Movable | Single pan clicks and optical zoom 1x, 2x, 3x on Movable only |
-| T8416/type104 | Off, Auto Infrared, Infrared on | Auto, Low, Full HD, High, Highest | Wide or Telephoto, default Wide | Single pan clicks on the shared head, no optical zoom control |
+| T8416/type104 | Off, Auto Infrared, Infrared on | Auto, Low, Full HD, High, Highest | Wide or Telephoto, default Wide | Single pan clicks and zoom 1x, 2x, 3x on either view |
 
-T8416 Telephoto is reporter-reported, not established by the portal source. Wide is the portal default. Highest is a gateway presentation label for the vendor quality rank, not the vendor's own label. Highest is a preference, not a promise of 4K on the telephoto source. The T8416 NVR night values differ from the separate HomeBase connection.
+T8416 Telephoto is reporter-reported, not established by the portal source. Wide is the portal default. On an owner-tested S350 the Telephoto view showed the same wide picture, while zoom 2x and 3x narrowed it to the telephoto picture and 1x restored the wide one. Highest is a gateway presentation label for the vendor quality rank, not the vendor's own label. Highest is a preference, not a promise of 4K on the telephoto source. The T8416 NVR night values differ from the separate HomeBase connection.
 
 ## Using the controls
 
@@ -27,7 +27,7 @@ Actions are exclusive per NVR and spaced at least one second apart. Explicit cap
 
 ## Interpreting results
 
-`request_accepted` requires physical confirmation. It does not establish movement, lens position or optical magnification. Some vendor paths accept a pan acknowledgement alone, while this experimental path requires a matching data reply. A device that sends only an acknowledgement can move and still return `outcome_unknown`. Do not immediately repeat it. Check the camera in Eufy first.
+`request_accepted` requires physical confirmation. It does not establish movement, lens position or optical magnification. Some vendor paths accept a pan acknowledgement alone. T8416 sends only that acknowledgement, so its pan settles on it. T8E00 still requires a matching data reply, and a device that sends only an acknowledgement there can move and still return `outcome_unknown`. Do not immediately repeat it. Check the camera in Eufy first.
 
 A quality write targets both sources. The pairing of those live writes with the reported web-quality field is an unproven assumption. A disconnect or timeout between the two quality writes can leave the first source changed and the second unchanged. A partial write, missing confirmation, codec change or lost connection leaves the result unknown. A quality change can end the current view. There is no automatic rollback or retry. Check both sources and the setting in Eufy before trying again.
 
@@ -39,6 +39,6 @@ For a reporter retest, use one model at a time. Start with Wide or Movable video
 
 The first control on a source reconfirms its child identity with a fresh echoed request segment. Devices that reply without echoing that segment cannot use controls, even if legacy video plays. This is a hardware-unconfirmed compatibility limit. PTZ data on the child channel or channel 255 is accepted, with the latter still unconfirmed on hardware. An accepted PTZ request may mean the camera has reached its movement limit.
 
-T8E00 optical levels 1x to 3x deliberately restrict the vendor's 1x to 8x range to the reporter-tested subset. The T8416 profile deliberately withholds optical zoom despite another vendor path advertising it. The T8E00 Auto/Low/High choices follow the portal fallback UI, rather than an explicit resolution list in that model profile.
+T8E00 optical levels 1x to 3x deliberately restrict the vendor's 1x to 8x range to the reporter-tested subset. T8416 uses the same 1x to 3x levels, which an owner test confirmed on one S350. The T8E00 Auto/Low/High choices follow the portal fallback UI, rather than an explicit resolution list in that model profile.
 
 A fresh inventory that omits explicit ownership withdraws control admission and the104 normal stream until membership returns. Raw ownership is mandatory for these controls, 104 streaming and the manual guard/power writes. Legacy video and diagnostic playback admission are unchanged.

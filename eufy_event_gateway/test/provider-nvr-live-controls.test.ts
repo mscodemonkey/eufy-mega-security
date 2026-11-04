@@ -100,13 +100,22 @@ for (const mode of ["disabled", "inherited", "recording", "drift", "partial", "v
   assert.equal(value.writes.length, mode === "partial" ? 2 : 0);
 });
 
-test("104 profile admits Wide default and software Telephoto choice, without optical zoom", async context => {
+test("104 profile admits Wide default and Telephoto choice, with pan and optical zoom on either view", async context => {
   const value = await fixture(context, "T8416", 104);
-  assert.equal(value.state.getCamera("synthetic-camera").streamSupported, true);
-  assert.equal(value.state.getCamera("synthetic-camera").nvrSelectedView, 0);
-  assert.equal(value.state.getCamera("synthetic-camera").nvrOpticalZoomControlSupported, false);
+  const camera = () => value.state.getCamera("synthetic-camera");
+  assert.equal(camera().streamSupported, true);
+  assert.equal(camera().nvrSelectedView, 0);
+  assert.equal(camera().nvrPanControlSupported, true); assert.equal(camera().nvrOpticalZoomControlSupported, true);
   await value.provider.setNvrView("synthetic-camera", 1);
-  assert.equal(value.state.getCamera("synthetic-camera").nvrSelectedView, 1);
+  assert.equal(camera().nvrSelectedView, 1);
+  assert.equal(camera().nvrPanControlSupported, true); assert.equal(camera().nvrOpticalZoomControlSupported, true);
+  await value.provider.setNvrView("synthetic-camera", 0);
+  await value.provider.startStream("synthetic-camera"); await new Promise(resolve => setImmediate(resolve));
+  const accepted = { outcome: "request_accepted", physicalConfirmationRequired: true };
+  assert.deepEqual(await value.provider.performNvrLiveControl("synthetic-camera", { kind: "zoom", level: 2 }), accepted);
+  value.advance();
+  assert.deepEqual(await value.provider.performNvrLiveControl("synthetic-camera", { kind: "pan", direction: "left" }), accepted);
+  assert.deepEqual(value.writes, [{ kind: "zoom", level: 2 }, { kind: "pan", direction: "left" }]);
 });
 
 test("104 streaming stays unavailable with only the video flag", async context => {
