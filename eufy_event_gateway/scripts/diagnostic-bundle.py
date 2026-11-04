@@ -20,6 +20,7 @@ from pathlib import Path
 import stat
 import sys
 import time
+from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import ProxyHandler, Request, build_opener
 import zlib
@@ -48,6 +49,16 @@ class DiagnosticError(Exception):
     """Carry fixed safe errors rather than credential-bearing network exceptions."""
 
 
+class DiagnosticRequestError(DiagnosticError):
+    """Retain only an HTTP status, never an upstream URL, body or exception."""
+
+    def __init__(self, status: int | None = None):
+        """Use a missing status when no accepted HTTP response was available."""
+        self.status = status if type(status) is int and 100 <= status <= 599 else None
+        message = f"Gateway request failed (HTTP {self.status})." if self.status else "Gateway connection failed."
+        super().__init__(message)
+
+
 def request(url: str, token: str, method: str = "GET", value=None) -> bytes:
     """Reject redirects and proxies, and limit response size and transfer time."""
     data = json.dumps(value).encode() if value is not None else None
@@ -68,8 +79,12 @@ def request(url: str, token: str, method: str = "GET", value=None) -> bytes:
                     raise DiagnosticError("Diagnostic response exceeded its limit.")
     except DiagnosticError:
         raise
+    except HTTPError as error:
+        status = error.code
+        error.close()
+        raise DiagnosticRequestError(status) from None
     except Exception:
-        raise DiagnosticError("Gateway request failed. Check its connection and capture status.") from None
+        raise DiagnosticRequestError() from None
 
 
 def inspect_archive(body: bytes) -> dict:
@@ -197,23 +212,36 @@ def selected_device(rows: list[dict], index: int) -> dict:
     return row
 
 
-def movement_test(url: str, token: str, rows: list[dict], index: int, direction: str) -> dict:
-    """Send one admitted movement and return only its closed confirmation boundary."""
-    target = selected_device(rows, index)
+def movement_admission(url: str, token: str, target: dict) -> str:
+    """Read admission without any write and retain only fixed safe failure details."""
     endpoint = url + "/api/cameras/" + quote(target["serial"], safe="") + "/model-control-trial"
     try:
         admission = json.loads(request(endpoint, token))
+    except DiagnosticRequestError as error:
+        detail = f"Gateway replied HTTP {error.status}." if error.status else "Gateway connection failed."
+        raise DiagnosticError(f"Movement admission failed before any command was sent. {detail}") from None
+    except (ValueError, UnicodeError):
+        raise DiagnosticError("Gateway returned an invalid movement admission. No command was sent.") from None
     except Exception:
         raise DiagnosticError("Movement admission failed before any command was sent. Check the gateway connection and try the current list again.") from None
     actions = admission.get("actions") if isinstance(admission, dict) else None
     if not isinstance(actions, list) or any(not isinstance(action, str) for action in actions):
-        raise DiagnosticError("Gateway returned an invalid movement admission.")
+        raise DiagnosticError("Gateway returned an invalid movement admission. No command was sent.")
     if "ptz" not in actions:
         reason = admission.get("unavailableReason") if isinstance(admission, dict) else None
         detail = MOVEMENT_ADMISSION_MESSAGES.get(reason, "The selected device has no admitted movement test.")
         raise DiagnosticError(f"Movement was not sent. {detail}")
+    return endpoint
+
+
+def movement_test(url: str, token: str, rows: list[dict], index: int, direction: str) -> dict:
+    """Send one admitted movement and return only its closed confirmation boundary."""
+    endpoint = movement_admission(url, token, selected_device(rows, index))
     try:
         result = json.loads(request(endpoint, token, "POST", {"action": "ptz", "direction": direction}))
+    except DiagnosticRequestError as error:
+        detail = f"Gateway replied HTTP {error.status}." if error.status else "Gateway connection failed."
+        raise DiagnosticError(f"Movement request did not complete. {detail} Check the camera and restore its original view before trying again.") from None
     except Exception:
         raise DiagnosticError("Movement was admitted but did not complete. Check the gateway for the model_control_trial_failed line.") from None
     if not isinstance(result, dict) or result.get("outcome") != "acknowledged" or result.get("physicalConfirmationRequired") is not True:
@@ -232,6 +260,10 @@ def run(options) -> dict:
         rows = devices(endpoint, token)
         return {"devices": [{"index": i + 1, "model": row["model"], "streamSupported": row["streamSupported"]}
                             for i, row in enumerate(rows)]}
+    if options.command == "movement-check":
+        rows = devices(endpoint, token)
+        movement_admission(url, token, selected_device(rows, options.target_index))
+        return {"movementAdmitted": True, "commandSent": False}
     if options.command == "movement-test":
         if not options.consent_restore_view:
             raise DiagnosticError("Movement testing requires explicit restore-view consent.")
@@ -277,6 +309,9 @@ def main(arguments=None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("list", "status", "clear"):
         sub.add_parser(name)
+    check = sub.add_parser("movement-check", help="Read movement admission without moving the camera.")
+    check.add_argument("--target-index", type=int, required=True,
+                       help="Current one-based device index from the list command.")
     movement = sub.add_parser("movement-test", help="Send one admitted experimental camera movement.")
     movement.add_argument("--target-index", type=int, required=True,
                           help="Current one-based device index from the list command.")
