@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.238
+
+- Keep the exact T8210/type 7 doorbell through HomeBase 3 alive with the station heartbeat used by the current Eufy app. Three consecutive development sessions, including two 90-second windows, stayed below a 0.8-second media gap. The longer-term intermittent pause remains unconfirmed outside these observed sessions.
+- Keep the S340's video and audio on one playback clock through Home Assistant. The retained resolution-change failure now passes end to end, and owned-camera first-open and reopen checks produced decoded video without extending the existing source limits.
+- Add a default-off six-second smooth live-view buffer for the exact S340/type 88 through HomeBase 3 channel 1. It retains the original recording and snapshot sources. Hardware playback and audio synchronisation remain unconfirmed.
+- Do not close an S340 stream for a frame gap that has already been repaired, and cancel obsolete alert-picture downloads when a newer visit owns another supported camera route. The separate intermittent cloud-picture failure remains unresolved.
+- Keep an immediate NVR live-view retry separate from the failed source while it closes, and give the existing experimental S1 route its twenty-second first-picture budget without repeating the start command. The reported S1 benefit remains physically unconfirmed.
+- Use the current Security portal identity headers for the default-off general RTC inventory read. HTTP 463 and T8420X playback still need a reporter check.
+- Record the reporter-confirmed T8400 setup on the current release in the device catalogue without broadening its existing runtime support.
+
 ## Unreleased
 
 - Keep an immediate NVR live-view retry separate from a failed startup while the old connection finishes closing. Concurrent retry viewers share one replacement, and stop, shutdown and changed ownership still cancel it.
