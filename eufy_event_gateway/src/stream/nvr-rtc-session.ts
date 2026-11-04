@@ -714,7 +714,13 @@ export class NvrRtcSession {
           const finished = (): void => { clearTimeout(terminate); socket.removeListener("close", finished); resolve(); };
           const terminate = setTimeout(() => { socket.terminate(); finished(); }, 500);
           socket.once("close", finished);
-          try { socket.close(); } catch { socket.terminate(); finished(); }
+          try {
+            // Without a hangup the NVR holds the call for about 25 s, and a third held call goes unanswered.
+            if (this.#authenticated && socket.readyState === WebSocket.OPEN) socket.send(this.#envelope(this.#cameraMessage("hangup", {})));
+
+            // A close handshake lets the queued hangup flush before retirement.
+            socket.close();
+          } catch { socket.terminate(); finished(); }
         });
       }
       for (const channel of this.#channels.values()) { channel.onmessage = undefined; channel.onopen = undefined; channel.onclose = undefined; channel.close(); }
@@ -757,18 +763,25 @@ export class NvrRtcSession {
     void this.close().catch(() => {});
   }
 
+  #envelope(value: Record<string, unknown>, join = false): string {
+    return JSON.stringify({ msgid: join ? "0" : `${this.options.context.authToken}_${randomUUID()}`, data: JSON.stringify(value) });
+  }
+
   #send(value: Record<string, unknown>, join = false): void {
     if (this.#socket?.readyState !== WebSocket.OPEN) throw new NvrTrialError(this.#stage);
-    this.#socket.send(JSON.stringify({ msgid: join ? "0" : `${this.options.context.authToken}_${randomUUID()}`, data: JSON.stringify(value) }));
+    this.#socket.send(this.#envelope(value, join));
+  }
+
+  #cameraMessage(kind: string, value: Record<string, unknown>): Record<string, unknown> {
+    const ts = Math.floor(Date.now() / 1000);
+    const account = createHash("md5").update(`0${this.options.administrator}${ts}`).digest("hex");
+    return { code: 200, action: 3, sessionId: this.options.context.sign, sn: this.options.station,
+      subSn: "", channelId: 0, isResponse: 0, dataType: kind, source: "WEB", ts,
+      data: JSON.stringify({ timestamp: ts, account, ...value }) };
   }
 
   #action(kind: string, value: Record<string, unknown>): void {
-    this.#guard();
-    const ts = Math.floor(Date.now() / 1000);
-    const account = createHash("md5").update(`0${this.options.administrator}${ts}`).digest("hex");
-    this.#send({ code: 200, action: 3, sessionId: this.options.context.sign, sn: this.options.station,
-      subSn: "", channelId: 0, isResponse: 0, dataType: kind, source: "WEB", ts,
-      data: JSON.stringify({ timestamp: ts, account, ...value }) });
+    this.#guard(); this.#send(this.#cameraMessage(kind, value));
   }
 
   async #message(raw: string): Promise<void> {
