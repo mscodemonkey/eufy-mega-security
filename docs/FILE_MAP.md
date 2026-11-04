@@ -19,7 +19,7 @@ If you are new to the project, read [`DEVELOPERS_START_HERE.md`](DEVELOPERS_STAR
 | `docs/GENERATED_DEVICE_SUPPORT.md` | Generated list of every catalogue device admitted to an implemented handler. |
 | `eufy_event_gateway/device_catalogue/` | Contributor-editable identity, admission, property, command, and evidence source, split into one validated YAML file per device. |
 | `docs/TODO.md` | Implementation backlog and hardware-evidence follow-up list. |
-| `hacs.json` | HACS metadata for the custom integration. |
+| `hacs.json` | Marketplace and HACS metadata for the custom integration. |
 | `examples/node-red-gate-and-motion.json` | Importable Node-RED flow showing motion events and gateway actions. |
 | `.github/workflows/validate.yml` | CI for gateway tests/build, HACS validation, and Home Assistant metadata. |
 

@@ -220,13 +220,31 @@ Open the shared Home in the Eufy app while signed in as the guest account and co
 You will need:
 
 - Home Assistant OS or Home Assistant Supervised for the app installation below, or Docker with Compose for Home Assistant Container;
-- HACS, or File Editor/SSH for the manual integration method;
+- Marketplace on Home Assistant 2026.11 or newer, HACS on older versions, or File Editor/SSH for manual installation;
 - the guest account username, password, and two-letter account country code;
 - the Eufy account credentials; the gateway does not use the expiring Web Portal Access PIN.
 
-## Install the integration with HACS
+<a id="install-the-integration-with-hacs"></a>
 
-The project does not need to be accepted into HACS's default catalogue. Add it as a custom repository:
+## Install the integration with Marketplace or HACS
+
+### Home Assistant 2026.11 or newer
+
+Open **Settings > Marketplace** and accept its community software warning. Connect
+GitHub when prompted, as custom repositories need a GitHub connection.
+
+[Open Eufy Mega Security in Marketplace](https://my.home-assistant.io/redirect/hacs_repository/?owner=mscodemonkey&repository=eufy-mega-security&category=integration).
+The link offers to add this project as a custom repository if it is not already
+known. Add it as an **Integration**, then install **Eufy Mega Security** and restart
+Home Assistant.
+
+If you already installed the integration through HACS, Marketplace carries over
+your installed integration and custom repository when you upgrade Home Assistant.
+You do not need to uninstall or add it again.
+
+### Home Assistant 2026.10 or older
+
+Add the project as a custom repository in HACS:
 
 1. Open **HACS** in Home Assistant.
 2. Open the three-dot menu and choose **Custom repositories**.
@@ -234,13 +252,20 @@ The project does not need to be accepted into HACS's default catalogue. Add it a
 4. Select **Integration** as the category and add it.
 5. Find **Eufy Mega Security**, choose **Download**, and restart Home Assistant.
 
+### Updates and manual installation
+
 After every integration update, fully restart Home Assistant so it loads the
 new integration code. Updating or restarting the Eufy Mega Security app only
 restarts the gateway; it does not reload the integration running inside Home
-Assistant. If a release updates both parts, update the integration in HACS and
-the app separately, then restart Home Assistant.
+Assistant. If a release updates both parts, update the integration through
+Marketplace or HACS and the app separately, then restart Home Assistant.
 
-If you do not use HACS, copy `custom_components/eufy_event_gateway` into `/config/custom_components/eufy_event_gateway` and restart Home Assistant.
+Marketplace installs the integration only. Install the gateway app separately
+through **Settings > Apps > App Store**, as described below. Home Assistant
+Container users should follow the [Docker Compose guide](docs/DOCKER_COMPOSE.md)
+for the gateway instead.
+
+For manual installation, copy `custom_components/eufy_event_gateway` into `/config/custom_components/eufy_event_gateway` and restart Home Assistant.
 
 ## Run with Home Assistant Container
 

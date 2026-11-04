@@ -8,7 +8,7 @@ It signs in through Eufy's current Mega service, receives Eufy/HomeBase detectio
 
 Install the companion `eufy_event_gateway` custom integration before starting this app. Configure a dedicated Eufy guest account shared with the required cameras, then start the app and accept the discovered integration under **Settings > Devices & services**.
 
-See the [project README](https://github.com/mscodemonkey/eufy-mega-security) for complete HACS, app, automation, Node-RED, and troubleshooting instructions. Developers should start with the repository's [first-day developer guide](../docs/DEVELOPERS_START_HERE.md), then read the [Mega platform reference](../docs/MEGA_PLATFORM.md) before changing the Mega or PPCS paths.
+See the [project README](https://github.com/mscodemonkey/eufy-mega-security) for complete Marketplace, HACS, app, automation, Node-RED, and troubleshooting instructions. Developers should start with the repository's [first-day developer guide](../docs/DEVELOPERS_START_HERE.md), then read the [Mega platform reference](../docs/MEGA_PLATFORM.md) before changing the Mega or PPCS paths.
 
 # Local push debugging
 
