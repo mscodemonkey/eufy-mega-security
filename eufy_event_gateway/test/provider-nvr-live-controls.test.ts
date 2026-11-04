@@ -15,14 +15,14 @@ import { NvrRtcSession } from "../src/stream/nvr-rtc-session.js";
 import { GatewayState } from "../src/domain/gateway-state.js";
 import type { NvrLiveWrite } from "../src/stream/nvr-live-control-protocol.js";
 
-async function fixture(context: TestContext, model = "T8E00", type = 301, flags = true, inherited = false, normal = true) {
+async function fixture(context: TestContext, model = "T8E00", type = 301, flags = true, inherited = false, normal = true, parent: readonly [string, number] | null = ["T8N00", 300]) {
   const directory = await mkdtemp(join(tmpdir(), "nvr-live-controls-"));
   let missing = false;
   let clock = 1000, viewer = true, recording = false, active = false, mismatch = false, partial = false;
   let night = 1, quality = 0, tracking: 0 | 1 = 1;
   const raw = { devices: [
-    { device_sn: "synthetic-parent", device_model: "T8N00", device_type: 300, category: "eufy_security", member: { admin_user_id: "synthetic-owner" } },
-    { device_sn: "synthetic-camera", parent_sn: "synthetic-parent", device_channel: 3, device_model: model, device_type: type,
+    ...parent ? [{ device_sn: "synthetic-parent", device_model: parent[0], device_type: parent[1], category: "eufy_security", member: { admin_user_id: "synthetic-owner" } }] : [],
+    { device_sn: "synthetic-camera", ...parent ? { parent_sn: "synthetic-parent", device_channel: 3 } : {}, device_model: model, device_type: type,
       category: "eufy_security", member: inherited ? {} : { admin_user_id: "synthetic-owner" } },
   ] };
   const writes: NvrLiveWrite[] = [], refreshes: (() => void)[] = [];
@@ -250,6 +250,19 @@ test("T8E00 offers no NVR AI tracking", async context => {
   await value.provider.startStream("synthetic-camera"); await new Promise(resolve => setImmediate(resolve));
   assert.equal(value.state.getCamera("synthetic-camera").aiTrackingControlSupported, false);
   await assert.rejects(value.provider.setCameraAiTracking("synthetic-camera", true), { code: "unavailable" });
+  assert.equal(value.writes.length, 0);
+});
+
+
+for (const [route, parent] of [["HomeBase 3", ["T8030", 18]], ["Wi-Fi", null]] as const) test(`S350 on ${route} keeps its own route, without NVR identity or controls`, async context => {
+  const value = await fixture(context, "T8416", 104, true, false, true, parent);
+  const camera = value.state.getCamera("synthetic-camera");
+  assert.equal(camera.nvrLiveControlsSupported, false); assert.deepEqual(camera.nvrViewOptions, []);
+  assert.equal(camera.nvrPanControlSupported, false); assert.equal(camera.nvrOpticalZoomControlSupported, false);
+  assert.ok(!camera.streamingQualityModes?.some(mode => mode.name === "Ultra 4K"));
+  assert.equal(value.provider.nvrLiveSettingAdmitted("synthetic-camera"), false);
+  await assert.rejects(value.provider.performNvrLiveControl("synthetic-camera", { kind: "pan", direction: "left" }), { code: "disabled" });
+  await assert.rejects(value.provider.setNvrView("synthetic-camera", 0), { code: "disabled" });
   assert.equal(value.writes.length, 0);
 });
 
