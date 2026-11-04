@@ -19,6 +19,9 @@ export interface LivePacingSummary {
   readonly maximumQueuedBytes: number;
   readonly videoPackets: number;
   readonly audioPackets: number;
+
+  /** Forward gaps removed only at qualified encoder-format changes, with no media fabricated. */
+  readonly clockRebases: number;
 }
 
 interface PendingPacket {
@@ -40,6 +43,7 @@ export class LiveFramePacer {
   #epoch: symbol | undefined;
   #previousTimestamp: number | undefined;
   #videoOrigin: number | undefined;
+  #previousVideoStep: number | undefined;
   #videoElapsed = 0;
   #audioOrigin: number | undefined;
   #audioElapsed = 0;
@@ -49,6 +53,7 @@ export class LiveFramePacer {
   #late = 0;
   #videoPackets = 0;
   #audioPackets = 0;
+  #clockRebases = 0;
   #audioSeen = false;
   #audioDisabled = false;
   #startupWaiting: boolean;
@@ -57,14 +62,16 @@ export class LiveFramePacer {
   /**
    * Bind immutable-byte consumers and a monotonic viewer clock before accepting media.
    *
+   * @param video Receives the unit and its relative presentation time, independent of pipe reads.
+   * @param audio Receives checked AAC and the same viewer-relative presentation time.
    * @param audioWaitMilliseconds A positive value holds both clocks for initial
    * AAC before pacing, with a finite muted fallback. Zero starts immediately.
    * @param onAudioAdmission Report whether AAC was admitted before the clocks
    * start, so the muxer avoids a second audio wait.
    */
   constructor(
-    private readonly video: (data: Buffer) => void,
-    private readonly audio: (data: Buffer) => void,
+    private readonly video: (data: Buffer, milliseconds: number) => void,
+    private readonly audio: (data: Buffer, milliseconds: number) => void,
     private readonly fail: (reason: string) => void,
     private readonly now: () => number = () => performance.now(),
     private readonly audioWaitMilliseconds = 0,
@@ -103,8 +110,20 @@ export class LiveFramePacer {
       }
     } else {
       if (clock.epoch !== this.#epoch) return this.#reject("pacing_epoch_changed");
-      const step = (clock.timestampMilliseconds - this.#previousTimestamp!) >>> 0;
-      if (step > 5_000) return this.#reject("pacing_clock_discontinuity");
+      let step = (clock.timestampMilliseconds - this.#previousTimestamp!) >>> 0;
+
+      // A qualified format-changing keyframe can restart the encoder after a
+      // source-time gap. Continue at the last measured frame interval, matching
+      // AAC's existing sample timeline instead of scheduling missing video time.
+      // Backwards clocks, unknown cadence and unrelated jumps still retire it.
+      if (step > 5_000) {
+        if (step > 0x7fff_ffff || !clock.encoderFormatChanged || this.#previousVideoStep === undefined) {
+          return this.#reject("pacing_clock_discontinuity");
+        }
+        step = this.#previousVideoStep;
+        this.#clockRebases++;
+      }
+      if (step > 0 && step <= 1_000) this.#previousVideoStep = step;
       this.#videoElapsed += step;
       this.#previousTimestamp = clock.timestampMilliseconds;
     }
@@ -138,7 +157,8 @@ export class LiveFramePacer {
     this.#bootstrap.length = 0;
     this.#bytes = 0;
     return { bufferMilliseconds: BUFFER_MILLISECONDS, latePackets: this.#late,
-      maximumQueuedBytes: this.#maximumBytes, videoPackets: this.#videoPackets, audioPackets: this.#audioPackets };
+      maximumQueuedBytes: this.#maximumBytes, videoPackets: this.#videoPackets, audioPackets: this.#audioPackets,
+      clockRebases: this.#clockRebases };
   }
 
   #enqueue(kind: PendingPacket["kind"], data: Buffer, at: number): void {
@@ -174,8 +194,8 @@ export class LiveFramePacer {
       while (!this.#closed && this.#queue[0] && this.#queue[0].at <= this.now()) {
         const packet = this.#queue.shift()!;
         this.#bytes -= packet.data.length;
-        if (packet.kind === "video") { this.#videoPackets++; this.video(packet.data); }
-        else { this.#audioPackets++; this.audio(packet.data); }
+        if (packet.kind === "video") { this.#videoPackets++; this.video(packet.data, packet.at - this.#videoOrigin!); }
+        else { this.#audioPackets++; this.audio(packet.data, packet.at - this.#audioOrigin!); }
       }
       this.#arm();
     }, Math.max(0, this.#queue[0]!.at - this.now()));

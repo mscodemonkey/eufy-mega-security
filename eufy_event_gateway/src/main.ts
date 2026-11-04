@@ -125,7 +125,7 @@ const streams = new LiveStreamManager(
   config.experimentalS340SmoothLive,
 );
 streams.on("live-pacing-closed", (summary: LivePacingSummary) => {
-  logger.info("camera_live_pacing", `model=T8171 buffer_ms=${summary.bufferMilliseconds} late_packets=${summary.latePackets} peak_queued_bytes=${summary.maximumQueuedBytes} video_packets=${summary.videoPackets} audio_packets=${summary.audioPackets}`);
+  logger.info("camera_live_pacing", `model=T8171 buffer_ms=${summary.bufferMilliseconds} late_packets=${summary.latePackets} peak_queued_bytes=${summary.maximumQueuedBytes} video_packets=${summary.videoPackets} audio_packets=${summary.audioPackets} clock_rebases=${summary.clockRebases}`);
 });
 provider.setNvrLiveMediaChecks?.({ viewer: serial => streams.hasActiveViewer(serial), active: serial => streams.hasActiveSession(serial), recording: serial => streams.hasActiveRecording(serial) });
 streams.on("ffmpeg-error", (detail: string) => {

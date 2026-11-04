@@ -1714,6 +1714,7 @@ export class FirstPartyPpcsSession {
   readonly #videoNormalizer = new PpcsVideoStreamNormalizer();
   readonly #videoAssembler: PpcsAccessUnitAssembler;
   readonly #videoClockEpoch = Symbol();
+  #videoClockFormat: { width: number; height: number } | undefined;
   #lastDeliveredMediaFrameAt: number | null = null;
   #lastAttachedMediaReassertAt: number | null = null;
   #heartbeat: ReturnType<typeof setInterval> | null = null;
@@ -3330,7 +3331,12 @@ export class FirstPartyPpcsSession {
       if (this.stats.videoCodec === "h264" && usesT8171AttachedMediaProfile(this.#options.channel, this.#options)
           && (this.#options.purpose === undefined || this.#options.purpose === "media")) {
         markS340LiveSource(this.output);
-        markS340LiveFrameClock(normalized, unit.timestamp, this.#videoClockEpoch);
+        const format = this.#videoClockFormat;
+        const validFormat = unit.width > 0 && unit.height > 0;
+        const formatChanged = validFormat && unit.keyframe && format !== undefined
+          && (format.width !== unit.width || format.height !== unit.height);
+        if (validFormat) this.#videoClockFormat = { width: unit.width, height: unit.height };
+        markS340LiveFrameClock(normalized, unit.timestamp, this.#videoClockEpoch, formatChanged);
       }
       this.output.write(normalized);
       this.stats.videoOutputFrames++;

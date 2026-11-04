@@ -24,9 +24,9 @@ function fixture(context: TestContext, audioWaitMilliseconds = 0) {
   );
   context.after(() => pacer.close());
   return { pacer, events, failures, admissions, epoch,
-    frame(timestamp: number, byte = 1, sourceEpoch = epoch) {
+    frame(timestamp: number, byte = 1, sourceEpoch = epoch, formatChanged = false) {
       const data = Buffer.from([byte]);
-      markS340LiveFrameClock(data, timestamp, sourceEpoch);
+      markS340LiveFrameClock(data, timestamp, sourceEpoch, formatChanged);
       return data;
     },
   };
@@ -68,6 +68,46 @@ test("source clock wrap preserves the next real frame", context => {
   context.mock.timers.tick(6_000);
   context.mock.timers.tick(68);
   assert.deepEqual(f.events.map(e => e.at), [6_000, 6_068]);
+});
+
+test("a qualified format restart closes missing source time without adding media or delaying AAC", context => {
+  const f = fixture(context);
+  f.pacer.acceptVideo(f.frame(1_000, 11));
+  f.pacer.acceptVideo(f.frame(1_067, 12));
+  for (let i = 0; i < 3; i++) f.pacer.acceptAudio(adts);
+  context.mock.timers.tick(5_197);
+  f.pacer.acceptVideo(f.frame(8_489, 13, f.epoch, true));
+  for (const delta of [803, 64, 3, 61, 6]) context.mock.timers.tick(delta);
+  assert.deepEqual(f.failures, []);
+  assert.deepEqual(f.events.map(({ kind, at }) => [kind, at]), [
+    ["video", 6_000], ["audio", 6_000], ["audio", 6_064],
+    ["video", 6_067], ["audio", 6_128], ["video", 6_134],
+  ]);
+  assert.deepEqual(f.events.filter(e => e.kind === "video").map(e => e.bytes[0]), [11, 12, 13]);
+  assert.equal(f.pacer.close().clockRebases, 1);
+});
+
+for (const change of ["no-cadence", "backwards", "epoch"] as const) {
+  test(`format restart still rejects ${change}`, context => {
+    const f = fixture(context);
+    f.pacer.acceptVideo(f.frame(1_000));
+    if (change !== "no-cadence") f.pacer.acceptVideo(f.frame(1_067));
+    f.pacer.acceptVideo(f.frame(change === "backwards" ? 999 : 8_489, 2,
+      change === "epoch" ? Symbol() : f.epoch, true));
+    assert.equal(f.failures.length, 1);
+    context.mock.timers.tick(20_000);
+    assert.deepEqual(f.events, []);
+  });
+}
+
+test("a format change with an ordinary clock interval keeps its measured timing", context => {
+  const f = fixture(context);
+  f.pacer.acceptVideo(f.frame(1_000));
+  f.pacer.acceptVideo(f.frame(1_067, 2, f.epoch, true));
+  context.mock.timers.tick(6_000);
+  context.mock.timers.tick(67);
+  assert.deepEqual(f.events.map(e => e.at), [6_000, 6_067]);
+  assert.equal(f.pacer.close().clockRebases, 0);
 });
 
 test("a late packet is counted without creating replacement frames", context => {
