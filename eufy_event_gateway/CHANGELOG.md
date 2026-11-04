@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.239
+
+- Stop the exact T8210/type 7 doorbell through HomeBase 3 channel 4 with the independently authenticated direct command used by the current Eufy app. Other models, types, stations and child channels retain their existing stop path. An owned-device 60-second open and fresh 60-second reopen passed with maximum media gaps of 1.5 and 0.3 seconds. The longer-term intermittent pause remains unconfirmed outside these observed sessions.
+
 ## 0.1.238
 
 - Keep the exact T8210/type 7 doorbell through HomeBase 3 alive with the station heartbeat used by the current Eufy app. Three consecutive development sessions, including two 90-second windows, stayed below a 0.8-second media gap. The longer-term intermittent pause remains unconfirmed outside these observed sessions.
