@@ -53,6 +53,9 @@ interface MutableCameraState {
 
   /** Private provider correlation only. Never exposed in camera snapshots or SSE. */
   personEventIdentity: string | null;
+
+  /** Private ownership of a button press; separate from preceding person detections. */
+  doorbellEventIdentity: string | null;
   snapshot: SnapshotInfo | null;
   eventImage: SnapshotInfo | null;
   streamState: StreamState;
@@ -124,6 +127,7 @@ export class GatewayState extends EventEmitter {
     if (existing) {
       if (existing.identity.stationSerial !== identity.stationSerial || existing.identity.model !== identity.model) {
         existing.personEventIdentity = null;
+        existing.doorbellEventIdentity = null;
       }
       existing.identity = identity;
     } else {
@@ -144,6 +148,7 @@ export class GatewayState extends EventEmitter {
         doorbellPressed: false,
         lastDetection: null,
         personEventIdentity: null,
+        doorbellEventIdentity: null,
         snapshot: null,
         eventImage: null,
         streamState: "idle",
@@ -326,10 +331,21 @@ export class GatewayState extends EventEmitter {
    * camera state only, so subscribers do not receive a second detection.
    */
   enrichPersonName(serial: string, eventIdentity: string, personName: string): void {
+    this.#enrichName(serial, eventIdentity, personName, "person");
+  }
+
+  /** Enrich only the same unnamed button press, preserving its time, pulse and event identity. */
+  enrichDoorbellName(serial: string, eventIdentity: string, personName: string): void {
+    this.#enrichName(serial, eventIdentity, personName, "doorbell");
+  }
+
+  /** Publish recognition state only after the matching detection still owns its source identity. */
+  #enrichName(serial: string, eventIdentity: string, personName: string, kind: "person" | "doorbell"): void {
     const camera = this.#requireCamera(serial), previous = camera.lastDetection;
     const name = normalizePersonName(personName);
-    if (!eventIdentity || camera.personEventIdentity !== eventIdentity || !name
-      || previous?.kind !== "person" || previous.recognized) return;
+    const owner = kind === "person" ? camera.personEventIdentity : camera.doorbellEventIdentity;
+    if (!eventIdentity || owner !== eventIdentity || !name
+      || previous?.kind !== kind || previous.recognized) return;
     camera.lastDetection = { ...previous, personName: name, recognized: true };
     this.#emitCamera(serial);
   }
@@ -365,21 +381,35 @@ export class GatewayState extends EventEmitter {
     this.#emitCamera(serial);
   }
 
-  /** Record a transient doorbell press for a camera that supports doorbells. */
-  recordDoorbell(serial: string, pressed: boolean, occurredAt = new Date()): void {
+  /**
+   * Record a button press and recognition explicitly supplied by that press.
+   * A source-owned press replaces older recognition context. Legacy callers
+   * without context retain their existing last-person behaviour. No person or
+   * motion pulse is manufactured, and clear callbacks retain ownership for a
+   * later exact-identity name update.
+   */
+  recordDoorbell(
+    serial: string,
+    pressed: boolean,
+    occurredAt = new Date(),
+    personName: string | null = null,
+    eventIdentity: string | null = null,
+  ): void {
     const camera = this.#requireCamera(serial);
     if (!camera.identity.doorbellSupported) return;
     camera.doorbellPressed = pressed;
     this.#scheduleDetectionClear(this.#doorbellClearTimers, serial, pressed, () => this.recordDoorbell(serial, false));
     if (pressed) {
+      camera.doorbellEventIdentity = eventIdentity;
+      const name = normalizePersonName(personName);
       const detection: Detection = {
         id: randomUUID(),
         kind: "doorbell",
         occurredAt: occurredAt.toISOString(),
-        personName: null,
-        recognized: false,
+        personName: name,
+        recognized: name !== null,
       };
-      if (camera.lastDetection?.recognized !== true) camera.lastDetection = detection;
+      if (eventIdentity !== null || name !== null || camera.lastDetection?.recognized !== true) camera.lastDetection = detection;
       this.emit("event", { type: "detection", cameraSerial: serial, detection } satisfies GatewayEvent);
     }
     this.#emitCamera(serial);

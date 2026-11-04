@@ -59,7 +59,12 @@ export interface ProviderEvents {
   /** Enrich an already published person event without emitting another detection or refreshing its hold timer. */
   personName?(serial: string, eventIdentity: string, personName: string): void;
   detection(serial: string, kind: Exclude<DetectionKind, "motion" | "person" | "doorbell">, detected: boolean): void;
-  doorbell(serial: string, pressed: boolean): void;
+
+  /** Retain recognition supplied by this button press without inventing a person pulse. */
+  doorbell(serial: string, pressed: boolean, personName?: string | null, eventIdentity?: string | null): void;
+
+  /** Add a name only to the same already-published press, without ringing again. */
+  doorbellName?(serial: string, eventIdentity: string, personName: string): void;
   sensorContact(serial: string, open: boolean): void;
   sensorMotion(serial: string, detected: boolean): void;
 
