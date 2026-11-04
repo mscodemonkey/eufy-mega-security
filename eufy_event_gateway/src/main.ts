@@ -275,8 +275,11 @@ const providerEvents: ProviderEvents = {
   detection(serial, kind, detected) {
     if (state.hasCamera(serial)) state.recordDetection(serial, kind, detected);
   },
-  doorbell(serial, pressed) {
-    if (state.hasCamera(serial)) state.recordDoorbell(serial, pressed);
+  doorbell(serial, pressed, personName, eventIdentity) {
+    if (state.hasCamera(serial)) state.recordDoorbell(serial, pressed, new Date(), personName ?? null, eventIdentity ?? null);
+  },
+  doorbellName(serial, eventIdentity, personName) {
+    if (state.hasCamera(serial)) state.enrichDoorbellName(serial, eventIdentity, personName);
   },
   sensorContact(serial, open) {
     state.updateSensorContact(serial, open);

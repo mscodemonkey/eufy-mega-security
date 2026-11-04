@@ -5634,14 +5634,20 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       return;
     }
     if (delivery.retainPicture && isSupportedMegaCamera(device)) this.#queuePushSnapshot(events, event);
-    const personEventIdentity = event.eventId
-      ? JSON.stringify([this.#startupGeneration, event.eventId, event.eventType]) : null;
+
+    // A delivered station remains part of ownership if a camera binding changes.
+    const detectionEventIdentity = event.eventId
+      ? JSON.stringify([this.#startupGeneration, event.eventId, event.eventType, event.stationSerial]) : null;
     if (!delivery.handleState) {
+      if (isSupportedMegaCamera(device) && isDoorbellDevice(device) && doorbellPushKind(event) === "press"
+        && detectionEventIdentity && personName !== null) {
+        events.doorbellName?.(event.cameraSerial, detectionEventIdentity, personName);
+      }
       const personDelivery = cameraDetectionKind(event.eventType) === "person"
         || event.eventType === 1 && genericSecurityDetectionKinds(event).includes("person")
         || isDoorbellDevice(device) && doorbellPushKind(event) === "detection";
-      if (isSupportedMegaCamera(device) && personDelivery && personEventIdentity && personName !== null) {
-        events.personName?.(event.cameraSerial, personEventIdentity, personName);
+      if (isSupportedMegaCamera(device) && personDelivery && detectionEventIdentity && personName !== null) {
+        events.personName?.(event.cameraSerial, detectionEventIdentity, personName);
       }
       return;
     }
@@ -5657,12 +5663,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const doorbellPush = doorbellPushKind(event);
     if (doorbellPush !== null && isDoorbellDevice(device)) {
       if (doorbellPush === "press") {
-        events.doorbell(event.cameraSerial, true);
+        events.doorbell(event.cameraSerial, true, personName, detectionEventIdentity);
         return;
       }
       const kinds = new Set(event.detectionEvidence);
       if (personName !== null) kinds.add("person");
-      if (kinds.has("person")) events.person(event.cameraSerial, true, personName, personEventIdentity);
+      if (kinds.has("person")) events.person(event.cameraSerial, true, personName, detectionEventIdentity);
       events.motion(event.cameraSerial, true);
       for (const kind of kinds) {
         if (kind !== "person") events.detection(event.cameraSerial, kind, true);
@@ -5680,10 +5686,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const kinds = event.eventType === 1 ? genericSecurityDetectionKinds(event) : ["motion"] as const;
       for (const kind of kinds) {
         if (kind === "motion") events.motion(event.cameraSerial, true);
-        else if (kind === "person") events.person(event.cameraSerial, true, personName, personEventIdentity);
+        else if (kind === "person") events.person(event.cameraSerial, true, personName, detectionEventIdentity);
         else events.detection(event.cameraSerial, kind, true);
       }
-    } else if (detection === "person") events.person(event.cameraSerial, true, personName, personEventIdentity);
+    } else if (detection === "person") events.person(event.cameraSerial, true, personName, detectionEventIdentity);
     else events.detection(event.cameraSerial, detection, true);
   }
 
