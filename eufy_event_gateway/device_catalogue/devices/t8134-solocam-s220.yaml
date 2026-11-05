@@ -68,6 +68,7 @@ capabilities:
           status: reported
           tested_on: 2026-11-05
           tested_by: luxt12
+          notes: Default compatible H.264 starts in approximately 1 to 3 seconds and plays stably. Native mode without faster startup takes over 30 seconds and initially freezes. Receive audio is unavailable on this route.
         T8030:
           status: reported
           tested_on: 2026-09-16
@@ -75,7 +76,17 @@ capabilities:
     snapshot:
       connections:
         direct:
-          status: declared
+          status: reported
+          tested_on: 2026-11-05
+          tested_by: luxt12
+          notes: Capture Fresh Snapshot is confirmed on two standalone Wi-Fi cameras with firmware 3.3.6.0. This is separate from the stale event picture.
+    record_clip:
+      connections:
+        direct:
+          status: reported
+          tested_on: 2026-11-05
+          tested_by: luxt12
+          notes: Gateway MP4 recording succeeds at 960x540 and 2304x1296 according to the selected quality. The files contain video only.
   events:
     motion:
       connections:
