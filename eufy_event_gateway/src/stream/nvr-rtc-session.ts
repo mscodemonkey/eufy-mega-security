@@ -32,6 +32,12 @@ import { nvrLiveCommand, nvrLiveJson, nvrLiveReceipt, nvrLivePanReply, nvrLiveSe
 const HEARTBEAT_ECHO = nvrHeartbeat();
 const NVR_RECEIVE_BUFFER_BYTES = 4 * 1024 * 1024;
 
+// The NVR needs a moment between stopping one channel and starting the next.
+const SWITCH_SETTLE_MILLISECONDS = 300;
+
+// The slowest measured camera, a doorbell, gave its first picture in 3.4 seconds.
+const SWITCH_PICTURE_MILLISECONDS = 8_000;
+
 /**
  * Identify supported coded-picture NAL units in already checked Annex-B output.
  * Parameter sets and metadata cannot renew live ownership. This distinguishes
@@ -148,6 +154,10 @@ export interface NvrRtcOptions {
   readonly panReceiptOnly?: boolean;
 }
 
+/** The camera a live call moves to, and the provider ownership that moves with it. */
+export type NvrSwitchTarget = Pick<NvrRtcOptions, "camera" | "channel" | "cameraType" | "sensor" | "liveControls" | "panReceiptOnly"
+  | "signal" | "current" | "ready" | "onEffectiveMode" | "onTimings">;
+
 interface PendingRequest {
   readonly strict?: boolean;
   readonly command: 9100 | 1003 | 1004 | 1103;
@@ -235,7 +245,7 @@ export class NvrRtcSession {
   readonly #timings: { -readonly [Key in keyof NvrTimings]: NvrTimings[Key] } = {
     offer: null, firstLocalCandidate: null, answerSent: null, channelOpen: null, mediaRequest: null, firstVideo: null,
   };
-  readonly output = new PassThrough({ highWaterMark: 4 * 1024 * 1024 + 64 });
+  #output = this.#createOutput();
   readonly stats: NvrRtcStats = { packets: 0, frames: 0, video: 0, controlPackets: 0, rejected: 0,
     segmentNotEchoed: 0, staleReplies: 0, ignoredAudio: 0, ignoredUnknownMedia: 0,
     applicationSequenceRecoveries: 0, videoSequenceRecoveries: 0, signallingClosuresAfterVideo: 0, signallingClosuresAfterModeObservation: 0, stopUnconfirmed: 0,
@@ -294,6 +304,10 @@ export class NvrRtcSession {
   /** Checked picture output proves this session started independently of a receipt. */
   #startVideoObserved = false;
 
+  /** Video from the previous camera may still be arriving and is never delivered. */
+  #switching = false;
+  #switchPicture: { readonly resolve: () => void; readonly reject: (error: Error) => void } | null = null;
+
   /** Fixed S1 first-picture bound, independent of a delayed timer or start receipt. */
   #firstPictureDeadline: number | null = null;
   #authenticated = false;
@@ -318,7 +332,7 @@ export class NvrRtcSession {
   #videoProgressExpiresAt: number | null = null;
   readonly #externalAbort: () => void;
 
-  constructor(private readonly options: NvrRtcOptions, private readonly dependencies: NvrRtcDependencies = {
+  constructor(private options: NvrRtcOptions, private readonly dependencies: NvrRtcDependencies = {
     socket: (url, protocols, settings) => new WebSocket(url, protocols, settings),
     peer: servers => new RTCPeerConnection({ iceServers: servers }),
   }) {
@@ -332,7 +346,15 @@ export class NvrRtcSession {
         || this.#maximumLifetimeMilliseconds > 2_147_483_647) throw new NvrTrialError("admission");
     this.#externalAbort = () => this.#fail("cancelled");
     options.signal.addEventListener("abort", this.#externalAbort, { once: true });
-    this.output.on("error", () => {});
+  }
+
+  /** The current camera's video. A camera switch ends this stream and starts another. */
+  get output(): PassThrough { return this.#output; }
+
+  #createOutput(): PassThrough {
+    const output = new PassThrough({ highWaterMark: 4 * 1024 * 1024 + 64 });
+    output.on("error", () => {});
+    return output;
   }
 
   /** Report only a checked codec, never a model-derived guess. */
@@ -387,6 +409,69 @@ export class NvrRtcSession {
       if (this.#maximumLifetimeMilliseconds === null) this.#videoProgressExpiresAt = (this.options.videoProgressNow?.() ?? performance.now()) + wait;
       this.#firstFrame = setTimeout(() => this.#fail("video"), wait);
     }
+  }
+
+  /** True while this viewer-owned call is delivering video and nothing else is using it. */
+  get switchable(): boolean {
+    return this.#maximumLifetimeMilliseconds === null && !this.options.modeObserver && this.#startSent && this.#bootstrapped
+      && !this.#retired && !this.#switching && !this.#pending && !this.#livePending
+      && this.#channels.get("WebrtcDataChannel")?.readyState === "open";
+  }
+
+  /**
+   * Move this call to another camera on the same NVR, without a new call.
+   * The previous camera's output ends cleanly and ownership moves synchronously,
+   * so the caller may release the previous owner as soon as this returns its
+   * promise. The new output is reported only after a checked picture, which
+   * leaves a failed switch free to close this call and open a fresh one.
+   * Resolves with the milliseconds from the start request to that picture.
+   */
+  async switchCamera(target: NvrSwitchTarget): Promise<number> {
+    if (!this.switchable) throw new NvrTrialError("admission");
+    this.#switching = true;
+    this.options.signal.removeEventListener("abort", this.#externalAbort);
+    this.options = { ...this.options, ...target };
+    this.options.signal.addEventListener("abort", this.#externalAbort, { once: true });
+    const previous = this.#output;
+    this.#output = this.#createOutput();
+    previous.end();
+    this.#resetVideo();
+    this.#renewVideoProgress();
+    this.#stage = "stop";
+    const stopped = performance.now();
+    await this.#request(1004, 1500);
+    this.#stage = "inventory";
+    const discovery = await this.#request(9100, 1500);
+    nvrMatchCamera(discovery, target.camera, target.channel, target.cameraType ?? 301);
+    await new Promise(resolve => setTimeout(resolve, Math.max(0, stopped + SWITCH_SETTLE_MILLISECONDS - performance.now())));
+    this.#guard();
+    this.#resetVideo();
+    this.#switching = false;
+    this.#stage = "start";
+    const requested = performance.now();
+    await this.#request(1003, 5000);
+    if (!this.#startVideoObserved) await this.#nextPicture();
+    const firstPicture = Math.round(performance.now() - requested);
+    this.#stage = "video";
+    this.options.ready(this.#output, () => this.#codec);
+    if (this.options.liveControls) this.#settingsFlight = this.readLiveSettings().catch(() => ({ night: null, quality: null, tracking: null }));
+    return firstPicture;
+  }
+
+  /** A new camera has its own encoder, sequence numbers and transport frames. */
+  #resetVideo(): void {
+    this.#cache = new VideoParameterSetCache();
+    this.#codec = null; this.#videoSequence = null;
+    this.#bootstrapped = false; this.#startVideoObserved = false; this.#settingsFlight = null;
+    this.#reassembler.clear(); this.#lastSequence.clear(); this.#reorder.clear(); this.#reorderBytes = 0;
+  }
+
+  #nextPicture(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { this.#switchPicture = null; reject(new NvrTrialError("video", "switch_no_picture")); }, SWITCH_PICTURE_MILLISECONDS);
+      this.#switchPicture = { resolve: () => { clearTimeout(timer); this.#switchPicture = null; resolve(); },
+        reject: error => { clearTimeout(timer); this.#switchPicture = null; reject(error); } };
+    });
   }
 
   /**
@@ -734,6 +819,7 @@ export class NvrRtcSession {
     this.options.signal.removeEventListener("abort", this.#externalAbort);
     this.#readyReject?.(new NvrTrialError("cancelled"));
     this.#readyReject = null; this.#readyResolve = null;
+    this.#switchPicture?.reject(new NvrTrialError("cancelled"));
     if (this.#pending) {
       clearTimeout(this.#pending.timer); this.#pending.reject(new NvrTrialError("cancelled")); this.#pending = null;
     }
@@ -794,6 +880,7 @@ export class NvrRtcSession {
     const error = new NvrTrialError(stage, reason);
     this.#readyReject?.(error);
     this.#livePending?.reject(new NvrLiveControlError("outcome_unknown", "dispatch"));
+    this.#switchPicture?.reject(error);
     this.#pending?.reject(error);
     this.output.destroy(error);
     void this.close().catch(() => {});
@@ -1059,7 +1146,7 @@ export class NvrRtcSession {
     if (frame.command === 1301) { this.stats.ignoredAudio++; return; }
     if (frame.command === 1303) { this.stats.ignoredUnknownMedia++; return; }
     if (frame.command === 1300) {
-      if (!this.#startSent || this.#retired) return;
+      if (!this.#startSent || this.#retired || this.#switching) return;
       if (!this.#startVideoObserved && this.#firstPictureDeadline !== null && performance.now() >= this.#firstPictureDeadline) {
         throw new NvrTrialError(this.#stage, this.#stage === "start" ? "start_receipt_timeout" : "unspecified");
       }
@@ -1085,6 +1172,7 @@ export class NvrRtcSession {
       const picture = hasCodedPicture(delivered, video.codec);
       if (picture) {
         this.#startVideoObserved = true;
+        this.#switchPicture?.resolve();
         const pending = this.#pending;
         if (pending?.command === 1003 && pending.pictureGrace) {
           this.#guard();

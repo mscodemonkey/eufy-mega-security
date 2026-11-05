@@ -44,3 +44,11 @@ The first control on a source reconfirms its child identity with a fresh echoed 
 T8E00 optical levels 1x to 3x deliberately restrict the vendor's 1x to 8x range to the reporter-tested subset. T8416 uses the same 1x to 3x levels, which an owner test confirmed on one S350. The T8E00 Auto/Low/High choices follow the portal fallback UI, rather than an explicit resolution list in that model profile.
 
 A fresh inventory that omits explicit ownership withdraws control admission until membership returns. Raw ownership is mandatory for these controls and the manual guard/power writes. T8416 live video itself needs only `experimental_nvr_live`: without control admission it plays the Wide view and offers no controls. Legacy video and diagnostic playback admission are unchanged.
+
+## Changing camera on the NVR
+
+The NVR serves one live call at a time. When a Home Assistant view opens another camera on the same T8N00, the gateway moves the call to the new camera instead of refusing it until the old view has closed. The old view ends, and the newest view wins, because the gateway cannot tell a closed view from one that is still being watched.
+
+Only ordinary Home Assistant views give way. Snapshots, controls, clips, Home Assistant preload and recordings started on an idle stream, and any other consumer of the stream URL keep the call, and a new camera is refused until they finish. A recording added to a view that is already running shares that view and can be moved away. A view that lost the call is not able to take it back on its own retry. Opening that camera again does.
+
+HomeBase routes are unchanged. Both the gateway and the integration need this release. With only one of them updated, cameras behave as before.

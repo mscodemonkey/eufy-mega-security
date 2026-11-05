@@ -162,7 +162,8 @@ class CameraStreamRefreshTest(unittest.IsolatedAsyncioTestCase):
         method = next(node for node in ast.walk(tree)
                       if isinstance(node, ast.AsyncFunctionDef)
                       and node.name == "_async_refresh_stream_source")
-        namespace = {"GatewayClientError": RuntimeError, "_LOGGER": Mock()}
+        namespace = {"GatewayClientError": RuntimeError, "_LOGGER": Mock(),
+                     "_with_view": lambda url, _view: url, "_view_of": lambda _url: None}
         exec(compile(ast.Module(body=[method], type_ignores=[]), str(CAMERA_SOURCE), "exec"), namespace)
         stream = SimpleNamespace(source="old", outputs=Mock(return_value={"hls": object()}),
                                  dynamic_stream_settings=SimpleNamespace(preload_stream=False),
@@ -306,7 +307,7 @@ class CameraCurrentStreamClockTest(unittest.IsolatedAsyncioTestCase):
         tree = ast.parse(CAMERA_SOURCE.read_text())
         method = next(node for node in ast.walk(tree)
                       if isinstance(node, ast.AsyncFunctionDef) and node.name == "stream_source")
-        namespace = {"CONF_USE_WALLCLOCK_AS_TIMESTAMPS": "wallclock"}
+        namespace = {"_new_view": lambda url: url, "CONF_USE_WALLCLOCK_AS_TIMESTAMPS": "wallclock"}
         exec(compile(ast.Module(body=[method], type_ignores=[]), str(CAMERA_SOURCE), "exec"), namespace)
         client = SimpleNamespace(stream_url=AsyncMock(return_value="signed-source"))
         entity = SimpleNamespace(camera={"streamSupported": True}, stream_options={"wallclock": True},

@@ -1203,7 +1203,7 @@ export class GatewayServer {
         segments[0] === "api" && segments[1] === "cameras"
         && (segments[3] === "live.h264" || segments[3] === "live.ts" || segments[3] === "live-native.annexb") && segments.length === 4
       ) {
-        return await this.#live(segments[2]!, response, segments[3] === "live.ts", segments[3] === "live-native.annexb" ? "native" : "compatible");
+        return await this.#live(segments[2]!, response, segments[3] === "live.ts", segments[3] === "live-native.annexb" ? "native" : "compatible", liveViewMark(url));
       }
       if (request.method === "GET" && url.pathname === "/api/events") return this.#events(request, response);
       if (request.method === "POST" && url.pathname === "/api/simulate/detection" && this.simulatedProvider) {
@@ -1601,7 +1601,7 @@ export class GatewayServer {
     response.end(image);
   }
 
-  async #live(serial: string, response: ServerResponse, transport = false, profile: ViewerProfile = "compatible"): Promise<void> {
+  async #live(serial: string, response: ServerResponse, transport = false, profile: ViewerProfile = "compatible", view?: string): Promise<void> {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     if (!this.state.getCamera(serial).streamSupported) {
       return json(response, 409, { error: "This camera was discovered through push events only; livestream control is unavailable" });
@@ -1611,7 +1611,7 @@ export class GatewayServer {
     }
     logger.info("camera_media_request", `model=${safeCameraModel(this.state.getCamera(serial).model)} operation=${profile === "native" ? "live_view_native" : "live_view"}`);
     if (transport) await this.streams.addTransportClient(serial, response);
-    else await this.streams.addClient(serial, response, profile);
+    else await this.streams.addClient(serial, response, profile, view);
   }
 
   async #streamToken(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
@@ -1870,6 +1870,7 @@ async function readStreamProfile(request: IncomingMessage): Promise<ViewerProfil
 }
 
 const STREAM_TOKEN_QUERY = "access_token";
+const LIVE_VIEW_QUERY = "view";
 
 /** Sign a native-only camera URL with a key separated from compatible tokens. */
 export function createNativeStreamToken(serial: string, expiresAt: number, apiToken: string): string {
@@ -1886,6 +1887,12 @@ export function validateNativeStreamToken(serial: string, token: string | null, 
   const expiry = Number(match[1]);
   return Number.isSafeInteger(expiry) && expiry >= nowSeconds && expiry <= nowSeconds + STREAM_TOKEN_MAX_FUTURE_SECONDS
     && equalSecret(token!, createNativeStreamToken(serial, expiry, apiToken));
+}
+
+/** Home Assistant marks an ordinary view so it may move an NVR's call, and may yield it. */
+function liveViewMark(url: URL): string | undefined {
+  const marks = url.searchParams.getAll(LIVE_VIEW_QUERY);
+  return marks.length === 1 && /^[A-Za-z0-9_-]{16,64}$/.test(marks[0]!) ? marks[0] : undefined;
 }
 
 function safeError(error: unknown): string {
