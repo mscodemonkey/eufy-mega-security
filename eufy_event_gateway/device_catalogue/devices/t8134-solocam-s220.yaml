@@ -15,26 +15,34 @@ capabilities:
     battery_level:
       connections:
         direct:
-          status: declared
+          status: reported
+          tested_on: 2026-11-05
+          tested_by: luxt12
       read:
         parameter: 1101
     battery_charging:
       connections:
         direct:
-          status: declared
+          status: reported
+          tested_on: 2026-11-05
+          tested_by: luxt12
       read:
         parameter: 2111
     battery_temperature:
       connections:
         direct:
-          status: declared
+          status: reported
+          tested_on: 2026-11-05
+          tested_by: luxt12
       read:
         parameter: 1138
   controls:
     enabled:
       connections:
         direct:
-          status: declared
+          status: reported
+          tested_on: 2026-11-05
+          tested_by: luxt12
       read:
         parameter: 1035
       write:
@@ -57,7 +65,9 @@ capabilities:
     live_view:
       connections:
         direct:
-          status: declared
+          status: reported
+          tested_on: 2026-11-05
+          tested_by: luxt12
         T8030:
           status: reported
           tested_on: 2026-09-16
@@ -70,7 +80,9 @@ capabilities:
     motion:
       connections:
         direct:
-          status: declared
+          status: reported
+          tested_on: 2026-11-05
+          tested_by: luxt12
         T8030:
           status: reported
           tested_on: 2026-09-16
@@ -78,7 +90,9 @@ capabilities:
     person:
       connections:
         direct:
-          status: declared
+          status: reported
+          tested_on: 2026-11-05
+          tested_by: luxt12
         T8030:
           status: reported
           tested_on: 2026-09-16
