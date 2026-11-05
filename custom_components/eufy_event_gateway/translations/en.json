@@ -1,6 +1,11 @@
 {
   "title": "Eufy Mega Security",
   "entity": {
+    "light": {
+      "manual_floodlight": {
+        "name": "Manual floodlight"
+      }
+    },
     "camera": {
       "event_image": {
         "name": "Event image"
@@ -38,6 +43,27 @@
       },
       "camera_auto_cruise_off": {
         "name": "Stop automatic cruise"
+      },
+      "nvr_left": {
+        "name": "Pan left"
+      },
+      "nvr_right": {
+        "name": "Pan right"
+      },
+      "nvr_up": {
+        "name": "Pan up"
+      },
+      "nvr_down": {
+        "name": "Pan down"
+      },
+      "nvr_zoom_1": {
+        "name": "Optical zoom 1x"
+      },
+      "nvr_zoom_2": {
+        "name": "Optical zoom 2x"
+      },
+      "nvr_zoom_3": {
+        "name": "Optical zoom 3x"
       }
     },
     "alarm_control_panel": {
@@ -49,6 +75,9 @@
       }
     },
     "binary_sensor": {
+      "reported_lock_state": {
+        "name": "Reported lock state"
+      },
       "motion_detection": {
         "name": "Motion"
       },
@@ -99,14 +128,49 @@
       }
     },
     "number": {
+      "camera_motion_sensitivity": {
+        "name": "Motion sensitivity"
+      },
+      "camera_light_brightness": {
+        "name": "Light brightness"
+      },
+      "camera_notification_interval": {
+        "name": "Notification interval"
+      },
       "eufy_station_alarm_volume": {
         "name": "Alarm volume"
       },
       "eufy_station_prompt_volume": {
         "name": "Prompt volume"
+      },
+      "camera_sound_sensitivity": {
+        "name": "Sound sensitivity"
+      },
+      "camera_speaker_volume": {
+        "name": "Speaker volume"
       }
     },
     "select": {
+      "lock_auto_lock_delay": {
+        "name": "Auto-lock delay",
+        "state": {
+          "30": "30 seconds",
+          "60": "60 seconds",
+          "90": "90 seconds",
+          "120": "120 seconds",
+          "150": "150 seconds",
+          "180": "180 seconds",
+          "300": "300 seconds"
+        }
+      },
+      "lock_volume": {
+        "name": "Lock volume",
+        "state": {
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High"
+        }
+      },
       "eufy_guard_mode_select": {
         "name": "Guard mode",
         "state": {
@@ -133,7 +197,11 @@
           "auto": "Auto",
           "hd": "HD (720p)",
           "full_hd": "Full HD (1080p)",
-          "2k": "2K"
+          "2k": "2K",
+          "medium": "Medium",
+          "high": "High",
+          "low": "Low",
+          "highest": "Highest"
         }
       },
       "camera_night_vision": {
@@ -143,13 +211,50 @@
           "colour": "Colour",
           "infrared": "Infrared",
           "infrared_on": "Infrared on",
-          "spotlight": "Spotlight"
+          "spotlight": "Spotlight",
+          "standard": "Standard",
+          "auto_infrared": "Auto infrared",
+          "auto_night_vision": "Auto night vision"
+        }
+      },
+      "camera_sound_type": {
+        "name": "Sound detection type",
+        "state": {
+          "all_sound": "All sound",
+          "crying": "Crying"
+        }
+      },
+      "camera_recording_quality": {
+        "name": "Recording quality",
+        "state": {
+          "medium": "Medium",
+          "high": "High"
+        }
+      },
+      "camera_watermark": {
+        "name": "Watermark",
+        "state": {
+          "off": "Off",
+          "timestamp": "Timestamp",
+          "timestamp_logo": "Timestamp and logo"
+        }
+      },
+      "nvr_camera_view": {
+        "name": "Camera view",
+        "state": {
+          "fixed": "Fixed",
+          "movable": "Movable",
+          "wide": "Wide",
+          "telephoto": "Telephoto"
         }
       }
     },
     "sensor": {
       "last_recognized_person": {
         "name": "Last recognized person"
+      },
+      "backup_battery": {
+        "name": "Backup AA battery"
       },
       "battery": {
         "name": "Battery"
@@ -221,6 +326,33 @@
       }
     },
     "switch": {
+      "doorbell_homebase_chime": {
+        "name": "HomeBase doorbell chime"
+      },
+      "lock_auto_lock": {
+        "name": "Auto-lock"
+      },
+      "lock_notifications": {
+        "name": "Notifications"
+      },
+      "lock_locked_notifications": {
+        "name": "Locked notifications"
+      },
+      "lock_unlocked_notifications": {
+        "name": "Unlocked notifications"
+      },
+      "camera_continuous_recording": {
+        "name": "Continuous recording"
+      },
+      "camera_rtsp_publication": {
+        "name": "RTSP publication"
+      },
+      "camera_sound_round_look": {
+        "name": "Sound round-look"
+      },
+      "camera_enhance_lighting": {
+        "name": "Enhanced lighting"
+      },
       "camera_enabled": {
         "name": "Camera enabled"
       },
@@ -232,6 +364,24 @@
       },
       "auto_night_vision": {
         "name": "Auto night vision"
+      },
+      "camera_microphone": {
+        "name": "Microphone"
+      },
+      "camera_speaker": {
+        "name": "Speaker"
+      },
+      "camera_image_flipped": {
+        "name": "Rotate image 180°"
+      },
+      "camera_pre_recording": {
+        "name": "Pre-recording"
+      },
+      "camera_status_led": {
+        "name": "Status LED"
+      },
+      "camera_sound_detection": {
+        "name": "Sound detection"
       }
     },
     "siren": {
@@ -283,6 +433,24 @@
       "reconfigure_successful": "The gateway connection was updated",
       "hassio_connected": "The integration is now connected to the local Eufy Mega Security app",
       "invalid_discovery": "The app supplied invalid connection details"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Playback test options",
+        "description": "Experimental options apply to this integration. Saving reloads its cameras.",
+        "data": {
+          "experimental_native_video": "Try native camera video (video only)",
+          "experimental_fast_native_hls": "Try faster native startup",
+          "experimental_short_hls_idle": "Try a 60-second HLS idle timeout"
+        },
+        "data_description": {
+          "experimental_native_video": "Off by default. Sends the original H.264 or H.265 video without compatibility conversion. Video only, including for cameras with audio. H.265 browser support varies. HLS and get_stream_url use this source too. There is no automatic fallback. Switch this off to restore compatible video and audio.",
+          "experimental_fast_native_hls": "Off by default. Requires native camera video. Uses less playback buffering. Turn this off if playback becomes unstable.",
+          "experimental_short_hls_idle": "Off by default. Stops unused HA live-view output sooner, using viewer requests. Turn off camera preload for this test. Recordings keep their own timeout. Very slow initial streams may need this option switched off again."
+        }
+      }
     }
   }
 }

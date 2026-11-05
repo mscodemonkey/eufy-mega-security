@@ -90,6 +90,7 @@ test("normalizes HomeBase state and separate physical storage devices", () => {
     guardMode: 2,
     effectiveMode: 1,
     alarmVolume: 20,
+    alarmVolumeObservation: "valid",
     promptVolume: 10,
     alarmTone: 2,
     storage: {
@@ -171,6 +172,7 @@ test("accepts a JSON-encoded storage body and rejects unsupported values", () =>
 
   assert.equal(result.guardMode, null);
   assert.equal(result.alarmVolume, null);
+  assert.equal(result.alarmVolumeObservation, "out_of_range");
   assert.deepEqual(result.storage?.emmc, { status: "reported", totalBytes: 104_857_600, freeBytes: 0 });
   assert.equal(result.storage?.hdd, null);
   assert.deepEqual(result.storageDiagnostic, {
@@ -180,6 +182,19 @@ test("accepts a JSON-encoded storage body and rejects unsupported values", () =>
     textFieldLengths: [],
     structuredFields: [],
   });
+});
+
+test("classifies alarm-volume reads without retaining rejected values", () => {
+  const parse = (paramValue: unknown, channel: unknown = 255) => parseHomeBaseState({
+    params: [{ dev_type: channel, param_type: 1235, param_value: paramValue }],
+  }, null, false);
+
+  assert.equal(parseHomeBaseState({}, null, false).alarmVolumeObservation, "missing");
+  assert.equal(parse("bad").alarmVolumeObservation, "invalid");
+  assert.equal(parse(27).alarmVolumeObservation, "out_of_range");
+  assert.equal(parse(20).alarmVolumeObservation, "valid");
+  assert.equal(parse(20).alarmVolume, 20);
+  assert.equal(parse(20, 1).alarmVolumeObservation, "missing");
 });
 
 test("uses the HomeBase 3 usable capacity and unused video partition", () => {

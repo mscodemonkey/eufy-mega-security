@@ -5,10 +5,12 @@ id: t8422
 name: Floodlight Cam E 2K
 category: camera
 integration:
-  status: recognised
+  status: ready_to_test
+  handler: camera
 models:
   - T8422
 device_type: 37
+notes: Two v0.1.194 diagnostic rows confirm exact T8422 type 37 on a ready direct route. Discovery is admitted for testing. Firmware, media playback, detection delivery and camera-enable hardware behaviour remain unconfirmed. T8422S and other aliases are not admitted.
 capabilities:
   controls:
     enabled:
@@ -37,18 +39,6 @@ capabilities:
         direct:
           status: declared
     person:
-      connections:
-        direct:
-          status: declared
-    pet:
-      connections:
-        direct:
-          status: declared
-    vehicle:
-      connections:
-        direct:
-          status: declared
-    sound:
       connections:
         direct:
           status: declared

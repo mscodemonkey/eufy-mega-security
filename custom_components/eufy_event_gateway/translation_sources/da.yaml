@@ -1,5 +1,8 @@
 title: Eufy Mega Security
 entity:
+  light:
+    manual_floodlight:
+      name: Manuel projektør
   camera:
     event_image:
       name: Hændelsesbillede
@@ -25,12 +28,28 @@ entity:
       name: Start automatisk patruljering
     camera_auto_cruise_off:
       name: Stop automatisk patruljering
+    nvr_left:
+      name: Drej til venstre
+    nvr_right:
+      name: Drej til højre
+    nvr_up:
+      name: Drej op
+    nvr_down:
+      name: Drej ned
+    nvr_zoom_1:
+      name: Optisk zoom 1x
+    nvr_zoom_2:
+      name: Optisk zoom 2x
+    nvr_zoom_3:
+      name: Optisk zoom 3x
   alarm_control_panel:
     eufy_home_base_alarm:
       name: Alarm
     eufy_standalone_camera_alarm:
       name: Kameraalarm
   binary_sensor:
+    reported_lock_state:
+      name: Rapporteret låsestatus
     motion_detection:
       name: Bevægelse
     person_detection:
@@ -64,11 +83,37 @@ entity:
     eufy_station_camera_route:
       name: Kamera rute
   number:
+    camera_motion_sensitivity:
+      name: Bevægelsesfølsomhed
+    camera_light_brightness:
+      name: Lysstyrke
+    camera_notification_interval:
+      name: Notifikationsinterval
     eufy_station_alarm_volume:
       name: Alarm lydstyrke
     eufy_station_prompt_volume:
       name: Instruks lydstyrke
+    camera_sound_sensitivity:
+      name: Lydfølsomhed
+    camera_speaker_volume:
+      name: Højttalerlydstyrke
   select:
+    lock_auto_lock_delay:
+      name: Forsinkelse for automatisk låsning
+      state:
+        "30": "30 sekunder"
+        "60": "60 sekunder"
+        "90": "90 sekunder"
+        "120": "120 sekunder"
+        "150": "150 sekunder"
+        "180": "180 sekunder"
+        "300": "300 sekunder"
+    lock_volume:
+      name: Låselyd
+      state:
+        low: Lav
+        medium: Mellem
+        high: Høj
     eufy_guard_mode_select:
       name: beskyttelsestilstand
       state:
@@ -92,6 +137,10 @@ entity:
         hd: HD (720p)
         full_hd: Full HD (1080p)
         2k: 2K
+        medium: Mellem
+        high: Høj
+        low: Lav
+        highest: Højest
     camera_night_vision:
       name: Night vision
       state:
@@ -100,9 +149,37 @@ entity:
         infrared: Infrarød
         infrared_on: Infrarød slået til
         spotlight: Spotlys
+        standard: Standard
+        auto_infrared: Automatisk infrarød
+        auto_night_vision: Automatisk nattesyn
+    camera_sound_type:
+      name: Lyddetektionstype
+      state:
+        all_sound: Al lyd
+        crying: Gråd
+    camera_recording_quality:
+      name: Optagekvalitet
+      state:
+        medium: Mellem
+        high: Høj
+    camera_watermark:
+      name: Vandmærke
+      state:
+        off: Fra
+        timestamp: Tidsstempel
+        timestamp_logo: Tidsstempel og logo
+    nvr_camera_view:
+      name: Kameravisning
+      state:
+        fixed: Fast
+        movable: Bevægelig
+        wide: Vidvinkel
+        telephoto: Telefoto
   sensor:
     last_recognized_person:
       name: Sidste genkendte person
+    backup_battery:
+      name: AA-reservebatteri
     battery:
       name: Batteri
     battery_health:
@@ -158,6 +235,24 @@ entity:
         mounting: Monterer
         reported: Reporteret
   switch:
+    doorbell_homebase_chime:
+      name: Dørklokkelyd på HomeBase
+    lock_auto_lock:
+      name: Automatisk lås
+    lock_notifications:
+      name: Notifikationer
+    lock_locked_notifications:
+      name: Notifikationer ved låsning
+    lock_unlocked_notifications:
+      name: Notifikationer ved oplåsning
+    camera_continuous_recording:
+      name: Kontinuerlig optagelse
+    camera_rtsp_publication:
+      name: RTSP-publicering
+    camera_sound_round_look:
+      name: Lydrundkig
+    camera_enhance_lighting:
+      name: Forbedret belysning
     camera_enabled:
       name: Kamera tilsluttet
     camera_motion_detection:
@@ -166,6 +261,18 @@ entity:
       name: Lydoptagelse
     auto_night_vision:
       name: Auto night vision
+    camera_microphone:
+      name: Mikrofon
+    camera_speaker:
+      name: Højttaler
+    camera_image_flipped:
+      name: Rotér billede 180°
+    camera_pre_recording:
+      name: Foroptagelse
+    camera_status_led:
+      name: Statuslys
+    camera_sound_detection:
+      name: Lyddetektion
   siren:
     camera_siren:
       name: Sirene
@@ -175,7 +282,8 @@ config:
   step:
     user:
       title: Forbind til Eufy Mega Security
-      description: Indtast addressen Home Assistant bruger til at forbinde til lokal gateway.
+      description: Indtast addressen Home Assistant bruger til at forbinde til lokal
+        gateway.
       data:
         url: Gateway URL
         api_token: API nøgle
@@ -189,11 +297,13 @@ config:
         url: Gateway URL
         api_token: API nøgle
       data_description:
-        url: For den lokale app, brug adressen leveret af Supervisor discovery. Manuelle installationer bruger normalt http://127.0.0.1:3218.
+        url: For den lokale app, brug adressen leveret af Supervisor discovery. Manuelle
+          installationer bruger normalt http://127.0.0.1:3218.
         api_token: Brug den samme nøgle som er konfigureteret i Eufy Mega Security appen.
     hassio_confirm:
       title: Forbind til Eufy Mega Security appen
-      description: Home Assistant fandt den lokale Eufy Mega Security app. Tilføj for at oprette kamera og detektions entiteter.
+      description: Home Assistant fandt den lokale Eufy Mega Security app. Tilføj for
+        at oprette kamera og detektions entiteter.
   error:
     cannot_connect: Kunne ikke forbinde til gateway
     invalid_auth: Gatewayen afviste API nøglen
@@ -202,3 +312,16 @@ config:
     reconfigure_successful: Gateway forbindelsen er opdateret
     hassio_connected: Integrationen er nu forbundet med den lokale Eufy Mega Security app
     invalid_discovery: Appen leverede ugyldige forbindelses detaljer
+options:
+  step:
+    init:
+      title: Testindstillinger for afspilning
+      description: Eksperimentelle indstillinger gælder for denne integration. Når du gemmer, genindlæses kameraerne.
+      data:
+        experimental_native_video: Prøv kameraets originale video (kun video)
+        experimental_fast_native_hls: Prøv hurtigere opstart af original video
+        experimental_short_hls_idle: Prøv en HLS-inaktivitetstimeout på 60 sekunder
+      data_description:
+        experimental_native_video: Slået fra som standard. Sender original H.264- eller H.265-video uden kompatibilitetskonvertering. Kun video, også for kameraer med lyd. Browserunderstøttelse af H.265 varierer. HLS og get_stream_url bruger også denne kilde. Der er intet automatisk tilbagefald. Slå indstillingen fra for at gendanne kompatibel video og lyd.
+        experimental_fast_native_hls: Slået fra som standard. Kræver original kameravideo. Bruger mindre afspilningsbuffer. Slå fra, hvis afspilningen bliver ustabil.
+        experimental_short_hls_idle: Slået fra som standard. Afslutter ubrugt livevisning i HA tidligere baseret på seerforespørgsler. Slå kameraets forudindlæsning fra under testen. Optagelser beholder deres egen timeout. Ved meget langsom opstart kan det være nødvendigt at slå indstillingen fra igen.

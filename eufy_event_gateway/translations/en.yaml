@@ -1,4 +1,43 @@
 configuration:
+  experimental_s340_smooth_live:
+    name: Smooth S340 live view (experimental)
+    description: Add six seconds of buffering for smoother SoloCam S340 live view through HomeBase 3. Keeps live audio. Off by default. Hardware behaviour needs confirmation.
+  experimental_homebase_event_images:
+    name: Experimental HomeBase picture recovery
+    description: Try the matching recording thumbnail when a cloud event picture is missing. Limited to T8113-Z cameras on HomeBase 3. The recovered thumbnail may have lower resolution. Leaves the last good picture in place if no exact match is available. Off by default.
+  experimental_event_image_request:
+    name: Retired event picture request test (ignored)
+    description: Retired after comparison with the current Eufy app. Existing settings are accepted, but this option has no effect. Pictures use authenticated requests.
+  experimental_cloud_recordings:
+    name: Experimental cloud recording test
+    description: Request an existing private cloud recording in Diagnostics with explicit consent. Video only. Local HomeBase recordings and deletion are separate. Off by default.
+  experimental_doorbell_rtc:
+    name: Experimental standalone doorbell video test
+    description: Enable a consented ten-second private video test in Diagnostics for a standalone Video Doorbell C30. Normal streaming stays unchanged. Hardware behaviour is unconfirmed. Off by default.
+  experimental_general_rtc:
+    name: Experimental general camera video test
+    description: Enable a consented ten-second private video test in Diagnostics for a supported camera on the owner account. A guest account is refused. The Eufy live-view PIN you enter is sent to Eufy and is not stored. Excludes cameras on an NVR and the T8224 doorbell. Hardware behaviour is unconfirmed. Off by default.
+  experimental_nvr_controls:
+    name: Experimental NVR control tests
+    description: Enable separately consented camera-power and Schedule-to-Home restoration tests for T8E00 through T8N00 in Diagnostics. Requires the other experimental options. A lost connection can require manual restoration. Off by default.
+  experimental_nvr_live:
+    name: Experimental NVR video test
+    description: Enable a consented ten-second private video test in Diagnostics for T8E00 cameras through T8N00 or T9000. Hardware behaviour is unconfirmed. Off by default.
+  experimental_nvr_mode_observer:
+    name: Experimental NVR mode watcher
+    description: Keep a read-only connection for mode changes without opening live video. Limited to one T8N00 with a T8E00 camera. The initial mode stays unknown until it changes. Hardware support is unconfirmed. Off by default. Disable before manual NVR power or arming trials.
+  experimental_nvr_region:
+    name: Experimental video service region
+    description: Select auto, us, eu or ie. GB-style accounts may require ie even when auto selects eu. This is a service region, not the account country.
+  experimental_model_controls:
+    name: Experimental model controls
+    description: Enable exact-model control trials in the diagnostics page. Requires manual observation and restoration. Hardware support is unconfirmed. Off by default.
+  raw_message_history:
+    name: Private raw message history
+    description: Record application traffic privately for retrospective debugging. Encrypted local storage retains up to 24 hours or 1 GiB. Contains sensitive device and account data. Excluded from normal diagnostic exports. Off by default.
+  capture_failed_event_images:
+    name: Capture failed event images
+    description: Private diagnostic capture for 30 minutes after startup. Export within 60 minutes. May contain household images and identifiers. Disable after collecting evidence.
   username:
     name: Eufy username
     description: Dedicated guest Eufy account shared with the required cameras.

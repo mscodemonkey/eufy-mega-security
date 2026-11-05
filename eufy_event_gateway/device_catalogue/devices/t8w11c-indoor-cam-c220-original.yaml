@@ -5,11 +5,12 @@ id: t8w11c-original
 name: Indoor Cam C220 (T8W11C, original)
 category: camera
 integration:
-  status: recognised
+  status: ready_to_test
+  handler: camera
 models:
   - T8W11C
-  - T8W11
 device_type: 10008
+notes: Issue 468 reports exact T8W11C type 10008, firmware 4.0.9.4, on direct Wi-Fi. Admission is ready for testing. Media, detections and controls are not hardware-confirmed. The previously catalogued T8W11 alias remains unadmitted at type 10008; this does not alter the separate type 10010 profile.
 capabilities:
   controls:
     motion_detection:
@@ -38,18 +39,6 @@ capabilities:
         direct:
           status: declared
     person:
-      connections:
-        direct:
-          status: declared
-    pet:
-      connections:
-        direct:
-          status: declared
-    vehicle:
-      connections:
-        direct:
-          status: declared
-    sound:
       connections:
         direct:
           status: declared

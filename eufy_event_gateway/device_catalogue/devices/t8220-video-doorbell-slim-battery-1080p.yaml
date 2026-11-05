@@ -5,7 +5,7 @@ id: t8220
 name: Video Doorbell Slim (Battery, 1080p, T8220)
 category: doorbell
 integration:
-  status: ready_to_test
+  status: supported
   handler: camera
 models:
   - T8220
@@ -69,9 +69,9 @@ capabilities:
       connections:
         T8010:
           status: reported
-          tested_on: 2026-10-08
+          tested_on: 2026-10-10
           tested_by: erikas-venckus
-          notes: The peer route is ready, but a first frame is not confirmed.
+          notes: Issue 306 confirms live video through HomeBase 2. Startup is slow and streaming reportedly continues for one to two minutes after the view closes. Events, fresh snapshots, and battery values are not confirmed.
     snapshot:
       connections:
         T8010:

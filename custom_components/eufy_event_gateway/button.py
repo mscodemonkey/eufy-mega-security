@@ -66,6 +66,22 @@ async def async_setup_entry(
     def add_new() -> None:
         entities: list[ButtonEntity] = []
         for serial, camera in sorted(coordinator.cameras.items()):
+            if camera.get("directionalPanControlSupported") is True:
+                for direction in ("left", "right", "up", "down"):
+                    key = (serial, f"pan_{direction}")
+                    if key not in known:
+                        known.add(key)
+                        entities.append(EufyCameraPanButton(coordinator, serial, direction))
+            for capability, actions in (
+                ("nvrPanControlSupported", ("left", "right", "up", "down")),
+                ("nvrOpticalZoomControlSupported", ("zoom_1", "zoom_2", "zoom_3")),
+            ):
+                if camera.get(capability) is True:
+                    for action in actions:
+                        key = (serial, f"nvr_{action}")
+                        if key not in known:
+                            known.add(key)
+                            entities.append(EufyNvrControlButton(coordinator, serial, action))
             report_key = (serial, "compatibility_report")
             if (
                 camera.get("catalogueStatus") == "ready_to_test"
@@ -147,7 +163,7 @@ Connection: <!-- Direct, HomeBase model, or NVR model -->
 - [ ] A fresh snapshot worked
 - [ ] Live view worked
 
-Please describe anything that did not work and attach the Eufy Mega Security diagnostics download. Review the file before posting it publicly.
+Please describe anything that did not work. Keep diagnostic files out of this public issue. Follow the private sharing instructions at https://github.com/mscodemonkey/eufy-mega-security/blob/main/docs/PRIVATE_DIAGNOSTICS.md if diagnostics are needed.
 """
         report_url = f"{_ISSUE_URL}?{urlencode({'title': f'Compatibility report: {safe_model}', 'body': issue_body})}"
         persistent_notification.async_create(
@@ -284,7 +300,8 @@ class EufyCameraAiTrackingButton(EufyGatewayEntity, ButtonEntity):
         """Send the verified model-specific action through the owning gateway."""
         try:
             await self.coordinator.client.set_camera_ai_tracking(
-                self.serial, self._enabled
+                self.serial, self._enabled,
+                **({"nvr": True} if self.camera.get("nvrLiveControlsSupported") is True else {}),
             )
         except GatewayClientError as error:
             raise HomeAssistantError(
@@ -322,3 +339,67 @@ class EufyCameraAutoCruiseButton(EufyGatewayEntity, ButtonEntity):
             raise HomeAssistantError(
                 f"Could not change automatic cruise: {error}"
             ) from error
+
+
+class EufyCameraPanButton(EufyGatewayEntity, ButtonEntity):
+    """Own one direct movement button while the gateway controls route admission.
+
+    Each press requests a single click. The entity reports neither position nor
+    physical success, and withdraws availability when its capability disappears.
+    """
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, direction: str) -> None:
+        """Bind a closed direction using the existing translated movement labels."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        ButtonEntity.__init__(self)
+        if direction not in ("left", "right", "up", "down"):
+            raise ValueError("Choose one camera direction")
+        self._direction = direction
+        self._attr_unique_id = f"{serial}_camera_pan_{direction}"
+        self._attr_translation_key = f"nvr_{direction}"
+
+    @property
+    def available(self) -> bool:
+        """Withdraw stale buttons when the gateway retires this direct route."""
+        return super().available and self.camera.get("directionalPanControlSupported") is True
+
+    async def async_press(self) -> None:
+        """Request one click and show failures without repeating the command."""
+        try:
+            await self.coordinator.client.pan_camera(self.serial, self._direction)
+        except GatewayClientError as error:
+            raise HomeAssistantError(str(error)) from error
+
+
+class EufyNvrControlButton(EufyGatewayEntity, ButtonEntity):
+    """Own one stateless HA movement action for the entity lifetime.
+
+    The gateway requires a currently viewed source and owns single dispatch.
+    A response confirms request acceptance only, never physical position.
+    """
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, action: str) -> None:
+        """Bind a closed direction or conservative optical zoom level."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        ButtonEntity.__init__(self)
+        if action not in ("left", "right", "up", "down", "zoom_1", "zoom_2", "zoom_3"):
+            raise ValueError("Unsupported NVR action")
+        self._action = action
+        self._attr_unique_id = f"{serial}_nvr_{action}"
+        self._attr_translation_key = f"nvr_{action}"
+
+    @property
+    def available(self) -> bool:
+        """Withdraw buttons immediately when the model or chosen view changes."""
+        capability = "nvrOpticalZoomControlSupported" if self._action.startswith("zoom_") else "nvrPanControlSupported"
+        return super().available and self.camera.get(capability) is True
+
+    async def async_press(self) -> None:
+        """Send one finite action without retrying an uncertain device outcome."""
+        try:
+            if self._action.startswith("zoom_"):
+                await self.coordinator.client.perform_nvr_live_control(self.serial, level=int(self._action[-1]))
+            else:
+                await self.coordinator.client.perform_nvr_live_control(self.serial, direction=self._action)
+        except GatewayClientError as error:
+            raise HomeAssistantError(str(error)) from error

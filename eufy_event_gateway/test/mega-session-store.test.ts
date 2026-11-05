@@ -69,3 +69,17 @@ test("rejects the retired session schema", async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("serializes concurrent host updates without losing the newest session", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mega-session-concurrent-"));
+  try {
+    const store = new MegaSessionStore(join(directory, "mega-session.json"));
+    const latest = { ...session, identities: { ...session.identities,
+      security: { keyIdent: "renewed", sharedKey: "new-key", clientPublicKey: "public" },
+    } };
+    await Promise.all([store.save(session), store.save(latest)]);
+    assert.deepEqual(await store.load(), latest);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

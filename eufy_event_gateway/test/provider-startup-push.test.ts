@@ -10,11 +10,11 @@ import { join } from "node:path";
 
 import { GatewayState } from "../src/domain/gateway-state.js";
 import { MegaClient } from "../src/mega/client.js";
-import { MegaPushReceiver } from "../src/mega/push.js";
+import { MegaPushReceiver, parsePushEvent, type MegaPushEvent } from "../src/mega/push.js";
 import { PushClient } from "../src/mega/android-push/push-client.js";
 import { EufyProvider } from "../src/provider/eufy-provider.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
-import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
+import { FirstPartyPpcsSession, PpcsLookupTimeoutError, PpcsVideoFrameDecoder } from "../src/stream/first-party-ppcs.js";
 import { LiveStreamManager } from "../src/stream/live-stream-manager.js";
 
 // Keep filesystem polling independent of the synthetic retry clock.
@@ -51,6 +51,110 @@ function fixture(context: TestContext, directory = "/nonexistent/fixture") {
     persistentDirectory: directory, maxStreamSeconds: 120 });
   return { provider, events, state, connections, network };
 }
+
+const attemptLimitMessage = "Mega request failed (10019: Eufy rejected the login, which the inspected official app version classifies as too many incorrect password attempts. Stop repeated login attempts) operation=login";
+const attemptLimitDetail = "Eufy rejected repeated login attempts. Stop retrying and check the saved account configuration privately.";
+
+for (const kind of ["captcha", "verification"] as const) {
+  test(`terminal ${kind} rejection retires the form without another login`, async context => {
+    context.mock.timers.enable({ apis: ["setTimeout"] });
+    const f = fixture(context);
+    const rejection = new Error(attemptLimitMessage);
+    let calls = 0;
+    const connect = context.mock.method(MegaClient.prototype, "connect", async () => {
+      if (++calls === 1) return kind === "captcha"
+        ? { state: "captcha-required" as const, captcha: { id: "first", image: "AA==" } }
+        : { state: "verification-required" as const };
+      throw rejection;
+    });
+    context.mock.method(MegaClient.prototype, "isLoginAttemptLimitError", (error: unknown) => error === rejection);
+    const inventory = context.mock.method(MegaClient.prototype, "inventory");
+    const push = context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
+    try {
+      await f.provider.start(f.events);
+      const submit = (): Promise<void> => kind === "captcha" ? f.provider.submitCaptcha("ABCD") : f.provider.submitVerification("123456");
+      await assert.rejects(submit(), error => error === rejection);
+      assert.equal(f.provider.getCaptchaChallenge(), null);
+      assert.equal(f.provider.isVerificationRequired(), false);
+      assert.deepEqual(f.connections.at(-1), { state: "error", detail: attemptLimitDetail });
+      assert.equal(f.connections.filter(connection => connection.state === "error").length, 1);
+      await assert.rejects(submit(), /No Eufy .* waiting/);
+      context.mock.timers.tick(300_000);
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.equal(connect.mock.callCount(), 2);
+      assert.equal(inventory.mock.callCount(), 0);
+      assert.equal(push.mock.callCount(), 0);
+      assert.equal(f.network.mock.callCount(), 0);
+    } finally { await f.provider.close(); }
+  });
+}
+
+test("matching error text alone does not retire a CAPTCHA", async context => {
+  const f = fixture(context);
+  const challenge = { id: "first", image: "AA==" };
+  const rejection = new Error(attemptLimitMessage);
+  let calls = 0;
+  const connect = context.mock.method(MegaClient.prototype, "connect", async () => {
+    if (++calls === 1) return { state: "captcha-required" as const, captcha: challenge };
+    throw rejection;
+  });
+  try {
+    await f.provider.start(f.events);
+    await assert.rejects(f.provider.submitCaptcha("ABCD"), error => error === rejection);
+    assert.equal(f.provider.getCaptchaChallenge(), challenge);
+    assert.equal(connect.mock.callCount(), 2);
+    assert.equal(f.connections.some(connection => connection.state === "error"), false);
+  } finally { await f.provider.close(); }
+});
+
+for (const replacement of [false, true]) {
+  test(`a retired generation's rejected submission preserves ${replacement ? "the replacement challenge" : "stopped state"}`, async context => {
+    const f = fixture(context);
+    const rejection = new Error(attemptLimitMessage);
+    let rejectSubmission: (error: Error) => void = () => { assert.fail("submission must start first"); };
+    const pending = new Promise<never>((_resolve, reject) => { rejectSubmission = reject; });
+    const replacementChallenge = { id: "replacement", image: "AA==" };
+    let calls = 0;
+    const connect = context.mock.method(MegaClient.prototype, "connect", async () => {
+      if (++calls === 1) return { state: "captcha-required" as const, captcha: { id: "first", image: "AA==" } };
+      if (calls === 2) return pending;
+      return { state: "captcha-required" as const, captcha: replacementChallenge };
+    });
+    context.mock.method(MegaClient.prototype, "isLoginAttemptLimitError", (error: unknown) => error === rejection);
+    try {
+      await f.provider.start(f.events);
+      const submission = f.provider.submitCaptcha("ABCD");
+      await f.provider.close();
+      if (replacement) await f.provider.start(f.events);
+      const before = f.provider.getCaptchaChallenge();
+      rejectSubmission(rejection);
+      assert.equal(await submission, undefined);
+      assert.equal(f.provider.getCaptchaChallenge(), before);
+      if (replacement) assert.equal(before, replacementChallenge);
+      assert.equal(connect.mock.callCount(), replacement ? 3 : 2);
+      assert.equal(f.connections.some(connection => connection.state === "error"), false);
+    } finally { await f.provider.close(); }
+  });
+}
+
+test("a failing state callback does not replace the terminal login rejection", async context => {
+  const f = fixture(context);
+  const rejection = new Error(attemptLimitMessage);
+  let calls = 0;
+  const connect = context.mock.method(MegaClient.prototype, "connect", async () => {
+    if (++calls === 1) return { state: "captcha-required" as const, captcha: { id: "first", image: "AA==" } };
+    throw rejection;
+  });
+  context.mock.method(MegaClient.prototype, "isLoginAttemptLimitError", (error: unknown) => error === rejection);
+  try {
+    await f.provider.start(f.events);
+    context.mock.method(f.events, "connection", () => { throw new Error("Synthetic presentation failure"); });
+    await assert.rejects(f.provider.submitCaptcha("ABCD"), error => error === rejection);
+    assert.equal(f.provider.getCaptchaChallenge(), null);
+    assert.equal(f.provider.isVerificationRequired(), false);
+    assert.equal(connect.mock.callCount(), 2);
+  } finally { await f.provider.close(); }
+});
 
 /** Count owned retry handles without counting the Firebase login deadline. */
 function retryTimers(context: TestContext) {
@@ -194,10 +298,10 @@ test(`provider ${replacement} retires the old receiver and retry before replacem
   let entered!: () => void;
   let reject!: (error: Error) => void;
   const entering = new Promise<void>((resolve) => { entered = resolve; });
-  const pending = new Promise<{ activated: boolean; code: number | null }>((_resolve, failed) => { reject = failed; });
+  const pending = new Promise<{ registered: boolean; code: number | null }>((_resolve, failed) => { reject = failed; });
   context.mock.method(MegaClient.prototype, "registerPushToken", async () => {
     if (++calls === 3) { entered(); return pending; }
-    return { activated: false, code: -1 };
+    return { registered: false, code: -1 };
   });
   const logs: string[] = [];
   context.mock.method(process.stderr, "write", (chunk: unknown) => { logs.push(String(chunk)); return true; });
@@ -252,7 +356,7 @@ for (const step of ["connect", "inventory"] as const) {
 }
 
 for (const code of [-1, 10003]) {
-  test(`camera readiness survives returned unconfirmed activation ${code}`, async (context) => {
+  test(`camera readiness survives returned unconfirmed registration ${code}`, async (context) => {
     const directory = await mkdtemp(join(tmpdir(), "eufy-provider-activation-"));
     await writeFile(join(directory, "mega-push.json"), JSON.stringify({ version: 2, persistentIds: [], credentials: {
       fid: "synthetic", androidId: "123", securityToken: "456", fcmToken: "synthetic", createdAt: 1,
@@ -262,7 +366,7 @@ for (const code of [-1, 10003]) {
     let closed = 0;
     context.mock.method(PushClient.prototype, "connect", function (this: PushClient) { live.add(this); this.emit("connect"); });
     context.mock.method(PushClient.prototype, "close", function (this: PushClient) { live.delete(this); ++closed; this.emit("disconnect"); });
-    const register = context.mock.method(MegaClient.prototype, "registerPushToken", async () => ({ activated: false, code }));
+    const register = context.mock.method(MegaClient.prototype, "registerPushToken", async () => ({ registered: false, code }));
     const logs: string[] = [];
     context.mock.method(process.stderr, "write", (chunk: unknown) => { logs.push(String(chunk)); return true; });
     const timers = retryTimers(context);
@@ -286,7 +390,7 @@ for (const code of [-1, 10003]) {
   });
 }
 
-test("camera readiness keeps a restored Mega registration stably degraded", async (context) => {
+test("camera readiness accepts notification registration without review activation", async (context) => {
   context.mock.timers.enable({ apis: ["setTimeout"] });
   const directory = await mkdtemp(join(tmpdir(), "eufy-provider-mega-restored-"));
   await writeFile(join(directory, "mega-push.json"), JSON.stringify({ version: 2, persistentIds: [], credentials: {
@@ -297,7 +401,7 @@ test("camera readiness keeps a restored Mega registration stably degraded", asyn
   context.mock.method(PushClient.prototype, "connect", function (this: PushClient) { live.add(this); this.emit("connect"); });
   context.mock.method(PushClient.prototype, "close", function (this: PushClient) { live.delete(this); this.emit("disconnect"); });
   const register = context.mock.method(MegaClient.prototype, "registerPushToken", async () => ({
-    activated: false, code: 10003, failedSecurityStage: "activation" as const, megaRegistrationRestored: true,
+    registered: true, code: 0,
   }));
   const timers = retryTimers(context);
   try {
@@ -307,7 +411,7 @@ test("camera readiness keeps a restored Mega registration stably degraded", asyn
     }
     assert.equal(f.connections.at(-1)?.state, "connected");
     assert.equal(register.mock.callCount(), 1);
-    assert.equal(f.state.eventDeliveryDiagnostic().receiverState, "degraded");
+    assert.equal(f.state.eventDeliveryDiagnostic().receiverState, "connected");
     assert.equal(live.size, 1);
     assert.equal(timers.size, 0);
     context.mock.timers.tick(1_000_000);
@@ -451,7 +555,7 @@ function discoveryFixture(context: TestContext) {
   const intervals = context.mock.method(globalThis, "setInterval");
   const push = context.mock.method(MegaPushReceiver.prototype, "start", async () => undefined);
   context.mock.method(EufyProvider.prototype, "refreshStation", async () => { throw new Error("Offline station"); });
-  const observations = { publications: 0, motion: [] as string[] };
+  const observations = { publications: 0, motion: [] as string[], care: [] as string[] };
   const events = new Proxy({
     camera: (row: Parameters<ProviderEvents["camera"]>[0]) => { ++observations.publications; f.state.registerCamera(row); },
     sensor: (row: Parameters<ProviderEvents["sensor"]>[0]) => f.state.registerSensor(row),
@@ -460,9 +564,55 @@ function discoveryFixture(context: TestContext) {
     cameraCapabilities: (rows: Parameters<ProviderEvents["cameraCapabilities"]>[0]) => f.state.updateCameraCapabilities(rows),
     deviceCapabilities: (rows: Parameters<ProviderEvents["deviceCapabilities"]>[0]) => f.state.updateDeviceCapabilities(rows),
     sensorMotion: (serial: string) => observations.motion.push(serial),
+    sensorDetection: (serial: string, kind: "crying" | "sound", detected: boolean) => {
+      observations.care.push(`${serial}:${kind}:${detected}`);
+      f.state.recordSensorDetection(serial, kind, detected);
+    },
   }, { get: (target, key) => Reflect.get(target, key) ?? Reflect.get(f.events, key) }) as unknown as ProviderEvents;
   return { ...f, events, observations, intervals, push };
 }
+
+test("exact E21 pushes publish care flags and passive pictures without opening live media", async (context) => {
+  const f = discoveryFixture(context);
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{
+    device_sn: "e21", device_name: "Nursery", device_model: "T8354",
+    device_type: 86, category: "eufy_care",
+  }] }));
+  let deliver!: (event: MegaPushEvent) => void;
+  context.mock.method(MegaPushReceiver.prototype, "start", async function(this: MegaPushReceiver) {
+    deliver = Reflect.get(this, "onEvent") as (event: MegaPushEvent) => void;
+  });
+  context.mock.method(MegaClient.prototype, "download", async () => Buffer.from([255,216,1,2,255,217]));
+  try {
+    await f.provider.start(f.events);
+    assert.equal(f.state.hasCamera("e21"), true);
+    assert.equal(f.state.getCamera("e21").streamSupported, false);
+    assert.deepEqual(f.state.getCamera("e21").supportedDetections, []);
+    assert.deepEqual(f.state.listSensors()[0]?.capabilities, ["motion", "crying", "sound", "pet", "babyLeft", "babyEntered", "temperatureHigh", "temperatureLow", "careAreaLeft", "careAreaEntered", "babyActivity", "roomTemperature", "careDiagnostics"]);
+    const crying = parsePushEvent({ device_sn: "e21", payload: Buffer.from(JSON.stringify({
+      device_sn: "e21", msg_type: 18, a: 3104, unique_id: "cry-1", pic_url: "https://example.invalid/private.jpg",
+      file_path: "private/path", fetch_id: 42,
+    })).toString("base64") });
+    assert.ok(crying);
+    deliver(crying);
+    assert.deepEqual(f.observations.care, ["e21:crying:true"]);
+    assert.equal(f.state.listSensors()[0]?.cryingDetected, true);
+    assert.equal(f.network.mock.callCount(), 0);
+    const sound = parsePushEvent({ device_sn: "e21", payload: JSON.stringify({ msg_type: 18, a: 3105 }) });
+    assert.ok(sound);
+    deliver(sound);
+    deliver(sound);
+    assert.deepEqual(f.observations.care, ["e21:crying:true", "e21:sound:true", "e21:sound:true"]);
+    const wrongMessage = parsePushEvent({ device_sn: "e21", msg_type: 17, a: 3104 });
+    const wrongIdentity = parsePushEvent({ device_sn: "other", station_sn: "e21", msg_type: 18, a: 3104 });
+    const precedence = parsePushEvent({ device_sn: "e21", msg_type: 18, a: 3106, event_type: 3104 });
+    assert.ok(wrongMessage && wrongIdentity && precedence);
+    deliver(wrongMessage); deliver(wrongIdentity); deliver(precedence);
+    assert.equal(f.observations.care.length, 4);
+    assert.equal(f.observations.care.at(-1), "e21:pet:true");
+    assert.equal(f.network.mock.callCount(), 0);
+  } finally { await f.provider.close(); f.state.close(); }
+});
 
 /** Drain asynchronous callbacks without advancing station transport timers. */
 async function settleDiscovery(): Promise<void> {
@@ -600,8 +750,11 @@ test("runtime discovery batches missing keys, throttles failures and restores re
       { device_sn: "rtc", device_model: "T8N00", device_type: 300, category: "eufy_security", p2p_did: "fixture-rtc", p2p_conn: "fixture-route" },
     ] }));
     let recover = false;
-    const keys = context.mock.method(MegaClient.prototype, "dskKeys", async (serials: readonly string[]) => {
-      assert.deepEqual(serials, ["peer"]);
+    const keys = context.mock.method(MegaClient.prototype, "dskKeys", async (targets: readonly (string | {
+      readonly serial: string;
+      readonly category: "eufy_security" | "eufy_care";
+    })[]) => {
+      assert.deepEqual(targets, [{ serial: "peer", category: "eufy_security" }]);
       if (!recover) throw new Error("Fixture key failure");
       return { peer: { key: "fixture-key", expiresAt: null } };
     });
@@ -686,7 +839,7 @@ test("runtime timer polls coalesce and subsequent polls retry", async (context) 
     await f.provider.start(f.events);
     let finish!: (value: { devices: [] }) => void;
     const pending = new Promise<{ devices: [] }>((resolve) => { finish = resolve; });
-    const inventory = context.mock.method(MegaClient.prototype, "inventory", async () => pending);
+    const inventory = context.mock.method(MegaClient.prototype, "inventory", async (_signal?: AbortSignal, _options?: { includeChargingDays?: boolean }) => pending);
     pollDiscovery(f);
     pollDiscovery(f);
     await settleDiscovery();
@@ -696,6 +849,7 @@ test("runtime timer polls coalesce and subsequent polls retry", async (context) 
     pollDiscovery(f);
     await settleDiscovery();
     assert.equal(inventory.mock.callCount(), 2);
+    assert.ok(inventory.mock.calls.every(call => call.arguments[1]?.includeChargingDays === true));
   } finally { await f.provider.close(); }
 });
 
@@ -717,7 +871,7 @@ test("control readbacks share one fresh trailing refresh after a pending timer r
     let finish!: (value: ReturnType<typeof rows>) => void;
     const pending = new Promise<ReturnType<typeof rows>>((resolve) => { finish = resolve; });
     let reads = 0;
-    const inventory = context.mock.method(MegaClient.prototype, "inventory", async () =>
+    const inventory = context.mock.method(MegaClient.prototype, "inventory", async (_signal?: AbortSignal, _options?: { includeChargingDays?: boolean }) =>
       ++reads === 1 ? pending : rows(true));
     pollDiscovery(f);
     const first = f.provider.setCameraEnabled("camera", true);
@@ -729,6 +883,8 @@ test("control readbacks share one fresh trailing refresh after a pending timer r
     assert.equal((await first).enabled, true);
     assert.equal((await second).enabled, true);
     assert.equal(inventory.mock.callCount(), 2);
+    assert.equal(inventory.mock.calls[0]?.arguments[1]?.includeChargingDays, true);
+    assert.equal(inventory.mock.calls[1]?.arguments[1]?.includeChargingDays, false);
   } finally { await f.provider.close(); }
 });
 
@@ -754,7 +910,7 @@ test("new PIR inventory establishes a motion baseline then publishes newer motio
   const f = discoveryFixture(context);
   try {
     await f.provider.start(f.events);
-    let timestamp = 1_789_500_000;
+    let timestamp = Math.floor(Date.now() / 1_000) - 2;
     context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{
       device_sn: "pir", device_model: "T8910", device_type: 10, category: "eufy_security",
       params: [{ param_type: 1605, param_value: String(timestamp) }],
@@ -922,4 +1078,353 @@ test("HomeBase recording ownership prevents sibling live and pan sessions until 
     await assert.doesNotReject(f.provider.startStream("sibling"));
     assert.equal(starts.mock.callCount(), 2);
   } finally { finish([]); await f.provider.close(); }
+});
+
+
+for (const scenario of ["shared", "retry", "exhausted", "cancel", "other-error", "other-model"] as const) {
+  test(`media startup ${scenario} preserves one owner and bounded lookup attempts`, async context => {
+    const f = fixture(context);
+    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{
+      device_sn: "camera", device_model: scenario === "other-model" ? "T8171" : "T8170",
+      device_type: scenario === "other-model" ? 88 : 48, category: "eufy_security", device_channel: 0,
+      p2p_did: "synthetic-peer", p2p_conn: "synthetic-route", member: { admin_user_id: "synthetic-owner" },
+    }] }));
+    context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ camera: { key: "synthetic-key", expiresAt: null } }));
+    context.mock.method(MegaPushReceiver.prototype, "start", async () => { throw new Error("Offline push fixture"); });
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    let attempts = 0, publications = 0;
+    f.events.streamStarted = () => { publications++; };
+    context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => {
+      attempts++;
+      if (scenario === "shared" || scenario === "cancel") await pending;
+      if (scenario === "other-error") throw new Error("Unrelated media failure");
+      if (scenario === "exhausted" || scenario === "other-model" || scenario === "retry" && attempts === 1) {
+        throw new PpcsLookupTimeoutError();
+      }
+    });
+    context.mock.method(FirstPartyPpcsSession.prototype, "close", () => undefined);
+    try {
+      await f.provider.start(f.events);
+      if (scenario === "shared") {
+        const first = f.provider.startStream("camera"), second = f.provider.startStream("camera");
+        await settleDiscovery();
+        assert.equal(attempts, 1);
+        release();
+        await Promise.all([first, second]);
+        assert.equal(publications, 1);
+      } else if (scenario === "cancel") {
+        const failed = assert.rejects(f.provider.startStream("camera"), /cancelled/);
+        await settleDiscovery();
+        await f.provider.stopStream("camera");
+        release();
+        await failed;
+        assert.equal(attempts, 1);
+        assert.equal(publications, 0);
+      } else if (scenario === "retry") {
+        await f.provider.startStream("camera");
+        assert.equal(attempts, 2);
+        assert.equal(publications, 1);
+      } else {
+        await assert.rejects(f.provider.startStream("camera"));
+        assert.equal(attempts, scenario === "exhausted" ? 4 : 1);
+        assert.equal(publications, 0);
+      }
+    } finally {
+      release();
+      await f.provider.close();
+    }
+  });
+}
+
+
+for (const scenario of ["separate-owners", "wrong-id", "duplicate-id"] as const) {
+  test(`cipher cache ${scenario} keeps keys bound to the requested peer`, async context => {
+    const f = fixture(context);
+    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: ["first", "second"].map(serial => ({
+      device_sn: serial, device_model: "T8170", device_type: 48, category: "eufy_security", device_channel: 0,
+      cipher_id: 197, p2p_did: "synthetic-peer", p2p_conn: "synthetic-route", member: { admin_user_id: serial + "-owner" },
+    })) }));
+    context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ first: { key: "synthetic", expiresAt: null }, second: { key: "synthetic", expiresAt: null } }));
+    context.mock.method(MegaPushReceiver.prototype, "start", async () => { throw new Error("Offline push fixture"); });
+    const requests: string[] = [], installed: string[] = [];
+    context.mock.method(MegaClient.prototype, "getCiphers", async (ids: readonly number[], owner: string, station: string) => {
+      assert.deepEqual(ids, [197]);
+      assert.equal(owner, station + "-owner");
+      requests.push(station);
+      const row = { cipher_id: scenario === "wrong-id" ? 198 : 197, ecc_private_key: station + "-key" };
+      return scenario === "duplicate-id" ? [row, row] : [row];
+    });
+    context.mock.method(PpcsVideoFrameDecoder.prototype, "setEccPrivateKey", (key: string) => { installed.push(key); });
+    context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => undefined);
+    context.mock.method(FirstPartyPpcsSession.prototype, "close", () => undefined);
+    try {
+      await f.provider.start(f.events);
+      await f.provider.startStream("first");
+      await f.provider.startStream("second");
+      await f.provider.startStream("first");
+      assert.deepEqual(requests, scenario === "separate-owners" ? ["first", "second"] : ["first", "second", "first"]);
+      assert.deepEqual(installed, scenario === "separate-owners" ? ["first-key", "second-key", "first-key"] : []);
+    } finally { await f.provider.close(); }
+  });
+}
+
+
+for (const milliseconds of [false, true]) test(`motion cloud clock consumes stale, rollback and future values, milliseconds=${milliseconds}`, async context => {
+  let now = 1_800_000_000_000;
+  context.mock.method(Date, "now", () => now);
+  const f = discoveryFixture(context);
+  let timestamp = now - 1_000, channel = 3, missing = false;
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{
+    device_sn: "pir", device_model: "T8910", device_type: 10, device_channel: channel, parent_sn: "peer", category: "eufy_security",
+    params: missing ? [] : [{ param_type: 1605, param_value: String(milliseconds ? timestamp : timestamp / 1_000) }],
+  }] }));
+  const poll = async (): Promise<void> => {
+    const timer = f.intervals.mock.calls.at(-1)!;
+    assert.equal(timer.arguments[1], 60_000);
+    (timer.arguments[0] as () => void)();
+    await settleDiscovery();
+  };
+  try {
+    await f.provider.start(f.events);
+    await poll(); assert.deepEqual(f.observations.motion, []);
+    timestamp = now; await poll(); assert.deepEqual(f.observations.motion, ["pir"]);
+    now += 180_000; timestamp = now - 90_000; await poll(); assert.equal(f.observations.motion.length, 1);
+    timestamp = now + 10_000; await poll(); const seen = f.state.listSensors()[0]!.lastSeen;
+    now += 10_000; await poll(); assert.equal(f.observations.motion.length, 1);
+    assert.equal(f.state.listSensors()[0]!.lastSeen, seen);
+    timestamp = now + 1_000; await poll(); assert.equal(f.observations.motion.length, 2);
+    const latest = timestamp; timestamp = now - 1_000; await poll(); timestamp = latest; await poll();
+    assert.equal(f.observations.motion.length, 2);
+    missing = true; await poll(); missing = false; await poll(); assert.equal(f.observations.motion.length, 2);
+    channel = 4; timestamp += 1_000; await poll(); assert.equal(f.observations.motion.length, 2);
+    timestamp += 1_000; now += 1_000; await poll(); assert.equal(f.observations.motion.length, 3);
+    await f.provider.start(f.events); await poll(); assert.equal(f.observations.motion.length, 3);
+  } finally { await f.provider.close(); }
+});
+
+for (const expired of [false, true]) test(`a ${expired ? "stale" : "recent"} normalized push cannot incorrectly replay or suppress cloud motion`, async context => {
+  let now = 1_800_000_000_000;
+  context.mock.method(Date, "now", () => now);
+  const f = discoveryFixture(context);
+  let timestamp = now - 1_000;
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{
+    device_sn: "pir", device_model: "T8910", device_type: 10, parent_sn: "peer", category: "eufy_security",
+    params: [{ param_type: 1605, param_value: String(timestamp) }],
+  }] }));
+  let deliver!: (event: MegaPushEvent) => void;
+  context.mock.method(MegaPushReceiver.prototype, "start", async function(this: MegaPushReceiver) {
+    deliver = Reflect.get(this, "onEvent") as (event: MegaPushEvent) => void;
+  });
+  try {
+    await f.provider.start(f.events);
+    const event = parsePushEvent({ device_sn: "pir", station_sn: "peer", a: 14 }); assert.ok(event);
+    deliver(event); assert.equal(f.observations.motion.length, 1);
+    if (expired) now += 61_000;
+    timestamp = now; pollDiscovery(f); await settleDiscovery();
+    assert.equal(f.observations.motion.length, expired ? 2 : 1);
+    pollDiscovery(f); await settleDiscovery(); assert.equal(f.observations.motion.length, expired ? 2 : 1);
+  } finally { await f.provider.close(); }
+});
+
+
+test("a push arriving during peer discovery remains pending for its later cloud confirmation", async context => {
+  const now = 1_800_000_000_000;
+  context.mock.method(Date, "now", () => now);
+  const f = discoveryFixture(context);
+  let timestamp = now - 1_000, peerPresent = false;
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [
+    { device_sn: "pir", device_model: "T8910", device_type: 10, parent_sn: "peer", category: "eufy_security",
+      params: [{ param_type: 1605, param_value: String(timestamp) }] },
+    ...(peerPresent ? [{ device_sn: "peer", device_model: "T8030", device_type: 18,
+      category: "eufy_security", p2p_did: "fixture-peer", p2p_conn: "fixture-route" }] : []),
+  ] }));
+  let deliver!: (event: MegaPushEvent) => void;
+  context.mock.method(MegaPushReceiver.prototype, "start", async function(this: MegaPushReceiver) {
+    deliver = Reflect.get(this, "onEvent") as (event: MegaPushEvent) => void;
+  });
+  context.mock.method(MegaClient.prototype, "dskKeys", async () => {
+    const event = parsePushEvent({ device_sn: "pir", station_sn: "peer", a: 14 }); assert.ok(event);
+    deliver(event);
+    return { peer: { key: "fixture-key", expiresAt: null } };
+  });
+  try {
+    await f.provider.start(f.events);
+    timestamp = now; peerPresent = true; pollDiscovery(f); await settleDiscovery();
+    assert.equal(f.observations.motion.length, 1);
+    timestamp = now + 1_000; pollDiscovery(f); await settleDiscovery();
+    assert.equal(f.observations.motion.length, 1);
+  } finally { await f.provider.close(); }
+});
+
+
+for (const validContact of [false, true]) test(`future motion cannot become lastSeen, independent contact valid=${validContact}`, async context => {
+  const now = 1_800_000_000_000;
+  context.mock.method(Date, "now", () => now);
+  const f = discoveryFixture(context);
+  context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{
+    device_sn: "pir", device_model: "T8910", device_type: 10, category: "eufy_security",
+    params: [{ param_type: 1605, param_value: String(now + 10_000) },
+      { param_type: 1551, param_value: validContact ? String(now / 1_000 - 5) : "invalid" }],
+  }] }));
+  try {
+    await f.provider.start(f.events);
+    assert.equal(f.state.listSensors()[0]!.lastSeen, validContact ? new Date(now - 5_000).toISOString() : null);
+    pollDiscovery(f); await settleDiscovery();
+    assert.deepEqual(f.observations.motion, []);
+    assert.equal(f.state.listSensors()[0]!.lastSeen, validContact ? new Date(now - 5_000).toISOString() : null);
+  } finally { await f.provider.close(); }
+});
+
+
+/** Read the most recently installed inventory poll without advancing transport timers. */
+function latestInventoryPoll(f: ReturnType<typeof discoveryFixture>): () => void {
+  const timer = f.intervals.mock.calls.at(-1)!;
+  assert.equal(timer.arguments[1], 60_000);
+  return timer.arguments[0] as () => void;
+}
+
+test("periodic session rejection uses one-shot recovery and retires old poll callbacks", async context => {
+  const f = discoveryFixture(context);
+  const modes: (boolean | undefined)[] = [];
+  context.mock.method(MegaClient.prototype, "connect", async (_code?: string, _answer?: string, force?: boolean) => {
+    modes.push(force); return { state: "authenticated" as const };
+  });
+  let reads = 0;
+  const inventory = context.mock.method(MegaClient.prototype, "inventory", async () => {
+    if ([2, 3].includes(++reads)) throw new Error("Mega request failed (HTTP 401)");
+    return { devices: [] };
+  });
+  try {
+    await f.provider.start(f.events);
+    const oldPoll = latestInventoryPoll(f);
+    oldPoll(); await settleDiscovery();
+    assert.deepEqual(modes, [undefined, true]);
+    assert.equal(inventory.mock.callCount(), 4);
+    assert.equal(f.connections.at(-1)?.state, "connected");
+    oldPoll(); await settleDiscovery();
+    assert.equal(inventory.mock.callCount(), 4);
+    latestInventoryPoll(f)(); await settleDiscovery();
+    assert.equal(inventory.mock.callCount(), 5);
+    assert.deepEqual(modes, [undefined, true]);
+  } finally { await f.provider.close(); f.state.close(); }
+});
+
+for (const challenge of ["verification", "captcha"] as const) {
+  test(`periodic recovery exposes ${challenge} once and resumes after user submission`, async context => {
+    const f = discoveryFixture(context);
+    let logins = 0, reads = 0;
+    const connect = context.mock.method(MegaClient.prototype, "connect", async () => {
+      if (++logins !== 2) return { state: "authenticated" as const };
+      return challenge === "verification" ? { state: "verification-required" as const }
+        : { state: "captcha-required" as const, captcha: { id: "fixture", image: "AA==" } };
+    });
+    const inventory = context.mock.method(MegaClient.prototype, "inventory", async () => {
+      if ([2, 3].includes(++reads)) throw new Error("Mega request failed (HTTP 401)");
+      return { devices: [] };
+    });
+    try {
+      await f.provider.start(f.events);
+      const oldPoll = latestInventoryPoll(f);
+      oldPoll(); await settleDiscovery();
+      assert.equal(f.connections.at(-1)?.state, "authentication-required");
+      assert.equal(f.provider.isVerificationRequired(), challenge === "verification");
+      assert.equal(!!f.provider.getCaptchaChallenge(), challenge === "captcha");
+      for (let i = 0; i < 3; ++i) oldPoll();
+      await settleDiscovery();
+      assert.equal(connect.mock.callCount(), 2);
+      assert.equal(inventory.mock.callCount(), 3);
+      if (challenge === "verification") await f.provider.submitVerification("123456");
+      else await f.provider.submitCaptcha("fixture-answer");
+      assert.equal(f.connections.at(-1)?.state, "connected");
+      latestInventoryPoll(f)(); await settleDiscovery();
+      assert.equal(inventory.mock.callCount(), 5);
+      assert.equal(connect.mock.callCount(), 3);
+    } finally { await f.provider.close(); f.state.close(); }
+  });
+}
+
+test("concurrent rejected inventory polls cannot create multiple login recoveries", async context => {
+  const f = discoveryFixture(context);
+  let rejectRead!: (error: Error) => void;
+  const pending = new Promise<{ devices: [] }>((_resolve, reject) => { rejectRead = reject; });
+  let reads = 0;
+  const inventory = context.mock.method(MegaClient.prototype, "inventory", async () => {
+    if (++reads === 2) return pending;
+    if (reads === 3) throw new Error("Mega request failed (HTTP 401)");
+    return { devices: [] };
+  });
+  const connect = context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" as const }));
+  try {
+    await f.provider.start(f.events);
+    const poll = latestInventoryPoll(f);
+    poll(); poll(); await settleDiscovery();
+    assert.equal(inventory.mock.callCount(), 2);
+    rejectRead(new Error("Mega request failed (HTTP 401)")); await settleDiscovery();
+    assert.equal(connect.mock.callCount(), 2);
+    assert.equal(inventory.mock.callCount(), 4);
+  } finally { await f.provider.close(); f.state.close(); }
+});
+
+for (const failure of ["HTTP 403", "HTTP 503", "transport"]) {
+  test(`periodic ${failure} failure retains the session without a password attempt`, async context => {
+    const f = discoveryFixture(context);
+    let reads = 0;
+    context.mock.method(MegaClient.prototype, "inventory", async () => {
+      if (++reads === 2) throw new Error(`Mega request failed (${failure})`);
+      return { devices: [] };
+    });
+    const connect = context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" as const }));
+    try {
+      await f.provider.start(f.events);
+      const poll = latestInventoryPoll(f);
+      poll(); await settleDiscovery(); poll(); await settleDiscovery();
+      assert.equal(connect.mock.callCount(), 1);
+      assert.equal(reads, 3);
+    } finally { await f.provider.close(); f.state.close(); }
+  });
+}
+
+test("an old generation's rejected read cannot replace a newer successful startup", async context => {
+  const f = discoveryFixture(context);
+  let rejectRead!: (error: Error) => void;
+  const pending = new Promise<{ devices: [] }>((_resolve, reject) => { rejectRead = reject; });
+  let reads = 0;
+  context.mock.method(MegaClient.prototype, "inventory", async () => ++reads === 2 ? pending : { devices: [] });
+  const modes: (boolean | undefined)[] = [];
+  context.mock.method(MegaClient.prototype, "connect", async (_code?: string, _answer?: string, force?: boolean) => {
+    modes.push(force); return { state: "authenticated" as const };
+  });
+  try {
+    await f.provider.start(f.events);
+    latestInventoryPoll(f)(); await settleDiscovery();
+    await f.provider.close();
+    await f.provider.start(f.events);
+    rejectRead(new Error("Mega request failed (HTTP 401)")); await settleDiscovery();
+    assert.deepEqual(modes, [undefined, undefined]);
+    assert.equal(reads, 3);
+    assert.equal(f.connections.at(-1)?.state, "connected");
+  } finally { await f.provider.close(); f.state.close(); }
+});
+
+test("a refused automatic sign-in recovery is visible and does not loop", async context => {
+  const f = discoveryFixture(context);
+  let reads = 0, logins = 0;
+  context.mock.method(MegaClient.prototype, "inventory", async () => {
+    if (++reads > 1) throw new Error("Mega request failed (HTTP 401)");
+    return { devices: [] };
+  });
+  context.mock.method(MegaClient.prototype, "connect", async () => {
+    if (++logins > 1) throw new Error("Mega request failed (10019: attempt limit) operation=login");
+    return { state: "authenticated" as const };
+  });
+  try {
+    await f.provider.start(f.events);
+    const poll = latestInventoryPoll(f);
+    poll(); await settleDiscovery();
+    assert.equal(f.connections.at(-1)?.state, "error");
+    poll(); poll(); await settleDiscovery();
+    assert.equal(logins, 2);
+    assert.equal(reads, 3);
+  } finally { await f.provider.close(); f.state.close(); }
 });

@@ -7,12 +7,13 @@
  * normalized camera, station, and standalone-sensor paths Home Assistant may use.
  */
 
-import type { CameraCapability, CameraCapabilityManifest, CapabilityMatrixRow, DeviceCapabilityManifest } from "../domain/types.js";
-import { CAMERA_CAPABILITY_CORE, hasMainsBatterySentinel, KNOWN_CAMERA_DEVICE_TYPES, megaDeviceRole, NON_CAMERA_DEVICE_TYPES } from "./camera-capability-core.js";
+import type { CameraCapability, CameraCapabilityManifest, CapabilityMatrixRow, DeviceCapabilityManifest, DetectionKind } from "../domain/types.js";
+import { CAMERA_CAPABILITY_CORE, catalogueIntegrationStatus, hasMainsBatterySentinel, KNOWN_CAMERA_DEVICE_TYPES, megaDeviceRole, NON_CAMERA_DEVICE_TYPES } from "./camera-capability-core.js";
 import type { CoreCapabilityEntry } from "./device-capability-core.js";
 import { DOORBELL_CAPABILITY_CORE } from "./doorbell-capability-core.js";
 import { HOMEBASE_CAPABILITY_CORE, HOMEBASE_DEVICE_TYPES } from "./homebase-capability-core.js";
 import { SENSOR_CAPABILITY_CORE, SENSOR_DEVICE_TYPES } from "./sensor-capability-core.js";
+import { CARE_MONITOR_CAPABILITY_ROWS, isCareBabyMonitor } from "./care-monitor.js";
 
 /** Inventory shape sufficient for baseline family recognition. */
 export interface CapabilityInventoryRow {
@@ -33,8 +34,41 @@ export interface DeviceCapabilityOptions {
 }
 
 /** Check the existing camera admission boundary before offering camera paths. */
-export function isSupportedCameraType(device: { readonly category: string | null; readonly deviceType: number | null }): boolean {
-  return device.category === "eufy_security" && megaDeviceRole(device.deviceType) === "camera";
+export function isSupportedCameraType(device: { readonly category: string | null; readonly model: string; readonly deviceType: number | null }): boolean {
+  if (device.category !== "eufy_security") return false;
+
+  if (device.model.toUpperCase() === "T8215" || device.deviceType === 97) {
+    return device.model.toUpperCase() === "T8215" && device.deviceType === 97;
+  }
+  if (megaDeviceRole(device.deviceType) !== "camera") return false;
+
+  if (device.deviceType === 37) return device.model.toUpperCase() === "T8422";
+  if (device.deviceType === 111) return device.model.toUpperCase() === "T86P2";
+  if (device.deviceType === 10008) return device.model.toUpperCase() === "T8W11C";
+
+  // Type 95 is also declared for T8224 without hardware confirmation, so only
+  // the reported T8223 pairing may cross the existing camera boundary.
+  return device.deviceType !== 95 || catalogueIntegrationStatus(device.model, device.deviceType) === "ready_to_test";
+}
+
+/**
+ * Limit direct-camera detection entities to the reviewed exact-model profiles.
+ *
+ * Unknown identities and unresolved or attached routes retain the legacy list.
+ * These declarations describe available event kinds, not successful detections.
+ */
+export function directCameraDetectionKinds(
+  device: Pick<CapabilityInventoryRow, "category" | "model" | "deviceType">,
+  homeBaseAttached: boolean | null | undefined,
+): DetectionKind[] | undefined {
+  if (device.category !== "eufy_security" || homeBaseAttached !== false) return undefined;
+  const model = device.model.toUpperCase();
+  if (model === "T8420" && device.deviceType === 3) return ["motion"];
+  if (model === "T86P2" && device.deviceType === 111) return ["motion", "person", "pet", "vehicle", "sound"];
+  if ((model === "T8224" && device.deviceType === 96)
+    || (model === "T8422" && device.deviceType === 37)
+    || (model === "T8W11C" && device.deviceType === 10008)) return ["motion", "person"];
+  return undefined;
 }
 
 /** Build one camera's shape-only manifest from reported inventory and route facts. */
@@ -45,6 +79,17 @@ export function describeCameraCapabilities(device: CapabilityInventoryRow, optio
   readonly homeBaseAttached?: boolean;
   readonly standaloneNightVisionSupported?: boolean;
 }): CameraCapabilityManifest {
+  if (isCareBabyMonitor(device)) {
+    const matrix: CapabilityMatrixRow[] = [
+      { id: "camera.retained_image", family: "image", kind: "media", reportedParamIds: [], deviceEvidence: "gateway-baseline", gatewaySupport: "implemented", offerable: true, note: "Attributed care event images use the existing retained-picture pipeline." },
+      { id: "camera.live_video", family: "video", kind: "media", reportedParamIds: [], deviceEvidence: "gateway-baseline", gatewaySupport: "implemented", offerable: options.streamSupported, note: "Default-off exact E21 direct live-view trial. Hardware remains unconfirmed." },
+    ];
+    return { serial: device.serial, model: device.model, deviceType: device.deviceType, acceptedAsCamera: true,
+      reviewCandidate: false, peerRouteReady: options.routeReady ?? options.streamSupported, reason: "exact-e21-profile",
+      capabilities: [{ id: "retainedImage", kind: "image", unit: null, evidence: "gateway" },
+        ...(options.streamSupported ? [{ id: "liveVideo", kind: "stream", unit: null, evidence: "ppcs-route" } as const] : [])],
+      matrix, unmappedParamIds: device.paramTypes.slice(0, 128), unmappedParamCount: device.paramTypes.length };
+  }
   const acceptedAsCamera = isSupportedCameraType(device);
   const reason = acceptedAsCamera ? "supported-camera-type"
     : device.category !== "eufy_security" ? "non-security-category"
@@ -93,6 +138,18 @@ export function describeCameraCapabilities(device: CapabilityInventoryRow, optio
 
 /** Return one manifest for each recognized non-camera or doorbell family. */
 export function describeDeviceCapabilities(device: CapabilityInventoryRow, options: DeviceCapabilityOptions): DeviceCapabilityManifest[] {
+  if (isCareBabyMonitor(device)) {
+    return [{
+      serial: device.serial,
+      model: device.model,
+      deviceType: device.deviceType,
+      family: "sensor",
+      recognized: true,
+      supported: true,
+      matrix: CARE_MONITOR_CAPABILITY_ROWS,
+      unmappedParamCount: device.paramTypes.length,
+    }];
+  }
   if (device.category !== "eufy_security") return [];
   const manifests: DeviceCapabilityManifest[] = [];
   if (SENSOR_DEVICE_TYPES.has(device.deviceType ?? -1)) {

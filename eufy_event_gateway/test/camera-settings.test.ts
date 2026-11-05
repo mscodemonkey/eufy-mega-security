@@ -1,0 +1,170 @@
+/**
+ * Verifies exact-model native settings and single-write confirmation boundaries.
+ * Synthetic routes and cipher keys own all test state. These tests never contact
+ * cameras and are consumed by the gateway's normal repository validation.
+ */
+import assert from "node:assert/strict";
+import { createDecipheriv } from "node:crypto";
+import test from "node:test";
+import { cameraSettingProfile, cameraSettingWireValue, CameraSettingError, parseCameraSettingChange, readCameraSetting, runConfirmedCameraSetting } from "../src/provider/camera-settings.js";
+import type { ModelControlRoute } from "../src/provider/model-control-trials.js";
+import { buildFloodlightMotionControlValue, buildReviewedCameraSettingPayload } from "../src/stream/first-party-ppcs.js";
+import { safeInventoryReads } from "../src/provider/eufy-provider.js";
+
+const profiles = [
+  ["T8210", 7, true, 1276, [1, 2, 3, 4, 5]],
+  ["T8113-Z", 8, true, 1210, [192, 118, 72, 46, 30, 20, 14]],
+  ["T8160-C", 19, true, 1210, [1, 2, 3, 4, 5, 6, 7]],
+  ["T8171", 88, true, 1276, [1, 2, 3, 4, 5, 6, 7]],
+  ["T817L", 10031, false, 6041, [1, 2, 3]],
+] as const;
+
+function route(model: string, type: number, attached: boolean): ModelControlRoute {
+  return { model, deviceType: type, homeBaseAttached: attached, peerModel: attached ? "T8030" : model, selfPeer: !attached, channel: attached ? 2 : 0 };
+}
+
+function clear(frame: { payload: Buffer }, key: Buffer): Buffer {
+  const encrypted = frame.payload.subarray(10);
+  const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(16, 28));
+  decipher.setAAD(Buffer.from("eufy security")); decipher.setAuthTag(encrypted.subarray(0, 16));
+  return Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
+}
+
+test("reviewed sensitivity ladders preserve exact model, topology, read parameter and direction", () => {
+  for (const [model, type, attached, id, ladder] of profiles) {
+    const r = route(model, type, attached), p = cameraSettingProfile(r, "motionSensitivity")!;
+    assert.deepEqual(p.ladder, ladder); assert.equal(p.readParam, id);
+    for (const [index, native] of ladder.entries()) {
+      const params = [{ param_type: id, param_value: `${native}` }];
+      assert.equal(readCameraSetting(params, model, type, !attached, "motionSensitivity"), index + 1);
+      assert.equal(cameraSettingWireValue(p, { setting: "motionSensitivity", value: index + 1 }), native);
+      assert.equal(safeInventoryReads(params, type, model, !attached).motionSensitivityStep, index + 1);
+      assert.equal(readCameraSetting([...params, ...params], model, type, !attached, "motionSensitivity"), undefined);
+    }
+    for (const invalid of [true, false, null, "unknown", 0, 999, 1.5]) assert.equal(readCameraSetting([{ param_type: id, param_value: invalid }], model, type, !attached, "motionSensitivity"), undefined);
+    for (const modified of [{ ...r, model: model + "X" }, { ...r, deviceType: 999 }, { ...r, channel: null }, { ...r, channel: -1 }, { ...r, homeBaseAttached: !attached }]) {
+      assert.equal(cameraSettingProfile(modified, "motionSensitivity"), null);
+    }
+    assert.throws(() => cameraSettingWireValue(p, { setting: "motionSensitivity", value: ladder.length + 1 }));
+  }
+  const mirrored = [{ param_type: 1210, param_value: "14" }, { param_type: 1276, param_value: "4" }, { param_type: 6041, param_value: "4" }];
+  assert.equal(readCameraSetting(mirrored, "T8113-Z", 8, false, "motionSensitivity"), 7);
+  assert.equal(readCameraSetting(mirrored.slice(1), "T8113-Z", 8, false, "motionSensitivity"), undefined);
+  assert.equal(cameraSettingProfile(route("T8171", 88, false), "motionSensitivity"), null);
+});
+
+test("only the exact attached T8210 chime gains write authority", () => {
+  const r = route("T8210", 7, true), p = cameraSettingProfile(r, "homebaseChime")!;
+  assert.equal(readCameraSetting([{ param_type: 1702, param_value: "0" }], "T8210", 7, false, "homebaseChime"), false);
+  assert.equal(cameraSettingWireValue(p, { setting: "homebaseChime", value: true }), 1);
+  assert.equal(safeInventoryReads([{ param_type: 1702, param_value: "1" }], 7, "T8210").homebaseChimeEnabled, true);
+  for (const [model, type] of [["T8210", 5], ["T8214", 94], ["T8113-Z", 8]] as const) assert.equal(cameraSettingProfile(route(model, type, true), "homebaseChime"), null);
+});
+
+test("setting bodies are closed and retain JSON's documented duplicate-key semantics", () => {
+  for (const body of [null, [], {}, Object.create({ setting: "motionSensitivity", value: 1 }), { setting: "motionSensitivity", value: true }, { setting: "motionSensitivity", value: "1" }, { setting: "motionSensitivity", value: 1.5 }, { setting: "homebaseChime", value: 1 }, { setting: "homebaseChime", value: false, extra: 1 }]) assert.throws(() => parseCameraSettingChange(body), SyntaxError);
+  assert.deepEqual(parseCameraSettingChange(JSON.parse('{"setting":"motionSensitivity","value":1,"value":2}')), { setting: "motionSensitivity", value: 2 });
+  assert.throws(() => parseCameraSettingChange(JSON.parse('{"setting":"homebaseChime","value":false,"__proto__":{}}')), SyntaxError);
+});
+
+test("reviewed frames retain native command, channel, ownership and one-step encoding", () => {
+  const key = Buffer.alloc(32, 7), now = 1791464400000;
+  for (const [model, type, attached, id, ladder] of profiles) {
+    const r = route(model, type, attached);
+    const frame = buildReviewedCameraSettingPayload({ setting: "motionSensitivity", value: 2 }, r, "fixture-owner", key, 257, now);
+    const body = clear(frame, key);
+    if (id === 1210) {
+      assert.equal(frame.command, 1210); assert.equal(body.length, 136);
+      assert.equal(body.readUInt32LE(0), 2); assert.equal(body.readUInt32LE(4), ladder[1]);
+      assert.equal(body.subarray(8, 21).toString(), "fixture-owner");
+    } else if (id === 1276) {
+      assert.equal(frame.command, 1350);
+      assert.deepEqual(JSON.parse(body.toString()), { account_id: "fixture-owner", cmd: 1276, mChannel: 2, mValue3: 0, payload: { sensitivity: 2, channel: 2 } });
+    } else {
+      assert.equal(frame.command, 1700);
+      assert.deepEqual(JSON.parse(body.toString()), { commandType: 6041, data: { value: 2, index: 2, channel: 0, transaction: `${now}` } });
+    }
+  }
+  const frame = buildReviewedCameraSettingPayload({ setting: "homebaseChime", value: false }, route("T8210", 7, true), "fixture-owner", key, 1, now);
+  assert.equal(frame.command, 1702); assert.equal(clear(frame, key).readUInt32LE(4), 0);
+});
+
+test("confirmation requires a present fresh baseline and sends once despite ignored or ambiguous writes", async () => {
+  for (const scenario of ["success", "noop", "missing", "ignored", "ambiguous", "cancel-before", "cancel-after"] as const) {
+    let actual: number | undefined = scenario === "missing" ? undefined : scenario === "noop" ? 3 : 2;
+    let writes = 0, invalidations = 0;
+    const controller = new AbortController(); if (scenario === "cancel-before") controller.abort();
+    const work = runConfirmedCameraSetting({ deadline: Date.now() + 90_000, signal: controller.signal,
+      read: async () => actual, check: () => {}, invalidate: () => { invalidations++; }, wait: async () => {},
+      write: async dispatch => { dispatch(); writes++; if (scenario === "cancel-after") controller.abort(); if (scenario === "ambiguous") throw Error("lost"); if (scenario !== "ignored") actual = 3; },
+    }, 3);
+    if (["success", "noop", "cancel-after"].includes(scenario)) await work;
+    else await assert.rejects(work, (error: unknown) => error instanceof CameraSettingError && error.code === (["ignored", "ambiguous"].includes(scenario) ? "outcome_unknown" : "unavailable"));
+    assert.equal(writes, ["noop", "missing", "cancel-before"].includes(scenario) ? 0 : 1);
+    assert.equal(invalidations, ["ignored", "ambiguous"].includes(scenario) ? 1 : 0);
+  }
+});
+
+
+for (const [model, type] of [["T8425", 47], ["T8426", 87]] as const) test(`${model} brightness is exact, scalar and independently readable without defaults`, () => {
+  const r = route(model, type, false), p = cameraSettingProfile(r, "lightBrightness")!;
+  assert.deepEqual(p, { readParam: 1401, command: 1401, form: "binary" });
+  for (const value of [1, 37, 100]) {
+    assert.equal(readCameraSetting([{ param_type: 1401, param_value: `${value}` }], model, type, true, "lightBrightness"), value);
+    assert.equal(safeInventoryReads([{ param_type: 1401, param_value: `${value}` }], type, model, true).lightBrightness, value);
+    const frame = buildReviewedCameraSettingPayload({ setting: "lightBrightness", value }, r, "fixture-owner", Buffer.alloc(32, 7), 1, 1791464400000);
+    const body = clear(frame, Buffer.alloc(32, 7));
+    assert.equal(frame.command, 1401); assert.equal(body.length, 136);
+    assert.equal(body.readUInt32LE(0), 0); assert.equal(body.readUInt32LE(4), value);
+    assert.equal(body.subarray(8, 21).toString(), "fixture-owner");
+  }
+  for (const bad of [0, 101, 2.5, NaN, Infinity, true, null, " 50", "50.0"]) {
+    assert.equal(readCameraSetting([{ param_type: 1401, param_value: bad }], model, type, true, "lightBrightness"), undefined);
+    if (typeof bad !== "string") assert.throws(() => parseCameraSettingChange({ setting: "lightBrightness", value: bad }));
+  }
+  assert.equal(readCameraSetting([{ param_type: 1401, param_value: 50 }, { param_type: 1401, param_value: 50 }], model, type, true, "lightBrightness"), undefined);
+  for (const unsupported of [route(model + "X", type, false), route(model, type, true), route(model, type === 47 ? 87 : 47, false), route("T8425121", 47, false), route("T8426121", 87, false), { ...r, channel: 1 }]) {
+    assert.equal(cameraSettingProfile(unsupported, "lightBrightness"), null);
+    assert.throws(() => buildReviewedCameraSettingPayload({ setting: "lightBrightness", value: 50 }, unsupported, "fixture-owner", Buffer.alloc(32, 7), 1, 1791464400000));
+  }
+});
+
+
+test("T8426 manual override requires its own read and native level-one format", () => {
+  const r = route("T8426", 87, false);
+  assert.deepEqual(cameraSettingProfile(r, "manualFloodlight"), { readParam: 1400, command: 1700, form: "manual-light" });
+  for (const [raw, expected] of [["0", false], ["1", true]] as const) {
+    const params = [{ param_type: 1400, param_value: raw }];
+    assert.equal(readCameraSetting(params, "T8426", 87, true, "manualFloodlight"), expected);
+    assert.equal(safeInventoryReads(params, 87, "T8426", true).manualFloodlightEnabled, expected);
+    assert.equal(readCameraSetting([...params, ...params], "T8426", 87, true, "manualFloodlight"), undefined);
+  }
+  for (const value of [null, true, 2, "", "false", " 0"]) assert.equal(readCameraSetting([{ param_type: 1400, param_value: value }], "T8426", 87, true, "manualFloodlight"), undefined);
+  assert.equal(cameraSettingProfile(route("T8425", 47, false), "manualFloodlight"), null);
+  assert.equal(cameraSettingProfile(route("T8426", 87, true), "manualFloodlight"), null);
+  assert.throws(() => buildReviewedCameraSettingPayload({ setting: "manualFloodlight", value: true }, r, "fixture-owner", Buffer.alloc(32), 1, 1791464400000), /level-one/);
+});
+
+
+for (const [model, type] of [["T8425", 47], ["T8426", 87]] as const) test(`${model} motion settings use strict native reads and standalone payloads`, () => {
+  const r = route(model, type, false);
+  for (const value of [false, true]) {
+    const params = [{ param_type: 6040, param_value: Number(value) }];
+    assert.equal(readCameraSetting(params, model, type, true, "motionDetection"), value);
+    assert.equal(safeInventoryReads([...params, { param_type: 1011, param_value: Number(!value) }], type, model, true).motionDetectionEnabled, value);
+    assert.deepEqual(JSON.parse(buildFloodlightMotionControlValue({ setting: "motionDetection", value }, r)), { commandType: 6040, data: { status: Number(value) } });
+    assert.equal(readCameraSetting([...params, ...params], model, type, true, "motionDetection"), undefined);
+    assert.equal(safeInventoryReads([...params, ...params], type, model, true).motionDetectionEnabled, undefined);
+  }
+  for (const value of [1, 2, 3, 4, 5]) {
+    assert.equal(readCameraSetting([{ param_type: 6041, param_value: `${value}` }], model, type, true, "motionSensitivity"), value);
+    assert.deepEqual(JSON.parse(buildFloodlightMotionControlValue({ setting: "motionSensitivity", value }, r)), { commandType: 6041, data: { value, index: value, channel: 0 } });
+  }
+  for (const value of [0, 6, true, null, " 3", "3.0"]) assert.equal(readCameraSetting([{ param_type: 6041, param_value: value }], model, type, true, "motionSensitivity"), undefined);
+  for (const value of [2, true, null, "", "false", " 0"]) assert.equal(readCameraSetting([{ param_type: 6040, param_value: value }], model, type, true, "motionDetection"), undefined);
+  for (const setting of ["motionDetection", "motionSensitivity"] as const) {
+    for (const unsupported of [route(model + "X", type, false), route(model, type, true), route(model, type === 47 ? 87 : 47, false), { ...r, channel: 1 }]) assert.equal(cameraSettingProfile(unsupported, setting), null);
+  }
+  assert.throws(() => buildReviewedCameraSettingPayload({ setting: "motionDetection", value: true }, r, "owner", Buffer.alloc(32), 1, 1791464400000), /level-one/);
+  assert.equal(safeInventoryReads([{ param_type: 1011, param_value: 1 }], type, model, true).motionDetectionEnabled, undefined);
+});

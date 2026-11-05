@@ -18,6 +18,7 @@ import {
   buildNightVisionBody,
   acceptsAttachedCameraMedia,
   acceptsSoloCamAudio,
+  attachedMediaStallRecoveryAction,
   buildPpcsCloudLookup,
   buildStandaloneJsonControlPayload,
   buildStandaloneCameraLightBody,
@@ -25,11 +26,19 @@ import {
   buildSoloCamMotionDetectionPayload,
   buildSoloCamAudioRecordingPayload,
   buildSoloCamStreamingQualityPayload,
+  buildStandaloneC31StreamingQualityPayload,
+  buildStandaloneC31NightVisionPayload,
+  buildStandaloneC31EnabledPayload,
+  buildStandaloneC31SirenStartPayload,
+  buildStandaloneC31SirenStopPayload,
   buildSoloCamPanControlData,
   buildSoloCamPanControlPayload,
   buildStandaloneC31ControlPayload,
   buildStandaloneGuardModeValue,
   buildStandaloneLiveStartPayload,
+  buildStandaloneLiveStartValue,
+  buildT8200LiveStartPayload,
+  buildT8200LiveStartValue,
   buildTimedCameraLightControlValue,
   decodePpcsVideoFrame,
   decodePpcsControlRecord,
@@ -253,9 +262,27 @@ test("adds the HomeBase inventory address to local PPCS lookup", () => {
   ]);
 });
 
+test("omits the optional extension only from the exact standalone T8423 request", () => {
+  const timestamp = 1_791_644_400_000;
+  const expected = {
+    commandType: 1000, data: {
+      cmd: 1000, account_id: "test-account", accountId: "test-account",
+      mValueStrSub: "test-account", mChannel: 4, mValue3: 0, mValue5: 0,
+      msg_id: 1, camera_type: 0, entrytype: 0, ivalue: 1, restore: 0,
+      streamtype: 2, video_type: 12, timestamp, transaction: String(timestamp), encryptkey: "test-modulus",
+    },
+  };
+  assert.deepEqual(JSON.parse(buildStandaloneLiveStartValue("T8423", 4, "test-account", "test-modulus", timestamp)), expected);
+  for (const model of ["T817L", "T8171", "T8410", "T8423X", ""]) {
+    assert.deepEqual(JSON.parse(buildStandaloneLiveStartValue(model, 4, "test-account", "test-modulus", timestamp)), {
+      ...expected, data: { ...expected.data, extValue: 1000 },
+    });
+  }
+});
+
 test("labels a standalone live start as level-one frame type 11", () => {
   const key = Buffer.from("0123456789abcdef", "utf8");
-  const value = JSON.stringify({ commandType: 1000, data: { cmd: 1000 } });
+  const value = buildStandaloneLiveStartValue("T8423", 4, "test-account", "test-modulus", 1_791_644_400_000);
   const payload = buildStandaloneLiveStartPayload(value, 4, key);
 
   assert.equal(payload.readUInt16LE(0), payload.length - 10);
@@ -269,7 +296,7 @@ test("labels a standalone live start as level-one frame type 11", () => {
 
 test("labels a negotiated standalone live start as level-two frame type 10", () => {
   const key = Buffer.alloc(32, 7);
-  const value = JSON.stringify({ commandType: 1000, data: { cmd: 1000 } });
+  const value = buildStandaloneLiveStartValue("T8423", 4, "test-account", "test-modulus", 1_791_644_400_000);
   const payload = buildStandaloneLevel2LiveStartPayload(value, 4, key, 257);
 
   assert.equal(payload.readUInt16LE(0), payload.length - 10);
@@ -281,6 +308,34 @@ test("labels a negotiated standalone live start as level-two frame type 10", () 
   decipher.setAuthTag(encrypted.subarray(0, 16));
   const clear = Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
   assert.equal(clear.toString("utf8"), value);
+});
+
+test("builds the exact clear T8200 live-start contract", () => {
+  const value = buildT8200LiveStartValue("test-account", "test-modulus", 1_791_730_800_000);
+  assert.deepEqual(JSON.parse(value), {
+    commandType: 1000,
+    data: {
+      accountId: "test-account",
+      camera_type: 0,
+      encryptkey: "test-modulus",
+      entrytype: 0,
+      msg_id: 3,
+      streamtype: 1,
+      timestamp: 1_791_730_800_000,
+    },
+  });
+
+  const payload = buildT8200LiveStartPayload(value);
+  assert.equal(payload.readUInt16LE(0), value.length);
+  assert.deepEqual(payload.subarray(4, 10), Buffer.from([1, 0, 0, 0, 13, 0]));
+  assert.equal(payload.subarray(10).toString("utf8"), value);
+});
+
+test("rejects incomplete T8200 live-start values", () => {
+  assert.throws(() => buildT8200LiveStartValue("", "test-modulus", 1), /account identifier/);
+  assert.throws(() => buildT8200LiveStartValue("test-account", "", 1), /public key/);
+  assert.throws(() => buildT8200LiveStartValue("test-account", "test-modulus", -1), /timestamp/);
+  assert.throws(() => buildT8200LiveStartValue("test-account", "test-modulus", 1.5), /timestamp/);
 });
 
 test("keeps the native SoloCam motion envelope separate from a live-start request", () => {
@@ -339,6 +394,28 @@ test("matches every native SoloCam quality wrapper without changing recorded-vid
   assert.throws(() => buildSoloCamStreamingQualityPayload(1, "fixture-admin", key, 1, 1791464400), /epoch milliseconds/);
 });
 
+test("matches the authenticated C31 quality wrapper and rejects the SoloCam-only tier", () => {
+  const key = Buffer.alloc(32, 9);
+  for (const quality of [0, 2, 3]) {
+    const payload = buildStandaloneC31StreamingQualityPayload(quality, "fixture-admin", key, 257, 1791464400000);
+    assert.deepEqual(payload.subarray(4, 10), Buffer.from([8, 0, 0, 8, 0, 0]));
+    const encrypted = payload.subarray(10);
+    const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(16, 28));
+    decipher.setAAD(Buffer.from("eufy security"));
+    decipher.setAuthTag(encrypted.subarray(0, 16));
+    const clear = Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
+    assert.deepEqual(JSON.parse(clear.toString("utf8")), {
+      account_id: "fixture-admin", cmd: 2730, mChannel: 0, mValue3: 0,
+      payload: { quality, mode: -1, primary_view: -1, transaction: "1791464400000" },
+    });
+  }
+  for (const invalid of [-1, 1, 4, 2.5, Number.NaN]) {
+    assert.throws(() => buildStandaloneC31StreamingQualityPayload(invalid, "fixture-admin", key, 1, 1791464400000), /Unsupported/);
+  }
+  assert.throws(() => buildStandaloneC31StreamingQualityPayload(0, "", key, 1, 1791464400000000), /administrator/);
+  assert.throws(() => buildStandaloneC31StreamingQualityPayload(0, "fixture-admin", key, 1, 1791464400), /epoch milliseconds/);
+});
+
 test("builds the wall-light control as a level-one command 1700 value", () => {
   const key = Buffer.from("0123456789abcdef", "utf8");
   const value = buildTimedCameraLightControlValue(true);
@@ -379,6 +456,15 @@ test("reasserts attached media during startup or after a stall", () => {
   assert.equal(needsAttachedMediaReassert(1_000, 11_000), true);
 });
 
+test("ends an attached source after one failed post-output reassert", () => {
+  assert.equal(attachedMediaStallRecoveryAction(null, null, 5_000), "reassert");
+  assert.equal(attachedMediaStallRecoveryAction(1_000, null, 11_000), "reassert");
+  assert.equal(attachedMediaStallRecoveryAction(1_000, 11_250, 16_250), "wait");
+  assert.equal(attachedMediaStallRecoveryAction(1_000, 11_250, 21_250), "close");
+  assert.equal(attachedMediaStallRecoveryAction(12_000, 11_250, 20_000), null);
+  assert.equal(attachedMediaStallRecoveryAction(12_000, 11_250, 22_000), "reassert");
+});
+
 test("builds distinct HomeBase start and stop media envelopes", () => {
   assert.deepEqual(JSON.parse(buildAttachedMediaControlValue(1003, 4, "account-owner", "public-key").toString()), {
     account_id: "account-owner",
@@ -391,7 +477,7 @@ test("builds distinct HomeBase start and stop media envelopes", () => {
       camera_type: 0,
       entrytype: 0,
       key: "public-key",
-      streamtype: 1,
+      streamtype: 2,
     },
   });
   assert.deepEqual(JSON.parse(buildAttachedMediaControlValue(1004, 4, "account-owner").toString()), {
@@ -405,6 +491,49 @@ test("builds distinct HomeBase start and stop media envelopes", () => {
     () => buildAttachedMediaControlValue(1003, 4, "account-owner"),
     /requires an RSA public key/,
   );
+});
+
+test("T8171 through HomeBase 3 requests the native single-camera profile", () => {
+  const route = { cameraModel: "T8171", cameraDeviceType: 88, stationModel: "T8030", homeBaseAttached: true };
+  const value = JSON.parse(buildAttachedMediaControlValue(1003, 1, "synthetic-owner", "synthetic-modulus", route).toString());
+  assert.deepEqual(value, {
+    account_id: "synthetic-owner", cmd: 1003, mChannel: 1, mValue3: 1003,
+    payload: { streamtype: 0, camera_type: 0, entrytype: 0, accountId: "synthetic-owner",
+      chn_list: [{ cameraType: 0, chn: 1, index: 0, sensor: 0 }], view_mode: -1, extValue: 1000,
+      ClientOS: "ANDROID", station_video_type: 0, audio_chn: 1, pip_cord: "", stitch_mode: 1, key: "synthetic-modulus" },
+  });
+});
+
+test("T8171 attached stop supplies its channel and a fresh transaction", context => {
+  context.mock.timers.enable({ apis: ["Date"], now: 1800000000000 });
+  const route = { cameraModel: "T8171", cameraDeviceType: 88, stationModel: "T8030", homeBaseAttached: true };
+  const first = JSON.parse(buildAttachedMediaControlValue(1004, 1, "synthetic-owner", undefined, route).toString());
+  assert.deepEqual(first, { account_id: "synthetic-owner", cmd: 1004, mChannel: 1, mValue3: 0,
+    payload: { channel: 1, transaction: "1800000000000" } });
+  context.mock.timers.tick(25);
+  const second = JSON.parse(buildAttachedMediaControlValue(1004, 1, "synthetic-owner", undefined, route).toString());
+  assert.equal(second.payload.transaction, "1800000000025");
+});
+
+test("the T8171 profile requires the exact reported type, parent and child channel", () => {
+  for (const [channel, route] of [
+    [1, { cameraModel: "T8171", stationModel: "T8030", homeBaseAttached: true }],
+    [1, { cameraModel: "T8171", cameraDeviceType: 87, stationModel: "T8030", homeBaseAttached: true }],
+    [1, { cameraModel: "T8171", cameraDeviceType: 88, stationModel: "T8010", homeBaseAttached: true }],
+    [1, { cameraModel: "T8210", cameraDeviceType: 88, stationModel: "T8030", homeBaseAttached: true }],
+    [1, { cameraModel: "T8171", cameraDeviceType: 88, stationModel: "T8030" }],
+    [1, { cameraModel: "T8171", cameraDeviceType: 88, stationModel: "T8030", homeBaseAttached: false }],
+    [0, { cameraModel: "T8171", cameraDeviceType: 88, stationModel: "T8030", homeBaseAttached: true }],
+    [2, { cameraModel: "T8171", cameraDeviceType: 88, stationModel: "T8030", homeBaseAttached: true }],
+  ] as const) {
+    const start = JSON.parse(buildAttachedMediaControlValue(1003, channel, "synthetic-owner", "synthetic-modulus", route).toString());
+    assert.equal(start.payload.streamtype, 2);
+    assert.equal(start.payload.chn_list, undefined);
+    assert.equal(start.payload.ClientOS, "Android");
+    const stop = JSON.parse(buildAttachedMediaControlValue(1004, channel, "synthetic-owner", undefined, route).toString());
+    assert.deepEqual(stop.payload, {});
+    assert.equal(stop.mValue3, 1004);
+  }
 });
 
 test("builds the T8010 direct encrypted media stop command", () => {
@@ -798,6 +927,11 @@ test("SoloCam audio isolates attached children and excludes controls and unrelat
   assert.equal(acceptsSoloCamAudio("T8171", false, 0, 0, undefined), true);
   assert.equal(acceptsSoloCamAudio("T8171", false, 1, 1, "live"), false);
   assert.equal(acceptsSoloCamAudio("T817L", true, 1, 1, "live"), false);
+  assert.equal(acceptsSoloCamAudio("T817L", false, 0, 0, "live"), true);
+  assert.equal(acceptsSoloCamAudio("T817L", false, 1, 1, "live"), false);
+  assert.equal(acceptsSoloCamAudio("T817L", false, 0, 1, "live"), false);
+  assert.equal(acceptsSoloCamAudio("T817L", false, 0, 0, "control"), false);
+  assert.equal(acceptsSoloCamAudio("T817L121", false, 0, 0, "live"), false);
   assert.equal(acceptsSoloCamAudio("T8171", true, -1, -1, "live"), false);
 });
 
@@ -854,4 +988,74 @@ test("C31 viewer ownership admits preset and cruise commands without admitting u
   assert.equal(supportsViewerPanControl("T8171", false, 0), true);
   assert.equal(supportsViewerPanControl("T8171", true, 1), true);
   assert.equal(supportsViewerPanControl("T8171", true, 0), false);
+});
+
+
+test("C31 night vision uses its authenticated native wrapper rather than the E30 envelope", () => {
+  const key = Buffer.alloc(32, 7);
+  for (const mode of [0, 1, 2]) {
+    const payload = buildStandaloneC31NightVisionPayload(mode, "fixture-admin", key, 257, 1791464400000);
+    const encrypted = payload.subarray(10);
+    const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(16, 28));
+    decipher.setAAD(Buffer.from("eufy security"));
+    decipher.setAuthTag(encrypted.subarray(0, 16));
+    const clear = Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
+    assert.deepEqual(JSON.parse(clear.toString("utf8")), {
+      account_id: "fixture-admin", cmd: 1277, mChannel: 0, mValue3: 0,
+      payload: { night_sion: mode, channel: 0, transaction: "1791464400000" },
+    });
+  }
+  for (const invalid of [-1, 3, 1.5, Number.NaN]) assert.throws(() => buildStandaloneC31NightVisionPayload(invalid, "fixture-admin", key, 1, 1791464400000), /Unsupported/);
+  assert.throws(() => buildStandaloneC31NightVisionPayload(0, "", key, 1, 1791464400000), /administrator/);
+  assert.throws(() => buildStandaloneC31NightVisionPayload(0, "fixture-admin", key, 1, 1791464400), /epoch milliseconds/);
+});
+
+
+test("C31 enablement protects its native privacy bit and validates identity and transaction", () => {
+  const key = Buffer.alloc(32, 7);
+  for (const rawValue of [0, 1]) {
+    const payload = buildStandaloneC31EnabledPayload(rawValue, "fixture-admin", key, 1, 1791464400000);
+    const encrypted = payload.subarray(10);
+    const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(16, 28));
+    decipher.setAAD(Buffer.from("eufy security"));
+    decipher.setAuthTag(encrypted.subarray(0, 16));
+    const clear = Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
+    assert.deepEqual(JSON.parse(clear.toString("utf8")), {
+      account_id: "fixture-admin", cmd: 6250, mChannel: 0, mValue3: 0,
+      payload: { switch: rawValue, transaction: "1791464400000" },
+    });
+  }
+  for (const invalid of [-1, 2, 0.5, Number.NaN]) assert.throws(() => buildStandaloneC31EnabledPayload(invalid, "fixture-admin", key, 1, 1791464400000), /Unsupported/);
+  assert.throws(() => buildStandaloneC31EnabledPayload(0, "", key, 1, 1791464400000), /administrator/);
+  assert.throws(() => buildStandaloneC31EnabledPayload(0, "fixture-admin", key, 1, 1791464400), /epoch milliseconds/);
+});
+
+
+test("C31 siren authenticates its timed JSON start and both ordered binary stop steps", () => {
+  const key = Buffer.alloc(32, 7);
+  const decode = (payload: Buffer): Buffer => {
+    const encrypted = payload.subarray(10);
+    const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(16, 28));
+    decipher.setAAD(Buffer.from("eufy security"));
+    decipher.setAuthTag(encrypted.subarray(0, 16));
+    assert.equal(payload[7], 8);
+    return Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]);
+  };
+  const start = buildStandaloneC31SirenStartPayload("fixture-admin", key, 1, 1791619200000);
+  assert.equal(start[6], 0);
+  assert.deepEqual(JSON.parse(decode(start).toString()), {
+    account_id: "fixture-admin", cmd: 1201, mChannel: 0, mValue3: 0,
+    payload: { channel: 0, type: 10, time_out: 30, user_name: "", transaction: "1791619200000" },
+  });
+  for (const command of [1201, 1202] as const) {
+    const stop = buildStandaloneC31SirenStopPayload(command, key, command);
+    const clear = decode(stop);
+    assert.equal(clear.length, 8);
+    assert.equal(clear.readUInt32LE(0), command === 1201 ? 10 : 255);
+    assert.equal(clear.readUInt32LE(4), 0);
+    assert.equal(stop[6], 255);
+  }
+  assert.throws(() => buildStandaloneC31SirenStartPayload("", key, 1, 1791619200000), /administrator/);
+  assert.throws(() => buildStandaloneC31SirenStartPayload("fixture-admin", key, 1, 0), /epoch/);
+  assert.throws(() => buildStandaloneC31SirenStopPayload(0 as 1201, key, 1), /stop command/);
 });

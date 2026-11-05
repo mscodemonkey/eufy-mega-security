@@ -14,20 +14,49 @@ import { dirname } from "node:path";
 
 import type { EventReceiverState } from "../domain/types.js";
 import { createLogger } from "../logging.js";
+import { pushRecordingReference, type PushRecordingReference } from "./push-recording-reference.js";
 import { FcmRegistrar } from "./android-push/fcm.js";
 import { PushClient } from "./android-push/push-client.js";
 import type { FcmCredentials, RawPushMessage } from "./android-push/types.js";
-import type { MegaClient, PushActivationResult } from "./client.js";
+import type { MegaClient, PushRegistrationResult } from "./client.js";
 
 const logger = createLogger("push");
+
+/** Clock tolerance for a notification created at the current startup boundary. */
+const STARTUP_DELIVERY_TOLERANCE_MILLISECONDS = 5_000;
+
+/** Reject transport clocks far enough ahead that freshness cannot be trusted. */
+const MAXIMUM_DELIVERY_FUTURE_SKEW_MILLISECONDS = 60_000;
 
 /** AI meanings that structured push evidence can establish without notification text. */
 export type MegaPushDetectionEvidence = "person" | "vehicle" | "pet" | "dog" | "crying" | "sound";
 
 /** Final cloud-registration state for one connected Firebase receiver. */
-export type PushRegistrationStatus = "ready" | "activation-unconfirmed";
+export type PushRegistrationStatus = "ready" | "registration-unconfirmed";
 
 const RETRY_DELAYS = [15_000, 30_000, 60_000, 120_000, 300_000] as const;
+
+function registrationFailureDiagnostic(error: unknown): {
+  reason: "transport" | "http" | "response" | "timeout" | "unknown";
+  httpStatus?: number;
+  responseCode?: number;
+  responseClass?: "empty" | "empty_or_truncated" | "json_without_numeric_code" | "non_json" | "unavailable";
+} {
+  if (!(error instanceof Error)) return { reason: "unknown" };
+  if (error.name === "TimeoutError") return { reason: "timeout" };
+  if (error.message === "Mega request failed (transport)") return { reason: "transport" };
+  const http = /^Mega request failed \(HTTP (\d{3})(?: code (-?\d{1,9})| response (empty|empty_or_truncated|json_without_numeric_code|non_json|unavailable))?\)$/.exec(error.message);
+  if (http) {
+    return {
+      reason: "http",
+      httpStatus: Number(http[1]),
+      ...(http[2] === undefined ? {} : { responseCode: Number(http[2]) }),
+      ...(http[3] === undefined ? {} : { responseClass: http[3] as "empty" | "empty_or_truncated" | "json_without_numeric_code" | "non_json" | "unavailable" }),
+    };
+  }
+  if (/^Mega response validation failed \([A-Z_]+\)$/.test(error.message)) return { reason: "response" };
+  return { reason: "unknown" };
+}
 
 /** Normalized subset of an Android FCM/Eufy notification used by the provider. */
 export interface MegaPushEvent {
@@ -48,10 +77,21 @@ export interface MegaPushEvent {
 
   /** Station cipher that protects the stored clip, used only to retrieve its full frame. */
   readonly cipherId?: number | null;
+  /** Exact private recording identity, present only when its complete innermost reference is supported. */
+  readonly recording?: PushRecordingReference;
   readonly fetchId: number | null;
   readonly senseId: string | null;
   readonly guardMode: number | null;
   readonly effectiveMode: number | null;
+
+  /** Source field for the effective mode, retained without its private value for safe diagnostics. */
+  readonly effectiveModeField: "station_current_mode" | "current_mode" | "mode" | null;
+
+  /** Paired native station fields, interpreted only after exact NVR inventory binding. */
+  readonly nvrModeChange?: { readonly configured: number; readonly effective: number; readonly previous: number } | null;
+
+  /** MCS-owned send time, never read from the untrusted application payload. */
+  readonly transportSentAtMilliseconds?: number | null;
   readonly alarmType: number | null;
   readonly sensorOpen: boolean | null;
   readonly eventId: string | null;
@@ -71,11 +111,14 @@ interface StoredPushState {
  * identity and delivered IDs. Camera policy remains with EufyProvider and
  * GatewayState; raw notification fields never reach those neighbours.
  * Registration failures retain the transport and use a finite retry budget.
+ * An established transport reconnect repeats token registration before the
+ * receiver becomes ready again because Eufy can discard the prior binding.
  * Closing or restarting retires all owned waits before transport shutdown.
  */
 export class MegaPushReceiver {
   #receiver: PushClient | null = null;
   #registered = false;
+  #reregisterAfterReconnect = false;
   #connected = false;
   #connectRequested = false;
   #disconnected = false;
@@ -87,11 +130,13 @@ export class MegaPushReceiver {
   #failed = false;
   #loaded = false;
   #credentialRequest: Promise<FcmCredentials> | null = null;
+  #startedAtMilliseconds = 0;
 
   /**
    * Create a receiver using the account client and private state directory.
    *
    * @param createReceiver Supplies a fresh transport for each start, owned and closed by this receiver.
+   * @param now Supplies the local clock used only to reject queued startup deliveries.
    */
   constructor(
     private readonly client: MegaClient,
@@ -100,10 +145,11 @@ export class MegaPushReceiver {
     private readonly onReceiverState: (state: EventReceiverState) => void = () => undefined,
     private readonly onDelivery: (outcome: "parsed" | "empty" | "unparsed") => void = () => undefined,
     private readonly createReceiver: (credentials: FcmCredentials) => PushClient = (credentials) => new PushClient(credentials),
+    private readonly now: () => number = Date.now,
   ) {}
 
   /**
-   * Start delivery without rejecting for initialization, login or activation failure.
+   * Start delivery without rejecting for initialization, login or registration failure.
    * Resolves after the initial attempt settles or is retired. Later attempts are
    * owned internally and never replace an established Firebase identity.
    */
@@ -116,16 +162,18 @@ export class MegaPushReceiver {
     this.#loaded = false;
     this.#credentialRequest = null;
     this.#registered = false;
+    this.#reregisterAfterReconnect = false;
     this.#connected = false;
     this.#connectRequested = false;
     this.#disconnected = false;
+    this.#startedAtMilliseconds = this.now();
     this.#publish("starting");
     await this.#runAttempt(lifetime, true).catch(() => undefined);
   }
 
   async #runAttempt(lifetime: AbortController, initial: boolean): Promise<void> {
-    let stage: "initialization" | "login" | "registration" | "activation" = "initialization";
-    let activationCode: number | undefined;
+    let stage: "initialization" | "login" | "registration" = "initialization";
+    let registrationCode: number | undefined;
     let counted = false;
     try {
       if (!this.#active(lifetime)) return;
@@ -168,25 +216,14 @@ export class MegaPushReceiver {
       stage = "registration";
       const result = await abortable(this.client.registerPushToken(credentials.fcmToken), lifetime.signal);
       if (!this.#active(lifetime)) return;
-      if (result?.activated !== true) {
-        stage = result?.failedSecurityStage ?? "activation";
+      if (result?.registered !== true) {
         const code = result?.code;
-        if (typeof code === "number" && Number.isSafeInteger(code) && Math.abs(code) <= 999999999) activationCode = code;
-        if (result?.megaRegistrationRestored === true) {
-          this.#failed = true;
-          if (!this.#disconnected) this.#publish("degraded");
-          try { logger.warn("push_registration_degraded", [
-            "Security push activation unavailable. Mega registration restored.", `stage=${stage}`,
-            ...(activationCode !== undefined ? [`code=${activationCode}`] : []),
-            `attempt=${this.#attempt}`, `max_retries=${RETRY_DELAYS.length}`, "restoration=mega", "retry=false",
-          ].join(" ")); } catch {}
-          return;
-        }
-        throw new Error("Push activation unavailable");
+        if (typeof code === "number" && Number.isSafeInteger(code) && Math.abs(code) <= 999999999) registrationCode = code;
+        throw new Error("Push registration acceptance unavailable");
       }
       this.#registered = true;
       if (this.#connected) this.#publish("connected");
-      try { logger.info("push_token_registered", "Mega and Security accepted push registration and activation"); } catch {}
+      try { logger.info("push_token_registered", "Eufy accepted the Firebase notification token"); } catch {}
       try { logger.info("push_receiver_ready", "Android FCM receiver and Eufy notification registration are ready"); } catch {}
     } catch (error) {
       if (!this.#active(lifetime)) return;
@@ -204,10 +241,17 @@ export class MegaPushReceiver {
       const match = error instanceof Error
         ? /^(Mega push registration|Security push registration) failed \((-?\d{1,9})\)$/.exec(error.message)
         : null;
-      const code = stage === "activation" ? activationCode : match ? Number(match[2]) : undefined;
+      const code = registrationCode ?? (match ? Number(match[2]) : undefined);
+      const diagnostic = stage === "registration" && code === undefined
+        ? registrationFailureDiagnostic(error)
+        : undefined;
       try { logger.warn("push_registration_degraded", [
         "Push registration unavailable.", `stage=${stage}`,
         ...(code !== undefined ? [`code=${code}`] : []),
+        ...(diagnostic === undefined ? [] : [`reason=${diagnostic.reason}`]),
+        ...(diagnostic?.httpStatus === undefined ? [] : [`http_status=${diagnostic.httpStatus}`]),
+        ...(diagnostic?.responseCode === undefined ? [] : [`response_code=${diagnostic.responseCode}`]),
+        ...(diagnostic?.responseClass === undefined ? [] : [`response_class=${diagnostic.responseClass}`]),
         `attempt=${this.#attempt}`, `max_retries=${RETRY_DELAYS.length}`,
         delay === undefined ? "exhausted=true" : `next_retry_seconds=${delay / 1_000}`,
       ].join(" ")); } catch {}
@@ -221,12 +265,19 @@ export class MegaPushReceiver {
       if (!this.#active(lifetime) || this.#receiver !== receiver) return;
       this.#connected = true;
       this.#disconnected = false;
-      if (this.#registered) this.#publish("connected");
+      if (this.#reregisterAfterReconnect) {
+        this.#reregisterAfterReconnect = false;
+        this.#attempt = 0;
+        this.#failed = false;
+        void this.#runAttempt(lifetime, false).catch(() => undefined);
+      } else if (this.#registered) this.#publish("connected");
       else if (this.#failed) this.#publish("degraded");
       logger.info("push_receiver_connected", "Android FCM receiver login acknowledged");
     });
     receiver.on("disconnect", () => {
       if (!this.#active(lifetime) || this.#receiver !== receiver) return;
+      this.#reregisterAfterReconnect ||= this.#registered;
+      this.#registered = false;
       this.#connected = false;
       this.#disconnected = true;
       this.#publish("disconnected");
@@ -243,9 +294,12 @@ export class MegaPushReceiver {
       const outcome = event
         ? "parsed"
         : !isRecord(message.payload) || Object.keys(message.payload).length === 0 ? "empty" : "unparsed";
+      const suppressStartupReplay = event !== null && !this.#registered
+        && !isFreshStartupDelivery(message.sent, this.#startedAtMilliseconds, this.now());
       this.onDelivery(outcome);
-      logger.info("push_received", `persistent_id_present=${Boolean(message.persistentId)} new_id=${newPersistentId} payload_record=${isRecord(message.payload)} parsed=${event !== null}`);
-      if (event) this.onEvent(event);
+      logger.info("push_received", `persistent_id_present=${Boolean(message.persistentId)} new_id=${newPersistentId} payload_record=${isRecord(message.payload)} parsed=${event !== null} startup_replay_suppressed=${suppressStartupReplay}`);
+      if (event && !suppressStartupReplay) this.onEvent({ ...event, transportSentAtMilliseconds: mcsTimestampMilliseconds(message.sent) });
+      else if (suppressStartupReplay) logger.info("push_startup_replay_suppressed", "Queued Android notification was acknowledged without publishing a device event");
       else if (!isRecord(message.payload) || Object.keys(message.payload).length === 0) logger.info("push_empty", "Android FCM notification had no Eufy data fields");
       else logger.info("push_unparsed", `Android FCM notification lacked a usable Eufy device identity: ${safeUnparsedShape(message.payload)}`);
     });
@@ -275,6 +329,7 @@ export class MegaPushReceiver {
     const receiver = this.#receiver;
     this.#receiver = null;
     this.#registered = false;
+    this.#reregisterAfterReconnect = false;
     this.#connected = false;
     try { receiver?.close(); } catch {}
   }
@@ -292,7 +347,36 @@ export class MegaPushReceiver {
   }
 }
 
-/** Minimal receiver lifecycle used to order Firebase login before cloud activation. */
+/**
+ * Decide whether an MCS delivery can be attributed to the current startup.
+ *
+ * Protobuf.js represents int64 fields as number, bigint, decimal string or a
+ * Long-like low/high pair depending on its runtime. Only safe positive epoch
+ * milliseconds are accepted, and the transport value is never logged.
+ */
+export function isFreshStartupDelivery(value: unknown, startedAtMilliseconds: number, nowMilliseconds: number): boolean {
+  const sent = mcsTimestampMilliseconds(value);
+  if (sent === null || !Number.isSafeInteger(startedAtMilliseconds) || !Number.isSafeInteger(nowMilliseconds)) return false;
+  if (sent < Date.UTC(2000, 0, 1) || sent > nowMilliseconds + MAXIMUM_DELIVERY_FUTURE_SKEW_MILLISECONDS) return false;
+  return sent >= startedAtMilliseconds - STARTUP_DELIVERY_TOLERANCE_MILLISECONDS;
+}
+
+/** Convert supported protobuf int64 representations without rounding private wire data. */
+function mcsTimestampMilliseconds(value: unknown): number | null {
+  let parsed: bigint;
+  if (typeof value === "bigint") parsed = value;
+  else if (typeof value === "number") {
+    if (!Number.isSafeInteger(value)) return null;
+    return value;
+  } else if (typeof value === "string" && /^\d{10,16}$/.test(value)) parsed = BigInt(value);
+  else if (isRecord(value) && Number.isInteger(value.low) && Number.isInteger(value.high)
+    && (value.high as number) >= 0 && (value.high as number) <= 0x7fffffff) {
+    parsed = (BigInt(value.high as number) << 32n) | BigInt((value.low as number) >>> 0);
+  } else return null;
+  return parsed <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(parsed) : null;
+}
+
+/** Minimal receiver lifecycle used to order Firebase login before cloud registration. */
 export interface PushReceiverTransport {
   once(event: "connect", listener: () => void): this;
   off(event: "connect", listener: () => void): this;
@@ -301,23 +385,22 @@ export interface PushReceiverTransport {
 }
 
 /**
- * Connect Firebase before registering and checking its token with Eufy.
+ * Connect Firebase before registering its token with Eufy.
  *
- * Eufy's activation check can reject a freshly issued token until the Android
- * receiver has completed its MCS login. A non-ready return leaves transport ownership with the caller. A registration failure closes the
- * receiver so callers never expose a half-ready notification connection.
- * Cancellation closes the transport and retires login and registration waits.
- * Late registration results remain handled after cancellation.
+ * A non-ready return leaves transport ownership with the caller. A failed
+ * registration closes the receiver. Cancellation closes the transport and
+ * retires login and registration waits, including late registration results.
+ * Successful registration does not establish physical notification delivery.
  */
 export async function connectAndRegisterPush(
   receiver: PushReceiverTransport,
-  register: () => Promise<PushActivationResult>,
+  register: () => Promise<PushRegistrationResult>,
   signal?: AbortSignal,
 ): Promise<PushRegistrationStatus> {
   try {
     await waitForReceiverReady(receiver, signal, 20_000, true);
     const result = await abortable(Promise.resolve().then(register), signal);
-    return result?.activated === true ? "ready" : "activation-unconfirmed";
+    return result?.registered === true ? "ready" : "registration-unconfirmed";
   } catch (error) {
     receiver.close();
     throw error;
@@ -384,6 +467,12 @@ export function parsePushEvent(data: unknown): MegaPushEvent | null {
   const stationSerial = field("station_sn");
   const cameraSerial = field("device_sn") ?? stationSerial;
   if (!cameraSerial) return null;
+  const nvrModeChange = (integer(payload.a) ?? integer(payload.event_type)) === 9
+    && typeof payload.arming === "number" && Number.isSafeInteger(payload.arming)
+    && typeof payload.mode === "number" && Number.isSafeInteger(payload.mode)
+    && typeof payload.before_change_mode === "number" && Number.isSafeInteger(payload.before_change_mode)
+    ? { configured: payload.arming, effective: payload.mode, previous: payload.before_change_mode } : null;
+  const recording = pushRecordingReference(payload);
   return {
     cameraSerial,
     stationSerial: stationSerial ?? cameraSerial,
@@ -398,10 +487,15 @@ export function parsePushEvent(data: unknown): MegaPushEvent | null {
     filePath: text(payload.file_path) ?? text(payload.p),
     recordingChannel: integer(payload.channel) ?? integer(payload.c),
     cipherId: integer(payload.cipher) ?? integer(payload.k),
+    ...(recording ? { recording } : {}),
     fetchId: integer(payload.fetch_id) ?? integer(payload.i),
     senseId: text(payload.sense_id) ?? text(payload.j),
     guardMode: integer(payload.station_guard_mode),
     effectiveMode: integer(payload.station_current_mode) ?? integer(payload.current_mode),
+    effectiveModeField: integer(payload.station_current_mode) !== null
+      ? "station_current_mode"
+      : integer(payload.current_mode) !== null ? "current_mode" : nvrModeChange ? "mode" : null,
+    nvrModeChange,
     alarmType: integer(payload.alarm_type),
     sensorOpen: sensorOpen(payload.e),
     eventId: field("unique_id"),
@@ -539,7 +633,18 @@ function nestedRecord(value: unknown): Record<string, unknown> | null {
     const parsed: unknown = JSON.parse(value);
     return isRecord(parsed) ? parsed : null;
   } catch {
-    return null;
+    const encoded = value.trim();
+    if (encoded.length === 0 || encoded.length > 87_384
+      || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) return null;
+    try {
+      const decoded = Buffer.from(encoded, "base64");
+      if (decoded.length === 0 || decoded.length > 65_536
+        || decoded.toString("base64") !== encoded) return null;
+      const parsed: unknown = JSON.parse(decoded.toString("utf8"));
+      return isRecord(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
   }
 }
 

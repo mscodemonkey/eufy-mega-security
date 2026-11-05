@@ -48,3 +48,50 @@ get_stream_url:
     entity:
       integration: eufy_event_gateway
       domain: camera
+
+play_audio:
+  name: Play camera speaker audio
+  description: Play an AAC-LC 16 kHz mono file, up to 20 seconds long, through a supported camera speaker.
+  target:
+    entity:
+      integration: eufy_event_gateway
+      domain: camera
+  fields:
+    filename:
+      name: Filename
+      description: Home Assistant allowlisted path to the AAC file.
+      required: true
+      example: /media/eufy/announcement.aac
+      selector:
+        text:
+
+list_cloud_recordings:
+  name: List cloud recording metadata
+  description: Read activity times for one day. Returns metadata only, without playable media.
+  target:
+    entity:
+      integration: eufy_event_gateway
+      domain: camera
+  fields:
+    day:
+      name: Day
+      description: Calendar day in Home Assistant's configured time zone.
+      required: true
+      example: "2026-10-18"
+      selector:
+        text:
+get_cloud_recording_dates:
+  name: Get cloud recording dates
+  description: Read day hints only. Requires experimental_cloud_recordings on the gateway. Hints cannot play a clip.
+  target:
+    entity:
+      integration: eufy_event_gateway
+      domain: camera
+  fields:
+    month:
+      name: Month
+      description: Calendar month in Home Assistant's configured time zone.
+      required: true
+      example: "2026-10"
+      selector:
+        text:

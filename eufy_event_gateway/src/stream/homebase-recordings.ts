@@ -122,7 +122,10 @@ export class HomeBaseRecordingReader {
     this.#idle(signal);
     if (!isHomeBaseRecordingPath(record.storagePath)) throw new Error("Invalid HomeBase recording reference");
     const recipient = createECDH("prime256v1"), publicKey = recipient.generateKeys().subarray(1).toString("hex");
-    const decoder = this.transport.decoder(recipient.getPrivateKey().toString("hex"));
+
+    // OpenSSL can omit leading zero bytes from a valid P-256 private scalar.
+    const privateKey = recipient.getPrivateKey().toString("hex").padStart(64, "0");
+    const decoder = this.transport.decoder(privateKey);
     const controller = new AbortController();
     const lifetime = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
     this.#downloadController = controller;

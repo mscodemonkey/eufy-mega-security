@@ -24,8 +24,10 @@ import {
   inventoryLogSummaries,
   homeBaseStorageLogSummary,
   homeBaseReadLogSummary,
+  supportsCameraEnablement,
   supportsMotionDetectionControlRoute,
   supportsStandaloneMotionDetection,
+  supportsStandaloneNightVision,
   supportsStandaloneAudioRecording,
   supportsStandaloneStreamingQuality,
   supportsStandalonePanControl,
@@ -50,8 +52,11 @@ import {
   mergeHomeBaseState,
   safePushLogSummary,
   safeInventoryReads,
+  stationConnectedAfterRefreshFailure,
   supportsHomeBaseGuardMode,
   supportsCameraSiren,
+  supportsCameraLiveAudio,
+  type MegaInventoryDevice,
   supportsPrivacyParameterProbe,
   supportsPresetPositions,
   supportsStandaloneGuardMode,
@@ -79,6 +84,18 @@ test("retains only the device's own reported firmware and hardware metadata", ()
   assert.equal(devices[1]?.hardwareVersion, null);
 });
 
+test("keeps an established station connected through three isolated refresh failures", () => {
+  assert.equal(stationConnectedAfterRefreshFailure(true, 1), true);
+  assert.equal(stationConnectedAfterRefreshFailure(true, 2), true);
+  assert.equal(stationConnectedAfterRefreshFailure(true, 3), true);
+  assert.equal(stationConnectedAfterRefreshFailure(true, 4), false);
+});
+
+test("does not invent a station connection during failed startup reads", () => {
+  assert.equal(stationConnectedAfterRefreshFailure(false, 1), false);
+  assert.equal(stationConnectedAfterRefreshFailure(false, 2), false);
+});
+
 test("secondary firmware and update flags stay camera-owned and preserve unknown status", () => {
   for (const [raw, expected] of [[true, true], [1, true], ["1", true], [false, false], [0, false], ["0", false],
     [undefined, null], [null, null], ["false", null], [2, null], [{}, null]] as const) {
@@ -94,12 +111,18 @@ test("secondary firmware and update flags stay camera-owned and preserve unknown
   }
 });
 
-test("tracking reads require the exact SoloCam model and a canonical enable bit", () => {
+test("tracking reads require exact tested model types and an enable bit", () => {
   const params = [{ param_type: 6016, param_value: "1" }];
   assert.equal(safeInventoryReads(params, 88, "T8171").aiTrackingEnabled, true);
   assert.equal(safeInventoryReads([{ param_type: 6016, param_value: "0" }], 88, "T8171").aiTrackingEnabled, false);
   assert.equal(safeInventoryReads(params, 88, "T817L").aiTrackingEnabled, undefined);
   assert.equal(safeInventoryReads(params, 87, "T8171").aiTrackingEnabled, undefined);
+  assert.equal(safeInventoryReads(params, 10_031, "T817L").aiTrackingEnabled, true);
+  assert.equal(safeInventoryReads([{ param_type: 6016, param_value: "0" }], 10_031, "T817L").aiTrackingEnabled, false);
+  assert.equal(safeInventoryReads(params, 10_031, "T817L121").aiTrackingEnabled, undefined);
+  assert.equal(safeInventoryReads(params, 10_032, "T817L").aiTrackingEnabled, undefined);
+  assert.equal(safeInventoryReads([{ param_type: 6016, param_value: "2" }], 10_031, "T817L").aiTrackingEnabled, undefined);
+  assert.equal(safeInventoryReads([], 10_031, "T817L").aiTrackingEnabled, undefined);
   assert.equal(safeInventoryReads([{ param_type: 6016, param_value: "2" }], 88, "T8171").aiTrackingEnabled, undefined);
 });
 
@@ -279,6 +302,7 @@ const stationState = (alarmVolume: number | null): HomeBasePpcsState => ({
   guardMode: null,
   effectiveMode: null,
   alarmVolume,
+  alarmVolumeObservation: alarmVolume === null ? "missing" : "valid",
   promptVolume: null,
   alarmTone: null,
   storage: null,
@@ -326,9 +350,10 @@ test("refreshes expiring DSK material without replacing non-expiring keys", () =
   assert.equal(dskKeyNeedsRefresh({ expiresAt: now + 60_001 }, now), false);
 });
 
-test("limits timed JSON light control to the verified wall-light family", () => {
+test("limits timed JSON light control to verified light profiles", () => {
   assert.equal(supportsTimedCameraLight({ deviceType: 10005 }), true);
   assert.equal(supportsTimedCameraLight({ deviceType: 151 }), true);
+  assert.equal(supportsTimedCameraLight({ deviceType: 47 }), false);
   assert.equal(supportsTimedCameraLight({ deviceType: 61 }), false);
   assert.equal(supportsTimedCameraLight({ deviceType: 10031 }), false);
   assert.equal(supportsTimedCameraLight({ deviceType: null }), false);
@@ -336,6 +361,7 @@ test("limits timed JSON light control to the verified wall-light family", () => 
 
 test("selects the source-backed direct light protocol by camera family", () => {
   assert.equal(cameraLightControlProtocol({ deviceType: 45 }), "int-string");
+  assert.equal(cameraLightControlProtocol({ deviceType: 47 }), null);
   assert.equal(cameraLightControlProtocol({ deviceType: 61 }), null);
   assert.equal(cameraLightControlProtocol({ deviceType: 151 }), "timed-json");
   assert.equal(cameraLightControlProtocol({ deviceType: 10005 }), "timed-json");
@@ -352,6 +378,36 @@ test("limits camera sirens by route and device evidence", () => {
   assert.equal(supportsCameraSiren({ paramTypes: [] }, { homeBaseAttached: true }), false);
   assert.equal(supportsCameraSiren({ paramTypes: [1015] }, { homeBaseAttached: false }), false);
   assert.equal(supportsCameraSiren({ paramTypes: [1015] }, null), false);
+  const device = { serial: "fixture-camera", model: "T817L", deviceType: 10031, channel: 0, adminUserId: "fixture-admin", paramTypes: [] };
+  const peer = { serial: device.serial } as MegaInventoryDevice;
+  const direct = { homeBaseAttached: false, peer };
+  assert.equal(supportsCameraSiren(device, direct), true);
+  for (const changed of [{ model: "T817L121" }, { model: "T8171" }, { deviceType: 88 }, { channel: 1 }, { adminUserId: null }]) {
+    assert.equal(supportsCameraSiren({ ...device, ...changed }, direct), false);
+  }
+  const t8425 = { serial: "fixture-camera", model: "T8425", deviceType: 47, channel: 0, adminUserId: "fixture-admin", paramTypes: [] };
+  assert.equal(supportsCameraSiren(t8425, { homeBaseAttached: false, peer: { serial: t8425.serial } as MegaInventoryDevice }), true);
+  assert.equal(supportsCameraSiren(device, { ...direct, peer: { ...peer, serial: "other-camera" } }), false);
+  assert.equal(supportsCameraSiren(device, { homeBaseAttached: false }), false);
+});
+
+test("live audio retains E30 routes and isolates the exact standalone C31", () => {
+  const device = { serial: "fixture-camera", model: "T817L", deviceType: 10031, channel: 0, adminUserId: "fixture-admin" };
+  const peer = { serial: device.serial, model: "T817L" } as MegaInventoryDevice;
+  const direct = { homeBaseAttached: false, peer };
+  assert.equal(supportsCameraLiveAudio(device, direct, true), true);
+  assert.equal(supportsCameraLiveAudio(device, direct, false), false);
+  assert.equal(supportsCameraLiveAudio(device, null, true), false);
+  for (const changed of [{ model: "T817L121" }, { deviceType: 88 }, { channel: 1 }, { channel: null }, { adminUserId: null }]) {
+    assert.equal(supportsCameraLiveAudio({ ...device, ...changed }, direct, true), false);
+  }
+  assert.equal(supportsCameraLiveAudio(device, { ...direct, peer: { ...peer, serial: "foreign-camera" } }, true), false);
+  const attached = { homeBaseAttached: true, peer: { ...peer, serial: "fixture-base", model: "T8030" } };
+  assert.equal(supportsCameraLiveAudio(device, attached, true), false);
+  const e30 = { ...device, model: "T8171", deviceType: 88 };
+  assert.equal(supportsCameraLiveAudio(e30, direct, true), true);
+  assert.equal(supportsCameraLiveAudio({ ...e30, channel: 1 }, attached, true), true);
+  assert.equal(supportsCameraLiveAudio(e30, { ...attached, peer: { ...attached.peer, model: "T8010" } }, true), false);
 });
 
 test("limits privacy parameter diagnostics to T8416 and T8417", () => {
@@ -639,12 +695,12 @@ test("decodes a motion sensor cloud event timestamp without applying it to camer
 });
 
 test("uses advancing cloud motion only when push did not already emit it", () => {
-  assert.equal(inventoryMotionOutcome(undefined, 1_789_500_000, false), "none");
-  assert.equal(inventoryMotionOutcome(1_789_500_000, 1_789_500_000, false), "none");
-  assert.equal(inventoryMotionOutcome(1_789_500_001, 1_789_500_000, false), "none");
-  assert.equal(inventoryMotionOutcome(1_789_500_000, 1_789_500_001, false), "cloud-motion");
-  assert.equal(inventoryMotionOutcome(1_789_500_000, 1_789_500_001, true), "push-confirmed");
-  assert.equal(inventoryMotionOutcome(undefined, 1_789_500_001, true), "push-confirmed");
+  assert.equal(inventoryMotionOutcome(undefined, 1_789_500_000, false, 1_789_500_002_000), "none");
+  assert.equal(inventoryMotionOutcome(1_789_500_000, 1_789_500_000, false, 1_789_500_002_000), "none");
+  assert.equal(inventoryMotionOutcome(1_789_500_001, 1_789_500_000, false, 1_789_500_002_000), "none");
+  assert.equal(inventoryMotionOutcome(1_789_500_000, 1_789_500_001, false, 1_789_500_002_000), "cloud-motion");
+  assert.equal(inventoryMotionOutcome(1_789_500_000, 1_789_500_001, true, 1_789_500_002_000), "push-confirmed");
+  assert.equal(inventoryMotionOutcome(undefined, 1_789_500_001, true, 1_789_500_002_000), "push-confirmed");
 });
 
 test("decodes reported camera enablement with family-specific polarity", () => {
@@ -653,6 +709,12 @@ test("decodes reported camera enablement with family-specific polarity", () => {
   assert.equal(safeInventoryReads([{ param_type: 1035, param_value: "1" }], 31).enabled, true);
   assert.equal(safeInventoryReads([{ param_type: 2001, param_value: "0" }], 31).enabled, false);
   assert.equal(safeInventoryReads([{ param_type: 1035, param_value: "2" }], 88).enabled, undefined);
+  assert.equal(safeInventoryReads([{ param_type: 1035, param_value: "0" }], 88).cameraSwitch1035, "zero");
+  assert.equal(safeInventoryReads([{ param_type: 1035, param_value: 1 }], 88).cameraSwitch1035, "one");
+  assert.equal(safeInventoryReads([{ param_type: 1035, param_value: "2" }], 88).cameraSwitch1035, "other_number");
+  assert.equal(safeInventoryReads([{ param_type: 1035, param_value: false }], 88).cameraSwitch1035, "boolean");
+  assert.equal(safeInventoryReads([{ param_type: 1035, param_value: "unknown" }], 88).cameraSwitch1035, "text");
+  assert.equal(safeInventoryReads([{ param_type: 1035, param_value: { value: 1 } }], 88).cameraSwitch1035, "structured");
 });
 
 test("decodes the reported motion-detection switch without inventing it", () => {
@@ -758,11 +820,84 @@ test("uses camera-specific labels for the three night modes", () => {
   }), []);
 });
 
+test("reads exact light-camera motion from the native standalone parameter without stale fallback", () => {
+  for (const [model, type] of [["T84A1", 151], ["T8417", 105], ["T8423", 38]] as const) {
+    for (const enabled of [false, true]) {
+      const params = [
+        { param_type: 6040, param_value: enabled ? "1" : "0" },
+        { param_type: 1011, param_value: enabled ? "0" : "1" },
+      ];
+      assert.equal(safeInventoryReads(params, type, model, true).motionDetectionEnabled, enabled);
+      assert.equal(safeInventoryReads(params, type, model, false).motionDetectionEnabled, !enabled);
+      assert.equal(safeInventoryReads(params, type + 1, model, true).motionDetectionEnabled, !enabled);
+      assert.equal(safeInventoryReads(params, type, `${model}X`, true).motionDetectionEnabled, !enabled);
+    }
+    for (const invalid of [undefined, null, "", "true", "2", "-1", "0.5", {}, false]) {
+      assert.equal(safeInventoryReads([
+        { param_type: 6040, param_value: invalid },
+        { param_type: 1011, param_value: "1" },
+      ], type, model, true).motionDetectionEnabled, undefined);
+    }
+    assert.equal(safeInventoryReads([{ param_type: 1011, param_value: "1" }], type, model, true)
+      .motionDetectionEnabled, undefined);
+  }
+});
+
+test("surfaces exact light-camera master spotlight state without inferring the manual light", () => {
+  for (const [model, type] of [["T84A1", 151], ["T8417", 105], ["T8423", 38]] as const) {
+    for (const direct of [false, true]) {
+      for (const enabled of [false, true]) {
+        const params = [
+          { param_type: 1403, param_value: enabled ? "1" : "0" },
+          { param_type: 1400, param_value: enabled ? "0" : "1" },
+        ];
+        assert.equal(safeInventoryReads(params, type, model, direct).spotlightEnabled, enabled);
+        assert.equal(safeInventoryReads(params, type + 1, model, direct).spotlightEnabled, undefined);
+        assert.equal(safeInventoryReads(params, type, `${model}X`, direct).spotlightEnabled, undefined);
+      }
+    }
+    for (const invalid of [undefined, null, "", "true", "2", "-1", "0.5", {}, false]) {
+      assert.equal(safeInventoryReads([{ param_type: 1403, param_value: invalid }], type, model)
+        .spotlightEnabled, undefined);
+    }
+    assert.equal(safeInventoryReads([{ param_type: 1400, param_value: "1" }], type, model)
+      .spotlightEnabled, undefined);
+  }
+});
+
+test("detects standalone light-camera inventory routes before selecting motion state", () => {
+  for (const [model, type] of [["T84A1", 151], ["T8417", 105], ["T8423", 38]] as const) {
+    for (const parent of [undefined, "camera", "station"]) {
+      const [camera] = parseMegaInventory({ devices: [{
+        device_sn: "camera", parent_sn: parent, device_model: model,
+        device_type: type, device_channel: 0,
+        params: [{ param_type: 6040, param_value: "0" }, { param_type: 1011, param_value: "1" }],
+      }] });
+      assert.equal(camera?.reads.motionDetectionEnabled, parent === "station");
+    }
+  }
+});
+
 test("writes battery and indoor camera enablement with the matching polarity", () => {
   assert.equal(cameraEnableRawValue(88, true), 0);
   assert.equal(cameraEnableRawValue(88, false), 1);
   assert.equal(cameraEnableRawValue(31, true), 1);
   assert.equal(cameraEnableRawValue(31, false), 0);
+});
+
+test("offers confirmed enablement on attached channels while retaining the standalone boundary", () => {
+  const device = {
+    channel: 3,
+    adminUserId: "owner",
+    reads: { enabled: true },
+  } as const;
+  assert.equal(supportsCameraEnablement(device, { homeBaseAttached: true }, true), true);
+  assert.equal(supportsCameraEnablement(device, { homeBaseAttached: false }, true), false);
+  assert.equal(supportsCameraEnablement({ ...device, channel: 0 }, { homeBaseAttached: false }, true), true);
+  assert.equal(supportsCameraEnablement({ ...device, reads: {} }, { homeBaseAttached: true }, true), false);
+  assert.equal(supportsCameraEnablement({ ...device, adminUserId: null }, { homeBaseAttached: true }, true), false);
+  assert.equal(supportsCameraEnablement(device, { homeBaseAttached: true }, false), false);
+  assert.equal(supportsCameraEnablement(device, null, true), false);
 });
 
 test("accepts only bounded whole days from the cloud inventory field", () => {
@@ -800,6 +935,7 @@ test("enables only the proven T8010 guard-mode control on current firmware", () 
     homeBaseSirenControlSupported: true,
     connected: false,
     guardMode: null,
+    guardModeNames: {},
     effectiveMode: null,
     alarmActive: null,
     alarmVolume: null,
@@ -827,7 +963,10 @@ test("exposes NVR inventory guard mode without enabling HomeBase writes or refre
   const [station] = parseMegaInventory({ devices: [{
     device_sn: "nvr", device_name: "NVR S4", device_model: "T8N00",
     device_type: 300, category: "eufy_security",
-    params: [{ param_type: 1224, param_value: "1" }],
+    params: [
+      { param_type: 1224, param_value: "1" },
+      { param_type: 1256, param_value: '{"modes":[{"mode":3,"title":"Original"}]}' },
+    ],
   }] });
 
   assert.ok(station);
@@ -846,6 +985,7 @@ test("exposes NVR inventory guard mode without enabling HomeBase writes or refre
     homeBaseSirenControlSupported: false,
     connected: false,
     guardMode: 1,
+    guardModeNames: { 3: "Original" },
     effectiveMode: null,
     alarmActive: null,
     alarmVolume: null,
@@ -860,18 +1000,25 @@ test("refreshes NVR guard mode from inventory without claiming a live station co
   const [initial] = parseMegaInventory({ devices: [{
     device_sn: "nvr", device_name: "NVR S4", device_model: "T8N00",
     device_type: 300, category: "eufy_security", main_sw_version: "1.0.0",
-    params: [{ param_type: 1224, param_value: "1" }],
+    params: [
+      { param_type: 1224, param_value: "1" },
+      { param_type: 1256, param_value: '{"modes":[{"mode":3,"title":"Original"}]}' },
+    ],
   }] });
   const [refreshed] = parseMegaInventory({ devices: [{
     device_sn: "nvr", device_name: "NVR S4", device_model: "T8N00",
     device_type: 300, category: "eufy_security", main_sw_version: "1.1.0",
-    params: [{ param_type: 1224, param_value: "3" }],
+    params: [
+      { param_type: 1224, param_value: "3" },
+      { param_type: 1256, param_value: '{"modes":[{"mode":3,"title":"Renamed"}]}' },
+    ],
   }] });
 
   assert.ok(initial);
   assert.ok(refreshed);
   const state = refreshInventoryStationState(initialHomeBaseState(initial, false), refreshed);
   assert.equal(state.guardMode, 3);
+  assert.deepEqual(state.guardModeNames, { 3: "Renamed" });
   assert.equal(state.firmware, "1.1.0");
   assert.equal(state.connected, false);
   assert.equal(state.guardModeControlSupported, false);
@@ -892,6 +1039,7 @@ test("keeps a known guard mode when a local station read omits it", () => {
     guardMode: null,
     effectiveMode: null,
     alarmVolume: null,
+    alarmVolumeObservation: "missing",
     promptVolume: 5,
     alarmTone: null,
     storage: null,
@@ -999,6 +1147,25 @@ test("admits a reported T8140-R eufyCam 2 Pro through HomeBase 2", () => {
   ]), new Set([station.serial])), true);
 });
 
+test("admits the reported T8173 SoloCam E42 through a ready HomeBase 3", () => {
+  const [camera, station] = parseMegaInventory({ devices: [
+    {
+      device_sn: "camera", device_model: "T8173", parent_sn: "station", device_type: 98,
+      device_channel: 2, category: "eufy_security",
+    },
+    {
+      device_sn: "station", device_model: "T8030", device_type: 18,
+      category: "eufy_security", p2p_did: "did", p2p_conn: "connection",
+    },
+  ] });
+  assert.ok(camera && station);
+  assert.equal(isSupportedMegaCamera(camera), true);
+  assert.equal(isPpcsStreamSupported(camera, new Map([
+    [camera.serial, camera],
+    [station.serial, station],
+  ]), new Set([station.serial])), true);
+});
+
 test("accepts T8161 inventory through a ready HomeBase 3", () => {
   const devices = parseMegaInventory({ devices: [
     {
@@ -1091,10 +1258,21 @@ test("does not offer NVR PPCS media even if its inventory contains legacy-lookin
 
 test("identifies the T8214 doorbell without classifying the T8416 indoor camera as one", () => {
   assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType: 5 }), true);
+  assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType: 16 }), true);
   assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType: 94 }), true);
   assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType: 96 }), true);
+  assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType: 97 }), true);
   assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType: 203 }), true);
   assert.equal(isDoorbellDevice({ category: "eufy_security", deviceType: 104 }), false);
+});
+
+test("routes the reported T8215 style-3 press without widening other type-97 categories", () => {
+  const press = safePushLogSummary({
+    eventType: 3103, messageType: 18, notificationStyle: 3,
+    pictureUrl: null, alarmType: null, detectionEvidence: [],
+  }, { model: "T8215", category: "eufy_security", deviceType: 97 }, true, false);
+  assert.match(press, /event_type=3103 message_type=18 notification_style=3 handling=doorbell_press/);
+  assert.equal(isDoorbellDevice({ category: "other", deviceType: 97 }), false);
 });
 
 test("admits T8224 type 96 as a camera with confirmed press support", () => {
@@ -1385,6 +1563,16 @@ test("reports routed contact-sensor pushes as handled", () => {
   assert.match(summary, /model=T8900 .*handling=sensor_contact/);
 });
 
+test("logs only the effective-mode field source for station guard pushes", () => {
+  const summary = safePushLogSummary({
+    eventType: 9, messageType: null, notificationStyle: null,
+    pictureUrl: null, alarmType: null, effectiveModeField: "station_current_mode",
+  }, { model: "T8N00", category: "eufy_security", deviceType: 128 }, true, true);
+
+  assert.match(summary, /handling=station_guard picture_present=false effective_mode_field=station_current_mode/);
+  assert.equal(summary.includes("mode=3"), false);
+});
+
 test("rejects arbitrary inventory labels and invalid push codes from copyable logs", () => {
   const summary = safePushLogSummary({
     eventType: -1, messageType: 999_999, notificationStyle: null,
@@ -1515,7 +1703,10 @@ test("invalidates omitted effective mode only when the guard mode changes and pr
   assert.equal(changed.promptVolume, 0);
   assert.equal(mergeHomeBaseState(known, { ...observed, guardMode: 63 }).effectiveMode, 63);
   assert.equal(mergeHomeBaseState(changed, { ...observed, promptVolume: null }).promptVolume, 0);
-  assert.equal(homeBaseReadLogSummary("T8030", { ...observed, guardMode: null }), "HomeBase state read ready: model=T8030 guard_mode=missing effective_mode=missing");
+  assert.equal(
+    homeBaseReadLogSummary("T8030", { ...observed, guardMode: null }),
+    "HomeBase state read ready: model=T8030 guard_mode=missing effective_mode=missing alarm_volume=valid",
+  );
   await assert.rejects(confirmStationWrite("guardMode", 0, async () => undefined, async () => ({ ...observed, guardMode: null })), /did not confirm guardMode/);
 });
 
@@ -1651,6 +1842,199 @@ test("C31 standalone presets require the exact type, owned channel and ready rou
   }
   assert.equal(supportsStandaloneC31Presets(device, { ...route, homeBaseAttached: true }, true), false);
   assert.equal(supportsStandaloneC31Presets(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
-  assert.equal(supportsSoloCamStoredRecordings(device, route, true), false);
-  assert.equal(supportsStandaloneAiTracking({ ...device, reads: { aiTrackingEnabled: true } }, route, true), false);
+  assert.equal(supportsSoloCamStoredRecordings(device, route, true), true);
+  assert.equal(supportsStandaloneAiTracking({ ...device, reads: { aiTrackingEnabled: true } }, route, true), true);
+});
+
+
+test("C31 stored media requires the exact owned standalone ready route", () => {
+  const device = { serial: "camera", model: "T817L", deviceType: 10_031, channel: 0, adminUserId: "fixture-admin" };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [
+    { device_sn: "camera", device_model: "T817L", device_type: 10_031 },
+  ] })[0]! };
+  assert.equal(supportsSoloCamStoredRecordings(device, route, true), true);
+  assert.equal(supportsSoloCamStoredRecordings(device, route, false), false);
+  assert.equal(supportsSoloCamStoredRecordings(device, null, true), false);
+  for (const change of [{ model: "T817L1" }, { deviceType: 88 }, { channel: 1 }, { adminUserId: null }]) {
+    assert.equal(supportsSoloCamStoredRecordings({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsSoloCamStoredRecordings(device, { ...route, homeBaseAttached: true }, true), false);
+  assert.equal(supportsSoloCamStoredRecordings(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
+});
+
+
+test("standalone C31 tracking requires known state and its exact owned ready route", () => {
+  const device = { serial: "camera", model: "T817L", deviceType: 10_031, channel: 0,
+    adminUserId: "fixture-admin", reads: { aiTrackingEnabled: true } };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [
+    { device_sn: "camera", device_model: "T817L", device_type: 10_031 },
+  ] })[0]! };
+  assert.equal(supportsStandaloneAiTracking(device, route, true), true);
+  assert.equal(supportsStandaloneAiTracking({ ...device, reads: { aiTrackingEnabled: false } }, route, true), true);
+  assert.equal(supportsStandaloneAiTracking(device, route, false), false);
+  assert.equal(supportsStandaloneAiTracking(device, null, true), false);
+  for (const change of [{ model: "T817L121" }, { deviceType: 88 }, { channel: 1 }, { adminUserId: null }, { reads: {} }]) {
+    assert.equal(supportsStandaloneAiTracking({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsStandaloneAiTracking(device, { ...route, homeBaseAttached: true }, true), false);
+  assert.equal(supportsStandaloneAiTracking(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
+});
+
+
+test("C31 quality reads select its active composite mode without reusing numeric SoloCam reads", () => {
+  const config = (quality: unknown) => Buffer.from(JSON.stringify({ cur_mode: 0, mode_0: { quality }, mode_1: { quality: 3 } })).toString("base64");
+  const read = (value: unknown, type = 10_031, model = "T817L") => safeInventoryReads([
+    { param_type: 2730, param_value: value }, { param_type: 1020, param_value: "3" },
+  ], type, model, true).streamingQualityTier;
+  for (const quality of [0, 2, 3]) assert.equal(read(config(quality)), quality);
+  for (const value of [0, "0", "invalid", config(4), config(true), Buffer.from(JSON.stringify({ mode_0: { quality: 3 } })).toString("base64")]) {
+    assert.equal(read(value), undefined);
+  }
+  assert.equal(read(config(2), 121), undefined);
+  assert.equal(read(config(2), 10_031, "T817L-neighbor"), undefined);
+});
+
+test("C31 streaming quality admits only exact owned standalone known native choices", () => {
+  const device = { serial: "fixture-c31", model: "T817L", deviceType: 10_031, channel: 0,
+    adminUserId: "fixture-admin", reads: { streamingQualityTier: 0 } };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [{ device_sn: device.serial, device_model: "T817L", device_type: 10_031 }] })[0]! };
+  for (const quality of [0, 2, 3]) assert.equal(supportsStandaloneStreamingQuality({ ...device, reads: { streamingQualityTier: quality } }, route, true), true);
+  for (const change of [{ model: "T817L-neighbor" }, { deviceType: 121 }, { channel: 1 }, { adminUserId: null }, { reads: {} }, { reads: { streamingQualityTier: 1 } }]) {
+    assert.equal(supportsStandaloneStreamingQuality({ ...device, ...change }, route, true), false);
+  }
+  assert.equal(supportsStandaloneStreamingQuality(device, route, false), false);
+  assert.equal(supportsStandaloneStreamingQuality(device, null, true), false);
+  assert.equal(supportsStandaloneStreamingQuality(device, { ...route, homeBaseAttached: true }, true), false);
+  assert.equal(supportsStandaloneStreamingQuality(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
+});
+
+
+test("C31 motion reads and direct control eligibility preserve exact model and topology boundaries", () => {
+  const params = [{ param_type: 6040, param_value: "0" }, { param_type: 1011, param_value: "1" }];
+  assert.equal(safeInventoryReads(params, 10_031, "T817L", true).motionDetectionEnabled, false);
+  assert.equal(safeInventoryReads(params, 10_031, "T817L-neighbor").motionDetectionEnabled, true);
+  const device = { serial: "fixture-c31", model: "T817L", deviceType: 10_031, category: "eufy_security", channel: 0,
+    adminUserId: "fixture-admin", reads: { motionDetectionEnabled: true, nightVisionMode: 0 } };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [{ device_sn: device.serial, device_model: "T817L", device_type: 10_031 }] })[0]! };
+  for (const supports of [supportsStandaloneMotionDetection, supportsStandaloneNightVision]) {
+    assert.equal(supports(device, route, true), true);
+    assert.equal(supports(device, route, false), false);
+    for (const change of [{ model: "T817L-neighbor" }, { deviceType: 121 }, { channel: 1 }, { adminUserId: null }, { reads: {} }]) {
+      assert.equal(supports({ ...device, ...change }, route, true), false);
+    }
+    assert.equal(supports(device, { ...route, homeBaseAttached: true }, true), false);
+    assert.equal(supports(device, { ...route, peer: { ...route.peer, serial: "foreign" } }, true), false);
+  }
+});
+
+
+test("C31 standalone privacy switch cannot replace attached enablement or admit neighboring devices", () => {
+  const params = [{ param_type: 6250, param_value: "1" }, { param_type: 2001, param_value: "1" }];
+  assert.equal(safeInventoryReads(params, 10_031, "T817L", true).enabled, false);
+  assert.equal(safeInventoryReads(params, 10_031, "T817L").enabled, true);
+  assert.equal(safeInventoryReads(params, 121, "T817L", true).enabled, true);
+  assert.equal(safeInventoryReads(params, 10_031, "T817L121", true).enabled, true);
+  const device = (parent: string) => parseMegaInventory({ devices: [{ device_sn: "fixture-c31", device_model: "T817L", device_type: 10_031, device_channel: 0, station_sn: parent, params }] })[0]!;
+  assert.equal(device("fixture-c31").reads.enabled, false);
+  assert.equal(device("fixture-homebase").reads.enabled, true);
+});
+
+
+test("C31 recording audio prefers its native switch only for the verified standalone profile", () => {
+  const params = [{ param_type: 6012, param_value: "0" }, { param_type: 1288, param_value: "0" }];
+  assert.equal(safeInventoryReads(params, 10_031, "T817L", true).audioRecordingEnabled, false);
+  assert.equal(safeInventoryReads(params, 10_031, "T817L").audioRecordingEnabled, true);
+  const device = { serial: "fixture-c31", model: "T817L", deviceType: 10_031, channel: 0,
+    adminUserId: "fixture-admin", reads: { audioRecordingEnabled: true } };
+  const route = { homeBaseAttached: false, peer: parseMegaInventory({ devices: [{ device_sn: device.serial, device_model: "T817L", device_type: 10_031 }] })[0]! };
+  assert.equal(supportsStandaloneAudioRecording(device, route, true), true);
+  assert.equal(supportsStandaloneAudioRecording(device, { ...route, homeBaseAttached: true }, true), false);
+  for (const change of [{ model: "T817L121" }, { deviceType: 121 }, { channel: 1 }, { adminUserId: null }, { reads: {} }]) {
+    assert.equal(supportsStandaloneAudioRecording({ ...device, ...change }, route, true), false);
+  }
+});
+
+
+test("inventory separates private custom names from pseudonymized guard-mode diagnostics", () => {
+  const [station, camera] = parseMegaInventory({ devices: [
+    { device_sn: "fixture-station", device_model: "T8030", device_type: 18, params: [
+      { param_type: 1256, param_value: '{"modes":[{"mode":3,"title":"Private mode","detail":"DO-NOT-RETAIN"}]}' },
+      { param_type: 1256, param_value: '{"id":5}' },
+    ] },
+    { device_sn: "fixture-camera", device_model: "T8144", device_type: 1 },
+  ] });
+  assert.equal(station?.guardModeMetadataStructure, "{modes:[{mode:num:3,field1:text1,field2:text2}]}");
+  assert.deepEqual(station?.guardModeNames, { 3: "Private mode" });
+  assert.equal(camera?.guardModeMetadataStructure, undefined);
+  assert.doesNotMatch(JSON.stringify(station), /DO-NOT-RETAIN/);
+});
+
+test("stream failure summaries preserve optional sequence evidence before the error", () => {
+  const sequenceChannels = "t2:rx=500-102/4,ac=500-500/1,st=100-102/3,behind=398-400,run=3/3";
+  const summary = ppcsStreamLogSummary("T8144", null, {
+    camId: 0, dataDatagrams: 4, frameHeaders: 0, videoFrames: 0, sequenceChannels,
+  }, new Error("fixture failure"));
+  assert.ok(summary.includes(`battery_history=not-reported sequence_channels=${sequenceChannels} error=`));
+});
+
+
+test("T8425 timed light requires its exact owned direct route without changing legacy families", () => {
+  const device = parseMegaInventory({ devices: [{ device_sn: "cam", device_model: "T8425", device_type: 47,
+    category: "eufy_security", device_channel: 0, member: { admin_user_id: "admin" }, params: [] }] })[0]!;
+  const direct = { homeBaseAttached: false, peer: device as MegaInventoryDevice };
+  assert.equal(supportsTimedCameraLight(device, direct), true);
+  assert.equal(cameraLightControlProtocol(device, direct), "timed-json");
+  for (const changed of [{ model: "T8425121" }, { deviceType: 48 }, { channel: 1 },
+    { serial: "" }, { serial: " " }, { adminUserId: null }, { adminUserId: " " }]) {
+    assert.equal(supportsTimedCameraLight({ ...device, ...changed }, direct), false);
+    assert.equal(cameraLightControlProtocol({ ...device, ...changed }, direct), null);
+  }
+  const { model: _model, ...missingModel } = device;
+  assert.equal(supportsTimedCameraLight(missingModel, direct), false);
+  assert.equal(cameraLightControlProtocol(missingModel, direct), null);
+  for (const route of [null, undefined, { ...direct, homeBaseAttached: true },
+    { ...direct, peer: { ...device, serial: "other" } as MegaInventoryDevice }]) {
+    assert.equal(supportsTimedCameraLight(device, route), false);
+    assert.equal(cameraLightControlProtocol(device, route), null);
+  }
+  for (const deviceType of [151, 10005]) {
+    assert.equal(supportsTimedCameraLight({ deviceType }), true);
+    assert.equal(supportsTimedCameraLight({ deviceType }, direct), true);
+    assert.equal(cameraLightControlProtocol({ deviceType }), "timed-json");
+  }
+});
+
+test("T8425 siren eligibility refuses unverified model and ownership combinations", () => {
+  const device = parseMegaInventory({ devices: [{ device_sn: "cam", device_model: "T8425", device_type: 47,
+    category: "eufy_security", device_channel: 0, member: { admin_user_id: "admin" }, params: [] }] })[0]!;
+  const direct = { homeBaseAttached: false, peer: device as MegaInventoryDevice };
+  assert.equal(supportsCameraSiren(device, direct), true);
+  for (const changed of [{ model: "T8425121" }, { deviceType: 48 }, { channel: 1 }, { adminUserId: null }]) {
+    assert.equal(supportsCameraSiren({ ...device, ...changed }, direct), false);
+  }
+  const { model: _model, ...missingModel } = device;
+  assert.equal(supportsCameraSiren(missingModel, direct), false);
+  assert.equal(supportsCameraSiren(device, null), false);
+  assert.equal(supportsCameraSiren(device, { ...direct, homeBaseAttached: true }), false);
+  assert.equal(supportsCameraSiren(device, { ...direct, peer: { ...device, serial: "other" } as MegaInventoryDevice }), false);
+});
+
+
+test("primary-only inventory retains charging days only within the same device binding", () => {
+  const raw = { device_sn: "camera", device_model: "T8113-Z", device_type: 8, category: "eufy_security",
+    parent_sn: "base", device_channel: 1, member: { admin_user_id: "owner" } };
+  const existing = parseMegaInventory({ devices: [{ ...raw, charging_days: 44,
+    params: [{ param_type: 1011, param_value: "1" }] }] })[0]!;
+  const fresh = parseMegaInventory({ devices: [{ ...raw,
+    params: [{ param_type: 1011, param_value: "0" }] }] })[0]!;
+  assert.equal(mergeInventoryMetadata(existing, fresh, true).reads.lastChargingDays, 44);
+  assert.equal(mergeInventoryMetadata(existing, fresh, true).reads.motionDetectionEnabled, false);
+  assert.equal(mergeInventoryMetadata(existing, fresh).reads.lastChargingDays, undefined);
+  const reset = parseMegaInventory({ devices: [{ ...raw, charging_days: 0 }] })[0]!;
+  assert.equal(mergeInventoryMetadata(existing, reset).reads.lastChargingDays, 0);
+  for (const changed of [{ parent_sn: "other" }, { device_channel: 2 },
+    { device_model: "T8113-V" }, { device_type: 14 }, { member: { admin_user_id: "other" } }]) {
+    const rebound = parseMegaInventory({ devices: [{ ...raw, ...changed }] })[0]!;
+    assert.equal(mergeInventoryMetadata(existing, rebound, true).reads.lastChargingDays, undefined);
+  }
 });

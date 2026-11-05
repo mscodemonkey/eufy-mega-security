@@ -11,6 +11,6 @@ aliases:
 models:
   - T8026
   - T8026120
-device_type: null
-notes: "No integration-usable properties or controls are confirmed yet."
+device_type: 600
+notes: "Exact T8026/type 600 discovery is reported. No integration-usable properties or controls are confirmed yet."
 capabilities: {}

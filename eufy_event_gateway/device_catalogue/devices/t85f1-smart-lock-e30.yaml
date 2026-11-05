@@ -10,6 +10,79 @@ aliases:
   - "E30"
 models:
   - T85F1
-device_type: null
-notes: "No integration-usable properties or controls are confirmed yet."
-capabilities: {}
+device_type: 206
+notes: "Separate opt-in E30 provider. One standalone T85F1, type 206, US cloud route only. See README Experimental Smart Lock E30. Generic catalogue admission intentionally remains recognised."
+capabilities:
+  readable:
+    lock_state:
+      read:
+        field: state
+      connections:
+        direct:
+          status: tested
+      source: README Experimental Smart Lock E30
+      notes: Fresh state queries confirmed against physical off-door lock and unlock. Door-load, jam and outage recovery remain unconfirmed.
+    battery_level:
+      read:
+        field: battery_percent
+      connections:
+        direct:
+          status: declared
+      notes: Battery sensor is implemented. Physical percentage accuracy is not independently confirmed.
+  controls:
+    lock:
+      write:
+        action: lock
+      connections:
+        direct:
+          status: tested
+      notes: Physically confirmed off-door only. Requires experimental_e30_locks, one T85F1 on the US route and an API token of at least 32 characters.
+    unlock:
+      write:
+        action: unlock
+      connections:
+        direct:
+          status: tested
+      notes: Physically confirmed off-door only. Review dashboard, automation and voice-assistant access before enabling.
+    auto_lock:
+      write:
+        action: auto_lock
+      connections:
+        direct:
+          status: declared
+      notes: Gateway setting values confirmed against restarted official app. Timed locking and Home Assistant control still need confirmation.
+    auto_lock_timer:
+      write:
+        action: auto_lock_delay
+      connections:
+        direct:
+          status: declared
+      notes: Delay selector is implemented with 30, 60, 90, 120, 150, 180 and 300 seconds. Timed locking remains unconfirmed.
+    sound_volume:
+      write:
+        action: sound_volume
+      connections:
+        direct:
+          status: declared
+      notes: Low and Medium values compared with official app. High and Home Assistant control still need confirmation. Off is never written.
+    notifications:
+      write:
+        action: notifications
+      connections:
+        direct:
+          status: declared
+      notes: Overall notification control implemented. Home Assistant control still needs confirmation.
+    locked_notifications:
+      write:
+        action: locked_notifications
+      connections:
+        direct:
+          status: declared
+      notes: Gateway values confirmed against official app. Home Assistant control still needs confirmation.
+    unlocked_notifications:
+      write:
+        action: unlocked_notifications
+      connections:
+        direct:
+          status: declared
+      notes: Gateway values confirmed against official app. Home Assistant control still needs confirmation.

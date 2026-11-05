@@ -171,7 +171,7 @@ test("admits the EufyCam E40 camera type", () => {
 test("admits catalogued cameras with ready routes at their evidence status", () => {
   const reportedModels = [
     { model: "T8111", deviceType: 1, status: "ready_to_test" },
-    { model: "T8220", deviceType: 16, status: "ready_to_test" },
+    { model: "T8220", deviceType: 16, status: "supported" },
     { model: "T8123", deviceType: 61, status: "supported" },
     { model: "T8130", deviceType: 32, status: "ready_to_test" },
     { model: "T8131", deviceType: 33, status: "ready_to_test" },
@@ -192,7 +192,55 @@ test("admits catalogued cameras with ready routes at their evidence status", () 
   }
 });
 
-test("admits only T8W11C type 10010 without inventing media or writes", () => {
+test("admits only the exact reported Video Doorbell S4 identity", () => {
+  const reported = {
+    serial: "s4-doorbell",
+    model: "T8215",
+    category: "eufy_security",
+    deviceType: 97,
+    paramTypes: [1101, 2111, 1198, 1138],
+  };
+  const manifest = describeCameraCapabilities(reported, {
+    doorbellSupported: true,
+    streamSupported: false,
+    routeReady: false,
+    homeBaseAttached: true,
+  });
+
+  assert.equal(catalogueIntegrationStatus("T8215", 97), "ready_to_test");
+  assert.equal(manifest.acceptedAsCamera, true);
+  assert.deepEqual(
+    manifest.capabilities.filter(({ id }) => id.startsWith("battery")).map(({ id }) => id),
+    ["batteryLevel", "batteryCharging", "batteryHealth", "batteryTemperature"],
+  );
+  assert.equal(manifest.capabilities.some(({ id }) => id === "liveVideo"), false);
+  assert.equal(manifest.matrix.find(({ id }) => id === "camera.live_stream")?.offerable, false);
+
+  for (const patch of [{ model: "T8215S" }, { model: "T8214" }, { deviceType: 98 }]) {
+    assert.equal(describeCameraCapabilities({ ...reported, ...patch }, {
+      doorbellSupported: true,
+      streamSupported: false,
+      routeReady: false,
+      homeBaseAttached: true,
+    }).acceptedAsCamera, false);
+  }
+});
+
+test("recognises Chime 2 without admitting it as a camera", () => {
+  const manifest = describeCameraCapabilities({
+    serial: "chime",
+    model: "T8026",
+    category: "eufy_security",
+    deviceType: 600,
+    paramTypes: [],
+  }, { doorbellSupported: false, streamSupported: false, routeReady: true });
+
+  assert.equal(catalogueIntegrationStatus("T8026", 600), "recognised");
+  assert.equal(manifest.acceptedAsCamera, false);
+  assert.deepEqual(manifest.capabilities, []);
+});
+
+test("admits the two T8W11C variants without inventing media or writes", () => {
   const admitted = describeCameraCapabilities({
     serial: "t8w11c-v2", model: "T8W11C", category: "eufy_security", deviceType: 10010,
     paramTypes: [1011, 1101],
@@ -207,13 +255,17 @@ test("admits only T8W11C type 10010 without inventing media or writes", () => {
   assert.equal(admitted.capabilities.some(({ id }) => id === "batteryLevel"), true);
   assert.equal(admitted.capabilities.some(({ id }) => id === "liveVideo"), false);
   assert.equal(admitted.matrix.some(({ id, offerable }) => id === "camera.motion_detection" && offerable), false);
-  assert.equal(original.acceptedAsCamera, false);
+  assert.equal(original.acceptedAsCamera, true);
+  assert.equal(original.capabilities.some(({ id }) => id === "liveVideo"), false);
+  assert.equal(original.matrix.some(({ id, offerable }) => id === "camera.motion_detection" && offerable), false);
 });
 
 test("offers compatibility feedback only for the exact ready-to-test model", () => {
   assert.equal(catalogueIntegrationStatus("T8140-R", 14), "ready_to_test");
   assert.equal(catalogueIntegrationStatus("T8224", 96), "supported");
   assert.equal(catalogueIntegrationStatus("T8223", 96), "ready_to_test");
+  assert.equal(catalogueIntegrationStatus("T8223", 95), "ready_to_test");
+  assert.equal(catalogueIntegrationStatus("T8224", 95), "recognised");
   assert.equal(catalogueIntegrationStatus("unknown", 96), null);
   assert.equal(catalogueIntegrationStatus("T9999", 65_000), null);
 });
@@ -269,9 +321,17 @@ test("admits the reported T8110 through its existing camera handler", () => {
   );
 });
 
-test("keeps a declared alternate camera type diagnostic-only", () => {
+test("admits reported type 95 only for the exact T8223 model", () => {
   assert.equal(KNOWN_CAMERA_DEVICE_TYPES.has(95), true);
-  assert.equal(CAMERA_DEVICE_TYPES.has(95), false);
+  assert.equal(CAMERA_DEVICE_TYPES.has(95), true);
+  const reported = describeCameraCapabilities({
+    serial: "reported", model: "T8223", category: "eufy_security", deviceType: 95, paramTypes: [],
+  }, { doorbellSupported: true, streamSupported: true });
+  const declared = describeCameraCapabilities({
+    serial: "declared", model: "T8224", category: "eufy_security", deviceType: 95, paramTypes: [],
+  }, { doorbellSupported: true, streamSupported: true });
+  assert.equal(reported.acceptedAsCamera, true);
+  assert.equal(declared.acceptedAsCamera, false);
 });
 
 test("groups camera capability logs without device identifiers or parameter values", () => {

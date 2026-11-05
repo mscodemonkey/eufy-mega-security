@@ -249,7 +249,7 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
       "T8220"
     ],
     "deviceType": 16,
-    "status": "ready_to_test",
+    "status": "supported",
     "handler": "camera"
   },
   {
@@ -374,7 +374,7 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
       "T8400"
     ],
     "deviceType": 30,
-    "status": "ready_to_test",
+    "status": "supported",
     "handler": "camera"
   },
   {
@@ -453,8 +453,8 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
       "T8422"
     ],
     "deviceType": 37,
-    "status": "recognised",
-    "handler": null
+    "status": "ready_to_test",
+    "handler": "camera"
   },
   {
     "id": "t8423",
@@ -744,6 +744,17 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
     "handler": "camera"
   },
   {
+    "id": "t8223",
+    "name": "Video Doorbell C31",
+    "category": "doorbell",
+    "models": [
+      "T8223"
+    ],
+    "deviceType": 95,
+    "status": "ready_to_test",
+    "handler": "camera"
+  },
+  {
     "id": "t8224",
     "name": "Video Doorbell C30",
     "category": "doorbell",
@@ -777,6 +788,17 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
     "handler": "camera"
   },
   {
+    "id": "t8215",
+    "name": "Video Doorbell S4",
+    "category": "doorbell",
+    "models": [
+      "T8215"
+    ],
+    "deviceType": 97,
+    "status": "ready_to_test",
+    "handler": "camera"
+  },
+  {
     "id": "t8173",
     "name": "SoloCam E42",
     "category": "camera",
@@ -784,8 +806,8 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
       "T8173"
     ],
     "deviceType": 98,
-    "status": "recognised",
-    "handler": null
+    "status": "ready_to_test",
+    "handler": "camera"
   },
   {
     "id": "t8414",
@@ -845,8 +867,8 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
       "T86P2121"
     ],
     "deviceType": 111,
-    "status": "recognised",
-    "handler": null
+    "status": "ready_to_test",
+    "handler": "camera"
   },
   {
     "id": "t90r0",
@@ -1089,6 +1111,17 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
     "handler": "camera"
   },
   {
+    "id": "t85f1",
+    "name": "Smart Lock E30",
+    "category": "smart_lock",
+    "models": [
+      "T85F1"
+    ],
+    "deviceType": 206,
+    "status": "recognised",
+    "handler": null
+  },
+  {
     "id": "t85p0",
     "name": "FamiLock E34",
     "category": "smart_lock",
@@ -1150,6 +1183,18 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
     "handler": null
   },
   {
+    "id": "t8026",
+    "name": "Video Doorbell Chime 2",
+    "category": "chime",
+    "models": [
+      "T8026",
+      "T8026120"
+    ],
+    "deviceType": 600,
+    "status": "recognised",
+    "handler": null
+  },
+  {
     "id": "t84a0",
     "name": "Solar Wall Light Cam S120",
     "category": "camera",
@@ -1167,12 +1212,11 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
     "name": "Indoor Cam C220 (T8W11C, original)",
     "category": "camera",
     "models": [
-      "T8W11C",
-      "T8W11"
+      "T8W11C"
     ],
     "deviceType": 10008,
-    "status": "recognised",
-    "handler": null
+    "status": "ready_to_test",
+    "handler": "camera"
   },
   {
     "id": "t8419",
@@ -1205,8 +1249,8 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
       "T8419N"
     ],
     "deviceType": 10011,
-    "status": "recognised",
-    "handler": null
+    "status": "ready_to_test",
+    "handler": "camera"
   },
   {
     "id": "t817l",
@@ -1269,7 +1313,7 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
 ] as const;
 
 /** Device types admitted to the implemented camera handler. */
-export const GENERATED_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([1,3,5,7,8,9,14,15,16,19,23,24,26,30,31,32,33,38,45,47,48,49,61,62,63,64,87,88,89,91,94,96,104,105,151,203,10005,10009,10010,10031,10035,10037,10039]);
+export const GENERATED_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([1,3,5,7,8,9,14,15,16,19,23,24,26,30,31,32,33,37,38,45,47,48,49,61,62,63,64,87,88,89,91,94,95,96,97,98,104,105,111,151,203,10005,10008,10009,10010,10011,10031,10035,10037,10039]);
 
 /** Device types admitted to the implemented standalone-sensor handler. */
 export const GENERATED_SENSOR_DEVICE_TYPES: ReadonlySet<number> = new Set([2,10,20,126,127]);
@@ -1278,7 +1322,7 @@ export const GENERATED_SENSOR_DEVICE_TYPES: ReadonlySet<number> = new Set([2,10,
 export const GENERATED_HOMEBASE_DEVICE_TYPES: ReadonlySet<number> = new Set([0,18,27,28]);
 
 /** Known camera-like types, including recognised devices not yet admitted. */
-export const GENERATED_KNOWN_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([1,3,4,5,7,8,9,14,15,16,19,23,24,26,30,31,32,33,34,35,37,38,39,44,45,46,47,48,49,60,61,62,63,64,87,88,89,91,93,94,95,96,98,100,104,105,110,111,131,132,133,151,301,303,10005,10008,10009,10010,10011,10031,10034,10035,10037,10039]);
+export const GENERATED_KNOWN_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([1,3,4,5,7,8,9,14,15,16,19,23,24,26,30,31,32,33,34,35,37,38,39,44,45,46,47,48,49,60,61,62,63,64,87,88,89,91,93,94,95,96,97,98,100,104,105,110,111,131,132,133,151,301,303,10005,10008,10009,10010,10011,10031,10034,10035,10037,10039]);
 
 /** Known non-camera types that must not enter camera review or admission. */
-export const GENERATED_NON_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([0,2,10,11,18,20,25,27,28,51,54,55,58,90,123,126,127,140,141,142,143,157,159,161,180,184,189,201,202,203,209,211,300]);
+export const GENERATED_NON_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([0,2,10,11,18,20,25,27,28,51,54,55,58,90,123,126,127,140,141,142,143,157,159,161,180,184,189,201,202,203,206,209,211,300,600]);

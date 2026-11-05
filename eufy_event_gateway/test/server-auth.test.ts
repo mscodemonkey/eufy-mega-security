@@ -2,12 +2,20 @@
  * Tests the gateway's HTTP authentication helpers and challenge presentation.
  *
  * Cases cover bearer comparison, HMAC stream-token expiry/signatures, and safe
- * CAPTCHA page output without binding a listening server.
+ * CAPTCHA page output through owned loopback servers and temporary storage.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { captchaDataUri, captchaResultMessage, createStreamToken, isBearerAuthorized, validateStreamToken } from "../src/server.js";
+import { captchaDataUri, captchaResultMessage, createStreamToken, GatewayServer, isBearerAuthorized, validateStreamToken } from "../src/server.js";
+import { loadConfig } from "../src/config.js";
+import { GatewayState } from "../src/domain/gateway-state.js";
+import type { CameraProvider, CaptchaProvider } from "../src/provider/provider.js";
+import { SnapshotStore } from "../src/storage/snapshot-store.js";
+import type { LiveStreamManager } from "../src/stream/live-stream-manager.js";
 
 test("compares bearer credentials without accepting malformed values", () => {
   assert.equal(isBearerAuthorized("Bearer long-random-token", "long-random-token"), true);
@@ -41,4 +49,105 @@ test("keeps CAPTCHA results in the app with clear retry and success messages", (
   assert.match(captchaResultMessage(true), /Try the new challenge/);
   assert.match(captchaResultMessage(false), /accepted/);
   assert.doesNotMatch(captchaResultMessage(false), /close this page/i);
+});
+
+for (const errorMessage of [
+  "Mega request failed (10019: Eufy rejected the login, which the inspected official app version classifies as too many incorrect password attempts. Stop repeated login attempts) operation=login",
+  "Eufy did not accept the CAPTCHA answer",
+]) {
+  test(`CAPTCHA submission presents a neutral sign-in failure for ${errorMessage}`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), "eufy-auth-http-"));
+    let submissions = 0;
+    const captcha: CaptchaProvider = {
+      getCaptchaChallenge: () => ({ id: "synthetic", image: "data:image/png;base64,AA==" }),
+      isVerificationRequired: () => false,
+      submitCaptcha: async answer => {
+        assert.equal(answer, "ABCD");
+        submissions++;
+        throw new Error(errorMessage);
+      },
+      submitVerification: async () => { assert.fail("verification must not be submitted"); },
+    };
+    const server = new GatewayServer({ ...loadConfig({}), port: 0 }, new GatewayState(), new SnapshotStore(directory),
+      {} as LiveStreamManager, {} as CameraProvider, null, captcha);
+    try {
+      await server.listen();
+      const response = await fetch(`http://127.0.0.1:${server.port}/`, {
+        method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "answer=ABCD",
+      });
+      assert.equal(response.status, 200);
+      const body = await response.text();
+      assert.ok(body.includes(`Eufy could not complete sign-in: ${errorMessage}`));
+      assert.equal(body.includes("Eufy did not accept the answer:"), false);
+      assert.equal(submissions, 1);
+    } finally {
+      await server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+}
+
+test("disables the verification form while Eufy checks the code", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "eufy-auth-http-"));
+  const captcha: CaptchaProvider = {
+    getCaptchaChallenge: () => null,
+    isVerificationRequired: () => true,
+    submitCaptcha: async () => { assert.fail("CAPTCHA must not be submitted"); },
+    submitVerification: async () => { assert.fail("verification must not be submitted"); },
+  };
+  const server = new GatewayServer({ ...loadConfig({}), port: 0 }, new GatewayState(), new SnapshotStore(directory),
+    {} as LiveStreamManager, {} as CameraProvider, null, captcha);
+  try {
+    await server.listen();
+    const body = await (await fetch(`http://127.0.0.1:${server.port}/`)).text();
+    assert.match(body, /id="verification-form"/);
+    assert.match(body, /button\.disabled=true/);
+    assert.match(body, /Checking code\.\.\./);
+  } finally {
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("shares one in-flight verification attempt across duplicate submissions", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "eufy-auth-http-"));
+  let submissions = 0;
+  let signalVerificationStarted!: () => void;
+  let completeVerification!: () => void;
+  const verificationStarted = new Promise<void>(resolve => { signalVerificationStarted = resolve; });
+  const verification = new Promise<void>(resolve => { completeVerification = resolve; });
+  const captcha: CaptchaProvider = {
+    getCaptchaChallenge: () => null,
+    isVerificationRequired: () => true,
+    submitCaptcha: async () => { assert.fail("CAPTCHA must not be submitted"); },
+    submitVerification: async code => {
+      assert.equal(code, "123456");
+      submissions++;
+      signalVerificationStarted();
+      await verification;
+    },
+  };
+  const server = new GatewayServer({ ...loadConfig({}), port: 0 }, new GatewayState(), new SnapshotStore(directory),
+    {} as LiveStreamManager, {} as CameraProvider, null, captcha);
+  try {
+    await server.listen();
+    const submit = (): Promise<Response> => fetch(`http://127.0.0.1:${server.port}/`, {
+      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "code=123456",
+    });
+    const first = submit();
+    await verificationStarted;
+    const second = submit();
+    await new Promise(resolve => setTimeout(resolve, 25));
+    assert.equal(submissions, 1);
+    completeVerification();
+    for (const response of await Promise.all([first, second])) {
+      assert.equal(response.status, 200);
+      assert.match(await response.text(), /Verification accepted\./);
+    }
+    assert.equal(submissions, 1);
+  } finally {
+    completeVerification();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
 });

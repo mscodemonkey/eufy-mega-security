@@ -16,6 +16,9 @@ from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity
+from .preferences import camera_preference_value
+from homeassistant.helpers.entity import EntityCategory
+from .lock import EufyLockSettingEntity
 
 
 async def async_setup_entry(
@@ -25,12 +28,31 @@ async def async_setup_entry(
 ) -> None:
     """Create reported camera switches as supported devices enter inventory."""
     coordinator = entry.runtime_data.coordinator
+    known_lock_settings: set[tuple[str, str]] = set()
+    known_chimes: set[str] = set()
+    known_preferences: set[tuple[str, str]] = set()
     known_enabled: set[str] = set()
     known_motion: set[str] = set()
     known_audio_recording: set[str] = set()
     known_auto_night_vision: set[str] = set()
 
     def add_new() -> None:
+        for serial, lock in getattr(coordinator, "locks", {}).items():
+            for setting in ("autoLock", "notifications", "lockedNotifications", "unlockedNotifications"):
+                key = (serial, setting)
+                if key not in known_lock_settings and type(lock.get("settings", {}).get(setting)) is bool:
+                    known_lock_settings.add(key)
+                    async_add_entities([EufyLockSettingSwitch(coordinator, serial, setting)])
+        for serial, camera in coordinator.cameras.items():
+            settings = camera.get("reportedSettings")
+            if serial not in known_chimes and camera.get("homebaseChimeControlSupported") is True and isinstance(settings, dict) and type(settings.get("homebaseChimeEnabled")) is bool:
+                known_chimes.add(serial)
+                async_add_entities([EufyDoorbellChimeSwitch(coordinator, serial)])
+            for name in ("microphone", "speaker", "imageFlipped", "preRecording", "soundDetection", "statusLed", "soundRoundLook", "enhanceLighting", "continuousRecording", "rtspPublication", "audioRecording", "motionDetection", "aiTracking", "cruise", "temperatureMonitoring"):
+                key = (serial, name)
+                if key not in known_preferences and camera_preference_value(camera, name) is not None:
+                    known_preferences.add(key)
+                    async_add_entities([EufyCameraPreferenceSwitch(coordinator, serial, name)])
         serials = {
             serial
             for serial, camera in coordinator.cameras.items()
@@ -97,29 +119,29 @@ class EufyCameraEnabledSwitch(EufyGatewayEntity, SwitchEntity):
         self._attr_unique_id = f"{serial}_camera_enabled"
 
     @property
+    def extra_state_attributes(self) -> dict[str, bool]:
+        """Distinguish an accepted request from the confirmed switch value."""
+        return {"setting_update_pending": self.coordinator.camera_controls.pending(
+            self.serial, "enabled"
+        )}
+
+    @property
     def is_on(self) -> bool | None:
         """Return the latest camera-reported enablement state."""
         value = self.camera.get("enabled")
         return value if isinstance(value, bool) else None
 
     async def async_turn_on(self, **kwargs: object) -> None:
-        """Enable the camera and publish only confirmed state."""
+        """Accept camera enablement without waiting for confirmation."""
         await self._async_set_enabled(True)
 
     async def async_turn_off(self, **kwargs: object) -> None:
-        """Disable the camera and publish only confirmed state."""
+        """Accept camera disablement without waiting for confirmation."""
         await self._async_set_enabled(False)
 
     async def _async_set_enabled(self, enabled: bool) -> None:
-        try:
-            camera = await self.coordinator.client.set_camera_enabled(
-                self.serial, enabled
-            )
-            self.coordinator.async_set_camera(camera)
-        except GatewayClientError as error:
-            raise HomeAssistantError(
-                f"Could not change camera enablement: {error}"
-            ) from error
+        self.coordinator.submit_camera_control(self.serial, "enabled", enabled)
+
 
 
 class EufyCameraMotionSwitch(EufyGatewayEntity, SwitchEntity):
@@ -134,29 +156,29 @@ class EufyCameraMotionSwitch(EufyGatewayEntity, SwitchEntity):
         self._attr_unique_id = f"{serial}_camera_motion_detection"
 
     @property
+    def extra_state_attributes(self) -> dict[str, bool]:
+        """Distinguish an accepted request from the confirmed switch value."""
+        return {"setting_update_pending": self.coordinator.camera_controls.pending(
+            self.serial, "motion"
+        )}
+
+    @property
     def is_on(self) -> bool | None:
         """Return the latest camera-reported motion setting."""
         value = self.camera.get("motionDetectionEnabled")
         return value if isinstance(value, bool) else None
 
     async def async_turn_on(self, **kwargs: object) -> None:
-        """Enable camera motion detection and publish confirmed state."""
+        """Accept motion enablement without optimistic state."""
         await self._async_set_motion(True)
 
     async def async_turn_off(self, **kwargs: object) -> None:
-        """Disable camera motion detection and publish confirmed state."""
+        """Accept motion disablement without optimistic state."""
         await self._async_set_motion(False)
 
     async def _async_set_motion(self, enabled: bool) -> None:
-        try:
-            camera = await self.coordinator.client.set_camera_motion_detection(
-                self.serial, enabled
-            )
-            self.coordinator.async_set_camera(camera)
-        except GatewayClientError as error:
-            raise HomeAssistantError(
-                f"Could not change camera motion detection: {error}"
-            ) from error
+        self.coordinator.submit_camera_control(self.serial, "motion", enabled)
+
 
 
 class EufyAudioRecordingSwitch(EufyGatewayEntity, SwitchEntity):
@@ -232,3 +254,123 @@ class EufyAutoNightVisionSwitch(EufyGatewayEntity, SwitchEntity):
             raise HomeAssistantError(
                 f"Could not change Auto night vision: {error}"
             ) from error
+
+
+class EufyCameraPreferenceSwitch(EufyGatewayEntity, SwitchEntity):
+    """Expose one admitted preference for this camera's coordinator lifetime.
+
+    The gateway owns validation and state confirmation. Instances keep only the
+    selected preference name and never publish optimistic state.
+    """
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, name: str) -> None:
+        """Bind one supported preference to its camera."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        SwitchEntity.__init__(self)
+        self.preference = name
+        self._attr_unique_id = f"{serial}_preference_{name}"
+        translation_name = {"imageFlipped": "image_flipped", "preRecording": "pre_recording", "soundDetection": "sound_detection", "statusLed": "status_led", "soundRoundLook": "sound_round_look", "enhanceLighting": "enhance_lighting", "continuousRecording": "continuous_recording", "rtspPublication": "rtsp_publication", "audioRecording": "audio_recording", "motionDetection": "motion_detection", "aiTracking": "ai_tracking", "cruise": "auto_cruise", "temperatureMonitoring": "temperature_monitoring"}.get(name, name)
+        self._attr_translation_key = f"camera_{translation_name}"
+
+    @property
+    def available(self) -> bool:
+        """Hide stale control admission when topology or reported state changes."""
+        return super().available and camera_preference_value(self.camera, self.preference) is not None
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return confirmed state, preserving unknown values."""
+        value = camera_preference_value(self.camera, self.preference)
+        return bool(value) if value is not None else None
+
+    async def async_turn_on(self, **kwargs: object) -> None:
+        """Enable the admitted preference and publish confirmed state."""
+        await self._async_set(1)
+
+    async def async_turn_off(self, **kwargs: object) -> None:
+        """Disable the admitted preference and publish confirmed state."""
+        await self._async_set(0)
+
+    async def _async_set(self, value: int) -> None:
+        try:
+            camera = await self.coordinator.client.set_camera_preference(self.serial, self.preference, value)
+            self.coordinator.async_set_camera(camera)
+        except GatewayClientError as error:
+            raise HomeAssistantError(f"Could not change camera preference: {error}") from error
+
+
+class EufyLockSettingSwitch(EufyLockSettingEntity, SwitchEntity):
+    """Expose confirmed E30 booleans without owning vendor connections or retries."""
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, setting: str) -> None:
+        """Give each switch a distinct name under the same lock device."""
+        super().__init__(coordinator, serial, setting)
+        self._attr_translation_key = {"autoLock": "lock_auto_lock", "notifications": "lock_notifications",
+                                      "lockedNotifications": "lock_locked_notifications",
+                                      "unlockedNotifications": "lock_unlocked_notifications"}[setting]
+
+    @property
+    def is_on(self) -> bool | None:
+        """Preserve unknown values instead of displaying them as off."""
+        value = self.setting_value
+        return value if type(value) is bool else None
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Request and await an independently confirmed enable."""
+        await self.async_set_setting(True)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Request and await an independently confirmed disable."""
+        await self.async_set_setting(False)
+
+
+class EufyDoorbellChimeSwitch(EufyGatewayEntity, SwitchEntity):
+    """Control the reviewed HomeBase doorbell chime without altering detection.
+
+    The coordinator owns confirmed state. Quiet-hours automations identify this
+    exact control using its fixed attribute and never infer it from an entity name.
+    """
+
+    _attr_translation_key = "doorbell_homebase_chime"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Group the independent chime control under its physical doorbell."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        SwitchEntity.__init__(self)
+        self._attr_unique_id = f"{serial}_homebase_chime"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str]:
+        """Allow the quiet-hours blueprint to reject other integration switches."""
+        return {"eufy_control": "homebase_doorbell_chime"}
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return only confirmed boolean chime state."""
+        settings = self.camera.get("reportedSettings")
+        value = settings.get("homebaseChimeEnabled") if isinstance(settings, dict) else None
+        return value if type(value) is bool else None
+
+    @property
+    def available(self) -> bool:
+        """Reject unknown chime state or a route no longer admitted by the gateway."""
+        return super().available and self.camera.get("homebaseChimeControlSupported") is True and self.is_on is not None
+
+    async def async_turn_on(self, **kwargs: object) -> None:
+        """Enable the HomeBase chime and await fresh readback."""
+        await self._async_set(True)
+
+    async def async_turn_off(self, **kwargs: object) -> None:
+        """Silence the HomeBase chime while preserving recording and detection."""
+        await self._async_set(False)
+
+    async def _async_set(self, enabled: bool) -> None:
+        try:
+            camera = await self.coordinator.client.set_camera_setting(self.serial, "homebaseChime", enabled)
+            self.coordinator.async_set_camera(camera)
+        except GatewayClientError as error:
+            if error.code == "outcome_unknown":
+                camera = {**self.camera, "reportedSettings": {**(self.camera.get("reportedSettings") or {}), "homebaseChimeEnabled": None}}
+                self.coordinator.async_set_camera(camera)
+            raise HomeAssistantError(str(error)) from error

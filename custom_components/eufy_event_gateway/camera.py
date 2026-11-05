@@ -9,12 +9,14 @@ a signed stream path, or a bounded capture/recording action.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import asyncio
+from datetime import date, datetime, timedelta
 import logging
 import os
+import re
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
 from homeassistant.components.camera import (
@@ -34,17 +36,61 @@ from homeassistant.helpers.entity_platform import (
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.network import get_url
+from homeassistant.util import dt as dt_util
 
 from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity
-from .const import DOMAIN
+from .const import CONF_SHORT_HLS_IDLE, CONF_NATIVE_VIDEO, CONF_FAST_NATIVE_HLS, DOMAIN
+from .playback_diagnostics import serialize_stream
+
+if TYPE_CHECKING:
+    from homeassistant.components.stream import Stream
+    from homeassistant.components.stream.core import StreamOutput
 
 _LOGGER = logging.getLogger(__name__)
 
 CONF_DURATION = "duration"
 STREAM_SOURCE_REFRESH_INTERVAL = timedelta(minutes=5)
+STREAM_URL_RENEWAL_TIMEOUT = 10
+
+
+def _cloud_day_window(day: str, zone: Any) -> tuple[int, int, int]:
+    """Use true local midnights, resolving a gap's offset at its converted instant."""
+    try:
+        if type(day) is not str or re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", day) is None or zone is None:
+            raise ValueError
+        selected = date.fromisoformat(day)
+        if not 2000 <= selected.year <= 2100:
+            raise ValueError
+        following = selected + timedelta(days=1)
+        start = int(datetime(selected.year, selected.month, selected.day, tzinfo=zone, fold=0).timestamp())
+        end = int(datetime(following.year, following.month, following.day, tzinfo=zone, fold=0).timestamp())
+        if not 0 <= start < end <= 2**53 - 1 or end - start > 26 * 3600:
+            raise ValueError
+        offset = _cloud_local_offset(start, zone)
+    except (ValueError, TypeError, OverflowError):
+        raise HomeAssistantError("Invalid cloud metadata date or time zone") from None
+    return start, end, offset
+
+
+def _cloud_month_offset(month: str, zone: Any) -> int:
+    """Keep the month hint offset fixed at its first local midnight."""
+    if type(month) is not str or re.fullmatch(r"[0-9]{4}-[0-9]{2}", month) is None:
+        raise HomeAssistantError("Invalid cloud metadata month")
+    return _cloud_day_window(month + "-01", zone)[2]
+
+
+def _cloud_local_offset(timestamp: int, zone: Any) -> int:
+    """Return seconds east of UTC without loading a zone in the event loop."""
+    delta = datetime.fromtimestamp(timestamp, zone).utcoffset()
+    if delta is None:
+        raise ValueError
+    offset = int(delta.total_seconds())
+    if abs(offset) > 50400 or offset % 60:
+        raise ValueError
+    return offset
 
 
 async def async_setup_entry(
@@ -61,7 +107,15 @@ async def async_setup_entry(
         serials = set(coordinator.cameras) - known
         if serials:
             known.update(serials)
-            entities = [EufyGatewayCamera(coordinator, serial) for serial in sorted(serials)]
+            entities = [
+                EufyGatewayCamera(
+                    coordinator, serial,
+                    short_hls_idle=entry.options.get(CONF_SHORT_HLS_IDLE) is True,
+                    native_video=entry.options.get(CONF_NATIVE_VIDEO) is True,
+                    fast_native_hls=entry.options.get(CONF_FAST_NATIVE_HLS) is True,
+                )
+                for serial in sorted(serials)
+            ]
             for serial in sorted(serials):
                 legacy_id = registry.async_get_entity_id("camera", DOMAIN, f"{serial}_event_image")
                 if legacy_id is None:
@@ -82,6 +136,11 @@ async def async_setup_entry(
         "async_capture_snapshot",
     )
     platform.async_register_entity_service(
+        "play_audio",
+        {vol.Required(CONF_FILENAME): cv.string},
+        "async_play_audio",
+    )
+    platform.async_register_entity_service(
         "record_clip",
         {
             vol.Required(CONF_FILENAME): cv.string,
@@ -98,6 +157,19 @@ async def async_setup_entry(
         supports_response=SupportsResponse.ONLY,
     )
 
+    platform.async_register_entity_service(
+        "list_cloud_recordings",
+        {vol.Required("day"): cv.string},
+        "async_list_cloud_recordings",
+        supports_response=SupportsResponse.ONLY,
+    )
+    platform.async_register_entity_service(
+        "get_cloud_recording_dates",
+        {vol.Required("month"): cv.string},
+        "async_get_cloud_recording_dates",
+        supports_response=SupportsResponse.ONLY,
+    )
+
 
 class EufyGatewayCamera(EufyGatewayEntity, Camera):
     """Represent one camera with retained imagery and explicit media actions.
@@ -111,18 +183,157 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
     _attr_name = None
     _attr_content_type = "image/jpeg"
 
-    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
-        """Create the entity with a stable serial-derived unique ID."""
+    def __init__(
+        self, coordinator: EufyGatewayCoordinator, serial: str,
+        *, short_hls_idle: bool = False, native_video: bool = False, fast_native_hls: bool = False,
+    ) -> None:
+        """Bind playback options for this entity until the next entry reload."""
         EufyGatewayEntity.__init__(self, coordinator, serial)
         Camera.__init__(self)
         self._attr_unique_id = f"{serial}_camera"
         self._published_snapshot_revision = self._snapshot_revision
+        self._short_hls_idle = short_hls_idle
+        self._native_video = native_video
+        self._fast_native_hls = fast_native_hls
+        self._hls_idle_stream: Stream | None = None
+        self._stream_source_refreshing = False
+        self._cloud_metadata_busy = False
 
         # Raw Annex-B needs arrival timestamps. MPEG-TS already supplies a
         # shared video/audio clock, which must survive Home Assistant's remux.
         self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = (
-            self.camera.get("liveAudioSupported") is not True
+            self._native_video or self.camera.get("liveAudioSupported") is not True
         )
+
+    def playback_diagnostic(self) -> dict[str, Any]:
+        """Describe cached HA playback without requesting a URL or waking a camera.
+
+        Only model/type and allowlisted observations leave this boundary. A
+        failed observation must not prevent the rest of a diagnostics download.
+        """
+        try:
+            model = self.camera.get("model")
+            device_type = self.camera.get("deviceType")
+            return {
+                **serialize_stream(self.stream),
+                "model": model if isinstance(model, str) and re.fullmatch(r"T[0-9A-Z]{3,15}", model) else None,
+                "device_type": device_type if type(device_type) is int and 0 <= device_type <= 65535 else None,
+                "native_video": bool(self._native_video),
+                "short_hls_idle": bool(self._short_hls_idle),
+            }
+        except Exception:
+            return {"unavailable": True}
+
+    async def async_list_cloud_recordings(self, day: str) -> dict[str, Any]:
+        """Return activity times only, leaving media access to explicit Diagnostics."""
+        if self._cloud_metadata_busy:
+            raise HomeAssistantError("Cloud metadata request already in progress")
+        self._cloud_metadata_busy = True
+        try:
+            start, end, offset = _cloud_day_window(day, dt_util.get_default_time_zone())
+            try:
+                result = await self.coordinator.client.cloud_recordings(self.serial, start, end, offset)
+            except GatewayClientError as error:
+                raise HomeAssistantError(str(error)) from None
+            return {"day": day, "time_zone": self.hass.config.time_zone, "utc_offset_seconds": offset,
+                    "window_start": start, "window_end": end, "recordings": result["records"],
+                    "truncated": result["truncated"], "metadata_only": True}
+        finally:
+            self._cloud_metadata_busy = False
+
+    async def async_get_cloud_recording_dates(self, month: str) -> dict[str, Any]:
+        """Return unconfirmed day hints without starting media or refreshing inventory."""
+        if self._cloud_metadata_busy:
+            raise HomeAssistantError("Cloud metadata request already in progress")
+        self._cloud_metadata_busy = True
+        try:
+            offset = _cloud_month_offset(month, dt_util.get_default_time_zone())
+            try:
+                result = await self.coordinator.client.cloud_recording_dates(self.serial, month, offset)
+            except GatewayClientError as error:
+                raise HomeAssistantError(str(error)) from None
+            return {"month": month, "time_zone": self.hass.config.time_zone, "utc_offset_seconds": offset,
+                    "days": result["days"], "hint_only": True}
+        finally:
+            self._cloud_metadata_busy = False
+
+    async def async_create_stream(self) -> Stream | None:
+        """Start the HLS startup deadline, with an optional shorter idle timeout.
+
+        HA owns the stream, viewer traffic, timers and output cleanup. Wrapping
+        this instance's public provider factory avoids creating an unwanted HLS
+        output for a recording. Start HA's HLS timer before any segment arrives
+        even when the optional timeout is off, so a failed startup cannot leave
+        retries running indefinitely.
+        Recorders, explicit timeouts and preload keep HA's own behaviour. The
+        entry reload replaces this camera on opt-out.
+
+        Faster native startup is a separate opt-in. It adjusts only the public
+        settings on the first ordinary HLS output of a new stream, after proving
+        that HA's global settings are a different object. Active outputs,
+        recordings, preload and unknown HA settings contracts retain defaults.
+        """
+        cached = self.stream
+        stream = await super().async_create_stream()
+        if stream is None:
+            return stream
+        if stream is cached and not stream.outputs() and not stream.dynamic_stream_settings.preload_stream and not self._stream_source_refreshing:
+            self._stream_source_refreshing = True
+            try:
+                source = await asyncio.wait_for(
+                    self._async_stream_url(),
+                    timeout=STREAM_URL_RENEWAL_TIMEOUT,
+                )
+                if self.hass is not None and self.stream is stream:
+                    stream.source = source
+            except (GatewayClientError, asyncio.TimeoutError):
+                _LOGGER.debug("Stream URL renewal failed, keeping the previous URL")
+            finally:
+                self._stream_source_refreshing = False
+        if stream is self._hls_idle_stream:
+            return stream
+        fast_native_hls = self._fast_native_hls and self._native_video and stream is not cached
+        add_provider = stream.add_provider
+
+        def add_output(fmt: str, timeout: int | None = None) -> StreamOutput:
+            """Arm the startup deadline when a consumer requests ordinary HLS."""
+            tune_first_output = (fast_native_hls and fmt == "hls" and timeout is None
+                                 and not stream.outputs()
+                                 and not stream.dynamic_stream_settings.preload_stream)
+            provider = add_provider(
+                fmt,
+                timeout=(
+                    60
+                    if self._short_hls_idle and fmt == "hls" and timeout is None
+                    else timeout
+                ),
+            )
+            if tune_first_output:
+                settings = getattr(provider, "stream_settings", None)
+                hass_data = getattr(self.hass, "data", None)
+                stream_data = hass_data.get("stream") if isinstance(hass_data, dict) else None
+                global_settings = stream_data.get("settings") if isinstance(stream_data, dict) else None
+                minimum = getattr(settings, "min_segment_duration", None)
+                if (global_settings is not None and settings is not global_settings
+                        and type(settings).__module__ == "homeassistant.components.stream.core"
+                        and type(settings).__name__ == "StreamSettings"
+                        and getattr(settings, "ll_hls", None) is True
+                        and type(minimum) is float and 1.9 < minimum <= 9.9):
+
+                    # HA copies settings for each Stream. This public output
+                    # shares only that camera's copy with its not-yet-started
+                    # worker. Use HA's two-second target minus its 0.1s margin.
+                    try:
+                        settings.min_segment_duration = 1.9
+                    except (AttributeError, TypeError):
+                        pass
+            if fmt == "hls" and timeout is None:
+                provider.idle_timer.start()
+            return provider
+
+        stream.add_provider = add_output
+        self._hls_idle_stream = stream
+        return stream
 
     async def async_added_to_hass(self) -> None:
         """Start updates and refresh credentials on Home Assistant's cached stream."""
@@ -136,7 +347,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         )
 
     async def _async_refresh_stream_source(self, now: datetime) -> None:
-        """Replace a cached stream URL before its credential expires.
+        """Renew reconnect credentials only while a stream has a consumer.
 
         The gateway checks the signed URL only when a connection opens, so a
         running session does not need it. The new URL is stored for Home
@@ -146,12 +357,21 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         """
         del now
         stream = self.stream
-        if stream is None:
+        if self.hass is None or stream is None or self._stream_source_refreshing:
             return
+        if not stream.outputs() and not stream.dynamic_stream_settings.preload_stream:
+            return
+        self._stream_source_refreshing = True
         try:
-            stream.source = await self.coordinator.client.stream_url(self.serial)
+            source = await self._async_stream_url()
+            if self.hass is not None and self.stream is stream and (
+                stream.outputs() or stream.dynamic_stream_settings.preload_stream
+            ):
+                stream.source = source
         except GatewayClientError:
             _LOGGER.debug("Stream URL renewal failed, keeping the previous URL")
+        finally:
+            self._stream_source_refreshing = False
 
     @property
     def _snapshot_revision(self) -> int | None:
@@ -161,16 +381,16 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Publish a new image URL after a fresher retained still is committed.
+        """Publish fresher retained-image state without invalidating stream workers.
 
-        Snapshot revisions are atomic retained-media commits. Rotating the token
-        for every revision keeps event-driven stills visible even when a stream
-        is active, while the published revision prevents duplicate rotations.
+        Snapshot revisions are atomic retained-media commits. The camera entity's
+        access token also authenticates Home Assistant's stream endpoint, so it
+        must remain stable while an idle worker can retain and retry that URL.
+        Coordinator updates still publish the new revision and retained bytes.
         """
         revision = self._snapshot_revision
         if revision != self._published_snapshot_revision:
             self._published_snapshot_revision = revision
-            self.async_update_token()
         super()._handle_coordinator_update()
 
     @property
@@ -240,7 +460,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         for field, attribute, allowed in (
             ("soundDetectionSensitivity", "reported_sound_detection_sensitivity", (1, 3, 5)),
             ("soundDetectionType", "reported_sound_detection_type", (1, 2)),
-            ("streamingQualityTier", "reported_streaming_quality_tier", (0, 1, 2, 3)),
+            ("streamingQualityTier", "reported_streaming_quality_tier", (0, 1, 2, 3, 4) if self.camera.get("model") == "T8416" and self.camera.get("nvrLiveControlsSupported") is True else (0, 1, 2, 3)),
             ("recordingQualityTier", "reported_recording_quality_tier", (1, 2, 3)),
             ("notificationStyle", "reported_notification_style", (1, 2, 3)),
             ("watermarkMode", "reported_watermark_mode", (0, 1, 2)),
@@ -282,6 +502,19 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         # pipeline consumes it without receiving the gateway bearer token.
         if not self.camera.get("streamSupported"):
             return None
+
+        # Inventory can admit AAC after entity construction. Home Assistant
+        # reads these options after obtaining this source, so choose its clock
+        # from the same current capability that selects the gateway transport.
+        self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = (
+            self._native_video or self.camera.get("liveAudioSupported") is not True
+        )
+        return await self._async_stream_url()
+
+    async def _async_stream_url(self) -> str:
+        """Select the same source profile for initial open and both renewals."""
+        if self._native_video:
+            return await self.coordinator.client.stream_url(self.serial, native=True)
         return await self.coordinator.client.stream_url(self.serial)
 
     async def async_get_stream_url(self) -> dict[str, str]:
@@ -322,6 +555,18 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
             {ATTR_ENTITY_ID: self.entity_id, CONF_FILENAME: filename},
             blocking=True,
         )
+
+    async def async_play_audio(self, filename: str) -> None:
+        """Play a short native AAC file from a Home Assistant allowlisted path."""
+        if self.camera.get("talkbackSupported") is not True:
+            raise HomeAssistantError("Speaker playback is unavailable for this camera")
+        if not self.hass.config.is_allowed_path(filename):
+            raise HomeAssistantError("Speaker audio must use a Home Assistant allowlisted path")
+        try:
+            data = await self.hass.async_add_executor_job(_read_speaker_audio, filename)
+            await self.coordinator.client.play_audio(self.serial, data)
+        except (GatewayClientError, OSError, ValueError) as error:
+            raise HomeAssistantError(f"Could not play speaker audio: {error}") from error
 
     async def async_record_clip(self, filename: str, duration: int) -> None:
         """Request a bounded MP4 and replace the destination only when complete."""
@@ -410,3 +655,12 @@ def _atomic_write(filename: str, data: bytes) -> None:
         except FileNotFoundError:
             pass
         raise
+
+
+def _read_speaker_audio(filename: str) -> bytes:
+    """Read at most one bounded clip, leaving all caller-owned files untouched."""
+    with open(filename, "rb") as source:
+        data = source.read(320_001)
+    if not data or len(data) > 320_000:
+        raise ValueError("Speaker audio exceeds its size limit")
+    return data

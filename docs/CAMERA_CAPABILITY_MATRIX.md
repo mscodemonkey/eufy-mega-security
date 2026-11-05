@@ -1,6 +1,6 @@
 # Camera capability lookup
 
-The Mega gateway evaluates each discovered camera before Home Assistant creates entities. The published lookup is deliberately small. It contains the camera media and push paths we already handle, plus four battery readings that inventory may identify. No reference SDK runs in the gateway.
+The Mega gateway evaluates each discovered camera before Home Assistant creates entities. The published lookup is deliberately small. It contains the camera media and push paths we already handle, plus four battery readings that inventory may identify.
 
 The core lookup is [`camera-capability-core.ts`](../eufy_event_gateway/src/provider/camera-capability-core.ts). It has 11 rows: retained and fresh images, live video, clip retrieval, motion and person events, battery level, charging, health, and temperature. The gateway validates the four battery values from Mega inventory and refreshes them every 60 seconds. Home Assistant creates an entity only when that camera reports the matching parameter. Known mains models that report a dummy battery level are suppressed.
 

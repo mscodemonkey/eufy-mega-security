@@ -19,6 +19,9 @@ from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
 from .const import ALARM_TONES, DOMAIN, GUARD_MODES
 from .coordinator import EufyGatewayCoordinator
+from .guard_mode_options import guard_mode_label, guard_mode_options
+from .preferences import camera_preference_value
+from .lock import EufyLockSettingEntity
 from .entity import EufyGatewayEntity, EufyStationEntity
 
 
@@ -26,8 +29,11 @@ NIGHT_VISION_MODE_KEYS = {
     "Off": "off",
     "Colour": "colour",
     "Infrared": "infrared",
+    "Auto night vision": "auto_night_vision",
     "Infrared on": "infrared_on",
     "Spotlight": "spotlight",
+    "Standard": "standard",
+    "Auto Infrared": "auto_infrared",
 }
 
 
@@ -38,13 +44,39 @@ async def async_setup_entry(
 ) -> None:
     """Create reported night-vision and managed HomeBase selects."""
     coordinator = entry.runtime_data.coordinator
+    known_lock_volumes: set[str] = set()
+    known_lock_delays: set[str] = set()
+    known_preferences: set[tuple[str, str]] = set()
+
+    def add_preferences() -> None:
+        for serial, lock in getattr(coordinator, "locks", {}).items():
+            volume = lock.get("settings", {}).get("volume")
+            if serial not in known_lock_volumes and type(volume) is int and 0 <= volume <= 3:
+                known_lock_volumes.add(serial)
+                async_add_entities([EufyLockVolumeSelect(coordinator, serial)])
+            if serial not in known_lock_delays and "autoLockDelaySeconds" in lock.get("settings", {}):
+                known_lock_delays.add(serial)
+                async_add_entities([EufyLockAutoLockDelaySelect(coordinator, serial)])
+        for serial, camera in coordinator.cameras.items():
+            for name in ("watermark", "recordingQuality", "soundType", "streamingQuality"):
+                key = (serial, name)
+                if key not in known_preferences and camera_preference_value(camera, name) is not None:
+                    known_preferences.add(key)
+                    async_add_entities([EufyCameraPreferenceSelect(coordinator, serial, name)])
+
+    add_preferences()
+    entry.async_on_unload(coordinator.async_add_listener(add_preferences))
     registry = er.async_get(hass)
     known_stations: set[str] = set()
     known_night_vision: set[str] = set()
     known_streaming_quality: set[str] = set()
+    known_nvr_views: set[str] = set()
 
     def add_new() -> None:
         for serial, camera in coordinator.cameras.items():
+            if camera.get("nvrViewOptions") and serial not in known_nvr_views:
+                known_nvr_views.add(serial)
+                async_add_entities([EufyNvrViewSelect(coordinator, serial)])
             if camera.get("autoNightVisionControlSupported") is not True:
                 continue
             obsolete_unique_id = f"{serial}_night_vision"
@@ -113,6 +145,11 @@ class EufyNightVisionSelect(EufyGatewayEntity, SelectEntity):
         self._attr_unique_id = f"{serial}_night_vision"
 
     @property
+    def available(self) -> bool:
+        """Withdraw a discovered select when its gateway admission is withdrawn."""
+        return super().available and self.camera.get("nightVisionControlSupported") is True
+
+    @property
     def current_option(self) -> str | None:
         """Return the camera-reported night-vision mode."""
         mode = self.camera.get("nightVisionMode")
@@ -133,7 +170,8 @@ class EufyNightVisionSelect(EufyGatewayEntity, SelectEntity):
             raise HomeAssistantError(f"Unsupported night-vision mode: {option}")
         try:
             camera = await self.coordinator.client.set_camera_night_vision(
-                self.serial, mode
+                self.serial, mode,
+                **({"nvr": True} if self.camera.get("nvrLiveControlsSupported") is True else {}),
             )
             self.coordinator.async_set_camera(camera)
         except GatewayClientError as error:
@@ -179,6 +217,11 @@ class EufyStreamingQualitySelect(EufyGatewayEntity, SelectEntity):
         self._attr_unique_id = f"{serial}_streaming_quality"
 
     @property
+    def available(self) -> bool:
+        """Withdraw a discovered select when its gateway admission is withdrawn."""
+        return super().available and self.camera.get("streamingQualityControlSupported") is True
+
+    @property
     def current_option(self) -> str | None:
         """Return the fresh reported preference rather than an inferred video resolution."""
         settings = self.camera.get("reportedSettings")
@@ -202,7 +245,8 @@ class EufyStreamingQualitySelect(EufyGatewayEntity, SelectEntity):
             raise HomeAssistantError(f"Unsupported streaming quality: {option}")
         try:
             camera = await self.coordinator.client.set_camera_streaming_quality(
-                self.serial, quality
+                self.serial, quality,
+                **({"nvr": True} if self.camera.get("nvrLiveControlsSupported") is True else {}),
             )
             self.coordinator.async_set_camera(camera)
         except GatewayClientError as error:
@@ -216,6 +260,7 @@ def _streaming_quality_modes(camera: dict[str, Any]) -> dict[int, str]:
     names = {
         "Auto": "auto", "HD (720P)": "hd",
         "Full HD (1080P)": "full_hd", "2K": "2k",
+        "Medium": "medium", "High": "high", "Low": "low", "Highest": "highest", "Ultra 4K": "ultra_4k",
     }
     raw_modes = camera.get("streamingQualityModes")
     if not isinstance(raw_modes, list):
@@ -228,7 +273,8 @@ def _streaming_quality_modes(camera: dict[str, Any]) -> dict[int, str]:
         if (
             isinstance(value, int)
             and not isinstance(value, bool)
-            and 0 <= value <= 3
+            and (0 <= value <= 3 or value == 4 and name in ("Highest", "Ultra 4K")
+                 and camera.get("model") == "T8416" and camera.get("nvrLiveControlsSupported") is True)
             and isinstance(name, str)
             and name in names
         ):
@@ -245,8 +291,6 @@ class EufyGuardModeSelect(EufyStationEntity, SelectEntity):
     """
 
     _attr_translation_key = "eufy_guard_mode_select"
-    _attr_options: ClassVar[list[str]] = list(GUARD_MODES.values())
-
     def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
         """Create a configured guard-mode select for one HomeBase."""
         EufyStationEntity.__init__(self, coordinator, serial)
@@ -254,16 +298,24 @@ class EufyGuardModeSelect(EufyStationEntity, SelectEntity):
         self._attr_unique_id = f"{serial}_guard_mode"
 
     @property
+    def options(self) -> list[str]:
+        """Return built-in tokens plus confirmed account-defined custom names."""
+        return list(guard_mode_options(self.station).values())
+
+    @property
     def current_option(self) -> str | None:
         """Return the configured policy, not the effective scheduled mode."""
         mode = self.station.get("guardMode")
-        return GUARD_MODES.get(mode) if isinstance(mode, int) else None
+        return guard_mode_label(self.station, mode)
 
     async def async_select_option(self, option: str) -> None:
         """Set a guard policy and publish it only after gateway confirmation."""
-        mode = next(
-            (value for value, label in GUARD_MODES.items() if label == option), None
-        )
+        labels = guard_mode_options(self.station)
+        mode = next((value for value, label in labels.items() if label == option), None)
+        if mode is None:
+            mode = next(
+                (value for value, label in GUARD_MODES.items() if label == option), None
+            )
         if mode is None:
             raise HomeAssistantError(f"Unsupported HomeBase guard mode: {option}")
         try:
@@ -313,3 +365,150 @@ class EufyAlarmToneSelect(EufyStationEntity, SelectEntity):
             raise HomeAssistantError(
                 f"Could not change HomeBase alarm tone: {error}"
             ) from error
+
+
+class EufyCameraPreferenceSelect(EufyGatewayEntity, SelectEntity):
+    """Expose admitted native choices with confirmed state owned by the gateway."""
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, name: str) -> None:
+        """Bind a reviewed enum to one camera, preserving its native numeric values."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        SelectEntity.__init__(self)
+        self.preference = name
+        self._attr_unique_id = f"{serial}_preference_{name}"
+        choices = {
+            "watermark": ([0, 1, 2], ["off", "timestamp", "timestamp_logo"], "camera_watermark"),
+            "recordingQuality": ([2, 3], ["medium", "high"], "camera_recording_quality"),
+            "soundType": ([128, 256], ["all_sound", "crying"], "camera_sound_type"),
+        }
+        if coordinator.cameras.get(serial, {}).get("careMonitor") is True:
+            choices["recordingQuality"] = ([1, 2, 3, 4], ["hd_720p", "full_hd_1080p", "two_k", "four_k"], "care_recording_quality")
+            choices["streamingQuality"] = ([0, 1, 2, 3, 4], ["auto", "hd_720p", "full_hd_1080p", "two_k", "four_k"], "care_streaming_quality")
+        self._values, self._attr_options, self._attr_translation_key = choices[name]
+
+    @property
+    def available(self) -> bool:
+        """Require a current gateway preference route and readable state."""
+        return super().available and self.current_option is not None
+
+    @property
+    def current_option(self) -> str | None:
+        """Map only a known native value to its corresponding choice."""
+        value = camera_preference_value(self.camera, self.preference)
+        return self._attr_options[self._values.index(value)] if value in self._values else None
+
+    async def async_select_option(self, option: str) -> None:
+        """Publish a choice only after the gateway confirms it on the camera."""
+        if option not in self._attr_options:
+            raise HomeAssistantError("Unknown camera preference option")
+        try:
+            camera = await self.coordinator.client.set_camera_preference(self.serial, self.preference, self._values[self._attr_options.index(option)])
+            self.coordinator.async_set_camera(camera)
+        except GatewayClientError as error:
+            raise HomeAssistantError(f"Could not change camera preference: {error}") from error
+
+
+class EufyLockVolumeSelect(EufyLockSettingEntity, SelectEntity):
+    """Expose audible E30 levels while leaving native mute outside write authority."""
+
+    _attr_translation_key = "lock_volume"
+    _attr_options = ["low", "medium", "high"]
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Bind the volume control to the lock's shared settings observation."""
+        super().__init__(coordinator, serial, "volume")
+
+    @property
+    def available(self) -> bool:
+        """Keep the select unavailable while the native app has sound disabled."""
+        return super().available and type(self.setting_value) is int and self.setting_value in (1, 2, 3)
+
+    @property
+    def current_option(self) -> str | None:
+        """Translate only a reported audible enum."""
+        value = self.setting_value
+        return self._attr_options[value - 1] if type(value) is int and 1 <= value <= 3 else None
+
+    async def async_select_option(self, option: str) -> None:
+        """Await confirmed volume instead of optimistically changing the label."""
+        if option not in self._attr_options:
+            raise HomeAssistantError("Unsupported lock sound level")
+        await self.async_set_setting(self._attr_options.index(option) + 1)
+
+
+class EufyLockAutoLockDelaySelect(EufyLockSettingEntity, SelectEntity):
+    """Expose reviewed E30 timer choices without changing automatic-lock enablement.
+
+    The coordinator owns observations and expiry. The gateway preserves schedules
+    and confirms each change before this entity publishes a selected option.
+    """
+
+    _attr_translation_key = "lock_auto_lock_delay"
+    _attr_options = ["30", "60", "90", "120", "150", "180", "300"]
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Bind the delay to the lock's device-settings observation lifetime."""
+        super().__init__(coordinator, serial, "autoLockDelaySeconds")
+
+    @property
+    def available(self) -> bool:
+        """Require fresh settings and a value represented by the reviewed choices."""
+        return super().available and self.current_option is not None
+
+    @property
+    def current_option(self) -> str | None:
+        """Keep unknown and unoffered native timers unavailable rather than rounding."""
+        value = self.setting_value
+        return str(value) if type(value) is int and str(value) in self._attr_options else None
+
+    async def async_select_option(self, option: str) -> None:
+        """Request a mapped integer and await the gateway's independent confirmation."""
+        if option not in self._attr_options:
+            raise HomeAssistantError("Unsupported auto-lock delay")
+        await self.async_set_setting(int(option))
+
+
+class EufyNvrViewSelect(EufyGatewayEntity, SelectEntity):
+    """Own the HA choice for the next normal source, never a physical lens state.
+
+    The gateway rejects changes while media or a control owns the camera. The
+    coordinator replaces this in-memory preference only from gateway responses.
+    """
+
+    _attr_translation_key = "nvr_camera_view"
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Bind the preference to one default-off exact model profile."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        SelectEntity.__init__(self)
+        self._attr_unique_id = f"{serial}_nvr_camera_view"
+
+    @property
+    def available(self) -> bool:
+        """Withdraw the choice when its experimental profile is absent."""
+        return super().available and bool(self.options)
+
+    @property
+    def options(self) -> list[str]:
+        """Map only the two admitted model-specific choices."""
+        labels = {"Fixed": "fixed", "Movable": "movable", "Wide": "wide", "Telephoto": "telephoto"}
+        raw = self.camera.get("nvrViewOptions")
+        if raw not in (["Fixed", "Movable"], ["Wide", "Telephoto"]):
+            return []
+        return [labels[value] for value in raw]
+
+    @property
+    def current_option(self) -> str | None:
+        """Return the next-start preference, not an observed physical lens."""
+        selected = self.camera.get("nvrSelectedView")
+        return self.options[selected] if type(selected) is int and 0 <= selected < len(self.options) else None
+
+    async def async_select_option(self, option: str) -> None:
+        """Ask the gateway to change an idle source preference without optimism."""
+        if option not in self.options:
+            raise HomeAssistantError("Unavailable camera view")
+        try:
+            camera = await self.coordinator.client.set_nvr_view(self.serial, self.options.index(option))
+            self.coordinator.async_set_camera(camera)
+        except GatewayClientError as error:
+            raise HomeAssistantError(str(error)) from error

@@ -15,6 +15,7 @@ import test from "node:test";
 import { GatewayState } from "../src/domain/gateway-state.js";
 import {
   LiveStreamManager,
+  h265ViewerTranscoderArguments,
   SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS,
   StreamCadenceTracker,
   terminateMediaProcess,
@@ -106,6 +107,19 @@ test("allows slower cameras 30 seconds to produce a fresh snapshot", () => {
   assert.equal(SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS, 30_000);
 });
 
+test("fixed H.265 viewer output adds a stable 1080p filter only when enabled", () => {
+  const unchanged = h265ViewerTranscoderArguments();
+  assert.equal(unchanged.includes("-vf"), false);
+
+  const fixed = h265ViewerTranscoderArguments(true);
+  const filterIndex = fixed.indexOf("-vf");
+  assert.notEqual(filterIndex, -1);
+  assert.equal(
+    fixed[filterIndex + 1],
+    "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+  );
+});
+
 test("summarizes stream cadence without retaining timestamps", () => {
   const tracker = new StreamCadenceTracker();
   for (const timestamp of [100, 300, 900, 2_000, 4_300]) tracker.record(timestamp);
@@ -123,6 +137,111 @@ test("summarizes stream cadence without retaining timestamps", () => {
 function annexBNal(type: number, ...body: number[]): Buffer {
   return Buffer.from([0, 0, 0, 1, type, ...body]);
 }
+
+for (const codec of ["h264", "h265"] as const) {
+  test(`corrects a provisional codec to ${codec} across every header split`, () => {
+    const headers = codec === "h264"
+      ? Buffer.concat([annexBNal(0x67, 0x42), annexBNal(0x68, 0xce)])
+      : Buffer.concat([annexBNal(0x40, 1), annexBNal(0x42, 1), annexBNal(0x44, 1)]);
+    const picture = codec === "h264" ? annexBNal(0x65, 0x80) : annexBNal(0x26, 1, 0x80);
+    const wire = Buffer.concat([headers, picture]);
+    const wrong = codec === "h264" ? "h265" : "h264";
+    for (let split = 0; split <= wire.length; split++) {
+      const cache = new VideoParameterSetCache();
+      cache.push(annexBNal(2, 1, 0x80), wrong);
+      cache.push(wire.subarray(0, split), null);
+      cache.push(wire.subarray(split), codec);
+
+      // A late correction may have consumed headers under the provisional codec.
+      // The next repeated decoder configuration must always recover the stream.
+      cache.push(wire, codec);
+      assert.equal(cache.codec, codec, `split=${split}`);
+      assert.deepEqual(cache.bootstrap, headers, `split=${split}`);
+      assert.deepEqual(cache.startup, wire, `split=${split}`);
+      cache.push(annexBNal(2, 1, 0x80), wrong);
+      assert.equal(cache.codec, codec, "verified bootstrap ignores later conflicting hints");
+    }
+  });
+}
+
+test("recovers split HEVC headers immediately when the provider corrects its initial hint", () => {
+  const wire = Buffer.concat([annexBNal(0x40, 1), annexBNal(0x42, 1), annexBNal(0x44, 1), annexBNal(0x26, 1, 0x80)]);
+  for (let split = 0; split < wire.length; split++) {
+    const cache = new VideoParameterSetCache();
+    cache.push(annexBNal(2, 1, 0x80), "h264");
+    cache.push(wire.subarray(0, split), "h265");
+    cache.push(wire.subarray(split), "h265");
+    assert.deepEqual(cache.startup, wire, `split=${split}`);
+    assert.equal(cache.diagnostics.randomAccessPictures, 1);
+  }
+});
+
+test("recovers after provisional hints flap and ignores missing hints", () => {
+  const cache = new VideoParameterSetCache();
+  const vps = annexBNal(0x40, 1);
+  const sps = annexBNal(0x42, 1);
+  const pps = annexBNal(0x44, 1);
+  const idr = annexBNal(0x26, 1, 0x80);
+  cache.push(annexBNal(2, 1, 0x80), "h264");
+  cache.push(Buffer.concat([vps, sps]), "h265");
+  cache.push(annexBNal(2, 1, 0x80), "h264");
+  assert.equal(cache.startup, null);
+  cache.push(vps, "h265");
+  cache.push(sps, null);
+  cache.push(pps);
+  cache.push(idr);
+  assert.deepEqual(cache.startup, Buffer.concat([vps, sps, pps, idr]));
+  assert.equal(cache.diagnostics.randomAccessPictures, 1);
+});
+
+test("complete H.264 wire headers override a repeated wrong H.265 hint", () => {
+  const cache = new VideoParameterSetCache();
+  const sps = annexBNal(0x67, 0x42, 0x00, 0x1f);
+  const pps = annexBNal(0x68, 0xce, 0x06);
+  const idr = annexBNal(0x65, 0x80, 0x01);
+  cache.push(sps, "h265");
+  cache.push(pps, "h265");
+  cache.push(idr, "h265");
+  cache.push(idr, "h265");
+  assert.equal(cache.codec, "h264");
+  assert.deepEqual(cache.bootstrap, Buffer.concat([sps, pps]));
+  assert.deepEqual(cache.startup, Buffer.concat([sps, pps, idr]));
+});
+
+test("a changing provider hint reaches the shared HEVC viewer converter", async () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  const source = new PassThrough();
+  let hint: "h264" | "h265" = "h264";
+  let converter: ChildProcessWithoutNullStreams | undefined;
+  let manager: LiveStreamManager;
+  manager = new LiveStreamManager(state, {} as never, {
+    async startStream() { manager.attachSource(camera.serial, source, () => hint); },
+    async stopStream() {},
+  }, 5, undefined, () => {
+    converter = Object.assign(new EventEmitter(), {
+      stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill: () => true,
+    }) as unknown as ChildProcessWithoutNullStreams;
+    return converter;
+  }, () => Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill: () => true,
+  }) as unknown as ChildProcessWithoutNullStreams);
+  const response = new PassThrough();
+  Object.assign(response, { writeHead: () => response });
+  const received: Buffer[] = [];
+  response.on("data", (chunk: Buffer) => received.push(chunk));
+  await manager.addClient(camera.serial, response as unknown as ServerResponse);
+  source.write(annexBNal(2, 1, 0x80));
+  assert.equal(received.length, 0);
+  hint = "h265";
+  const wire = Buffer.concat([annexBNal(0x40, 1), annexBNal(0x42, 1), annexBNal(0x44, 1), annexBNal(0x26, 1, 0x80)]);
+  for (const byte of wire) source.write(Buffer.from([byte]));
+  assert.ok(converter, "corrected HEVC starts the converter");
+  const output = Buffer.concat([annexBNal(0x67, 0x42), annexBNal(0x68, 0xce), annexBNal(0x65, 0x80)]);
+  converter.stdout.emit("data", output);
+  assert.ok(Buffer.concat(received).includes(output));
+  await manager.close();
+});
 
 test("retains SPS and PPS split across arbitrary source chunks", () => {
   const cache = new VideoParameterSetCache();
@@ -503,7 +622,7 @@ test("shares an H.264 fallback with viewers when a camera returns H.265", async 
   assert.equal(deliverySummaries[0]?.clientBackpressureEvents, 0);
 });
 
-test("restarts a silent H.265 transcoder from a later random-access picture", async () => {
+test("recovers initial silence and a later H.265 stall only from a new complete picture", async () => {
   const state = new GatewayState();
   state.registerCamera(camera);
   const source = new PassThrough();
@@ -562,11 +681,20 @@ test("restarts a silent H.265 transcoder from a later random-access picture", as
   (replacementViewer.stdout as PassThrough).write(h264);
   now = 12_000;
   source.write(annexBNal(0x26, 1, 0x80, 3));
-  assert.equal(transcoders.length, 3, "output from the replacement disables further silent recovery");
+  (replacementViewer.stdout as PassThrough).write(h264);
+  assert.equal(transcoders.length, 3, "healthy conversion must not restart");
+  now = 23_000;
+  source.write(annexBNal(0x02, 1, 0x80, 4));
+  assert.equal(transcoders.length, 3, "a stale startup picture must not trigger stall recovery");
+  source.write(annexBNal(0x26, 1, 0x80, 4));
+  assert.equal(transcoders.length, 4, "a running converter that stopped output must recover from the next complete picture");
+  replacementViewer.emit("close", 1);
+  assert.equal(response.destroyed, false);
+  (transcoders[3]!.stdout as PassThrough).write(h264);
   assert.ok(Buffer.concat(delivered).includes(h264));
 
   response.emit("close");
-  assert.equal(summaries.at(-1)?.silentRestarts, 1);
+  assert.equal(summaries.at(-1)?.silentRestarts, 2);
   await manager.close();
 });
 
@@ -1255,4 +1383,23 @@ test("releases the camera operation lease when movement or source startup fails"
       if (!startupFails) assert.equal(stops, 1);
     } finally { await manager.close(); }
   }
+});
+
+test("active-viewer lease never waits for a fresh image or captures a snapshot", async context => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const state = new GatewayState(); state.registerCamera(camera);
+  let snapshots = 0, manager: LiveStreamManager;
+  const source = new PassThrough();
+  manager = new LiveStreamManager(state, { write: async () => { snapshots++; } } as never, {
+    async startStream() { manager.attachSource(camera.serial, source); }, async stopStream() {},
+  }, 5, undefined, undefined, (() => { throw Error("Unexpected snapshot extractor"); }) as never, 90000);
+  try {
+    await assert.rejects(manager.withActiveViewer(camera.serial, async () => true));
+    const viewer = new PassThrough() as unknown as ServerResponse;
+    await manager.addClient(camera.serial, viewer);
+    source.write(Buffer.from([1])); context.mock.timers.tick(31000);
+    assert.equal(manager.hasActiveViewer(camera.serial), true);
+    assert.equal(await manager.withActiveViewer(camera.serial, async () => "accepted"), "accepted");
+    assert.equal(snapshots, 0);
+  } finally { await manager.close(); }
 });

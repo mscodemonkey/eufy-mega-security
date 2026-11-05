@@ -38,7 +38,7 @@ class CameraStreamOptionsTest(unittest.TestCase):
             )
         ]
 
-        self.assertEqual(len(assignments), 1)
+        self.assertEqual(len(assignments), 2)
         expression = compile(ast.Expression(assignments[0].value), str(CAMERA_SOURCE), "eval")
         for camera, expected in [
             ({}, True),
@@ -47,7 +47,7 @@ class CameraStreamOptionsTest(unittest.TestCase):
             ({"liveAudioSupported": "true"}, True),
         ]:
             with self.subTest(camera=camera):
-                self.assertIs(eval(expression, {}, {"self": SimpleNamespace(camera=camera)}), expected)
+                self.assertIs(eval(expression, {}, {"self": SimpleNamespace(camera=camera, _native_video=False)}), expected)
 
     def test_stream_url_action_requires_a_response(self) -> None:
         """Keep the temporary URL out of state attributes and event data."""
@@ -113,7 +113,7 @@ class CameraStreamOptionsTest(unittest.TestCase):
         self.assertTrue(
             any(
                 isinstance(call.func, ast.Attribute)
-                and call.func.attr == "stream_url"
+                and call.func.attr == "_async_stream_url"
                 for call in refresh_calls
             )
         )
@@ -128,46 +128,115 @@ class CameraStreamOptionsTest(unittest.TestCase):
             )
         )
 
+    def test_snapshot_revisions_do_not_invalidate_stream_worker_tokens(self) -> None:
+        """Keep the main camera token stable while publishing retained-image state."""
+        tree = ast.parse(CAMERA_SOURCE.read_text())
+        camera_class = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "EufyGatewayCamera"
+        )
+        handler = next(
+            node
+            for node in camera_class.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_handle_coordinator_update"
+        )
+
+        self.assertFalse(
+            any(
+                isinstance(call.func, ast.Attribute)
+                and call.func.attr == "async_update_token"
+                for call in ast.walk(handler)
+                if isinstance(call, ast.Call)
+            )
+        )
+
 
 class CameraStreamRefreshTest(unittest.IsolatedAsyncioTestCase):
     """Exercise URL renewal with synthetic clients and no Home Assistant runtime."""
 
-    async def test_renewal_preserves_the_running_worker(self) -> None:
-        """Store credentials for reconnect without requesting a worker restart."""
+    def _fixture(self):
+        """Run the production renewal hook with owned synthetic consumers."""
         tree = ast.parse(CAMERA_SOURCE.read_text())
-        method = next(
-            node for node in ast.walk(tree)
-            if isinstance(node, ast.AsyncFunctionDef)
-            and node.name == "_async_refresh_stream_source"
-        )
-        module = ast.Module(body=[method], type_ignores=[])
+        method = next(node for node in ast.walk(tree)
+                      if isinstance(node, ast.AsyncFunctionDef)
+                      and node.name == "_async_refresh_stream_source")
         namespace = {"GatewayClientError": RuntimeError, "_LOGGER": Mock()}
-        exec(compile(module, str(CAMERA_SOURCE), "exec"), namespace)
-        refresh = namespace["_async_refresh_stream_source"]
-        stream = SimpleNamespace(
-            source="old-url", outputs=Mock(return_value={"hls": object()}),
-            update_source=Mock(),
-        )
-        client = SimpleNamespace(stream_url=AsyncMock(return_value="renewed-url"))
-        camera = SimpleNamespace(
-            stream=stream, serial="synthetic-camera",
-            coordinator=SimpleNamespace(client=client),
-        )
-        await refresh(camera, None)
-        self.assertEqual(stream.source, "renewed-url")
-        stream.update_source.assert_not_called()
-        client.stream_url.assert_awaited_once_with("synthetic-camera")
+        exec(compile(ast.Module(body=[method], type_ignores=[]), str(CAMERA_SOURCE), "exec"), namespace)
+        stream = SimpleNamespace(source="old", outputs=Mock(return_value={"hls": object()}),
+                                 dynamic_stream_settings=SimpleNamespace(preload_stream=False),
+                                 update_source=Mock())
+        client = SimpleNamespace(stream_url=AsyncMock(return_value="renewed"))
+        camera = SimpleNamespace(stream=stream, serial="demo", hass=object(),
+                                 _stream_source_refreshing=False,
+                                 coordinator=SimpleNamespace(client=client))
+        camera._async_stream_url = lambda: camera.coordinator.client.stream_url(camera.serial)
+        return namespace["_async_refresh_stream_source"], camera, stream, client
 
-        client.stream_url.reset_mock()
+    async def test_missing_stream_does_not_renew(self):
+        """A removed stream has no credentials to refresh."""
+        refresh, camera, _stream, client = self._fixture()
+        camera.stream = None
+        await refresh(camera, None)
+        client.stream_url.assert_not_awaited()
+
+    async def test_idle_cached_stream_does_not_renew(self):
+        """An entity with no consumer must not mint reconnect credentials."""
+        refresh, camera, stream, client = self._fixture()
         stream.outputs.return_value = {}
         await refresh(camera, None)
-        client.stream_url.assert_awaited_once_with("synthetic-camera")
+        client.stream_url.assert_not_awaited()
+        self.assertEqual(stream.source, "old")
 
-        stream.outputs.return_value = {"hls": object()}
-        client.stream_url.side_effect = RuntimeError("renewal failed")
+    async def test_live_recording_and_preload_consumers_renew_without_restart(self):
+        """Keep explicit consumers working without restarting their workers."""
+        for outputs, preload in [({"hls": object()}, False), ({"recorder": object()}, False), ({}, True)]:
+            with self.subTest(outputs=outputs, preload=preload):
+                refresh, camera, stream, client = self._fixture()
+                stream.outputs.return_value = outputs
+                stream.dynamic_stream_settings.preload_stream = preload
+                await refresh(camera, None)
+                self.assertEqual(stream.source, "renewed")
+                stream.update_source.assert_not_called()
+                client.stream_url.assert_awaited_once_with("demo")
+
+    async def test_late_renewal_cannot_overwrite_retired_stream(self):
+        """Discard replies after replacement, removal, idle transition or teardown."""
+        for transition in ["replacement", "removed", "idle", "teardown"]:
+            with self.subTest(transition=transition):
+                refresh, camera, stream, client = self._fixture()
+                async def reply(_serial):
+                    if transition == "replacement":
+                        camera.stream = SimpleNamespace(source="replacement")
+                    elif transition == "removed":
+                        camera.stream = None
+                    elif transition == "teardown":
+                        camera.hass = None
+                    else:
+                        stream.outputs.return_value = {}
+                    return "late"
+                client.stream_url.side_effect = reply
+                await refresh(camera, None)
+                self.assertEqual(stream.source, "old")
+                stream.update_source.assert_not_called()
+                self.assertFalse(camera._stream_source_refreshing)
+
+    async def test_overlap_skips_and_gateway_failure_preserves_source(self):
+        """One renewal owns its result, and failures release its in-flight flag."""
+        refresh, camera, stream, client = self._fixture()
+        camera._stream_source_refreshing = True
         await refresh(camera, None)
-        self.assertEqual(stream.source, "renewed-url")
-        stream.update_source.assert_not_called()
+        client.stream_url.assert_not_awaited()
+        camera._stream_source_refreshing = False
+        client.stream_url.side_effect = RuntimeError("offline")
+        await refresh(camera, None)
+        self.assertEqual(stream.source, "old")
+        self.assertFalse(camera._stream_source_refreshing)
+        client.stream_url.side_effect = ValueError("unexpected")
+        with self.assertRaises(ValueError):
+            await refresh(camera, None)
+        self.assertFalse(camera._stream_source_refreshing)
 
 
 class CameraStreamUrlActionTest(unittest.IsolatedAsyncioTestCase):
@@ -227,6 +296,32 @@ class CameraStreamUrlActionTest(unittest.IsolatedAsyncioTestCase):
             await method(camera)
 
         namespace["async_request_stream"].assert_not_awaited()
+
+
+class CameraCurrentStreamClockTest(unittest.IsolatedAsyncioTestCase):
+    """Choose timestamps from current admission instead of startup inventory."""
+
+    async def test_capability_changes_before_opening_source(self):
+        """Preserve transport clocks after AAC admission and raw-video clocks after removal."""
+        tree = ast.parse(CAMERA_SOURCE.read_text())
+        method = next(node for node in ast.walk(tree)
+                      if isinstance(node, ast.AsyncFunctionDef) and node.name == "stream_source")
+        namespace = {"CONF_USE_WALLCLOCK_AS_TIMESTAMPS": "wallclock"}
+        exec(compile(ast.Module(body=[method], type_ignores=[]), str(CAMERA_SOURCE), "exec"), namespace)
+        client = SimpleNamespace(stream_url=AsyncMock(return_value="signed-source"))
+        entity = SimpleNamespace(camera={"streamSupported": True}, stream_options={"wallclock": True},
+                                 _native_video=False, _async_stream_url=client.stream_url,
+                                 serial="synthetic", coordinator=SimpleNamespace(client=client))
+        entity.camera["liveAudioSupported"] = True
+        self.assertEqual(await namespace["stream_source"](entity), "signed-source")
+        self.assertIs(entity.stream_options["wallclock"], False)
+        entity.camera["liveAudioSupported"] = False
+        await namespace["stream_source"](entity)
+        self.assertIs(entity.stream_options["wallclock"], True)
+        entity.camera["streamSupported"] = False
+        client.stream_url.reset_mock()
+        self.assertIsNone(await namespace["stream_source"](entity))
+        client.stream_url.assert_not_awaited()
 
 
 if __name__ == "__main__":

@@ -10,7 +10,20 @@
  * stream plus safe counters, so the rest of the gateway never handles PPCS
  * packet layout or camera encryption directly.
  */
-import { createCipheriv, createDecipheriv, createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes, timingSafeEqual, type KeyObject } from "node:crypto";
+import { createRecordedCipheriv as createCipheriv } from "../diagnostics/raw-crypto.js";
+import { createRecordedDecipheriv as createDecipheriv } from "../diagnostics/raw-crypto.js";
+import { observeRawSocket } from "../diagnostics/raw-network.js";
+import { e21PreferenceContracts, validateE21Preference, type E21Preference } from "../provider/e21-profile.js";
+
+import { cameraSettingProfile, cameraSettingWireValue, type CameraSettingChange } from "../provider/camera-settings.js";
+import { buildT85V0StatusQuery, decodeT85V0StatusReply, T85V0StatusError, type T85V0StatusIdentity, type T85V0StatusSummary } from "../provider/t85v0-status.js";
+import { C31IndexError, summarizeC31Index, validateC31IndexWindow, type C31IndexSummary } from "./c31-recording-index.js";
+import { buildS100SirenCommand } from "./s100-siren-command.js";
+import { S100SirenTrialError, type S100SirenTrialTransport, type S100SirenFailureStage } from "../provider/s100-siren-trial.js";
+import { createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes, type KeyObject } from "node:crypto";
+import { unwrapAuthenticatedMediaKey } from "../crypto/media-key.js";
+import { modelControlTrialCommand, type ModelControlRoute, type ModelControlTrial, type AlarmStateTrialResult } from "../provider/model-control-trials.js";
+import { validateC31Preference, type C31Preference } from "../provider/c31-preferences.js";
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
 import {
@@ -18,13 +31,19 @@ import {
   HomeBase2EventFrameReader, type RecordedEventFrames,
 } from "./homebase2-event-frame.js";
 import { HomeBaseRecordingReader } from "./homebase-recordings.js";
+import type { PushRecordingReference } from "../mega/push-recording-reference.js";
+import { EventPictureReader, decodeEventPictureReply, decodeLegacyEventPictureReply, type EventPictureSummary } from "./homebase-event-picture.js";
+import { EventNameHistoryError, EventNameHistoryReader, eventHistoryCursor, nextEventHistoryDate, type EventNameHistorySummary } from "./homebase-event-names.js";
 import { SoloCamRecordingReader, type CameraStoredRecord } from "./stored-recordings.js";
 import type { CameraPresetPosition, VideoCodec } from "../domain/types.js";
+import { markS340LiveFrameClock, markS340LiveSource } from "./live-frame-clock.js";
 import { PpcsAccessUnitAssembler } from "./ppcs-access-unit-assembler.js";
+import { C31TalkbackSender, c31TalkbackBody } from "./c31-talkback.js";
 import { decodePpcsAac } from "./ppcs-audio.js";
 import { ppcsCandidatePorts, ppcsLocalLookupTargets } from "./ppcs-lookup.js";
 import { PpcsLookupSocketPool } from "./ppcs-lookup-sockets.js";
-import { decodeSensorContactNotification, type SensorContactObservation } from "./sensor-status-notification.js";
+import { PpcsMediaStart } from "./ppcs-media-start.js";
+import { decodeSensorContactNotification, decodeSensorMotionNotification, type SensorContactObservation, type SensorMotionObservation } from "./sensor-status-notification.js";
 
 // PPCS wraps command payloads in an XZYH header. The outer F1 D0 UDP envelope,
 // the inner D1 data channel, and the XZYH command frame have separate sequence
@@ -40,6 +59,7 @@ const REQ = {
   localLookup: Buffer.from([0xf1, 0x30]),
   check: Buffer.from([0xf1, 0x41]),
   ping: Buffer.from([0xf1, 0xe0]),
+  pong: Buffer.from([0xf1, 0xe1]),
   data: Buffer.from([0xf1, 0xd0]),
   ack: Buffer.from([0xf1, 0xd1]),
   end: Buffer.from([0xf1, 0xf0]),
@@ -50,6 +70,7 @@ const RESP = {
   localLookup: Buffer.from([0xf1, 0x41]),
   camId: Buffer.from([0xf1, 0x42]),
   turnServerCamId: Buffer.from([0xf1, 0x84]),
+  ping: Buffer.from([0xf1, 0xe0]),
   pong: Buffer.from([0xf1, 0xe1]),
   data: Buffer.from([0xf1, 0xd0]),
 } as const;
@@ -69,7 +90,7 @@ const ANNEX_B_START_CODE = Buffer.from([0, 0, 0, 1]);
 const MAX_NAL_UNIT_BYTES = 16 * 1024 * 1024;
 
 /** Stable terminal states retained for stream-close diagnostics. */
-type PpcsStreamCloseReason = "client_stop" | "first_frame_timeout" | "max_duration" | "replaced" | "start_failed";
+type PpcsStreamCloseReason = "client_stop" | "first_frame_timeout" | "media_stall" | "max_duration" | "replaced" | "start_failed";
 
 /**
  * Decide whether a HomeBase-attached camera needs its full media start sent again.
@@ -83,6 +104,25 @@ export function needsAttachedMediaReassert(
   now: number,
 ): boolean {
   return lastDeliveredFrameAt === null || now - lastDeliveredFrameAt >= ATTACHED_MEDIA_STALL_MILLISECONDS;
+}
+
+/**
+ * Choose one bounded recovery action after an attached stream has delivered media.
+ *
+ * Startup keeps its existing retries until the first-frame timeout owns the
+ * failure. After real output, one stop/start reassert gets a full stall window
+ * to recover. A second silent window ends the source so its viewer can decide
+ * whether to open a fresh session.
+ */
+export function attachedMediaStallRecoveryAction(
+  lastDeliveredFrameAt: number | null,
+  lastReassertAt: number | null,
+  now: number,
+): "reassert" | "wait" | "close" | null {
+  if (!needsAttachedMediaReassert(lastDeliveredFrameAt, now)) return null;
+  if (lastDeliveredFrameAt === null) return "reassert";
+  if (lastReassertAt === null || lastDeliveredFrameAt >= lastReassertAt) return "reassert";
+  return now - lastReassertAt >= ATTACHED_MEDIA_STALL_MILLISECONDS ? "close" : "wait";
 }
 
 /** Return whether cumulative codec evidence includes configuration and an IDR. */
@@ -121,47 +161,96 @@ export function acceptsAttachedCameraMedia(command: number, frameChannel: number
 }
 
 /**
- * Limit clear SoloCam AAC to its requested child channel and media lifecycle.
- * Attached routes may use any assigned channel; direct T8171 routes use zero.
+ * Limit clear E30/C31 AAC to its requested channel and media lifecycle.
+ * Attached E30 routes may use assigned channels; direct E30/C31 routes use zero.
  * Payload validation and protection checks remain with the owning session.
  */
 export function acceptsSoloCamAudio(cameraModel: string, homeBaseAttached: boolean, requestedChannel: number,
   frameChannel: number, purpose: string | undefined): boolean {
-  return cameraModel === "T8171" && Number.isSafeInteger(requestedChannel) && requestedChannel >= 0
-    && frameChannel === requestedChannel && (homeBaseAttached || requestedChannel === 0) && purpose !== "control";
+  return (cameraModel === "T8171" || (["T817L", "T8354"].includes(cameraModel) && !homeBaseAttached))
+    && Number.isSafeInteger(requestedChannel) && requestedChannel >= 0
+    && frameChannel === requestedChannel && (homeBaseAttached || requestedChannel === 0) && purpose !== "control" && purpose !== "passive";
 }
 
 /**
  * Build the JSON value encrypted inside a HomeBase media start or stop.
  *
  * Command 1003 starts a child camera and must advertise the session's RSA
- * modulus so the camera can wrap its media key. Command 1004 stops the child
- * channel and deliberately carries an empty payload. The caller applies
- * level-two encryption after this function returns.
+ * modulus so the camera can wrap its media key. The app's attached live
+ * selector is 2. The exact reported T8171/type-88 route through HomeBase 3
+ * instead uses its app-observed single-camera descriptor and selector 0.
+ * Its stop includes the child channel and a fresh transaction. Other stops
+ * retain the empty payload. The caller owns route admission and applies
+ * level-two encryption afterwards. Frame-level codec detection remains downstream.
  */
 export function buildAttachedMediaControlValue(
   command: 1003 | 1004,
   channel: number,
   accountId: string,
   publicKey?: string,
+  route?: AttachedMediaControlRoute,
 ): Buffer {
   if (command === 1003 && !publicKey) throw new Error("Attached media start requires an RSA public key");
+  const nativeT8171 = usesT8171AttachedMediaProfile(channel, route);
   return Buffer.from(JSON.stringify({
     account_id: accountId,
     cmd: command,
     mChannel: channel,
-    mValue3: command,
+    mValue3: nativeT8171 && command === 1004 ? 0 : command,
     payload: command === 1003
-      ? {
+      ? nativeT8171 ? {
+          streamtype: 0,
+          camera_type: 0,
+          entrytype: 0,
+          accountId,
+          chn_list: [{ cameraType: 0, chn: channel, index: 0, sensor: 0 }],
+          view_mode: -1,
+          extValue: 1000,
+          ClientOS: "ANDROID",
+          station_video_type: 0,
+          audio_chn: channel,
+          pip_cord: "",
+          stitch_mode: 1,
+          key: publicKey,
+        } : {
           ClientOS: "Android",
           accountId,
           camera_type: 0,
           entrytype: 0,
           key: publicKey,
-          streamtype: 1,
+          streamtype: 2,
         }
-      : {},
+      : nativeT8171 ? { channel, transaction: String(Date.now()) } : {},
   }));
+}
+
+/**
+ * Reported identity and topology supplied by the owning provider for media framing.
+ * These facts select only a qualified request shape. They do not discover a peer,
+ * authorize a camera, or change persistent device settings.
+ */
+export interface AttachedMediaControlRoute {
+  readonly cameraModel?: string;
+  readonly cameraDeviceType?: number | null;
+  readonly stationModel?: string;
+  readonly homeBaseAttached?: boolean;
+}
+
+/** Select the current app's exact type-88 T8171 single-camera HomeBase 3 route. */
+function usesT8171AttachedMediaProfile(channel: number, route?: AttachedMediaControlRoute): boolean {
+  return channel === 1 && route?.homeBaseAttached === true && route.cameraModel === "T8171"
+    && route.cameraDeviceType === 88 && route.stationModel === "T8030";
+}
+
+/** Select the app-observed type-7 T8210 station-heartbeat route on HomeBase 3. */
+function usesT8210StationHeartbeatProfile(route: AttachedMediaControlRoute): boolean {
+  return route.homeBaseAttached === true && route.cameraModel === "T8210"
+    && route.cameraDeviceType === 7 && route.stationModel === "T8030";
+}
+
+/** Limit the independently authenticated direct stop to its observed child route. */
+function usesT8210DirectMediaStop(channel: number, route: AttachedMediaControlRoute): boolean {
+  return channel === 4 && usesT8210StationHeartbeatProfile(route);
 }
 
 /** Build the encrypted direct stop command required by a T8010 HomeBase 2. */
@@ -218,33 +307,63 @@ interface PpcsReorderChannel {
   timer?: ReturnType<typeof setTimeout> | undefined;
 }
 
+/** Session-local numeric evidence; no packet bodies or peer identities are retained. */
+interface PpcsSequenceEvidence {
+  receivedFirst: number;
+  receivedLast: number;
+  receivedCount: number;
+  acceptedFirst: number | null;
+  acceptedLast: number | null;
+  acceptedCount: number;
+  staleFirst: number | null;
+  staleLast: number | null;
+  staleCount: number;
+  staleBehindMin: number | null;
+  staleBehindMax: number | null;
+  previousBehind: number | null;
+  advancingRun: number;
+  contiguousRun: number;
+  maxAdvancingRun: number;
+  maxContiguousRun: number;
+}
+
 /**
  * Delivers PPCS datagrams in channel sequence order before command reassembly.
  *
  * One session owns this buffer and closes it before releasing its UDP socket.
- * A missing packet gets 250 ms to arrive, with at most 128 packets or 2 MiB
- * retained per channel. Expiry discards the partial command through `onSkip`
- * before delivering the earliest successor. Acknowledgements remain the
+ * Missing packets normally get 250 ms. The owning session may select a
+ * longer video-channel wait for a qualified late-repair route. These
+ * policies retain at most 128 packets or 2 MiB per channel. Expiry discards
+ * the partial command through `onSkip` before delivering the earliest successor. Acknowledgements remain the
  * session's responsibility, including duplicates and retransmissions.
  */
 export class PpcsDatagramReorderBuffer {
   readonly #channels = new Map<number, PpcsReorderChannel>();
+  readonly #evidence = new Map<number, PpcsSequenceEvidence>();
   #closed = false;
 
+  /**
+   * Own callbacks and a fixed video repair policy until close.
+   *
+   * @param videoRepairWaitMilliseconds Select 1000 or 2000 only for a
+   * source-qualified media route. Control channels always retain 250 ms.
+   */
   constructor(
     private readonly deliver: (data: Buffer, type: number) => void,
     private readonly onSkip: (type: number, reason: "gap" | "restart") => void,
     private readonly onRepeat: (reason: "duplicate" | "stale") => void,
+    private readonly videoRepairWaitMilliseconds: 250 | 1000 | 2000 = 250,
   ) {}
 
   /** Accept an acknowledged packet, retaining successors until missing data arrives or expires. */
   push(data: Buffer, sequence: number, type: number): void {
     if (this.#closed) return;
     let channel = this.#channels.get(type);
+    this.#recordArrival(type, sequence, channel?.last ?? null);
     if (!channel) {
       channel = { last: sequence, held: new Map(), bytes: 0 };
       this.#channels.set(type, channel);
-      this.deliver(data, type);
+      this.#deliver(data, sequence, type);
       return;
     }
     const disposition = ppcsSequenceDisposition(channel.last, sequence);
@@ -258,12 +377,12 @@ export class PpcsDatagramReorderBuffer {
       channel.bytes = 0;
       this.onSkip(type, "restart");
       channel.last = sequence;
-      this.deliver(data, type);
+      this.#deliver(data, sequence, type);
       return;
     }
     if (disposition === "next") {
       channel.last = sequence;
-      this.deliver(data, type);
+      this.#deliver(data, sequence, type);
       this.#drain(type, channel);
       return;
     }
@@ -285,6 +404,76 @@ export class PpcsDatagramReorderBuffer {
     this.#closed = true;
     for (const channel of this.#channels.values()) this.#clearTimer(channel);
     this.#channels.clear();
+    this.#evidence.clear();
+  }
+
+  /**
+   * Return at most eight sorted channels of arrival and delivery evidence.
+   * Stale runs describe possible numbering resets, not proof of a reset.
+   * Shutdown releases this evidence; the owning session freezes its last copy.
+   */
+  diagnostics(): string {
+    const channels = [...this.#evidence.entries()].sort(([a], [b]) => a - b);
+    const summaries = channels.slice(0, 8).map(([type, value]) => (
+      `t${type}:rx=${value.receivedFirst}-${value.receivedLast}/${value.receivedCount}`
+      + `,ac=${value.acceptedFirst ?? "-"}-${value.acceptedLast ?? "-"}/${value.acceptedCount}`
+      + `,st=${value.staleFirst ?? "-"}-${value.staleLast ?? "-"}/${value.staleCount}`
+      + `,behind=${value.staleBehindMin ?? "-"}-${value.staleBehindMax ?? "-"}`
+      + `,run=${value.maxAdvancingRun}/${value.maxContiguousRun}`
+    ));
+    if (channels.length > 8) summaries.push(`omitted=${channels.length - 8}`);
+    return summaries.join("|") || "none";
+  }
+
+  #validSequence(type: number, sequence: number): boolean {
+    return Number.isInteger(type) && type >= 0 && type <= 255
+      && Number.isInteger(sequence) && sequence >= 0 && sequence <= 65535;
+  }
+
+  #recordArrival(type: number, sequence: number, previous: number | null): void {
+    if (!this.#validSequence(type, sequence)) return;
+    let evidence = this.#evidence.get(type);
+    if (!evidence) {
+      evidence = {
+        receivedFirst: sequence, receivedLast: sequence, receivedCount: 0,
+        acceptedFirst: null, acceptedLast: null, acceptedCount: 0,
+        staleFirst: null, staleLast: null, staleCount: 0,
+        staleBehindMin: null, staleBehindMax: null, previousBehind: null,
+        advancingRun: 0, contiguousRun: 0, maxAdvancingRun: 0, maxContiguousRun: 0,
+      };
+      this.#evidence.set(type, evidence);
+    }
+    evidence.receivedLast = sequence;
+    evidence.receivedCount++;
+    if (previous === null || !this.#validSequence(type, previous)
+      || ppcsSequenceDisposition(previous, sequence) !== "stale") {
+      evidence.previousBehind = null;
+      evidence.advancingRun = evidence.contiguousRun = 0;
+      return;
+    }
+    const behind = (previous - sequence) & 0xffff;
+    evidence.staleFirst ??= sequence;
+    evidence.staleLast = sequence;
+    evidence.staleCount++;
+    evidence.staleBehindMin = Math.min(evidence.staleBehindMin ?? behind, behind);
+    evidence.staleBehindMax = Math.max(evidence.staleBehindMax ?? behind, behind);
+    evidence.advancingRun = evidence.previousBehind !== null && behind < evidence.previousBehind
+      ? evidence.advancingRun + 1 : 1;
+    evidence.contiguousRun = evidence.previousBehind !== null && behind === evidence.previousBehind - 1
+      ? evidence.contiguousRun + 1 : 1;
+    evidence.maxAdvancingRun = Math.max(evidence.maxAdvancingRun, evidence.advancingRun);
+    evidence.maxContiguousRun = Math.max(evidence.maxContiguousRun, evidence.contiguousRun);
+    evidence.previousBehind = behind;
+  }
+
+  #deliver(data: Buffer, sequence: number, type: number): void {
+    const evidence = this.#validSequence(type, sequence) ? this.#evidence.get(type) : undefined;
+    if (evidence) {
+      evidence.acceptedFirst ??= sequence;
+      evidence.acceptedLast = sequence;
+      evidence.acceptedCount++;
+    }
+    this.deliver(data, type);
   }
 
   #clearTimer(channel: PpcsReorderChannel): void {
@@ -297,7 +486,7 @@ export class PpcsDatagramReorderBuffer {
     channel.timer = setTimeout(() => {
       channel.timer = undefined;
       this.#abandonHole(type, channel);
-    }, 250);
+    }, type === 1 ? this.videoRepairWaitMilliseconds : 250);
     channel.timer.unref?.();
   }
 
@@ -310,7 +499,7 @@ export class PpcsDatagramReorderBuffer {
       channel.held.delete(next);
       channel.bytes -= data.length;
       channel.last = next;
-      this.deliver(data, type);
+      this.#deliver(data, next, type);
     }
     if (!this.#closed) this.#arm(type, channel);
   }
@@ -503,36 +692,60 @@ export class PpcsVideoFrameDecoder {
 }
 
 /**
- * Unwrap and authenticate the 32-byte media key carried by an ECC keyframe.
+ * Serialize a standalone live request before the session applies encryption.
  *
- * The envelope contains a compressed P-256 ephemeral public key, an AES-CBC
- * IV and ciphertext, and an HMAC. Eufy's ECIES-compatible derivation expands
- * the ECDH shared secret into separate encryption and authentication material.
- * Authentication is checked before decryption, and malformed peer points or
- * padding failures are reported to the caller as an absent key.
+ * The standalone T8423 startup contract omits the optional extension value.
+ * Other models retain the existing extension until their own contract is
+ * established. Attached-camera lifecycle commands use a separate builder.
  */
-function unwrapAuthenticatedMediaKey(envelope: Buffer, privateKey: Buffer): Buffer | undefined {
-  if (envelope.length !== 129) return undefined;
-  try {
-    const ecdh = createECDH("prime256v1");
-    ecdh.setPrivateKey(privateKey);
-    const shared = ecdh.computeSecret(envelope.subarray(0, 33));
-    const label = Buffer.from("ECIES", "utf8");
-    const hmac = (key: Buffer, value: Buffer): Buffer => createHmac("sha256", key).update(value).digest();
-    let previous: Buffer<ArrayBufferLike> = label;
-    let derived: Buffer<ArrayBufferLike> = Buffer.alloc(0);
-    while (derived.length < 48) {
-      previous = hmac(shared, previous);
-      derived = Buffer.concat([derived, hmac(shared, Buffer.concat([previous, label]))]);
-    }
-    const expectedTag = hmac(derived.subarray(16, 48), envelope.subarray(33, 97));
-    if (!timingSafeEqual(expectedTag, envelope.subarray(97, 129))) return undefined;
-    const decipher = createDecipheriv("aes-128-cbc", derived.subarray(0, 16), envelope.subarray(33, 49));
-    const plain = Buffer.concat([decipher.update(envelope.subarray(49, 97)), decipher.final()]);
-    return plain.length === 32 ? plain : undefined;
-  } catch {
-    return undefined;
+export function buildStandaloneLiveStartValue(
+  model: string, channel: number, accountId: string, publicKey: string, timestamp: number,
+): string {
+  return JSON.stringify({ commandType: 1000, data: {
+    cmd: 1000, account_id: accountId, accountId,
+    mValueStrSub: accountId, mChannel: channel, mValue3: 0, mValue5: 0,
+    msg_id: 1, camera_type: 0, entrytype: 0, extValue: model === "T8423" ? undefined : 1000,
+    ivalue: 1, restore: 0, streamtype: 2, video_type: 12,
+    timestamp, transaction: `${timestamp}`, encryptkey: publicKey,
+  } });
+}
+
+/**
+ * Serialize the clear live-start request used by an exact standalone T8200.
+ *
+ * This deliberately excludes fields from newer standalone-camera contracts.
+ * A working official-client exchange sent this minimal shape once and received
+ * video immediately, without first negotiating a control-session key.
+ */
+export function buildT8200LiveStartValue(
+  accountId: string,
+  publicKey: string,
+  timestamp: number,
+): string {
+  if (accountId.length === 0) throw new Error("T8200 live start requires an account identifier");
+  if (publicKey.length === 0) throw new Error("T8200 live start requires a public key");
+  if (!Number.isSafeInteger(timestamp) || timestamp < 0) {
+    throw new Error("T8200 live-start timestamp must be a non-negative whole number");
   }
+  return JSON.stringify({ commandType: 1000, data: {
+    accountId,
+    camera_type: 0,
+    encryptkey: publicKey,
+    entrytype: 0,
+    msg_id: 3,
+    streamtype: 1,
+    timestamp,
+  } });
+}
+
+/**
+ * Wrap an exact T8200 live-start value in its observed clear command envelope.
+ *
+ * Channel zero, sign code zero, and stream identifier 13 are part of this
+ * model-specific wire contract rather than generic PPCS defaults.
+ */
+export function buildT8200LiveStartPayload(value: string): Buffer {
+  return rawPayload(Buffer.from(value), 0, 0, [1, 0], 13);
 }
 
 /**
@@ -560,6 +773,83 @@ export function buildStandaloneLevel2LiveStartPayload(
   sequence: number,
 ): Buffer {
   return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), channel, 8, [8, 0], 10);
+}
+
+/** Seal an admitted trial using its native JSON or binary payload family, with no key fallback. */
+export function buildModelControlTrialPayload(
+  request: ModelControlTrial, route: ModelControlRoute, accountId: string, legacyKey: Buffer,
+  level2Key: Buffer | null, sequence: number, transaction: number,
+): { readonly command: number; readonly payload: Buffer } {
+  const frame = modelControlTrialCommand(request, route, accountId, transaction);
+  if (frame.command === 1403 || frame.command === 1350 || route.homeBaseAttached) {
+    if (!level2Key || level2Key.length !== 32) throw new Error("Model control trial requires negotiated level-two encryption");
+    const plain = typeof frame.value === "boolean" ? buildCameraEnableBody(route.channel!, frame.value ? 1 : 0, accountId) : Buffer.from(frame.value);
+    return { command: frame.command, payload: rawPayload(encryptLevel2(plain, level2Key, sequence), route.channel!, 8, [8, 0], 0) };
+  }
+  return { command: frame.command, payload: buildStandaloneJsonControlPayload(String(frame.value), route.channel!, legacyKey) };
+}
+
+/** Encrypted, ephemeral command built only for the exact standalone S100 trial. */
+export interface S100SirenTrialFrame {
+  readonly command: 1201 | 1202;
+  readonly wireChannel: 0 | 255;
+  readonly stage: "start" | "primary_stop" | "secondary_stop";
+  readonly payload: Buffer;
+}
+
+/**
+ * Preflight and seal every frame before a send. Start reserves three distinct
+ * low-byte counters, stop reserves two. This intentionally retains the existing
+ * negotiated envelope and does not claim full native counter initialization parity.
+ */
+export function buildS100SirenTrialFrames(
+  route: ModelControlRoute, enabled: boolean, key: Buffer | null, sequence: number,
+): readonly S100SirenTrialFrame[] {
+  let primary: ReturnType<typeof buildS100SirenCommand>;
+  try { primary = buildS100SirenCommand(route, enabled); }
+  catch (error) { throw error instanceof S100SirenTrialError ? error : new S100SirenTrialError(["session_identity"]); }
+  if (!key || key.length !== 32) throw new S100SirenTrialError(["session_cipher"]);
+  if (!Number.isInteger(sequence) || sequence < 0 || sequence > (enabled ? 253 : 254)) {
+    throw new S100SirenTrialError(["session_counter"]);
+  }
+  const seal = (command: 1201 | 1202, wireChannel: 0 | 255, stage: S100SirenTrialFrame["stage"], body: Uint8Array): S100SirenTrialFrame =>
+    ({ command, wireChannel, stage, payload: rawPayload(encryptLevel2(Buffer.from(body), key, sequence++), wireChannel, 8, [8, 0], 0) });
+  return [
+    ...(enabled ? [seal(1201, 255, "start", primary.body)] : []),
+    seal(1201, 255, "primary_stop", buildS100SirenCommand(route, false).body),
+    seal(1202, 0, "secondary_stop", Buffer.alloc(8)),
+  ];
+}
+
+/** Attempt both stop stages in order, preserving fixed failures without replaying either. */
+export async function dispatchS100SirenStops(
+  frames: readonly S100SirenTrialFrame[], send: (frame: S100SirenTrialFrame) => Promise<void>,
+): Promise<void> {
+  const failures: S100SirenFailureStage[] = [];
+  for (const frame of frames) {
+    try { await send(frame); }
+    catch { failures.push(frame.stage); }
+  }
+  if (failures.length) throw new S100SirenTrialError(failures);
+}
+
+/** Correlate a result frame by command and channel before interpreting its scalar. */
+export function decodeModelControlTrialAcknowledgement(
+  header: Buffer, payload: Buffer, command: number, channel: number, key: Buffer, level2Key: Buffer | null,
+): number | null {
+  if (ppcsFrameChannel(header) !== channel || header[14] !== 1 || header.readUInt16LE(4) !== command) return null;
+  return decodeModelControlTrialResult(payload, header[13] ?? -1, key, level2Key);
+}
+
+/** Decode a scalar trial result without treating unsupported ciphertext as clear success. */
+export function decodeModelControlTrialResult(payload: Buffer, signCode: number, key: Buffer, level2Key: Buffer | null): number | null {
+  let clear: Buffer | undefined;
+  if (signCode === 0 && payload.length === 4) clear = payload;
+  else if ((signCode === 8 || signCode === 2) && level2Key) clear = decryptLevel2(payload, level2Key, signCode);
+  else if (signCode === 1 && payload.length > 0 && payload.length % 16 === 0) {
+    try { clear = decryptEcb(payload, key); } catch { return null; }
+  }
+  return clear && clear.length >= 4 ? clear.readInt32LE(0) : null;
 }
 
 /** Build the app-observed SoloCam motion status envelope, distinct from live-start frame type 10. */
@@ -590,6 +880,159 @@ export function buildSoloCamStreamingQualityPayload(
   const value = JSON.stringify({ account_id: accountId, cmd: 2730, mChannel: 0, mValue3: 0,
     payload: { quality, mode: 0, primary_view: 0, channel: 0, transaction: `${now}` } });
   return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
+}
+
+/** Encrypt the exact standalone C31 quality wrapper, preserving its automatic mode selection. */
+export function buildStandaloneC31StreamingQualityPayload(
+  quality: number, accountId: string, key: Buffer, sequence: number, now: number,
+): Buffer {
+  if (![0, 2, 3].includes(quality)) throw new Error("Unsupported C31 streaming quality");
+  if (!accountId) throw new Error("Streaming quality requires the camera administrator identity");
+  if (!Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) throw new Error("Streaming quality requires epoch milliseconds");
+  const value = JSON.stringify({ account_id: accountId, cmd: 2730, mChannel: 0, mValue3: 0,
+    payload: { quality, mode: -1, primary_view: -1, transaction: `${now}` } });
+  return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
+}
+
+/** Encrypt the C31 night mode on its native authenticated channel-zero settings wrapper. */
+export function buildStandaloneC31NightVisionPayload(
+  mode: number, accountId: string, key: Buffer, sequence: number, now: number,
+): Buffer {
+  if (![0, 1, 2].includes(mode)) throw new Error("Unsupported C31 night vision mode");
+  if (!accountId) throw new Error("Night vision requires the camera administrator identity");
+  if (!Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) throw new Error("Night vision requires epoch milliseconds");
+  const value = JSON.stringify({ account_id: accountId, cmd: 1277, mChannel: 0, mValue3: 0,
+    payload: { night_sion: mode, channel: 0, transaction: `${now}` } });
+  return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
+}
+
+/** Encrypt the native C31 privacy switch, where zero enables the standalone camera. */
+export function buildStandaloneC31EnabledPayload(
+  rawValue: number, accountId: string, key: Buffer, sequence: number, now: number,
+): Buffer {
+  if (rawValue !== 0 && rawValue !== 1) throw new Error("Unsupported C31 enablement value");
+  if (!accountId) throw new Error("Enablement requires the camera administrator identity");
+  if (!Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) throw new Error("Enablement requires epoch milliseconds");
+  const value = JSON.stringify({ account_id: accountId, cmd: 6250, mChannel: 0, mValue3: 0,
+    payload: { switch: rawValue, transaction: `${now}` } });
+  return rawPayload(encryptLevel2(Buffer.from(value), key, sequence), 0, 8, [8, 0], 0);
+}
+
+/** Build the native C31 sound-only start with its captured 30-second safety timeout. */
+export function buildStandaloneC31SirenStartPayload(
+  accountId: string, key: Buffer, sequence: number, now: number,
+): Buffer {
+  if (!accountId) throw new Error("C31 siren requires its owning administrator identity");
+  if (!Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) throw new Error("C31 siren requires epoch milliseconds");
+  const clear = Buffer.from(JSON.stringify({ account_id: accountId, cmd: 1201, mChannel: 0, mValue3: 0,
+    payload: { channel: 0, type: 10, time_out: 30, user_name: "", transaction: `${now}` } }));
+  return rawPayload(encryptLevel2(clear, key, sequence), 0, 8, [8, 0], 0);
+}
+
+/** Build either ordered native early-stop step; neither binary command starts the siren. */
+export function buildStandaloneC31SirenStopPayload(
+  command: 1201 | 1202, key: Buffer, sequence: number,
+): Buffer {
+  if (command !== 1201 && command !== 1202) throw new Error("Unsupported C31 siren stop command");
+  const clear = Buffer.alloc(8);
+  clear.writeUInt32LE(command === 1201 ? 10 : 255, 0);
+  return rawPayload(encryptLevel2(clear, key, sequence), 255, 8, [8, 0], 0);
+}
+
+/** Build a reviewed C31 preference with native binary or JSON framing and authenticated protection. */
+export function buildC31PreferencePayload(name: C31Preference, value: number, accountId: string, key: Buffer, sequence: number, now: number): { command: number; payload: Buffer } {
+  validateC31Preference(name, value);
+  if (!accountId) throw new Error("Camera preference requires an owning account");
+  if (!Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) throw new Error("Camera preference requires epoch milliseconds");
+  const commands = { microphone: 1240, speaker: 1241, speakerVolume: 1230, imageFlipped: 1207, watermark: 1214, lightBrightness: 1401 };
+  let command: number;
+  let clear: Buffer;
+  if (name === "rtspPublication") {
+    command = 1145;
+    clear = buildCameraEnableBody(0, value, accountId);
+  } else if (name === "continuousRecording") {
+    command = 1700;
+    clear = Buffer.from(JSON.stringify({ commandType: 6010, data: { enable: value, transaction: `${now}` } }));
+  } else if (name === "notificationInterval") {
+    command = 1250;
+    clear = buildCameraEnableBody(0, value * 60, accountId).subarray(4);
+  } else if (name === "preRecording") {
+    command = 1350;
+    clear = Buffer.from(JSON.stringify({ account_id: accountId, cmd: 6257, mChannel: 0, mValue3: 0, payload: { value, transaction: `${now}` } }));
+  } else if (name === "recordingQuality") {
+    command = 1350;
+    clear = Buffer.from(JSON.stringify({ account_id: accountId, cmd: 2731, mChannel: 0, mValue3: 0, payload: { quality: value, mode: -1, primary_view: -1, transaction: `${now}` } }));
+  } else if (name === "statusLed") {
+    command = 1700;
+    clear = Buffer.from(JSON.stringify({ commandType: 6014, data: { value, transaction: `${now}` } }));
+  } else if (name === "soundRoundLook" || name === "enhanceLighting") {
+    command = 1350;
+    const payload = name === "soundRoundLook" ? { onoff: value, transaction: `${now}` } : { mode: 1 - value, transaction: `${now}` };
+    clear = Buffer.from(JSON.stringify({ account_id: accountId, cmd: name === "soundRoundLook" ? 6208 : 6484, mChannel: 0, mValue3: 0, payload }));
+  } else if (name === "soundSensitivity" || name === "soundType") {
+    command = 1700;
+    const data = name === "soundSensitivity" ? { index: value, transaction: `${now}` } : { type: value, transaction: `${now}` };
+    clear = Buffer.from(JSON.stringify({ commandType: name === "soundSensitivity" ? 6044 : 6046, data }));
+  } else if (name === "soundDetection") {
+    command = 1700;
+    clear = Buffer.from(JSON.stringify({ commandType: 6043, data: { status: value, transaction: `${now}` } }));
+  } else {
+    command = commands[name];
+    clear = buildCameraEnableBody(0, value, accountId);
+  }
+  return { command, payload: rawPayload(encryptLevel2(clear, key, sequence), 0, 8, [8, 0], 0) };
+}
+
+/** Build an E21 absolute preference independently of the C31 ranges and envelope choices. */
+export function buildE21PreferencePayload(
+  name: E21Preference, value: number, accountId: string, key: Buffer, sequence: number, now: number, videoMode: 0 | 12 | null,
+): { readonly command: number; readonly payload: Buffer } {
+  validateE21Preference(name, value);
+  if (!accountId || key.length !== 32 || !Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) throw new Error("E21 preference identity unavailable");
+  const contract = e21PreferenceContracts[name];
+  let clear: Buffer;
+  if (contract.outer === "binary") clear = buildCameraEnableBody(0, value, accountId);
+  else {
+    const fields: Record<string, number | string> = { [contract.field]: value, transaction: `${now}` };
+    if (name === "motionSensitivity") Object.assign(fields, { index: value, channel: 0 });
+    if (name === "recordingQuality") Object.assign(fields, { mode: -1, primary_view: -1 });
+    if (name === "streamingQuality") {
+      if (videoMode !== 0 && videoMode !== 12) throw new Error("E21 reported video mode required");
+      Object.assign(fields, { mode: videoMode, primary_view: 0, channel: 0 });
+    }
+    clear = Buffer.from(JSON.stringify(contract.outer === 1700
+      ? { commandType: contract.parameter, data: fields }
+      : { account_id: accountId, cmd: contract.parameter, mChannel: 0, mValue3: 0, payload: fields }));
+  }
+  return { command: contract.outer === "binary" ? contract.parameter : contract.outer,
+    payload: rawPayload(encryptLevel2(clear, key, sequence), 0, 8, [8, 0], 0) };
+}
+
+/** Build one exact-profile encrypted setting frame with native ownership and child routing. */
+export function buildReviewedCameraSettingPayload(
+  change: CameraSettingChange, route: ModelControlRoute, accountId: string, key: Buffer, sequence: number, now: number,
+): { readonly command: number; readonly payload: Buffer } {
+  const profile = cameraSettingProfile(route, change.setting);
+  if (!profile || !accountId || key.length !== 32 || !Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) {
+    throw new Error("Reviewed camera setting route unavailable");
+  }
+  if (profile.form === "manual-light" || profile.form === "motion-control") throw new Error("Floodlight setting requires its native level-one envelope");
+  const native = cameraSettingWireValue(profile, change);
+  const clear = profile.form === "binary" ? buildCameraEnableBody(route.channel!, native, accountId)
+    : Buffer.from(JSON.stringify(profile.form === "payload"
+      ? { account_id: accountId, cmd: profile.readParam, mChannel: route.channel, mValue3: 0,
+        payload: { sensitivity: native, channel: route.channel } }
+      : { commandType: profile.readParam, data: { value: native, index: native, channel: route.channel, transaction: `${now}` } }));
+  return { command: profile.command, payload: rawPayload(encryptLevel2(clear, key, sequence), route.channel!, 8, [8, 0], 0) };
+}
+
+/** Encode exact standalone floodlight motion settings without borrowing the attached-camera payload. */
+export function buildFloodlightMotionControlValue(change: CameraSettingChange, route: ModelControlRoute): string {
+  const profile = cameraSettingProfile(route, change.setting);
+  if (!profile || profile.form !== "motion-control") throw new Error("Floodlight motion setting unavailable");
+  const value = cameraSettingWireValue(profile, change);
+  return JSON.stringify({ commandType: profile.readParam, data: change.setting === "motionDetection"
+    ? { status: value } : { value, index: value, channel: route.channel } });
 }
 
 /** Protect a native SoloCam preset or tracking request on its channel-zero control envelope. */
@@ -643,7 +1086,13 @@ export function buildStandaloneJsonControlPayload(
   return rawPayload(encrypted, channel, 1, [1, 0], frameType);
 }
 
-/** Build the observed timed wall-light value carried by standalone command 1700. */
+/** Build T8426's manual override without borrowing timed or motion-light fields. */
+export function buildManualFloodlightControlValue(enabled: boolean): string {
+  if (typeof enabled !== "boolean") throw new Error("Manual floodlight requires a boolean");
+  return JSON.stringify({ commandType: 1400, data: { value: enabled ? 1 : 0, open: enabled ? 1 : 0, type: 2 } });
+}
+
+/** Build the observed timed-light value carried by standalone command 1700. */
 export function buildTimedCameraLightControlValue(enabled: boolean): string {
   return JSON.stringify({
     commandType: 1400,
@@ -910,6 +1359,10 @@ interface PendingPpcsFrame {
   readonly payload: Buffer;
 }
 
+/** Closed private lookup facts shared with the provider, excluding raw errors and key identifiers. */
+export type PpcsCipherKeyOutcome = { readonly kind: "key"; readonly value: string }
+  | { readonly kind: "lookup_failed" | "missing_key" | "retired" };
+
 /**
  * Peer, camera, and lifetime values required by one media or control session.
  *
@@ -918,6 +1371,9 @@ interface PendingPpcsFrame {
  * account inventory or persists cryptographic material itself.
  */
 export interface PpcsCameraOptions {
+
+  /** Internal bounded lookup deadline. Media and control lifetimes remain separate. */
+  readonly lookupTimeoutMs?: number;
 
   /** Serial used only to derive the observed legacy level-one command key. */
   readonly stationSerial: string;
@@ -937,8 +1393,11 @@ export interface PpcsCameraOptions {
   /** Child-camera channel, or the standalone camera's own channel. */
   readonly channel: number;
 
-  /** Public model identifier used by higher-level diagnostics. */
+  /** Reported model used by qualified media profiles and higher-level diagnostics. */
   readonly cameraModel: string;
+
+  /** Reported numeric identity. Missing types retain the generic media shape. */
+  readonly cameraDeviceType?: number | null;
 
   /** Parent peer model used only where HomeBase generations have different media lifecycle commands. */
   readonly stationModel?: string;
@@ -964,19 +1423,35 @@ export interface PpcsCameraOptions {
   /** Resolve the private ECC key selected by a HomeBase gateway-info frame. */
   readonly resolveCipherKey?: (cipherId: number) => Promise<string | undefined>;
 
+  /** Supply closed lookup outcomes for S100 preparation only; ordinary media keeps its string adapter. */
+  readonly resolveCipherKeyOutcome?: (cipherId: number) => Promise<PpcsCipherKeyOutcome>;
+
+  /** Monotonic performance.now() deadline shared by replacement lookup and first-frame waits. */
+  readonly startupDeadlineMilliseconds?: number;
+
   /** Hard session lifetime, defaulting to 30 seconds when omitted. */
   readonly maxSeconds?: number;
 
-  /** Limit the session to one control write instead of starting camera media. */
-  readonly purpose?: "media" | "control";
+  /** Select media, explicit controls, or a handshake-only passive notification watch. */
+  readonly purpose?: "media" | "control" | "passive";
+
+  /** Require direct parameter replies on the exact experimental trial channel. */
+  readonly modelControlTrial?: boolean;
 
   /** Passive child-contact observations while an already requested HomeBase session is open. */
   readonly onSensorContact?: (observation: SensorContactObservation) => void;
+
+  /** Passive motion candidates, consumed only by an explicitly reserved diagnostic. */
+  readonly onSensorMotion?: (observation: SensorMotionObservation) => void;
 }
 
 /** One in-flight control command and the promise settled by its result frame. */
 interface PendingControl {
   readonly command: number;
+  readonly strictChannel?: number;
+
+  /** Require an authenticated level-two reply for new momentary light trials. */
+  readonly authenticatedOnly?: boolean;
   readonly resolve: () => void;
   readonly reject: (error: Error) => void;
   readonly timer: ReturnType<typeof setTimeout>;
@@ -994,6 +1469,14 @@ interface PendingControlQuery {
 export interface PpcsCameraInfoParam {
   readonly param_type: number;
   readonly param_value: string | number | boolean;
+}
+
+interface AlarmReadOwner {
+  readonly resolve: (result: AlarmStateTrialResult) => void;
+  dispatched: boolean;
+  keyWaitSucceeded: boolean;
+  frames: number;
+  parseStage: "none" | "invalid_json" | "invalid_schema" | "parsed";
 }
 
 interface PendingCameraInfo {
@@ -1075,6 +1558,39 @@ export function parseCameraPresetPositions(payload: unknown): CameraPresetPositi
   return positions;
 }
 
+/**
+ * Read the C37's native slot array without inventing occupancy or a default.
+ * Its app indexes this array by slot. Explicit indexes must agree with that
+ * position, and an unrecognised response fails instead of becoming an empty list.
+ * Scene names, coordinates and image references are discarded.
+ */
+export function parseC37PresetPositions(payload: unknown): CameraPresetPosition[] {
+  if (!isRecord(payload) || !Array.isArray(payload.points) || payload.points.length > 10) {
+    throw new Error("C37 preset response is unrecognised");
+  }
+  return payload.points.map((point: unknown, index: number) => {
+    if (!isRecord(point) || (point.index !== undefined && point.index !== index)
+      || (point.enable !== 0 && point.enable !== 1) || (point.isdefault !== 0 && point.isdefault !== 1)) {
+      throw new Error("C37 preset occupancy is unrecognised");
+    }
+    return { index, enabled: point.enable === 1, isDefault: point.isdefault === 1 };
+  });
+}
+
+/**
+ * Identifies a lookup that ended before any peer was selected.
+ * The session has already retired its sockets. Only a media-start owner may
+ * use this result to attempt a fresh connection, never replay a device write.
+ */
+export class PpcsLookupTimeoutError extends Error {
+
+  /** Create a content-free failure distinct from later media or control timeouts. */
+  constructor() {
+    super("PPCS camera lookup timed out");
+    this.name = "PpcsLookupTimeoutError";
+  }
+}
+
 /** Identify a write that may have applied even though its result frame was lost. */
 export class CameraControlAcknowledgementTimeoutError extends Error {
 
@@ -1094,8 +1610,9 @@ export class CameraControlAcknowledgementTimeoutError extends Error {
  * eufy-security-client or the expiring Web Portal PIN.
  *
  * Media sessions emit Annex-B bytes on `output` and optional validated AAC on
- * `audioOutput` for T8171 media consumers on direct or attached routes. Control sessions suppress
- * media startup and expose the small set of verified writes below. Some writes
+ * `audioOutput` for T8171 media consumers and direct T817L consumers. Control sessions suppress
+ * media startup and expose the closed command set below, including explicitly
+ * admitted experimental controls. Some writes
  * wait for a result frame, while the observed fire-and-repeat forms return
  * after their bounded UDP transmissions.
  * `start` resolves after the peer answers the lookup, not after the first video
@@ -1108,7 +1625,7 @@ export class FirstPartyPpcsSession {
   /** Ordered Annex-B video bytes; the session ends this stream when it closes. */
   readonly output = new PassThrough();
 
-  /** Optional checked AAC for T8171 media, ended with the video session. */
+  /** Optional checked AAC for admitted E30/C31 media, ended with the video session. */
   readonly audioOutput = new PassThrough();
 
   /**
@@ -1135,6 +1652,11 @@ export class FirstPartyPpcsSession {
     foreignVideoFrames: 0,
     batteryHistory: "not-reported",
     cameraInfoParamTypes: [] as number[],
+    cameraInfoFrames: 0,
+    cameraInfoParseStage: "none",
+    cameraInfoSign: -1,
+    cameraInfoJsonOffset: -1,
+    cameraInfoDecoded: false,
     standaloneGuardMode: null as number | null,
     firstDataHex: "",
     cipherId: 0,
@@ -1146,6 +1668,7 @@ export class FirstPartyPpcsSession {
     sequenceRestarts: 0,
     duplicateDatagrams: 0,
     staleDatagrams: 0,
+    sequenceChannels: "none",
     parserResyncs: 0,
     parserBlocked: false,
     pendingBytes: 0,
@@ -1154,13 +1677,21 @@ export class FirstPartyPpcsSession {
     videoResults: [] as string[],
     videoCodec: "unknown" as "h264" | "h265" | "unknown",
     videoNalTypes: [] as number[],
+    gatewayInfoAcknowledged: 0,
+    gatewayInfoRetransmitted: 0,
+    gatewayInfoExpired: 0,
     mediaStartAttempts: 0,
-    mediaStartProtocols: [] as ("level1" | "level2")[],
+    mediaStartAcknowledged: 0,
+    mediaStartRetransmitted: 0,
+    mediaStartExpired: 0,
+    mediaStartProtocols: [] as ("level1" | "level2" | "t8200-clear")[],
     mediaStopAttempts: 0,
-    mediaStopProtocol: "none" as "none" | "level1-direct" | "level2-payload",
+    mediaStopProtocol: "none" as "none" | "level1-direct" | "level2-direct" | "level2-payload",
     closeReason: "open" as PpcsStreamCloseReason | "open",
   };
   readonly #options: PpcsCameraOptions;
+  readonly #mediaStart: PpcsMediaStart;
+  readonly #gatewayInfoRequest: PpcsMediaStart;
   #socket: Socket = createSocket("udp4");
   #lookupSockets: PpcsLookupSocketPool | null = null;
 
@@ -1176,47 +1707,57 @@ export class FirstPartyPpcsSession {
   // later command and heartbeat traffic stays pinned to that responding peer.
   #remote: { host: string; port: number } | null = null;
   #seq = 0;
+  #speakerSequence = 0;
+  #speaker: C31TalkbackSender | null = null;
   #closed = false;
+  #closeCompletion: Promise<void> = Promise.resolve();
+  #lookupCancel: (() => void) | null = null;
+  #closedSequenceChannels: string | null = null;
+  #t8200MediaStartSent = false;
   #maximumDurationTimer: ReturnType<typeof setTimeout> | null = null;
   #firstFrameTimer: ReturnType<typeof setTimeout> | null = null;
   #pendingByType = new Map<number, PendingPpcsFrame>();
+  #s100GatewayFrames = 0;
+  #level2Failure: "gateway_decrypt" | "cipher_lookup_error" | "cipher_missing_key" | "cipher_unwrap_failed" | "retired" | null = null;
   #level2Key: Buffer | null = null;
   #level2Seq = 0;
   #gatewayPromise: Promise<void> | null = null;
 
   // PPCS sequences are independent for each inner data type. Combining them
   // would manufacture false gaps when command and video datagrams interleave.
-  #datagramOrder = new PpcsDatagramReorderBuffer(
-    (data, type) => this.#consumeData(data, type),
-    (type, reason) => {
-      if (reason === "restart") this.stats.sequenceRestarts++;
-      else this.stats.sequenceGaps++;
-      this.#pendingByType.delete(type);
-      this.#updatePendingBytes();
-    },
-    (reason) => {
-      if (reason === "duplicate") this.stats.duplicateDatagrams++;
-      else this.stats.staleDatagrams++;
-    },
-  );
+  readonly #datagramOrder: PpcsDatagramReorderBuffer;
   readonly #videoNormalizer = new PpcsVideoStreamNormalizer();
-  readonly #videoAssembler = new PpcsAccessUnitAssembler((drop) => {
-    this.stats.incompleteAccessUnits++;
-    this.stats.incompleteAccessUnitBytes += drop.carriedBytes;
-    this.#recordVideoResult("incomplete-access-unit-dropped");
-  });
+  readonly #videoAssembler: PpcsAccessUnitAssembler;
+  readonly #videoClockEpoch = Symbol();
+  #videoClockFormat: { width: number; height: number } | undefined;
   #lastDeliveredMediaFrameAt: number | null = null;
+  #lastAttachedMediaReassertAt: number | null = null;
   #heartbeat: ReturnType<typeof setInterval> | null = null;
   #attachedMediaRestartTimer: ReturnType<typeof setTimeout> | null = null;
   #lookupTimer: ReturnType<typeof setInterval> | null = null;
   #selfAddress: { host: string; port: number } | null = null;
   #pendingControl: PendingControl | null = null;
   #pendingControlQuery: PendingControlQuery | null = null;
+  #c31Index: { readonly begin: number; readonly end: number; readonly owner: string; readonly transaction: string;
+    readonly resolve: (value: C31IndexSummary) => void; readonly reject: (error: C31IndexError) => void;
+    readonly timer: NodeJS.Timeout } | null = null;
   #pendingCameraInfo: PendingCameraInfo | null = null;
+  #alarmRead: AlarmReadOwner | null = null;
+  #alarmReadUsed = false;
+  #sessionDeadline = Number.POSITIVE_INFINITY;
+  #lockStatus: { readonly identity: T85V0StatusIdentity; readonly keyTime: number; readonly sequence: number;
+    readonly resolve: (value: T85V0StatusSummary) => void; readonly reject: (error: T85V0StatusError) => void;
+    readonly timer: NodeJS.Timeout } | null = null;
 
   /** Own correlated card reads separately from live media and camera-setting requests. */
   #recordings: SoloCamRecordingReader | HomeBaseRecordingReader | null = null;
   #eventFrames: HomeBase2EventFrameReader | null = null;
+
+  /** Own one manually requested history-name check independently of saved media. */
+  #eventNames: EventNameHistoryReader | null = null;
+
+  /** Own one manual thumbnail read without routing it through the live media decoder. */
+  #eventPicture: EventPictureReader | null = null;
 
   /** Return the codec proven by emitted NAL headers, or frame metadata as a fallback. */
   get videoCodec(): VideoCodec | null {
@@ -1226,7 +1767,59 @@ export class FirstPartyPpcsSession {
 
   /** Create a session; no socket is bound until {@link start} runs. */
   constructor(options: PpcsCameraOptions) {
+    if (!Number.isSafeInteger(options.lookupTimeoutMs ?? 20_000)
+      || (options.lookupTimeoutMs ?? 20_000) < 1 || (options.lookupTimeoutMs ?? 20_000) > 20_000) {
+      throw new RangeError("Invalid PPCS lookup deadline");
+    }
     this.#options = options;
+    this.#datagramOrder = new PpcsDatagramReorderBuffer(
+      (data, type) => this.#consumeData(data, type),
+      (type, reason) => {
+        if (reason === "restart") this.stats.sequenceRestarts++;
+        else this.stats.sequenceGaps++;
+        this.#pendingByType.delete(type);
+        this.#updatePendingBytes();
+      },
+      (reason) => {
+        if (reason === "duplicate") this.stats.duplicateDatagrams++;
+        else this.stats.staleDatagrams++;
+      },
+      usesT8171AttachedMediaProfile(options.channel, options)
+        && options.purpose !== "control" && options.purpose !== "passive" ? 2000 : 250,
+    );
+    const transmitStartup = (packet: Buffer): void => {
+      if (!this.#closed && this.#remote) this.#socket.send(packet, this.#remote.port, this.#remote.host);
+    };
+    this.#mediaStart = new PpcsMediaStart(transmitStartup);
+    this.#gatewayInfoRequest = new PpcsMediaStart(transmitStartup);
+    for (const [field, counter] of [
+      ["mediaStartAcknowledged", "acknowledged"],
+      ["mediaStartRetransmitted", "retransmitted"],
+      ["mediaStartExpired", "expired"],
+    ] as const) {
+      Object.defineProperty(this.stats, field, { enumerable: true, get: () => this.#mediaStart.stats[counter] });
+    }
+    for (const [field, counter] of [
+      ["gatewayInfoAcknowledged", "acknowledged"],
+      ["gatewayInfoRetransmitted", "retransmitted"],
+      ["gatewayInfoExpired", "expired"],
+    ] as const) {
+      Object.defineProperty(this.stats, field, { enumerable: true, get: () => this.#gatewayInfoRequest.stats[counter] });
+    }
+    this.#videoAssembler = new PpcsAccessUnitAssembler((drop) => {
+      this.stats.incompleteAccessUnits++;
+      this.stats.incompleteAccessUnitBytes += drop.carriedBytes;
+      this.#recordVideoResult("incomplete-access-unit-dropped");
+    }, {
+      emitChunks: options.cameraModel === "T8200" && options.homeBaseAttached !== true && options.purpose !== "control" && options.purpose !== "passive",
+    });
+
+    // Capture the session rather than the stats object's receiver. Failure
+    // logs read this before close, while close logs need the frozen copy.
+    Object.defineProperty(this.stats, "sequenceChannels", {
+      enumerable: true,
+      get: () => this.#closedSequenceChannels ?? this.#datagramOrder.diagnostics(),
+    });
     if (options.cipherId !== undefined && options.cipherId !== null) this.stats.cipherId = options.cipherId;
     if (options.initialEccPrivateKey) this.#videoDecoder.setEccPrivateKey(options.initialEccPrivateKey);
   }
@@ -1246,19 +1839,28 @@ export class FirstPartyPpcsSession {
     // has started yet.
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
+        this.#lookupCancel = null;
         this.close("start_failed");
-        reject(new Error("PPCS camera lookup timed out"));
-      }, 20_000);
+        reject(new PpcsLookupTimeoutError());
+      }, Math.min(this.#options.lookupTimeoutMs ?? 20_000,
+        this.#options.startupDeadlineMilliseconds === undefined ? 20_000
+          : Math.max(0, this.#options.startupDeadlineMilliseconds - performance.now())));
+      this.#lookupCancel = () => {
+        clearTimeout(timeout);
+        reject(new Error("PPCS camera lookup cancelled"));
+      };
       this.#socket.once("error", (error) => {
         clearTimeout(timeout);
+        this.#lookupCancel = null;
         this.close("start_failed");
         reject(error);
       });
       const onMessage = (message: Buffer, info: RemoteInfo, socket: Socket): void => {
         try {
-          if (this.#handle(message, info, socket)) { clearTimeout(timeout); resolve(); }
-        } catch (error) { clearTimeout(timeout); reject(error); }
+          if (this.#handle(message, info, socket)) { clearTimeout(timeout); this.#lookupCancel = null; resolve(); }
+        } catch (error) { clearTimeout(timeout); this.#lookupCancel = null; reject(error); }
       };
+      observeRawSocket(this.#socket, "ppcs", "udp");
       this.#socket.on("message", (message, info) => onMessage(message, info, this.#socket));
       this.#socket.bind(0, async () => {
         try {
@@ -1274,6 +1876,7 @@ export class FirstPartyPpcsSession {
         });
         this.#lookupSockets = new PpcsLookupSocketPool(this.#socket, onMessage, (error) => {
           clearTimeout(timeout);
+          this.#lookupCancel = null;
           this.close("start_failed");
           reject(error);
         });
@@ -1284,26 +1887,46 @@ export class FirstPartyPpcsSession {
         this.#lookupTimer.unref?.();
       });
     });
+    this.#sessionDeadline = Date.now() + (this.#options.maxSeconds ?? 30) * 1_000;
     this.#maximumDurationTimer = setTimeout(
       () => this.close("max_duration"),
       (this.#options.maxSeconds ?? 30) * 1_000,
     );
-    if (this.#options.purpose !== "control") {
+    if (this.#options.purpose !== "control" && this.#options.purpose !== "passive") {
       this.#firstFrameTimer = setTimeout(
         () => this.close("first_frame_timeout"),
-        FIRST_VIDEO_FRAME_TIMEOUT_MILLISECONDS,
+        Math.min(FIRST_VIDEO_FRAME_TIMEOUT_MILLISECONDS, this.#options.startupDeadlineMilliseconds === undefined
+          ? FIRST_VIDEO_FRAME_TIMEOUT_MILLISECONDS : Math.max(0, this.#options.startupDeadlineMilliseconds - performance.now())),
       );
     }
     this.#heartbeat = setInterval(() => {
       if (!this.#remote) return;
       this.#send(REQ.ping, Buffer.alloc(0), this.#remote);
-      if (this.#options.purpose === "control" && this.stats.mediaStartAttempts === 0) return;
-      if (
-        this.#options.homeBaseAttached
-        && this.#level2Key
-        && needsAttachedMediaReassert(this.#lastDeliveredMediaFrameAt, Date.now())
-      ) {
-        this.#startAttachedMedia();
+      if ((this.#options.purpose === "control" || this.#options.purpose === "passive") && this.stats.mediaStartAttempts === 0) return;
+      if (usesT8210StationHeartbeatProfile(this.#options)) {
+
+        // The official app keeps this exact attached route alive with a
+        // station-channel nudge while child-channel media continues flowing.
+        this.#sendCommand(1139, voidPayload(255));
+      }
+      if (this.#options.homeBaseAttached && this.#level2Key) {
+
+        // Once the selected peer acknowledges our first media start, the
+        // existing first-frame deadline owns its slow encoder startup. A
+        // heartbeat must not STOP that start before it can produce a picture.
+        const awaitingAcknowledgedStartup = this.#options.purpose !== "control" && this.#options.purpose !== "passive"
+          && this.stats.videoOutputFrames === 0 && this.stats.mediaStartAttempts === 1
+          && this.stats.mediaStartAcknowledged === 1;
+        const recovery = awaitingAcknowledgedStartup ? null : attachedMediaStallRecoveryAction(
+          this.#lastDeliveredMediaFrameAt,
+          this.#lastAttachedMediaReassertAt,
+          Date.now(),
+        );
+        if (recovery === "close") {
+          this.close("media_stall");
+          return;
+        }
+        if (recovery === "reassert") this.#startAttachedMedia();
       }
       else if (needsStandaloneMediaReassert(
         Boolean(this.#options.homeBaseAttached),
@@ -1322,15 +1945,27 @@ export class FirstPartyPpcsSession {
    *
    * A missing result rejects with {@link CameraControlAcknowledgementTimeoutError}
    * because the UDP write may still have reached the camera. The provider can
-   * then perform a fresh readback instead of sending the command twice.
+   * then perform a fresh readback instead of sending the command twice. The
+   * standalone C31 uses its native privacy wrapper without a result frame and
+   * always requires the provider to confirm its state independently.
    */
   async writeCameraEnabled(rawValue: number): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control") throw new Error("Camera control requires a control session");
     if (!this.#remote) throw new Error("Camera control session is not connected");
     const accountId = this.#options.accountId;
     if (!accountId) throw new Error("Camera control account identity is unavailable");
     if (rawValue !== 0 && rawValue !== 1) throw new Error("Camera enablement value must be 0 or 1");
     if (this.#options.homeBaseAttached) await this.#waitForLevel2Key();
+    if (this.#options.cameraModel === "T817L" && this.#options.homeBaseAttached === false && this.#options.channel === 0) {
+      await this.#waitForLevel2Key();
+      const transaction = Date.now();
+      for (let index = 0; index < 3; index += 1) {
+        this.#sendCommand(1350, buildStandaloneC31EnabledPayload(rawValue, accountId, this.#level2Key!, this.#level2Seq++, transaction));
+        await delay(200);
+      }
+      return;
+    }
     const body = buildCameraEnableBody(this.#options.channel, rawValue, accountId);
     const acknowledgement = this.#waitForControlResult(1035);
     if (this.#options.homeBaseAttached) {
@@ -1351,6 +1986,7 @@ export class FirstPartyPpcsSession {
 
   /** Send the standalone 1224 mode command over the camera's direct route. */
   async writeStandaloneGuardMode(mode: number, userName: string): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control") throw new Error("Guard-mode control requires a control session");
     if (!this.#remote) throw new Error("Guard-mode control session is not connected");
     if (this.#options.homeBaseAttached) throw new Error("Standalone guard-mode control requires a direct camera route");
@@ -1369,7 +2005,13 @@ export class FirstPartyPpcsSession {
     this.#sendCommand(1350, rawPayload(encrypted, 0, 1, [1, 0], 0));
   }
 
-  /** Read the camera parameter table without changing device state. */
+  /**
+   * Read camera-owned settings without changing preferences or stored media.
+   *
+   * Exact standalone C31 sessions use the SDK integer query on station channel
+   * 255. Other routes retain their direct camera-channel query. Decoded replies
+   * must satisfy the parameter-table schema and belong to this owned session.
+   */
   async readCameraInfo(): Promise<readonly PpcsCameraInfoParam[]> {
     if (this.#options.purpose !== "control" && !this.#allowsViewerPanControl()) {
       return Promise.reject(new Error("Camera-info refresh requires a control session"));
@@ -1381,63 +2023,322 @@ export class FirstPartyPpcsSession {
     if (this.#pendingCameraInfo) {
       return Promise.reject(new Error("Camera-info refresh is already in progress"));
     }
-    if (this.#options.cameraModel === "T8171") await this.#waitForLevel2Key();
+    if (this.#options.cameraModel === "T8171"
+      || (this.#options.cameraModel === "T817L" && this.#options.channel === 0)) await this.#waitForLevel2Key();
     return new Promise<readonly PpcsCameraInfoParam[]>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#pendingCameraInfo = null;
-        reject(new Error("Camera-info refresh timed out"));
+        reject(new Error(`Camera-info refresh timed out: frames=${this.stats.cameraInfoFrames} sign=${this.stats.cameraInfoSign} decoded=${this.stats.cameraInfoDecoded} json_offset=${this.stats.cameraInfoJsonOffset} parse=${this.stats.cameraInfoParseStage}`));
       }, CONTROL_TIMEOUT_MILLISECONDS);
       this.#pendingCameraInfo = { resolve, reject, timer };
-      this.#sendCommand(1103, voidPayload(this.#options.channel));
+      if (this.#options.cameraModel === "T817L" && this.#options.channel === 0) {
+        this.#sendCommand(1103, buildC31CameraInfoQueryPayload());
+      } else this.#sendCommand(1103, voidPayload(this.#options.channel));
     });
   }
 
   /**
-   * Send the verified command-1011 motion switch and await its result.
-   *
-   * The standalone T8171 uses its native 6040 JSON status command. Its caller
-   * must confirm the setting through a fresh inventory read. Other routes use
-   * the level-two binary form and await its acknowledgement.
+   * Own one experimental T8170 read slot through key negotiation and response.
+   * Only the clear read query is dispatched. The result is uncorrelated evidence,
+   * and close retires it without changing ordinary camera-info statistics.
    */
-  async writeMotionDetection(enabled: boolean): Promise<void> {
+  async readT8170AlarmState(): Promise<AlarmStateTrialResult> {
+    const unavailable: AlarmStateTrialResult = { outcome: "unavailable", frames: 0, parseStage: "none", keyReady: false };
+    if (this.#closed || !this.#remote || this.#options.purpose !== "control" || !this.#options.modelControlTrial
+      || this.#options.cameraModel !== "T8170" || this.#options.channel !== 0 || this.#options.homeBaseAttached
+      || this.#pendingCameraInfo || this.#pendingControl || this.#pendingControlQuery || this.#alarmReadUsed) return unavailable;
+    let resolve!: (value: AlarmStateTrialResult) => void;
+    const result = new Promise<AlarmStateTrialResult>(done => { resolve = done; });
+    const owner: AlarmReadOwner = { resolve, dispatched: false, keyWaitSucceeded: false, frames: 0, parseStage: "none" };
+    this.#alarmRead = owner; this.#alarmReadUsed = true;
+    const timer = setTimeout(() => this.#finishAlarmRead("unavailable"), CONTROL_TIMEOUT_MILLISECONDS + 1);
+    this.#pendingCameraInfo = { resolve: () => undefined, reject: () => this.#finishAlarmRead("unavailable"), timer };
+    try {
+      await this.#waitForLevel2Key();
+      if (this.#alarmRead !== owner) return await result;
+      owner.keyWaitSucceeded = true;
+      if (this.#closed || !this.#remote || !this.#pendingCameraInfo) {
+        this.#finishAlarmRead("unavailable"); return await result;
+      }
+      clearTimeout(this.#pendingCameraInfo.timer);
+      const remaining = this.#sessionDeadline - Date.now();
+      if (remaining <= 0) { this.#finishAlarmRead("unavailable"); return await result; }
+      const responseTimer = setTimeout(() => this.#finishAlarmRead("timeout"), Math.min(CONTROL_TIMEOUT_MILLISECONDS, remaining));
+      this.#pendingCameraInfo = { ...this.#pendingCameraInfo, timer: responseTimer };
+      owner.dispatched = true; owner.frames = 0; owner.parseStage = "none";
+      this.#sendCommand(1103, buildC31CameraInfoQueryPayload());
+    } catch { this.#finishAlarmRead("unavailable"); }
+    return await result;
+  }
+
+  #finishAlarmRead(outcome: "timeout" | "unavailable", decoded?: AlarmStateTrialResult): void {
+    const owner = this.#alarmRead;
+    if (!owner) return;
+    if (this.#pendingCameraInfo) clearTimeout(this.#pendingCameraInfo.timer);
+    this.#pendingCameraInfo = null; this.#alarmRead = null;
+    owner.resolve(decoded ?? { outcome, frames: owner.dispatched ? owner.frames : 0,
+      parseStage: owner.dispatched ? owner.parseStage : "none", keyReady: owner.keyWaitSucceeded && this.#level2Key !== null });
+  }
+
+  #inspectAlarmRead(payload: Buffer, signCode: number): void {
+    const owner = this.#alarmRead;
+    if (!owner?.dispatched) return;
+    owner.frames = Math.min(65535, owner.frames + 1);
+    const oversize = (): void => { owner.parseStage = "invalid_schema"; this.#finishAlarmRead("unavailable"); };
+    if (payload.length > 262144 + 32) { oversize(); return; }
+    let clear = payload;
+    if (signCode === 2 || signCode === 8) {
+      if (!this.#level2Key) return;
+      const value = decryptLevel2(payload, this.#level2Key, signCode);
+      if (!value) return;
+      clear = value;
+    } else if (signCode === 1 && payload.length > 0 && payload.length % 16 === 0) {
+      try { clear = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); } catch { return; }
+    } else if (signCode !== 0) return;
+    if (clear.length > 262144) { oversize(); return; }
+    owner.parseStage = "invalid_json";
+    try {
+      const row: unknown = JSON.parse(cameraInfoDocumentText(clear));
+      owner.parseStage = "invalid_schema";
+      if (!isRecord(row) || !Array.isArray(row.params)) return;
+      if (row.params.length > 65535) { oversize(); return; }
+      const types = new Set<number>(); let guardRows = 0; let guardMode: number | undefined;
+      for (const param of row.params) {
+        if (!isRecord(param) || !Number.isSafeInteger(param.param_type)) continue;
+        types.add(param.param_type as number);
+        if (param.param_type !== 1224) continue;
+        guardRows++;
+        const value = param.param_value;
+        const parsed = typeof value === "number" ? value : typeof value === "string" && /^(?:[0-6]|47|63)$/.test(value) ? Number(value) : NaN;
+        if (!Object.is(parsed, -0) && [0,1,2,3,4,5,6,47,63].includes(parsed)) guardMode = parsed;
+      }
+      owner.parseStage = "parsed";
+      this.#finishAlarmRead("unavailable", { outcome: "decoded", parameterCount: types.size,
+        ...(guardRows === 1 && guardMode !== undefined ? { guardMode } : {}) });
+    } catch { return; }
+  }
+
+  /**
+   * Send motion detection through an owned control connection.
+   *
+   * Attached results must match this camera's channel. Retirement before the
+   * first send is a hard no-dispatch failure; retirement after a send is
+   * ambiguous and requires provider readback. The optional dispatch callback
+   * marks that boundary for the provider's total deadline.
+   */
+  async writeMotionDetection(enabled: boolean, onDispatched?: () => void): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control") throw new Error("Motion control requires a control session");
+    if (this.#closed) throw new Error("Camera motion session closed before dispatch");
+    if (this.#pendingControl) throw new Error("Camera already has a control command in flight");
     if (!this.#remote) throw new Error("Motion control session is not connected");
     const accountId = this.#options.accountId;
     if (!accountId) throw new Error("Motion control account identity is unavailable");
     await this.#waitForLevel2Key();
-    if (this.#options.cameraModel === "T8171") {
-      if (this.#options.homeBaseAttached || this.#options.channel !== 0) {
-        throw new Error("SoloCam motion control requires a standalone channel-zero route");
+    if (this.#closed) throw new Error("Camera motion session closed before dispatch");
+    let sent = false;
+    const dispatch = (): void => {
+      if (this.#closed) {
+        if (sent) throw new CameraControlAcknowledgementTimeoutError();
+        throw new Error("Camera motion session closed before dispatch");
       }
-      const transaction = Date.now();
+      if (!sent) onDispatched?.();
+      sent = true;
+    };
+    try {
+      if (this.#options.cameraModel === "T8171"
+        || (this.#options.cameraModel === "T817L" && this.#options.homeBaseAttached === false)) {
+        if (this.#options.homeBaseAttached || this.#options.channel !== 0) {
+          throw new Error("SoloCam motion control requires a standalone channel-zero route");
+        }
+        const transaction = Date.now();
+        for (let index = 0; index < 3; index += 1) {
+          dispatch();
+          this.#sendCommand(1700, buildSoloCamMotionDetectionPayload(enabled, this.#level2Key!, this.#level2Seq++, transaction));
+          await delay(200);
+        }
+        return;
+      }
+      const body = buildCameraEnableBody(this.#options.channel, enabled ? 1 : 0, accountId);
+      const acknowledgement = this.#waitForControlResult(1011, this.#options.homeBaseAttached ? this.#options.channel : undefined);
+
+      // Observe closure rejection even while a redundant transmission is waiting.
+      void acknowledgement.catch(() => undefined);
       for (let index = 0; index < 3; index += 1) {
-        this.#sendCommand(1700, buildSoloCamMotionDetectionPayload(enabled, this.#level2Key!, this.#level2Seq++, transaction));
-        await delay(200);
+        dispatch();
+        const sequence = this.#level2Seq++;
+        const encrypted = encryptLevel2(body, this.#level2Key!, sequence);
+        const header = commandHeader(this.#seq++, 1011);
+        this.#send(REQ.data, Buffer.concat([header, rawPayload(encrypted, this.#options.channel, 8, [8, 0], 0)]), this.#remote);
+        if (index < 2) await delay(200);
       }
+      await acknowledgement;
+    } catch (error) {
+      if (sent && this.#closed) throw new CameraControlAcknowledgementTimeoutError();
+      throw error;
+    }
+  }
+
+  /**
+   * Prepare one owned S100 pulse and its stop pair before any command is sent.
+   * Cleanup is idempotent, waits for an in-flight start and remains available on
+   * this original session after provider cancellation or inventory replacement.
+   */
+  async prepareS100SirenTrial(route: ModelControlRoute, enabled: boolean): Promise<S100SirenTrialTransport> {
+    if (this.#closed || !this.#remote || this.#pendingCameraInfo || this.#pendingControl || this.#pendingControlQuery) {
+      throw new S100SirenTrialError(["session_prepare"]);
+    }
+    if (this.#options.purpose !== "control" || !this.#options.accountId
+      || !this.#options.modelControlTrial || this.#options.cameraModel !== route.model
+      || this.#options.channel !== route.channel || this.#options.homeBaseAttached !== route.homeBaseAttached) {
+      throw new S100SirenTrialError(["session_identity"]);
+    }
+    try { await this.#waitForLevel2Key(); }
+    catch {
+      const stages: S100SirenFailureStage[] = this.#closed || this.#level2Failure === "retired" ? ["session_prepare"]
+        : this.#s100GatewayFrames === 0 ? ["session_gateway"] : ["session_cipher"];
+      if (stages[0] === "session_cipher" && this.#level2Failure && this.#level2Failure !== "retired") stages.push(this.#level2Failure);
+      throw new S100SirenTrialError(stages);
+    }
+    if (this.#closed) throw new S100SirenTrialError(["session_prepare"]);
+    const frames = buildS100SirenTrialFrames(route, enabled, this.#level2Key, this.#level2Seq);
+    this.#level2Seq += frames.length;
+    let attempted = false, cancelled = false, ambiguous = false;
+    let starting: Promise<void> | null = null, stopping: Promise<void> | null = null;
+    const send = async (frame: S100SirenTrialFrame): Promise<void> => {
+      if (this.#closed || !this.#remote || this.#pendingControl) throw new S100SirenTrialError([frame.stage]);
+      if (frame.stage === "primary_stop" && ambiguous) {
+        this.#sendCommand(frame.command, frame.payload);
+        throw new S100SirenTrialError(["primary_stop"]);
+      }
+      const acknowledgement = this.#waitForControlResult(frame.command, frame.wireChannel, 2000);
+      try {
+        if (frame.stage === "start") attempted = true;
+        this.#sendCommand(frame.command, frame.payload);
+      }
+      catch (error) {
+        const pending = this.#pendingControl as PendingControl | null;
+        if (pending) { clearTimeout(pending.timer); this.#pendingControl = null; pending.reject(new S100SirenTrialError([frame.stage])); }
+      }
+      try { await acknowledgement; }
+      catch { throw new S100SirenTrialError([frame.stage]); }
+    };
+    return {
+      start: () => {
+        if (!enabled || cancelled || starting) return Promise.reject(new S100SirenTrialError(["start"]));
+        starting = send(frames[0]!).catch(() => { ambiguous = true; throw new S100SirenTrialError(["start"]); });
+        return starting;
+      },
+      stop: () => {
+        cancelled = true;
+        stopping ??= (async () => {
+          if (starting) await starting.catch(() => undefined);
+          if (enabled && !attempted) return;
+          await dispatchS100SirenStops(frames.filter(frame => frame.stage !== "start"), send);
+        })();
+        return stopping;
+      },
+    };
+  }
+
+  /**
+   * Submit one exact-model experimental command, with no application-level replay.
+   * The caller can recheck ownership after key negotiation and before dispatch.
+   */
+  async writeModelControlTrial(request: ModelControlTrial, route: ModelControlRoute, current: () => void = () => undefined): Promise<void> {
+    if (request.action === "alarmState" || this.#alarmRead) throw new Error("Alarm state read cannot dispatch controls");
+    if (this.#closed || this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
+      || this.#options.cameraModel !== route.model || this.#options.channel !== route.channel
+      || this.#options.homeBaseAttached !== route.homeBaseAttached) throw new Error("Invalid model trial session");
+    if (request.action === "spotlight" || request.action === "ptz" || route.homeBaseAttached) await this.#waitForLevel2Key();
+    current();
+    const frame = buildModelControlTrialPayload(request, route, this.#options.accountId,
+      commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key, this.#level2Seq++, Date.now());
+    const acknowledgement = this.#waitForControlResult(frame.command, this.#options.channel, CONTROL_TIMEOUT_MILLISECONDS, request.action === "manualLight");
+    try { this.#sendCommand(frame.command, frame.payload); }
+    catch (error) { void acknowledgement.catch(() => undefined); throw error; }
+    await acknowledgement;
+  }
+
+  /** Send exactly one reviewed absolute setting; only provider readback can establish success. */
+  async writeReviewedCameraSetting(change: CameraSettingChange, route: ModelControlRoute, onDispatch: () => void): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
+    const profile = cameraSettingProfile(route, change.setting);
+    if (!profile || this.#closed || this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
+      || this.#options.cameraModel !== route.model || this.#options.channel !== route.channel
+      || this.#options.homeBaseAttached !== route.homeBaseAttached) throw new Error("Reviewed camera setting session unavailable");
+    cameraSettingWireValue(profile, change);
+    if (profile.form === "motion-control") {
+      const payload = buildStandaloneJsonControlPayload(buildFloodlightMotionControlValue(change, route), route.channel!,
+        commandKey(this.#options.stationSerial, this.#options.p2pDid));
+      onDispatch();
+      this.#sendCommand(1700, payload);
       return;
     }
-    const body = buildCameraEnableBody(this.#options.channel, enabled ? 1 : 0, accountId);
-    const acknowledgement = this.#waitForControlResult(1011);
-    for (let index = 0; index < 3; index += 1) {
-      const sequence = this.#level2Seq++;
-      const encrypted = encryptLevel2(body, this.#level2Key!, sequence);
-      const header = commandHeader(this.#seq++, 1011);
-      this.#send(
-        REQ.data,
-        Buffer.concat([header, rawPayload(encrypted, this.#options.channel, 8, [8, 0], 0)]),
-        this.#remote,
-      );
-      if (index < 2) await delay(200);
+    if (change.setting === "manualFloodlight") {
+      const payload = buildStandaloneJsonControlPayload(buildManualFloodlightControlValue(change.value), route.channel!,
+        commandKey(this.#options.stationSerial, this.#options.p2pDid));
+      onDispatch();
+      this.#sendCommand(1700, payload);
+      return;
     }
-    await acknowledgement;
+    await this.#waitForLevel2Key();
+    const frame = buildReviewedCameraSettingPayload(change, route, this.#options.accountId, this.#level2Key!, this.#level2Seq++, Date.now());
+    const acknowledgement = this.#waitForControlResult(frame.command, route.channel!);
+    try {
+      onDispatch();
+      this.#sendCommand(frame.command, frame.payload);
+    } catch (error) { void acknowledgement.catch(() => undefined); throw error; }
+    try { await acknowledgement; }
+    catch (error) {
+
+      // Some firmware omits the acknowledgement. Keep the session alive for
+      // delivery, then let fresh provider readback decide without resending.
+      if (!(error instanceof CameraControlAcknowledgementTimeoutError)) throw error;
+    }
+  }
+
+  /** Send only reviewed exact-C31 preferences; the provider must independently confirm inventory. */
+  async writeC31Preference(name: C31Preference, value: number): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
+    validateC31Preference(name, value);
+    if (this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
+      || this.#options.cameraModel !== "T817L" || this.#options.homeBaseAttached !== false || this.#options.channel !== 0) {
+      throw new Error("Camera preference requires an owned standalone C31 control session");
+    }
+    await this.#waitForLevel2Key();
+    const now = Date.now();
+    for (let index = 0; index < 3; index += 1) {
+      const frame = buildC31PreferencePayload(name, value, this.#options.accountId, this.#level2Key!, this.#level2Seq++, now);
+      this.#sendCommand(frame.command, frame.payload);
+      await delay(200);
+    }
+  }
+
+  /** Send one E21 absolute operation on the provider-owned control session without opening live media. */
+  async writeE21Preference(name: E21Preference, value: number, videoMode: 0 | 12 | null): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
+    validateE21Preference(name, value);
+    if (this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
+      || this.#options.cameraModel !== "T8354" || this.#options.homeBaseAttached !== false || this.#options.channel !== 0) {
+      throw new Error("E21 preference requires its owned direct control session");
+    }
+    await this.#waitForLevel2Key();
+    const now = Date.now();
+    for (let index = 0; index < 3; index += 1) {
+      const frame = buildE21PreferencePayload(name, value, this.#options.accountId, this.#level2Key!, this.#level2Seq++, now, videoMode);
+      this.#sendCommand(frame.command, frame.payload);
+      await delay(200);
+    }
   }
 
   /** Send the native standalone audio setting; callers must confirm fresh inventory readback. */
   async writeAudioRecording(enabled: boolean): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId) {
       throw new Error("Audio recording requires a connected account-owned control session");
     }
-    if (this.#options.cameraModel !== "T8171" || this.#options.homeBaseAttached || this.#options.channel !== 0) {
+    if (!["T8171", "T817L"].includes(this.#options.cameraModel ?? "") || this.#options.homeBaseAttached || this.#options.channel !== 0) {
       throw new Error("Audio recording requires a standalone SoloCam channel-zero route");
     }
     await this.#waitForLevel2Key();
@@ -1450,16 +2351,22 @@ export class FirstPartyPpcsSession {
 
   /** Send a native quality preference; fresh cloud confirmation remains the caller's responsibility. */
   async writeStreamingQuality(quality: number): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId) {
       throw new Error("Streaming quality requires a connected account-owned control session");
     }
-    if (this.#options.cameraModel !== "T8171" || this.#options.homeBaseAttached || this.#options.channel !== 0) {
+    if (!["T8171", "T817L"].includes(this.#options.cameraModel ?? "") || this.#options.homeBaseAttached || this.#options.channel !== 0) {
       throw new Error("Streaming quality requires a standalone SoloCam channel-zero route");
     }
+    const builder = this.#options.cameraModel === "T817L"
+      ? buildStandaloneC31StreamingQualityPayload : buildSoloCamStreamingQualityPayload;
+
+    // Reject invalid preferences before opening authenticated command state.
+    if (this.#options.cameraModel === "T817L" && ![0, 2, 3].includes(quality)) throw new Error("Unsupported C31 streaming quality");
     await this.#waitForLevel2Key();
     const transaction = Date.now();
     for (let index = 0; index < 3; index += 1) {
-      this.#sendCommand(1350, buildSoloCamStreamingQualityPayload(quality, this.#options.accountId, this.#level2Key!, this.#level2Seq++, transaction));
+      this.#sendCommand(1350, builder(quality, this.#options.accountId, this.#level2Key!, this.#level2Seq++, transaction));
       await delay(200);
     }
   }
@@ -1471,6 +2378,7 @@ export class FirstPartyPpcsSession {
    * attached camera. It is retransmitted three times and waits for one result.
    */
   async writeAutoNightVision(enabled: boolean): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control") throw new Error("Auto night vision control requires a control session");
     if (!this.#remote) throw new Error("Auto night vision control session is not connected");
     if (!this.#options.homeBaseAttached) throw new Error("Auto night vision control requires a HomeBase-attached camera");
@@ -1495,22 +2403,35 @@ export class FirstPartyPpcsSession {
    *
    * Model-approved modes are wrapped in command 1350 and sent three times through
    * the negotiated level-two channel for attached cameras. An eligible standalone
-   * E30 uses level one and drains its final transmission before closure. Neither
-   * form awaits a result frame, so resolution confirms transmission only.
+   * C31 uses its authenticated native wrapper. The E30 uses level one and drains
+   * its final transmission before closure. These paths do not await a result
+   * frame, so the provider must confirm each preference through fresh readback.
    */
   async writeNightVision(mode: number): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control") throw new Error("Night vision control requires a control session");
     if (!this.#remote) throw new Error("Night vision control session is not connected");
     const standalone = this.#options.homeBaseAttached === false
       && this.#options.standaloneNightVisionSupported === true
-      && this.#options.cameraModel === "T8171" && this.#options.channel === 0;
+      && ["T8171", "T817L", "T8425"].includes(this.#options.cameraModel ?? "") && this.#options.channel === 0;
     if (!this.#options.homeBaseAttached && !standalone) throw new Error("Night vision control requires a HomeBase-attached camera");
     const accountId = this.#options.accountId;
     if (!accountId) throw new Error("Night vision control account identity is unavailable");
     const maximumMode = this.#options.cameraModel === "T8171" ? 3 : 2;
     if (!Number.isSafeInteger(mode) || mode < 0 || mode > maximumMode
-      || (this.#options.cameraModel === "T8171" && mode === 2)) {
+      || (this.#options.cameraModel === "T8171" && mode === 2)
+      || (this.#options.cameraModel === "T8223" && ![0, 1].includes(mode))) {
       throw new Error("Night vision mode is not supported for this camera model");
+    }
+    if (standalone && this.#options.cameraModel === "T817L") {
+      if (![0, 1, 2].includes(mode)) throw new Error("Unsupported C31 night vision mode");
+      await this.#waitForLevel2Key();
+      const transaction = Date.now();
+      for (let index = 0; index < 3; index += 1) {
+        this.#sendCommand(1350, buildStandaloneC31NightVisionPayload(mode, accountId, this.#level2Key!, this.#level2Seq++, transaction));
+        await delay(200);
+      }
+      return;
     }
     if (standalone) {
       const body = encryptLevel1(buildNightVisionBody(0, mode, accountId), commandKey(this.#options.stationSerial, this.#options.p2pDid));
@@ -1540,6 +2461,7 @@ export class FirstPartyPpcsSession {
    * or stop policy. Resolution confirms transmission, not siren activation.
    */
   async writeCameraSiren(durationSeconds: number): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control") throw new Error("Camera siren control requires a control session");
     if (!this.#remote) throw new Error("Camera siren control session is not connected");
     const accountId = this.#options.accountId;
@@ -1552,16 +2474,68 @@ export class FirstPartyPpcsSession {
     }
   }
 
+  /** Play admitted AAC on this existing C31 media session and always close its speaker path. */
+  async playC31Audio(audio: Buffer, signal?: AbortSignal): Promise<void> {
+    if (this.#closed || !this.#remote || this.#speaker || (this.#options.purpose === "control" || this.#options.purpose === "passive")
+      || this.#options.cameraModel !== "T817L" || this.#options.homeBaseAttached || this.#options.channel !== 0) {
+      throw new Error("Speaker playback requires an idle owned standalone C31 media session");
+    }
+    await this.#waitForLevel2Key();
+    const control = (commandType: 1001 | 1002): void => {
+      const value = JSON.stringify({ commandType, data: { transaction: `${Date.now()}` } });
+      this.#sendCommand(1700, rawPayload(encryptLevel2(Buffer.from(value), this.#level2Key!, this.#level2Seq++), 0, 8, [8, 0], 0));
+    };
+    const sender = new C31TalkbackSender({ start: () => control(1001), stop: () => control(1002),
+      send: (frame, retrySequence) => {
+        if (this.#closed || !this.#remote) throw new Error("Speaker connection closed");
+        const sequence = retrySequence ?? (this.#speakerSequence++ & 0xffff);
+        const packet = Buffer.concat([DATA.video, u16(sequence), MAGIC, u16le(1301), rawPayload(c31TalkbackBody(frame), 0, 0, [1, 0], 0)]);
+        this.#send(REQ.data, packet, this.#remote);
+        return sequence;
+      } });
+    this.#speaker = sender;
+    try { await sender.play(audio, signal); }
+    catch (error) { this.close("client_stop"); throw error; }
+    finally { sender.close(); if (this.#speaker === sender) this.#speaker = null; }
+  }
+
+  /** Transmit a native C31 alarm action; the provider owns pulse timing, cancellation and stop. */
+  async writeStandaloneC31Siren(enabled: boolean): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
+    if (this.#options.purpose !== "control" || !this.#remote
+      || this.#options.cameraModel !== "T817L" || this.#options.homeBaseAttached || this.#options.channel !== 0) {
+      throw new Error("C31 siren requires its connected direct channel-zero control session");
+    }
+    const accountId = this.#options.accountId;
+    if (!accountId) throw new Error("C31 siren requires its owning administrator identity");
+    await this.#waitForLevel2Key();
+    if (typeof enabled !== "boolean") throw new Error("C31 siren requires an absolute boolean action");
+    const now = Date.now();
+    const commands = enabled ? [1350] : [1201, 1202];
+    for (const command of commands) {
+      for (let index = 0; index < 3; index += 1) {
+        const payload = enabled
+          ? buildStandaloneC31SirenStartPayload(accountId, this.#level2Key!, this.#level2Seq++, now)
+          : buildStandaloneC31SirenStopPayload(command as 1201 | 1202, this.#level2Key!, this.#level2Seq++);
+        this.#sendCommand(command, payload);
+        if (index < 2) await delay(200);
+      }
+      if (command === 1201) await delay(200);
+    }
+  }
+
   /** Send the native manual light action on a provider-authorized standalone C31. */
   async writeStandaloneC31Light(enabled: boolean): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.cameraModel !== "T817L" || this.#options.homeBaseAttached || this.#options.channel !== 0) {
       throw new Error("C31 manual light requires its direct channel-zero route");
     }
     await this.#sendControlPayload(1400, { value: enabled ? 1 : 0, transaction: `${Date.now()}` });
   }
 
-  /** Send the standalone wall-light family's momentary on or off command. */
+  /** Send a provider-admitted standalone timed-light on or off command. */
   async writeTimedCameraLight(enabled: boolean): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control") throw new Error("Camera light control requires a control session");
     if (!this.#remote) throw new Error("Camera light control session is not connected");
     if (this.#options.homeBaseAttached) throw new Error("Timed camera light control requires a standalone camera");
@@ -1581,6 +2555,7 @@ export class FirstPartyPpcsSession {
 
   /** Send command 1400 using the direct spotlight family's integer and account envelope. */
   async writeStandaloneCameraLight(enabled: boolean): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control") throw new Error("Camera light control requires a control session");
     if (!this.#remote) throw new Error("Camera light control session is not connected");
     if (this.#options.homeBaseAttached) throw new Error("Standalone camera light control requires a direct camera");
@@ -1608,10 +2583,13 @@ export class FirstPartyPpcsSession {
    * command identifies the preset query. A timeout means no readable preset
    * contract was observed and does not imply that the camera has no presets.
    */
-  async queryPresetPositions(): Promise<readonly CameraPresetPosition[]> {
+  async queryPresetPositions(current: () => void = () => undefined): Promise<readonly CameraPresetPosition[]> {
     if (this.#options.cameraModel === "T8171" && this.#options.homeBaseAttached) await this.#preparePanMotorView();
+    current();
     const payload = await this.#queryControlPayload(6034, this.#options.cameraModel === "T8171"
       ? buildSoloCamPanControlData(6034) : { value: 0 });
+    current();
+    if (this.#options.cameraModel === "T814X") return parseC37PresetPositions(payload);
     return parseCameraPresetPositions(payload);
   }
 
@@ -1619,10 +2597,23 @@ export class FirstPartyPpcsSession {
    * Move to a stored position using the model's native absolute command.
    * Direct C31 and SoloCam movement require decoded live video. An owned control
    * connection drains temporary video; an existing viewer retains its output.
+   * C37 sends once on its exclusive control session and requires a matching
+   * acknowledgement. That result does not establish physical position.
    */
-  async selectPresetPosition(index: number): Promise<void> {
+  async selectPresetPosition(index: number, current: () => void = () => undefined): Promise<void> {
     if (!Number.isSafeInteger(index) || index < 0 || index > 9) {
       throw new Error("Camera preset index must be between 0 and 9");
+    }
+    if (this.#options.cameraModel === "T814X") {
+      if (this.#closed || !this.#remote || this.#options.purpose !== "control"
+        || this.#options.homeBaseAttached || this.#options.channel !== 0) throw new Error("C37 preset route unavailable");
+      current();
+      const acknowledgement = this.#waitForControlResult(1700, 0, CONTROL_TIMEOUT_MILLISECONDS);
+      try { await this.#sendControlPayload(6035, { value: index, transaction: `${Date.now()}` }); }
+      catch (error) { void acknowledgement.catch(() => undefined); throw error; }
+      await acknowledgement;
+      current();
+      return;
     }
     const soloCam = this.#options.cameraModel === "T8171";
     const standaloneC31 = this.#options.cameraModel === "T817L" && !this.#options.homeBaseAttached
@@ -1638,10 +2629,77 @@ export class FirstPartyPpcsSession {
 
   /** Enable or disable AI tracking using this model's app-confirmed command shape. */
   async writeAiTracking(enabled: boolean): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     await this.#sendControlPayload(6016, (this.#usesSoloCamPanControl()
       || (this.#options.cameraModel === "T817L" && !this.#options.homeBaseAttached && this.#options.channel === 0))
       ? buildSoloCamPanControlData(6016, enabled ? 1 : 0) : buildAiTrackingControlData(enabled));
     await delay(500);
+  }
+
+  /**
+   * Send the app-observed standalone C31 index query once on this exclusive control session.
+   * The owner rechecks binding after key negotiation. Hardware effects remain
+   * unconfirmed, and a timeout never establishes an empty recording list.
+   */
+  async readC31RecordingIndex(begin: number, end: number, current: () => void): Promise<C31IndexSummary> {
+    validateC31IndexWindow(begin, end, Math.floor(Date.now() / 1000));
+    if (this.#options.purpose !== "control" || this.#closed || !this.#remote
+      || this.#options.cameraModel !== "T817L" || this.#options.homeBaseAttached !== false
+      || this.#options.channel !== 0 || !this.#options.accountId || this.#c31Index
+      || this.#pendingControl || this.#pendingControlQuery || this.#pendingCameraInfo || this.#recordings) {
+      throw new C31IndexError("admission");
+    }
+    await this.#waitForLevel2Key();
+    current();
+    if (this.#closed || !this.#level2Key) throw new C31IndexError("cancelled");
+    const transaction = `${Date.now()}`;
+    const value = buildCameraControlQueryValue(6000, { begin_time: begin, end_time: end,
+      device_sn: this.#options.stationSerial, transaction });
+    return new Promise<C31IndexSummary>((resolve, reject) => {
+      const timer = setTimeout(() => this.#finishC31Index(new C31IndexError("timeout")), 15_000);
+      this.#c31Index = { begin, end, owner: this.#options.accountId!, transaction, resolve, reject, timer };
+      try {
+        current();
+        const encrypted = encryptLevel2(Buffer.from(value), this.#level2Key!, this.#level2Seq++);
+        this.#sendCommand(1700, rawPayload(encrypted, 0, 8, [8, 0], 0));
+      } catch (error) { this.#finishC31Index(error instanceof C31IndexError ? error : new C31IndexError(this.#closed ? "cancelled" : "session")); }
+    });
+  }
+
+  #finishC31Index(result: C31IndexSummary | C31IndexError): void {
+    const pending = this.#c31Index;
+    if (!pending) return;
+    this.#c31Index = null;
+    clearTimeout(pending.timer);
+    if (result instanceof C31IndexError) pending.reject(result); else pending.resolve(result);
+  }
+
+  /** Query an admitted attached FamiLock once, requiring a correlated authenticated reply. */
+  async readT85V0Status(identity: T85V0StatusIdentity, keyTime: number, sequence: number, current: () => void): Promise<T85V0StatusSummary> {
+    if (this.#options.purpose !== "control" || this.#closed || !this.#remote || this.#options.cameraModel !== "T85V0"
+      || this.#options.stationModel !== "T8030" || !this.#options.homeBaseAttached || identity.channel !== this.#options.channel
+      || identity.accountId !== this.#options.accountId || this.#lockStatus || this.#c31Index || this.#pendingControl
+      || this.#pendingControlQuery || this.#pendingCameraInfo || this.#recordings) throw new T85V0StatusError("admission");
+    await this.#waitForLevel2Key(); current();
+    if (this.#closed || !this.#level2Key) throw new T85V0StatusError("cancelled");
+    const query = buildT85V0StatusQuery(identity, keyTime, sequence, Math.floor(Date.now() / 1000));
+    return new Promise<T85V0StatusSummary>((resolve, reject) => {
+      const timer = setTimeout(() => this.#finishLockStatus(new T85V0StatusError("timeout")), 15_000);
+      this.#lockStatus = { identity, keyTime, sequence, resolve, reject, timer };
+      try {
+        current();
+        const encrypted = encryptLevel2(query, this.#level2Key!, this.#level2Seq++);
+        this.#sendCommand(1350, rawPayload(encrypted, identity.channel, 8, [8, 0], 0));
+      } catch (error) { this.#finishLockStatus(error instanceof T85V0StatusError ? error : new T85V0StatusError("session")); }
+      finally { query.fill(0); }
+    });
+  }
+
+  #finishLockStatus(result: T85V0StatusSummary | T85V0StatusError): void {
+    const pending = this.#lockStatus;
+    if (!pending) return;
+    this.#lockStatus = null; clearTimeout(pending.timer);
+    if (result instanceof T85V0StatusError) pending.reject(result); else pending.resolve(result);
   }
 
   /** Read completed SoloCam event clips through the provider-validated standalone or HomeBase route. */
@@ -1649,6 +2707,92 @@ export class FirstPartyPpcsSession {
     const reader = this.#recordingReader();
     await this.#waitForLevel2Key();
     return await reader.list(date, signal);
+  }
+
+  /** Read one observed history page on the exact T8210/HomeBase 3 control route. */
+  async readEventNameHistory(date: string, startId: string, signal?: AbortSignal): Promise<EventNameHistorySummary> {
+    nextEventHistoryDate(date); eventHistoryCursor(startId);
+    if (this.#closed || !this.#options.homeBaseAttached || this.#options.cameraModel !== "T8210"
+      || this.#options.stationModel !== "T8030" || !this.#options.recordingCameraSerial
+      || this.#options.purpose !== "control" || !this.#options.accountId || this.#recordings || this.#eventPicture
+      || this.#pendingControl || this.#pendingControlQuery || this.#pendingCameraInfo || this.#alarmRead || this.#lockStatus) {
+      throw new EventNameHistoryError("unavailable");
+    }
+    await this.#waitForLevel2Key();
+    if (this.#closed || signal?.aborted) throw new EventNameHistoryError("cancelled");
+    this.#eventNames ??= new EventNameHistoryReader({
+      serial: this.#options.recordingCameraSerial, stationSerial: this.#options.stationSerial,
+      query: (transaction, day, cursor) => {
+        const value = { account_id: this.#options.accountId, cmd: 1306, mChannel: 255, mValue3: 0,
+          payload: { cmd: 10011, table: "history_record_info", transaction, payload: {
+            count: 50, start_date: day.replaceAll("-", ""), end_date: nextEventHistoryDate(day),
+            start_id: Number(cursor), end_id: 1, flag: 0, need_ai: 1, res_unzip: 1,
+            update_time: "0", start_time: "0", alarm_id: "",
+          } } };
+        this.#sendCommand(1350, rawPayload(encryptLevel2(Buffer.from(JSON.stringify(value)), this.#level2Key!, this.#level2Seq++), 255, 8, [8, 0], 0));
+      },
+      decodeReply: (payload, sign) => {
+        if ((sign === 8 || sign === 2) && this.#level2Key) return decryptLevel2(payload, this.#level2Key, sign) ?? null;
+        if (sign === 1 && payload.length > 0 && payload.length % 16 === 0) {
+          try {
+            const clear = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid));
+            const end = clear.indexOf(0);
+
+            // The captured legacy reply ends with NUL and unused bytes in its final AES block.
+            if (end < 0 || clear.length - end > 16) return null;
+            return clear.subarray(0, end);
+          } catch { return null; }
+        }
+        return null;
+      },
+    });
+    return await this.#eventNames.read(date, startId, signal);
+  }
+
+  /** Read one history-bound thumbnail on the observed T8113-Z/HomeBase 3 control route. */
+  async readEventPicture(date: string, startId: string, recordId?: string, signal?: AbortSignal, expectedPath?: string): Promise<EventPictureSummary> {
+    nextEventHistoryDate(date); eventHistoryCursor(startId);
+    return await (await this.#eventPictureReader(signal)).read(date, startId, recordId, signal, expectedPath);
+  }
+
+  /** Retrieve only a notification-owned thumbnail. The provider owns returned bytes and stale-result rejection. */
+  async recoverEventPicture(reference: PushRecordingReference, signal: AbortSignal): Promise<Buffer> {
+    return await (await this.#eventPictureReader(signal)).recover(reference, signal);
+  }
+
+  async #eventPictureReader(signal?: AbortSignal): Promise<EventPictureReader> {
+    if (this.#closed || !this.#options.homeBaseAttached || this.#options.cameraModel !== "T8113-Z"
+      || this.#options.stationModel !== "T8030" || !this.#options.recordingCameraSerial
+      || this.#options.purpose !== "control" || !this.#options.accountId || this.#recordings || this.#eventNames
+      || this.#pendingControl || this.#pendingControlQuery || this.#pendingCameraInfo || this.#alarmRead || this.#lockStatus) {
+      throw new EventNameHistoryError("unavailable");
+    }
+    await this.#waitForLevel2Key();
+    if (this.#closed || signal?.aborted) throw new EventNameHistoryError("cancelled");
+    this.#eventPicture ??= new EventPictureReader({
+      serial: this.#options.recordingCameraSerial, stationSerial: this.#options.stationSerial,
+      query: (transaction, day, cursor) => {
+        const value = { account_id: this.#options.accountId, cmd: 1306, mChannel: 255, mValue3: 0,
+          payload: { cmd: 10011, table: "history_record_info", transaction, payload: {
+            count: 50, start_date: day.replaceAll("-", ""), end_date: nextEventHistoryDate(day),
+            start_id: Number(cursor), end_id: 1, flag: 0, need_ai: 1, res_unzip: 1,
+            update_time: "0", start_time: "0", alarm_id: "",
+          } } };
+        this.#sendCommand(1350, rawPayload(encryptLevel2(Buffer.from(JSON.stringify(value)), this.#level2Key!, this.#level2Seq++), 255, 8, [8, 0], 0));
+      },
+      image: file => {
+        const value = { account_id: this.#options.accountId, cmd: 1308, mChannel: 0, mValue3: 0, payload: [{ file }] };
+        this.#sendCommand(1350, rawPayload(encryptLevel2(Buffer.from(JSON.stringify(value)), this.#level2Key!, this.#level2Seq++), 0, 8, [8, 0], 0));
+      },
+      decodeHistory: (payload, sign) => {
+        if ((sign === 8 || sign === 2) && this.#level2Key) return decryptLevel2(payload, this.#level2Key, sign) ?? null;
+        return decodeEventPictureReply(payload, sign, this.#options.accountId!, this.#options.stationSerial)
+          ?? decodeLegacyEventPictureReply(payload, sign, commandKey(this.#options.stationSerial, this.#options.p2pDid));
+      },
+      decodeImage: (payload, sign) => decodeEventPictureReply(payload, sign, this.#options.accountId!, this.#options.stationSerial)
+        ?? decodeLegacyEventPictureReply(payload, sign, commandKey(this.#options.stationSerial, this.#options.p2pDid)),
+    });
+    return this.#eventPicture;
   }
 
   /** Retrieve a provider-owned recording reference and verify all returned media tracks. */
@@ -1736,12 +2880,13 @@ export class FirstPartyPpcsSession {
       });
       return this.#recordings;
     }
-    if (this.#options.cameraModel !== "T8171" || this.#options.homeBaseAttached ||
+    if (!["T8171", "T817L"].includes(this.#options.cameraModel ?? "") || this.#options.homeBaseAttached ||
       this.#options.channel !== 0 || this.#options.purpose !== "control" || !this.#options.accountId) {
       throw new Error("Stored recordings require the verified standalone SoloCam route");
     }
     this.#recordings ??= new SoloCamRecordingReader({
       serial: this.#options.stationSerial, p2pDid: this.#options.p2pDid,
+      deviceType: this.#options.cameraModel === "T817L" ? 10_031 : 88,
       query: (transaction, date) => {
         const value = { account_id: this.#options.accountId, cmd: 1306, mChannel: 0, mValue3: 0,
           payload: { cmd: 10017, table: "history_record_info", transaction, payload: {
@@ -1765,6 +2910,7 @@ export class FirstPartyPpcsSession {
 
   /** Enable or disable T817L automatic cruise using the app-confirmed action. */
   async writeAutoCruise(enabled: boolean): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     await this.#sendControlPayload(6031, { value: enabled ? 1 : 0,
       ...(!this.#options.homeBaseAttached && this.#options.cameraModel === "T817L" && this.#options.channel === 0
         ? { transaction: `${Date.now()}` } : {}),
@@ -1777,14 +2923,26 @@ export class FirstPartyPpcsSession {
    *
    * Closing is idempotent. It clears every timer, rejects an outstanding
    * control wait, drops incomplete access-unit state, sends the appropriate
-   * attached-media stop before PPCS END, closes UDP, and ends `output`.
+   * attached-media stop before PPCS END, and ends `output` immediately. It
+   * drains the queued END before closing UDP. Call `waitUntilClosed` before
+   * handing the peer to a new session.
    */
   close(reason: PpcsStreamCloseReason = "client_stop"): void {
     if (this.#closed) return;
+    this.#mediaStart.close();
+    this.#gatewayInfoRequest.close();
+    this.#speaker?.close();
     this.#closed = true;
+    this.#level2Failure = null;
+    this.#lookupCancel?.();
+    this.#lookupCancel = null;
     this.stats.closeReason = reason;
+    this.#finishC31Index(new C31IndexError("cancelled"));
+    this.#finishLockStatus(new T85V0StatusError("cancelled"));
     this.#recordings?.close();
     this.#eventFrames?.close();
+    this.#eventNames?.close();
+    this.#eventPicture?.close();
     if (this.#maximumDurationTimer) clearTimeout(this.#maximumDurationTimer);
     if (this.#firstFrameTimer) clearTimeout(this.#firstFrameTimer);
     if (this.#heartbeat) clearInterval(this.#heartbeat);
@@ -1800,23 +2958,52 @@ export class FirstPartyPpcsSession {
       this.#pendingControlQuery.reject(new Error("Camera control session closed before query response"));
       this.#pendingControlQuery = null;
     }
+    this.#finishAlarmRead("unavailable");
     if (this.#pendingCameraInfo) {
       clearTimeout(this.#pendingCameraInfo.timer);
       this.#pendingCameraInfo.reject(new Error("Camera-info session closed before readback"));
       this.#pendingCameraInfo = null;
     }
     this.#videoAssembler.reset();
+    this.#closedSequenceChannels = this.#datagramOrder.diagnostics();
     this.#datagramOrder.close();
     this.#pendingByType.clear();
     this.#updatePendingBytes();
-    if (this.#options.purpose !== "control" && this.#options.homeBaseAttached) {
+    if (this.#options.purpose !== "control" && this.#options.purpose !== "passive" && this.#options.homeBaseAttached) {
       this.#stopAttachedMedia();
     }
-    if (this.#remote) this.#send(REQ.end, Buffer.alloc(0), this.#remote);
-    if (this.#lookupSockets) this.#lookupSockets.close();
-    else this.#socket.close();
+    this.#closeCompletion = new Promise<void>((resolve) => {
+      let finished = false;
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      const finish = (): void => {
+        if (finished) return;
+        finished = true;
+        if (deadline) clearTimeout(deadline);
+        try {
+          if (this.#lookupSockets) this.#lookupSockets.close();
+          else this.#socket.close();
+        } catch {
+
+          // Failed lookup or socket errors can already have closed this port.
+        }
+        resolve();
+      };
+      if (!this.#remote) { finish(); return; }
+
+      // dgram.close discards queued sends. Completing the final END send also
+      // drains the preceding stop command, without claiming a peer acknowledgement.
+      deadline = setTimeout(finish, 500);
+      deadline.unref?.();
+      try { this.#socket.send(Buffer.concat([REQ.end, u16(0)]), this.#remote.port, this.#remote.host, finish); }
+      catch { finish(); }
+    });
     this.output.end();
     this.audioOutput.end();
+  }
+
+  /** Wait for local disconnect-send completion after close, bounded to 500ms even on socket failure. */
+  waitUntilClosed(): Promise<void> {
+    return this.#closeCompletion;
   }
 
   /** Send LAN lookup to broadcast and known private targets, then query cloud rendezvous peers. */
@@ -1852,6 +3039,8 @@ export class FirstPartyPpcsSession {
    */
   #handle(message: Buffer, info: RemoteInfo, socket: Socket): boolean {
     if (this.#closed || (this.#remote && socket !== this.#socket)) return false;
+    if (this.#options.purpose === "passive" && this.#remote
+      && (info.address !== this.#remote.host || info.port !== this.#remote.port)) return false;
     if (has(message, RESP.localLookup)) {
       this.stats.localLookupCandidates++;
       const source = { host: info.address, port: info.port };
@@ -1879,11 +3068,49 @@ export class FirstPartyPpcsSession {
       this.stats.camId++;
       this.#remote = { host: info.address, port: info.port };
       this.#send(REQ.ping, Buffer.alloc(0), this.#remote);
-      this.#sendCommand(1100, voidPayload(255));
-      if (!this.#options.homeBaseAttached && this.#options.purpose !== "control") this.#startOwnMedia();
+      const repairAttachedSetup = this.#options.homeBaseAttached
+        && (this.#options.purpose !== "control" && this.#options.purpose !== "passive"
+          || this.#options.stationModel === "T8010" && this.#options.cameraModel === "T8113-Z");
+      if (repairAttachedSetup) {
+        const sequence = this.#seq++;
+        const payload = Buffer.concat([commandHeader(sequence, 1100), voidPayload(255)]);
+        this.#gatewayInfoRequest.start(sequence, Buffer.concat([REQ.data, u16(payload.length), payload]));
+      } else this.#sendCommand(1100, voidPayload(255));
+      if (!this.#options.homeBaseAttached && this.#options.purpose !== "control" && this.#options.purpose !== "passive") this.#startOwnMedia();
       return true;
     }
+    if (has(message, RESP.ping)) {
+
+      // The selected peer also probes our side of the connection. Answer only
+      // its observed empty heartbeat, without resetting media or its deadlines.
+      if (this.#remote?.host === info.address && this.#remote.port === info.port
+        && message.length === 4 && message.readUInt16BE(2) === 0) {
+        this.#send(REQ.pong, Buffer.alloc(0), this.#remote);
+      }
+      return false;
+    }
     if (has(message, RESP.pong)) return false;
+    if (has(message, REQ.ack) && this.#remote?.host === info.address && this.#remote.port === info.port
+      && message.length >= 10 && message.readUInt16BE(2) === message.length - 4
+      && message.subarray(4, 6).equals(DATA.data)) {
+      const count = message.readUInt16BE(6);
+      if (count >= 1 && count <= 64 && message.length === 8 + count * 2) {
+        for (let index = 0; index < count; index++) {
+          const sequence = message.readUInt16BE(8 + index * 2);
+          this.#mediaStart.acknowledge(sequence);
+          this.#gatewayInfoRequest.acknowledge(sequence);
+        }
+      }
+      return false;
+    }
+    if (has(message, REQ.ack) && this.#remote?.host === info.address && this.#remote.port === info.port
+      && message.length >= 8 && message.subarray(4, 6).equals(DATA.video)) {
+      const count = message.readUInt16BE(6);
+      if (count <= 64 && message.length === 8 + count * 2) {
+        for (let index = 0; index < count; index += 1) this.#speaker?.acknowledge(message.readUInt16BE(8 + index * 2));
+      }
+      return false;
+    }
     if (has(message, RESP.data) && this.#remote) {
       this.stats.dataDatagrams++;
       if (!this.stats.firstDataHex) this.stats.firstDataHex = message.subarray(0, Math.min(message.length, 48)).toString("hex");
@@ -1982,9 +3209,12 @@ export class FirstPartyPpcsSession {
    * HomeBase peer, media is accepted only from the requested child channel.
    */
   #handleFrame(header: Buffer, payload: Buffer, type: number): void {
+    if (this.#eventPicture?.handleFrame(header, payload)) return;
+    if (this.#eventNames?.handleFrame(header, payload)) return;
     if (this.#recordings?.handleFrame(header, payload, type)) return;
     if (this.#eventFrames?.handleFrame(header, payload, type)) return;
     const command = header.readUInt16LE(4);
+    if (this.#options.purpose === "passive" && command === 1300) { this.close("client_stop"); return; }
     const size = header.readUInt32LE(6);
     const frameChannel = ppcsFrameChannel(header);
     const signCode = header[13] ?? 0;
@@ -1995,6 +3225,17 @@ export class FirstPartyPpcsSession {
     }
 
     if (header[14] === 1 && this.#pendingControl?.command === command) {
+      if (this.#pendingControl.authenticatedOnly && signCode !== 8) return;
+      if (this.#pendingControl.strictChannel !== undefined) {
+        const result = decodeModelControlTrialAcknowledgement(header, payload, this.#pendingControl.command, this.#pendingControl.strictChannel,
+          commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key);
+        if (result === null) return;
+        const pending = this.#pendingControl;
+        this.#pendingControl = null;
+        clearTimeout(pending.timer);
+        result === 0 ? pending.resolve() : pending.reject(new Error(`Camera rejected model control trial (${result})`));
+        return;
+      }
       let clear = payload;
       if (signCode === 8 && this.#level2Key) clear = decryptLevel2(payload, this.#level2Key, signCode) ?? payload;
       else if (signCode > 0 && payload.length % 16 === 0) {
@@ -2010,7 +3251,8 @@ export class FirstPartyPpcsSession {
       return;
     }
 
-    if (command === 1351 && this.#options.homeBaseAttached && this.#options.onSensorContact) {
+    if (command === 1351 && payload.length <= 65_536 && this.#options.homeBaseAttached
+      && (this.#options.onSensorContact || this.#options.onSensorMotion)) {
       let clear: Buffer | undefined;
       if (signCode === 0) clear = payload;
       else if ((signCode === 2 || signCode === 8) && this.#level2Key) {
@@ -2019,11 +3261,53 @@ export class FirstPartyPpcsSession {
         try { clear = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); } catch { clear = undefined; }
       }
       if (clear) {
-        for (const observation of decodeSensorContactNotification(clear)) this.#options.onSensorContact(observation);
+        try {
+          if (this.#options.onSensorContact) for (const observation of decodeSensorContactNotification(clear)) this.#options.onSensorContact(observation);
+          if (this.#options.onSensorMotion) for (const observation of decodeSensorMotionNotification(clear)) this.#options.onSensorMotion(observation);
+        } finally { if (clear !== payload) clear.fill(0); }
       }
     }
 
-    if (command === 1351 && this.#pendingControlQuery) {
+    if (this.#lockStatus && command === 1300) {
+      this.#finishLockStatus(new T85V0StatusError("malformed")); this.close("client_stop"); return;
+    }
+    if (this.#lockStatus && command === 1351 && frameChannel === this.#lockStatus.identity.channel && signCode === 8 && this.#level2Key) {
+      if (payload.length > 16_384 + 32) { this.#finishLockStatus(new T85V0StatusError("malformed")); return; }
+      const clear = decryptLevel2(payload, this.#level2Key, signCode);
+      if (!clear) return;
+      try {
+        const pending = this.#lockStatus;
+        const result = decodeT85V0StatusReply(clear, pending.identity, pending.keyTime, pending.sequence);
+        if (result) this.#finishLockStatus(result);
+      } catch (error) { this.#finishLockStatus(error instanceof T85V0StatusError ? error : new T85V0StatusError("malformed")); }
+      finally { clear.fill(0); }
+      return;
+    }
+
+    if (this.#c31Index && command === 1300) {
+      this.#finishC31Index(new C31IndexError("malformed"));
+      return;
+    }
+    if (this.#c31Index && command === 1351) {
+      if (payload.length > 256 * 1024) {
+        this.#finishC31Index(new C31IndexError("malformed")); return;
+      }
+      const decoded = decodePpcsControlRecord(payload, signCode,
+        commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key);
+      if (decoded?.cmd === 6000) {
+        const pending = this.#c31Index, body = jsonRecord(decoded.payload);
+        if ((decoded.transaction !== undefined && decoded.transaction !== pending.transaction)
+          || (body?.transaction !== undefined && body.transaction !== pending.transaction)) return;
+        if (!body || !["begin_time", "beginTime", "end_time", "endTime", "videos"].some(key => Object.hasOwn(body, key))) return;
+        try { this.#finishC31Index(summarizeC31Index(body, pending.begin, pending.end, pending.owner)); }
+        catch { this.#finishC31Index(new C31IndexError("malformed")); }
+        finally { payload.fill(0); }
+        return;
+      }
+    }
+
+    if (command === 1351 && this.#pendingControlQuery
+      && (this.#options.cameraModel !== "T814X" || frameChannel === this.#options.channel)) {
       const decoded = decodePpcsControlRecord(payload, signCode,
         commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key);
       const responsePayload = decoded && decoded.cmd === this.#pendingControlQuery.command
@@ -2040,11 +3324,22 @@ export class FirstPartyPpcsSession {
 
     // 1100 carries the encrypted HomeBase gateway details. 1300 carries
     // media frames after the level-2 request has been accepted.
-    if (command === 1100 && signCode === 1) { this.stats.gatewayInfo++; void this.#handleGatewayInfo(payload); }
-    else if (command === 1103) this.#inspectCameraInfo(payload, signCode);
+    if (command === 1100) this.#s100GatewayFrames++;
+    if (command === 1100 && signCode === 1) {
+      this.#gatewayInfoRequest.close();
+      this.stats.gatewayInfo++;
+      void this.#handleGatewayInfo(payload);
+    }
+    else if (command === 1103 && this.#alarmReadUsed) {
+      if (frameChannel === 0 || frameChannel === 255) this.#inspectAlarmRead(payload, signCode);
+    }
+    else if (command === 1103 && (!this.#options.modelControlTrial || frameChannel === this.#options.channel)) {
+      this.#inspectCameraInfo(payload, signCode);
+    }
     else if (command === 1300 && (!this.#options.homeBaseAttached || acceptsAttachedCameraMedia(command, frameChannel ?? -1, this.#options.channel))) {
       this.stats.videoFrames++;
       if (this.#writeVideo(payload, signCode)) {
+        this.#mediaStart.mediaReceived();
         const decoderReady = hasDecoderReadyKeyframe(this.stats.videoCodec, this.stats.videoNalTypes);
         this.#lastDeliveredMediaFrameAt = Date.now();
         if ((!this.#options.homeBaseAttached || decoderReady) && this.#firstFrameTimer) {
@@ -2100,6 +3395,16 @@ export class FirstPartyPpcsSession {
         this.#recordVideoResult("framing-prefix-buffered");
         continue;
       }
+      if (this.stats.videoCodec === "h264" && usesT8171AttachedMediaProfile(this.#options.channel, this.#options)
+          && (this.#options.purpose === undefined || this.#options.purpose === "media")) {
+        markS340LiveSource(this.output);
+        const format = this.#videoClockFormat;
+        const validFormat = unit.width > 0 && unit.height > 0;
+        const formatChanged = validFormat && unit.keyframe && format !== undefined
+          && (format.width !== unit.width || format.height !== unit.height);
+        if (validFormat) this.#videoClockFormat = { width: unit.width, height: unit.height };
+        markS340LiveFrameClock(normalized, unit.timestamp, this.#videoClockEpoch, formatChanged);
+      }
       this.output.write(normalized);
       this.stats.videoOutputFrames++;
       const framing = this.#videoNormalizer.framing;
@@ -2131,17 +3436,29 @@ export class FirstPartyPpcsSession {
    * schema of parameter 3100 are recorded. Other values never enter diagnostics.
    */
   #inspectCameraInfo(payload: Buffer, signCode: number): void {
+    this.stats.cameraInfoFrames++;
+    this.stats.cameraInfoSign = signCode;
+    this.stats.cameraInfoDecoded = false;
+    this.stats.cameraInfoJsonOffset = -1;
     let clear = payload;
-    if ((signCode === 2 || signCode === 8) && this.#level2Key) {
-      clear = decryptLevel2(payload, this.#level2Key, signCode) ?? payload;
-    } else if (signCode > 0 && payload.length > 0 && payload.length % 16 === 0) {
+    if (signCode === 2 || signCode === 8) {
+      if (!this.#level2Key) return;
+      const authenticated = decryptLevel2(payload, this.#level2Key, signCode);
+      if (!authenticated) return;
+      clear = authenticated;
+    } else if (signCode === 1 && payload.length > 0 && payload.length % 16 === 0) {
       try { clear = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); } catch { return; }
-    }
-    const text = clear.toString("utf8").replace(/\0+$/g, "").trim();
+    } else if (signCode !== 0) return;
+    this.stats.cameraInfoDecoded = signCode === 0 || clear !== payload;
+    this.stats.cameraInfoJsonOffset = clear.indexOf(0x7b);
+    const text = cameraInfoDocumentText(clear);
+    this.stats.cameraInfoParseStage = "invalid_json";
     if (!text.startsWith("{")) return;
     try {
       const decoded: unknown = JSON.parse(text);
+      this.stats.cameraInfoParseStage = "invalid_schema";
       if (!isRecord(decoded) || !Array.isArray(decoded.params)) return;
+      this.stats.cameraInfoParseStage = "parsed";
       const params = decoded.params.flatMap((candidate): PpcsCameraInfoParam[] => (
         isRecord(candidate)
         && Number.isSafeInteger(candidate.param_type)
@@ -2185,6 +3502,7 @@ export class FirstPartyPpcsSession {
    * duplicate asynchronous key resolution and competing media starts.
    */
   async #handleGatewayInfo(payload: Buffer): Promise<void> {
+    if (this.#closed) return;
     if (this.#gatewayPromise) return this.#gatewayPromise;
     if (this.#level2Key || !this.#options.resolveCipherKey || payload.length < 133) return;
     this.#gatewayPromise = this.#deriveLevel2(payload);
@@ -2201,31 +3519,57 @@ export class FirstPartyPpcsSession {
    * standalone media session starts with its level-one fallback, then reissues
    * START_LIVE at level two as soon as the negotiated key becomes available.
    */
+  /** Latch only fixed failure facts in the same turn as the error observed by key waiters. */
+  #failLevel2(phase: "gateway_decrypt" | "cipher_lookup_error" | "cipher_missing_key" | "cipher_unwrap_failed" | "retired"): void {
+    if (this.#closed) return;
+    this.#level2Failure = phase;
+    this.stats.level2Error = `Key negotiation unavailable: ${phase}`;
+  }
+
   async #deriveLevel2(payload: Buffer): Promise<void> {
+    if (this.#closed) return;
     let plainPayload: Buffer;
-    try { plainPayload = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); } catch (error) { this.stats.level2Error = `gateway decrypt failed: ${error instanceof Error ? error.message : String(error)}`; return; }
+    try { plainPayload = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); }
+    catch { this.#failLevel2("gateway_decrypt"); return; }
     const cipherId = plainPayload.readUInt16LE(0);
     this.stats.cipherId = cipherId;
-    let eccPrivateKey: string | undefined;
-    try { eccPrivateKey = await this.#options.resolveCipherKey!(cipherId); } catch (error) { this.stats.level2Error = error instanceof Error ? error.message : String(error); return; }
-    if (!eccPrivateKey) { this.stats.level2Error = "no ECC private key"; return; }
-    this.#videoDecoder.setEccPrivateKey(eccPrivateKey);
-    const plain = unwrapGatewayInfo(plainPayload.subarray(4, 133), eccPrivateKey);
-    if (!plain || plain.length < 32) { this.stats.level2Error = "gateway info ECIES unwrap failed"; return; }
+    let key: unknown;
+    try {
+      if (this.#options.resolveCipherKeyOutcome) {
+        const outcome = await this.#options.resolveCipherKeyOutcome(cipherId);
+        if (this.#closed) return;
+        if (!outcome || typeof outcome !== "object") { this.#failLevel2("cipher_lookup_error"); return; }
+        if (outcome.kind === "retired") { this.#failLevel2("retired"); return; }
+        if (outcome.kind === "lookup_failed") { this.#failLevel2("cipher_lookup_error"); return; }
+        if (outcome.kind === "missing_key") { this.#failLevel2("cipher_missing_key"); return; }
+        if (outcome.kind !== "key") { this.#failLevel2("cipher_lookup_error"); return; }
+        key = outcome.value;
+      } else key = await this.#options.resolveCipherKey!(cipherId);
+    } catch { this.#failLevel2("cipher_lookup_error"); return; }
+    if (this.#closed) return;
+    if (typeof key !== "string" || !key) { this.#failLevel2("cipher_missing_key"); return; }
+    let plain: Buffer | undefined;
+    try {
+      this.#videoDecoder.setEccPrivateKey(key);
+      plain = unwrapGatewayInfo(plainPayload.subarray(4, 133), key);
+    } catch { this.#failLevel2("cipher_unwrap_failed"); return; }
+    if (!plain || plain.length < 32) { this.#failLevel2("cipher_unwrap_failed"); return; }
     this.#level2Key = plain.subarray(0, 32);
+    this.#level2Failure = null;
     this.stats.level2++;
-    if (this.#options.purpose !== "control") {
+    if (this.#options.purpose !== "control" && this.#options.purpose !== "passive") {
       if (this.#options.homeBaseAttached) this.#startAttachedMedia();
-      else this.#startOwnMedia();
+      else this.#startOwnMedia(true);
     }
   }
 
   /** Wait for in-progress gateway negotiation before a level-two control write. */
   async #waitForLevel2Key(): Promise<void> {
     const deadline = Date.now() + CONTROL_TIMEOUT_MILLISECONDS;
-    while (!this.#level2Key && !this.stats.level2Error && Date.now() < deadline) {
+    while (!this.#closed && !this.#level2Key && !this.stats.level2Error && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
+    if (this.#closed) throw new Error("Camera session closed during key negotiation");
     if (!this.#level2Key) {
       throw new Error(this.stats.level2Error || "Camera level-two control key timed out");
     }
@@ -2239,14 +3583,15 @@ export class FirstPartyPpcsSession {
    * error lets the provider choose a readback rather than blindly retrying a
    * potentially non-idempotent operation.
    */
-  #waitForControlResult(command: number): Promise<void> {
+  #waitForControlResult(command: number, strictChannel?: number, timeoutMilliseconds = CONTROL_TIMEOUT_MILLISECONDS, authenticatedOnly = false): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#pendingControl) return Promise.reject(new Error("Camera already has a control command in flight"));
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#pendingControl = null;
         reject(new CameraControlAcknowledgementTimeoutError());
-      }, CONTROL_TIMEOUT_MILLISECONDS);
-      this.#pendingControl = { command, resolve, reject, timer };
+      }, timeoutMilliseconds);
+      this.#pendingControl = { command, resolve, reject, timer, authenticatedOnly, ...(strictChannel === undefined ? {} : { strictChannel }) };
     });
   }
 
@@ -2257,7 +3602,7 @@ export class FirstPartyPpcsSession {
   ): Promise<Record<string, unknown>> {
     if (this.#options.purpose !== "control" && !this.#allowsViewerPanControl(command)) throw new Error("Camera query requires a control session");
     if (!this.#remote) throw new Error("Camera control session is not connected");
-    if (this.#pendingControlQuery || this.#pendingControl) {
+    if (this.#alarmRead || this.#pendingControlQuery || this.#pendingControl) {
       throw new Error("Camera already has a control operation in flight");
     }
     if (this.#options.homeBaseAttached || this.#usesSoloCamPanControl()
@@ -2310,7 +3655,7 @@ export class FirstPartyPpcsSession {
       throw new Error("Camera preset wake requires a connected session");
     }
     await this.#waitForLevel2Key();
-    if (this.#options.purpose !== "control") {
+    if (this.#options.purpose !== "control" && this.#options.purpose !== "passive") {
       if (this.stats.videoOutputFrames === 0) throw new Error("Camera viewer has not confirmed a live camera wake");
       return;
     }
@@ -2331,6 +3676,7 @@ export class FirstPartyPpcsSession {
     command: number,
     data: Readonly<Record<string, unknown>>,
   ): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#options.purpose !== "control" && !this.#allowsViewerPanControl(command)) throw new Error("Camera control requires a control session");
     if (!this.#remote) throw new Error("Camera control session is not connected");
     const soloCam = this.#usesSoloCamPanControl();
@@ -2394,6 +3740,7 @@ export class FirstPartyPpcsSession {
   /** Start an attached channel, or restart it after output has genuinely stalled. */
   #startAttachedMedia(): void {
     if (!this.#remote || !this.#level2Key) return;
+    if (this.#mediaStart.pending) return;
     if (this.stats.mediaStartAttempts > 0) {
       this.#restartAttachedMedia();
       return;
@@ -2403,18 +3750,35 @@ export class FirstPartyPpcsSession {
 
   /** Break a stale HomeBase encoder run before requesting a new decoder bootstrap. */
   #restartAttachedMedia(): void {
-    if (this.#attachedMediaRestartTimer) return;
+    if (this.#attachedMediaRestartTimer || this.#mediaStart.pending) return;
     this.#stopAttachedMedia();
     this.#attachedMediaRestartTimer = setTimeout(() => {
       this.#attachedMediaRestartTimer = null;
-      if (!this.#closed) this.#sendAttachedMediaControl(1003);
+      if (!this.#closed && !this.#mediaStart.pending) {
+        this.#lastAttachedMediaReassertAt = Date.now();
+        this.#sendAttachedMediaControl(1003);
+      }
     }, ATTACHED_MEDIA_RESTART_DELAY_MILLISECONDS);
     this.#attachedMediaRestartTimer.unref?.();
   }
 
   /** Release this camera channel without ending the HomeBase peer session first. */
   #stopAttachedMedia(): void {
+    this.#mediaStart.stop();
     if (!this.#remote || !this.#level2Key || this.stats.mediaStartAttempts === 0) return;
+    if (usesT8210DirectMediaStop(this.#options.channel, this.#options)) {
+
+      // This doorbell stops with an authenticated integer on command 1004,
+      // rather than another command 1350 JSON request. The peer remains open.
+      const value = Buffer.alloc(4);
+      value.writeUInt32LE(this.#options.channel);
+      this.stats.mediaStopAttempts++;
+      this.stats.mediaStopProtocol = "level2-direct";
+      this.#sendCommand(1004, rawPayload(
+        encryptLevel2(value, this.#level2Key, this.#level2Seq++), this.#options.channel, 8, [8, 0], 0,
+      ));
+      return;
+    }
     if (this.#options.stationModel === "T8010") {
       this.stats.mediaStopAttempts++;
       this.stats.mediaStopProtocol = "level1-direct";
@@ -2440,30 +3804,49 @@ export class FirstPartyPpcsSession {
       this.#options.channel,
       this.#options.accountId ?? "",
       command === 1003 ? publicModulus(this.#rsa.publicKey) : undefined,
+      this.#options,
     );
 
     // The level-2 body is AES-GCM encrypted. The RSA modulus inside the JSON
     // lets the camera establish the per-stream video key for frame payloads.
     const level2Sequence = this.#level2Seq++;
     const body = encryptLevel2(value, this.#level2Key, level2Sequence);
-    const streamId = this.#options.channel === 0 || this.#options.channel === 255 ? 0 : 10 + (this.#level2Seq & 127);
+    const streamId = usesT8171AttachedMediaProfile(this.#options.channel, this.#options)
+      ? command === 1003 ? 10 : 0
+      : this.#options.channel === 0 || this.#options.channel === 255 ? 0 : 10 + (this.#level2Seq & 127);
     const header = commandHeader(this.#seq++, 1350);
     const packet = Buffer.concat([header, rawPayload(body, this.#options.channel, 8, [8, 0], streamId)]);
     if (!this.stats.startHex) this.stats.startHex = packet.subarray(0, 32).toString("hex");
-    this.#send(REQ.data, packet, this.#remote);
+    if (command === 1003) this.#sendMediaStart(packet);
+    else this.#send(REQ.data, packet, this.#remote);
   }
 
-  /** Send START_LIVE using the strongest protection negotiated with a standalone peer. */
-  #startOwnMedia(): void {
+  /** Send START_LIVE using the exact model contract or strongest negotiated protection. */
+  #startOwnMedia(upgrade = false): void {
+    if (this.#closed || !this.#remote) return;
+    if (!upgrade && this.#mediaStart.pending) return;
+    if (this.#options.cameraModel === "T8200") {
+      if (this.#t8200MediaStartSent) return;
+      const accountId = this.#options.accountId ?? "";
+      if (accountId.length === 0) {
+        this.stats.level2Error = "T8200 live start requires an account identifier";
+        return;
+      }
+      const value = buildT8200LiveStartValue(accountId, publicModulus(this.#rsa.publicKey), Date.now());
+      this.#t8200MediaStartSent = true;
+      this.stats.mediaStartAttempts++;
+      this.stats.mediaStartProtocols.push("t8200-clear");
+      this.#sendCommand(1700, buildT8200LiveStartPayload(value), true);
+      return;
+    }
     this.stats.mediaStartAttempts++;
-    const key = publicModulus(this.#rsa.publicKey);
-    const now = Date.now();
-    const value = JSON.stringify({ commandType: 1000, data: {
-      cmd: 1000, account_id: this.#options.accountId ?? "", accountId: this.#options.accountId ?? "",
-      mValueStrSub: this.#options.accountId ?? "", mChannel: this.#options.channel, mValue3: 0, mValue5: 0,
-      msg_id: 1, camera_type: 0, entrytype: 0, extValue: 1000, ivalue: 1, restore: 0, streamtype: 2,
-      video_type: 12, timestamp: now, transaction: `${now}`, encryptkey: key,
-    } });
+    const value = buildStandaloneLiveStartValue(
+      this.#options.cameraModel,
+      this.#options.channel,
+      this.#options.accountId ?? "",
+      publicModulus(this.#rsa.publicKey),
+      Date.now(),
+    );
     if (this.#level2Key) {
       if (!this.stats.mediaStartProtocols.includes("level2")) this.stats.mediaStartProtocols.push("level2");
       this.#sendCommand(1700, buildStandaloneLevel2LiveStartPayload(
@@ -2471,7 +3854,7 @@ export class FirstPartyPpcsSession {
         this.#options.channel,
         this.#level2Key,
         this.#level2Seq++,
-      ));
+      ), true);
       return;
     }
     if (!this.stats.mediaStartProtocols.includes("level1")) this.stats.mediaStartProtocols.push("level1");
@@ -2479,7 +3862,13 @@ export class FirstPartyPpcsSession {
       value,
       this.#options.channel,
       commandKey(this.#options.stationSerial, this.#options.p2pDid),
-    ));
+    ), true);
+  }
+
+  /** Retain the fully framed start so retries consume neither sequence counter. */
+  #sendMediaStart(payload: Buffer): void {
+    const packet = Buffer.concat([REQ.data, u16(payload.length), payload]);
+    this.#mediaStart.start(payload.readUInt16BE(2), packet);
   }
 
   /** Ask one candidate endpoint to prove it owns the requested camera DID. */
@@ -2488,10 +3877,12 @@ export class FirstPartyPpcsSession {
   }
 
   /** Wrap and send one inner XZYH command over the established data channel. */
-  #sendCommand(command: number, payload: Buffer): void {
+  #sendCommand(command: number, payload: Buffer, mediaStart = false): void {
+    if (this.#alarmRead && (command !== 1103 || !this.#alarmRead.dispatched)) throw new Error("Alarm state read owns this session");
     if (!this.#remote) return;
     const header = Buffer.concat([DATA.data, u16(this.#seq++), MAGIC, u16le(command)]);
-    this.#send(REQ.data, Buffer.concat([header, payload]), this.#remote);
+    if (mediaStart) this.#sendMediaStart(Buffer.concat([header, payload]));
+    else this.#send(REQ.data, Buffer.concat([header, payload]), this.#remote);
   }
 
   /** Add the outer PPCS type and length header, then write one UDP datagram. */
@@ -2505,6 +3896,28 @@ function ppcsVideoCodec(streamType: number): VideoCodec | null {
   if (streamType === 1) return "h264";
   if (streamType === 2) return "h265";
   return null;
+}
+
+/**
+ * Read a camera-info JSON document up to its protocol NUL terminator.
+ * Legacy encrypted frames may contain unspecified padding after that boundary.
+ * Callers must validate protection before invoking this text-only helper.
+ */
+export function cameraInfoDocumentText(clear: Buffer): string {
+  const end = clear.indexOf(0);
+  return clear.subarray(0, end < 0 ? clear.length : end).toString("utf8").trim();
+}
+
+/**
+ * Build the SDK station-wide integer camera-info query for direct C31 sessions.
+ * The 32-byte negotiated key does not meet the SDK's legacy 16-byte integer
+ * encryption condition, so the read-only request carries a clear integer 255.
+ * Response protection is negotiated independently and must still be verified.
+ */
+export function buildC31CameraInfoQueryPayload(): Buffer {
+  const value = Buffer.alloc(4);
+  value.writeUInt32LE(255);
+  return rawPayload(value, 255, 0, [1, 0], 0);
 }
 
 /** Build the minimal unencrypted body used by commands without a value payload. */
@@ -2751,7 +4164,8 @@ export function decodePpcsControlRecord(
   } else if (signCode === 1 && payload.length > 0 && payload.length % 16 === 0) {
     try { clear = decryptEcb(payload, level1Key); } catch { return undefined; }
   }
-  return clear ? parsePpcsControlRecord(clear) : undefined;
+  try { return clear ? parsePpcsControlRecord(clear) : undefined; }
+  finally { if (clear && clear !== payload) clear.fill(0); }
 }
 
 /** Parse one decrypted control reply, accepting only complete JSON with validated NUL or PKCS7 padding. */

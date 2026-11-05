@@ -1,11 +1,118 @@
 /**
- * Describes custom guard-mode metadata without retaining account labels.
- * Inventory owns parameter 1256. The provider consumes only this structural
- * diagnostic until an explicit label-to-mode contract has been established.
+ * Parses station-owned guard-mode metadata from inventory parameter 1256.
+ *
+ * Public logs consume only privacy-safe structural descriptions. The local
+ * station API may separately retain validated mode-to-title pairs for the
+ * account owner's Home Assistant interface.
  */
 
 const KNOWN_FIELDS = new Set(["id", "mode", "mode_id", "mode_type", "name", "mode_name", "custom_modes", "modes", "3", "4", "5"]);
 const ID_FIELDS = new Set(["id", "mode", "mode_id", "mode_type"]);
+
+function parseMetadata(value: unknown): unknown | undefined {
+  if (typeof value !== "string" || value.length > 16_384) return undefined;
+  try { return JSON.parse(value); }
+  catch {
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 !== 0) return undefined;
+    try { return JSON.parse(Buffer.from(value, "base64").toString("utf8")); }
+    catch { return undefined; }
+  }
+}
+
+/**
+ * Return private display names only for explicitly identified custom modes.
+ *
+ * The caller may expose this map inside the owner's local Home Assistant API,
+ * but must never write its values to logs or public diagnostics. Undefined
+ * distinguishes an absent or invalid document from a valid document with no
+ * custom names so later inventory refreshes can remove a deleted name.
+ */
+export function guardModeCustomNames(value: unknown): Readonly<Record<number, string>> | undefined {
+  const parsed = parseMetadata(value);
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+  const modes = (parsed as Record<string, unknown>).modes;
+  if (!Array.isArray(modes) || modes.length > 16) return undefined;
+  const names: Record<number, string> = {};
+  const ambiguous = new Set<number>();
+  for (const entry of modes) {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const { mode, title } = entry as Record<string, unknown>;
+    if (!Number.isInteger(mode) || (mode as number) < 3 || (mode as number) > 5) continue;
+    if (typeof title !== "string") continue;
+    const name = title.trim();
+    if (!name || name.length > 64 || /[\u0000-\u001f\u007f]/.test(name)) continue;
+    const id = mode as number;
+    if (Object.hasOwn(names, id)) {
+      ambiguous.add(id);
+      delete names[id];
+    } else if (!ambiguous.has(id)) names[id] = name;
+  }
+  return names;
+}
+
+/**
+ * Preserve nested mode evidence using document-local aliases instead of names.
+ * Only known mode IDs survive as values. Explicit cap markers distinguish
+ * incomplete evidence from an absent field; tokens cannot identify labels
+ * across documents and must never be used to choose a security mode.
+ */
+export function guardModeMetadataStructure(value: unknown): string {
+  if (value === undefined) return "missing";
+  if (typeof value !== "string") return "invalid";
+  if (value.length > 16_384) return "oversized";
+  let parsed: unknown;
+  try { parsed = JSON.parse(value); }
+  catch {
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 !== 0) return "invalid";
+    try { parsed = JSON.parse(Buffer.from(value, "base64").toString("utf8")); }
+    catch { return "invalid"; }
+  }
+  const fields = new Map<string, string>();
+  const texts = new Map<string, string>();
+  let visited = 0;
+  let exhausted = false;
+  const alias = (table: Map<string, string>, text: string, prefix: string): string => {
+    let token = table.get(text);
+    if (token === undefined) {
+      token = `${prefix}${table.size + 1}`;
+      table.set(text, token);
+    }
+    return token;
+  };
+  const inspect = (node: unknown, depth: number, key?: string): string => {
+    if (++visited > 128) {
+      exhausted = true;
+      return "capped:nodes";
+    }
+    if (node === null) return "null";
+    if (typeof node === "boolean") return "boolean";
+    if (typeof node === "number") {
+      return key !== undefined && ID_FIELDS.has(key) && Number.isInteger(node) && node >= 0 && node <= 5
+        ? `num:${node}` : "number";
+    }
+    if (typeof node === "string") {
+      return key !== undefined && ID_FIELDS.has(key) && /^\d{1,3}$/.test(node) && Number(node) <= 5
+        ? `str:${Number(node)}` : alias(texts, node, "text");
+    }
+    if (depth > 4) return "capped:depth";
+    const array = Array.isArray(node);
+    const entries = array ? node : Object.entries(node as Record<string, unknown>);
+    const children: string[] = [];
+    for (const entry of entries.slice(0, 16)) {
+      if (array) children.push(inspect(entry, depth + 1));
+      else {
+        const [field, child] = entry as [string, unknown];
+        const safeKey = KNOWN_FIELDS.has(field) ? field : alias(fields, field, "field");
+        children.push(`${safeKey}:${inspect(child, depth + 1, field)}`);
+      }
+      if (exhausted) break;
+    }
+    if (entries.length > 16) children.push("capped:entries");
+    return `${array ? "[" : "{"}${children.join(",")}${array ? "]" : "}"}`;
+  };
+  const structure = inspect(parsed, 0);
+  return structure.length > 2_048 ? "capped:length" : structure;
+}
 
 /**
  * Inspect bounded JSON or base64 JSON without exposing names or arbitrary keys.

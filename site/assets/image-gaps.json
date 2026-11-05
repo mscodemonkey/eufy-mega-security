@@ -1,0 +1,167 @@
+[
+  {
+    "deviceId": "t8200-variant-6",
+    "name": "Video Doorbell 2K (T8200X variant)",
+    "models": [
+      "T8200"
+    ],
+    "reason": "The exact hardware variant has not been matched to a verified official product photo."
+  },
+  {
+    "deviceId": "t8201",
+    "name": "Wired Video Doorbell (T8201)",
+    "models": [
+      "T8201",
+      "T8201X"
+    ],
+    "reason": "No verified standalone product photo in the official support product index or current US product feed."
+  },
+  {
+    "deviceId": "t8453-common",
+    "name": "Garage camera (T8453 common id)",
+    "models": [
+      "T8453"
+    ],
+    "reason": "The exact hardware variant has not been matched to a verified official product photo."
+  },
+  {
+    "deviceId": "t8001",
+    "name": "HomeBase (original)",
+    "models": [
+      "T8001"
+    ],
+    "reason": "No verified standalone product photo in the official support product index or current US product feed."
+  },
+  {
+    "deviceId": "t8002",
+    "name": "HomeBase E",
+    "models": [
+      "T8002"
+    ],
+    "reason": "No verified standalone product photo in the official support product index or current US product feed."
+  },
+  {
+    "deviceId": "t8419n",
+    "name": "Indoor Cam C220 (T8419N, v3)",
+    "models": [
+      "T8419N"
+    ],
+    "reason": "The exact hardware variant has not been matched to a verified official product photo."
+  },
+  {
+    "deviceId": "t8440",
+    "name": "Outdoor Cam 1080p (no light)",
+    "models": [
+      "T8440"
+    ],
+    "reason": "The exact hardware variant has not been matched to a verified official product photo."
+  },
+  {
+    "deviceId": "r10-keypad",
+    "name": "R10 Keypad",
+    "models": [],
+    "reason": "The catalogue has no confirmed model number. No official photo for this exact retail identity has been verified."
+  },
+  {
+    "deviceId": "r20-keypad",
+    "name": "R20 Keypad",
+    "models": [],
+    "reason": "The catalogue has no confirmed model number. No official photo for this exact retail identity has been verified."
+  },
+  {
+    "deviceId": "t8501",
+    "name": "Smart Lock D20",
+    "models": [
+      "T8501",
+      "T8501J11"
+    ],
+    "reason": "No verified standalone product photo in the official support product index or current US product feed."
+  },
+  {
+    "deviceId": "t8510p",
+    "name": "Smart Lock S230",
+    "models": [
+      "T8510P",
+      "T8510111"
+    ],
+    "reason": "No verified standalone product photo in the official support product index or current US product feed."
+  },
+  {
+    "deviceId": "t8520p",
+    "name": "Smart Lock S231",
+    "models": [
+      "T8520P"
+    ],
+    "reason": "No verified standalone product photo in the official support product index or current US product feed."
+  },
+  {
+    "deviceId": "t8500",
+    "name": "Smart Lock T8500",
+    "models": [
+      "T8500"
+    ],
+    "reason": "No verified standalone product photo in the official support product index or current US product feed."
+  },
+  {
+    "deviceId": "t8021",
+    "name": "Smart Lock Wi-Fi Bridge",
+    "models": [
+      "T8021"
+    ],
+    "reason": "No verified standalone product photo in the official support product index or current US product feed."
+  },
+  {
+    "deviceId": "t7402",
+    "name": "Smart Safe T7402",
+    "models": [
+      "T7402"
+    ],
+    "reason": "No verified standalone product photo in the official support product index or current US product feed."
+  },
+  {
+    "deviceId": "t7403",
+    "name": "Smart Safe T7403",
+    "models": [
+      "T7403"
+    ],
+    "reason": "No verified standalone product photo in the official support product index or current US product feed."
+  },
+  {
+    "deviceId": "e8202",
+    "name": "Video Doorbell 2K Pro (Wired, offline E8202)",
+    "models": [],
+    "reason": "The catalogue has no confirmed model number. No official photo for this exact retail identity has been verified."
+  },
+  {
+    "deviceId": "t8740",
+    "name": "Video Doorbell Add-On Chime",
+    "models": [
+      "T8740",
+      "T8741"
+    ],
+    "reason": "No verified standalone product photo in the official support product index or current US product feed."
+  },
+  {
+    "deviceId": "e8220",
+    "name": "Video Doorbell Slim (Battery, offline E8220)",
+    "models": [],
+    "reason": "The catalogue has no confirmed model number. No official photo for this exact retail identity has been verified."
+  },
+  {
+    "deviceId": "t8020",
+    "name": "Wi-Fi Doorbell Chime",
+    "models": [
+      "T8020",
+      "T8020121"
+    ],
+    "reason": "No verified standalone product photo in the official support product index or current US product feed."
+  },
+  {
+    "deviceId": "t8110e",
+    "name": "eufyCam C34",
+    "models": [
+      "T8110E"
+    ],
+    "reason": "No verified standalone product photo in the official support product index or current US product feed."
+  }
+]

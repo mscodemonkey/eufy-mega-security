@@ -27,6 +27,9 @@ export interface PpcsVideoFrameHeader {
 
 /** One complete decoded access unit ready for media normalisation. */
 export interface PpcsAccessUnit {
+
+  /** Unsigned source clock word inherited from this complete unit's first transport header. */
+  readonly timestamp: number;
   readonly keyframe: boolean;
   readonly streamType: number;
   readonly width: number;
@@ -39,6 +42,13 @@ export interface DroppedPpcsAccessUnit {
   readonly carriedBytes: number;
   readonly chunkCount: number;
   readonly totalDropped: number;
+}
+
+/** Select how decoded transport chunks reach the downstream media normaliser. */
+export interface PpcsAccessUnitAssemblerOptions {
+
+  /** Emit each decoded chunk immediately when the camera's byte stream spans frame identities. */
+  readonly emitChunks?: boolean;
 }
 
 /** Parse the fixed metadata header from one raw command-1300 payload. */
@@ -63,8 +73,12 @@ export class PpcsAccessUnitAssembler {
 
   /**
    * @param onDropped Receives structural drop counts without media bytes or identifiers.
+   * @param options Keeps strict access-unit reassembly by default; callers must opt into chunk delivery.
    */
-  constructor(private readonly onDropped?: (drop: DroppedPpcsAccessUnit) => void) {}
+  constructor(
+    private readonly onDropped?: (drop: DroppedPpcsAccessUnit) => void,
+    private readonly options: PpcsAccessUnitAssemblerOptions = {},
+  ) {}
 
   /**
    * Feed one raw command-1300 payload and return any units completed by it.
@@ -78,6 +92,11 @@ export class PpcsAccessUnitAssembler {
     if (!header || !body || body.length === 0) {
       this.#discard();
       return [];
+    }
+
+    if (this.options.emitChunks) {
+      this.#discard();
+      return [unitOf(header, body)];
     }
 
     const fullChunk = header.payloadLength === PPCS_STATION_CHUNK_BYTES;
@@ -135,6 +154,7 @@ function beginsAccessUnit(body: Buffer): boolean {
 
 function unitOf(header: PpcsVideoFrameHeader, data: Buffer): PpcsAccessUnit {
   return {
+    timestamp: header.timestamp,
     keyframe: header.keyframe,
     streamType: header.streamType,
     width: header.width,

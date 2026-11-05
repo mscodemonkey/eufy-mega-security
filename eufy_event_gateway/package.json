@@ -1,6 +1,6 @@
 {
   "name": "eufy-ha-gateway",
-  "version": "0.1.125",
+  "version": "0.1.242",
   "private": true,
   "description": "Event-first Eufy camera gateway for Home Assistant",
   "type": "module",
@@ -26,15 +26,21 @@
     "poc:motion": "tsx scripts/motion-probe.ts",
     "test": "node --import tsx --test 'test/**/*.test.ts'",
     "test:shell": "sh -n run.sh",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "site:build": "node ../site/build.mjs",
+    "site:test": "node --test '../site/test/*.test.mjs'"
   },
   "dependencies": {
     "jpeg-js": "0.4.4",
+    "mqtt": "5.16.0",
     "protobufjs": "^7.6.6",
+    "werift": "0.24.4",
+    "ws": "8.22.0",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",
+    "@types/ws": "8.18.1",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   }

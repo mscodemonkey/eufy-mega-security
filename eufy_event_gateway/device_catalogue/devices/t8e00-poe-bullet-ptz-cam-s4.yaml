@@ -27,6 +27,10 @@ capabilities:
       connections:
         T9000:
           status: declared
+        T8N00:
+          status: declared
+          notes: Experimental T8N00 only. Exact T8E00/type301. NVR values 0 Standard, 1
+            Infrared, 2 Spotlight. Default-off and hardware-unconfirmed.
       read:
         parameter: 1277
       write:
@@ -53,6 +57,10 @@ capabilities:
       connections:
         T9000:
           status: declared
+        T8N00:
+          status: declared
+          notes: Experimental opt-in normal playback. Source profile and selected lens
+            require hardware confirmation.
     snapshot:
       connections:
         T9000:

@@ -1,20 +1,22 @@
 /**
- * Contains the pure cryptographic primitives used by MegaClient.
+ * Contains the protocol cryptographic primitives used by MegaClient.
  *
  * These functions reproduce the observed native-app formats for bootstrap
  * keys, ECDH identity exchange, request signatures, AES envelopes, encrypted
- * passwords, credential verifiers, and user tokens. They perform no I/O and
- * retain no session state. Fixtures can therefore test byte-for-byte protocol
+ * passwords, credential verifiers, and user tokens. They retain no protocol session state. Optional private raw-history
+ * instrumentation records crypto inputs and outcomes for replay. Fixtures can therefore test byte-for-byte protocol
  * behaviour without contacting Eufy, while MegaClient owns ordering,
  * persistence, rate limiting, and error interpretation.
  */
+import { recordRaw, rawHistoryEnabled } from "../diagnostics/raw-history.js";
+import { createRecordedCipheriv as createCipheriv } from "../diagnostics/raw-crypto.js";
+import { createRecordedDecipheriv as createDecipheriv } from "../diagnostics/raw-crypto.js";
 import {
-  createCipheriv,
-  createDecipheriv,
   createECDH,
   createHash,
   createHmac,
   randomBytes,
+  randomUUID,
   scryptSync,
   type ECDH,
 } from "node:crypto";
@@ -39,7 +41,10 @@ export function randomIdentifier(): string {
 /** Sign a clear or encrypted request body with Mega's HMAC format. */
 export function requestSignature(key: string, timestamp: string, nonce: string, body?: string): string {
   const signed = body === undefined ? `${timestamp}+${nonce}` : `${timestamp}+${nonce}+${body}`;
-  return createHmac("sha256", Buffer.from(key, "utf8")).update(signed).digest("hex");
+  const result = createHmac("sha256", Buffer.from(key, "utf8")).update(signed).digest("hex");
+  if (rawHistoryEnabled()) recordRaw({ boundary: "hmac_signature", connection: randomUUID(), direction: "encode",
+    metadata: { algorithm: "HMAC-SHA256", key: Buffer.from(key, "utf8"), digest: result } }, Buffer.from(signed, "utf8"));
+  return result;
 }
 
 /** Encrypt a Mega JSON envelope as base64 IV followed by AES-CBC bytes. */
@@ -102,14 +107,19 @@ export function finishKeyExchange(pending: PendingKeyExchange, encryptedServerPu
   return { keyIdent: pending.keyIdent, sharedKey, clientPublicKey: pending.clientPublicKey };
 }
 
-/** Encrypt a login password using Mega's fixed server public key. */
-export function encryptPassword(password: string): { encrypted: string; clientPublicKey: string } {
+/** Encrypt a login password, optionally retaining its ephemeral scalar for the opt-in RTC trial. */
+export function encryptPassword(password: string, captureScalar = false): { encrypted: string; clientPublicKey: string; scalar?: string } {
   const ecdh = createECDH("prime256v1");
   ecdh.generateKeys();
   const secret = ecdh.computeSecret(Buffer.from(LOGIN_SERVER_PUBLIC_KEY, "hex"));
   const cipher = createCipheriv("aes-256-cbc", secret, secret.subarray(0, 16));
   const encrypted = cipher.update(password, "utf8", "base64") + cipher.final("base64");
-  return { encrypted, clientPublicKey: ecdh.getPublicKey("hex") };
+  const clientPublicKey = ecdh.getPublicKey("hex");
+  if (!captureScalar) return { encrypted, clientPublicKey };
+  const privateBytes = ecdh.getPrivateKey();
+  const scalar = privateBytes.toString("hex").padStart(64, "0");
+  privateBytes.fill(0);
+  return { encrypted, clientPublicKey, scalar };
 }
 
 /** Derive a slow account-bound verifier used to reject sessions saved for different credentials. */

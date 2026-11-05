@@ -9,7 +9,9 @@
  * tested without a real camera or cloud account.
  */
 import { EventEmitter } from "node:events";
+import { e21DetectionKinds, type E21DetectionKind } from "../provider/e21-profile.js";
 import { randomUUID } from "node:crypto";
+import { maskSmartLockState, type SmartLockState } from "./types.js";
 
 import type {
   CameraIdentity,
@@ -48,6 +50,12 @@ interface MutableCameraState {
   packageStrandedDetected: boolean;
   doorbellPressed: boolean;
   lastDetection: Detection | null;
+
+  /** Private provider correlation only. Never exposed in camera snapshots or SSE. */
+  personEventIdentity: string | null;
+
+  /** Private ownership of a button press; separate from preceding person detections. */
+  doorbellEventIdentity: string | null;
   snapshot: SnapshotInfo | null;
   eventImage: SnapshotInfo | null;
   streamState: StreamState;
@@ -68,6 +76,7 @@ export class GatewayState extends EventEmitter {
   readonly #cameras = new Map<string, MutableCameraState>();
   readonly #stations = new Map<string, HomeBaseState>();
   readonly #sensors = new Map<string, SecuritySensorState>();
+  readonly #locks = new Map<string, SmartLockState>();
   readonly #pushDiagnostics: PushDiagnostic[] = [];
   #eventDeliveryDiagnostic: EventDeliveryDiagnostic = {
     receiverState: "stopped",
@@ -85,6 +94,7 @@ export class GatewayState extends EventEmitter {
   readonly #doorbellClearTimers = new Map<string, NodeJS.Timeout>();
   readonly #detectionClearTimers = new Map<string, NodeJS.Timeout>();
   readonly #sensorMotionClearTimers = new Map<string, NodeJS.Timeout>();
+  readonly #sensorDetectionClearTimers = new Map<string, NodeJS.Timeout>();
   #inventoryDiagnostics: InventoryDiagnostic[] = [];
   #cameraCapabilities: CameraCapabilityManifest[] = [];
   #deviceCapabilities: DeviceCapabilityManifest[] = [];
@@ -96,10 +106,29 @@ export class GatewayState extends EventEmitter {
     super();
   }
 
+  /** Replace lock inventory atomically so removed bindings cannot remain actionable. */
+  replaceLocks(locks: readonly SmartLockState[]): void {
+    this.#locks.clear();
+    for (const lock of locks) this.#locks.set(lock.serial, structuredClone(lock));
+    this.emit("event", { type: "locks", locks: this.listLocks() } satisfies GatewayEvent);
+  }
+
+  /** Return cached lock observations only, with expired observations marked unavailable. */
+  listLocks(): SmartLockState[] {
+    return [...this.#locks.values()].map(lock => maskSmartLockState(lock));
+  }
+
+  /** Check normalized lock existence without consulting the network. */
+  hasLock(serial: string): boolean { return this.#locks.has(serial); }
+
   /** Add a camera or refresh its discovered metadata and return its state. */
   registerCamera(identity: CameraIdentity): CameraState {
     const existing = this.#cameras.get(identity.serial);
     if (existing) {
+      if (existing.identity.stationSerial !== identity.stationSerial || existing.identity.model !== identity.model) {
+        existing.personEventIdentity = null;
+        existing.doorbellEventIdentity = null;
+      }
       existing.identity = identity;
     } else {
       this.#cameras.set(identity.serial, {
@@ -118,6 +147,8 @@ export class GatewayState extends EventEmitter {
         packageStrandedDetected: false,
         doorbellPressed: false,
         lastDetection: null,
+        personEventIdentity: null,
+        doorbellEventIdentity: null,
         snapshot: null,
         eventImage: null,
         streamState: "idle",
@@ -140,10 +171,25 @@ export class GatewayState extends EventEmitter {
   /** Add or replace one standalone security-sensor observation. */
   registerSensor(sensor: SecuritySensorState): SecuritySensorState {
     const existing = this.#sensors.get(sensor.serial);
-    const snapshot = structuredClone({
-      ...sensor,
-      motionDetected: existing?.motionDetected ?? sensor.motionDetected,
-    });
+    const capabilities = new Set(sensor.capabilities);
+    for (const kind of e21DetectionKinds) {
+      if (capabilities.has(kind)) continue;
+      const key = `${sensor.serial}:${kind}`;
+      const timer = this.#sensorDetectionClearTimers.get(key);
+      if (timer) clearTimeout(timer);
+      this.#sensorDetectionClearTimers.delete(key);
+    }
+    const notifications: Partial<Record<`${E21DetectionKind}Detected`, boolean>> = {};
+    for (const kind of e21DetectionKinds) {
+      const field = `${kind}Detected` as const;
+      if (capabilities.has(kind)) notifications[field] = existing?.[field] ?? sensor[field] ?? false;
+    }
+    const snapshot = structuredClone({ ...sensor, motionDetected: existing?.motionDetected ?? sensor.motionDetected, ...notifications });
+    for (const kind of e21DetectionKinds) {
+      if (capabilities.has(kind)) continue;
+      if (kind === "motion") snapshot.motionDetected = false;
+      else delete snapshot[`${kind}Detected`];
+    }
     this.#sensors.set(sensor.serial, snapshot);
     this.emit("event", { type: "sensor-updated", sensor: snapshot } satisfies GatewayEvent);
     return structuredClone(snapshot);
@@ -182,6 +228,27 @@ export class GatewayState extends EventEmitter {
     }, this.detectionHoldMilliseconds);
     timer.unref();
     this.#sensorMotionClearTimers.set(serial, timer);
+  }
+
+  /** Hold one passive care notification independently for the configured event window. */
+  recordSensorDetection(serial: string, kind: E21DetectionKind, detected: boolean): void {
+    const sensor = this.#sensors.get(serial);
+    if (!sensor || !sensor.capabilities.includes(kind)) return;
+    const key = `${serial}:${kind}`;
+    const existing = this.#sensorDetectionClearTimers.get(key);
+    if (existing) clearTimeout(existing);
+    this.#sensorDetectionClearTimers.delete(key);
+    const field = `${kind}Detected` as const;
+    const snapshot = structuredClone({ ...sensor, [field]: detected });
+    this.#sensors.set(serial, snapshot);
+    this.emit("event", { type: "sensor-updated", sensor: structuredClone(snapshot) } satisfies GatewayEvent);
+    if (!detected) return;
+    const timer = setTimeout(() => {
+      this.#sensorDetectionClearTimers.delete(key);
+      this.recordSensorDetection(serial, kind, false);
+    }, this.detectionHoldMilliseconds);
+    timer.unref();
+    this.#sensorDetectionClearTimers.set(key, timer);
   }
 
   /** Return immutable snapshots for every known HomeBase. */
@@ -235,13 +302,14 @@ export class GatewayState extends EventEmitter {
     this.#emitCamera(serial);
   }
 
-  /** Record person recognition, which takes precedence over same-moment motion. */
-  recordPerson(serial: string, detected: boolean, personName: string | null, occurredAt = new Date()): void {
+  /** Record person recognition and retain optional source ownership for later name enrichment. */
+  recordPerson(serial: string, detected: boolean, personName: string | null, occurredAt = new Date(), eventIdentity: string | null = null): void {
     const camera = this.#requireCamera(serial);
     camera.personDetected = detected;
     this.#refreshAggregateMotion(camera);
     this.#scheduleDetectionClear(this.#personClearTimers, serial, detected, () => this.recordPerson(serial, false, null));
     if (detected) {
+      camera.personEventIdentity = eventIdentity;
       const normalizedName = normalizePersonName(personName);
       const detection: Detection = {
         id: randomUUID(),
@@ -253,6 +321,32 @@ export class GatewayState extends EventEmitter {
       camera.lastDetection = detection;
       this.emit("event", { type: "detection", cameraSerial: serial, detection } satisfies GatewayEvent);
     }
+    this.#emitCamera(serial);
+  }
+
+  /**
+   * Add the first recognized name to the matching last person detection.
+   * Preserve its identity, time and expired detection flags. A newer event,
+   * changed camera binding or an existing name refuses the update. This emits
+   * camera state only, so subscribers do not receive a second detection.
+   */
+  enrichPersonName(serial: string, eventIdentity: string, personName: string): void {
+    this.#enrichName(serial, eventIdentity, personName, "person");
+  }
+
+  /** Enrich only the same unnamed button press, preserving its time, pulse and event identity. */
+  enrichDoorbellName(serial: string, eventIdentity: string, personName: string): void {
+    this.#enrichName(serial, eventIdentity, personName, "doorbell");
+  }
+
+  /** Publish recognition state only after the matching detection still owns its source identity. */
+  #enrichName(serial: string, eventIdentity: string, personName: string, kind: "person" | "doorbell"): void {
+    const camera = this.#requireCamera(serial), previous = camera.lastDetection;
+    const name = normalizePersonName(personName);
+    const owner = kind === "person" ? camera.personEventIdentity : camera.doorbellEventIdentity;
+    if (!eventIdentity || owner !== eventIdentity || !name
+      || previous?.kind !== kind || previous.recognized) return;
+    camera.lastDetection = { ...previous, personName: name, recognized: true };
     this.#emitCamera(serial);
   }
 
@@ -287,21 +381,35 @@ export class GatewayState extends EventEmitter {
     this.#emitCamera(serial);
   }
 
-  /** Record a transient doorbell press for a camera that supports doorbells. */
-  recordDoorbell(serial: string, pressed: boolean, occurredAt = new Date()): void {
+  /**
+   * Record a button press and recognition explicitly supplied by that press.
+   * A source-owned press replaces older recognition context. Legacy callers
+   * without context retain their existing last-person behaviour. No person or
+   * motion pulse is manufactured, and clear callbacks retain ownership for a
+   * later exact-identity name update.
+   */
+  recordDoorbell(
+    serial: string,
+    pressed: boolean,
+    occurredAt = new Date(),
+    personName: string | null = null,
+    eventIdentity: string | null = null,
+  ): void {
     const camera = this.#requireCamera(serial);
     if (!camera.identity.doorbellSupported) return;
     camera.doorbellPressed = pressed;
     this.#scheduleDetectionClear(this.#doorbellClearTimers, serial, pressed, () => this.recordDoorbell(serial, false));
     if (pressed) {
+      camera.doorbellEventIdentity = eventIdentity;
+      const name = normalizePersonName(personName);
       const detection: Detection = {
         id: randomUUID(),
         kind: "doorbell",
         occurredAt: occurredAt.toISOString(),
-        personName: null,
-        recognized: false,
+        personName: name,
+        recognized: name !== null,
       };
-      if (camera.lastDetection?.recognized !== true) camera.lastDetection = detection;
+      if (eventIdentity !== null || name !== null || camera.lastDetection?.recognized !== true) camera.lastDetection = detection;
       this.emit("event", { type: "detection", cameraSerial: serial, detection } satisfies GatewayEvent);
     }
     this.#emitCamera(serial);
@@ -467,12 +575,28 @@ export class GatewayState extends EventEmitter {
       audioSettings: camera.identity.audioSettings ?? null,
       streamingQualityControlSupported: camera.identity.streamingQualityControlSupported ?? false,
       streamingQualityModes: camera.identity.streamingQualityControlSupported ? camera.identity.streamingQualityModes ?? [] : [],
+      nvrPanControlSupported: camera.identity.nvrPanControlSupported ?? false,
+      nvrOpticalZoomControlSupported: camera.identity.nvrOpticalZoomControlSupported ?? false,
+      nvrViewOptions: camera.identity.nvrViewOptions ?? [],
+      nvrSelectedView: camera.identity.nvrSelectedView ?? null,
+      nvrLiveControlsSupported: camera.identity.nvrLiveControlsSupported ?? false,
+      preferenceControls: camera.identity.preferenceControls ?? [],
+      preferenceRanges: camera.identity.preferenceRanges ?? {},
+      carePreferences: camera.identity.carePreferences ?? {},
+      careMonitor: camera.identity.careMonitor ?? false,
+      ...(camera.identity.supportedDetections !== undefined ? { supportedDetections: camera.identity.supportedDetections } : {}),
+      motionSensitivityControlSupported: camera.identity.motionSensitivityControlSupported ?? false,
+      motionSensitivitySteps: camera.identity.motionSensitivitySteps ?? null,
+      homebaseChimeControlSupported: camera.identity.homebaseChimeControlSupported ?? false,
+      lightBrightnessControlSupported: camera.identity.lightBrightnessControlSupported ?? false,
+      manualFloodlightControlSupported: camera.identity.manualFloodlightControlSupported ?? false,
       audioRecordingControlSupported: camera.identity.audioRecordingControlSupported ?? false,
       reportedSettings: camera.identity.reportedSettings ?? null,
       catalogueStatus: camera.identity.catalogueStatus ?? null,
       stationSerial: camera.identity.stationSerial,
       streamSupported: camera.identity.streamSupported,
       liveAudioSupported: camera.identity.liveAudioSupported ?? false,
+      talkbackSupported: camera.identity.talkbackSupported ?? false,
       storedRecordingsSupported: camera.identity.storedRecordingsSupported ?? false,
       doorbellSupported: camera.identity.doorbellSupported,
       enabled: camera.identity.enabled ?? null,
@@ -488,6 +612,7 @@ export class GatewayState extends EventEmitter {
       autoNightVisionEnabled: camera.identity.autoNightVisionEnabled ?? null,
       autoNightVisionControlSupported: camera.identity.autoNightVisionControlSupported ?? false,
       cameraLightControlSupported: camera.identity.cameraLightControlSupported ?? false,
+      directionalPanControlSupported: camera.identity.directionalPanControlSupported ?? false,
       timedLightControlSupported: camera.identity.timedLightControlSupported ?? false,
       cameraSirenControlSupported: camera.identity.cameraSirenControlSupported ?? false,
       presetPositionControlSupported: camera.identity.presetPositionControlSupported ?? false,
@@ -531,11 +656,13 @@ export class GatewayState extends EventEmitter {
     for (const timer of this.#doorbellClearTimers.values()) clearTimeout(timer);
     for (const timer of this.#detectionClearTimers.values()) clearTimeout(timer);
     for (const timer of this.#sensorMotionClearTimers.values()) clearTimeout(timer);
+    for (const timer of this.#sensorDetectionClearTimers.values()) clearTimeout(timer);
     this.#motionClearTimers.clear();
     this.#personClearTimers.clear();
     this.#doorbellClearTimers.clear();
     this.#detectionClearTimers.clear();
     this.#sensorMotionClearTimers.clear();
+    this.#sensorDetectionClearTimers.clear();
   }
 
   /** Keep the general motion flag active while any visual detection is active. */

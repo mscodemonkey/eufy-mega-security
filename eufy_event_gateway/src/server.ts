@@ -8,21 +8,56 @@
  * module owns request authentication, response framing, and route selection;
  * it does not parse Mega payloads or open camera sockets.
  */
+import { rawHistoryStatus, rawHistoryFiles, rawHistoryPrivateFile } from "./diagnostics/raw-history.js";
+import { ParameterCheckError, parameterCheckStages, validateParameterSummary } from "./provider/reported-parameter-check.js";
+import { GeneralRtcPreparationError } from "./provider/provider.js";
+import { E21ControlError, validateE21Preference } from "./provider/e21-profile.js";
+
+import { NvrLiveControlError, type NvrLiveControl } from "./provider/nvr-live-controls.js";
+import { NvrPowerError, type NvrPowerRequest } from "./provider/nvr-power-trial.js";
+import { NvrGuardError, type NvrGuardRequest } from "./provider/nvr-guard-trial.js";
+import { nvrGuardTimeZone } from "./provider/nvr-guard-schedule.js";
+import { T85V0StatusError } from "./provider/t85v0-status.js";
+import { LocalMotionError } from "./stream/local-motion-trial.js";
+import { C31IndexError } from "./stream/c31-recording-index.js";
+import { recordingPathDate } from "./mega/push-recording-reference.js";
+import { projectEventPictureSummary } from "./stream/homebase-event-picture.js";
+import { EventNameHistoryError, eventHistoryCursor, eventHistoryId, nextEventHistoryDate, projectEventNameHistorySummary } from "./stream/homebase-event-names.js";
+import { CloudRecordingError } from "./stream/cloud-recordings.js";
+import { DoorbellRtcError } from "./stream/doorbell-rtc-offer.js";
+import { GeneralRtcError, generalRtcFailureDiagnostic, generalRtcSubmission } from "./stream/general-rtc-protocol.js";
+import { recordGeneralRtcClip } from "./stream/general-rtc-recording.js";
+import type { GeneralRtcTrialLease } from "./provider/general-rtc-trial.js";
+import { validateStoredMedia } from "./stream/stored-recordings.js";
+import { isE30LockSettingChange } from "./domain/types.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { CameraControlDeadlineError } from "./provider/camera-control-deadline.js";
+import { BundleCapture, diagnosticTargets, type DiagnosticMedia } from "./diagnostics/bundle-capture.js";
+import { diagnosticsPage } from "./diagnostics/page.js";
+import type { EventImageCapture } from "./diagnostics/event-image-capture.js";
+import { safeCameraModel } from "./domain/safe-camera-model.js";
 
 import type { GatewayConfig } from "./config.js";
 import { GatewayState } from "./domain/gateway-state.js";
 import type { GatewayEvent } from "./domain/types.js";
-import { createLogger } from "./logging.js";
+import { createLogger, observeLogEvents } from "./logging.js";
+import { S100SirenTrialError, type S100SirenFailureStage } from "./provider/s100-siren-trial.js";
+import { parseModelControlTrial, closedAlarmStateResult } from "./provider/model-control-trials.js";
+import { E30LockError } from "./provider/e30-lock-protocol.js";
+import { CameraSettingError, parseCameraSettingChange } from "./provider/camera-settings.js";
+import { validateC31Preference } from "./provider/c31-preferences.js";
 import { SimulatedProvider } from "./provider/simulated-provider.js";
 import type { CameraProvider, CaptchaProvider } from "./provider/provider.js";
 import { SnapshotStore } from "./storage/snapshot-store.js";
 import { RecordingCache, recordingByteRange } from "./storage/recording-cache.js";
+import { NvrTrialError } from "./stream/nvr-protocol.js";
+import { c31TalkbackFrames } from "./stream/c31-talkback.js";
 import { validateRecordingDate } from "./stream/stored-recordings.js";
 import { validateCloudHistoryQuery } from "./mega/cloud-history.js";
+import { CloudCalendarError, validateCloudCalendarQuery, type CloudCalendarQuery } from "./mega/cloud-calendar.js";
 import { waitingImage } from "./mega/waiting-image.js";
-import { LiveStreamManager } from "./stream/live-stream-manager.js";
+import { LiveStreamManager, type ViewerProfile } from "./stream/live-stream-manager.js";
 
 const logger = createLogger("gateway");
 const STREAM_TOKEN_LIFETIME_SECONDS = 10 * 60;
@@ -37,11 +72,23 @@ const STREAM_TOKEN_MAX_FUTURE_SECONDS = STREAM_TOKEN_LIFETIME_SECONDS + 60;
  * connected to Eufy.
  */
 export class GatewayServer {
+  #rawHistoryExports = 0;
   #server: Server | null = null;
+  #verificationSubmission: Promise<void> | null = null;
+  #bundle: BundleCapture | null = null;
+  #bundleCleanup: (() => void) | null = null;
+  #sampleBundleTransport: (() => void) | null = null;
   readonly #recordings = new RecordingCache();
+  readonly #recordingIndexJobs = new Set<AbortController>();
+  readonly #cloudCalendarJobs = new Set<AbortController>();
+  readonly #nvrTrialJobs = new Set<AbortController>();
+  readonly #speakerJobs = new Map<string, AbortController>();
   readonly #recordingJobs = new Map<string, { promise: Promise<Buffer | null>; controller: AbortController; users: Set<ServerResponse> }>();
 
-  /** Assemble the server from shared state, storage, stream, and provider objects. */
+  /**
+   * Assemble shared dependencies without opening sockets or starting capture.
+   * The optional private capture is owned and closed by the composition root.
+   */
   constructor(
     private readonly config: GatewayConfig,
     private readonly state: GatewayState,
@@ -50,6 +97,10 @@ export class GatewayServer {
     private readonly provider: CameraProvider,
     private readonly simulatedProvider: SimulatedProvider | null,
     private readonly captchaProvider: CaptchaProvider | null = null,
+    private readonly eventImageCapture: EventImageCapture | null = null,
+    private readonly nvrTrialDeadlineMilliseconds = 82_000,
+    private readonly cloudCalendarDeadlineMilliseconds = 30_000,
+    private readonly generalRtcRecorder: typeof recordGeneralRtcClip = recordGeneralRtcClip,
   ) {}
 
   /** Bind the configured host and port and begin accepting requests. */
@@ -64,6 +115,11 @@ export class GatewayServer {
 
   /** Stop accepting requests and wait for the HTTP server to close. */
   async close(): Promise<void> {
+    for (const controller of this.#cloudCalendarJobs) controller.abort();
+    for (const controller of this.#nvrTrialJobs) controller.abort();
+    for (const controller of this.#recordingIndexJobs) controller.abort();
+    this.#clearBundle();
+    for (const controller of this.#speakerJobs.values()) controller.abort();
     for (const job of this.#recordingJobs.values()) job.controller.abort();
     this.#recordings.clear();
     if (!this.#server) return;
@@ -77,23 +133,368 @@ export class GatewayServer {
     return address && typeof address !== "string" ? address.port : null;
   }
 
+  #clearBundle(): void {
+    this.#bundleCleanup?.();
+    this.#bundleCleanup = null;
+    this.#sampleBundleTransport = null;
+    this.#bundle?.clear();
+    this.#bundle = null;
+  }
+
+  async #diagnosticBundle(request: IncomingMessage, response: ServerResponse, path: string): Promise<void> {
+    if (path === "/api/diagnostics/bundle/targets" && request.method === "GET") {
+      return json(response, 200, { devices: diagnosticTargets(this.state) });
+    }
+    if (path === "/api/diagnostics/summary" && request.method === "GET") {
+      const projection = new BundleCapture({ target: null, seconds: 30, media: false });
+      try { return json(response, 200, projection.summary(this.state)); }
+      finally { projection.clear(); }
+    }
+    if (path === "/api/diagnostics/bundle" && request.method === "POST") {
+      const body: unknown = JSON.parse(await readBody(request));
+      if (!body || typeof body !== "object" || Array.isArray(body)) throw new SyntaxError("Invalid diagnostic selection");
+      const value = body as Record<string, unknown>;
+      if (Object.keys(value).some((key) => !["target", "seconds", "media", "consentPrivateMedia"].includes(key))) throw new SyntaxError("Unknown diagnostic option");
+      if (value.seconds !== 30 && value.seconds !== 60) throw new SyntaxError("Choose 30 or 60 seconds");
+      if (typeof value.media !== "boolean") throw new SyntaxError("Choose whether to include media");
+      if (value.media && value.consentPrivateMedia !== true) throw new SyntaxError("Private media consent required");
+      if (value.target !== null && typeof value.target !== "string") throw new SyntaxError("Choose a device or all devices");
+      const target = value.target as string | null;
+      if (target !== null && !diagnosticTargets(this.state).some((row) => row.serial === target)) return json(response, 404, { error: "Device not found" });
+      if (this.#bundle?.status().state === "active") return json(response, 409, { error: "A diagnostic session is already active" });
+      this.#clearBundle();
+      const capture = new BundleCapture({ target, seconds: value.seconds, media: value.media });
+      this.#bundle = capture;
+      if (target !== null) {
+        capture.select(target);
+        const selectedCamera = this.state.listCameras().find((camera) => camera.serial === target);
+        if (selectedCamera?.stationSerial) capture.select(selectedCamera.stationSerial);
+        for (const camera of this.state.listCameras()) if (camera.stationSerial === target) capture.select(camera.serial);
+      }
+      capture.summary(this.state);
+      const images = async (serial: string): Promise<void> => {
+        if (!capture.options.media || !capture.includes(serial) || capture.status().state !== "active") return;
+        for (const kind of ["snapshot", "event-image"] as const) {
+          try {
+            const sample = kind === "snapshot" ? await this.snapshots.read(serial) : await this.snapshots.readEvent(serial);
+            if (sample?.info.contentType === "image/jpeg") capture.media({ serial, kind, codec: "jpeg", data: sample.data });
+          } catch { capture.record("retained-image-unavailable", serial); }
+        }
+      };
+      const events = (event: GatewayEvent): void => {
+        capture.event(event);
+        if (event.type === "snapshot-updated" || event.type === "event-image-updated") void images(event.cameraSerial);
+      };
+      const media = (sample: DiagnosticMedia): void => capture.media(sample);
+      this.state.on("event", events);
+      if (value.media) this.streams.on("diagnostic-media", media);
+      const transport = (): void => {
+        if (!this.provider.streamDiagnostic || capture.status().state !== "active") return;
+        for (const camera of this.state.listCameras()) {
+          if (!capture.includes(camera.serial)) continue;
+          const diagnostic = this.provider.streamDiagnostic(camera.serial);
+          if (diagnostic) capture.transport(camera.serial, diagnostic);
+        }
+      };
+      const unsubscribe = observeLogEvents((component, event, level) => {
+        capture.record(`log:${component}:${event}`, undefined, level);
+
+        // Observe the retiring source before the provider removes or replaces it.
+        if (component === "provider" && ["camera_stream_closed", "camera_stream_start_failed", "camera_stream_peer_recovery"].includes(event)) transport();
+      });
+      this.#sampleBundleTransport = transport;
+      transport();
+      const transportTimer = setInterval(() => {
+        if (capture.status().state !== "active") {
+          this.#bundleCleanup?.();
+          this.#bundleCleanup = null;
+          this.#sampleBundleTransport = null;
+          return;
+        }
+        transport();
+      }, 1000);
+      transportTimer.unref();
+      this.#bundleCleanup = () => {
+        clearInterval(transportTimer);
+        this.state.off("event", events);
+        if (value.media) this.streams.off("diagnostic-media", media);
+        unsubscribe();
+      };
+      for (const camera of this.state.listCameras()) void images(camera.serial);
+      return json(response, 201, capture.status());
+    }
+    if (path === "/api/diagnostics/bundle" && request.method === "GET") {
+      return json(response, 200, this.#bundle?.status() ?? { state: "absent" });
+    }
+    if (path === "/api/diagnostics/bundle" && request.method === "DELETE") {
+      this.#clearBundle();
+      return json(response, 200, { state: "cleared" });
+    }
+    if (path === "/api/diagnostics/bundle/stop" && request.method === "POST") {
+      this.#sampleBundleTransport?.();
+      this.#bundle?.stop();
+      this.#bundleCleanup?.();
+      this.#bundleCleanup = null;
+      return json(response, 200, this.#bundle?.status() ?? { state: "absent" });
+    }
+    if (path === "/api/diagnostics/bundle/export" && request.method === "POST") {
+      this.#sampleBundleTransport?.();
+      const data = this.#bundle?.archive(this.state);
+      this.#bundleCleanup?.();
+      this.#bundleCleanup = null;
+      if (!data) return json(response, 410, { error: "No diagnostic session remains" });
+      response.writeHead(200, { "content-type": "application/gzip", "content-length": data.length,
+        "content-disposition": 'attachment; filename="eufy-diagnostics.json.gz"',
+        "x-eufy-share-method": data.length > 20_000_000 ? "private-cloud-link" : "email-or-private-cloud-link" });
+      response.end(data);
+      return;
+    }
+    return json(response, 404, { error: "Not found" });
+  }
+
   async #route(request: IncomingMessage, response: ServerResponse): Promise<void> {
     try {
       const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
-      const segments = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+      if (url.pathname === "/api/diagnostics/parameter-check") {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) return json(response, 401, { stage: "unauthorized" });
+        if (request.method !== "POST" || url.search || request.headers["content-type"]?.split(";")[0]?.trim().toLowerCase() !== "application/json") return json(response, 400, { stage: "invalid_request" });
+        if (!this.config.experimentalModelControls || !this.provider.readReportedParameters) return json(response, 409, { stage: "disabled" });
+        const controller = new AbortController();
+        let timeout = false, dispatched = false;
+        const close = (): void => { if (!response.writableFinished) controller.abort(); };
+        response.once("close", close);
+        const timer = setTimeout(() => { timeout = true; controller.abort(); }, 30_000);
+        try {
+          const bytes = await readGeneralRtcBody(request, 1024, controller.signal);
+          let value: unknown;
+          try { value = bytes ? JSON.parse(bytes.toString("utf8")) : null; } catch { throw new ParameterCheckError("invalid_request"); }
+          if (!value || typeof value !== "object" || Array.isArray(value)) throw new ParameterCheckError("invalid_request");
+          const body = value as Record<string, unknown>;
+          if (Object.keys(body).sort().join() !== "consent,serial" || body.consent !== true || typeof body.serial !== "string"
+            || !/^[A-Za-z0-9_-]{1,128}$/.test(body.serial)) throw new ParameterCheckError("invalid_request");
+          controller.signal.throwIfAborted();
+          let abort!: () => void;
+          const cancelled = new Promise<never>((_resolve, reject) => {
+            abort = () => reject(new ParameterCheckError(timeout ? "timeout" : "cancelled"));
+            controller.signal.addEventListener("abort", abort, { once: true });
+            if (controller.signal.aborted) abort();
+          });
+          try {
+            dispatched = true;
+            const result = await Promise.race([this.provider.readReportedParameters(body.serial, controller.signal), cancelled]);
+            controller.signal.throwIfAborted();
+            return json(response, 200, validateParameterSummary(result));
+          } finally { controller.signal.removeEventListener("abort", abort); }
+        } catch (error) {
+          const stage = controller.signal.aborted ? (timeout ? "timeout" : "cancelled")
+            : error instanceof ParameterCheckError && parameterCheckStages.includes(error.stage) ? error.stage : dispatched ? "request" : "invalid_request";
+          if (!response.destroyed) return json(response, stage === "invalid_request" ? 400 : 409, { stage });
+          return;
+        } finally { clearTimeout(timer); response.removeListener("close", close); }
+      }
+      const preparationState = this.config.experimentalGeneralRtc ? this.provider.generalRtcPrepareStatus?.() : undefined;
+      if (["signing-in", "authentication-required", "failed"].includes(preparationState ?? "")) {
+        const path = url.pathname;
+        const cacheReads = new Set(["/", "/health", "/live", "/diagnostics", "/api/cameras", "/api/stations", "/api/sensors",
+          "/api/locks", "/api/camera-capabilities", "/api/device-capabilities", "/api/events", "/api/diagnostics/push",
+          "/api/diagnostics/event-delivery", "/api/diagnostics/inventory", "/api/diagnostics/catalogue-evidence",
+          "/api/diagnostics/summary", "/api/diagnostics/bundle", "/api/diagnostics/bundle/targets", "/api/diagnostics/event-images"]);
+        const prepare = /^\/api\/cameras\/[^/]+\/general-rtc-prepare$/.test(path);
+        const allowed = request.method === "GET" && (cacheReads.has(path) || /^\/api\/cameras\/[^/]+$/.test(path) || /^\/api\/cameras\/[^/]+\/(snapshot|event-image)$/.test(path) || prepare)
+          || request.method === "POST" && (["/", "/auth/captcha", "/auth/verification"].includes(path) || prepare);
+        if (!allowed) {
+          response.setHeader("cache-control", "no-store");
+          return json(response, 409, { stage: "preparing" });
+        }
+      }
+      if (url.pathname === "/diagnostics" && request.method === "GET") {
+        return html(response, 200, diagnosticsPage());
+      }
+      if (["/api/diagnostics/raw-history/files", "/api/diagnostics/raw-history/export"].includes(url.pathname)) {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) {
+          return json(response, 401, { error: "Unauthorized" });
+        }
+        if (url.pathname.endsWith("/files") && request.method === "GET") {
+          return json(response, 200, { files: await rawHistoryFiles() });
+        }
+        if (url.pathname.endsWith("/export") && request.method === "POST") {
+          const body = await readJson(request);
+          if (body.consentPrivateRaw !== true || typeof body.file !== "string"
+            || Object.keys(body).some(key => !["consentPrivateRaw", "file"].includes(key))
+            || body.file !== "key" && !/^\d+-[a-f0-9-]+\.raw$/.test(body.file)) {
+            return json(response, 400, { error: "A journal file and explicit private-raw consent are required" });
+          }
+          if (this.#rawHistoryExports >= 2) return json(response, 429, { error: "Private exports busy" });
+          this.#rawHistoryExports++;
+          let bytes: Buffer | undefined;
+          let released = false;
+          const release = (): void => {
+            if (released) return;
+            released = true; clearTimeout(deadline); this.#rawHistoryExports--;
+            if (body.file === "key") bytes?.fill(0);
+          };
+          const deadline = setTimeout(() => { response.destroy(); release(); }, 30_000);
+          response.once("finish", release); response.once("close", release);
+          try { bytes = await rawHistoryPrivateFile(body.file); }
+          catch { release(); return json(response, 404, { error: "Private file unavailable or evicted" }); }
+          if (!bytes) { release(); return json(response, 404, { error: "Private recording unavailable" }); }
+          if (response.destroyed) { if (body.file === "key") bytes.fill(0); release(); return; }
+          response.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": bytes.length });
+          response.end(bytes);
+          return;
+        }
+        return json(response, 405, { error: "Method not allowed" });
+      }
+      if (url.pathname === "/api/diagnostics/raw-history" && request.method === "GET") {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) {
+          return json(response, 401, { error: "Unauthorized" });
+        }
+        return json(response, 200, rawHistoryStatus());
+      }
+      if (url.pathname.startsWith("/api/diagnostics/bundle") || url.pathname === "/api/diagnostics/summary") {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) {
+          return json(response, 401, { error: "Unauthorized" });
+        }
+        return await this.#diagnosticBundle(request, response, url.pathname);
+      }
+      response.once("finish", () => {
+        const parts = url.pathname.split("/").filter(Boolean);
+        if (parts[0] !== "api" || parts[1] === "diagnostics") return;
+        const serial = parts[1] === "cameras" || parts[1] === "stations" || parts[1] === "sensors" ? parts[2] : undefined;
 
+        // Never retain URLs, opaque recording IDs, body values or error text.
+        const operation = parts[1] === "cameras" ? "camera-request" : parts[1] === "stations" ? "station-request" : "gateway-request";
+        this.#bundle?.record(operation, serial, response.statusCode);
+      });
+      const capturePath = url.pathname === "/api/diagnostics/event-images" || url.pathname === "/api/diagnostics/event-images/export";
+      if (capturePath) {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) {
+          return json(response, 401, { error: "Unauthorized" });
+        }
+        if (!this.config.captureFailedEventImages || !this.eventImageCapture) return json(response, 404, { error: "Not found" });
+        if (url.pathname.endsWith("/export")) {
+          if (request.method !== "POST") {
+            response.setHeader("allow", "POST");
+            return json(response, 405, { error: "Method not allowed" });
+          }
+          try { await readBody(request); } catch {
+            return json(response, 413, { error: "Request body too large" });
+          }
+          const archive = this.eventImageCapture.archive();
+          if (!archive) {
+            const status = this.eventImageCapture.status();
+            return json(response, status.state === "active" ? 409 : 410, { error: status.state === "active" ? "No failed image samples captured" : "Capture session ended" });
+          }
+          const body = JSON.stringify(archive);
+          response.setHeader("content-disposition", 'attachment; filename="eufy-event-image-evidence.json"');
+          response.writeHead(200, { "content-type": "application/json", "content-length": Buffer.byteLength(body) });
+          response.end(body);
+          return;
+        }
+        if (request.method === "DELETE") this.eventImageCapture.close();
+        else if (request.method !== "GET") {
+          response.setHeader("allow", "GET, DELETE");
+          return json(response, 405, { error: "Method not allowed" });
+        }
+        return json(response, 200, this.eventImageCapture.status());
+      }
+      const segments = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+      const calendarRoute = request.method === "GET" && segments[0] === "api" && segments[1] === "cameras"
+        && segments[3] === "cloud-calendar" && segments.length === 4;
+      if (calendarRoute) response.setHeader("cache-control", "no-store");
+
+      const generalTrial = request.method === "POST" && segments.length === 4 && segments[0] === "api"
+        && segments[1] === "cameras" && segments[3] === "general-rtc-trial";
+      const generalPreparation = segments.length === 4 && segments[0] === "api" && segments[1] === "cameras"
+        && segments[3] === "general-rtc-prepare";
+      if (generalTrial || generalPreparation) response.setHeader("Cache-Control", "no-store");
       if (segments[0] === "api" && this.config.apiToken) {
         const streamAuthorized =
           request.method === "GET" &&
           segments[1] === "cameras" &&
-          (segments[3] === "live.h264" || segments[3] === "live.ts") &&
+          (segments[3] === "live.h264" || segments[3] === "live.ts" || segments[3] === "live-native.annexb") &&
           segments.length === 4 &&
-          validateStreamToken(segments[2]!, url.searchParams.get("access_token"), this.config.apiToken);
+          (segments[3] === "live-native.annexb"
+            ? url.searchParams.getAll(STREAM_TOKEN_QUERY).length === 1
+              && validateNativeStreamToken(segments[2]!, url.searchParams.get(STREAM_TOKEN_QUERY), this.config.apiToken)
+            : validateStreamToken(segments[2]!, url.searchParams.get(STREAM_TOKEN_QUERY), this.config.apiToken));
         if (!streamAuthorized && !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) {
-          return json(response, 401, { error: "Unauthorized" });
+          return json(response, 401, generalTrial || generalPreparation ? { stage: "admission" } : { error: "Unauthorized" });
         }
       }
 
+      if (generalPreparation) {
+        if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) return json(response, 401, { stage: "admission" });
+        if (!this.config.experimentalGeneralRtc || !this.provider.prepareGeneralRtc || !this.provider.generalRtcPrepareStatus) return json(response, 409, { stage: "admission" });
+        const serial = segments[2]!;
+        if (!this.state.hasCamera(serial)) return json(response, 404, { stage: "admission" });
+        if (request.url?.includes("?")) return json(response, 400, { stage: "admission" });
+        if (request.method === "GET") return json(response, 200, { state: this.provider.generalRtcPrepareStatus() });
+        if (request.method !== "POST") return json(response, 405, { stage: "admission" });
+        if (request.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") return json(response, 415, { stage: "admission" });
+        try {
+          const body = await readGeneralRtcBody(request, 256);
+          if (body === null) return json(response, 413, { stage: "admission" });
+
+          // The single literal key grammar rejects duplicate and escaped aliases before JSON parsing.
+          if (!/^[\x20\t\r\n]*\{[\x20\t\r\n]*"consent"[\x20\t\r\n]*:[\x20\t\r\n]*true[\x20\t\r\n]*\}[\x20\t\r\n]*$/.test(body.toString("utf8"))) return json(response, 400, { stage: "admission" });
+        } catch { return json(response, 400, { stage: "admission" }); }
+        const joining = ["signing-in", "authentication-required"].includes(this.provider.generalRtcPrepareStatus());
+        if (!joining && (this.#recordingIndexJobs.size || this.#cloudCalendarJobs.size || this.#nvrTrialJobs.size
+          || this.#speakerJobs.size || this.#recordingJobs.size || this.#bundle?.status().state === "active"
+          || this.state.listCameras().some(camera => this.streams.hasActiveSession(camera.serial)))) return json(response, 409, { stage: "busy" });
+        const state = this.provider.prepareGeneralRtc(serial);
+        return json(response, state === "ready" ? 200 : 202, { state });
+      }
+      if (generalTrial) {
+        try {
+          if (!this.config.experimentalGeneralRtc || !this.config.apiToken || !this.provider.reserveGeneralRtcTrial) return json(response, 409, { stage: "admission" });
+          const serial = segments[2]!;
+          if (!this.state.hasCamera(serial)) return json(response, 404, { stage: "admission" });
+          if (request.url?.includes("?")) return json(response, 400, { stage: "admission" });
+          if (request.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") return json(response, 415, { stage: "admission" });
+          let submission;
+          try {
+            const bytes = await readGeneralRtcBody(request);
+            if (bytes === null) return json(response, 413, { stage: "admission" });
+            submission = generalRtcSubmission(bytes);
+          } catch { return json(response, 400, { stage: "admission" }); }
+          if (this.#nvrTrialJobs.size || this.#recordingIndexJobs.size || this.streams.hasActiveSession(serial)) return json(response, 409, { stage: "busy" });
+          const controller = new AbortController(); this.#nvrTrialJobs.add(controller);
+          const deadline = setTimeout(() => controller.abort(new GeneralRtcError("deadline")), 170_000);
+          const abort = (): void => { if (!response.writableEnded) controller.abort(new GeneralRtcError("cancelled")); };
+          response.once("close", abort); request.once("aborted", abort);
+          let lease: GeneralRtcTrialLease | undefined;
+          try {
+            lease = this.provider.reserveGeneralRtcTrial(serial, controller.signal);
+            const clip = await this.generalRtcRecorder(lease, submission.pin, controller.signal);
+            if (controller.signal.aborted) throw controller.signal.reason;
+            if (clip.length > 32 * 1024 * 1024) throw new GeneralRtcError("video", "media");
+            response.writeHead(200, { "Content-Type": "video/mp4", "Content-Length": clip.length, "Cache-Control": "no-store" });
+            response.end(clip);
+            logger.info("general_rtc_trial_completed", "completed");
+          } catch (error) {
+            const failure = controller.signal.aborted && controller.signal.reason instanceof GeneralRtcError ? controller.signal.reason
+              : error instanceof GeneralRtcError ? error : new GeneralRtcError("video", "media");
+            logger.warn("general_rtc_trial_failed", generalRtcFailureDiagnostic(failure));
+            if (!response.destroyed) json(response, 409, { stage: failure.stage });
+          } finally {
+            submission = undefined;
+            controller.abort(); clearTimeout(deadline);
+            try { await lease?.release(); } catch { logger.warn("general_rtc_trial_failed", "stage=cancelled reason=unspecified"); }
+            finally { response.removeListener("close", abort); request.removeListener("aborted", abort); this.#nvrTrialJobs.delete(controller); }
+          }
+          return;
+        } catch {
+          if (!response.destroyed) json(response, 409, { stage: "admission" });
+          return;
+        }
+      }
       if (request.method === "GET" && url.pathname === "/live") {
         return json(response, 200, { status: "ok" });
       }
@@ -123,6 +524,41 @@ export class GatewayServer {
       if (request.method === "GET" && url.pathname === "/api/cameras") {
         return json(response, 200, { cameras: this.state.listCameras() });
       }
+      if (request.method === "GET" && url.pathname === "/api/locks") {
+        return json(response, 200, { locks: this.#visibleLocks() });
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "locks"
+        && segments.length === 4 && (segments[3] === "refresh" || segments[3] === "state" || segments[3] === "settings")) {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !this.config.experimentalE30Locks) return json(response, 409, { error: "Experimental E30 locks are disabled", code: "disabled" });
+        if (!this.state.hasLock(segments[2]!)) return json(response, 404, { error: "Lock not found" });
+        if (this.state.listLocks().find(lock => lock.serial === segments[2])?.readOnly === true) return json(response, 409, { error: "This lock profile is read-only", code: "read_only" });
+        if (request.headers["content-type"]?.split(";", 1)[0]?.trim() !== "application/json") return json(response, 415, { error: "Lock operations require application/json" });
+        const body = await readJson(request);
+        const writing = segments[3] === "state";
+        const settings = segments[3] === "settings";
+        if (settings ? !isE30LockSettingChange(body) : writing ? Object.keys(body).length !== 1 || typeof body.locked !== "boolean" : Object.keys(body).length !== 0) throw new SyntaxError("Invalid lock request");
+        const controller = new AbortController();
+        let dispatched = false;
+        const abort = (): void => { if (!dispatched) controller.abort(); };
+        request.once("aborted", abort); response.once("close", abort);
+        try {
+          const lock = settings && isE30LockSettingChange(body)
+            ? await this.provider.setLockSetting?.(segments[2]!, body, controller.signal, () => { dispatched = true; })
+            : writing
+            ? await this.provider.setLockState?.(segments[2]!, body.locked as boolean, controller.signal, () => { dispatched = true; })
+            : await this.provider.refreshLock?.(segments[2]!, controller.signal);
+          if (!lock) throw new E30LockError("unavailable");
+          if (!response.destroyed) json(response, 200, { lock });
+        } catch (error) {
+          const failure = error instanceof E30LockError ? error : new E30LockError(dispatched ? "outcome_unknown" : "unavailable");
+          if (!response.destroyed) json(response, failure.code === "rate_limited" ? 429 : failure.code === "unavailable" ? 503 : 409,
+            { error: failure.message, code: failure.code });
+        } finally {
+          request.removeListener("aborted", abort); response.removeListener("close", abort);
+        }
+        return;
+      }
       if (request.method === "GET" && url.pathname === "/api/stations") {
         return json(response, 200, { stations: this.state.listStations() });
       }
@@ -147,8 +583,178 @@ export class GatewayServer {
       if (request.method === "GET" && url.pathname === "/api/device-capabilities") {
         return json(response, 200, { devices: this.state.listDeviceCapabilities() });
       }
+      if (request.method === "POST" && segments.length === 5 && segments[0] === "api"
+        && segments[1] === "cameras" && segments[3] === "diagnostics" && segments[4] === "event-names") {
+        if (url.search) throw new SyntaxError("Invalid history check request");
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !this.provider.diagnoseEventNames) return json(response, 409, { error: "Event name history check unavailable", code: "unavailable" });
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
+        if (request.headers["content-type"]?.split(";", 1)[0]?.trim() !== "application/json") return json(response, 415, { error: "History check requires application/json" });
+        const body = await readJson(request);
+        if (Object.keys(body).some(key => key !== "date" && key !== "startId") || typeof body.date !== "string"
+          || body.startId !== undefined && typeof body.startId !== "string") throw new SyntaxError("Invalid history check request");
+        try { nextEventHistoryDate(body.date); eventHistoryCursor(body.startId ?? "0"); }
+        catch { throw new SyntaxError("Invalid history check request"); }
+        const controller = new AbortController(), abort = (): void => controller.abort();
+        const timeout = setTimeout(abort, 60_000);
+        request.once("aborted", abort); response.once("close", abort);
+        try {
+          const result = await this.provider.diagnoseEventNames(segments[2]!, body.date, (body.startId as string | undefined) ?? "0", controller.signal);
+          if (!response.destroyed) json(response, 200, projectEventNameHistorySummary(result));
+        } catch (error) {
+          const failure = error instanceof EventNameHistoryError ? error : new EventNameHistoryError(controller.signal.aborted ? "cancelled" : "unavailable");
+          if (!response.destroyed) json(response, failure.code === "invalid_request" ? 400 : failure.code === "timeout" ? 504
+            : failure.code === "invalid_response" ? 502 : 409, { error: failure.message, code: failure.code });
+        } finally {
+          clearTimeout(timeout); request.removeListener("aborted", abort); response.removeListener("close", abort);
+        }
+        return;
+      }
+      if (request.method === "POST" && segments.length === 5 && segments[0] === "api"
+        && segments[1] === "cameras" && segments[3] === "diagnostics" && segments[4] === "event-picture") {
+        if (url.search) throw new SyntaxError("Invalid history check request");
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !this.provider.diagnoseEventPicture) return json(response, 409, { error: "Recording picture check unavailable", code: "unavailable" });
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
+        if (request.headers["content-type"]?.split(";", 1)[0]?.trim() !== "application/json") return json(response, 415, { error: "History check requires application/json" });
+        const body = await readJson(request);
+        if (Object.keys(body).some(key => key !== "date" && key !== "startId" && key !== "recordId" && key !== "recordingPath") || typeof body.date !== "string"
+          || body.startId !== undefined && typeof body.startId !== "string"
+          || body.recordId !== undefined && typeof body.recordId !== "string"
+          || body.recordingPath !== undefined && (typeof body.recordingPath !== "string" || body.recordId === undefined || recordingPathDate(body.recordingPath) !== body.date)) throw new SyntaxError("Invalid history check request");
+        try { nextEventHistoryDate(body.date); eventHistoryCursor(body.startId ?? "0"); if (body.recordId !== undefined) eventHistoryId(body.recordId); }
+        catch { throw new SyntaxError("Invalid history check request"); }
+        const controller = new AbortController(), abort = (): void => controller.abort();
+        const timeout = setTimeout(abort, 60_000);
+        request.once("aborted", abort); response.once("close", abort);
+        try {
+          const result = await this.provider.diagnoseEventPicture(segments[2]!, body.date, (body.startId as string | undefined) ?? "0", body.recordId as string | undefined, controller.signal, body.recordingPath as string | undefined);
+          if (!response.destroyed) json(response, 200, projectEventPictureSummary(result));
+        } catch (error) {
+          const failure = error instanceof EventNameHistoryError ? error : new EventNameHistoryError(controller.signal.aborted ? "cancelled" : "unavailable");
+          if (!response.destroyed) json(response, failure.code === "invalid_request" ? 400 : failure.code === "timeout" ? 504
+            : failure.code === "invalid_response" ? 502 : 409, { error: "Recording picture check failed", code: failure.code });
+        } finally {
+          clearTimeout(timeout); request.removeListener("aborted", abort); response.removeListener("close", abort);
+        }
+        return;
+      }
+      if (request.method === "POST" && segments.length === 4 && segments[0] === "api"
+        && segments[1] === "cameras" && segments[3] === "speaker-audio") {
+        const serial = segments[2]!;
+        if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+        if (!this.state.getCamera(serial).talkbackSupported || !this.provider.playCameraAudio) return json(response, 409, { error: "Speaker playback unavailable" });
+        if (this.#speakerJobs.has(serial)) return json(response, 409, { error: "Camera speaker is busy" });
+        if (request.headers["content-type"]?.split(";", 1)[0] !== "audio/aac") throw new SyntaxError("Speaker audio requires audio/aac");
+        const controller = new AbortController();
+        this.#speakerJobs.set(serial, controller);
+        const cancel = (): void => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", cancel);
+        const cancelUpload = (): void => { request.destroy(); };
+        controller.signal.addEventListener("abort", cancelUpload, { once: true });
+        const uploadTimeout = setTimeout(() => controller.abort(), 30_000);
+        try {
+          const chunks: Buffer[] = [];
+          let length = 0;
+          for await (const chunk of request) {
+            const bytes = Buffer.from(chunk);
+            length += bytes.length;
+            if (length > 320_000) throw new SyntaxError("Speaker audio exceeds its size limit");
+            chunks.push(bytes);
+          }
+          clearTimeout(uploadTimeout);
+          controller.signal.removeEventListener("abort", cancelUpload);
+          const audio = Buffer.concat(chunks);
+          c31TalkbackFrames(audio);
+          await this.streams.withLiveSource(serial, async () => {
+            await this.provider.playCameraAudio!(serial, audio, controller.signal);
+          });
+          return json(response, 200, { ok: true });
+        } finally {
+          clearTimeout(uploadTimeout);
+          controller.signal.removeEventListener("abort", cancelUpload);
+          response.off("close", cancel);
+          controller.abort();
+          this.#speakerJobs.delete(serial);
+        }
+      }
       if (segments[0] === "api" && segments[1] === "cameras" && segments[3] === "recordings") {
         return await this.#storedRecordings(request, response, segments, url);
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras"
+        && segments[3] === "cloud-recording-trial" && segments.length === 4) {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !this.config.experimentalCloudRecordings || !this.provider.cloudRecordingTrial) {
+          return json(response, 409, { error: "Experimental cloud recording tests are disabled" });
+        }
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
+        if ((request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase() !== "application/json") {
+          return json(response, 400, { error: "JSON private-media consent is required" });
+        }
+        const body = await readJson(request);
+        if (body.consentPrivateMedia !== true || typeof body.recordId !== "string" || !body.recordId.length || body.recordId.length > 128
+          || Object.keys(body).some(key => !["consentPrivateMedia", "recordId", "startTime", "endTime", "timezoneOffset"].includes(key))) {
+          return json(response, 400, { error: "A selected recording and explicit private-media consent are required" });
+        }
+        const query = { startTime: body.startTime as number, endTime: body.endTime as number,
+          timezoneOffset: body.timezoneOffset as number, count: 1000 };
+        validateCloudHistoryQuery(query);
+        if (this.#nvrTrialJobs.size) return json(response, 409, { error: "A private media test is already running" });
+        const controller = new AbortController(); this.#nvrTrialJobs.add(controller);
+        const deadline = setTimeout(() => controller.abort(), 95_000);
+        const abort = (): void => { controller.abort(); };
+        response.once("close", abort); request.once("aborted", abort);
+        try {
+          const clip = await this.provider.cloudRecordingTrial(segments[2]!, body.recordId, query, controller.signal);
+          if (controller.signal.aborted) { clip.fill(0); throw new CloudRecordingError("cancelled"); }
+          response.writeHead(200, { "Content-Type": "video/mp4", "Content-Length": clip.length, "Cache-Control": "no-store" });
+          response.end(clip);
+        } catch (error) {
+          const failure = error instanceof CloudRecordingError ? error : new CloudRecordingError(controller.signal.aborted ? "cancelled" : "video");
+          logger.warn("cloud_recording_trial_failed", `stage=${failure.stage}`);
+          if (!response.destroyed) json(response, 409, { error: failure.message, stage: failure.stage });
+        } finally {
+          controller.abort(); clearTimeout(deadline);
+          response.removeListener("close", abort); request.removeListener("aborted", abort); this.#nvrTrialJobs.delete(controller);
+        }
+        return;
+      }
+      if (calendarRoute) {
+        if (!this.provider.cloudCalendar) return json(response, 501, { error: "Cloud calendar unavailable" });
+        if (!this.config.apiToken || !this.config.experimentalCloudRecordings) return json(response, 409, { error: "Cloud calendar unavailable" });
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
+        let query: CloudCalendarQuery;
+        try {
+          const month = url.searchParams.get("month"), offset = url.searchParams.get("offset") ?? "0";
+          if (url.searchParams.getAll("month").length !== 1 || url.searchParams.getAll("offset").length > 1
+            || [...url.searchParams.keys()].some(key => key !== "month" && key !== "offset")
+            || month === null || !/^(0|-?[1-9]\d{0,4})$/.test(offset)) throw new SyntaxError();
+          query = { month, timezoneOffset: Number(offset) };
+          validateCloudCalendarQuery(query);
+        } catch { return json(response, 400, { error: "Invalid cloud calendar query" }); }
+        if (this.#cloudCalendarJobs.size >= 2) return json(response, 502, { error: "Cloud calendar unavailable", stage: "admission" });
+        const controller = new AbortController(); this.#cloudCalendarJobs.add(controller);
+        let timedOut = false;
+        const deadline = setTimeout(() => { timedOut = true; controller.abort(); }, Math.min(30_000, Math.max(1, this.cloudCalendarDeadlineMilliseconds)));
+        const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", abort);
+        let rejectAbort: () => void = () => undefined;
+        const cancelled = new Promise<never>((_resolve, reject) => {
+          rejectAbort = () => reject(new CloudCalendarError(timedOut ? "request" : "cancelled"));
+          controller.signal.addEventListener("abort", rejectAbort, { once: true });
+        });
+        try {
+          const result = await Promise.race([this.provider.cloudCalendar(segments[2]!, query, controller.signal), cancelled]);
+          if (!response.destroyed) json(response, 200, { month: result.month, days: result.days });
+        } catch (error) {
+          const stage = error instanceof CloudCalendarError ? error.stage : "request";
+          logger.warn("cloud_calendar_failed", `stage=${stage}`);
+          if (!response.destroyed) json(response, 502, { error: "Cloud calendar unavailable", stage });
+        } finally {
+          clearTimeout(deadline); response.removeListener("close", abort);
+          controller.signal.removeEventListener("abort", rejectAbort); this.#cloudCalendarJobs.delete(controller);
+        }
+        return;
       }
       if (request.method === "GET" && segments[0] === "api" && segments[1] === "cameras" &&
         segments[3] === "cloud-history" && segments.length === 4) {
@@ -181,11 +787,314 @@ export class GatewayServer {
       ) {
         return await this.#cameraMotionDetection(request, segments[2]!, response);
       }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "locks"
+        && segments[3] === "status-trial" && segments.length === 4) {
+        response.setHeader("cache-control", "no-store");
+        const rejectAdmission = (reason: "api_authentication_required" | "feature_disabled" | "operation_unavailable"): void => {
+          logger.warn("lock_status_trial_failed", `stage=admission reason=${reason}`);
+          json(response, 409, { stage: "admission", reason });
+        };
+        if (!this.config.apiToken) return rejectAdmission("api_authentication_required");
+        if (!this.config.experimentalModelControls) return rejectAdmission("feature_disabled");
+        if (!this.provider.readT85V0StatusTrial) return rejectAdmission("operation_unavailable");
+        if (url.search) return json(response, 400, { stage: "admission" });
+        if ((request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase() !== "application/json") return json(response, 415, { stage: "admission" });
+        let body: Record<string, unknown>;
+        try { body = await readJson(request); } catch { return json(response, 400, { stage: "admission" }); }
+        if (Object.keys(body).length !== 1 || body.consent !== true) return json(response, 400, { stage: "admission" });
+        if (this.#recordingIndexJobs.size || this.#nvrTrialJobs.size) return json(response, 409, { stage: "busy" });
+        const controller = new AbortController(); this.#recordingIndexJobs.add(controller);
+        const deadline = setTimeout(() => controller.abort(), 65_000);
+        const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", abort); request.once("aborted", abort);
+        if (request.aborted || response.destroyed) controller.abort();
+        try {
+          const result = await this.provider.readT85V0StatusTrial(segments[2]!, controller.signal);
+          if (controller.signal.aborted) throw new T85V0StatusError("cancelled");
+          json(response, 200, { reportedState: result.reportedState, batteryPercent: result.batteryPercent, physicalConfirmationRequired: true });
+        } catch (error) {
+          const failure = error instanceof T85V0StatusError ? error : new T85V0StatusError(controller.signal.aborted ? "cancelled" : "session");
+          logger.warn("lock_status_trial_failed", `stage=${failure.stage}${failure.reason ? ` reason=${failure.reason}` : ""}`);
+          if (!response.destroyed) json(response, 409, { stage: failure.stage, ...(failure.reason ? { reason: failure.reason } : {}) });
+        } finally {
+          controller.abort(); clearTimeout(deadline); response.removeListener("close", abort);
+          request.removeListener("aborted", abort); this.#recordingIndexJobs.delete(controller);
+        }
+        return;
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "sensors"
+        && segments[3] === "local-motion-trial" && segments.length === 4) {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !this.config.experimentalModelControls || !this.provider.readLocalMotionTrial) return json(response, 409, { stage: "admission" });
+        if (!this.state.hasSensor(segments[2]!)) return json(response, 404, { stage: "admission" });
+        if (url.search || (request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase() !== "application/json") return json(response, 400, { stage: "admission" });
+        let body: Record<string, unknown>;
+        try { body = await readJson(request); } catch { return json(response, 400, { stage: "admission" }); }
+        if (Object.keys(body).length !== 1 || body.consent !== true) return json(response, 400, { stage: "admission" });
+        if (this.#recordingIndexJobs.size || this.#nvrTrialJobs.size) return json(response, 409, { stage: "busy" });
+        const controller = new AbortController(); this.#recordingIndexJobs.add(controller);
+        const deadline = setTimeout(() => controller.abort(), 95_000);
+        const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", abort); request.once("aborted", abort);
+        try {
+          const result = await this.provider.readLocalMotionTrial(segments[2]!, controller.signal);
+          if (controller.signal.aborted) throw new LocalMotionError("cancelled");
+          json(response, 200, { outcome: result.outcome, candidates: result.candidates });
+        } catch (error) {
+          const failure = error instanceof LocalMotionError ? error : new LocalMotionError(controller.signal.aborted ? "cancelled" : "session");
+          logger.warn("local_motion_trial_failed", `stage=${failure.stage}`);
+          if (!response.destroyed) json(response, 409, { stage: failure.stage });
+        } finally {
+          controller.abort(); clearTimeout(deadline); response.removeListener("close", abort);
+          request.removeListener("aborted", abort); this.#recordingIndexJobs.delete(controller);
+        }
+        return;
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras"
+        && segments[3] === "recording-index-trial" && segments.length === 4) {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !this.config.experimentalModelControls || !this.provider.readRecordingIndexTrial) return json(response, 409, { stage: "admission" });
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { stage: "admission" });
+        if ((request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase() !== "application/json") return json(response, 400, { stage: "admission" });
+        const body = await readJson(request);
+        if (Object.keys(body).length !== 1 || body.consentReadRecordingIndex !== true) return json(response, 400, { stage: "admission" });
+        if (this.#recordingIndexJobs.size || this.#nvrTrialJobs.size || this.streams.hasActiveSession(segments[2]!)) return json(response, 409, { stage: "busy" });
+        const controller = new AbortController(); this.#recordingIndexJobs.add(controller);
+        const deadline = setTimeout(() => controller.abort(), Math.min(45_000, this.nvrTrialDeadlineMilliseconds));
+        const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", abort); request.once("aborted", abort);
+        try {
+          const result = await this.provider.readRecordingIndexTrial(segments[2]!, controller.signal);
+          if (controller.signal.aborted) throw new C31IndexError("cancelled");
+          json(response, 200, { outcome: result.outcome, windowMatches: result.windowMatches,
+            ownerMatches: result.ownerMatches, valid: result.valid, invalid: result.invalid, overlapping: result.overlapping });
+        } catch (error) {
+          const failure = error instanceof C31IndexError ? error : new C31IndexError(controller.signal.aborted ? "cancelled" : "session");
+          logger.warn("recording_index_trial_failed", `stage=${failure.stage}`);
+          if (!response.destroyed) json(response, 409, { stage: failure.stage });
+        } finally {
+          controller.abort(); clearTimeout(deadline); response.removeListener("close", abort);
+          request.removeListener("aborted", abort); this.#recordingIndexJobs.delete(controller);
+        }
+        return;
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras"
+        && segments[3] === "nvr-power-trial" && segments.length === 4) {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !this.config.experimentalNvrControls || !this.config.experimentalNvrLive
+          || !this.config.experimentalModelControls || !this.provider.testNvrCameraPower) return json(response, 409, { stage: "admission", manualRestoreRequired: false });
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { stage: "admission", manualRestoreRequired: false });
+        if (url.search) return json(response, 400, { stage: "admission", manualRestoreRequired: false });
+        if ((request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase() !== "application/json") return json(response, 415, { stage: "admission", manualRestoreRequired: false });
+        let body: NvrPowerRequest;
+        try { body = await readNvrPowerBody(request); } catch { return json(response, 400, { stage: "admission", manualRestoreRequired: false }); }
+        if (this.#nvrTrialJobs.size || this.#recordingIndexJobs.size || this.streams.hasActiveSession(segments[2]!)) return json(response, 409, { stage: "busy", manualRestoreRequired: false });
+        const controller = new AbortController(); this.#nvrTrialJobs.add(controller);
+        const deadline = setTimeout(() => controller.abort(), 45_000);
+        const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", abort); request.once("aborted", abort);
+        if (request.aborted || response.destroyed) controller.abort();
+        try {
+          const result = await this.provider.testNvrCameraPower(segments[2]!, body, controller.signal);
+          if (!response.destroyed) json(response, 200, { outcome: result.outcome, restored: result.restored, physicalConfirmationRequired: true });
+        } catch (error) {
+          const failure = error instanceof NvrPowerError ? error : new NvrPowerError("restore", true);
+          if (!response.destroyed) json(response, 409, { stage: failure.stage, manualRestoreRequired: failure.manualRestoreRequired });
+        } finally {
+          clearTimeout(deadline); controller.abort(); response.removeListener("close", abort);
+          request.removeListener("aborted", abort); this.#nvrTrialJobs.delete(controller);
+        }
+        return;
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras"
+        && segments[3] === "nvr-guard-trial" && segments.length === 4) {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !this.config.experimentalNvrControls || !this.config.experimentalNvrLive
+          || !this.config.experimentalModelControls || !this.provider.testNvrGuardMode) {
+          return json(response, 409, { stage: "admission", manualRestoreRequired: false });
+        }
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { stage: "admission", manualRestoreRequired: false });
+        if (url.search) return json(response, 400, { stage: "admission", manualRestoreRequired: false });
+        if ((request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase() !== "application/json") {
+          return json(response, 415, { stage: "admission", manualRestoreRequired: false });
+        }
+        let body: NvrGuardRequest;
+        try { body = await readNvrGuardBody(request); }
+        catch { return json(response, 400, { stage: "admission", manualRestoreRequired: false }); }
+        if (this.#nvrTrialJobs.size || this.#recordingIndexJobs.size || this.streams.hasActiveSession(segments[2]!)) {
+          return json(response, 409, { stage: "busy", manualRestoreRequired: false });
+        }
+        const controller = new AbortController(); this.#nvrTrialJobs.add(controller);
+        const deadline = setTimeout(() => controller.abort(), 185_000);
+        const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", abort); request.once("aborted", abort);
+        if (request.aborted || response.destroyed) controller.abort();
+        try {
+          const result = await this.provider.testNvrGuardMode(segments[2]!, body, controller.signal);
+          if (!response.destroyed) json(response, 200, { outcome: result.outcome, restored: result.restored,
+            scheduleUnchanged: result.scheduleUnchanged, physicalConfirmationRequired: true });
+        } catch (error) {
+          const failure = error instanceof NvrGuardError ? error : new NvrGuardError("restore", true);
+          if (!response.destroyed) json(response, 409, { stage: failure.stage,
+            manualRestoreRequired: failure.manualRestoreRequired });
+        } finally {
+          clearTimeout(deadline); controller.abort(); response.removeListener("close", abort);
+          request.removeListener("aborted", abort); this.#nvrTrialJobs.delete(controller);
+        }
+        return;
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras"
+        && segments[3] === "nvr-state-trial" && segments.length === 4) {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !this.config.experimentalNvrLive || !this.provider.readNvrStateTrial) return json(response, 409, { error: "Experimental NVR state tests are disabled" });
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
+        if ((request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase() !== "application/json") return json(response, 400, { error: "JSON read-state consent is required" });
+        const body = await readJson(request);
+        if (Object.keys(body).length !== 1 || body.consentReadState !== true) throw new SyntaxError("Confirm read-state consent without other options");
+        if (this.#nvrTrialJobs.size || this.streams.hasActiveSession(segments[2]!)) return json(response, 409, { error: "Stop other video activity before this test" });
+        const controller = new AbortController(); this.#nvrTrialJobs.add(controller);
+        const deadline = setTimeout(() => controller.abort(), Math.min(45_000, this.nvrTrialDeadlineMilliseconds));
+        const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", abort); request.once("aborted", abort);
+        try {
+          const result = await this.provider.readNvrStateTrial(segments[2]!, controller.signal);
+          controller.signal.throwIfAborted();
+          json(response, 200, result);
+        } catch (error) {
+          const failure = error instanceof NvrTrialError ? error : new NvrTrialError(controller.signal.aborted ? "cancelled" : "state");
+          logger.warn("nvr_state_trial_failed", `stage=${failure.stage}`);
+          if (!response.destroyed) json(response, 409, { error: "NVR state test failed", stage: failure.stage });
+        } finally {
+          controller.abort(); clearTimeout(deadline);
+          response.removeListener("close", abort); request.removeListener("aborted", abort); this.#nvrTrialJobs.delete(controller);
+        }
+        return;
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras"
+        && ["nvr-live-trial", "doorbell-video-trial"].includes(segments[3]!) && segments.length === 4) {
+        response.setHeader("cache-control", "no-store");
+        const doorbell = segments[3] === "doorbell-video-trial";
+        const reserve = doorbell ? this.provider.reserveDoorbellRtcTrial : this.provider.reserveNvrLiveTrial;
+        if (!this.config.apiToken || !(doorbell ? this.config.experimentalDoorbellRtc : this.config.experimentalNvrLive) || !reserve) {
+          return json(response, 409, { error: doorbell ? "Experimental standalone doorbell video tests are disabled" : "Experimental NVR video tests are disabled" });
+        }
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
+        if ((request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase() !== "application/json") return json(response, 400, { error: "JSON private-media consent is required" });
+        const body = await readJson(request);
+        if (Object.keys(body).length !== 1 || body.consentPrivateMedia !== true) throw new SyntaxError("Confirm private-media consent without other options");
+        if (this.#nvrTrialJobs.size || this.streams.hasActiveSession(segments[2]!)) return json(response, 409, { error: "Stop other video activity before this test" });
+        const controller = new AbortController(); this.#nvrTrialJobs.add(controller);
+        const deadline = setTimeout(() => controller.abort(), this.nvrTrialDeadlineMilliseconds);
+        const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", abort); request.once("aborted", abort);
+        let release: (() => Promise<void>) | undefined;
+        try {
+          release = reserve.call(this.provider, segments[2]!, controller.signal);
+          const clip = await this.streams.recordClip(segments[2]!, 10, 75_000, true, controller.signal);
+          if (doorbell) await validateStoredMedia(clip, controller.signal, 4096 * 2160);
+          controller.signal.throwIfAborted();
+          response.writeHead(200, { "Content-Type": "video/mp4", "Content-Length": clip.length, "Cache-Control": "no-store" }); response.end(clip);
+        } catch (error) {
+          const failure = doorbell
+            ? error instanceof DoorbellRtcError ? error : new DoorbellRtcError(controller.signal.aborted ? "cancelled" : "video")
+            : error instanceof NvrTrialError ? error : new NvrTrialError(controller.signal.aborted ? "cancelled" : "video");
+          logger.warn(doorbell ? "doorbell_rtc_trial_failed" : "nvr_live_trial_failed",
+            `stage=${failure.stage}${failure instanceof NvrTrialError || failure instanceof DoorbellRtcError ? ` reason=${failure.reason}` : ""}`);
+          if (!response.destroyed) json(response, 409, { error: failure.message, stage: failure.stage });
+        } finally {
+          controller.abort(); clearTimeout(deadline);
+          try { await release?.(); }
+          catch { logger.warn(doorbell ? "doorbell_rtc_trial_failed" : "nvr_live_trial_failed", "stage=stop"); }
+          finally { response.removeListener("close", abort); request.removeListener("aborted", abort); this.#nvrTrialJobs.delete(controller); }
+        }
+        return;
+      }
+      if ((request.method === "GET" || request.method === "POST") && segments[0] === "api"
+        && segments[1] === "cameras" && segments[3] === "model-control-trial" && segments.length === 4) {
+        if (!this.config.apiToken || !this.config.experimentalModelControls) return json(response, 409, { error: "Experimental model controls are disabled" });
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
+        response.setHeader("cache-control", "no-store");
+        const admission = this.provider.modelControlTrialAdmission?.(segments[2]!);
+        const actions = admission?.actions ?? this.provider.modelControlTrials?.(segments[2]!) ?? [];
+        if (request.method === "GET") return json(response, 200, { actions, experimental: true,
+          ...(actions.length === 0 && admission?.unavailableReason ? { unavailableReason: admission.unavailableReason } : {}) });
+        const trial = parseModelControlTrial(await readJson(request));
+        if (!actions.includes(trial.action) || !this.provider.performModelControlTrial) return json(response, 409,
+          trial.action === "alarmState" ? closedAlarmStateResult(null) : { error: "Model control trial unavailable" });
+        if (trial.action === "manualLight") {
+          const controller = new AbortController();
+          const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+          response.once("close", abort); request.once("aborted", abort);
+          try {
+            const result = await this.provider.performModelControlTrial(segments[2]!, trial, controller.signal);
+            if (controller.signal.aborted || result.outcome !== "acknowledged") throw new Error("Manual light state unknown");
+            return json(response, 200, { outcome: "acknowledged", physicalConfirmationRequired: true });
+          }
+          catch {
+            logger.warn("model_control_trial_failed", "Model control trial failed: model=T81A0 action=manualLight state=unknown");
+            if (!response.destroyed) return json(response, 409, { error: "Manual light test did not confirm the light state. Check the light and restore it before trying again." });
+          }
+          finally { controller.abort(); response.removeListener("close", abort); request.removeListener("aborted", abort); }
+          return;
+        }
+        if (trial.action === "alarmState") {
+          try { return json(response, 200, closedAlarmStateResult(await this.provider.performModelControlTrial(segments[2]!, trial))); }
+          catch { return json(response, 409, closedAlarmStateResult(null)); }
+        }
+        const result = await this.provider.performModelControlTrial(segments[2]!, trial);
+        return json(response, 200, result);
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras"
+        && segments[3] === "settings" && segments.length === 4) {
+        if (!this.config.apiToken) return json(response, 401, { code: "unavailable", error: "An API token is required" });
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
+        if (request.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") throw new SyntaxError("JSON content type is required");
+        const change = parseCameraSettingChange(await readJson(request));
+        if (!this.provider.setCameraSetting) return json(response, 409, { code: "unavailable", error: "Camera setting unavailable" });
+        const controller = new AbortController();
+        const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", abort);
+        try {
+          const identity = await this.provider.setCameraSetting(segments[2]!, change, controller.signal);
+          return json(response, 200, this.state.registerCamera(identity));
+        } catch (error) {
+          if (error instanceof CameraSettingError) return json(response, error.code === "outcome_unknown" ? 503 : 409, { code: error.code, error: error.message });
+          throw error;
+        } finally { response.off("close", abort); }
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras"
+        && segments[3] === "preferences" && segments.length === 4) {
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
+        const body = await readJson(request);
+        if (typeof body.preference !== "string") throw new SyntaxError("Missing camera preference");
+        const value = requiredInteger(body.value);
+        if (this.state.getCamera(segments[2]!).careMonitor === true) {
+          if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) return json(response, 401, { error: "Unauthorized" });
+          try {
+            validateE21Preference(body.preference, value);
+            if (!this.config.experimentalModelControls || !this.provider.setE21Preference) throw new E21ControlError("admission");
+            const identity = await this.provider.setE21Preference(segments[2]!, body.preference, value);
+            return json(response, 200, this.state.registerCamera(identity));
+          } catch (error) {
+            if (error instanceof E21ControlError) return json(response, error.stage === "outcome_unknown" ? 503 : 409, { stage: error.stage });
+            throw error;
+          }
+        }
+        validateC31Preference(body.preference, value);
+        if (!this.provider.setCameraPreference) return json(response, 409, { error: "Camera preference unavailable" });
+        const identity = await this.provider.setCameraPreference(segments[2]!, body.preference, value);
+        return json(response, 200, this.state.registerCamera(identity));
+      }
       if (
         request.method === "POST" &&
         segments[0] === "api" && segments[1] === "cameras" && segments[3] === "audio-recording" && segments.length === 4
       ) {
         return await this.#cameraAudioRecording(request, segments[2]!, response);
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras" && segments.length === 4
+        && ["nvr-live-control", "nvr-view"].includes(segments[3]!)) {
+        if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) return json(response, 401, { error: "Unauthorized" });
+        return await this.#nvrLiveAction(request, segments[2]!, segments[3] === "nvr-view", response);
       }
       if (
         request.method === "POST" &&
@@ -224,6 +1133,12 @@ export class GatewayServer {
         return await this.#cameraLight(request, segments[2]!, response);
       }
       if (
+        request.method === "POST" &&
+        segments[0] === "api" && segments[1] === "cameras" && segments[3] === "pan" && segments.length === 4
+      ) {
+        return await this.#cameraPan(request, segments[2]!, response);
+      }
+      if (
         request.method === "GET" &&
         segments[0] === "api" && segments[1] === "cameras" && segments[3] === "preset-positions" && segments.length === 4
       ) {
@@ -257,7 +1172,7 @@ export class GatewayServer {
         request.method === "POST" &&
         segments[0] === "api" && segments[1] === "cameras" && segments[3] === "stream-token" && segments.length === 4
       ) {
-        return this.#streamToken(segments[2]!, response);
+        return await this.#streamToken(request, segments[2]!, response);
       }
       if (
         request.method === "POST" &&
@@ -286,9 +1201,9 @@ export class GatewayServer {
       if (
         request.method === "GET" &&
         segments[0] === "api" && segments[1] === "cameras"
-        && (segments[3] === "live.h264" || segments[3] === "live.ts") && segments.length === 4
+        && (segments[3] === "live.h264" || segments[3] === "live.ts" || segments[3] === "live-native.annexb") && segments.length === 4
       ) {
-        return await this.#live(segments[2]!, response, segments[3] === "live.ts");
+        return await this.#live(segments[2]!, response, segments[3] === "live.ts", segments[3] === "live-native.annexb" ? "native" : "compatible");
       }
       if (request.method === "GET" && url.pathname === "/api/events") return this.#events(request, response);
       if (request.method === "POST" && url.pathname === "/api/simulate/detection" && this.simulatedProvider) {
@@ -298,6 +1213,25 @@ export class GatewayServer {
       }
       return json(response, 404, { error: "Not found" });
     } catch (error) {
+      if (error instanceof CameraControlDeadlineError) {
+        return json(response, error.code === "outcome_unknown" ? 503 : 409, { code: error.code, error: error.message });
+      }
+      if (error instanceof S100SirenTrialError) {
+        const allowed: readonly S100SirenFailureStage[] = ["start", "primary_stop", "secondary_stop", "ownership", "session_key",
+          "session_connect", "session_prepare", "session_identity", "session_gateway", "session_cipher", "session_counter",
+          "gateway_decrypt", "cipher_lookup_error", "cipher_missing_key", "cipher_unwrap_failed"];
+        let stages: readonly S100SirenFailureStage[] = ["session_prepare"], connectionOnly = false;
+        try {
+          if (Array.isArray(error.stages) && error.stages.length > 0 && error.stages.length <= 16
+            && error.stages.every(stage => allowed.includes(stage))) stages = [...error.stages];
+          connectionOnly = error.connectionOnly === true;
+        } catch {}
+        const safe = new S100SirenTrialError(stages, connectionOnly);
+        response.setHeader("cache-control", "no-store");
+        return json(response, 409, { error: safe.message, stages: safe.stages });
+      }
+      if (error instanceof GeneralRtcPreparationError) return json(response, 409, { stage: error.stage });
+      if (error instanceof NvrLiveControlError) return json(response, 409, { error: error.code, code: error.code, stage: error.stage });
       const status = error instanceof SyntaxError ? 400 : 500;
       return json(response, status, { error: safeError(error) });
     }
@@ -309,11 +1243,11 @@ export class GatewayServer {
     const content = challenge
       ? `<p>Eufy needs you to solve this one-time challenge.</p><img src="${captchaDataUri(challenge.image)}" alt="Eufy CAPTCHA"><form method="post" action=""><label for="answer">Characters shown</label><input id="answer" name="answer" required maxlength="32" autocomplete="off" autocapitalize="none"><button type="submit">Connect to Eufy</button></form>`
       : this.captchaProvider?.isVerificationRequired()
-        ? `<p>Eufy sent a six-digit verification code to your account email.</p><form method="post" action=""><label for="code">Verification code</label><input id="code" name="code" required minlength="6" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code"><button type="submit">Verify and connect</button></form>`
+        ? `<p>Eufy sent a six-digit verification code to your account email.</p><form id="verification-form" method="post" action=""><label for="code">Verification code</label><input id="code" name="code" required minlength="6" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code"><button id="verification-submit" type="submit">Verify and connect</button></form><script>document.getElementById("verification-form").addEventListener("submit",()=>{const button=document.getElementById("verification-submit");button.disabled=true;button.textContent="Checking code...";});</script>`
       : connection.state === "connected"
         ? `<p><strong>Connected to Eufy.</strong></p><p>The gateway is ready. Return to Home Assistant to review your cameras and entities.</p><a class="button" href="/config/integrations/integration/eufy_event_gateway" target="_top">View Eufy integration</a>`
         : `<p>No authentication challenge is waiting.</p><p>Current connection: <strong>${escapeHtml(connection.state)}</strong>${connection.detail ? `; ${escapeHtml(connection.detail)}` : ""}.</p>`;
-    return html(response, 200, `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Eufy Mega Security</title><style>body{font:16px system-ui,sans-serif;max-width:34rem;margin:4rem auto;padding:0 1.25rem;color:#202124}main{border:1px solid #ddd;border-radius:12px;padding:1.5rem}img{display:block;max-width:100%;margin:1rem 0;border:1px solid #ddd}label,input,button{display:block;width:100%;box-sizing:border-box}input,button,.button{font:inherit;padding:.75rem;margin:.4rem 0 1rem}.button{display:inline-block;width:auto;border-radius:999px;background:#03a9f4;color:#fff;text-decoration:none}button{cursor:pointer}</style><main><h1>Eufy Mega Security</h1>${message ? `<p role="status">${escapeHtml(message)}</p>` : ""}${content}</main></html>`);
+    return html(response, 200, `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Eufy Mega Security</title><style>body{font:16px system-ui,sans-serif;max-width:34rem;margin:4rem auto;padding:0 1.25rem;color:#202124}main{border:1px solid #ddd;border-radius:12px;padding:1.5rem}img{display:block;max-width:100%;margin:1rem 0;border:1px solid #ddd}label,input,button{display:block;width:100%;box-sizing:border-box}input,button,.button{font:inherit;padding:.75rem;margin:.4rem 0 1rem}.button{display:inline-block;width:auto;border-radius:999px;background:#03a9f4;color:#fff;text-decoration:none}button{cursor:pointer}</style><main><h1>Eufy Mega Security</h1>${message ? `<p role="status">${escapeHtml(message)}</p>` : ""}${content}<p><a href="diagnostics">Open diagnostics</a></p></main></html>`);
   }
 
   async #submitCaptcha(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -333,7 +1267,7 @@ export class GatewayServer {
         captchaResultMessage(nextChallenge !== null),
       );
     } catch (error) {
-      return this.#authenticationPage(response, `Eufy did not accept the answer: ${safeError(error)}`);
+      return this.#authenticationPage(response, `Eufy could not complete sign-in: ${safeError(error)}`);
     }
   }
 
@@ -346,11 +1280,14 @@ export class GatewayServer {
     if (!this.captchaProvider) return this.#authenticationPage(response, "Verification is unavailable.");
     const code = values.get("code")?.trim() ?? "";
     if (!/^\d{6}$/.test(code)) return this.#authenticationPage(response, "Enter the six-digit code Eufy sent you.");
+    const submission = this.#verificationSubmission ??= this.captchaProvider.submitVerification(code);
     try {
-      await this.captchaProvider.submitVerification(code);
+      await submission;
       return this.#authenticationPage(response, "Verification accepted.");
     } catch (error) {
       return this.#authenticationPage(response, `Eufy did not accept the verification code: ${safeError(error)}`);
+    } finally {
+      if (this.#verificationSubmission === submission) this.#verificationSubmission = null;
     }
   }
 
@@ -431,6 +1368,44 @@ export class GatewayServer {
     return json(response, 404, { error: "Not found" });
   }
 
+  async #withNvrSettingSource<T>(request: IncomingMessage, response: ServerResponse, serial: string, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) throw new NvrLiveControlError("disabled");
+    if (this.streams.hasActiveRecording(serial)) throw new NvrLiveControlError("busy");
+    const controller = new AbortController(); const cancel = (): void => controller.abort();
+    response.once("close", cancel);
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(90000)]);
+    const action = (): Promise<T> => { signal.throwIfAborted(); return operation(signal); };
+    try {
+      return this.streams.hasActiveViewer(serial) ? await this.streams.withActiveViewer(serial, action)
+        : await this.streams.withLiveSource(serial, action);
+    } catch (error) { throw error instanceof NvrLiveControlError ? error : new NvrLiveControlError("unavailable"); }
+  }
+
+  async #nvrLiveAction(request: IncomingMessage, serial: string, view: boolean, response: ServerResponse): Promise<void> {
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    const body = await readClosedNvrBody(request);
+    if (view) {
+      if (Object.keys(body).length !== 1 || !Number.isInteger(body.view) || ![0, 1].includes(Number(body.view))) throw new SyntaxError("Invalid camera view");
+      if (!this.provider.setNvrView) throw new NvrLiveControlError("disabled");
+      if (this.streams.hasActiveSession(serial) || this.streams.hasActiveRecording(serial)) throw new NvrLiveControlError("busy");
+      const identity = await this.provider.setNvrView(serial, body.view as number);
+      return json(response, 200, this.state.registerCamera(identity));
+    }
+    let action: NvrLiveControl;
+    if (Object.keys(body).length === 2 && body.kind === "pan" && typeof body.direction === "string" && ["left", "right", "up", "down"].includes(body.direction)) {
+      action = { kind: "pan", direction: body.direction as "left" | "right" | "up" | "down" };
+    } else if (Object.keys(body).length === 2 && body.kind === "zoom" && typeof body.level === "number" && [1, 2, 3].includes(body.level)) {
+      action = { kind: "zoom", level: body.level as 1 | 2 | 3 };
+    } else throw new SyntaxError("Invalid NVR control");
+    if (!this.provider.performNvrLiveControl) throw new NvrLiveControlError("disabled");
+    if (!this.streams.hasActiveViewer(serial) || this.streams.hasActiveRecording(serial)) throw new NvrLiveControlError("busy");
+    const abort = new AbortController(); const cancel = (): void => abort.abort(); response.once("close", cancel);
+    try {
+      const result = await this.streams.withActiveViewer(serial, () => this.provider.performNvrLiveControl!(serial, action, AbortSignal.any([abort.signal, AbortSignal.timeout(90000)])));
+      return json(response, 200, result);
+    } finally { response.removeListener("close", cancel); }
+  }
+
   async #cameraEnabled(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     const body = await readJson(request);
@@ -458,9 +1433,13 @@ export class GatewayServer {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     const body = await readJson(request);
     const quality = requiredInteger(body.quality);
-    if (quality < 0 || quality > 3) throw new SyntaxError("Unsupported streaming quality");
+    const nvr = this.provider.nvrLiveSettingAdmitted?.(serial) === true;
+    if (!nvr && this.state.getCamera(serial).nvrLiveControlsSupported) throw new NvrLiveControlError("disabled");
+    if (quality < 0 || quality > 4 || quality === 4 && !this.provider.nvrLiveSettingAdmitted?.(serial, quality)
+      || nvr && !this.provider.nvrLiveSettingAdmitted?.(serial, quality)) throw new SyntaxError("Unsupported streaming quality");
     if (!this.provider.setCameraStreamingQuality) return json(response, 409, { error: "Streaming quality control unavailable" });
-    const identity = await this.provider.setCameraStreamingQuality(serial, quality);
+    const operation = (signal?: AbortSignal) => this.provider.setCameraStreamingQuality!(serial, quality, signal);
+    const identity = nvr ? await this.#withNvrSettingSource(request, response, serial, operation) : await operation();
     return json(response, 200, this.state.registerCamera(identity));
   }
 
@@ -480,7 +1459,11 @@ export class GatewayServer {
   async #cameraNightVision(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     const body = await readJson(request);
-    const identity = await this.provider.setCameraNightVision(serial, requiredInteger(body.mode));
+    const mode = requiredInteger(body.mode);
+    const nvr = this.provider.nvrLiveSettingAdmitted?.(serial) === true;
+    if (!nvr && this.state.getCamera(serial).nvrLiveControlsSupported) throw new NvrLiveControlError("disabled");
+    const operation = (signal?: AbortSignal) => this.provider.setCameraNightVision(serial, mode, signal);
+    const identity = nvr ? await this.#withNvrSettingSource(request, response, serial, operation) : await operation();
     return json(response, 200, this.state.registerCamera(identity));
   }
 
@@ -497,6 +1480,19 @@ export class GatewayServer {
     const body = await readJson(request);
     await this.provider.setCameraLight(serial, requiredBoolean(body.enabled));
     return json(response, 200, { ok: true });
+  }
+
+  /** Accept one direct click only, never a hold, repeat count or NVR command. */
+  async #cameraPan(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    const body = await readClosedNvrBody(request);
+    if (Object.keys(body).length !== 1 || typeof body.direction !== "string"
+      || !["left", "right", "up", "down"].includes(body.direction)) return json(response, 400, { error: "Choose one camera direction" });
+    if (!this.state.getCamera(serial).directionalPanControlSupported || !this.provider.panCamera) {
+      return json(response, 409, { error: "Direct camera movement is unavailable" });
+    }
+    await this.provider.panCamera(serial, body.direction as "left" | "right" | "up" | "down");
+    return json(response, 200, { outcome: "acknowledged", physicalConfirmationRequired: true });
   }
 
   /** Return only preset indexes, occupancy, and the default marker. */
@@ -527,7 +1523,11 @@ export class GatewayServer {
   async #cameraAiTracking(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     const body = await readJson(request);
-    await this.provider.setCameraAiTracking(serial, requiredBoolean(body.enabled));
+    const enabled = requiredBoolean(body.enabled);
+    const nvr = this.provider.nvrLiveSettingAdmitted?.(serial) === true;
+    if (!nvr && this.state.getCamera(serial).nvrLiveControlsSupported) throw new NvrLiveControlError("disabled");
+    if (nvr) await this.#withNvrSettingSource(request, response, serial, signal => this.provider.setCameraAiTracking(serial, enabled, signal));
+    else await this.provider.setCameraAiTracking(serial, enabled);
     return json(response, 200, { ok: true });
   }
 
@@ -601,7 +1601,7 @@ export class GatewayServer {
     response.end(image);
   }
 
-  async #live(serial: string, response: ServerResponse, transport = false): Promise<void> {
+  async #live(serial: string, response: ServerResponse, transport = false, profile: ViewerProfile = "compatible"): Promise<void> {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     if (!this.state.getCamera(serial).streamSupported) {
       return json(response, 409, { error: "This camera was discovered through push events only; livestream control is unavailable" });
@@ -609,23 +1609,28 @@ export class GatewayServer {
     if (transport && !this.state.getCamera(serial).liveAudioSupported) {
       return json(response, 409, { error: "Live audio transport is unavailable for this camera" });
     }
-    logger.info("camera_media_request", `model=${safeCameraModel(this.state.getCamera(serial).model)} operation=live_view`);
+    logger.info("camera_media_request", `model=${safeCameraModel(this.state.getCamera(serial).model)} operation=${profile === "native" ? "live_view_native" : "live_view"}`);
     if (transport) await this.streams.addTransportClient(serial, response);
-    else await this.streams.addClient(serial, response);
+    else await this.streams.addClient(serial, response, profile);
   }
 
-  #streamToken(serial: string, response: ServerResponse): void {
+  async #streamToken(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
+    let profile: ViewerProfile | undefined;
+    try { profile = await readStreamProfile(request); }
+    catch { return json(response, 400, { error: "Invalid stream profile request" }); }
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     if (!this.state.getCamera(serial).streamSupported) {
       return json(response, 409, { error: "Livestream control is unavailable for this camera" });
     }
     const expiresAt = Math.floor(Date.now() / 1_000) + STREAM_TOKEN_LIFETIME_SECONDS;
     const token = this.config.apiToken
-      ? createStreamToken(serial, expiresAt, this.config.apiToken)
+      ? profile === "native" ? createNativeStreamToken(serial, expiresAt, this.config.apiToken)
+        : createStreamToken(serial, expiresAt, this.config.apiToken)
       : null;
-    const media = this.state.getCamera(serial).liveAudioSupported ? "live.ts" : "live.h264";
-    const path = `/api/cameras/${encodeURIComponent(serial)}/${media}${token ? `?access_token=${encodeURIComponent(token)}` : ""}`;
-    return json(response, 200, { path, expiresAt });
+    const media = profile === "native" ? "live-native.annexb" : this.state.getCamera(serial).liveAudioSupported ? "live.ts" : "live.h264";
+    const path = `/api/cameras/${encodeURIComponent(serial)}/${media}${token ? `?${STREAM_TOKEN_QUERY}=${encodeURIComponent(token)}` : ""}`;
+    if (profile === "native") response.setHeader("Cache-Control", "no-store");
+    return json(response, 200, { path, expiresAt, ...(profile ? { profile } : {}) });
   }
 
   async #captureSnapshot(serial: string, response: ServerResponse): Promise<void> {
@@ -667,6 +1672,12 @@ export class GatewayServer {
     }
   }
 
+  /** Keep read-only observations independent from E30's motor opt-in at every HTTP boundary. */
+  #visibleLocks() {
+    return this.state.listLocks().filter(lock => lock.readOnly === true
+      ? this.config.experimentalModelControls : this.config.experimentalE30Locks);
+  }
+
   #events(request: IncomingMessage, response: ServerResponse): void {
     response.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -677,8 +1688,13 @@ export class GatewayServer {
       cameras: this.state.listCameras(),
       stations: this.state.listStations(),
       sensors: this.state.listSensors(),
+      locks: this.#visibleLocks(),
     })}\n\n`);
-    const listener = (event: GatewayEvent) => response.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+    const listener = (event: GatewayEvent): void => {
+      if (event.type === "lock" && !(event.lock.readOnly === true ? this.config.experimentalModelControls : this.config.experimentalE30Locks)) return;
+      const visible = event.type === "locks" ? { ...event, locks: this.#visibleLocks() } : event;
+      response.write(`event: ${event.type}\ndata: ${JSON.stringify(visible)}\n\n`);
+    };
     this.state.on("event", listener);
     const heartbeat = setInterval(() => response.write(": heartbeat\n\n"), 15_000);
     request.once("close", () => {
@@ -712,6 +1728,34 @@ async function readBody(request: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+async function readGeneralRtcBody(request: IncomingMessage, maximumBytes = 16_384, signal?: AbortSignal): Promise<Buffer | null> {
+  return await new Promise<Buffer | null>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0, finished = false;
+    const finish = (value: Buffer | null, failed = false): void => {
+      if (finished) return;
+      finished = true;
+      request.removeListener("data", data); request.removeListener("end", end); request.removeListener("error", error);
+      request.removeListener("aborted", error);
+      signal?.removeEventListener("abort", abort);
+      request.once("error", () => undefined);
+      if (failed) reject(new SyntaxError("Invalid trial input"));
+      else resolve(value);
+    };
+    const data = (chunk: Buffer): void => {
+      size += chunk.length;
+      if (size > maximumBytes) { chunks.length = 0; finish(null); request.resume(); }
+      else chunks.push(Buffer.from(chunk));
+    };
+    const end = (): void => { finish(Buffer.concat(chunks)); };
+    const error = (): void => { finish(null, true); };
+    const abort = (): void => { finish(null, true); request.resume(); };
+    request.on("data", data); request.once("end", end); request.once("error", error); request.once("aborted", error);
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
+  });
+}
+
 /** Convert a Mega CAPTCHA payload into an image URI safe for the auth page. */
 export function captchaDataUri(image: string): string {
   if (image.startsWith("data:image/")) return escapeHtml(image);
@@ -729,6 +1773,48 @@ function escapeHtml(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
+async function readNvrPowerBody(request: IncomingMessage): Promise<NvrPowerRequest> {
+  const text = await readBody(request);
+  const body: unknown = JSON.parse(text);
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new SyntaxError("Invalid power consent");
+  const value = body as Record<string, unknown>;
+  if (Object.keys(value).length !== 3 || value.consent !== true || typeof value.originalPower !== "string" || !["on", "off"].includes(value.originalPower)
+    || typeof value.target !== "string" || !["on", "off"].includes(value.target)) throw new SyntaxError("Invalid power consent");
+
+  // Accepted values are flat strings/true, so every property token must be one unique allowed key.
+  const keys = [...text.matchAll(/"(?:\\.|[^"\\])*"\s*:/g)].map(match => JSON.parse(match[0].slice(0, match[0].lastIndexOf(":"))));
+  if (keys.length !== 3 || new Set(keys).size !== 3 || !keys.every(key => ["consent", "originalPower", "target"].includes(key))) throw new SyntaxError("Duplicate or unknown power key");
+  return { originalPower: value.originalPower as "on" | "off", target: value.target as "on" | "off" };
+}
+
+async function readNvrGuardBody(request: IncomingMessage): Promise<NvrGuardRequest> {
+  const text = await readBody(request);
+  const body: unknown = JSON.parse(text);
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new SyntaxError("Invalid guard consent");
+  const value = body as Record<string, unknown>;
+  if (Object.keys(value).length !== 3 || value.consent !== true || value.target !== "home" || typeof value.timeZone !== "string") {
+    throw new SyntaxError("Invalid guard consent");
+  }
+
+  // Accepted values are flat, so every property token must be one unique allowed key.
+  const keys = [...text.matchAll(/"(?:\\.|[^"\\])*"\s*:/g)].map(match => JSON.parse(match[0].slice(0, match[0].lastIndexOf(":"))));
+  if (keys.length !== 3 || new Set(keys).size !== 3 || !keys.every(key => ["consent", "target", "timeZone"].includes(key))) {
+    throw new SyntaxError("Duplicate or unknown guard key");
+  }
+  return { target: "home", timeZone: nvrGuardTimeZone(value.timeZone) };
+}
+
+/** Parse a finite flat NVR action, rejecting duplicate and unknown property names. */
+async function readClosedNvrBody(request: IncomingMessage): Promise<Record<string, unknown>> {
+  const text = await readBody(request);
+  if (Buffer.byteLength(text) > 16384) throw new SyntaxError("Request too large");
+  const value: unknown = JSON.parse(text);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new SyntaxError("Expected an object");
+  const keys = [...text.matchAll(/"(?:\\.|[^"\\])*"\s*:/g)].map(match => JSON.parse(match[0].slice(0, match[0].lastIndexOf(":"))));
+  if (new Set(keys).size !== keys.length || keys.some(key => !["kind", "direction", "level", "view"].includes(key))) throw new SyntaxError("Invalid keys");
+  return value as Record<string, unknown>;
+}
+
 async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   let length = 0;
@@ -744,6 +1830,64 @@ async function readJson(request: IncomingMessage): Promise<Record<string, unknow
   return parsed as Record<string, unknown>;
 }
 
+async function readStreamProfile(request: IncomingMessage): Promise<ViewerProfile | undefined> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += bytes.length;
+    if (size > 16_384) throw new SyntaxError("Invalid stream profile");
+    chunks.push(bytes);
+  }
+  if (size === 0) return undefined;
+  const text = Buffer.concat(chunks).toString("utf8");
+
+  // This endpoint accepts only a flat string map. Decode keys before checking
+  // duplicates so escaped spellings cannot override the selected profile.
+  const string = '"(?:[^"\\\\\\u0000-\\u001f]|\\\\(?:["\\\\/bfnrt]|u[0-9a-fA-F]{4}))*"';
+  const item = new RegExp(`\\s*(${string})\\s*:\\s*(${string})\\s*`, "y");
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) throw new SyntaxError("Invalid stream profile");
+  const body = trimmed.slice(1, -1);
+  if (!body.trim()) return undefined;
+  const fields = new Map<string, string>();
+  let offset = 0;
+  for (;;) {
+    item.lastIndex = offset;
+    const match = item.exec(body);
+    if (!match) throw new SyntaxError("Invalid stream profile");
+    const key = JSON.parse(match[1]!) as string;
+    if (fields.has(key)) throw new SyntaxError("Invalid stream profile");
+    fields.set(key, JSON.parse(match[2]!) as string);
+    offset = item.lastIndex;
+    if (offset === body.length) break;
+    if (body[offset++] !== "," || offset === body.length) throw new SyntaxError("Invalid stream profile");
+  }
+  if (fields.size !== 1 || !fields.has("profile")) throw new SyntaxError("Invalid stream profile");
+  const profile = fields.get("profile");
+  if (profile !== "native" && profile !== "compatible") throw new SyntaxError("Invalid stream profile");
+  return profile;
+}
+
+const STREAM_TOKEN_QUERY = "access_token";
+
+/** Sign a native-only camera URL with a key separated from compatible tokens. */
+export function createNativeStreamToken(serial: string, expiresAt: number, apiToken: string): string {
+  const key = createHmac("sha256", apiToken).update("eufy-stream-native-v1").digest();
+  const signature = createHmac("sha256", key).update(JSON.stringify([serial, expiresAt])).digest("base64url");
+  return `native.${expiresAt}.${signature}`;
+}
+
+/** Reject malformed, expired or cross-profile native signatures using a testable clock. */
+export function validateNativeStreamToken(serial: string, token: string | null, apiToken: string,
+  nowSeconds = Math.floor(Date.now() / 1000)): boolean {
+  const match = token?.match(/^native\.(0|[1-9][0-9]{0,15})\.([A-Za-z0-9_-]{43})$/);
+  if (!match) return false;
+  const expiry = Number(match[1]);
+  return Number.isSafeInteger(expiry) && expiry >= nowSeconds && expiry <= nowSeconds + STREAM_TOKEN_MAX_FUTURE_SECONDS
+    && equalSecret(token!, createNativeStreamToken(serial, expiry, apiToken));
+}
+
 function safeError(error: unknown): string {
   return error instanceof Error ? error.message : "Unexpected gateway error";
 }
@@ -756,10 +1900,6 @@ function requiredInteger(value: unknown): number {
 function requiredBoolean(value: unknown): boolean {
   if (typeof value !== "boolean") throw new SyntaxError("Expected a boolean value");
   return value;
-}
-
-function safeCameraModel(value: string): string {
-  return /^T[0-9A-Z-]{3,12}$/.test(value) ? value : "unknown";
 }
 
 /** Validate a bearer header without leaking token material in an error path. */

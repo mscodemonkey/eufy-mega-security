@@ -30,6 +30,7 @@ function simulatedStation(overrides: Partial<HomeBaseState> = {}): HomeBaseState
     homeBaseSirenControlSupported: true,
     connected: true,
     guardMode: 63,
+    guardModeNames: { 3: "Simulated custom mode" },
     effectiveMode: 63,
     alarmActive: false,
     alarmVolume: 20,
@@ -110,6 +111,7 @@ export class SimulatedProvider implements CameraProvider {
       acceptedAsCamera: true,
       megaDeviceType: 8,
       category: "eufy_security",
+      cameraSwitch1035: "missing",
     }]);
     events.cameraCapabilities([describeCameraCapabilities({
       serial: SimulatedProvider.serial,

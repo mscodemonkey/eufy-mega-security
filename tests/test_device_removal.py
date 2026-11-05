@@ -43,7 +43,7 @@ class DeviceRemovalTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_every_live_device_family_prevents_removal(self) -> None:
         """Retain cameras, stations, and sensors, including mixed identifier devices."""
-        for family in ("cameras", "stations", "sensors"):
+        for family in ("cameras", "stations", "sensors", "locks"):
             coordinator = self.coordinator()
             setattr(coordinator, family, {"live": {}})
             entry = SimpleNamespace(runtime_data=SimpleNamespace(coordinator=coordinator))
@@ -86,7 +86,7 @@ class DeviceRemovalTest(unittest.IsolatedAsyncioTestCase):
     def coordinator(self) -> SimpleNamespace:
         """Build an available coordinator whose complete inventory is initially empty."""
         return SimpleNamespace(
-            cameras={}, stations={}, sensors={}, data={},
+            cameras={}, stations={}, sensors={}, locks={}, data={},
             last_update_success=True, async_refresh=AsyncMock(),
         )
 

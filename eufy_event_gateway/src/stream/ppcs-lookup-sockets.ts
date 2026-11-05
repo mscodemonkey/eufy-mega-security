@@ -5,6 +5,7 @@
  * seven additional ports, forwards their replies to that handshake, and closes
  * every losing port once the session adopts a winner or shuts down.
  */
+import { observeRawSocket } from "../diagnostics/raw-network.js";
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 
 /**
@@ -39,6 +40,7 @@ export class PpcsLookupSocketPool {
     if (this.#closed) return;
     await Promise.all(Array.from({ length: 7 }, () => {
       const socket = createSocket("udp4");
+      observeRawSocket(socket, "ppcs_lookup", "udp");
       this.#sockets.add(socket);
       socket.on("message", (data, info) => {
         if (!this.#closed && this.#bound.has(socket)) this.onMessage(data, info, socket);

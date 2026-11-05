@@ -177,5 +177,7 @@ async def async_remove_config_entry_device(
         return False
     current_devices = set(coordinator.cameras) | set(coordinator.stations) | set(
         coordinator.sensors
+    ) | set(
+        coordinator.locks
     )
     return identifiers.isdisjoint(current_devices)

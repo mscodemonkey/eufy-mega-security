@@ -1,0 +1,28 @@
+name: eufy-mega-security
+
+services:
+  gateway:
+    build:
+      context: ./eufy_event_gateway
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${EUFY_GATEWAY_BIND_ADDRESS:-0.0.0.0}:${EUFY_GATEWAY_PUBLISHED_PORT:-3218}:3218"
+    volumes:
+      - gateway-data:/data
+      - type: bind
+        source: ./docker/options.json
+        target: /data/options.json
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3218/live"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    stop_grace_period: 30s
+
+volumes:
+  gateway-data:

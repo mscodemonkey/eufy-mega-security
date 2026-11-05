@@ -7,7 +7,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { StartupSnapshotWarmup } from "../src/startup-snapshot-warmup.js";
+import { StartupSnapshotWarmup, supportsStartupSnapshot } from "../src/startup-snapshot-warmup.js";
+
+test("suppresses automatic capture for explicitly viewer-only streams", () => {
+  const identity = {
+    serial: "camera-1", name: "Camera", model: "T8E00", stationSerial: "station-1",
+    streamSupported: true, doorbellSupported: false,
+  };
+
+  assert.equal(supportsStartupSnapshot(identity), true);
+  assert.equal(supportsStartupSnapshot({ ...identity, startupSnapshotSupported: false }), false);
+  assert.equal(supportsStartupSnapshot({ ...identity, streamSupported: false }), false);
+});
 
 test("captures new cameras sequentially after provider startup", async () => {
   const captures: string[] = [];

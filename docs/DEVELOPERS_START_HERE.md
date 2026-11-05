@@ -19,7 +19,7 @@ The service name is a historical internal identifier. The user-facing name is **
 
 “Mega” is Eufy's current account and device platform used by the recent Eufy mobile applications. It is not a camera model, a media codec, or a Home Assistant library. In this project, Mega means the family of Eufy HTTPS APIs and associated push services that provide account authentication, regional service discovery, device inventory, event notifications, media URLs, station keys, and camera-session credentials.
 
-Mega is an observed application protocol, not a public stable SDK. Eufy can change endpoint names, response fields, error codes, encryption details, or device behaviour without notice. The code therefore keeps all Mega-specific work under `eufy_event_gateway/src/mega` and converts untrusted responses into typed, bounded values before they reach the rest of the gateway.
+Mega follows the protocol observed in Eufy's applications. Eufy can change endpoint names, response fields, error codes, encryption details, or device behaviour without notice. The code therefore keeps all Mega-specific work under `eufy_event_gateway/src/mega` and converts untrusted responses into typed, bounded values before they reach the rest of the gateway.
 
 The word “Mega” is easy to confuse with Eufy's older **Thing** or SmartLife service. They are different account systems with different credentials, signing rules, device IDs, and transport paths. Production startup uses `MegaClient`; the retired Thing and Web Portal experiments are no longer part of the repository.
 
@@ -39,20 +39,18 @@ PPCS is therefore the camera-side media path. Mega supplies the account and key 
 
 `start()` resolving means that the peer answered the lookup. It does not mean that the first video frame has arrived. Diagnostics intentionally expose the later handshake and frame counters so a reachable but sleeping or out-of-charge battery camera is distinguishable from a protocol failure.
 
-## Why not use `eufy-security-ws` or `eufy-security-client`?
+## Design requirements
 
-The established Eufy Security WebSocket ecosystem is useful prior art, but it is not the runtime dependency for this project. Its client stack follows older account and transport assumptions, including the separate Thing/SmartLife login and web/P2P paths that led to the expiring Web Portal Access PIN and CAPTCHA experience we were trying to remove. It also couples the Home Assistant process to a large, evolving protocol implementation that was not providing the camera models and native Mega path we needed.
-
-We wrote the first-party client because the project needed:
+The first-party client provides:
 
 - current Mega authentication and session reuse without asking for the Web Portal PIN on every setup;
 - direct access to the inventory fields needed for HomeBase-attached battery cameras;
 - the DSK and ECC cipher lookups required by the native PPCS path;
 - bounded, testable handling of Eufy's event-image wrappers;
 - a small normalized boundary that can be used by Home Assistant, a probe, or another consumer;
-- control over redaction, timeouts, rate limiting, and persistence rather than inheriting those choices from an unrelated client.
+- control over redaction, timeouts, rate limiting, and persistence.
 
-This is not a claim that the older ecosystem is universally bad. It is a deliberate compatibility boundary. Do not add it back as a shortcut when a protocol step is missing. Capture the observation, add a focused fixture or probe, and extend the first-party module that owns that boundary.
+When a protocol step is missing, capture the observation, add a focused fixture or probe, and extend the first-party module that owns that boundary.
 
 ## Runtime architecture
 
@@ -118,7 +116,6 @@ Eufy Mega HTTPS APIs
 - `CONTRIBUTING.md`: contribution rules and local checks.
 - `docs/FILE_MAP.md`: per-file orientation.
 - `docs/DEVELOPERS_START_HERE.md`: this architecture and protocol guide.
-- `docs/project-memory/README.md`: durable project decisions and delivery state.
 - `eufy_event_gateway/Dockerfile` and `config.yaml`: Home Assistant app packaging.
 
 ## Authentication, from credentials to a usable session
@@ -266,7 +263,7 @@ Yes, with care. The most reusable layers are:
 - `FirstPartyPpcsSession` for a bounded camera media source;
 - `parseMegaInventory()` and the typed domain contracts for safe device selection.
 
-Another application should consume those modules through its own adapter rather than reaching into private fields. It must provide a private persistent directory, keep credentials out of logs, honour Eufy's rate limits, refresh DSK/cipher material when it expires, and treat the protocol as changeable. There is no promise that these observed internal endpoints form a stable public SDK.
+Another application should consume those modules through its own adapter rather than reaching into private fields. It must provide a private persistent directory, keep credentials out of logs, honour Eufy's rate limits, refresh DSK/cipher material when it expires, and treat the protocol as changeable. These observed internal endpoints can change without notice.
 
 The Home Assistant-specific pieces are `GatewayState`, `GatewayServer`, the Python integration, and the entity naming rules. A different consumer can skip those and use the Mega and PPCS layers directly, or run the gateway and consume its HTTP/SSE contract.
 

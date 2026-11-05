@@ -8,7 +8,11 @@
  * change needs to parse Eufy data, alter state policy, or change an endpoint,
  * it belongs in the neighbouring boundary module instead.
  */
+import { rawBuildFingerprint } from "./diagnostics/raw-provenance.js";
+import { installRawRtcCapture } from "./diagnostics/raw-rtc.js";
+import { RawHistory, setRawHistory } from "./diagnostics/raw-history.js";
 import { join } from "node:path";
+import { EventImageCapture } from "./diagnostics/event-image-capture.js";
 
 import { loadConfig } from "./config.js";
 import { GatewayState } from "./domain/gateway-state.js";
@@ -18,14 +22,17 @@ import type { CameraProvider, ProviderEvents } from "./provider/provider.js";
 import type { CaptchaProvider } from "./provider/provider.js";
 import { SimulatedProvider } from "./provider/simulated-provider.js";
 import { GatewayServer } from "./server.js";
-import { StartupSnapshotWarmup } from "./startup-snapshot-warmup.js";
+import { StartupSnapshotWarmup, supportsStartupSnapshot } from "./startup-snapshot-warmup.js";
 import { SnapshotStore } from "./storage/snapshot-store.js";
 import {
   LiveStreamManager,
+  spawnH265ViewerTranscoder,
   type ViewerClientSummary,
+  type ViewerStartupSummary,
   type ViewerDeliverySummary,
   type ViewerTranscoderSummary,
 } from "./stream/live-stream-manager.js";
+import type { LivePacingSummary } from "./stream/live-frame-pacer.js";
 
 const logger = createLogger("gateway");
 const providerLogger = createLogger("provider");
@@ -43,6 +50,28 @@ process.once("unhandledRejection", (error) => fatal("unhandled_rejection", error
 logger.info("gateway_start", `Eufy Mega Security starting with Node.js ${process.version}`);
 
 const config = loadConfig();
+let rawHistory: RawHistory | undefined;
+let stopRawRtc: () => void = () => undefined;
+if (["1", "true"].includes(process.env.EUFY_RAW_HISTORY ?? "")) {
+  try {
+    rawHistory = new RawHistory({ directory: join(config.dataDirectory, "private-raw-history"), buildFingerprint: await rawBuildFingerprint() });
+    await rawHistory.initialize();
+    setRawHistory(rawHistory);
+    stopRawRtc = installRawRtcCapture();
+    logger.info("raw_history_enabled", "Private encrypted raw history is active, limited to 24 hours and 1 GiB. Raw files are excluded from diagnostic bundles.");
+  } catch {
+    rawHistory = undefined;
+    setRawHistory(undefined, true);
+    logger.error("raw_history_unavailable", "Private raw history could not start. Check its storage and key permissions. Device connections will continue without raw recording.");
+  }
+}
+if (config.experimentalEventImageRequest) {
+  logger.info("event_image_trial_retired", "The retired event-picture test is ignored. Pictures use authenticated requests.");
+}
+const eventImageCapture = config.captureFailedEventImages ? new EventImageCapture() : null;
+if (eventImageCapture) {
+  logger.warn("event_image_capture_enabled", "Private failed event-image capture is on for 30 minutes, with export for 60 minutes. Restarting reopens capture while the option remains enabled.");
+}
 const state = new GatewayState();
 const snapshots = new SnapshotStore(config.dataDirectory);
 await snapshots.initialize();
@@ -63,13 +92,42 @@ if (config.provider === "simulated") {
     country: config.eufy.country,
     persistentDirectory: join(config.dataDirectory, "eufy-client"),
     maxStreamSeconds: config.maxStreamSeconds,
+    experimentalModelControls: config.experimentalModelControls,
+    experimentalE30Locks: config.experimentalE30Locks,
+    experimentalNvrLive: config.experimentalNvrLive,
+    experimentalNvrModeObserver: config.experimentalNvrModeObserver,
+    experimentalNvrControls: config.experimentalNvrControls,
+    normalNvrLive: config.experimentalNvrLive,
+    apiAuthenticationConfigured: !!config.apiToken,
+    experimentalDoorbellRtc: config.experimentalDoorbellRtc,
+    experimentalGeneralRtc: config.experimentalGeneralRtc,
+    experimentalCloudRecordings: config.experimentalCloudRecordings,
+    experimentalEventImageRequest: config.experimentalEventImageRequest,
+    experimentalHomeBaseEventImages: config.experimentalHomeBaseEventImages,
+    experimentalNvrRegion: config.experimentalNvrRegion,
+    ...(eventImageCapture ? { eventImageCapture } : {}),
     ...(config.eufy.verifyCode ? { verifyCode: config.eufy.verifyCode } : {}),
   });
   provider = eufyProvider;
   captchaProvider = eufyProvider;
 }
 
-const streams = new LiveStreamManager(state, snapshots, provider, config.streamGraceMilliseconds);
+const streams = new LiveStreamManager(
+  state,
+  snapshots,
+  provider,
+  config.streamGraceMilliseconds,
+  undefined,
+  () => spawnH265ViewerTranscoder(config.experimentalFixedH265Resolution),
+  undefined,
+  undefined,
+  undefined,
+  config.experimentalS340SmoothLive,
+);
+streams.on("live-pacing-closed", (summary: LivePacingSummary) => {
+  logger.info("camera_live_pacing", `model=T8171 buffer_ms=${summary.bufferMilliseconds} late_packets=${summary.latePackets} peak_queued_bytes=${summary.maximumQueuedBytes} video_packets=${summary.videoPackets} audio_packets=${summary.audioPackets} clock_rebases=${summary.clockRebases}`);
+});
+provider.setNvrLiveMediaChecks?.({ viewer: serial => streams.hasActiveViewer(serial), active: serial => streams.hasActiveSession(serial), recording: serial => streams.hasActiveRecording(serial) });
 streams.on("ffmpeg-error", (detail: string) => {
   logger.warn("ffmpeg_error", `Camera media conversion reported an error: ${detail}`);
 });
@@ -134,13 +192,29 @@ streams.on("viewer-delivery-stopped", (detail: ViewerDeliverySummary) => {
     ].join(" "),
   );
 });
+streams.on("viewer-startup-timings", (detail: ViewerStartupSummary) => {
+  logger.info("camera_viewer_start_timings", [
+    `model=${detail.model} profile=${detail.profile} codec=${detail.sourceCodec ?? "unknown"}`,
+    `source_attempt=${detail.sourceAttempt} conversion_attempt=${detail.conversionAttempt} outcome=${detail.outcome}`,
+    `source_first_byte_ms=${detail.sourceFirstByteMilliseconds ?? "none"}`,
+    `source_random_access_ms=${detail.sourceRandomAccessMilliseconds ?? "none"}`,
+    `conversion_start_ms=${detail.conversionStartMilliseconds ?? "none"}`,
+    `conversion_first_output_ms=${detail.conversionFirstOutputMilliseconds ?? "none"}`,
+    `viewer_random_access_ms=${detail.viewerRandomAccessMilliseconds ?? "none"}`,
+    `first_write_ms=${detail.firstWriteMilliseconds ?? "none"} ready_write_ms=${detail.readyWriteMilliseconds ?? "none"}`,
+    `warm_source=${detail.warmSource} warm_viewer=${detail.warmViewer}`,
+  ].join(" "));
+});
 streams.on("viewer-client-stopped", (detail: ViewerClientSummary) => {
   logger.info(
     "viewer_client_stopped",
     [
       `Viewer client stopped: model=${detail.model}`,
       `codec=${detail.sourceCodec ?? "unknown"}`,
+      `profile=${detail.profile}`,
       `source_active=${detail.sourceActive}`,
+      `source_attached=${detail.sourceAttached}`,
+      `closed_by=${detail.closeReason}`,
       `delivery_started=${detail.deliveryStarted}`,
       `duration_ms=${detail.durationMilliseconds}`,
       `first_byte_delay_ms=${detail.firstByteDelayMilliseconds ?? "none"}`,
@@ -167,11 +241,12 @@ const startupSnapshots = new StartupSnapshotWarmup(
 // gateway state. This keeps the HTTP server and Home Assistant API unaware of
 // Mega packet formats and authentication details.
 const providerEvents: ProviderEvents = {
+  locks(locks) { state.replaceLocks(locks); },
   camera(identity) {
     state.registerCamera(identity);
     const stored = snapshots.getInfo(identity.serial);
     if (stored) state.restoreSnapshot(identity.serial, stored);
-    else if (identity.streamSupported) startupSnapshots.enqueue(identity.serial);
+    else if (supportsStartupSnapshot(identity)) startupSnapshots.enqueue(identity.serial);
     const storedEventImage = snapshots.getEventInfo(identity.serial);
     if (storedEventImage) state.restoreEventImage(identity.serial, storedEventImage);
   },
@@ -191,20 +266,29 @@ const providerEvents: ProviderEvents = {
   motion(serial, detected) {
     if (state.hasCamera(serial)) state.recordMotion(serial, detected);
   },
-  person(serial, detected, personName) {
-    if (state.hasCamera(serial)) state.recordPerson(serial, detected, personName);
+  person(serial, detected, personName, eventIdentity) {
+    if (state.hasCamera(serial)) state.recordPerson(serial, detected, personName, new Date(), eventIdentity);
+  },
+  personName(serial, eventIdentity, personName) {
+    if (state.hasCamera(serial)) state.enrichPersonName(serial, eventIdentity, personName);
   },
   detection(serial, kind, detected) {
     if (state.hasCamera(serial)) state.recordDetection(serial, kind, detected);
   },
-  doorbell(serial, pressed) {
-    if (state.hasCamera(serial)) state.recordDoorbell(serial, pressed);
+  doorbell(serial, pressed, personName, eventIdentity) {
+    if (state.hasCamera(serial)) state.recordDoorbell(serial, pressed, new Date(), personName ?? null, eventIdentity ?? null);
+  },
+  doorbellName(serial, eventIdentity, personName) {
+    if (state.hasCamera(serial)) state.enrichDoorbellName(serial, eventIdentity, personName);
   },
   sensorContact(serial, open) {
     state.updateSensorContact(serial, open);
   },
   sensorMotion(serial, detected) {
     state.recordSensorMotion(serial, detected);
+  },
+  sensorDetection(serial, kind, detected) {
+    state.recordSensorDetection(serial, kind, detected);
   },
   snapshot(serial, data, contentType) {
     if (!state.hasCamera(serial)) return;
@@ -244,7 +328,7 @@ const providerEvents: ProviderEvents = {
   },
 };
 
-const server = new GatewayServer(config, state, snapshots, streams, provider, simulatedProvider, captchaProvider);
+const server = new GatewayServer(config, state, snapshots, streams, provider, simulatedProvider, captchaProvider, eventImageCapture);
 await server.listen();
 logger.info(
   "gateway_listening",
@@ -264,9 +348,13 @@ async function shutdown(reason: string): Promise<void> {
   logger.info("gateway_stop", `Eufy gateway stopping: ${reason}`);
   startupSnapshots.stop();
   state.close();
+  eventImageCapture?.close();
   await server.close();
   await streams.close();
   await provider.close();
+  stopRawRtc();
+  await rawHistory?.close();
+  setRawHistory(undefined);
 }
 
 process.on("SIGINT", () => void shutdown("sigint").finally(() => process.exit(0)));

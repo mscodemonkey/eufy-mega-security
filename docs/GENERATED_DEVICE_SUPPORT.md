@@ -28,6 +28,7 @@ hardware evidence and topology-specific results remain in
 | T8170, T81701W1 | SoloCam S340 | 48 | camera | supported |
 | T8171 | SoloCam E30 | 88 | camera | supported |
 | T8172, T81721W1 | eufyCam S4 | 89 | camera | supported |
+| T8173 | SoloCam E42 | 98 | camera | ready_to_test |
 | T817L, T817L121 | Wired Cam C31 | 10031 | camera | supported |
 | T8200 | Video Doorbell 2K (T8200X variant) | 5 | camera | ready_to_test |
 | T8200 | Video Doorbell 2K (Wired) | 5 | camera | supported |
@@ -35,17 +36,20 @@ hardware evidence and topology-specific results remain in
 | T8210, T8210C | Video Doorbell S220 | 7 | camera | supported |
 | T8213 | Video Doorbell S330 / Dual (Battery) | 91 | camera | supported |
 | T8214, T8214111 | Video Doorbell E340 (Battery) | 94 | camera | supported |
-| T8220 | Video Doorbell Slim (Battery, 1080p, T8220) | 16 | camera | ready_to_test |
+| T8215 | Video Doorbell S4 | 97 | camera | ready_to_test |
+| T8220 | Video Doorbell Slim (Battery, 1080p, T8220) | 16 | camera | supported |
 | T8223 | Video Doorbell C31 | 96 | camera | ready_to_test |
 | T8224 | Video Doorbell C30 | 96 | camera | supported |
-| T8400 | Indoor Cam C120 / 2K (Solo IndoorCam C24) | 30 | camera | ready_to_test |
+| T8400 | Indoor Cam C120 / 2K (Solo IndoorCam C24) | 30 | camera | supported |
 | T8410, T8413 | Indoor Cam E220 / 2K Pan & Tilt (Solo IndoorCam P24) | 31 | camera | supported |
 | T8410C, T8410C21 | Indoor Cam Pan & Tilt 2K (T8410C) | 31 | camera | supported |
 | T8416, T8416121 | Indoor Cam S350 | 104 | camera | supported |
 | T8417, T8417121 | Indoor Cam E30 | 105 | camera | supported |
 | T8419 | Indoor Cam C210 | 10009 | camera | supported |
+| T8419N | Indoor Cam C220 (T8419N, v3) | 10011 | camera | ready_to_test |
 | T8420 | Floodlight Cam 1080p | 3 | camera | ready_to_test |
 | T8420 | Floodlight Cam (T8420X hardware variant) | 3 | camera | ready_to_test |
+| T8422 | Floodlight Cam E 2K | 37 | camera | ready_to_test |
 | T8423 | Floodlight Cam 2 Pro (S330) | 38 | camera | supported |
 | T8425, T8425121 | Floodlight Cam E340 | 47 | camera | supported |
 | T8426, T8426121 | Floodlight Camera E30 | 87 | camera | supported |
@@ -54,10 +58,12 @@ hardware evidence and topology-specific results remain in
 | T84A1, T84A1311 | Wired Wall Light Cam S100 | 151 | camera | supported |
 | T85V0, T85V01Y1, T85V0C, E85V0, E85V0JY1, T85V0JY1 | FamiLock S3 / S3 Max | 203 | camera | supported |
 | T8600 | eufyCam E330 (Professional) | 24 | camera | supported |
+| T86P2, T86P2121 | 4G LTE Cam S330 | 111 | camera | ready_to_test |
 | T8900, T89000D1, T89000D4 | Entry Sensor | 2 | sensor | ready_to_test |
 | T8910, T8910021 | Motion Sensor | 10 | sensor | ready_to_test |
 | T8920, T89200D1 | Water and Freeze Sensor | 20 | sensor | ready_to_test |
 | T8B00 | SoloCam C210 | 64 | camera | ready_to_test |
+| T8W11C | Indoor Cam C220 (T8W11C, original) | 10008 | camera | ready_to_test |
 | T8W11C, T8W11 | Indoor Cam C220 (T8W11C, v2) | 10010 | camera | ready_to_test |
 | T90E0, T90E0121 | Entry Sensor E20 | 126 | sensor | ready_to_test |
 | T90M0, T90M0121 | Motion Sensor E20 | 127 | sensor | ready_to_test |

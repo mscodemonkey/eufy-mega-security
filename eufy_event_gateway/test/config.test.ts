@@ -9,6 +9,25 @@ import test from "node:test";
 
 import { loadConfig } from "../src/config.js";
 
+for (const value of [" a b ", "\ta b\t", "\u00a0a b\u2003", "   ", "a b", "synthetic"]) {
+  test(`preserves the opaque password string ${JSON.stringify(value)}`, () => {
+    const config = loadConfig({
+      EUFY_PASSWORD: value,
+      EUFY_USERNAME: "  user  ",
+      EUFY_VERIFY_CODE: " 123456 ",
+      EUFY_GATEWAY_API_TOKEN: "x".repeat(32),
+    });
+    assert.equal(config.eufy.password, value);
+    assert.equal(config.eufy.username, "user");
+    assert.equal(config.eufy.verifyCode, "123456");
+  });
+}
+
+test("missing and empty passwords remain unconfigured", () => {
+  assert.equal(loadConfig({}).eufy.password, null);
+  assert.equal(loadConfig({ EUFY_PASSWORD: "" }).eufy.password, null);
+});
+
 test("allows a token-free gateway only on loopback", () => {
   assert.equal(loadConfig({ EUFY_GATEWAY_PROVIDER: "simulated" }).host, "127.0.0.1");
   assert.throws(
@@ -39,4 +58,79 @@ test("passes through a temporary Eufy email verification code", () => {
     EUFY_VERIFY_CODE: " 123456 ",
   });
   assert.equal(config.eufy.verifyCode, "123456");
+});
+
+test("private image capture defaults off and accepts only explicit booleans with a token", () => {
+  assert.equal(loadConfig({}).captureFailedEventImages, false);
+  for (const value of ["true", " TRUE "]) {
+    assert.throws(() => loadConfig({ EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES: value }), /requires EUFY_GATEWAY_API_TOKEN/);
+    assert.equal(loadConfig({ EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES: value, EUFY_GATEWAY_API_TOKEN: "x".repeat(32) }).captureFailedEventImages, true);
+  }
+  for (const value of ["", "false", " FALSE "]) assert.equal(loadConfig({ EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES: value }).captureFailedEventImages, false);
+  for (const value of ["1", "yes", "invalid"]) assert.throws(() => loadConfig({ EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES: value }), /must be true or false/);
+});
+
+test("the independent read-only NVR observer requires explicit consent and a gateway token", () => {
+  assert.equal(loadConfig({}).experimentalNvrModeObserver, false);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_NVR_MODE_OBSERVER: "true" }), /requires EUFY_GATEWAY_API_TOKEN/);
+  const value = loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_NVR_MODE_OBSERVER: "true", EUFY_GATEWAY_API_TOKEN: "x".repeat(32) });
+  assert.equal(value.experimentalNvrModeObserver, true);
+  assert.equal(value.experimentalNvrLive, false);
+  assert.equal(value.experimentalNvrControls, false);
+  for (const input of ["yes", "1", "invalid"]) assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_NVR_MODE_OBSERVER: input }));
+});
+
+test("fixed H.265 viewer resolution defaults off and accepts only explicit booleans", () => {
+  assert.equal(loadConfig({}).experimentalFixedH265Resolution, false);
+  for (const value of ["true", " TRUE "]) {
+    assert.equal(loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION: value }).experimentalFixedH265Resolution, true);
+  }
+  for (const value of ["", "false", " FALSE "]) {
+    assert.equal(loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION: value }).experimentalFixedH265Resolution, false);
+  }
+  for (const value of ["1", "yes", "invalid"]) {
+    assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION: value }), /must be true or false/);
+  }
+});
+
+test("general camera trials default off and require explicit authenticated opt-in", () => {
+  assert.equal(loadConfig({}).experimentalGeneralRtc, false);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_GENERAL_RTC: "true" }), /API_TOKEN/);
+  assert.equal(loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_GENERAL_RTC: "true", EUFY_GATEWAY_API_TOKEN: "x".repeat(32) }).experimentalGeneralRtc, true);
+  for (const value of ["1", "yes", "invalid"]) assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_GENERAL_RTC: value }), /must be true or false/);
+});
+
+test("standalone doorbell trials default off and require explicit authenticated opt-in", () => {
+  assert.equal(loadConfig({}).experimentalDoorbellRtc, false);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_DOORBELL_RTC: "true" }), /API_TOKEN/);
+  assert.equal(loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_DOORBELL_RTC: "true", EUFY_GATEWAY_API_TOKEN: "x".repeat(32) }).experimentalDoorbellRtc, true);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_DOORBELL_RTC: "yes" }), /must be true or false/);
+});
+
+test("cloud recording trial is default-off and requires a token with strict flag parsing", () => {
+  assert.equal(loadConfig({}).experimentalCloudRecordings, false);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS: "true" }), /API_TOKEN/);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS: "maybe" }), /must be true or false/);
+  assert.equal(loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS: "true", EUFY_GATEWAY_API_TOKEN: "x".repeat(32) }).experimentalCloudRecordings, true);
+});
+
+
+test("NVR camera-power trials need a separate default-off authenticated option",()=>{
+  assert.equal(loadConfig({}).experimentalNvrControls,false);
+  assert.throws(()=>loadConfig({EUFY_GATEWAY_EXPERIMENTAL_NVR_CONTROLS:"true"}),/API_TOKEN/);
+  assert.equal(loadConfig({EUFY_GATEWAY_EXPERIMENTAL_NVR_CONTROLS:"true",EUFY_GATEWAY_API_TOKEN:"x".repeat(32)}).experimentalNvrControls,true);
+});
+
+test("HomeBase event picture recovery is a separate authenticated opt-in", () => {
+  assert.equal(loadConfig({}).experimentalHomeBaseEventImages, false);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_IMAGES: "true" }), /API_TOKEN/);
+  assert.equal(loadConfig({ EUFY_GATEWAY_API_TOKEN: "x".repeat(32), EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_IMAGES: "true" }).experimentalHomeBaseEventImages, true);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_IMAGES: "yes" }), /true or false/);
+});
+
+test("S340 smoothing is an explicit default-off authenticated playback option", () => {
+  assert.equal(loadConfig({}).experimentalS340SmoothLive, false);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE: "true" }), /requires EUFY_GATEWAY_API_TOKEN/);
+  assert.equal(loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE: "true", EUFY_GATEWAY_API_TOKEN: "x".repeat(32) }).experimentalS340SmoothLive, true);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE: "yes" }), /must be true or false/);
 });

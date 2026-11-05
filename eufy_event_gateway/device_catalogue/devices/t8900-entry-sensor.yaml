@@ -68,7 +68,10 @@ capabilities:
         T8025:
           status: declared
         T8030:
-          status: declared
+          status: tested
+          tested_on: 2026-10-10
+          tested_by: mscodemonkey
+          notes: HomeBase 3 returned a plausible dBm value through parameter 1141 and Home Assistant exposed the same value. The measurement age reported by the HomeBase is not established.
       read:
         parameter: 1141
   controls:

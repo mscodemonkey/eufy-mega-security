@@ -6,7 +6,8 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { PpcsDatagramReorderBuffer } from "../src/stream/first-party-ppcs.js";
+import { Socket } from "node:dgram";
+import { FirstPartyPpcsSession, PpcsDatagramReorderBuffer } from "../src/stream/first-party-ppcs.js";
 
 test("recovers a split frame instead of dropping a late retransmission", () => {
   const delivered: string[] = [];
@@ -103,5 +104,158 @@ test("limits held packet count and bytes before waiting for a retransmission", (
     assert.equal(skips, 1);
     assert.equal(deliveries, count + 1);
     order.close();
+  }
+});
+
+test("records short stale runs without accepting them as new data", () => {
+  const delivered: number[] = [];
+  const order = new PpcsDatagramReorderBuffer((body) => delivered.push(body[0]!), () => {}, () => {});
+  for (const sequence of [500, 100, 101, 102, 500, 80, 82, 81, 81]) {
+    order.push(Buffer.from([sequence & 255]), sequence, 2);
+  }
+  assert.deepEqual(delivered, [500 & 255]);
+  assert.equal(order.diagnostics(), "t2:rx=500-81/9,ac=500-500/1,st=100-81/7,behind=398-420,run=3/3");
+  order.close();
+  assert.equal(order.diagnostics(), "none");
+  order.push(Buffer.alloc(0), 501, 2);
+  assert.equal(order.diagnostics(), "none");
+});
+
+test("counts held arrivals separately from delivery and resets stale runs", (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const order = new PpcsDatagramReorderBuffer(() => {}, () => {}, () => {});
+  for (const sequence of [10, 12, 12, 11]) order.push(Buffer.alloc(0), sequence, 1);
+  assert.equal(order.diagnostics(), "t1:rx=10-11/4,ac=10-12/3,st=---/0,behind=---,run=0/0");
+  order.push(Buffer.alloc(0), 14, 1);
+  context.mock.timers.tick(250);
+  assert.match(order.diagnostics(), /rx=10-14\/5,ac=10-14\/4/);
+  for (const sequence of [7, 8, 14, 4, 5]) order.push(Buffer.alloc(0), sequence, 1);
+  assert.match(order.diagnostics(), /run=2\/2$/);
+  order.close();
+});
+
+test("keeps wrapping channels separate and bounds summaries", () => {
+  const order = new PpcsDatagramReorderBuffer(() => {}, () => {}, () => {});
+  for (const sequence of [65535, 0, 65534, 65535]) order.push(Buffer.alloc(0), sequence, 2);
+  order.push(Buffer.alloc(0), 400, 0);
+  assert.match(order.diagnostics(), /^t0:rx=400-400\/1.*\|t2:rx=65535-65535\/4,ac=65535-0\/2,st=65534-65535\/2,behind=1-2,run=2\/2$/);
+  for (let type = 3; type < 20; type++) order.push(Buffer.alloc(0), 65535, type);
+  const summary = order.diagnostics();
+  assert.match(summary, /\|t8:.*\|omitted=11$/);
+  assert.equal(summary.split("|").length, 9);
+  assert.ok(summary.length < 2_048);
+  order.close();
+});
+
+test("invalid diagnostic inputs preserve existing packet callbacks", () => {
+  const delivered: number[] = [];
+  const order = new PpcsDatagramReorderBuffer((body) => delivered.push(body[0]!), () => {}, () => {});
+  for (const [type, sequence] of [[-1, 3], [256, 4], [0, -1], [1, 65536], [2, 1.5], [3.5, 1]]) {
+    order.push(Buffer.from([1]), sequence!, type!);
+  }
+  assert.equal(delivered.length, 6);
+  assert.equal(order.diagnostics(), "none");
+  order.close();
+});
+
+test("session stats expose live sequence evidence and freeze it before timeout shutdown", (context) => {
+  let live = "t2:rx=500-102/4,ac=500-500/1,st=100-102/3,behind=398-400,run=3/3";
+  context.mock.method(PpcsDatagramReorderBuffer.prototype, "diagnostics", () => live);
+  context.mock.method(PpcsDatagramReorderBuffer.prototype, "close", () => { live = "none"; });
+  context.mock.method(Socket.prototype, "close", function (this: Socket) { return this; });
+  const session = new FirstPartyPpcsSession({
+    stationSerial: "synthetic", p2pDid: "synthetic", appConnection: "synthetic",
+    dskKey: "synthetic", channel: 1, homeBaseAttached: true, cameraModel: "T8144", accountId: null,
+  });
+  const stats = session.stats;
+  const expected = live;
+  assert.equal(stats.sequenceChannels, expected);
+  session.close("first_frame_timeout");
+  assert.equal(stats.sequenceChannels, expected);
+  assert.equal(stats.closeReason, "first_frame_timeout");
+  assert.equal(live, "none");
+});
+
+test("a qualified video repair waits for the observed late packet without discarding its frame", context => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const delivered: string[] = [], gaps: number[] = [];
+  const order = new PpcsDatagramReorderBuffer(body => delivered.push(body.toString()), type => gaps.push(type), () => {}, 1000);
+  try {
+    order.push(Buffer.from("header"), 10, 1);
+    order.push(Buffer.from("tail"), 12, 1);
+    context.mock.timers.tick(900);
+    assert.deepEqual(delivered, ["header"]);
+    assert.deepEqual(gaps, []);
+    order.push(Buffer.from("middle"), 11, 1);
+    assert.deepEqual(delivered, ["header", "middle", "tail"]);
+    assert.deepEqual(gaps, []);
+  } finally { order.close(); }
+});
+
+test("a qualified two-second repair window retains the observed later T8171 packet", context => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const delivered: string[] = [], gaps: number[] = [];
+  const order = new PpcsDatagramReorderBuffer(body => delivered.push(body.toString()), type => gaps.push(type), () => {}, 2000);
+  try {
+    order.push(Buffer.from("header"), 10, 1);
+    order.push(Buffer.from("tail"), 12, 1);
+    context.mock.timers.tick(1500);
+    assert.deepEqual(delivered, ["header"]);
+    assert.deepEqual(gaps, []);
+    order.push(Buffer.from("middle"), 11, 1);
+    assert.deepEqual(delivered, ["header", "middle", "tail"]);
+    assert.deepEqual(gaps, []);
+  } finally { order.close(); }
+});
+
+test("the longer video wait leaves control holes at their original deadline", context => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const gaps: number[] = [];
+  const order = new PpcsDatagramReorderBuffer(() => {}, type => gaps.push(type), () => {}, 1000);
+  try {
+    for (const type of [0, 1, 2]) { order.push(Buffer.from("first"), 1, type); order.push(Buffer.from("third"), 3, type); }
+    context.mock.timers.tick(250);
+    assert.deepEqual(gaps.sort(), [0, 2]);
+    context.mock.timers.tick(749);
+    assert.equal(gaps.includes(1), false);
+    context.mock.timers.tick(1);
+    assert.deepEqual(gaps.sort(), [0, 1, 2]);
+  } finally { order.close(); }
+});
+
+test("a late video repair remains ordered across sequence wrap", context => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const delivered: string[] = [];
+  const order = new PpcsDatagramReorderBuffer(body => delivered.push(body.toString()), () => assert.fail("repairable wrap"), () => {}, 1000);
+  try {
+    order.push(Buffer.from("first"), 65534, 1);
+    order.push(Buffer.from("third"), 0, 1);
+    context.mock.timers.tick(900);
+    order.push(Buffer.from("second"), 65535, 1);
+    assert.deepEqual(delivered, ["first", "second", "third"]);
+  } finally { order.close(); }
+});
+
+test("closing during the longer video wait retires the held successor", context => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  let delivered = 0, gaps = 0;
+  const order = new PpcsDatagramReorderBuffer(() => delivered++, () => gaps++, () => {}, 1000);
+  order.push(Buffer.from("first"), 1, 1); order.push(Buffer.from("third"), 3, 1);
+  context.mock.timers.tick(200); order.close(); context.mock.timers.tick(2000);
+  order.push(Buffer.from("late"), 2, 1);
+  assert.equal(delivered, 1);
+  assert.equal(gaps, 0);
+});
+
+test("the longer video wait retains the existing packet and byte caps", () => {
+  for (const packetBytes of [1, 65536]) {
+    let skips = 0;
+    const order = new PpcsDatagramReorderBuffer(() => {}, () => skips++, () => {}, 1000);
+    try {
+      order.push(Buffer.alloc(1), 0, 1);
+      const count = packetBytes === 1 ? 128 : 32;
+      for (let sequence = 2; sequence < count + 2; sequence++) order.push(Buffer.alloc(packetBytes), sequence, 1);
+      assert.equal(skips, 1);
+    } finally { order.close(); }
   }
 });

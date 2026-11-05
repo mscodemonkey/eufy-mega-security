@@ -19,6 +19,48 @@ export interface GatewayConfig {
   readonly streamGraceMilliseconds: number;
   readonly maxStreamSeconds: number;
   readonly apiToken: string | null;
+
+  /** Opt-in private evidence session; requires bearer authentication even on loopback. */
+  readonly captureFailedEventImages: boolean;
+
+  /** Retained for saved configuration. This retired option never changes picture authentication. */
+  readonly experimentalEventImageRequest: boolean;
+
+  /** Default-off exact-record thumbnail recovery on the observed HomeBase 3 route. */
+  readonly experimentalHomeBaseEventImages: boolean;
+
+  /** Default-off official-model control trials, requiring bearer authentication. */
+  readonly experimentalModelControls: boolean;
+
+  /** Default-off E30 MQTT state and controls, requiring bearer authentication. */
+  readonly experimentalE30Locks: boolean;
+
+  /** Default-off, consented NVR video trials. Normal capabilities remain unchanged. */
+  readonly experimentalNvrLive: boolean;
+
+  /** Explicit opt-in for one background read-only NVR mode connection. */
+  readonly experimentalNvrModeObserver: boolean;
+
+  /** Separate default-off physical NVR control trials, each requiring explicit observation consent. */
+  readonly experimentalNvrControls: boolean;
+
+  /** Default-off native standalone doorbell video test, requiring private-media consent. */
+  readonly experimentalDoorbellRtc: boolean;
+
+  /** Default-off owner-account portal RTC clip, isolated from normal media routes. */
+  readonly experimentalGeneralRtc: boolean;
+
+  /** Default-off download of existing cloud recordings with explicit private-media consent. */
+  readonly experimentalCloudRecordings: boolean;
+
+  /** Default-off fixed 1080p output for diagnosing H.265 viewer reconfiguration drops. */
+  readonly experimentalFixedH265Resolution: boolean;
+
+  /** Default-off six-second live-view jitter buffer for the qualified S340/HomeBase 3 route. */
+  readonly experimentalS340SmoothLive: boolean;
+
+  /** Fixed regional service selection, never an arbitrary credential target. */
+  readonly experimentalNvrRegion: "auto" | "us" | "eu" | "ie";
   readonly eufy: {
     readonly username: string | null;
     readonly password: string | null;
@@ -41,6 +83,39 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
   const verifyCode = nonEmpty(environment.EUFY_VERIFY_CODE);
   const host = environment.EUFY_GATEWAY_HOST ?? "127.0.0.1";
   const apiToken = nonEmpty(environment.EUFY_GATEWAY_API_TOKEN);
+  const experimentalEventImageRequest = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_EVENT_IMAGE_REQUEST, "EUFY_GATEWAY_EXPERIMENTAL_EVENT_IMAGE_REQUEST");
+  const experimentalHomeBaseEventImages = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_IMAGES, "EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_IMAGES");
+  if (experimentalHomeBaseEventImages && !apiToken) throw new Error("Experimental HomeBase picture recovery requires EUFY_GATEWAY_API_TOKEN");
+  const captureFailedEventImages = captureBoolean(environment.EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES);
+  const experimentalModelControls = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS, "EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS");
+  const experimentalE30Locks = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_E30_LOCKS, "EUFY_GATEWAY_EXPERIMENTAL_E30_LOCKS");
+  if (experimentalE30Locks && !apiToken) throw new Error("Experimental E30 locks require EUFY_GATEWAY_API_TOKEN");
+  const experimentalDoorbellRtc = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_DOORBELL_RTC, "EUFY_GATEWAY_EXPERIMENTAL_DOORBELL_RTC");
+  if (experimentalDoorbellRtc && !apiToken) throw new Error("Experimental doorbell video requires EUFY_GATEWAY_API_TOKEN");
+  const experimentalGeneralRtc = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_GENERAL_RTC, "EUFY_GATEWAY_EXPERIMENTAL_GENERAL_RTC");
+  if (experimentalGeneralRtc && !apiToken) throw new Error("Experimental general video requires EUFY_GATEWAY_API_TOKEN");
+  const experimentalCloudRecordings = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS, "EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS");
+  if (experimentalCloudRecordings && !apiToken) throw new Error("Experimental cloud recordings require EUFY_GATEWAY_API_TOKEN");
+  const experimentalNvrControls = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_NVR_CONTROLS, "EUFY_GATEWAY_EXPERIMENTAL_NVR_CONTROLS");
+  if (experimentalNvrControls && !apiToken) throw new Error("Experimental NVR controls require EUFY_GATEWAY_API_TOKEN");
+  const experimentalNvrLive = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_NVR_LIVE, "EUFY_GATEWAY_EXPERIMENTAL_NVR_LIVE");
+  const experimentalNvrModeObserver = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_NVR_MODE_OBSERVER, "EUFY_GATEWAY_EXPERIMENTAL_NVR_MODE_OBSERVER");
+  if (experimentalNvrModeObserver && !apiToken) throw new Error("Experimental NVR mode observation requires EUFY_GATEWAY_API_TOKEN");
+  const experimentalFixedH265Resolution = captureBoolean(
+    environment.EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION,
+    "EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION",
+  );
+  const experimentalS340SmoothLive = captureBoolean(
+    environment.EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE, "EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE",
+  );
+  if (experimentalS340SmoothLive && !apiToken) throw new Error("Experimental S340 smooth live view requires EUFY_GATEWAY_API_TOKEN");
+  const experimentalNvrRegion = environment.EUFY_GATEWAY_EXPERIMENTAL_NVR_REGION ?? "auto";
+  if (!["auto", "us", "eu", "ie"].includes(experimentalNvrRegion)) throw new Error("Choose auto, us, eu or ie for the experimental NVR service region");
+  if (experimentalNvrLive && !apiToken) throw new Error("Experimental NVR live video requires EUFY_GATEWAY_API_TOKEN");
+  if (experimentalModelControls && !apiToken) throw new Error("Experimental model controls require EUFY_GATEWAY_API_TOKEN");
+  if (captureFailedEventImages && !apiToken) {
+    throw new Error("Failed event-image capture requires EUFY_GATEWAY_API_TOKEN");
+  }
   if (!isLoopbackHost(host) && !apiToken) {
     throw new Error("EUFY_GATEWAY_API_TOKEN is required when the gateway is not bound to loopback");
   }
@@ -55,13 +130,36 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
     streamGraceMilliseconds: positiveInteger(environment.EUFY_GATEWAY_STREAM_GRACE_SECONDS, 10) * 1_000,
     maxStreamSeconds: positiveInteger(environment.EUFY_GATEWAY_MAX_STREAM_SECONDS, 120),
     apiToken,
+    captureFailedEventImages,
+    experimentalEventImageRequest,
+    experimentalHomeBaseEventImages,
+    experimentalModelControls,
+    experimentalE30Locks,
+    experimentalNvrLive,
+    experimentalNvrModeObserver,
+    experimentalNvrControls,
+    experimentalDoorbellRtc,
+    experimentalGeneralRtc,
+    experimentalCloudRecordings,
+    experimentalFixedH265Resolution,
+    experimentalS340SmoothLive,
+    experimentalNvrRegion: experimentalNvrRegion as "auto" | "us" | "eu" | "ie",
     eufy: {
       username: nonEmpty(environment.EUFY_USERNAME),
-      password: nonEmpty(environment.EUFY_PASSWORD),
+
+      // Passwords are opaque, so surrounding whitespace must reach encryption unchanged.
+      password: environment.EUFY_PASSWORD || null,
       country: (environment.EUFY_COUNTRY ?? "AU").toUpperCase(),
       ...(verifyCode ? { verifyCode } : {}),
     },
   };
+}
+
+function captureBoolean(value: string | undefined, name = "EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES"): boolean {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || normalized === "false") return false;
+  if (normalized === "true") return true;
+  throw new Error(`${name} must be true or false`);
 }
 
 /** Returns whether a listener is restricted to the local machine. */

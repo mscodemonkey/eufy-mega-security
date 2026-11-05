@@ -5,7 +5,7 @@ coordinator applies those changes immediately and keeps a sixty-second poll as
 recovery for a dropped stream or a gateway restart. It owns reconnect/backoff
 and the first inventory fetch; entity code only reads the coordinator's
 normalized camera dictionary and never makes a protocol request of its own.
-Camera, station, and standalone-sensor inventories are replaced independently
+Camera, station, lock, and standalone-sensor inventories are replaced independently
 so a partial event cannot erase state owned by another device family.
 """
 
@@ -18,10 +18,13 @@ from pathlib import Path
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.components import persistent_notification
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .client import GatewayClient, GatewayClientError
+from .camera_control_queue import CameraControlNotSentError, CameraControlQueue
 from .const import DOMAIN
 from .image_cache import CameraImageCache
 
@@ -54,6 +57,54 @@ class EufyGatewayCoordinator(
             hass.async_add_executor_job,
         )
         self._event_task: asyncio.Task[None] | None = None
+        self.camera_controls = CameraControlQueue(
+            lambda operation: self.config_entry.async_create_background_task(
+                self.hass, operation, "Eufy camera setting"
+            ),
+            self.async_set_camera,
+            self._camera_control_failed,
+            self.async_update_listeners,
+        )
+
+    def submit_camera_control(self, serial: str, action: str, enabled: bool) -> None:
+        """Accept only the two approved switch operations without optimistic state."""
+        camera = self.cameras.get(serial)
+        if camera is None or action not in {"enabled", "motion"}:
+            raise HomeAssistantError("Camera setting is unavailable")
+        operation = (self.client.set_camera_enabled if action == "enabled"
+                     else self.client.set_camera_motion_detection)
+        binding = (camera.get("model"), camera.get("stationSerial"))
+        capability = "enableControlSupported" if action == "enabled" else "motionDetectionControlSupported"
+
+        async def execute() -> dict[str, Any]:
+            current = self.cameras.get(serial)
+            if (current is None or (current.get("model"), current.get("stationSerial")) != binding
+                    or current.get(capability) is not True):
+                raise CameraControlNotSentError("Camera control route changed before dispatch")
+            return await operation(serial, enabled)
+
+        try:
+            self.camera_controls.submit(
+                camera.get("stationSerial") or serial, serial, action, execute,
+            )
+        except RuntimeError as error:
+            raise HomeAssistantError(str(error)) from error
+
+    def _camera_control_failed(
+        self, serial: str, action: str, reason: str, dispatched: bool,
+    ) -> None:
+        """Make background failure visible without exposing backend error contents."""
+        label = "motion detection" if action == "motion" else "camera enablement"
+        name = self.cameras.get(serial, {}).get("name") or "the camera"
+        detail = ("The result is unknown. Check the camera's setting before retrying."
+                  if dispatched else "The request was not sent.")
+        _LOGGER.warning("Camera setting not confirmed: action=%s reason=%s", action, reason)
+        if not self.hass.is_stopping:
+            persistent_notification.async_create(
+                self.hass, f"Eufy could not confirm {label} for {name}. {detail}",
+                title="Eufy setting not confirmed",
+                notification_id=f"eufy_camera_control_{serial}_{action}",
+            )
 
     async def _async_update_data(self) -> dict[str, dict[str, dict[str, Any]]]:
         """Fetch all inventories concurrently for startup and poll recovery."""
@@ -61,8 +112,8 @@ class EufyGatewayCoordinator(
         # Polling is recovery only. Normal updates arrive through the long-lived
         # SSE connection started after the first successful refresh.
         try:
-            cameras, stations, sensors = await asyncio.gather(
-                self.client.cameras(), self.client.stations(), self.client.sensors()
+            cameras, stations, sensors, locks = await asyncio.gather(
+                self.client.cameras(), self.client.stations(), self.client.sensors(), self.client.locks()
             )
         except GatewayClientError as error:
             raise UpdateFailed(str(error)) from error
@@ -70,6 +121,7 @@ class EufyGatewayCoordinator(
             "cameras": {camera["serial"]: camera for camera in cameras},
             "stations": {station["serial"]: station for station in stations},
             "sensors": {sensor["serial"]: sensor for sensor in sensors},
+            "locks": {lock["serial"]: lock for lock in locks},
         }
         self._sync_device_names(updated)
         return updated
@@ -89,6 +141,19 @@ class EufyGatewayCoordinator(
         """Return the latest standalone sensor state indexed by serial."""
         return (self.data or {}).get("sensors", {})
 
+    @property
+    def locks(self) -> dict[str, dict[str, Any]]:
+        """Return cached opt-in lock facts without querying the lock."""
+        return (self.data or {}).get("locks", {})
+
+    def async_set_lock(self, lock: dict[str, Any]) -> None:
+        """Publish a confirmed lock response while preserving every other family."""
+        updated = {"cameras": dict(self.cameras), "stations": dict(self.stations),
+                   "sensors": dict(self.sensors), "locks": dict(self.locks)}
+        updated["locks"][lock["serial"]] = lock
+        self._sync_device_name(lock["serial"], lock.get("name"))
+        self.async_set_updated_data(updated)
+
     def async_set_station(self, station: dict[str, Any]) -> None:
         """Merge confirmed command state and notify all station entities."""
         serial = station.get("serial")
@@ -98,6 +163,7 @@ class EufyGatewayCoordinator(
             "cameras": dict(self.cameras),
             "stations": dict(self.stations),
             "sensors": dict(self.sensors),
+            "locks": dict(self.locks),
         }
         updated["stations"][serial] = station
         self._sync_device_name(serial, station.get("name"))
@@ -112,6 +178,7 @@ class EufyGatewayCoordinator(
             "cameras": dict(self.cameras),
             "stations": dict(self.stations),
             "sensors": dict(self.sensors),
+            "locks": dict(self.locks),
         }
         updated["cameras"][serial] = camera
         self._sync_device_name(serial, camera.get("name"))
@@ -126,6 +193,7 @@ class EufyGatewayCoordinator(
 
     async def async_shutdown(self) -> None:
         """Cancel the SSE task so unloading never leaves a background request."""
+        await self.camera_controls.close()
         if self._event_task is not None:
             self._event_task.cancel()
             await asyncio.gather(self._event_task, return_exceptions=True)
@@ -162,6 +230,7 @@ class EufyGatewayCoordinator(
                 "cameras": normalized,
                 "stations": dict(self.stations),
                 "sensors": dict(self.sensors),
+                "locks": dict(self.locks),
             }
             self._sync_device_names(updated)
             self.async_set_updated_data(updated)
@@ -177,6 +246,7 @@ class EufyGatewayCoordinator(
                 "cameras": dict(self.cameras),
                 "stations": normalized,
                 "sensors": dict(self.sensors),
+                "locks": dict(self.locks),
             }
             self._sync_device_names(updated)
             self.async_set_updated_data(updated)
@@ -200,6 +270,7 @@ class EufyGatewayCoordinator(
                 "cameras": dict(self.cameras),
                 "stations": dict(self.stations),
                 "sensors": normalized,
+                "locks": dict(self.locks),
             }
             self.async_set_updated_data(updated)
 
@@ -209,16 +280,37 @@ class EufyGatewayCoordinator(
                 "cameras": dict(self.cameras),
                 "stations": dict(self.stations),
                 "sensors": dict(self.sensors),
+                "locks": dict(self.locks),
             }
             updated["sensors"][sensor["serial"]] = sensor
             self._sync_device_name(sensor["serial"], sensor.get("name"))
             self.async_set_updated_data(updated)
 
+        locks = event.get("locks")
+        if isinstance(locks, list):
+            updated = {"cameras": dict(self.cameras), "stations": dict(self.stations),
+                       "sensors": dict(self.sensors), "locks": {}}
+            for lock in locks:
+                try:
+                    normalized = self.client._lock_state(lock)
+                except GatewayClientError:
+                    continue
+                updated["locks"][normalized["serial"]] = normalized
+            self._sync_device_names(updated)
+            self.async_set_updated_data(updated)
+
+        lock = event.get("lock")
+        if isinstance(lock, dict):
+            try:
+                self.async_set_lock(self.client._lock_state(lock))
+            except GatewayClientError:
+                pass
+
     def _sync_device_names(
         self, data: dict[str, dict[str, dict[str, Any]]]
     ) -> None:
         """Refresh vendor names without changing Home Assistant user overrides."""
-        for family in ("cameras", "stations", "sensors"):
+        for family in ("cameras", "stations", "sensors", "locks"):
             for serial, device in data.get(family, {}).items():
                 self._sync_device_name(serial, device.get("name"))
 
@@ -227,8 +319,18 @@ class EufyGatewayCoordinator(
         if not isinstance(name, str) or not name.strip():
             return
         registry = dr.async_get(self.hass)
-        device = registry.async_get_device_by_identifier(
-            (DOMAIN, serial), self.config_entry.entry_id
-        )
+        scoped_lookup = getattr(registry, "async_get_device_by_identifier", None)
+        if scoped_lookup is not None:
+            device = scoped_lookup((DOMAIN, serial), self.config_entry.entry_id)
+        else:
+            device = registry.async_get_device(identifiers={(DOMAIN, serial)})
+            if device is not None:
+                owner = getattr(device, "config_entry_id", None)
+                if owner is not None:
+                    owned = owner == self.config_entry.entry_id
+                else:
+                    owned = self.config_entry.entry_id in device.config_entries
+                if not owned:
+                    device = None
         if device is not None and device.name != name:
             registry.async_update_device(device.id, name=name)

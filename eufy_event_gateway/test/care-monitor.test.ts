@@ -1,0 +1,94 @@
+/**
+ * Verifies the exact E21 care notification boundary and transient state lifecycle.
+ *
+ * These tests own no account, network, media, or hardware side effects. They
+ * protect the inventory predicate, capability shape, and independent timers
+ * consumed by the production provider and Home Assistant adapter.
+ */
+
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { GatewayState } from "../src/domain/gateway-state.js";
+import { e21DetectionKinds } from "../src/provider/e21-profile.js";
+import { careMonitorPushKind, careMonitorSensorState, isCareBabyMonitor } from "../src/provider/care-monitor.js";
+import { describeCameraCapabilities, describeDeviceCapabilities } from "../src/provider/device-capabilities-core.js";
+
+const exact = {
+  serial: "E21",
+  name: "Nursery",
+  model: "T8354",
+  deviceType: 86,
+  category: "eufy_care",
+} as const;
+
+const noSupport = {
+  homeBaseSupported: false,
+  homeBaseGuardModeSupported: false,
+  homeBaseRouteReady: false,
+  doorbellSupported: false,
+  cameraStreamSupported: false,
+} as const;
+
+test("admits only the exact reviewed E21 identity", () => {
+  assert.equal(isCareBabyMonitor(exact), true);
+  for (const candidate of [
+    { ...exact, model: "t8354" },
+    { ...exact, model: "T8354A" },
+    { ...exact, model: "T8355" },
+    { ...exact, deviceType: 85 },
+    { ...exact, deviceType: null },
+    { ...exact, deviceType: "86" as never },
+    { ...exact, category: "eufy_security" },
+    { ...exact, category: null },
+  ]) assert.equal(isCareBabyMonitor(candidate), false);
+});
+
+test("publishes exact care sensor events and a separate camera profile", () => {
+  assert.deepEqual(careMonitorSensorState(exact)?.capabilities, [...e21DetectionKinds, "roomTemperature", "careDiagnostics"]);
+  assert.equal(describeCameraCapabilities({ ...exact, paramTypes: [] }, {
+    doorbellSupported: false, streamSupported: false,
+  }).acceptedAsCamera, true);
+  const manifests = describeDeviceCapabilities({ ...exact, paramTypes: [] }, noSupport);
+  assert.equal(manifests.length, 1);
+  assert.deepEqual(manifests[0]?.matrix.map(({ id }) => id), e21DetectionKinds.map((kind) => `sensor.${kind}_event`));
+  assert.equal(manifests[0]?.supported, true);
+});
+
+test("requires message type 18 and preserves the care event namespace", () => {
+  assert.equal(careMonitorPushKind(exact, 18, 3104), "crying");
+  assert.equal(careMonitorPushKind(exact, 18, 3105), "sound");
+  assert.equal(careMonitorPushKind(exact, 17, 3104), null);
+  assert.equal(careMonitorPushKind(exact, 18, 3106), "pet");
+  assert.equal(careMonitorPushKind({ ...exact, model: "T8354A" }, 18, 3104), null);
+});
+
+test("holds care flags independently and withdraws removed capabilities", context => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const state = new GatewayState(15);
+  const sensor = careMonitorSensorState(exact);
+  assert.ok(sensor);
+  const emitted: unknown[] = [];
+  state.on("event", (event) => emitted.push(event));
+  state.registerSensor(sensor);
+  state.recordSensorDetection("E21", "crying", true);
+  context.mock.timers.tick(5);
+  state.recordSensorDetection("E21", "sound", true);
+  assert.equal(state.listSensors()[0]?.cryingDetected, true);
+  assert.equal(state.listSensors()[0]?.soundDetected, true);
+  context.mock.timers.tick(12);
+  assert.equal(state.listSensors()[0]?.cryingDetected, false);
+  assert.equal(state.listSensors()[0]?.soundDetected, true);
+  const last = emitted.at(-1) as { sensor: { soundDetected: boolean } };
+  last.sensor.soundDetected = false;
+  assert.equal(state.listSensors()[0]?.soundDetected, true);
+  state.registerSensor({
+    ...sensor,
+    capabilities: ["sound"],
+    cryingDetected: undefined,
+  } as never);
+  assert.equal(state.listSensors()[0]?.capabilities.includes("crying"), false);
+  state.recordSensorDetection("E21", "crying", true);
+  assert.equal(state.listSensors()[0]?.cryingDetected, undefined);
+  state.close();
+});

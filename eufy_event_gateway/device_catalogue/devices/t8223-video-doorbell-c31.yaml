@@ -10,6 +10,10 @@ integration:
 models:
   - T8223
 device_type: 96
+alternate_device_types:
+  - value: 95
+    status: reported
+    notes: HomeBase 2 inventory reports this type with working discovery and live video.
 capabilities:
   readable:
     battery_level:

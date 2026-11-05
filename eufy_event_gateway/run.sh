@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+# Standalone Compose builds have no Supervisor-supplied version argument.
+if [ -z "${EUFY_GATEWAY_VERSION:-}" ]; then
+  export EUFY_GATEWAY_VERSION="$(node -p 'require("/app/package.json").version')"
+fi
+
 options=/data/options.json
 token_file=/data/api_token
 
@@ -12,6 +17,21 @@ export EUFY_USERNAME="$(option username)"
 export EUFY_PASSWORD="$(option password)"
 export EUFY_COUNTRY="$(option country)"
 export EUFY_VERIFY_CODE="$(jq -r '.verification_code // empty' "$options")"
+export EUFY_GATEWAY_EXPERIMENTAL_EVENT_IMAGE_REQUEST="$(jq -r '.experimental_event_image_request // false' "$options")"
+export EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_IMAGES="$(jq -r '.experimental_homebase_event_images // false' "$options")"
+export EUFY_RAW_HISTORY="$(jq -r '.raw_message_history // false' "$options")"
+export EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES="$(jq -r '.capture_failed_event_images // false' "$options")"
+export EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS="$(jq -r '.experimental_model_controls // false' "$options")"
+export EUFY_GATEWAY_EXPERIMENTAL_E30_LOCKS="$(jq -r '.experimental_e30_locks // false' "$options")"
+export EUFY_GATEWAY_EXPERIMENTAL_NVR_CONTROLS="$(jq -r '.experimental_nvr_controls // false' "$options")"
+export EUFY_GATEWAY_EXPERIMENTAL_NVR_LIVE="$(jq -r '.experimental_nvr_live // false' "$options")"
+export EUFY_GATEWAY_EXPERIMENTAL_NVR_MODE_OBSERVER="$(jq -r '.experimental_nvr_mode_observer // false' "$options")"
+export EUFY_GATEWAY_EXPERIMENTAL_DOORBELL_RTC="$(jq -r '.experimental_doorbell_rtc // false' "$options")"
+export EUFY_GATEWAY_EXPERIMENTAL_GENERAL_RTC="$(jq -r '.experimental_general_rtc // false' "$options")"
+export EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS="$(jq -r '.experimental_cloud_recordings // false' "$options")"
+export EUFY_GATEWAY_EXPERIMENTAL_NVR_REGION="$(jq -r '.experimental_nvr_region // "auto"' "$options")"
+export EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE="$(jq -r '.experimental_s340_smooth_live // false' "$options")"
+export EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION="$(jq -r '.experimental_fixed_h265_resolution // false' "$options")"
 if [ ! -s "$token_file" ]; then
   umask 077
   token_tmp="${token_file}.tmp"

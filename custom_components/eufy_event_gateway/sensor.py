@@ -34,6 +34,8 @@ from . import EufyGatewayConfigEntry
 from .const import DOMAIN, GUARD_MODES
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity, EufySecuritySensorEntity, EufyStationEntity
+from .lock import EufyLockBattery
+from .guard_mode_options import guard_mode_label, guard_mode_options
 
 
 async def async_setup_entry(
@@ -45,13 +47,20 @@ async def async_setup_entry(
     coordinator = entry.runtime_data.coordinator
     known_cameras: set[str] = set()
     known_camera_signal: set[str] = set()
+    known_backup_batteries: set[str] = set()
     known_mode_stations: set[str] = set()
     known_storage_stations: set[str] = set()
     known_sensors: set[str] = set()
+    known_locks: set[str] = set()
     registry = er.async_get(hass)
     _migrate_storage_display_units(hass, coordinator)
 
     def add_new() -> None:
+        lock_serials = set(coordinator.locks) - known_locks
+        if lock_serials:
+            known_locks.update(lock_serials)
+            async_add_entities([EufyLockBattery(coordinator, serial) for serial in sorted(lock_serials)])
+
         signal_serials = {
             serial for serial, camera in coordinator.cameras.items()
             if camera.get("rssi") is not None
@@ -61,6 +70,17 @@ async def async_setup_entry(
             async_add_entities([
                 EufyCameraSignalStrength(coordinator, serial)
                 for serial in sorted(signal_serials)
+            ])
+
+        backup_serials = {
+            serial for serial, camera in coordinator.cameras.items()
+            if "backupLevel" in (camera.get("battery") or {}).get("supported", [])
+        } - known_backup_batteries
+        if backup_serials:
+            known_backup_batteries.update(backup_serials)
+            async_add_entities([
+                EufyCameraBatterySensor(coordinator, serial, "backupLevel")
+                for serial in sorted(backup_serials)
             ])
 
         for serial, station in coordinator.stations.items():
@@ -77,7 +97,8 @@ async def async_setup_entry(
             known_cameras.update(serials)
             entities = []
             for serial in sorted(serials):
-                entities.append(EufyRecognizedPersonSensor(coordinator, serial))
+                if coordinator.cameras[serial].get("careMonitor") is not True:
+                    entities.append(EufyRecognizedPersonSensor(coordinator, serial))
                 battery = coordinator.cameras[serial].get("battery") or {}
                 for field in battery.get("supported", []):
                     if field in ("level", "health", "temperature", "lastChargingDays"):
@@ -141,6 +162,9 @@ async def async_setup_entry(
                     entities.append(EufySensorLastSeen(coordinator, serial))
                 if "rssi" in capabilities:
                     entities.append(EufySensorSignalStrength(coordinator, serial))
+                if "careDiagnostics" in capabilities:
+                    for field in ("roomTemperatureCelsius", "highTemperatureCelsius", "lowTemperatureCelsius", "whiteNoiseVolume", "whiteNoiseTimerRaw", "temperatureMonitoringEnabled", "rtspPublicationEnabled"):
+                        entities.append(EufyCareSettingSensor(coordinator, serial, field))
             async_add_entities(entities)
 
     add_new()
@@ -260,11 +284,12 @@ class EufyCameraBatterySensor(EufyGatewayEntity, SensorEntity):
         )
         self._attr_translation_key = {
             "level": "battery",
+            "backupLevel": "backup_battery",
             "health": "battery_health",
             "temperature": "battery_temperature",
             "lastChargingDays": "days_since_last_charging",
         }[field]
-        if field == "level":
+        if field in ("level", "backupLevel"):
             self._attr_device_class = SensorDeviceClass.BATTERY
             self._attr_native_unit_of_measurement = PERCENTAGE
         elif field == "health":
@@ -365,41 +390,48 @@ class EufySensorSignalStrength(EufySecuritySensorEntity, SensorEntity):
 
 
 class EufyGuardModeSensor(EufyStationEntity, SensorEntity):
-    """Expose a read-only configured mode for a station without proven writes."""
+    """Expose inventory-owned mode state without sending security commands.
+
+    The coordinator owns updates for the entity's lifetime. Account-defined
+    custom titles use the same validated mapping as writable HomeBase selects.
+    """
 
     _attr_translation_key = "eufy_guard_mode_sensor"
     _attr_icon = "mdi:shield-home"
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options: ClassVar[list[str]] = list(GUARD_MODES.values())
 
     def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
-        """Create the configured-mode sensor for one read-only HomeBase."""
+        """Create the configured-mode sensor for one read-only station."""
         EufyStationEntity.__init__(self, coordinator, serial)
         SensorEntity.__init__(self)
         self._attr_unique_id = f"{serial}_guard_mode_read_only"
 
     @property
+    def options(self) -> list[str]:
+        """Return the configured-mode vocabulary for the current station."""
+        return list(guard_mode_options(self.station).values())
+
+    @property
     def native_value(self) -> str | None:
         """Return the configured Eufy mode reported by the station."""
         value = self.station.get("guardMode")
-        return GUARD_MODES.get(value) if isinstance(value, int) else None
+        return guard_mode_label(self.station, value)
 
 
 class EufyEffectiveModeSensor(EufyStationEntity, SensorEntity):
-    """Expose the active HomeBase mode independently of configured policy.
+    """Expose the latest reported station mode independently of configured policy.
 
-    Schedule and geofencing policies can produce an effective mode different
-    from the configured selection. This read-only entity represents the active
-    result while the select entity retains the configured policy.
+    The coordinator owns state for this read-only entity. Schedule and geofencing
+    can produce a different effective mode. NVR observations include their
+    transport and report time and become unknown when their owning source ends.
     """
 
     _attr_translation_key = "eufy_effective_mode_sensor"
     _attr_icon = "mdi:shield-check"
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options: ClassVar[list[str]] = list(GUARD_MODES.values())
 
     def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
-        """Create the effective-mode sensor for one HomeBase."""
+        """Bind the entity to one station without owning its transport or controls."""
         EufyStationEntity.__init__(self, coordinator, serial)
         SensorEntity.__init__(self)
         self._attr_unique_id = f"{serial}_effective_mode"
@@ -408,7 +440,21 @@ class EufyEffectiveModeSensor(EufyStationEntity, SensorEntity):
     def native_value(self) -> str | None:
         """Return the Eufy label for the active effective mode."""
         value = self.station.get("effectiveMode")
-        return GUARD_MODES.get(value) if isinstance(value, int) else None
+        return guard_mode_label(self.station, value)
+
+    @property
+    def options(self) -> list[str]:
+        """Use the station's validated custom names for effective mode too."""
+        return list(guard_mode_options(self.station).values())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str] | None:
+        """Identify the last observation's transport without inferring a live query."""
+        reported = self.station.get("effectiveModeReportedAt")
+        source = self.station.get("effectiveModeSource", "eufy_push")
+        if isinstance(reported, str) and source in ("eufy_push", "nvr_rtc"):
+            return {"state_source": source, "last_reported": reported}
+        return None
 
 
 class EufyStorageSensor(EufyStationEntity, SensorEntity):
@@ -483,3 +529,46 @@ class EufyStorageStatusSensor(EufyStationEntity, SensorEntity):
         medium = storage.get(self.medium) or {}
         value = medium.get("status")
         return value if isinstance(value, str) else None
+
+
+class EufyCareSettingSensor(EufySecuritySensorEntity, SensorEntity):
+    """Expose normalized E21 readings without opening media or inferring room state.
+
+    The gateway owns reported units and freshness. Instances retain their entity
+    identity across unit changes and become unavailable when the reading disappears.
+    The timer remains a disabled diagnostic because its native units are unproven.
+    """
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, field: str) -> None:
+        """Bind one reported setting to the same physical device as the camera."""
+        EufySecuritySensorEntity.__init__(self, coordinator, serial)
+        SensorEntity.__init__(self)
+        self.field = field
+        self._attr_unique_id = f"{serial}_care_{field}"
+        self._attr_translation_key = {
+            "roomTemperatureCelsius": "care_room_temperature", "highTemperatureCelsius": "care_high_temperature",
+            "lowTemperatureCelsius": "care_low_temperature", "whiteNoiseVolume": "care_white_noise_volume",
+            "whiteNoiseTimerRaw": "care_white_noise_timer_raw", "temperatureMonitoringEnabled": "care_temperature_monitoring",
+            "rtspPublicationEnabled": "care_rtsp_publication",
+        }[field]
+        if field.endswith("Celsius"):
+            self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+            self._attr_device_class = SensorDeviceClass.TEMPERATURE
+        if field != "roomTemperatureCelsius":
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        if field == "whiteNoiseTimerRaw":
+            self._attr_entity_registry_enabled_default = False
+
+    @property
+    def available(self) -> bool:
+        """Withdraw stale readings when inventory or the care capability disappears."""
+        return super().available and "careDiagnostics" in self.sensor.get("capabilities", []) and self.native_value is not None
+
+    @property
+    def native_value(self) -> int | float | str | None:
+        """Return normalized values without assigning units to the raw native timer."""
+        settings = self.sensor.get("careSettings")
+        value = settings.get(self.field) if isinstance(settings, dict) else None
+        if self.field.endswith("Enabled"):
+            return ("on" if value else "off") if type(value) is bool else None
+        return value if type(value) in (int, float) else None

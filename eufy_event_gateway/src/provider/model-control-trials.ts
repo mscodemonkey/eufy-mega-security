@@ -1,0 +1,237 @@
+/**
+ * Defines exact-model experimental control contracts recovered from official
+ * Android handlers. The provider owns routes and sessions, while HTTP and PPCS
+ * consume these strict requests. Profiles establish a command contract, not
+ * physical success on a reporter's hardware.
+ */
+
+import { setTimeout as delay } from "node:timers/promises";
+
+/** Only these operations may cross the experimental control boundary. */
+export type ModelControlTrial =
+  | { readonly action: "alarmState"; readonly enabled: false }
+  | { readonly action: "manualLight"; readonly enabled: boolean }
+  | { readonly action: "motion"; readonly enabled: boolean }
+  | { readonly action: "aiTracking"; readonly enabled: boolean }
+  | { readonly action: "spotlight"; readonly enabled: boolean }
+  | { readonly action: "siren"; readonly enabled: boolean }
+  | { readonly action: "sirenConnection"; readonly enabled: false }
+  | { readonly action: "ptz"; readonly direction: "left" | "right" | "up" | "down" };
+
+/** Fixed, privacy-safe explanations for an unavailable exact-model trial. */
+export type ModelControlTrialUnavailableReason =
+  | "unsupported_identity"
+  | "direct_route_unavailable"
+  | "owner_account_required"
+  | "connection_key_unavailable";
+
+/** Closed diagnostic stages that locate a failed trial without logging private errors. */
+export type ModelControlTrialFailureStage =
+  | "session_key"
+  | "session_connect"
+  | "session_prepare"
+  | "initial_read"
+  | "write"
+  | "confirmation_read";
+
+/** Describes admission without exposing account, route, or key material. */
+export interface ModelControlTrialAdmission {
+  readonly actions: readonly ModelControlTrial["action"][];
+  readonly unavailableReason?: ModelControlTrialUnavailableReason;
+}
+
+/** Report acknowledgement separately from fresh reported state and physical movement. */
+export interface ModelControlWriteTrialResult {
+  readonly outcome: "confirmed" | "acknowledged" | "unchanged" | "prepared";
+  readonly physicalConfirmationRequired: boolean;
+
+  /** A concurrent explicit stop shortened the siren pulse. */
+  readonly stoppedEarly?: boolean;
+
+  /** Present for changed settings, separating readback proof from a lost result frame. */
+  readonly acknowledgementReceived?: boolean;
+}
+
+/**
+ * A private, uncorrelated observation from the explicit T8170 read experiment.
+ * It carries no physical-confirmation flag and never establishes an arming change.
+ */
+export type AlarmStateTrialResult = (
+  | { readonly outcome: "decoded"; readonly parameterCount: number; readonly guardMode?: number }
+  | { readonly outcome: "timeout" | "unavailable"; readonly frames: number;
+      readonly parseStage: "none" | "invalid_json" | "invalid_schema" | "parsed"; readonly keyReady: boolean }
+) & { readonly physicalConfirmationRequired?: never; readonly stoppedEarly?: never; readonly acknowledgementReceived?: never };
+
+/** Separate read observations from the unchanged setting-write contract. */
+export type ModelControlTrialResult = ModelControlWriteTrialResult | AlarmStateTrialResult;
+
+/** Rebuild a private read result at HTTP boundaries, discarding unknown fields. */
+export function closedAlarmStateResult(value: unknown): AlarmStateTrialResult {
+  const unavailable: AlarmStateTrialResult = { outcome: "unavailable", frames: 0, parseStage: "none", keyReady: false };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return unavailable;
+  const row = value as Record<string, unknown>, keys = Object.keys(row);
+  const count = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= 65535 && !Object.is(n, -0);
+  if (row.outcome === "decoded" && keys.every(k => ["outcome", "parameterCount", "guardMode"].includes(k))
+    && keys.length === (Object.hasOwn(row, "guardMode") ? 3 : 2) && count(row.parameterCount)
+    && (!Object.hasOwn(row, "guardMode") || (typeof row.guardMode === "number" && !Object.is(row.guardMode, -0)
+      && [0,1,2,3,4,5,6,47,63].includes(row.guardMode)))) {
+    return { outcome: "decoded", parameterCount: row.parameterCount,
+      ...(typeof row.guardMode === "number" ? { guardMode: row.guardMode } : {}) };
+  }
+  if ((row.outcome === "timeout" || row.outcome === "unavailable") && keys.length === 4
+    && keys.every(k => ["outcome", "frames", "parseStage", "keyReady"].includes(k)) && count(row.frames)
+    && ["none", "invalid_json", "invalid_schema", "parsed"].includes(String(row.parseStage))
+    && typeof row.parseStage === "string" && typeof row.keyReady === "boolean") {
+    return { outcome: row.outcome, frames: row.frames,
+      parseStage: row.parseStage as "none" | "invalid_json" | "invalid_schema" | "parsed", keyReady: row.keyReady };
+  }
+  return unavailable;
+}
+
+/** Exact routing facts required by official handler selection. */
+export interface ModelControlRoute {
+  readonly model: string;
+  readonly deviceType: number | null;
+  readonly channel: number | null;
+  readonly homeBaseAttached: boolean;
+  readonly peerModel: string;
+
+  /** Exact parent type for trials that require a specific HomeBase generation. */
+  readonly peerDeviceType?: number | null;
+  readonly selfPeer: boolean;
+}
+
+/** Parse a closed request shape, rejecting raw commands and implicit conversions. */
+export function parseModelControlTrial(value: unknown): ModelControlTrial {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new SyntaxError("Invalid model control trial");
+  const row = value as Record<string, unknown>;
+  if (Object.keys(row).length !== 2) throw new SyntaxError("Model control trial requires exactly two fields");
+  if (row.action === "alarmState" && row.enabled === false) return { action: "alarmState", enabled: false };
+  if (row.action === "sirenConnection" && row.enabled === false) return { action: "sirenConnection", enabled: false };
+  if ((row.action === "manualLight" || row.action === "motion" || row.action === "aiTracking" || row.action === "spotlight" || row.action === "siren") && typeof row.enabled === "boolean") {
+    return { action: row.action, enabled: row.enabled };
+  }
+  if (row.action === "ptz" && ["left", "right", "up", "down"].includes(String(row.direction))) {
+    if (typeof row.direction !== "string") throw new SyntaxError("Invalid PTZ direction");
+    return { action: "ptz", direction: row.direction as "left" | "right" | "up" | "down" };
+  }
+  throw new SyntaxError("Unsupported model control trial");
+}
+
+/** Admit exact model/type/topology combinations without changing verified capabilities. */
+export function modelControlTrialActions(route: ModelControlRoute): readonly ModelControlTrial["action"][] {
+  if (route.homeBaseAttached) {
+    if (route.model === "T81A0" && route.deviceType === 10005 && route.peerModel === "T8030"
+      && route.peerDeviceType === 18 && !route.selfPeer && route.channel !== null
+      && Number.isInteger(route.channel) && route.channel >= 0 && route.channel <= 254) return ["manualLight"];
+    return route.model === "T8410" && route.deviceType === 31 && route.peerModel === "T8030"
+      && !route.selfPeer && route.channel !== null && Number.isInteger(route.channel)
+      && route.channel >= 0 && route.channel <= 255 ? ["ptz"] : [];
+  }
+  if (!route.selfPeer || route.channel !== 0) return [];
+  if (route.model === "T814X" && route.deviceType === 10037 && route.peerModel === "T814X") return ["ptz", "spotlight", "aiTracking"];
+  if (route.model === "T8425" && route.deviceType === 47 && route.peerModel === "T8425") return ["ptz"];
+  if (route.model === "T8170" && route.deviceType === 48 && route.peerModel === "T8170") return ["alarmState"];
+  if (route.model === "T8423" && route.deviceType === 38) return ["motion", "spotlight", "ptz"];
+  if (route.model === "T8417" && route.deviceType === 105) {
+    return route.peerModel === "T8417" ? ["motion", "ptz"] : ["motion"];
+  }
+  if (route.model === "T84A1" && route.deviceType === 151) {
+    return route.peerModel === "T84A1" ? ["motion", "siren", "sirenConnection"] : ["motion"];
+  }
+  return [];
+}
+
+/** Build semantic JSON before transport encryption; master spotlight uses a binary body instead. */
+export function modelControlTrialCommand(
+  request: ModelControlTrial, route: ModelControlRoute, accountId: string, transaction: number,
+): { readonly command: number; readonly value: string | boolean } {
+  if (request.action === "alarmState") throw new Error("Alarm state read cannot dispatch controls");
+  if (request.action === "sirenConnection") throw new Error("S100 connection check cannot dispatch controls");
+  if (request.action === "siren") throw new Error("S100 siren requires its dedicated encrypted trial session");
+  if (!accountId || !modelControlTrialActions(route).includes(request.action)) throw new Error("Model control trial route unavailable");
+  if (!Number.isSafeInteger(transaction) || transaction < 1_000_000_000_000) throw new Error("Invalid control transaction");
+  if (request.action === "manualLight") return { command: 1400, value: request.enabled };
+  if (request.action === "aiTracking") {
+    return { command: 1700, value: JSON.stringify({ commandType: 6016,
+      data: { value: request.enabled ? 1 : 0, transaction: `${transaction}` } }) };
+  }
+  if (request.action === "spotlight" && route.model === "T814X") {
+    return { command: 1700, value: JSON.stringify({ commandType: 1400,
+      data: { value: request.enabled ? 1 : 0, open: request.enabled ? 1 : 0, type: 2, transaction: `${transaction}` } }) };
+  }
+  if (request.action === "spotlight") return { command: 1403, value: request.enabled };
+  if (request.action === "ptz" && route.model === "T8425") {
+
+    // The exact standalone handler excludes the generic PTZ transaction and zoom fields.
+    return { command: 1700, value: JSON.stringify({ commandType: 6030,
+      data: { cmd_type: 1, rotate_type: { left: 1, right: 2, up: 3, down: 4 }[request.direction] } }) };
+  }
+  const data = request.action === "motion" ? { status: request.enabled ? 1 : 0, transaction: `${transaction}` }
+    : { cmd_type: 1, rotate_type: { left: 1, right: 2, up: 3, down: 4 }[request.direction],
+      ...(["T8423", "T8417", "T814X"].includes(route.model) ? { zoom: 1, ivalue: -1 } : {}), transaction: `${transaction}` };
+  const command = request.action === "motion" ? 6040 : 6030;
+  if (request.action === "ptz" && route.model === "T8423") {
+    return { command: 1350, value: JSON.stringify({ account_id: accountId, cmd: command,
+      mChannel: route.channel, mValue3: command, payload: data }) };
+  }
+  return { command: 1700, value: JSON.stringify({ commandType: command, data }) };
+}
+
+/** Minimal owned session used by the trial runner and synthetic failure tests. */
+export interface ModelControlTrialSession {
+  read(): Promise<{ readonly motionDetectionEnabled?: boolean; readonly spotlightEnabled?: boolean; readonly aiTrackingEnabled?: boolean }>;
+  write(request: ModelControlTrial): Promise<void>;
+}
+
+/**
+ * Submit once and require fresh native readback for absolute settings, never cached state.
+ *
+ * The optional observer receives only closed diagnostic stages. It lets the
+ * provider report where a failed trial stopped without exposing transport
+ * errors, device identifiers, or response content. Observer failures are
+ * ignored so diagnostics cannot change the command lifecycle.
+ */
+export async function runModelControlTrial(
+  session: ModelControlTrialSession, request: ModelControlTrial, checkOwnership: () => void,
+  isAcknowledgementTimeout: (error: unknown) => boolean = () => false,
+  observeStage: (stage: ModelControlTrialFailureStage) => void = () => {},
+): Promise<ModelControlTrialResult> {
+  const stage = (value: ModelControlTrialFailureStage): void => {
+    try { observeStage(value); } catch {}
+  };
+  if (request.action === "alarmState") throw new Error("Alarm state read cannot dispatch controls");
+  if (request.action === "sirenConnection") throw new Error("S100 connection check cannot dispatch controls");
+  checkOwnership();
+  if (request.action === "siren") throw new Error("S100 siren requires its dedicated pulse runner");
+  if (request.action === "ptz" || request.action === "manualLight") {
+    stage("write");
+    await session.write(request);
+    checkOwnership();
+    return { outcome: "acknowledged", physicalConfirmationRequired: true };
+  }
+  const field = request.action === "motion" ? "motionDetectionEnabled"
+    : request.action === "aiTracking" ? "aiTrackingEnabled" : "spotlightEnabled";
+  stage("initial_read");
+  const original = (await session.read())[field];
+  checkOwnership();
+  if (original === undefined) throw new Error("Trial requires a fresh reported original setting");
+  if (original === request.enabled) return { outcome: "unchanged", physicalConfirmationRequired: true };
+  let acknowledgementReceived = true;
+  stage("write");
+  try { await session.write(request); }
+  catch (error) {
+    if (!isAcknowledgementTimeout(error)) throw error;
+    acknowledgementReceived = false;
+  }
+  checkOwnership();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await delay(500);
+    checkOwnership();
+    stage("confirmation_read");
+    const fresh = await session.read();
+    checkOwnership();
+    if (fresh[field] === request.enabled) return { outcome: "confirmed", physicalConfirmationRequired: true, acknowledgementReceived };
+  }
+  throw new Error("Model control trial was not confirmed by fresh readback. Check the setting in the Eufy app before retrying");
+}

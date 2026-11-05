@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { beforeEach, afterEach } from "node:test";
 
-import { MegaClient } from "../src/mega/client.js";
+import { MegaClient, megaOperation } from "../src/mega/client.js";
 import { decryptEnvelope, encryptEnvelope, credentialVerifier, presetKey, sharedAesKey } from "../src/mega/crypto.js";
 
 const unhandled: unknown[] = [];
@@ -32,75 +32,145 @@ afterEach(async () => {
   assert.equal(networkCalls, 0);
 });
 
-test("completes encrypted push registration and activation using one restored regional session", async () => {
+test("E30 credential scope uses the existing session and never persists credential response material", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mega-e30-credentials-"));
   const sharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
-  const pushPath = "/app/push/register_push_token";
-  const securityPath = "/v1/apppush/register_push_token";
-  const activationPath = "/v1/app/review/app_push_check";
+  const openHost = "app-openapi-us-pr.eufy.com";
+  const scopes: string[] = [];
+  try {
+    await writeFile(join(directory, "mega-session.json"), JSON.stringify({
+      version: 2, country: "au", openUdid: "device", credentialVerifier: credentialVerifier("device", "user@example.invalid", "password"),
+      authToken: "synthetic-token", tokenExpiresAt: 2_000_000_000, userId: "synthetic-user", verificationPending: false,
+      megaDomain: "mega-us-pr.eufy.com", domains: {},
+      identities: { [openHost]: { keyIdent: "identity", sharedKey, clientPublicKey: "public" } },
+    }));
+    const client = new MegaClient({ email: "user@example.invalid", password: "password", country: "AU",
+      persistentDirectory: directory, minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000,
+      fetch: async (input, init) => {
+        const path = new URL(String(input)).pathname;
+        scopes.push(new Headers(init?.headers).get("app-name")!);
+        assert.deepEqual(JSON.parse(decryptEnvelope(String(init?.body), sharedAesKey(sharedKey))),
+          path.endsWith("get_user_mqtt_info") ? {} : { house_id: "", device_sns: {} });
+        if (path.endsWith("get_user_mqtt_info")) return new Response(JSON.stringify({ code: 0,
+          data: { endpoint_addr: "attacker.invalid", private_key: "SENTINEL_PRIVATE_CREDENTIAL", certificate_pem: "SENTINEL_CERTIFICATE" } }));
+        assert.equal(path, "/app/house/get_devs_list");
+        return new Response(JSON.stringify({ code: 0, data: { devices: [], groups: [] } }));
+      } });
+    assert.equal(client.isAuthenticatedUser("synthetic-user"), false);
+    assert.equal((await client.connect()).state, "authenticated");
+    assert.equal(client.isAuthenticatedUser("synthetic-user"), true);
+    assert.equal(client.isAuthenticatedUser("shared-account"), false);
+    assert.equal(client.isAuthenticatedUser(""), false);
+    await assert.rejects(client.e30MqttCredentials(), /Lock operation unavailable/);
+    await client.inventory();
+    assert.equal(scopes[0], "eufy_security");
+    assert.ok(scopes.slice(1).length > 0 && scopes.slice(1).every(scope => scope === "eufy_mega"));
+    assert.doesNotMatch(await readFile(join(directory, "mega-session.json"), "utf8"), /SENTINEL/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("registers only the regional notification backend using the connected Firebase token", async () => {
+  const sharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
   for (const region of ["us", "eu", "ie"]) {
-    for (const failedStep of [-1, 0, 1, 2]) {
+    for (const failure of ["none", "application", "transport", "http", "cancelled"]) {
       const directory = await mkdtemp(join(tmpdir(), "mega-push-registration-"));
       const openHost = `app-openapi-${region}-pr.eufy.com`;
-      const securityHost = `security-app${region === "us" ? "" : `-${region}`}.eufylife.com`;
-      const requests: Array<{ url: URL; body: unknown; headers: Headers }> = [];
+      const requests: URL[] = [];
       try {
         await writeFile(join(directory, "mega-session.json"), JSON.stringify({
           version: 2, country: "au", openUdid: "device",
           credentialVerifier: credentialVerifier("device", "user@example.invalid", "password"),
           authToken: "synthetic-token", tokenExpiresAt: 2_000_000_000, userId: "synthetic-user",
-          megaDomain: `mega-${region}-pr.eufy.com`, domains: { eufy_security: securityHost },
-          identities: {
-            [openHost]: { keyIdent: "mega-identity", sharedKey, clientPublicKey: "public" },
-            [securityHost]: { keyIdent: "security-identity", sharedKey, clientPublicKey: "public" },
-          },
+          megaDomain: `mega-${region}-pr.eufy.com`, domains: {},
+          identities: { [openHost]: { keyIdent: "identity", sharedKey, clientPublicKey: "public" } },
         }));
         const client = new MegaClient({
           email: "user@example.invalid", password: "password", country: "AU", persistentDirectory: directory,
           minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000,
           fetch: async (input, init) => {
-            const url = new URL(String(input));
-            const body = JSON.parse(decryptEnvelope(String(init?.body), sharedAesKey(sharedKey)));
-            requests.push({ url, body, headers: new Headers(init?.headers) });
-            return new Response(JSON.stringify({ code: requests.length - 1 === failedStep ? 9999 : 0, data: {} }));
+            const url = new URL(String(input)); requests.push(url);
+            assert.equal(url.hostname, `app-push-${region}-pr.eufy.com`);
+            assert.equal(url.pathname, "/app/push/register_push_token");
+            const headers = new Headers(init?.headers);
+            assert.equal(headers.get("x-auth-token"), "synthetic-token");
+            assert.equal(headers.has("x-signature"), true);
+            assert.deepEqual(JSON.parse(decryptEnvelope(String(init?.body), sharedAesKey(sharedKey))), {
+              token: "synthetic-fcm", is_notification_enable: true, voip_token: "synthetic-fcm",
+            });
+            if (failure === "cancelled") client.cancelPendingRequests();
+            if (failure === "transport" || failure === "cancelled") throw new Error("synthetic network failure");
+            if (failure === "http") return new Response("", { status: 463 });
+            return new Response(JSON.stringify({ code: failure === "application" ? 9999 : 0, data: {} }));
           },
         });
         await client.connect();
-        if (failedStep === -1) {
-          assert.deepEqual(await client.registerPushToken("synthetic-fcm"), { activated: true, code: 0 });
-        } else if (failedStep === 1 || failedStep === 2) {
-          assert.deepEqual(await client.registerPushToken("synthetic-fcm"), {
-            activated: false,
-            code: 9999,
-            failedSecurityStage: failedStep === 1 ? "registration" : "activation",
-            megaRegistrationRestored: true,
-          });
-        } else {
-          await assert.rejects(client.registerPushToken("synthetic-fcm"), /Mega push registration failed \(9999\)/);
-        }
-        const expectedPaths = failedStep === -1
-          ? [pushPath, securityPath, activationPath]
-          : failedStep === 0 ? [pushPath]
-          : failedStep === 1 ? [pushPath, securityPath, pushPath]
-          : [pushPath, securityPath, activationPath, pushPath];
-        assert.deepEqual(requests.map(({ url }) => url.pathname), expectedPaths);
-        assert.deepEqual(requests[0]?.body, { token: "synthetic-fcm", is_notification_enable: true, voip_token: "" });
-        assert.equal(requests[0]?.url.hostname, `app-push-${region}-pr.eufy.com`);
-        for (const request of requests.filter(({ url }) => url.pathname !== pushPath)) {
-          assert.equal(request.url.hostname, securityHost);
-          assert.equal(request.headers.get("x-auth-token"), "synthetic-token");
-          assert.equal(request.headers.get("x-key-ident"), "security-identity");
-          assert.equal(request.headers.has("x-signature"), true);
-        }
-        if (requests.some(({ url }) => url.pathname === securityPath)) assert.deepEqual(requests[1]?.body, {
-          token: "synthetic-fcm", is_notification_enable: true, transaction: "1700000000000",
+        if (failure === "none") assert.deepEqual(await client.registerPushToken("synthetic-fcm"), { registered: true, code: 0 });
+        else await assert.rejects(client.registerPushToken("synthetic-fcm"));
+        assert.equal(requests.length, 1);
+        assert.equal(JSON.parse(await readFile(join(directory, "mega-session.json"), "utf8")).authToken, "synthetic-token");
+      } finally { await rm(directory, { recursive: true, force: true }); }
+    }
+  }
+});
+
+test("replaces and persists only classified stale identities", async () => {
+  for (const code of [4404, 4406, 100030]) {
+    for (const status of [200, 401, 463]) {
+      const directory = await mkdtemp(join(tmpdir(), "mega-identity-recovery-"));
+      const sessionPath = join(directory, "mega-session.json");
+      const host = "app-openapi-eu-pr.eufy.com";
+      const staleSharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
+      let refreshedSharedKey = "";
+      const requests: Array<{ readonly path: string; readonly keyIdent: string | null }> = [];
+      try {
+        await writeFile(sessionPath, JSON.stringify({
+          version: 2, country: "au", openUdid: "device",
+          credentialVerifier: credentialVerifier("device", "user@example.invalid", "password"),
+          authToken: "token", tokenExpiresAt: 2_000_000_000, userId: "user",
+          megaDomain: "mega-eu-pr.eufy.com", domains: {},
+          identities: { [host]: { keyIdent: "stale-identity", sharedKey: staleSharedKey, clientPublicKey: "public" } },
+        }));
+        const fakeFetch: typeof fetch = async (input, init) => {
+          const path = new URL(String(input)).pathname;
+          const headers = new Headers(init?.headers);
+          requests.push({ path, keyIdent: headers.get("x-key-ident") });
+          if (path === "/app/house/get_devs_list" && requests.length === 1) {
+            return new Response(JSON.stringify({ code, msg: "get identity error", data: {} }), { status });
+          }
+          if (path === "/openapi/oauth/key/exchange") {
+            const body = JSON.parse(String(init?.body ?? "{}")) as { client_public_key?: string };
+            const clientPublicKey = decryptEnvelope(body.client_public_key ?? "", presetKey());
+            const server = createECDH("prime256v1");
+            server.generateKeys();
+            refreshedSharedKey = server.computeSecret(Buffer.from(clientPublicKey, "hex")).toString("hex");
+            return new Response(JSON.stringify({
+              code: 0,
+              data: { server_public_key: encryptEnvelope(server.getPublicKey("hex"), presetKey(), Buffer.alloc(16, 2)) },
+            }));
+          }
+          const responseValue = path === "/app/house/get_devs_list" ? { devices: [], groups: [] } : [];
+          const data = encryptEnvelope(JSON.stringify(responseValue), sharedAesKey(refreshedSharedKey), Buffer.alloc(16, 3));
+          return new Response(JSON.stringify({ code: 0, data }));
+        };
+        const client = new MegaClient({
+          email: "user@example.invalid", password: "password", country: "AU", persistentDirectory: directory,
+          minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000, fetch: fakeFetch,
         });
-        if (requests.some(({ url }) => url.pathname === activationPath)) assert.deepEqual(requests[2]?.body, {
-          app_type: "eufySecurity", transaction: "1700000000000",
-        });
-        for (const request of requests.filter(({ url }) => url.pathname === pushPath)) {
-          assert.equal(request.url.hostname, `app-push-${region}-pr.eufy.com`);
-          assert.deepEqual(request.body, { token: "synthetic-fcm", is_notification_enable: true, voip_token: "" });
-        }
+
+        assert.equal(client.isSessionInvalidError(new Error("Mega request failed (4404: get identity error)")), true);
+        assert.deepEqual(await client.connect(), { state: "authenticated" });
+        assert.deepEqual(await client.inventory(), { devices: [], groups: [] });
+        assert.deepEqual(requests.map((request) => request.path), [
+          "/app/house/get_devs_list",
+          "/openapi/oauth/key/exchange",
+          "/app/house/get_devs_list",
+          "/v2/house/device_list",
+        ]);
+        const saved = JSON.parse(await readFile(sessionPath, "utf8")) as {
+          identities: Record<string, { keyIdent: string }>;
+        };
+        assert.notEqual(saved.identities[host]?.keyIdent, "stale-identity");
+        assert.equal(saved.identities[host]?.keyIdent, requests[1]?.keyIdent);
       } finally {
         await rm(directory, { recursive: true, force: true });
       }
@@ -108,71 +178,18 @@ test("completes encrypted push registration and activation using one restored re
   }
 });
 
-test("replaces and persists a stale Mega identity after HTTP 463 error 4406", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "mega-identity-recovery-"));
-  const sessionPath = join(directory, "mega-session.json");
-  const host = "app-openapi-eu-pr.eufy.com";
-  const staleSharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
-  let refreshedSharedKey = "";
-  const requests: Array<{ readonly path: string; readonly keyIdent: string | null }> = [];
-  try {
-    await writeFile(sessionPath, JSON.stringify({
-      version: 2, country: "au", openUdid: "device",
-      credentialVerifier: credentialVerifier("device", "user@example.invalid", "password"),
-      authToken: "token", tokenExpiresAt: 2_000_000_000, userId: "user",
-      megaDomain: "mega-eu-pr.eufy.com", domains: {},
-      identities: { [host]: { keyIdent: "stale-identity", sharedKey: staleSharedKey, clientPublicKey: "public" } },
-    }));
-    const fakeFetch: typeof fetch = async (input, init) => {
-      const path = new URL(String(input)).pathname;
-      const headers = new Headers(init?.headers);
-      requests.push({ path, keyIdent: headers.get("x-key-ident") });
-      if (path === "/app/house/get_devs_list" && requests.length === 1) {
-        return new Response(JSON.stringify({ code: 4406, msg: "get identity error", data: {} }), { status: 463 });
-      }
-      if (path === "/openapi/oauth/key/exchange") {
-        const body = JSON.parse(String(init?.body ?? "{}")) as { client_public_key?: string };
-        const clientPublicKey = decryptEnvelope(body.client_public_key ?? "", presetKey());
-        const server = createECDH("prime256v1");
-        server.generateKeys();
-        refreshedSharedKey = server.computeSecret(Buffer.from(clientPublicKey, "hex")).toString("hex");
-        return new Response(JSON.stringify({
-          code: 0,
-          data: { server_public_key: encryptEnvelope(server.getPublicKey("hex"), presetKey(), Buffer.alloc(16, 2)) },
-        }));
-      }
-      const responseValue = path === "/app/house/get_devs_list" ? { devices: [], groups: [] } : [];
-      const data = encryptEnvelope(JSON.stringify(responseValue), sharedAesKey(refreshedSharedKey), Buffer.alloc(16, 3));
-      return new Response(JSON.stringify({ code: 0, data }));
-    };
-    const client = new MegaClient({
-      email: "user@example.invalid", password: "password", country: "AU", persistentDirectory: directory,
-      minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000, fetch: fakeFetch,
-    });
-
-    assert.equal(client.isSessionInvalidError(new Error("Mega request failed (4404: get identity error)")), true);
-    assert.deepEqual(await client.connect(), { state: "authenticated" });
-    assert.deepEqual(await client.inventory(), { devices: [], groups: [] });
-    assert.deepEqual(requests.map((request) => request.path), [
-      "/app/house/get_devs_list",
-      "/openapi/oauth/key/exchange",
-      "/app/house/get_devs_list",
-      "/v2/house/device_list",
-    ]);
-    const saved = JSON.parse(await readFile(sessionPath, "utf8")) as {
-      identities: Record<string, { keyIdent: string }>;
-    };
-    assert.notEqual(saved.identities[host]?.keyIdent, "stale-identity");
-    assert.equal(saved.identities[host]?.keyIdent, requests[1]?.keyIdent);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-test("keeps unrelated and malformed HTTP 463 responses terminal", async () => {
+test("keeps login limits and unrelated responses terminal", async () => {
   const host = "app-openapi-eu-pr.eufy.com";
   const sharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
-  for (const body of [JSON.stringify({ code: 9999, msg: "unrelated", data: {} }), "not-json"]) {
+  const cases = [
+    { status: 200, body: JSON.stringify({ code: 100028, msg: "PRIVATE RESPONSE MESSAGE", data: {} }), error: "Mega request failed (100028: application error) operation=inventory" },
+    { status: 463, body: JSON.stringify({ code: 100028, msg: "PRIVATE RESPONSE MESSAGE", data: {} }), error: "Mega request failed (HTTP 463 code 100028)" },
+    { body: JSON.stringify({ code: 9999, msg: "PRIVATE RESPONSE MESSAGE", data: {} }), error: "Mega request failed (HTTP 463 code 9999)" },
+    { body: JSON.stringify({ code: "9999", msg: "PRIVATE RESPONSE MESSAGE", data: {} }), error: "Mega request failed (HTTP 463 response json_without_numeric_code)" },
+    { body: "not-json", error: "Mega request failed (HTTP 463 response non_json)" },
+    { body: "", error: "Mega request failed (HTTP 463 response empty_or_truncated)" },
+  ];
+  for (const { body, error, status = 463 } of cases) {
     const directory = await mkdtemp(join(tmpdir(), "mega-http463-terminal-"));
     const requests: string[] = [];
     try {
@@ -188,16 +205,73 @@ test("keeps unrelated and malformed HTTP 463 responses terminal", async () => {
         minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000,
         fetch: async (input) => {
           requests.push(new URL(String(input)).pathname);
-          return new Response(body, { status: 463 });
+          return new Response(body, { status });
         },
       });
 
       assert.deepEqual(await client.connect(), { state: "authenticated" });
-      await assert.rejects(client.inventory(), /^Error: Mega request failed \(HTTP 463\)$/);
+      const savedBefore = await readFile(join(directory, "mega-session.json"), "utf8");
+      await assert.rejects(client.inventory(), (caught: unknown) => caught instanceof Error && caught.message === error);
+      assert.equal(await readFile(join(directory, "mega-session.json"), "utf8"), savedBefore);
+      assert.equal(client.isSessionInvalidError(new Error(error)), false);
       assert.deepEqual(requests, ["/app/house/get_devs_list"]);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  }
+});
+
+test("renews a rejected login identity once without looping", async () => {
+  for (const retryCode of [0, 4404]) {
+    const directory = await mkdtemp(join(tmpdir(), "mega-login-identity-recovery-"));
+    const host = "app-openapi-eu-pr.eufy.com";
+    const staleSharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
+    let refreshedSharedKey = "";
+    const requests: Array<{ readonly path: string; readonly keyIdent: string | null }> = [];
+    try {
+      await writeFile(join(directory, "mega-session.json"), JSON.stringify({
+        version: 2, country: "au", openUdid: "device",
+        credentialVerifier: credentialVerifier("device", "user@example.invalid", "password"),
+        authToken: "", tokenExpiresAt: 0, userId: "", verificationPending: false,
+        megaDomain: "mega-eu-pr.eufy.com", domains: {},
+        identities: { [host]: { keyIdent: "stale-identity", sharedKey: staleSharedKey, clientPublicKey: "public" } },
+      }));
+      const client = new MegaClient({
+        email: "user@example.invalid", password: "password", country: "AU", persistentDirectory: directory,
+        minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000,
+        fetch: async (input, init) => {
+          const path = new URL(String(input)).pathname;
+          if (path === "/passport/validate_email") return new Response(JSON.stringify({ code: 0, data: {} }));
+          requests.push({ path, keyIdent: new Headers(init?.headers).get("x-key-ident") });
+          if (path === "/passport/login" && requests.filter(({ path: seen }) => seen === path).length === 1) {
+            return new Response(JSON.stringify({ code: 4404, msg: "get identity error", data: {} }));
+          }
+          if (path === "/openapi/oauth/key/exchange") {
+            const body = JSON.parse(String(init?.body ?? "{}")) as { client_public_key?: string };
+            const clientPublicKey = decryptEnvelope(body.client_public_key ?? "", presetKey());
+            const server = createECDH("prime256v1");
+            server.generateKeys();
+            refreshedSharedKey = server.computeSecret(Buffer.from(clientPublicKey, "hex")).toString("hex");
+            return new Response(JSON.stringify({ code: 0,
+              data: { server_public_key: encryptEnvelope(server.getPublicKey("hex"), presetKey(), Buffer.alloc(16, 2)) } }));
+          }
+          assert.equal(path, "/passport/login");
+          assert.ok(refreshedSharedKey);
+          return new Response(JSON.stringify(retryCode === 0
+            ? { code: 0, data: { auth_token: "fresh-token", user_id: "user", token_expires_at: 2_000_000_000 } }
+            : { code: retryCode, msg: "get identity error", data: {} }));
+        },
+      });
+
+      if (retryCode === 0) assert.deepEqual(await client.connect(), { state: "authenticated" });
+      else await assert.rejects(client.connect(), /Mega request failed \(4404: get identity error\) operation=login/);
+      assert.deepEqual(requests.map(({ path }) => path), [
+        "/passport/login", "/openapi/oauth/key/exchange", "/passport/login",
+      ]);
+      assert.equal(requests[0]?.keyIdent, "stale-identity");
+      assert.notEqual(requests[2]?.keyIdent, "stale-identity");
+      assert.equal(requests[1]?.keyIdent, requests[2]?.keyIdent);
+    } finally { await rm(directory, { recursive: true, force: true }); }
   }
 });
 
@@ -219,11 +293,16 @@ test("authenticates only the Eufy leg of an allowlisted media redirect", async (
           status: 302,
           headers: { location: "https://zhixin-security-au.s3.ap-southeast-2.amazonaws.com/private-image" },
         });
-        return new Response(Buffer.from([0xff, 0xd8, 0xff, 0xd9]), { status: 200 });
+        return new Response(Buffer.from([0xff, 0xd8, 0xff, 0xd9]), { status: 200, headers: {
+          "content-type": "application/octet-stream; private=not-retained", "content-length": "4", "x-private": "not-retained",
+        } });
       },
     });
     assert.deepEqual(await client.connect(), { state: "authenticated" });
-    assert.equal((await client.download("https://security-app-eu.eufylife.com/image")).length, 4);
+    assert.deepEqual(await client.downloadWithMetadata("https://security-app-eu.eufylife.com/image"), {
+      data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]), status: 200, contentType: "application/octet-stream",
+      contentEncoding: "identity", declaredLength: 4, bodyRepresentation: "fetch-body",
+    });
     assert.equal(requests.length, 2);
     assert.equal(requests[0]?.get("x-auth-token"), "media-token");
     assert.match(requests[0]?.get("user-agent") ?? "", /^Dalvik\/2\.1\.0/);
@@ -273,11 +352,13 @@ test("retains the limited verification session across an app restart", async () 
     authToken: "", tokenExpiresAt: 0, userId: "", megaDomain: "mega-eu-pr.eufy.com", domains: {},
     identities: { [host]: { keyIdent: "identity", sharedKey, clientPublicKey: "public" } },
   }));
-  const requests: Array<{ path: string; token: string | null }> = [];
+  const requests: Array<{ path: string; token: string | null; body: Record<string, unknown> }> = [];
   const fakeFetch: typeof fetch = async (input, init) => {
     const path = new URL(String(input)).pathname;
     const token = new Headers(init?.headers).get("x-auth-token");
-    requests.push({ path, token });
+    if (path === "/passport/validate_email") return new Response(JSON.stringify({ code: 0, data: {} }));
+    const body = JSON.parse(decryptEnvelope(String(init?.body), sharedAesKey(sharedKey))) as Record<string, unknown>;
+    requests.push({ path, token, body });
     if (path === "/passport/login" && !token) {
       return new Response(JSON.stringify({
         code: 26052,
@@ -307,6 +388,8 @@ test("retains the limited verification session across an app restart", async () 
     });
     assert.deepEqual(await firstProcess.connect(), { state: "verification-required" });
     assert.equal(requests[1]?.token, "limited-token");
+    assert.equal(requests[0]?.body.enc, 0);
+    assert.equal(requests[0]?.body.time_zone, new Date(1_700_000_000_000).getTimezoneOffset() * -60_000 || 0);
     assert.equal(JSON.parse(await readFile(sessionPath, "utf8")).authToken, "limited-token");
     assert.equal(JSON.parse(await readFile(sessionPath, "utf8")).verificationPending, true);
 
@@ -316,6 +399,8 @@ test("retains the limited verification session across an app restart", async () 
     });
     assert.deepEqual(await restartedProcess.connect("123456"), { state: "authenticated" });
     assert.equal(requests.at(-1)?.token, "limited-token");
+    assert.equal(requests.at(-1)?.body.enc, 0);
+    assert.equal(requests.at(-1)?.body.time_zone, new Date(1_700_000_000_000).getTimezoneOffset() * -60_000 || 0);
     assert.equal(JSON.parse(await readFile(sessionPath, "utf8")).authToken, "full-token");
     assert.equal(JSON.parse(await readFile(sessionPath, "utf8")).verificationPending, false);
   } finally {
@@ -388,12 +473,19 @@ test("uses the supported Mega inventory request and decrypts its response", asyn
     assert.equal(requests[0]?.headers.has("x-signature"), true);
     assert.equal(requests[1]?.url, "https://security-app-eu.eufylife.com/v2/house/device_list");
     assert.equal(requests[1]?.headers.get("x-key-ident"), "security-identity");
+
+    const before = requests.length;
+    assert.deepEqual(await client.inventory(undefined, { includeChargingDays: false }), { devices: [
+      { device_sn: "camera" }, { device_sn: "placeholder-only" },
+    ], groups: [] });
+    assert.equal(requests.length, before + 1);
+    assert.equal(requests.at(-1)?.url, "https://app-house-eu-pr.eufy.com/app/house/get_devs_list");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });
 
-test("fetches first-party PPCS DSK keys from the Mega device-relation API", async () => {
+test("fetches first-party PPCS DSK keys with each device family's category", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mega-dsk-"));
   const sharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
   const host = "app-openapi-eu-pr.eufy.com";
@@ -403,16 +495,32 @@ test("fetches first-party PPCS DSK keys from the Mega device-relation API", asyn
       authToken: "token", tokenExpiresAt: 2_000_000_000, userId: "user", megaDomain: "mega-eu-pr.eufy.com",
       domains: {}, identities: { [host]: { keyIdent: "identity", sharedKey, clientPublicKey: "public" }, "app-devicerelation-eu-pr.eufy.com": { keyIdent: "identity", sharedKey, clientPublicKey: "public" } },
     }));
-    const requests: string[] = [];
-    const fakeFetch: typeof fetch = async (input, _init) => {
-      requests.push(String(input));
-      const data = encryptEnvelope(JSON.stringify({ device_dsks: [{ device_sn: "station", dsk_key: "dsk", expiration: 1_700_000_123 }] }), sharedAesKey(sharedKey), Buffer.alloc(16, 3));
+    const requests: Array<{ url: string; body: string }> = [];
+    const fakeFetch: typeof fetch = async (input, init) => {
+      requests.push({ url: String(input), body: String(init?.body) });
+      assert.equal(new Headers(init?.headers).has("app-tab"), false);
+      const data = encryptEnvelope(JSON.stringify({ device_dsks: [
+        { device_sn: "station", dsk_key: "dsk", expiration: 1_700_000_123 },
+        { device_sn: "care", dsk_key: "care-dsk", expiration: 1_700_000_124 },
+      ] }), sharedAesKey(sharedKey), Buffer.alloc(16, 3));
       return new Response(JSON.stringify({ code: 0, data }), { status: 200 });
     };
     const client = new MegaClient({ email: "user@example.invalid", password: "password", country: "AU", persistentDirectory: directory, minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000, fetch: fakeFetch });
     await client.connect();
-    assert.deepEqual(await client.dskKeys(["station"]), { station: { key: "dsk", expiresAt: 1_700_000_123_000 } });
-    assert.equal(requests.at(-1), "https://app-devicerelation-eu-pr.eufy.com/app/devicerelation/get_dsk_keys");
+    assert.deepEqual(await client.dskKeys(["station", { serial: "care", category: "eufy_care" }]), {
+      station: { key: "dsk", expiresAt: 1_700_000_123_000 },
+      care: { key: "care-dsk", expiresAt: 1_700_000_124_000 },
+    });
+    assert.equal(requests.at(-1)?.url, "https://app-devicerelation-eu-pr.eufy.com/app/devicerelation/get_dsk_keys");
+    assert.deepEqual(JSON.parse(decryptEnvelope(requests.at(-1)!.body, sharedAesKey(sharedKey))), {
+      device_dsks: [
+        { invalid_dsk: "", device_sn: "station", category: "eufy_security" },
+        { invalid_dsk: "", device_sn: "care", category: "eufy_care" },
+      ],
+      invalid_dsks: { station: "", care: "" },
+      station_sns: ["station", "care"],
+      transaction: "1700000000000",
+    });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -442,7 +550,9 @@ test("fetches PPCS cipher keys through the regional eufy security API", async ()
     await client.connect();
     assert.deepEqual(await client.getCiphers([197], "user", "station"), [{ cipher_id: 197, ecc_private_key: "ecc", private_key: "private" }]);
     assert.equal(requests.at(-1)?.url, "https://security-app-eu.eufylife.com/v3/app/cipher/get_ciphers");
-    assert.equal(requests.at(-1)?.headers.get("content-type"), "application/json");
+    assert.equal(requests.at(-1)?.headers.get("content-type"), "text/plain");
+    assert.equal(requests.at(-1)?.headers.get("app-tab"), "eufy_security");
+    assert.equal(requests.at(-1)?.headers.get("app-name"), "eufy_mega");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -470,7 +580,7 @@ test("restored inventory and media HTTP401 retain distinct recovery decisions", 
     authToken: "token", tokenExpiresAt: 2_000_000_000, userId: "user", megaDomain: "mega-eu-pr.eufy.com", domains: {},
     identities: { [host]: { keyIdent: "identity", sharedKey: "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100", clientPublicKey: "public" } } };
   const urls: string[] = [];
-  const fakeFetch: typeof fetch = async (input) => { urls.push(String(input)); return new Response("", { status: 401 }); };
+  const fakeFetch: typeof fetch = async (input) => { urls.push(String(input)); return new Response(JSON.stringify({ code: 26084, msg: "token error" }), { status: 401 }); };
   try {
     await writeFile(join(directory, "mega-session.json"), JSON.stringify(session));
     const client = new MegaClient({ email: "fixture@example.invalid", password: "redacted", country: "AU",
@@ -478,16 +588,100 @@ test("restored inventory and media HTTP401 retain distinct recovery decisions", 
     await client.connect();
     await assert.rejects(client.inventory(), (error: unknown) => {
       assert.ok(error instanceof Error);
-      assert.equal(error.message, "Mega request failed (HTTP 401)");
+      assert.equal(error.message, "Mega request failed (HTTP 401 response=json code=26084 session rejected) operation=inventory");
       assert.equal(client.isSessionInvalidError(error), true);
       return true;
     });
     await assert.rejects(client.download("https://security-app.eufylife.com/fixture.jpg"), (error: unknown) => {
       assert.ok(error instanceof Error);
-      assert.equal(error.message, "Mega media download failed (HTTP 401)");
+      assert.equal(error.message, "Mega media download failed (HTTP 401); attempts=1; hop=initial; initial=eufy-us /[redacted].jpg segments=1 q=absent");
       assert.equal(client.isSessionInvalidError(error), false);
       return true;
     });
     assert.equal(urls.length, 2);
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+
+test("cloud operation labels never disclose endpoints or prototype properties", () => {
+  assert.equal(megaOperation("/passport/login"), "login");
+  assert.equal(megaOperation("/app/house/get_devs_list"), "inventory");
+  for (const path of ["__proto__", "constructor", "/private/unknown?account=fixture"]) assert.equal(megaOperation(path), "unknown");
+});
+
+for (const region of ["us", "ie"]) test(`inventory rejection identifies its phase without disclosing server data in ${region}`, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mega-inventory-operation-"));
+  const sharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
+  const openHost = `app-openapi-${region}-pr.eufy.com`;
+  try {
+    await writeFile(join(directory, "mega-session.json"), JSON.stringify({
+      version: 2, country: "gb", openUdid: "device", credentialVerifier: credentialVerifier("device", "user@example.invalid", "redacted"),
+      authToken: "synthetic-token", tokenExpiresAt: 2_000_000_000, userId: "synthetic-user", verificationPending: false,
+      megaDomain: `mega-${region}-pr.eufy.com`, domains: {}, identities: { [openHost]: { keyIdent: "identity", sharedKey, clientPublicKey: "public" } },
+    }));
+    let requests = 0;
+    const client = new MegaClient({ email: "user@example.invalid", password: "redacted", country: "GB", persistentDirectory: directory,
+      minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000,
+      fetch: async (input) => {
+        requests++;
+        assert.equal(new URL(String(input)).pathname, "/app/house/get_devs_list");
+        return new Response(JSON.stringify({ code: 26108, msg: "PRIVATE_SERVER_BODY user@example.invalid", data: {} }));
+      },
+    });
+    assert.equal((await client.connect()).state, "authenticated");
+    await assert.rejects(client.inventory(), error => {
+      assert.equal((error as Error).message, "Mega request failed (26108: application error) operation=inventory");
+      return true;
+    });
+    assert.equal(requests, 1, "an unknown application error must not cause sign-in or retries");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+
+test("forced sign-in preserves the installed device identity and retires old token headers", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mega-force-login-"));
+  const path = join(directory, "mega-session.json");
+  await writeFile(path, JSON.stringify({ version: 2, country: "au", openUdid: "fixture-device",
+    credentialVerifier: credentialVerifier("fixture-device", "fixture@example.invalid", "redacted"),
+    authToken: "old-token", tokenExpiresAt: 2_000_000_000, userId: "fixture-user",
+    megaDomain: "mega-eu-pr.eufy.com", domains: {}, identities: {} }));
+  const requests: string[] = [];
+  let sharedKey = "";
+  const client = new MegaClient({ email: "fixture@example.invalid", password: "redacted", country: "AU",
+    persistentDirectory: directory, minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000,
+    fetch: async (url, options) => {
+      const endpoint = new URL(String(url)).pathname;
+      requests.push(endpoint);
+      const headers = new Headers(options?.headers);
+      assert.equal(headers.has("x-auth-token"), false);
+      if (endpoint === "/passport/estimate_domain") return new Response(JSON.stringify({
+        code: 0, data: { domain: "mega-eu-pr.eufy.com", product_domains: {} } }));
+      assert.equal(headers.get("openudid"), "fixture-device");
+      if (endpoint === "/openapi/oauth/key/exchange") {
+        const body = JSON.parse(String(options?.body)) as { client_public_key: string };
+        const publicKey = decryptEnvelope(body.client_public_key, presetKey());
+        const server = createECDH("prime256v1"); server.generateKeys();
+        sharedKey = server.computeSecret(Buffer.from(publicKey, "hex")).toString("hex");
+        return new Response(JSON.stringify({ code: 0, data: {
+          server_public_key: encryptEnvelope(server.getPublicKey("hex"), presetKey()) } }));
+      }
+      const body = JSON.parse(decryptEnvelope(String(options?.body), sharedAesKey(sharedKey)));
+      if (endpoint === "/passport/validate_email") {
+        assert.deepEqual(body, { email: "fixture@example.invalid" });
+        return new Response(JSON.stringify({ code: 0, data: { enc_text: "sha2" } }));
+      }
+      assert.equal(endpoint, "/passport/login");
+      return new Response(JSON.stringify({ code: 0, data: { auth_token: "new-token", user_id: "fixture-user", token_expires_at: 2_000_000_000 } }));
+    } });
+  try {
+    assert.equal((await client.connect()).state, "authenticated");
+    assert.deepEqual(requests, []);
+    assert.equal((await client.connect(undefined, undefined, true)).state, "authenticated");
+    assert.deepEqual(requests, ["/passport/estimate_domain", "/openapi/oauth/key/exchange", "/passport/validate_email", "/passport/login"]);
+    const saved = JSON.parse(await readFile(path, "utf8"));
+    assert.equal(saved.openUdid, "fixture-device");
+    assert.equal(saved.authToken, "new-token");
+    assert.equal(saved.credentialVerifier, credentialVerifier("fixture-device", "fixture@example.invalid", "redacted"));
+    assert.doesNotMatch(await readFile(path, "utf8"), /old-token/);
+  } finally { client.cancelPendingRequests(); await rm(directory, { recursive: true, force: true }); }
 });

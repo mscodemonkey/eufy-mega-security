@@ -77,10 +77,28 @@ export interface CameraAudioSettings {
 /** Inventory configuration only, not live image orientation, lamp output or sound events. */
 export interface CameraReportedSettings {
 
+  /** T8426 manual override setting, distinct from motion-driven illumination or physical lamp output. */
+  readonly manualFloodlightEnabled?: boolean | null;
+
+  /** Exact standalone C31 pre-recording setting, not proof of a recording duration. */
+  readonly preRecordingEnabled?: boolean | null;
+
   /** Model-limited ringtone and sound configuration, not live audio or detection results. */
   readonly ringtoneVolume?: number | null;
   readonly soundDetectionSensitivity?: number | null;
   readonly soundDetectionType?: number | null;
+
+  /** Exact standalone C31 preferences, independent of detection or low-light results. */
+  readonly soundRoundLookEnabled?: boolean | null;
+  readonly enhanceLightingEnabled?: boolean | null;
+
+  /** Exact C31 or opt-in T8425/T8426 light setting and C31 notification spacing. */
+  readonly lightBrightness?: number | null;
+  readonly notificationIntervalMinutes?: number | null;
+
+  /** Exact C31 publication and continuous recording switches, independent of active consumers. */
+  readonly rtspPublicationEnabled?: boolean | null;
+  readonly continuousRecordingEnabled?: boolean | null;
 
   /** Reported quality ranks. They do not assert an observed resolution or codec. */
   readonly streamingQualityTier?: number | null;
@@ -96,6 +114,9 @@ export interface CameraReportedSettings {
   readonly antiTheftDetectionEnabled?: boolean | null;
   readonly spotlightEnabled?: boolean | null;
   readonly motionSensitivityRaw?: number | null;
+
+  /** Reviewed least-to-most detection step, independent of legacy raw parameter mirrors. */
+  readonly motionSensitivityStep?: number | null;
   readonly imageFlipped: boolean | null;
   readonly statusLedEnabled: boolean | null;
   readonly soundDetectionEnabled: boolean | null;
@@ -142,8 +163,47 @@ export interface CameraState {
   /** Whether the owned ready route and known baseline admit native streaming-quality writes. */
   readonly streamingQualityControlSupported?: boolean;
 
+  /** Known preferences with an exact owned and ready control route. */
+  readonly preferenceControls?: readonly string[];
+
+  /** Per-model bounds for admitted preferences, absent on older gateways. */
+  /** Strict model-owned preference values, separate from generic camera interpretations. */
+  readonly carePreferences?: Readonly<Record<string, number>>;
+
+  readonly preferenceRanges?: Readonly<Record<string, { readonly minimum: number; readonly maximum: number }>>;
+
+  /** An explicit empty set suppresses generic camera detections for a care adapter. */
+  readonly supportedDetections?: readonly DetectionKind[];
+
+  /** Separate care adapter retains the E21's existing notification entity IDs. */
+  readonly careMonitor?: boolean;
+
+  /** Exact-route admission for fresh-state-confirmed sensitivity and HomeBase chime writes. */
+  readonly motionSensitivityControlSupported?: boolean;
+  readonly motionSensitivitySteps?: number | null;
+  readonly homebaseChimeControlSupported?: boolean;
+
+  /** Opt-in exact T8425/T8426 brightness with a readable baseline; physical behaviour is unconfirmed. */
+  readonly lightBrightnessControlSupported?: boolean;
+
+  /** Opt-in exact T8426 manual override with independent setting readback. */
+  readonly manualFloodlightControlSupported?: boolean;
+
   /** Model-specific streaming choices, used only when control admission is true. */
   readonly streamingQualityModes?: readonly CameraStreamingQualityMode[];
+
+  /** Default-off exact-profile NVR controls, withdrawn when admission changes. */
+  readonly nvrPanControlSupported?: boolean;
+
+  /** Opt-in direct single-click movement, without a position or held-motion claim. */
+  readonly directionalPanControlSupported?: boolean;
+  readonly nvrOpticalZoomControlSupported?: boolean;
+  readonly nvrViewOptions?: readonly string[];
+  readonly nvrSelectedView?: number | null;
+
+  /** Exact-profile NVR controls are admitted, whether or not the profile offers a view choice. */
+  readonly nvrLiveControlsSupported?: boolean;
+
 
   /** Strictly validated camera-owned settings, with unknown values left absent. */
   readonly reportedSettings: CameraReportedSettings | null;
@@ -156,6 +216,9 @@ export interface CameraState {
 
   /** Whether the ready camera route supplies validated AAC for live MPEG-TS delivery. */
   readonly liveAudioSupported?: boolean;
+
+  /** Exact route support for bounded speaker audio, independent of microphone streaming. */
+  readonly talkbackSupported?: boolean;
 
   /** The direct route supports verified SD event retrieval; card presence is checked on access. */
   readonly storedRecordingsSupported?: boolean;
@@ -208,23 +271,26 @@ export interface CameraState {
 /** One camera-specific label for a raw night-vision mode value. */
 export interface NightVisionMode {
   readonly value: number;
-  readonly name: "Off" | "Colour" | "Infrared" | "Infrared on" | "Spotlight";
+  readonly name: "Off" | "Colour" | "Infrared" | "Infrared on" | "Spotlight" | "Standard" | "Auto Infrared" | "Auto night vision";
 }
 
 /** One exact model's app-confirmed streaming quality, independent of recorded-video quality. */
 export interface CameraStreamingQualityMode {
   readonly value: number;
-  readonly name: "Auto" | "HD (720P)" | "Full HD (1080P)" | "2K";
+  readonly name: "Auto" | "HD (720P)" | "Full HD (1080P)" | "2K" | "4K" | "Ultra 4K" | "Medium" | "High" | "Low" | "Highest";
 }
 
 /** Normalized battery reads exposed only when a device reports each field. */
 export interface BatteryState {
-  readonly supported: readonly ("level" | "charging" | "health" | "temperature" | "lastChargingDays")[];
+  readonly supported: readonly ("level" | "backupLevel" | "charging" | "health" | "temperature" | "lastChargingDays")[];
   readonly level: number | null;
   readonly charging: boolean | null;
   readonly health: number | null;
   readonly temperature: number | null;
   readonly lastChargingDays: number | null;
+
+  /** Separate AA backup percentage, absent unless this exact model reports it. */
+  readonly backupLevel?: number | null;
 }
 
 /** Complete normalized state for one supported standalone security sensor. */
@@ -234,11 +300,30 @@ export interface SecuritySensorState {
   readonly model: string;
   readonly deviceType: number;
   readonly available: boolean;
-  readonly capabilities: readonly ("battery" | "contact" | "lastSeen" | "motion" | "rssi")[];
+  readonly capabilities: readonly ("battery" | "contact" | "crying" | "lastSeen" | "motion" | "rssi" | "sound" | "pet" | "babyLeft" | "babyEntered" | "temperatureHigh" | "temperatureLow" | "careAreaLeft" | "careAreaEntered" | "babyActivity" | "roomTemperature" | "careDiagnostics")[];
   readonly batteryLevel: number | null;
   readonly contactOpen: boolean | null;
   readonly lastSeen: string | null;
   readonly motionDetected: boolean;
+
+  /** A recent crying push was retained; false does not classify current audio. */
+  readonly cryingDetected?: boolean;
+
+  /** A recent sound push was retained; false does not classify current audio. */
+  readonly soundDetected?: boolean;
+
+  /** Independent recent E21 notifications, absent on other sensor families. */
+  readonly petDetected?: boolean;
+  readonly babyLeftDetected?: boolean;
+  readonly babyEnteredDetected?: boolean;
+  readonly temperatureHighDetected?: boolean;
+  readonly temperatureLowDetected?: boolean;
+  readonly careAreaLeftDetected?: boolean;
+  readonly careAreaEnteredDetected?: boolean;
+  readonly babyActivityDetected?: boolean;
+
+  /** Strict reported room state, separate from any battery measurement. */
+  readonly careSettings?: import("../provider/e21-profile.js").E21CareSettings;
   readonly rssi: number | null;
 }
 
@@ -249,7 +334,7 @@ export interface HomeBaseStorageState {
   readonly freeBytes: number | null;
 }
 
-/** Complete normalized state for one discovered HomeBase. */
+/** Complete normalized state for one discovered station. */
 export interface HomeBaseState {
   readonly serial: string;
   readonly name: string;
@@ -266,12 +351,21 @@ export interface HomeBaseState {
   /** Whether the station may receive confirmed guard-mode writes. */
   readonly guardModeControlSupported: boolean;
 
-  /** Whether the local state path is enabled for this station model. */
+  /** Whether this station has an established read-only state source. */
   readonly stateReadSupported: boolean;
   readonly homeBaseSirenControlSupported: boolean;
   readonly connected: boolean;
   readonly guardMode: number | null;
+
+  /** Account-defined labels for explicitly reported custom modes 3 to 5. */
+  readonly guardModeNames: Readonly<Record<number, string>>;
   readonly effectiveMode: number | null;
+
+  /** Last fresh NVR observation. Its absence must not be treated as a live readback. */
+  readonly effectiveModeReportedAt?: string | null;
+
+  /** Owning observation transport. Omission preserves compatibility with older push-only gateways. */
+  readonly effectiveModeSource?: "eufy_push" | "nvr_rtc" | null;
   readonly alarmActive: boolean | null;
   readonly alarmVolume: number | null;
   readonly promptVolume: number | null;
@@ -286,8 +380,78 @@ export interface HomeBaseState {
   };
 }
 
-/** Events sent over the gateway SSE endpoint. */
+/** Allowlisted lock state; private identities, raw enums and MQTT material never cross this boundary. */
+export const SMART_LOCK_STATE_TTL_MS = 360_000;
+
+/** Public settings facts with independent device and cloud observation ages. */
+export interface SmartLockSettings {
+  readonly volume: 0 | 1 | 2 | 3 | null;
+  readonly autoLock: boolean | null;
+
+  /** Device-reported timer, independent of whether automatic locking is enabled. */
+  readonly autoLockDelaySeconds: number | null;
+  readonly notifications: boolean | null;
+  readonly lockedNotifications: boolean | null;
+  readonly unlockedNotifications: boolean | null;
+  readonly observedAt: string | null;
+  readonly notificationsObservedAt: string | null;
+}
+
+/** Closed user controls admit reviewed timer choices, excluding schedules and mute writes. */
+export type E30LockSettingChange = { readonly setting: "volume"; readonly value: 1 | 2 | 3 }
+  | { readonly setting: "autoLockDelaySeconds"; readonly value: 30 | 60 | 90 | 120 | 150 | 180 | 300 }
+  | { readonly setting: "autoLock" | "notifications" | "lockedNotifications" | "unlockedNotifications"; readonly value: boolean };
+
+/** Validate untrusted settings bodies before provider authority or network work is used. */
+export function isE30LockSettingChange(value: unknown): value is E30LockSettingChange {
+  if (!value || typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) return false;
+  const row = value as Record<string, unknown>;
+  if (Object.keys(row).length !== 2 || !Object.hasOwn(row, "setting") || !Object.hasOwn(row, "value")) return false;
+  return row.setting === "volume" ? Number.isInteger(row.value) && [1, 2, 3].includes(row.value as number)
+    : row.setting === "autoLockDelaySeconds" ? Number.isInteger(row.value) && [30, 60, 90, 120, 150, 180, 300].includes(row.value as number)
+    : ["autoLock", "notifications", "lockedNotifications", "unlockedNotifications"].includes(row.setting as string) && typeof row.value === "boolean";
+}
+
+/** Copy cached facts and independently expire physical, device-settings and notification groups. */
+export function maskSmartLockState(state: SmartLockState, now = Date.now()): SmartLockState {
+  const fresh = (stamp: string | null): boolean => {
+    if (!stamp) return false;
+    const age = now - Date.parse(stamp);
+    return Number.isFinite(age) && age >= 0 && age <= SMART_LOCK_STATE_TTL_MS;
+  };
+  const settings = state.settings ? { ...state.settings,
+    ...(!fresh(state.settings.observedAt) ? { volume: null, autoLock: null, autoLockDelaySeconds: null, observedAt: null } : {}),
+    ...(!fresh(state.settings.notificationsObservedAt) ? { notifications: null, lockedNotifications: null, unlockedNotifications: null, notificationsObservedAt: null } : {}) } : undefined;
+  return { ...state, ...(settings ? { settings } : {}),
+    ...(!fresh(state.stateObservedAt) ? { state: "unknown" as const, available: false, batteryPercent: null } : {}) };
+}
+
+/**
+ * Normalized lock observations consumed by authenticated HTTP and Home Assistant.
+ * Read-only cloud profiles carry their source explicitly and never inherit the
+ * separately owned E30 adapter's settings or motor authority.
+ */
+export interface SmartLockState {
+  readonly serial: string;
+  readonly name: string;
+  readonly model: "T85F1" | "T8520" | "T8520J11" | "T8520S";
+
+  /** A cloud inventory profile has no lock, unlock, settings or query authority. */
+  readonly readOnly?: true;
+
+  /** Receipt of cached cloud facts must never be claimed as a physical device query. */
+  readonly observationSource?: "cloud_inventory";
+  readonly state: "locked" | "unlocked" | "unknown";
+  readonly available: boolean;
+  readonly batteryPercent: number | null;
+  readonly stateObservedAt: string | null;
+  readonly settings?: SmartLockSettings;
+}
+
+/** Normalized state notifications consumed by the authenticated SSE connection. */
 export type GatewayEvent =
+  | { readonly type: "lock"; readonly lock: SmartLockState }
+  | { readonly type: "locks"; readonly locks: readonly SmartLockState[] }
   | { readonly type: "camera-updated"; readonly camera: CameraState }
   | { readonly type: "sensor-updated"; readonly sensor: SecuritySensorState }
   | { readonly type: "sensors-updated"; readonly sensors: readonly SecuritySensorState[] }
@@ -323,8 +487,47 @@ export interface CameraIdentity {
   /** Optional admission for fresh-state-confirmed streaming-quality writes. */
   readonly streamingQualityControlSupported?: boolean;
 
+  /** Known preferences with an exact owned and ready control route. */
+  readonly preferenceControls?: readonly string[];
+
+  /** Per-model bounds for admitted preferences, absent on older gateways. */
+  /** Strict model-owned preference values, separate from generic camera interpretations. */
+  readonly carePreferences?: Readonly<Record<string, number>>;
+
+  readonly preferenceRanges?: Readonly<Record<string, { readonly minimum: number; readonly maximum: number }>>;
+
+  /** An explicit empty set suppresses generic camera detections for a care adapter. */
+  readonly supportedDetections?: readonly DetectionKind[];
+
+  /** Separate care adapter retains the E21's existing notification entity IDs. */
+  readonly careMonitor?: boolean;
+
+  /** Exact-route admission for fresh-state-confirmed sensitivity and HomeBase chime writes. */
+  readonly motionSensitivityControlSupported?: boolean;
+  readonly motionSensitivitySteps?: number | null;
+  readonly homebaseChimeControlSupported?: boolean;
+
+  /** Opt-in exact T8425/T8426 brightness with a readable baseline; physical behaviour is unconfirmed. */
+  readonly lightBrightnessControlSupported?: boolean;
+
+  /** Opt-in exact T8426 manual override with independent setting readback. */
+  readonly manualFloodlightControlSupported?: boolean;
+
   /** Native choices for this model, separate from recorded-video resolution. */
   readonly streamingQualityModes?: readonly CameraStreamingQualityMode[];
+
+  /** Default-off exact-profile NVR controls, withdrawn when admission changes. */
+  readonly nvrPanControlSupported?: boolean;
+
+  /** Current admission for the gateway-owned direct single-click movement path. */
+  readonly directionalPanControlSupported?: boolean;
+  readonly nvrOpticalZoomControlSupported?: boolean;
+  readonly nvrViewOptions?: readonly string[];
+  readonly nvrSelectedView?: number | null;
+
+  /** Exact-profile NVR controls are admitted, whether or not the profile offers a view choice. */
+  readonly nvrLiveControlsSupported?: boolean;
+
 
   /** Optional read-only configuration projection from fresh device inventory. */
   readonly reportedSettings?: CameraReportedSettings | null;
@@ -335,11 +538,17 @@ export interface CameraIdentity {
   readonly stationSerial: string;
   readonly streamSupported: boolean;
 
+  /** Whether provider startup may open this stream to seed a retained snapshot. */
+  readonly startupSnapshotSupported?: boolean;
+
   /** The provider owns validated SD event retrieval on this route, not card formatting or deletion. */
   readonly storedRecordingsSupported?: boolean;
 
   /** Optional provider admission for live AAC, independent of reported microphone settings. */
   readonly liveAudioSupported?: boolean;
+
+  /** Exact route support for bounded speaker audio, independent of microphone streaming. */
+  readonly talkbackSupported?: boolean;
   readonly doorbellSupported: boolean;
   readonly enabled?: boolean | null;
   readonly enableControlSupported?: boolean;
@@ -401,7 +610,7 @@ export interface CameraCapabilityManifest {
   readonly reviewCandidate: boolean;
   /** Peer transport prerequisites, independent of camera-type admission. */
   readonly peerRouteReady: boolean;
-  readonly reason: "supported-camera-type" | "catalogued-camera-type" | "non-security-category" | "unrecognized-camera-type";
+  readonly reason: "exact-e21-profile" | "supported-camera-type" | "catalogued-camera-type" | "non-security-category" | "unrecognized-camera-type";
   readonly capabilities: readonly CameraCapability[];
   readonly matrix: readonly CapabilityMatrixRow[];
   readonly unmappedParamIds: readonly number[];
@@ -469,6 +678,9 @@ export interface InventoryDiagnostic {
   readonly acceptedAsCamera: boolean;
   readonly megaDeviceType: number | null;
   readonly category: string | null;
+
+  /** Privacy-safe shape of camera power parameter 1035, without its raw payload. */
+  readonly cameraSwitch1035: "zero" | "one" | "other_number" | "boolean" | "text" | "structured" | "other" | "missing";
 }
 
 /** Privacy-safe evidence that can be attached to a device support report. */
@@ -494,4 +706,38 @@ export interface CatalogueEventEvidence {
   readonly hasFilePath: boolean;
   readonly hasFetchId: boolean;
   readonly hasSenseId: boolean;
+}
+
+/** Complete received-frame categories, excluding sizes and vendor contents. */
+export interface StreamFrameKind {
+  readonly kind: "gateway-info" | "camera-info" | "video" | "audio" | "response" | "notification" | "other";
+
+  /** Numeric command from a complete header, never its payload or acceptance result. */
+  readonly command: number;
+
+  /** Unsigned header discriminator selecting the frame encryption representation. */
+  readonly signCode: number;
+
+  /** Unsigned transport discriminator, excluding channel and peer identity. */
+  readonly transportType: number;
+}
+
+/** Last observed startup boundary, without claiming transport ACK means camera acceptance. */
+export type StreamStartupBoundary = "lookup" | "start-not-sent" | "start-unacknowledged"
+  | "start-acknowledged-no-video" | "video-without-output" | "output" | "unknown";
+
+/** Numeric source-transport evidence without peer addresses, keys or payload bytes. */
+export interface StreamDiagnostic {
+  readonly stage: "lookup" | "first-frame" | "media";
+
+  /** Transient provider source identity, renumbered within each private capture. */
+  readonly sourceAttempt?: number;
+  readonly startupBoundary?: StreamStartupBoundary;
+  readonly frameKinds?: readonly StreamFrameKind[];
+  readonly counters: Readonly<Record<"dataDatagrams" | "frameHeaders" | "videoFrames" | "videoOutputFrames"
+    | "sequenceGaps" | "sequenceRestarts" | "duplicateDatagrams" | "staleDatagrams"
+    | "parserResyncs" | "pendingBytes" | "incompleteAccessUnits" | "incompleteAccessUnitBytes", number>>
+    & Readonly<Partial<Record<"camId" | "gatewayInfo" | "level2" | "cameraInfoFrames" | "foreignVideoFrames"
+      | "gatewayInfoAcknowledged" | "gatewayInfoRetransmitted" | "gatewayInfoExpired"
+      | "mediaStartAttempts" | "mediaStartAcknowledged" | "mediaStartRetransmitted" | "mediaStartExpired", number>>>;
 }

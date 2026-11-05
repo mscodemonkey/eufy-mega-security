@@ -9,6 +9,8 @@ availability come from ``entity.py``.
 
 from __future__ import annotations
 
+from typing import Any
+
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
@@ -21,7 +23,43 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import EufyGatewayConfigEntry
 from .const import DOMAIN
 from .coordinator import EufyGatewayCoordinator
+from .lock import EufyLockEntity
 from .entity import EufyGatewayEntity, EufySecuritySensorEntity, EufyStationEntity
+
+
+DETECTION_KINDS = (
+    "motion", "person", "stranger", "pet", "vehicle", "dog", "crying", "sound",
+    "packageDelivered", "packageTaken", "packageStranded",
+)
+
+
+def sync_detection_registry(
+    registry: er.EntityRegistry, entry_id: str, serial: str, supported: Any
+) -> None:
+    """Retain detection entries while applying an explicit gateway event profile.
+
+    The caller excludes care monitors, whose motion, crying, sound and pet IDs
+    belong to standalone care sensors. Their legacy camera entries also remain
+    untouched. Only this entry's default-enabled detection entities are managed.
+    User and device disables, custom names, IDs and options remain untouched.
+    Home Assistant may schedule its own reload after an integration disable is
+    cleared. Repeated identical calls make no registry updates.
+    """
+    if not isinstance(supported, list):
+        return
+    for kind in DETECTION_KINDS:
+        entity_id = registry.async_get_entity_id(
+            "binary_sensor", DOMAIN, f"{serial}_{kind}"
+        )
+        entity = registry.async_get(entity_id) if entity_id else None
+        if entity is None or entity.config_entry_id != entry_id:
+            continue
+        if kind not in supported and entity.disabled_by is None:
+            registry.async_update_entity(
+                entity_id, disabled_by=er.RegistryEntryDisabler.INTEGRATION
+            )
+        elif kind in supported and entity.disabled_by == er.RegistryEntryDisabler.INTEGRATION:
+            registry.async_update_entity(entity_id, disabled_by=None)
 
 
 async def async_setup_entry(
@@ -35,8 +73,28 @@ async def async_setup_entry(
     known_cameras: set[str] = set()
     known_stations: set[str] = set()
     known_sensors: set[str] = set()
+    known_read_only_locks: set[str] = set()
+    applied_profiles: dict[str, tuple[str, ...] | None] = {}
 
     def add_new() -> None:
+        read_only_locks = {
+            serial for serial, state in coordinator.locks.items()
+            if state.get("readOnly") is True
+        } - known_read_only_locks
+        known_read_only_locks.update(read_only_locks)
+        if read_only_locks:
+            async_add_entities([
+                EufyReportedLockState(coordinator, serial)
+                for serial in sorted(read_only_locks)
+            ])
+        for serial, camera in coordinator.cameras.items():
+            if camera.get("careMonitor") is True:
+                continue
+            supported = camera.get("supportedDetections")
+            profile = tuple(supported) if isinstance(supported, list) else None
+            if serial not in applied_profiles or applied_profiles[serial] != profile:
+                sync_detection_registry(registry, entry.entry_id, serial, supported)
+                applied_profiles[serial] = profile
         serials = set(coordinator.cameras) - known_cameras
         if serials:
             known_cameras.update(serials)
@@ -48,20 +106,11 @@ async def async_setup_entry(
                     )
                     if stale_entity_id:
                         registry.async_remove(stale_entity_id)
+                supported = coordinator.cameras[serial].get("supportedDetections")
+                kinds = DETECTION_KINDS
                 entities.extend(
-                    [
-                        EufyDetectionSensor(coordinator, serial, "motion"),
-                        EufyDetectionSensor(coordinator, serial, "person"),
-                        EufyDetectionSensor(coordinator, serial, "stranger"),
-                        EufyDetectionSensor(coordinator, serial, "pet"),
-                        EufyDetectionSensor(coordinator, serial, "vehicle"),
-                        EufyDetectionSensor(coordinator, serial, "dog"),
-                        EufyDetectionSensor(coordinator, serial, "crying"),
-                        EufyDetectionSensor(coordinator, serial, "sound"),
-                        EufyDetectionSensor(coordinator, serial, "packageDelivered"),
-                        EufyDetectionSensor(coordinator, serial, "packageTaken"),
-                        EufyDetectionSensor(coordinator, serial, "packageStranded"),
-                    ]
+                    EufyDetectionSensor(coordinator, serial, kind)
+                    for kind in kinds if not isinstance(supported, list) or kind in supported
                 )
                 if coordinator.cameras[serial].get("doorbellSupported"):
                     entities.append(
@@ -94,14 +143,44 @@ async def async_setup_entry(
                     entities.append(
                         EufyStandaloneBinarySensor(coordinator, serial, "contact")
                     )
-                if "motion" in capabilities:
-                    entities.append(
-                        EufyStandaloneBinarySensor(coordinator, serial, "motion")
-                    )
+                for kind in ("motion", "crying", "sound", "pet", "babyLeft", "babyEntered", "temperatureHigh", "temperatureLow", "careAreaLeft", "careAreaEntered", "babyActivity"):
+                    if kind in capabilities:
+                        entities.append(EufyStandaloneBinarySensor(coordinator, serial, kind))
             async_add_entities(entities)
 
     add_new()
     entry.async_on_unload(coordinator.async_add_listener(add_new))
+
+
+class EufyReportedLockState(EufyLockEntity, BinarySensorEntity):
+    """Expose cached lock status without offering a motor service.
+
+    The coordinator owns inventory and cache expiry. This entity reports the
+    lock's cloud value only and never queries, locks or unlocks the device.
+    """
+
+    _attr_translation_key = "reported_lock_state"
+    _attr_device_class = BinarySensorDeviceClass.LOCK
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Keep a stable sensor identity separate from a future actuating lock entity."""
+        super().__init__(coordinator, serial)
+        self._attr_unique_id = f"{serial}_reported_lock_state"
+
+    @property
+    def available(self) -> bool:
+        """Retire this read-only entity if the gateway replaces its profile."""
+        return super().available and self.lock_state.get("readOnly") is True
+
+    @property
+    def is_on(self) -> bool | None:
+        """Home Assistant's lock binary sensor is on for unlocked, off for locked."""
+        value = self.lock_state.get("state")
+        if value == "unlocked":
+            return True
+        if value == "locked":
+            return False
+        return None
 
 
 class EufyDetectionSensor(EufyGatewayEntity, BinarySensorEntity):
@@ -184,9 +263,9 @@ class EufyCameraChargingSensor(EufyGatewayEntity, BinarySensorEntity):
 class EufyStandaloneBinarySensor(EufySecuritySensorEntity, BinarySensorEntity):
     """Expose one capability-backed state for a standalone security sensor.
 
-    Contact state remains active until the next settled open/closed event;
-    motion state is transient and expires in the gateway. Separate instances
-    are created only for capabilities advertised by that sensor.
+    Contact state remains active until the next settled open/closed event.
+    Care states are recent notifications that expire in the gateway. Off means
+    no recent notification is retained, rather than a continuous room reading.
     """
 
     def __init__(
@@ -197,19 +276,33 @@ class EufyStandaloneBinarySensor(EufySecuritySensorEntity, BinarySensorEntity):
         BinarySensorEntity.__init__(self)
         self.kind = kind
         self._attr_unique_id = f"{serial}_{kind}"
-        self._attr_translation_key = (
-            "contact_sensor" if kind == "contact" else "motion_detection"
-        )
-        self._attr_device_class = (
-            BinarySensorDeviceClass.OPENING
-            if kind == "contact"
-            else BinarySensorDeviceClass.MOTION
-        )
+        self._attr_translation_key = {
+            "contact": "contact_sensor",
+            "motion": "motion_detection",
+            "crying": "crying_detection",
+            "sound": "sound_detection",
+            "pet": "pet_detection", "babyLeft": "baby_left", "babyEntered": "baby_entered",
+            "temperatureHigh": "temperature_high", "temperatureLow": "temperature_low",
+            "careAreaLeft": "care_area_left", "careAreaEntered": "care_area_entered", "babyActivity": "baby_activity",
+        }[kind]
+        self._attr_device_class = {
+            "contact": BinarySensorDeviceClass.OPENING,
+            "motion": BinarySensorDeviceClass.MOTION,
+            "crying": BinarySensorDeviceClass.SOUND,
+            "sound": BinarySensorDeviceClass.SOUND,
+            "pet": BinarySensorDeviceClass.OCCUPANCY, "babyLeft": None, "babyEntered": None,
+            "temperatureHigh": None, "temperatureLow": None, "careAreaLeft": None, "careAreaEntered": None, "babyActivity": None,
+        }[kind]
+
+    @property
+    def available(self) -> bool:
+        """Withdraw care entities when inventory no longer advertises the kind."""
+        return super().available and self.kind in self.sensor.get("capabilities", [])
 
     @property
     def is_on(self) -> bool | None:
         """Return normalized open or motion state without inventing unknown values."""
-        field = "contactOpen" if self.kind == "contact" else "motionDetected"
+        field = "contactOpen" if self.kind == "contact" else f"{self.kind}Detected"
         value = self.sensor.get(field)
         return value if isinstance(value, bool) else None
 

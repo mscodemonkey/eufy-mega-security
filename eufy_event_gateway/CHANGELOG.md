@@ -1,5 +1,699 @@
 # Changelog
 
+## 0.1.242
+
+- Correct experimental S350 controls behind NVR S4: receipt-only pan acknowledgement, 1x/2x/3x zoom, app-matched streaming-quality labels, and AI tracking with fresh readback. Keep exact model, owner and opt-in boundaries.
+- Add a consented Home Assistant terminal state check for T8030, T8410 and T8417 that uses the saved integration connection without displaying the gateway token.
+- Preserve standalone T8224 RTC signing rejection categories and safe HTTP status diagnostics. This does not establish a web-portal login requirement or fix every service rejection.
+- Record two-camera T8134 direct Wi-Fi video, event, battery and enablement results. Keep stale event images, receive audio and optional talkback/settings scope separate.
+
+## 0.1.241
+
+- Preserve supplied visitor names on doorbell press events instead of replacing them with the generic ring label. Automatic recovery when no name reaches the gateway remains open.
+- Report refused read-only movement checks separately from connection failures, without moving the camera. Physical confirmation on the reported T8425 setup remains outstanding.
+- Send the authenticated NVR hangup before closing a joined live-view call so the NVR can accept the next camera promptly. Oliver Nixon contributed the fix and confirmed 29 consecutive switches on two Indoor Cam S350 cameras after reproducing eight failures before it.
+- Give the exact SoloCam S340 T8171 route through HomeBase 3 up to two seconds to finish repairing late video packets. Owned-camera checks passed a 90-second view and a fresh 60-second reopen, but the separate intermittent pause remains under normal-use observation.
+- Document Home Assistant Marketplace installation and updates alongside the existing HACS path. A normal Marketplace UI install and HACS migration still need isolated confirmation.
+
+## 0.1.240
+
+- Experimental NVR S4 live video can now open for attached Indoor Cam S350 and Video Doorbell E340 cameras. The existing camera identity is retained, and the route remains off by default behind Experimental NVR live.
+- The route passed the full hosted validation suite and real-device read-only stream checks. One first-open E340 stall was observed during contributor testing, so longer-term hardware behaviour is still being watched rather than claimed as confirmed.
+
+## 0.1.239
+
+- Stop the exact T8210/type 7 doorbell through HomeBase 3 channel 4 with the independently authenticated direct command used by the current Eufy app. Other models, types, stations and child channels retain their existing stop path. An owned-device 60-second open and fresh 60-second reopen passed with maximum media gaps of 1.5 and 0.3 seconds. The longer-term intermittent pause remains unconfirmed outside these observed sessions.
+
+## 0.1.238
+
+- Keep the exact T8210/type 7 doorbell through HomeBase 3 alive with the station heartbeat used by the current Eufy app. Three consecutive development sessions, including two 90-second windows, stayed below a 0.8-second media gap. The longer-term intermittent pause remains unconfirmed outside these observed sessions.
+- Keep the S340's video and audio on one playback clock through Home Assistant. The retained resolution-change failure now passes end to end, and owned-camera first-open and reopen checks produced decoded video without extending the existing source limits.
+- Add a default-off six-second smooth live-view buffer for the exact S340/type 88 through HomeBase 3 channel 1. It retains the original recording and snapshot sources. Hardware playback and audio synchronisation remain unconfirmed.
+- Do not close an S340 stream for a frame gap that has already been repaired, and cancel obsolete alert-picture downloads when a newer visit owns another supported camera route. The separate intermittent cloud-picture failure remains unresolved.
+- Keep an immediate NVR live-view retry separate from the failed source while it closes, and give the existing experimental S1 route its twenty-second first-picture budget without repeating the start command. The reported S1 benefit remains physically unconfirmed.
+- Use the current Security portal identity headers for the default-off general RTC inventory read. HTTP 463 and T8420X playback still need a reporter check.
+- Record the reporter-confirmed T8400 setup on the current release in the device catalogue without broadening its existing runtime support.
+
+## Unreleased
+
+- Keep an immediate NVR live-view retry separate from a failed startup while the old connection finishes closing. Concurrent retry viewers share one replacement, and stop, shutdown and changed ownership still cancel it.
+- Give the existing experimental S1 (T8172/type 89) HomeBase 3 route its twenty-second first-picture budget when start confirmation is missing. A checked picture must arrive before the deadline, and no start command is repeated. Other models, diagnostics and lens selection retain their existing behaviour. Hardware benefit on the reported S1 remains unconfirmed.
+- Add a default-off six-second smooth live-view buffer for the exact S340/type 88 through HomeBase 3 channel 1. It uses the camera frame clock and checked audio sample clock, retains original media, and keeps snapshots and recordings on their existing source. Both relative clocks start after the existing bounded audio wait, preventing an opening video burst from hiding AAC from Home Assistant. Muted sources retain video-only fallback. Hardware playback and audio synchronisation remain unconfirmed.
+- Use the current portal's Security web identity and country headers for camera-list reads in the default-off general RTC trial. Keep the admitted session and existing no-login, no-key-exchange and no-retry limits. This corrects the request profile, but HTTP 463 and T8420X playback still need a reporter check.
+
+## 0.1.237
+
+- Correct the SoloCam S340 (T8171/type 88) live-view start and stop through HomeBase 3 on channel 1 using the current native-app profile. The correction addresses the observed blank first view and stays limited to this identity and topology.
+- Preserve T8171 video frames while the observed late packets are repaired. Its video channel now waits up to one second before discarding an incomplete frame. Other routes and control channels retain their existing wait, with the same packet, memory, startup and session limits. The retained failed interval replays with zero gaps and zero parser resynchronisations.
+- Retain preset-control ownership until its connection finishes disconnecting, including failed queries. A queued live view can no longer overtake that disconnect. Thanks to Heath Bexley (@heath-bexley) for the connection cleanup and packet-repair corrections in #590 and #592.
+- Actual development checks passed for Home Assistant opens and reopens on both affected cameras, all six 60-second source windows with decoded video, and Home Assistant image delivery. The separate rare HomeBase 2 recovery conditions in #465 remain physically unconfirmed.
+
+## 0.1.236
+
+- Use the app-compatible attached live-view selector for HomeBase cameras. The previous selector could start video that later stopped. Encrypted-session regression coverage checks the outgoing request on both HomeBase generations. Thanks to Heath Bexley (@heath-bexley) for the correction in #585.
+- Admit Indoor Cam C220 v3 (T8419N, type 10011) through the existing camera handler. Forlorned_Fable (@ilxfauno-dev) contributed the mapping and confirmed moving video on their hardware. Other features still need separate confirmation.
+- Explain which optional general-portal inventory read failed without logging response bodies or account details. Thanks to Heath Bexley (@heath-bexley) for #586. This diagnostic does not establish T8420X playback support.
+- Local development checks passed for all six home-camera source windows and Home Assistant live opens and reopens on the two affected cameras. Rare HomeBase 2 startup recovery and reporter-specific failures remain under investigation.
+
+## 0.1.235
+
+- Repair lost HomeBase setup-query delivery for attached camera live view. Retransmissions keep the original packet and sequence, stop on a matching receipt or response, expire after three seconds, and retain the existing first-frame deadline. This addresses a retained T8210 Home Assistant open that never reached media startup.
+- Preserve the existing doorbell press sensor when the S4 doorbell uses experimental HomeBase Professional S1 video. Selecting that route previously withdrew the doorbell capability and Home Assistant removed the sensor. Thanks to Heath Bexley (@heath-bexley) for the correction and @jaimmor for reporting it.
+- This corrects sensor exposure. Doorbell-event delivery on that setup and separately reported video interruptions remain unconfirmed. Experimental video and controls remain off by default.
+
+## 0.1.234
+
+- Keep acknowledged attached-camera starts alive until the existing first-picture deadline, avoiding a premature restart while a camera wakes (#578).
+- Answer valid heartbeat requests from the connected camera or HomeBase so live connections are maintained in both directions (#576).
+- Prevent automatic preset discovery from cancelling a live view that is still opening. Live starts also wait for an earlier preset or pan operation to retire its control connection. Thanks to Heath Bexley (@heath-bexley) for this fix (#580).
+
+## 0.1.233
+
+- Keep an acknowledged T8171 start through T8030 channel one alive until the existing first-frame deadline instead of restarting it at the five-second heartbeat.
+- Preserve delivery repair for unacknowledged starts, the original first-frame timeout, normal stall recovery after real video, and neighbouring model, station and channel behaviour.
+- The owned-camera candidate passed two 40-second T8171 views, including one that needed 9.3 seconds to start, plus 40-second T8210 and T8113-Z checks.
+- Longer-term intermittent reliability remains under investigation in #570.
+
+## 0.1.232
+
+- Explain whether the manual T8425 direction test stopped before sending movement or failed after the gateway admitted it.
+- Show only closed admission reasons and keep private device, account, connection and server details out of the helper output.
+- Ask for `model_control_trial_failed` only when the movement request reached the gateway.
+- Physical T8425 movement and stopping remain unconfirmed.
+
+## 0.1.231
+
+- Share pending live-source startup across concurrent viewers so every requester sees a failure and can retry.
+- Wait for normal and silent-source retirement before admitting replacement viewers, and await outstanding provider cleanup during gateway shutdown.
+- Preserve private-recording isolation through late startup and include retirement waits in viewer timing.
+- Thanks to Heath Bexley (@heath-bexley) for the source and viewer lifecycle corrections in #569.
+- Intermittent T8030 playback interruptions remain under investigation in #570. The lifecycle correction does not establish a hardware fix for those interruptions.
+
+## 0.1.230
+
+- Cancel obsolete event-picture cloud reads for the qualified HomeBase 3 camera route even when experimental thumbnail recovery is disabled. A newer accepted visit no longer waits behind the old download. Recovery itself still requires its opt-in setting.
+- Keep usable NVR video running when the startup confirmation is missing. Checked picture output from the current session can satisfy the existing start deadline. Empty or parameter-only streams still time out, while explicit rejections, cancellation and stale ownership still fail.
+- Remove the fixed one-second NVR connection-gathering pause after the first usable candidate. Continue gathering and forwarding later candidates.
+- Keep NVR negotiation available to later candidates from either peer after a failed first route. The existing session deadline and cancellation still limit the attempt, and completed failed negotiations are rejected.
+- Expand regression coverage for recovery-disabled picture cancellation, late picture replies, delayed relay candidates, failed direct checks, remote gathering completion, missing startup confirmations, cancellation and stop acknowledgements.
+- Credit Heath Bexley (@heath-bexley) for these changes. The affected T8172 first view, dual-lens behaviour and actual NVR startup improvement remain unconfirmed on reporter hardware. The original intermittent cloud-picture failure remains unresolved.
+
+## 0.1.229
+
+- Add the first observed closure cause and whether a source ever attached to the existing viewer_client_stopped summary. Failed starts, provider stops, source endings, conversion failures and consumer/transport closures can now be distinguished without private error text or URLs. This diagnostic does not yet establish the cause of a reporter's blank first HA view.
+- Preserve media timing, retries, viewer profiles and source ownership. Focused zero-byte, warm-source, conversion and codec-change tests plus full repository and local HA checks passed.
+
+## 0.1.228
+
+- Cancel an obsolete cloud picture download and its retry delay when a newer accepted visit owns the image. This prevents the old read holding up the next request in the optional HomeBase 3 recovery experiment. It does not fix the intermittent cloud 404 failure.
+- Keep the S120 manual-light trial's shared HomeBase reserved until session disconnect finishes, preventing overlapping camera operations during cleanup. The existing owner-account requirement remains.
+- Add an authenticated, opt-in manual direction test for exact standalone T8425/type 47 on channel zero. It checks fresh owner and route information, sends once without retry, and reports acknowledgement separately from physical movement. Normal HA pan controls, other models and attached routes are excluded. Movement and stopping are unconfirmed. Observe the camera and restore the original view in Eufy after testing.
+- Full repository checks, focused regressions, local Home Assistant health and camera-image checks passed. Software validation does not establish reporter hardware success.
+
+## 0.1.227
+
+- Prevent a cloud-picture download from a previous gateway session delaying pictures after that session restarts. New picture requests can start immediately, while late responses from the retired session are discarded. This does not resolve Eufy's separate cloud HTTP 404 picture failures.
+
+## 0.1.226
+
+- Let Home Assistant scripts continue after motion and camera-enable requests are accepted, with pending state, background confirmation and visible failures. Remove an unrelated charging-history lookup from setting confirmation.
+- Add default-off S1 Home Assistant live-view trials for exact T8172, T8140, T8113-V and T8215 cameras, and a fixed-view NVR trial for exact T8P10 cameras. Hardware playback remains unconfirmed.
+- Add default-off standalone C37 movement, tracking, saved-position and spotlight controls, with fresh-state checks, explicit failures and original queued connection ownership.
+- Correct general RTC inventory admission and retain NVR mode observations across repeated readings and overlapping connections.
+- Add encrypted opt-in rolling raw history for private diagnostics, plus manual exact-recording name and thumbnail checks. Add an exact T8113-Z through HomeBase 3 missing-picture recovery experiment, disabled by default. Other picture failures and automatic missing-name recovery remain unresolved.
+- Explain read-only lock status admission failures without exposing private device details.
+
+## 0.1.225
+
+- Add an optional, read-only NVR mode watcher so Home Assistant can receive mode changes without an open live view. It is off by default, starts with unknown effective mode and still needs NVR hardware confirmation. This does not enable arming controls.
+- Preserve a recognized person's name when it arrives in a repeated notification for the same visit, without firing another alert or applying it to a newer visit. This does not recover notifications that never reach the gateway.
+- Add viewer startup timings that separate source video, conversion and the video queued to each HTTP viewer. Headers alone do not count as ready video. Home Assistant display time remains a separate measurement.
+
+## 0.1.224
+
+- Preserve capture-local source attempts and separate header, acknowledgement and output counters in private diagnostics so a failed first-frame start can be tied to the source that actually stopped.
+- Correct the standalone C31 continuous-recording index test to use the command observed in the official app. This confirms index retrieval only and does not add continuous-recording playback.
+
+## 0.1.223
+
+- Capture terminal event-picture HTTP failures in the opt-in private diagnostic session, with bounded receipts and session-specific references for comparing the same event in the Eufy app.
+- Preserve existing image samples and download behaviour. This adds the evidence needed to investigate missing pictures and does not claim to fix intermittent HTTP 404 responses.
+
+## 0.1.222
+
+- Preserve the original dimensions and JPEG headers of supported encrypted V2 event pictures instead of reconstructing them. Existing picture recovery remains available when decryption cannot be used.
+
+## 0.1.221
+
+- Keep normal NVR live views running when Eufy's signalling socket closes after valid video has started, while retaining fail-closed setup and finite diagnostic sessions.
+- Prevent duplicate Eufy verification-code submissions while the first accepted code is still completing startup.
+
+## 0.1.220
+
+- Keep normal opt-in NVR live views open while the viewer remains attached and picture-bearing video continues, instead of forcing a reconnect at two minutes.
+- Retire an NVR live source after 45 seconds without picture-bearing output. Heartbeats and parameter sets cannot keep a stalled source alive. Startup, first-frame, stop, diagnostic and security-trial timeouts remain finite.
+- Preserve the required remaining video-progress budget before sending existing opt-in live controls. Physical confirmation of the longer NVR view remains outstanding.
+
+## 0.1.219
+
+- Match the account-specific password format required by Eufy before signing in, including verification and CAPTCHA submissions. Failed format checks stop without trying another password format.
+- Recover once when Eufy explicitly rejects the running gateway's session during an inventory refresh. Show any required verification or CAPTCHA prompt without requiring an app restart.
+- Preserve the gateway device identity during session renewal and stop automatic retries when recovery fails. Unrelated HTTP 401 responses retain the saved session and report a privacy-safe response category and code.
+
+- Account-specific sign-in and session-recovery behaviour still need confirmation on affected accounts. This release does not address NVR live-view session rollover or missing event pictures.
+
+## 0.1.218
+
+- Retire the headerless event-picture experiment. Pictures use normal authenticated requests even when the old setting remains enabled, and the retired setting is identified as ignored.
+- Explain read-only FamiLock status refusals with specific, privacy-safe reasons in Diagnostics and logs. Existing ownership and connection checks remain enforced, with no lock operation enabled.
+- Intermittent event-picture 404 failures remain unresolved. Physical T85V0 status behaviour still needs confirmation.
+
+## 0.1.217
+
+- Correct notification registration to match the current Eufy app, including both token fields, and remove the unrelated app-review check that could leave delivery marked degraded.
+- Keep successful registration separate from confirmed event delivery. Notification delivery on the affected shared account still needs confirmation.
+
+## 0.1.216
+
+- Fix E21 live-view readiness by requesting its camera transport key with the correct care-device category.
+
+## 0.1.215
+
+- Preserve fragmented HomeBase state responses when UDP packets arrive out of order or are repeated, using the existing bounded receive window.
+- Recover response alignment after a missing fragment so a later complete response can still be read.
+- Add privacy-safe HomeBase failure counters for request delivery, response sequencing and assembly progress.
+
+## 0.1.214
+
+- Recover the verified T8113-Z/HomeBase 2 channel-zero startup when the authenticated peer ignores a live-start request, acknowledges it without an application response, or stalls after a short video bootstrap. Replace only the owned peer, at most twice, within the original startup deadline.
+- Serialize classic HomeBase state refreshes with pending camera startup so background reads cannot open a competing session during live-view setup.
+- Keep HomeBase 2 motion handoffs exclusive with station refreshes, and cancel pending child starts before an interrupting station operation proceeds.
+- Drain the HomeBase state reader's final disconnect before releasing its UDP socket and station ownership, with immediate logical cancellation and a finite cleanup deadline.
+- Add real UDP and provider lifecycle regressions for disconnect delivery, cancellation, late callbacks and refresh/media handoff. Intermittent hardware startup remains tracked separately in #465 until the required physical behaviour is confirmed.
+
+## 0.1.213
+
+- Fixed integration startup on Home Assistant 2026.11 after its camera timeout constant moved.
+
+## 0.1.212
+
+- Add one privacy-safe camera startup timing line that separates key lookup, prior-session cleanup, cipher lookup and transport startup without logging device identifiers or network details.
+
+## 0.1.211
+
+- Let Home Assistant OS users run one admitted experimental movement test through the support utility without exposing the app-generated API token.
+
+## 0.1.210
+
+- Expose the existing Home Assistant doorbell press sensor for exact Video Doorbell S4 T8215/type 97 devices after a reporter confirmed their physical button uses the already-supported event shape. Motion, person and button events are now recorded separately, while live view, snapshots and controls remain unconfirmed.
+
+## 0.1.209
+
+- Repair the exact T8113-Z/T8010 setup query with byte-identical, peer-pinned DATA retransmission until its validated acknowledgement or reply, the existing three-second repair deadline, or session close.
+- Add separate safe setup-delivery counters so missing packet receipt stays distinct from a missing application response. The existing live-start repair, encoder-recovery policy and first-frame deadline are unchanged.
+- Cover dropped queries, malformed or foreign acknowledgements, duplicate acknowledgements, replies with lost acknowledgements, expiry, close and unchanged neighboring model routes through the real session boundary.
+- Hardware startup and handoff remain tracked in #465. Transport acknowledgement does not establish successful live video, and this release does not claim that intermittent hardware fault is resolved.
+
+## 0.1.208
+
+- Add off-by-default motion-detection switches and five-step sensitivity numbers for exact standalone T8425/type 47 and T8426/type 87 on channel zero. The current owner account, a ready route and a unique readable setting are required.
+- Read a fresh native baseline, send one absolute command and confirm the result independently. Unknown results withdraw the affected setting. Keep zones, notification types and motion-lighting schedules unchanged.
+- Retain exclusive settings ownership until the session disconnect has drained, including failed readback and cancellation cleanup.
+- Verify both synthetic models through normal Home Assistant Container switch and number services, restoring the original values. Physical detection and sensitivity behaviour remain unconfirmed. Model aliases and attached routes stay excluded.
+
+## 0.1.207
+
+- Fix PPCS shutdown discarding queued disconnect and attached-camera stop packets. Media and pending operations still retire immediately, while UDP closes after the final send completes, with a finite local cleanup deadline.
+- Wait for that cleanup before replacing a live stream or handing a HomeBase 2 peer between live video and motion control. Timed-out controls keep their reservation until their owned disconnect has drained.
+- Add real loopback and lifecycle regressions for packet delivery, duplicate close, missing completion, cancellation and both handoff directions. Make the existing short care-monitor timer test deterministic.
+- Hardware startup and handoff results are tracked separately in #465. Local send completion does not mean the camera acknowledged the disconnect.
+
+## 0.1.206
+
+- Add a separate, off-by-default faster native HLS startup option. It shortens the segment target only for the first ordinary HLS output of a new native stream, after confirming its settings are isolated from Home Assistant's global configuration. Existing outputs, recordings and preload retain their current setup.
+- Verify native H.264 and H.265 HLS through Home Assistant Container 2026.10.4 with generated video. The optional setting reduced first-fragment time from about 7.2 to 3.1 seconds, preserving codec, keyframe access and decoded frame timing. This does not establish browser rendering latency or reporter hardware performance.
+- Add an opt-in brightness number for exact standalone T8426/type 87, using the existing owner, fresh baseline, single-write and independent-readback safeguards. Physical brightness behaviour remains unconfirmed, and model aliases and attached routes remain excluded.
+
+## 0.1.205
+
+- Add an opt-in brightness number for exact standalone T8425/type 47 with the current owner account, a fresh baseline, one command and independent readback. Physical brightness behaviour remains unconfirmed.
+- Add an opt-in Manual floodlight light entity for exact standalone T8426/type 87. It controls the reported manual override independently of motion lighting, uses its native command format and requires fresh setting readback. Physical behaviour remains unconfirmed, and no automatic-off timer is promised.
+- Reduce startup buffering in compatible H.265 conversion by limiting input probing while retaining the initial keyframe. Real FFmpeg tests preserve all frames and confirm output before the input closes. This does not establish a fix for native-view or camera startup delay.
+
+## 0.1.204
+
+- Add an opt-in, read-only T8520, T8520J11 and T8520S cloud-inventory profile for direct devices reporting type 51. Home Assistant exposes reported lock state and battery without lock, unlock or settings controls. Physical behaviour remains unconfirmed.
+- Keep cached cloud observations separate from fresh bolt queries and E30 motor authority, including HTTP, event-stream and Home Assistant boundaries.
+- Let Eufy authorize the manual reported-parameter diagnostic using the current account token instead of inferring read permission from an inventory administrator identifier. Server refusals remain final, and device-command ownership checks are unchanged.
+- Direct compatibility reports to the private diagnostics-sharing guide instead of requesting public diagnostic attachments.
+
+## 0.1.203
+
+- Add a Docker Compose installation for Home Assistant Container, with a persistent gateway session and API token, read-only private options file, health check and manual integration setup guide.
+- Identify standalone gateway builds using their packaged release version when Supervisor build arguments are absent.
+- Validate the Compose gateway and a fresh Home Assistant Container without Supervisor using simulated cameras. Existing Eufy account and device compatibility requirements still apply.
+
+## 0.1.202
+
+- Add a manual read-only state check for T8410, T8417 and HomeBase 3 missing-state investigations. It requires experimental model controls, explicit consent, a gateway API token and the existing owner account.
+- Report only cached candidate field shapes. The check leaves settings and normal Home Assistant state unchanged, masks binary candidates in logs and discards cancelled or changed-device results.
+- Hardware usefulness remains unconfirmed. Missing power, privacy, alarm-volume and manual siren-state controls are not declared fixed or enabled by this diagnostic.
+
+## 0.1.201
+
+- Preserve leading and trailing whitespace in configured Eufy passwords instead of changing them before sign-in.
+- Clarify login rejection codes 26006 and 10019, and avoid labelling every CAPTCHA submission failure as an incorrect answer. Reporter login recovery remains unconfirmed.
+- Passwords are now used exactly as configured. If a saved value only worked because surrounding whitespace was silently removed, correct that value before signing in again. No fallback login with a trimmed password is attempted.
+- Retire blocked CAPTCHA and verification forms for the current normal sign-in attempt after error 10019. A previously pending verification prompt can return after a restart, and the separate experimental video sign-in flow is unchanged.
+
+## 0.1.200
+
+- Add a privacy-safe failure stage to experimental model-control trial warnings, so failed T84A1 motion tests can distinguish session setup, the initial read, the write, and confirmation readback without exposing raw errors.
+
+## 0.1.199
+
+- Admit the exact Video Doorbell S4 T8215/type 97 profile for hardware testing and expose its reported battery readings. Discovery and battery reporting are testable, while live view, snapshots, events and controls remain unconfirmed.
+- Recognise the exact Video Doorbell Chime 2 T8026/type 600 identity without treating it as a camera or exposing unsupported media and controls.
+- Record reporter-confirmed T86P2 motion delivery when notifications are enabled in Away mode. Other declared events and live view remain unconfirmed.
+
+## 0.1.198
+
+- Admit the exact 4G LTE Cam S330 T86P2/type 111 profile for hardware testing, including its declared motion, person, pet, vehicle and sound events for Home Assistant automations.
+- Keep model aliases excluded and leave live media behind the existing direct-route checks. Actual event delivery and live view still need reporter confirmation.
+
+## 0.1.197
+
+- Explain why an exact-model experimental control is unavailable when Diagnostics can safely distinguish an unsupported identity, an unready direct route, an owner-account requirement, or a missing connection key.
+- Keep account, route, and key details private while preserving the existing opt-in and no-command-on-refusal safeguards.
+
+## 0.1.196
+
+- Admit exact Indoor Cam C220 T8W11C/type 10008 for testing after the reporter supplied its numeric identity, firmware 4.0.9.4 and direct Wi-Fi connection. Retain route and reported-state guards, exclude type 10008 aliases, and leave media, detection and control hardware behaviour unconfirmed.
+- Admit exact standalone Floodlight Cam E 2K T8422/type 37 for camera testing. Reporter diagnostics established the missing admission, but firmware, actual media playback, detections and camera-enable hardware behaviour remain unconfirmed. Model aliases remain excluded.
+- Limit direct T8420/type 3 detection entities to motion, and direct T8224/type 96 and T8422/type 37 to motion and person. Keep doorbell press handling separate. Remove unsupported pet, vehicle and sound declarations from the two affected catalogue profiles.
+- Preserve existing detection entity IDs, names and options while disabling unsupported integration-owned entries, with care-monitor sensor entities unchanged. Automations depending on those unsupported entities stop receiving their states. Preserve user/device disables and migrate profiles that arrive after initial inventory. Supported integration-disabled detection entries may be restored by Home Assistant's normal registry lifecycle.
+
+## 0.1.195
+
+- Add standalone Floodlight Cam E340 T8425 night vision, manual floodlight on/off and siren start/stop controls. Thanks to @cbource for the contribution and physical tests on firmware 1.6.4.6.
+- Restrict new T8425 controls to their supported direct camera route and add packet and refusal coverage. HomeBase-attached cameras and model aliases are not covered by these hardware results.
+- Record the exact tested scope. Brightness, motion settings, pan/tilt and tracking remain separate requests. Siren timed expiry and state are unconfirmed, and the manual floodlight does not promise independent state or automatic expiry.
+
+## 0.1.194
+
+- Record reporter-confirmed fresh snapshot capture for the standalone C30 on v0.1.191, while retaining the experimental option and unconfirmed physical sleep boundary.
+- Record native H.265 playback in the Home Assistant iOS app and desktop browsers on one installation, without claiming a selected transport or low-latency playback.
+
+## 0.1.193
+
+- Add privacy-safe Home Assistant playback observations to integration diagnostics without opening cameras, including when the gateway is unavailable. This supports investigation of restart-related battery drain and does not claim to fix its cause.
+- Record confirmed C30 T8224 live-view startup and reopening with the experimental option, and distinguish the new standalone T8425 result from earlier hardware reports. Record the v0.1.188 T8E00-through-T8N00 physical power-test result without expanding normal controls.
+
+## 0.1.192
+
+- NVR live view can send its connection answer while candidate gathering continues, reducing time spent waiting for slow discovery. Late relay candidates remain eligible, pending relay work is cancelled on shutdown, and the camera stop request keeps its established connection until completion. Local connection and relay tests pass. Real NVR startup latency and late-candidate acceptance still need hardware confirmation.
+- Add an optional native video profile in the Home Assistant integration. It shares original H.264 or H.265 video without the H.264 compatibility conversion. The option is off by default and video only. HLS and get_stream_url share the selected source, H.265 playback depends on the client, and turning the option off restores compatible video and audio.
+- Isolate native and compatible viewers so conversion failures and client disconnects do not terminate the other profile. Native URLs use separate camera-scoped signatures, and startup timing logs contain no connection identities.
+
+## 0.1.191
+
+- Let the existing opt-in standalone C30 doorbell video setting enable normal Home Assistant live view for the exact T8224/type 96 route. Diagnostic playback is reporter-confirmed, while normal-view startup and reopening still need physical confirmation.
+- Keep the main Home Assistant camera access token stable across retained-image updates so idle stream workers do not retry an obsolete URL and loop on HTTP 401 responses.
+
+## 0.1.190
+
+- Fixed HomeBase 2 motion changes competing with live video. The gateway pauses media and holds reconnects until it confirms the setting.
+- Added limited recovery for lost live-view start packets, preserving the original request and reporting acknowledgement, retry and expiry counts.
+- Added a total motion-control deadline and matching Home Assistant timeout. Errors distinguish an unsent change from a result that needs checking before retrying.
+
+## 0.1.189
+
+- Let the opt-in standalone C30 doorbell video test accept the bounded SCTP offer variant already used by Eufy's RTC clients. Normal Home Assistant live view remains disabled until the hardware trial succeeds.
+
+## 0.1.188
+
+- Fix the S100 connection-test handoff and report precise preparation failures without exposing private transport details.
+- Add an opt-in, read-only T8170 alarm-state experiment with private results and no arming or siren commands. Hardware behaviour remains unconfirmed.
+- Add passive T8417 inventory-field observations to investigate camera enablement and privacy reporting without changing device settings.
+- Add a disabled-by-default T8172 event-picture request comparison based on the Android app. Preserve ordinary download behaviour and the last retained picture on failure. Hardware benefit remains unconfirmed.
+
+## 0.1.187
+
+- Add a separate consented Diagnostics action to sign in again for the experimental general camera video test, with visible identity readiness and CAPTCHA or email-code handling.
+- Pause gateway activity during preparation, refuse while account work is busy, and require restart after a failed attempt. The action may replace the saved sign-in and never runs automatically.
+- Keep video PIN and clip consent separate. Ready confirms a bound video identity, while playable camera video remains hardware-unconfirmed.
+
+## 0.1.186
+
+- Preserve crying/sound entities and add the remaining source-defined E21 care notifications, attributed event pictures and normalized room settings.
+- Add default-off direct live video and receive-only audio, plus owner-only preferences confirmed by fresh raw device inventory. No E21 stream starts at boot.
+- Keep unsupported privacy, night vision, RTSP writes, presets, talkback and other unverified commands unavailable. Physical E21 behaviour remains unconfirmed.
+
+## 0.1.185
+
+- Explain how the official Eufy app interprets login rejection 26108, while keeping account details private and preserving the existing no-retry behaviour.
+
+## 0.1.184
+
+- Add experimental sensor-only support for the exact Baby Monitor E21 T8354, Mega type 86 in the `eufy_care` category. Home Assistant now creates separate transient crying and sound notification sensors without admitting video, audio, pictures, or controls.
+- Treat E21 entities as notification relays only. An off state means no recent push was retained. It does not classify live audio or prove that a child is not crying. These entities are not a safety, medical, or monitoring device and must not be the sole alert for a child.
+- Decode the bounded base64 JSON envelope used by Eufy Care notifications while preserving the existing strict identity, freshness, deduplication, and privacy boundaries. Hardware and cloud delivery for this model still need reporter confirmation.
+
+## 0.1.183
+
+- Match the T8223/type 95 C31 night-vision choices to the Eufy app: Off and Auto night vision. This changes wording only, with no change to numeric values or commands. Physical behaviour still awaits reporter confirmation.
+- Update both the app and integration to this release. C31 automations using the option infrared must use auto_night_vision instead, and the entity's recorded state uses the new key. The updated integration also understands the old gateway wording. Other camera models keep their existing options.
+
+## 0.1.182
+
+- Accept a validated standalone doorbell video offer when Eufy's call-accepted message arrives immediately afterwards, while retaining the existing one-call ownership and cleanup limits.
+- Preserve privacy-safe offer failure reasons so another T8224 test can distinguish an ordering mismatch from an unsupported offer shape without logging signaling data.
+
+- Normal Home Assistant live view remains unavailable for this route. A T8224 reporter still needs to confirm whether the opt-in diagnostic clip plays on real hardware.
+
+## 0.1.181
+
+- Restore the night-vision select for a C31 doorbell reporting T8223/type 95 through a ready HomeBase 2 or HomeBase 3 connection. It offers Off and Infrared only when a known current value is available.
+- Require fresh readback after changing that setting, so a cached value cannot confirm an unsuccessful write.
+
+- The exact C31 hardware behaviour and coexistence with live video still need reporter confirmation. This does not enable other doorbell models, standalone C31 controls, or Spotlight mode.
+
+## 0.1.180
+
+- Keep experimental control forms disabled until an available control is loaded for the selected camera, discard stale form results and give Diagnostics its own readable background.
+- Stop renewing cached stream credentials with no Home Assistant consumer, and refresh them when an idle camera view is explicitly reopened without restarting a healthy worker.
+- Allow queued NVR camera-power inventory checks ten seconds while preserving the trial deadlines, ownership checks and restoration safeguards. Physical behaviour remains unconfirmed.
+- Correct stale NVR support documentation to distinguish reported RTC video, restricted experimental paths and unavailable station controls.
+
+## 0.1.179
+
+- Admit the SoloCam E42 T8173/type 98 through the existing camera handler as a hardware-unconfirmed `ready_to_test` model, including attached HomeBase routes.
+- Expose camera enablement for attached cameras on their reported child channel when the cloud reports a valid state and the existing HomeBase control route is ready. Standalone controls remain limited to channel zero, and every write still requires fresh readback.
+
+## 0.1.178
+
+- Re-register the Android push token after the Firebase receiver reconnects so event delivery resumes without restarting the gateway.
+
+## 0.1.177
+
+- Retry one rejected native login identity so a transient `4404` response cannot leave every Home Assistant entity unavailable.
+- Recognise T8220 and T8222 device type 16 as doorbells, enabling the press entity and delivered ring events through existing routes.
+
+## 0.1.176
+
+- Add a privacy-safe camera-enable diagnostic that reports whether parameter 1035 is missing, normalized, or an unrecognized value shape.
+- Include the existing normalized enabled state beside that classification without exposing raw device payloads or widening camera control admission.
+
+## 0.1.175
+
+- Restore the pre-v0.1.174 default login preparation path. The gateway no longer extracts the optional RTC private scalar unless the default-off general video trial is enabled.
+- Keep opt-in RTC identity capture separate and verify its scalar, public key and encrypted password remain one matching ephemeral key pair.
+
+## 0.1.174
+
+- Add the default-off `experimental_general_rtc` owner-account video trial in Diagnostics. It requests one consented private H.264 clip without changing normal live view.
+- Keep trial authentication passive, use only cached native request identities, and clear optional stored video identity when disabled. The PIN and clip are not persisted.
+- Check fresh ownership before and after recording, enforce PIN cooldowns and bounded media cleanup, and document unconfirmed hardware and service compatibility.
+
+## 0.1.173
+
+- Fix NVR live video reopening after a previous stream ends, including overlapping viewer cleanup. The reported remote stream closure still needs investigation.
+- Match the official app's login CAPTCHA request. Account-specific sign-in outcomes still need confirmation.
+- Clarify how to open the gateway diagnostics page from Home Assistant app settings.
+
+## 0.1.172
+
+- Add default-off normal NVR camera controls for exact T8E00/type301 and T8416/type104 cameras on an explicitly owned T8N00. Home Assistant offers model-specific view, night-vision and live-quality choices, plus single-step movement and limited optical zoom where admitted.
+- Require an active viewer for movement, fresh administrator and child checks before writes, bounded source lifetime, exclusive control ownership and confirmed setting readback. Malformed control replies leave working video alive.
+- Expire observed NVR settings after 30 minutes and clear them when the binding or selected view changes. Unconfirmed writes remain unknown and are never silently retried or rolled back.
+- Tighten the existing manual NVR guard and camera-power trials to require explicit child membership.
+- All new controls remain experimental and hardware-unconfirmed. Changing a setting without a viewer opens a source and retains an image. See docs/NVR_LIVE_CONTROLS.md for model choices, persistent-setting effects and the reporter retest.
+
+## 0.1.171
+
+- Add the default-off NVR Schedule-to-Home trial with an operator-confirmed NVR timezone, schedule-aware preflight and correlated state checks.
+- Keep restoration independent of browser cancellation, retry transient read failures and block further NVR operations after an unconfirmed restore.
+- Preserve ownership of diagnostic station reservations and enforce NVR cooldowns before new live sessions.
+- This trial temporarily changes the whole NVR and may arm cameras or alarms. Hardware behaviour remains unconfirmed, and manual restoration in Eufy may be required.
+
+## 0.1.170
+
+- Keep distinct push meanings separate when Eufy reuses one event identifier. A doorbell press arriving immediately after a person event now reaches the Home Assistant doorbell sensor, while repeated delivery of the same event remains suppressed.
+
+## 0.1.169
+
+- Add explicit Home Assistant camera actions for cloud recording day lists and calendar hints. Responses omit recording IDs, owner details and playable links.
+- Add a manual cloud calendar check in Diagnostics, behind the existing default-off cloud-recording option. Calendar filtering and real-account behaviour remain unconfirmed.
+- Add an exact-model S100 connection check that prepares one session without sending a siren command. It separates connection, key-negotiation and counter failures, while audible siren behaviour remains unconfirmed.
+- Preserve all normal camera routes and default-off experimental controls. The new metadata actions make cloud requests only when explicitly called.
+
+## 0.1.168
+
+- Add a separately enabled, owner-only NVR camera-power diagnostic that checks the original state, tests one temporary value and attempts verified restoration. It stays off by default and needs observed hardware confirmation.
+- Recognise type-95 C31/C30 doorbells in the existing ring-event and Home Assistant doorbell-sensor path. Physical presses and absence of false rings still need reporter confirmation.
+
+## 0.1.167
+
+- Picture download failures now include redacted request paths, the failing request hop and attempt count, making persistent cloud 404 errors easier to investigate without sharing signed URLs.
+- Read-only NVR state queries now require a matching reply instead of accepting unsolicited state updates. NVR security writes and restoration remain unavailable.
+
+## 0.1.166
+
+- Handle event notifications containing several picture links by selecting the first nonempty link for the retained snapshot. Literal commas separate links, as in the Android app. Invalid or oversized lists leave the last good image intact.
+- Give not-yet-ready cloud pictures a longer, bounded retry window, while preserving motion delivery independently of picture downloads. Cancel discarded responses and stop retries promptly when the gateway closes. These changes still need confirmation against the reported picture failures.
+
+## 0.1.165
+
+- Add an optional read-only FamiLock S3 / S3 Max status check for exact T85V0 devices through HomeBase 3. Diagnostics requests the reported state and battery once without locking, unlocking or changing settings. Hardware confirmation is still needed.
+- Keep the new check separate from existing E30 controls, with owner and connection checks, an exclusive HomeBase session, strict encrypted reply matching, cancellation and a cooldown.
+
+## 0.1.164
+
+- Recognise T8910 motion timestamps in milliseconds as well as seconds. Cloud motion fallback consumes cached and rolled-back readings without replay, ignores stale or future events, and expires old push confirmations so they cannot suppress later motion indefinitely. Actual delivery with phone notifications disabled still needs hardware confirmation.
+- Add a manual, default-off T8910 local-motion test through HomeBase 2 or 3. It listens for fresh local messages without changing sensor or phone notification settings, rejects competing HomeBase activity and returns candidate counts only. Phone-independent Home Assistant motion remains unconfirmed and is not enabled by this diagnostic.
+- Add an explicit On/Off light test for T81A0 Solar Wall Light Cam S120 through HomeBase 3. It requires an owner account and fresh device bindings, sends once and accepts only an authenticated matching acknowledgement. Physical light behaviour remains unconfirmed, and no normal Home Assistant light control or cached light state is added.
+- Keep both experiments manual and off by default, with cancellation, bounded lifetimes, privacy-safe results and separate instructions for the smallest useful hardware check.
+
+## 0.1.163
+
+- Expose normal Home Assistant live view for the reporter-confirmed T8E00 through T8N00 and T8140-Z through T9000 pairings when experimental NVR support is enabled. Other pairings remain limited to Diagnostics, and automatic startup snapshots do not consume these NVR sessions.
+- Add a manual, default-off standalone C31 continuous-recording index test in Diagnostics. It sends one source-defined query, checks current device and account bindings, and returns structural counts without footage, recording times or encryption identifiers. Hardware behaviour is unconfirmed, and a timeout remains inconclusive.
+- Require explicit index-test consent, bounded replies, exclusive session ownership and cancellation on disconnect or page departure. Recording settings, playback support, arming, locks and destructive storage operations are not enabled by this test.
+
+## 0.1.162
+
+- Match the official Eufy login request shape for accounts that previously failed at startup with application error 26108.
+- Recover experimental NVR video after a forward sequence discontinuity instead of ending the whole trial.
+
+## 0.1.161
+
+- Correct experimental NVR test-clip timing when the camera declares a different frame rate from the video it sends. Successful clip completion no longer carries a cancelled-stage label.
+- Limit the bitrate and encoder buffer of the H.265 browser fallback to reduce oversized H.264 output and delivery backpressure. Browser playback on the reporting setup still needs confirmation.
+- Show which fixed cloud operation rejected startup, while keeping account and response details private. Error 26108 remains an unclassified server rejection, with no automatic sign-in or retry added.
+- Recheck NVR child, station and account bindings against new inventory reads around the read-only settings test. Identify configured mode as cloud inventory, preserve independently queried camera power, and keep missing local effective-mode readings unknown. Cancelled, expired or changed bindings cannot return stale results.
+- Keep NVR arming, camera-power and privacy writes disabled. Reporter hardware playback and control behaviour remain unconfirmed.
+
+## 0.1.160
+
+- Accept the reported T8223 Video Doorbell C31 device type 95 variant behind HomeBase 2 without widening admission to other models.
+- Preserve the observed NVR diagnostic video cadence when packaging private test clips, and report successful video delivery as completed instead of failed cancellation.
+- Add privacy-safe failure reasons when a standalone T8224 diagnostic call rejects the received video offer.
+- Show working feature indicators and separate support-site update dates more clearly.
+
+## 0.1.159
+
+- Correct two receive checks that rejected valid T8E00 keyframe fragments and video replies in the experimental T8N00 NVR video test. Preserve camera selection and bounded receive validation. Hardware playback still needs reporter confirmation.
+- Recognise exact NVR heartbeat echoes without counting them as malformed video traffic. The NVR trial remains off by default, and normal Home Assistant NVR streaming and write controls remain disabled.
+
+## 0.1.158
+- Preserve the accepted Mega push registration when a later Security registration or activation request fails with an HTTP or network error. Restoration runs once, keeps sign-in intact and does not retry the rejected Security request. Initial Mega rejections remain failures.
+
+- Correct the experimental standalone doorbell video test joining the video service. The test now sends the service-specific join header instead of a bare account token. It remains off by default, and T8224 physical playback still needs confirmation.
+- Recover an additional HomeBase 2 v2 event-thumbnail layout safely, so a received motion event can update its event image rather than fail at image decoding. Reporter confirmation is still required.
+
+## 0.1.157
+
+- Read the T8N00 NVR S4 configured and effective modes separately from verified mode-change notifications. Keep mode and camera-power controls disabled. Reject stale or replayed delivery and clear the push-owned reading when notification reception is lost.
+- Show validated custom mode titles and the last NVR report time in the read-only Home Assistant effective-mode sensor.
+- Match the current Android app routing header on Security picture/video key requests while retaining the existing account sign-in and bounded recovery. Reporter media recovery still needs confirmation.
+
+## 0.1.156
+
+- Add a default-off Diagnostics preview for existing cloud recordings, protected by an API token and private-video consent. It supports plain MP4 and source-defined v8 H.264, produces a checked video-only preview up to two minutes and keeps local HomeBase recordings separate.
+- Validate current camera, parent, record and shared-account key ownership before downloading. Keep private URLs and keys out of logs and cancel queued requests, downloads and conversion when the preview is retired.
+- Reject unsupported legacy formats, damaged frames and failed authentication. Handle video resolution changes with a fixed-size H.264 preview. Actual cloud recording and shared-account behaviour remain unconfirmed.
+
+## 0.1.155
+
+- Add a default-off, consented private video trial for standalone T8224/type 96 doorbells without a normal streaming connection. The diagnostic checks the clip before download. Hardware and shared-account playback remain unconfirmed.
+- Keep camera siren state unknown when the command route has no readback, and preserve unknown HomeBase alarm state until the station reports it.
+- Cancel pending experimental NVR or doorbell connections when their trial is stopped, preventing a late video start.
+
+## 0.1.154
+
+- Correct Security-cloud encrypted request headers and add a rate-limited media-key recovery that preserves the signed-in account.
+- Share concurrent camera startups, cancel stopped lookups promptly, and use bounded fresh lookups for standalone T8170 cameras.
+- Start Home Assistant's normal HLS startup timeout even when the optional idle-timeout setting is off.
+- Preserve specific NVR framing failure reasons and rejection counts. Include the queued effective-mode field-source diagnostic. NVR playback and mode controls remain unconfirmed.
+- Recover an H.265 viewer converter that stalls after initially producing a picture, using a later complete picture and a fixed retry limit.
+- Isolate cached media credentials by device and shared-account owner, reject mismatched or duplicate replies, and share matching key lookups.
+
+## 0.1.153
+
+- Delivers every decoded video fragment from standalone T8200 doorbells so large keyframes reach the viewer instead of being discarded at the 64,000-byte transport boundary.
+- Updates the T8200 support note to distinguish confirmed live-video startup from continuous-playback confirmation that still needs reporter hardware testing.
+
+## 0.1.152
+
+- Fix the standalone T8200 doorbell live-start request to match the official client contract. This is limited to exact T8200 direct connections and leaves every other camera on its existing media path.
+- Prevent later session-key negotiation from repeating the T8200 start request, and identify the selected path in privacy-safe stream diagnostics.
+- Add exact JSON and wire-envelope regression coverage.
+- The request contract is verified from an official-client capture. Playable video on physical T8200 hardware still needs reporter confirmation.
+
+## 0.1.151
+
+- Improve the opt-in NVR connection test to accept concealed related-address metadata while preserving strict destination and certificate checks. This corrects a connection compatibility problem but still needs a T9000 hardware retest.
+- Correct NVR diagnostics labels for custom guard modes and Geofencing, and preserve those values when actually returned. Missing or unrecognised station readings remain Unknown. Inventory state stays separate from a fresh local read.
+- Fix the existing opt-in 60-second Home Assistant HLS timeout so it also starts before the first video segment. Failed startup can now expire instead of leaving the worker retrying indefinitely. The option remains off by default, and recordings and explicit timeouts keep Home Assistant behaviour.
+- Add regression coverage through the actual WebRTC candidate parser, malformed metadata checks, guard-mode projections and diagnostics output.
+
+- NVR video playback, effective mode under schedules, arming and camera-power controls remain unconfirmed or unavailable. This release does not claim to fix the HTTP 463 video failures.
+
+## 0.1.150
+
+- Add a Home Assistant Smart Lock E30 auto-lock delay selector with reviewed 30, 60, 90, 120, 150, 180 and 300-second choices. Changes preserve auto-lock enablement, schedules and other lock settings. The existing experimental E30 option remains off by default.
+- Add model-specific Home Assistant motion sensitivity controls for T8210, T8113-Z, T8160-C and T8171 on HomeBase 3, plus standalone channel-zero T817L. Higher HA steps always mean greater sensitivity, including the inverted eufyCam 2C scale.
+- Add a T8210 HomeBase chime switch and a quiet-hours automation blueprint that supports overnight schedules, checks the dedicated chime control attribute and leaves detection, recording and HA doorbell events enabled.
+- Require a fresh settings baseline, one native write and independent readback. Competing peer operations are rejected, and uncertain outcomes invalidate only the affected setting. Unsupported models and connections remain unavailable.
+
+## 0.1.149
+
+- Give Smart Lock E30 initial status queries up to 15 seconds before rejecting a command, while reserving time for confirmed readback.
+- Keep E30 controls available after a command is rejected before dispatch, using the existing confirmed state and its original expiry. Uncertain outcomes after dispatch still invalidate state.
+- Handle rejected preflight reads safely when the operation budget is exhausted. Motor commands are never retried automatically.
+
+## 0.1.148
+
+- Add default-off Smart Lock E30 T85F1 support with Home Assistant lock/unlock and battery entities through Eufy cloud MQTT.
+- Add E30 Auto Lock and notification switches plus audible sound selection, with fresh readback, shared operation limits and no optimistic setting changes.
+- Keep E30 support experimental and limited to one standalone lock on the US cloud route. Home Assistant hardware testing, High sound and timed auto-locking remain unconfirmed.
+- Include the opt-in fixed-resolution H.265 viewer trial already merged into main.
+
+## 0.1.147
+
+- Restore Home Assistant integration setup when the device registry does not expose the newer scoped identifier lookup.
+- Accept the observed flagged and padded NVR reply frames in the default-off T8N00 state and video trials while retaining strict framing checks.
+
+## 0.1.146
+
+- Accept the NVR's variable receive-packet lengths and metadata fields during experimental T9000 trials.
+- Decode bounded Zstandard-compressed NVR application frames while preserving strict fragment and memory limits.
+
+## 0.1.145
+
+- Prevent queued Firebase notifications from replaying stale motion, person and doorbell events when the app restarts. Deliveries from the current startup remain available, and suppressed messages are still acknowledged so they do not return on the next connection.
+- Accept the standards-valid NVR data-channel offer observed on T8N00 hardware when its media line includes the optional SCTP port token. NVR video and read-state results still need reporter confirmation.
+- Let complete H.264 decoder headers override a repeated incorrect H.265 provider hint, fixing the no-output path observed on T8160 while preserving later confirmed streams.
+
+## 0.1.144
+
+- Add privacy-safe failure reasons to experimental NVR video and read-state tests, distinguishing negotiation checks and failed connection steps without logging private connection data.
+
+## 0.1.143
+
+- Add a separate read-only backup AA battery sensor for exact T85V0/type203 locks when authenticated inventory reports that measurement. Missing, invalid, ambiguous and unavailable values stay unknown, and the primary battery is never substituted. A reading arriving later can create the sensor without restarting Home Assistant. Physical accuracy still needs reporter confirmation.
+
+## 0.1.142
+
+- Expand the default-off NVR live-view trial to exact T8140/T8140-Z, T8113-V, T8172, T8162, T8170, T81A0 and T8425 camera types behind T8N00 or T9000 parents. Additional cameras use their first lens. Fresh discovery must match the selected camera, channel and type before video starts. Hardware playback remains unconfirmed.
+- Add a separate read-only NVR settings test in Diagnostics. It requests station and selected-camera state without starting video or changing settings, and shows unknown values honestly. Guard-mode and camera-power controls remain unavailable pending physical confirmation.
+- Add an optional 60-second Home Assistant HLS idle timeout under the integration's Configure menu. It is off by default, follows viewer requests, preserves recording timeouts and preload behaviour, and can be disabled to restore HA defaults. Battery savings require reporter testing.
+
+## 0.1.141
+
+- Add a default-off, private NVR video trial for T8E00/type301 cameras attached to exact T8N00/type300 or T9000/type27 parents. Enable `experimental_nvr_live`, select the camera in Diagnostics and explicitly request one ten-second clip. This is a test candidate, with physical NVR behaviour still unconfirmed.
+- Support H.264 and H.265 in the trial, check fresh camera identity before requesting video, and keep normal Home Assistant streams and NVR controls unavailable.
+- Keep trial footage out of retained snapshots and diagnostic media captures. Cancelling closes the original connection, and another trial waits for cleanup. Regional service selection is explicit when automatic discovery cannot identify the correct service.
+
+## 0.1.140
+
+- Reconnect HomeBase-attached camera live view after decoded media stalls. The gateway now makes one bounded restart attempt, then closes the silent source so the viewer can establish a fresh camera session instead of remaining blank indefinitely.
+- Preserve the existing startup retry limits and standalone-camera behaviour.
+
+## 0.1.139
+
+- Added an opt-in S100 T84A1 siren test in Diagnostics, with a five-second pulse, an explicit stop button and ordered stop attempts on cleanup. Sound and stop behaviour still need confirmation on S100 hardware. Normal Home Assistant siren support remains disabled.
+- Added the previously merged opt-in E30 T8417 pan/tilt trial so owners can test directional movement. Physical movement remains unconfirmed.
+- Clarified diagnostic bundle privacy, including optional media and identifying metadata. Bundles are not guaranteed anonymous.
+- Included offline NVR reassembly groundwork. This release does not enable NVR live video.
+
+## 0.1.138
+
+- Fix live video startup when a camera's initial codec hint differs from its actual H.264 or H.265 video. The shared stream cache can now correct the provisional format before decoder headers are complete, while preserving established streams.
+
+## 0.1.137
+
+- Keep a previously confirmed HomeBase connection through up to three consecutive background refresh failures, avoiding transient connection-entity flicker while preserving startup and explicit-operation failure handling.
+- Correct the read-only T8N00 NVR guard-mode sensor so mode 3 uses its validated account-defined custom title and catalogue mode 47 maps to Geofencing. NVR guard-mode writes remain unavailable.
+
+## 0.1.136
+
+- Correct account-owned encrypted event-picture key lookup while preserving the last valid image when a key is unavailable.
+- Stop automatic identity retries when Eufy reports an account login limit.
+
+## 0.1.135
+
+- Decode authenticated V8 event pictures through the matching station owner's account key, allowing this encrypted picture format to update Home Assistant event images.
+- Preserve retained images on key or authentication failure and discard delayed push-picture results after a gateway restart.
+
+## 0.1.134
+
+- Improve standalone T8423 live-start compatibility by omitting an optional startup field that this model does not request. Reporter confirmation of intermittent first-start behaviour is still pending.
+- Preserve startup behaviour for other standalone cameras and HomeBase-attached cameras.
+
+## 0.1.133
+
+- Add default-off experimental controls in the diagnostics page: standalone T84A1, T8417 and T8423 motion detection, T8423 spotlight enablement and pan/tilt, and T8410 pan/tilt through HomeBase 3.
+- Use exact official Android model contracts, submit commands once and require fresh device readback for changed settings. Movement acknowledgements remain separate from physical confirmation. Hardware behaviour still needs testing on each model.
+- Keep trials authenticated and separate from normal Home Assistant capabilities. Refuse busy device connections, reject changed routes and clean up sessions on failure or shutdown. Enable experimental_model_controls in the app settings to try them.
+
+## 0.1.132
+
+- Correct reported motion-detection state for standalone Wall Light Cam S100 (T84A1), Indoor Cam E30 (T8417), and Floodlight Cam 2 Pro (T8423). The native state now takes precedence over conflicting legacy values, and missing or invalid native state stays unknown.
+- Surface the reported master spotlight setting for those exact models in Home Assistant camera attributes. This setting is separate from the momentary manual light and does not indicate whether the light is currently illuminated.
+- Keep motion, spotlight, privacy, PTZ and siren control eligibility unchanged. These state corrections do not establish new hardware control support.
+
+## 0.1.131
+
+- Add gateway-owned diagnostic bundles for HomeBases, standalone cameras, sensors, NVR inventory and other discovered devices. Metadata is the default, with explicit consent for native video, audio and retained pictures.
+- Include relative lifecycle/request evidence, capability availability and safe active-source transport counters, with memory, time and size limits and authenticated export/clear actions.
+- Add a diagnostics page, a utility using Home Assistant's saved gateway connection, offline integrity checking and standard private email/cloud-sharing instructions. No external research harness is required.
+- v0.1.130 was withdrawn. NVR RTC media remains unavailable and is stated explicitly in the bundle manifest and documentation.
+
+## 0.1.129
+
+- Show account-defined names for custom HomeBase guard modes instead of generic Custom 1, Custom 2 and Custom 3 labels.
+- Correct the read-only T8N00 NVR guard mode sensor so Geofencing is displayed correctly instead of Custom 1.
+- Distinguish cloud registration transport, HTTP, response and timeout failures in privacy-safe diagnostics.
+
+## 0.1.128
+
+- Fix Home Assistant recordings with live AAC audio failing at a segment boundary. Both tracks now start from the same positive transport timestamp, avoiding a first-segment shift that could make audio timestamps move backwards. A fresh standalone C31 recording was used for the reproduction and hardware validation.
+- Choose Home Assistant stream timing from the camera's current audio capability when opening a source, rather than only from its startup inventory.
+
+## 0.1.127
+
+- Add Home Assistant switches for RTSP publication and continuous recording on the verified standalone Wired Cam C31 (T817L, device type 10031). Both switches were tested through Home Assistant with fresh camera readback. RTSP video and audio decoded successfully, and a controlled continuous recording played in the Eufy app. Gateway playback of continuous footage remains unavailable.
+- Add the `eufy_event_gateway.play_audio` camera action for short AAC-LC 16 kHz mono ADTS files on the verified standalone C31. Playback is limited to 20 seconds and Home Assistant allowlisted paths. Audible playback was confirmed on the camera. Interactive microphone talkback is not included.
+- Fix a gateway crash when an encryption-key lookup finishes after its camera connection has closed. Add regression coverage for shutdown, speaker packet handling, HTTP admission and Home Assistant file access.
+
+## 0.1.126
+
+- Add hardware-tested standalone Wired Cam C31 controls, SD event playback, live AAC audio and timed siren support for the exact T817L type 10031 channel-zero route.
+- Add a default-off, bounded private capture for failed event pictures so their original response can be diagnosed without exposing it through normal logs or Home Assistant diagnostics.
+- Add privacy-safe diagnostics for custom guard-mode metadata, failed stream sequence ranges and unknown numeric HTTP 463 application errors.
+- Record confirmed T8900 signal-strength readback through HomeBase 3 and the failed standalone T8172 live-view and snapshot route without changing camera admission.
+
 ## 0.1.125
 
 - Add hardware-verified standalone C31 saved-position movement, manual light actions and schedule-backed cruise controls on the exact direct T817L route.
@@ -152,7 +846,7 @@
 
 - Add T817L preset-position actions plus physically verified AI-tracking and automatic-cruise on and off actions.
 - Add read-only HomeBase 2 SD-card status and capacity support using its generation-specific local query.
-- Add standalone camera Home, Away, and Disarmed controls for SDK-backed models, with fresh local state readback required before Home Assistant reports success.
+- Add standalone camera Home, Away, and Disarmed controls, with fresh local state readback required before Home Assistant reports success.
 - Expose Eufy Custom 1, Custom 2, and Custom 3 through Home Assistant's Custom Bypass, Night, and Vacation alarm actions, contributed by @svdbeemt in PR #209.
 - Add separate package-delivered and package-taken detection entities instead of discarding those push events.
 - Add diagnostic signal-strength sensors for security accessories that report the verified RSSI parameter.
@@ -297,14 +991,14 @@
 
 ## 0.1.78
 
-- Add current-SDK directed LAN discovery for HomeBases when broadcast lookup is blocked by container or network boundaries.
+- Add directed LAN discovery for HomeBases when broadcast lookup is blocked by container or network boundaries.
 - Reassert attached-camera media starts until complete codec configuration and an IDR make the stream decoder-ready.
 - Recognise untyped four-byte HomeBase command acknowledgements instead of waiting for the readback fallback.
 - Report redacted viewer and snapshot conversion failures through the gateway log.
 
 ## 0.1.77
 
-- Align HomeBase cloud candidate handling and attached-camera media starts with the current SDK, removing unsupported legacy branches introduced in the previous release.
+- Align HomeBase cloud candidate handling and attached-camera media starts, removing unsupported legacy branches introduced in the previous release.
 - Convert confirmed H.265 live streams to a shared low-latency H.264 viewer feed when a HomeBase ignores the requested H.264 codec.
 - Keep native H.264 live streams on the direct path and retain original codecs for snapshots and recordings.
 
@@ -390,7 +1084,7 @@
 ## 0.1.62
 
 - Add confirmed camera motion-detection switches for supported HomeBase-attached cameras.
-- Align PPCS media assembly with the reference handling for decoded frame lengths.
+- Correct PPCS media assembly for decoded frame lengths.
 - Correct T817L classification so it does not expose a Doorbell sensor.
 
 ## 0.1.61
@@ -678,7 +1372,7 @@
 
 - Use the gateway's first-party Mega authentication, inventory, push, and event-image implementations.
 - Register camera types 7, 8, and 10031 from the current Mega inventory.
-- Migrate an existing authenticated Mega session without retaining the obsolete client dependency.
+- Migrate an existing authenticated Mega session.
 - Disable unsupported live-stream actions instead of routing them through the retired legacy API.
 
 ## 0.1.10

@@ -317,6 +317,7 @@ test("retains immutable HomeBase snapshots and emits station updates", () => {
     homeBaseSirenControlSupported: true,
     connected: true,
     guardMode: 0,
+    guardModeNames: { 3: "Private fixture" },
     effectiveMode: 0,
     alarmActive: false,
     alarmVolume: 20,

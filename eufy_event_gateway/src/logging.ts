@@ -40,6 +40,14 @@ export interface GatewayLogger {
   error(event: string, message: string, error?: unknown): void;
 }
 
+const diagnosticObservers = new Set<(component: string, event: string, level: LogLevel) => void>();
+
+/** Subscribe to event codes only. The session owner must unsubscribe on cleanup. */
+export function observeLogEvents(observer: (component: string, event: string, level: LogLevel) => void): () => void {
+  diagnosticObservers.add(observer);
+  return () => { diagnosticObservers.delete(observer); };
+}
+
 const identity: LogIdentity = {
   version: safeToken(process.env.EUFY_GATEWAY_VERSION, "development"),
   runId: safeToken(process.env.EUFY_GATEWAY_RUN_ID, randomUUID().slice(0, 8)),
@@ -92,6 +100,11 @@ function emit(level: LogLevel, component: string, event: string, message: string
     event,
     message,
   });
+  for (const observer of diagnosticObservers) {
+
+    // Diagnostic failures must never replace the operation being logged.
+    try { observer(component, safeToken(event, "message"), level); } catch {}
+  }
   const output = level === "WARN" || level === "ERROR" ? process.stderr : process.stdout;
   output.write(`${line}\n`);
 }

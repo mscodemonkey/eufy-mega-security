@@ -9,24 +9,67 @@
  * tests; the production provider is the only implementation allowed to know
  * Mega and PPCS details.
  */
+import type { ParameterCheckSummary } from "./reported-parameter-check.js";
+import type { NvrLiveControl, NvrLiveControlResult } from "./nvr-live-controls.js";
+import type { NvrPowerRequest, NvrPowerSummary } from "./nvr-power-trial.js";
+import type { NvrGuardRequest, NvrGuardSummary } from "./nvr-guard-trial.js";
+import type { T85V0StatusSummary } from "./t85v0-status.js";
+import type { EventPictureSummary } from "../stream/homebase-event-picture.js";
+import type { EventNameHistorySummary } from "../stream/homebase-event-names.js";
+import type { LocalMotionSummary } from "../stream/local-motion-trial.js";
+import type { C31IndexSummary } from "../stream/c31-recording-index.js";
+import type { CameraSettingChange } from "./camera-settings.js";
+import type { E30LockSettingChange } from "../domain/types.js";
+import type { NvrStateSummary } from "../stream/nvr-protocol.js";
+import type { SmartLockState } from "../domain/types.js";
+import type { ModelControlTrial, ModelControlTrialAdmission, ModelControlTrialResult } from "./model-control-trials.js";
 import type { CloudHistoryQuery, CloudHistoryRecord } from "../mega/cloud-history.js";
+import type { CloudCalendarQuery, CloudCalendarResult } from "../mega/cloud-calendar.js";
 import type { Readable } from "node:stream";
 import type { StoredRecordingSummary } from "../stream/stored-recordings.js";
 
-import type { CameraCapabilityManifest, CameraIdentity, CameraPresetPosition, DetectionKind, DeviceCapabilityManifest, EventReceiverState, HomeBaseState, InventoryDiagnostic, PushDiagnostic, SecuritySensorState, VideoCodec } from "../domain/types.js";
+import type { CameraCapabilityManifest, CameraIdentity, CameraPresetPosition, DetectionKind, DeviceCapabilityManifest, EventReceiverState, HomeBaseState, InventoryDiagnostic, PushDiagnostic, SecuritySensorState, StreamDiagnostic, VideoCodec } from "../domain/types.js";
+
+/** Public preparation facts only. Ready means a bound video identity, not playable video. */
+export type GeneralRtcPreparationState = "idle" | "signing-in" | "authentication-required" | "ready" | "identity-unavailable" | "failed";
+
+/** Fixed lifecycle refusal shared by provider admission and HTTP without account or server details. */
+export class GeneralRtcPreparationError extends Error {
+
+  /** Retain only a closed refusal code for one rejected request. */
+  constructor(readonly stage: "admission" | "busy" | "cooldown" | "preparing") {
+    super(`Video sign-in preparation ${stage}`);
+  }
+}
 
 /** Callbacks through which a provider reports normalized observations. */
 export interface ProviderEvents {
+
+  /** Replace the separately owned lock inventory; optional for older/simulated adapters. */
+  locks?(locks: readonly SmartLockState[]): void;
   camera(identity: CameraIdentity): void;
   station(state: HomeBaseState): void;
   sensor(state: SecuritySensorState): void;
   connection(state: "connected" | "disconnected" | "authentication-required" | "error", detail: string | null): void;
   motion(serial: string, detected: boolean): void;
-  person(serial: string, detected: boolean, personName: string | null): void;
+
+  /** Retain an optional private source identity so a later name can enrich this detection. */
+  person(serial: string, detected: boolean, personName: string | null, eventIdentity?: string | null): void;
+
+  /** Enrich an already published person event without emitting another detection or refreshing its hold timer. */
+  personName?(serial: string, eventIdentity: string, personName: string): void;
   detection(serial: string, kind: Exclude<DetectionKind, "motion" | "person" | "doorbell">, detected: boolean): void;
-  doorbell(serial: string, pressed: boolean): void;
+
+  /** Retain recognition supplied by this button press without inventing a person pulse. */
+  doorbell(serial: string, pressed: boolean, personName?: string | null, eventIdentity?: string | null): void;
+
+  /** Add a name only to the same already-published press, without ringing again. */
+  doorbellName?(serial: string, eventIdentity: string, personName: string): void;
   sensorContact(serial: string, open: boolean): void;
   sensorMotion(serial: string, detected: boolean): void;
+
+  /** Report one passive care-monitor notification without opening a media path. */
+  sensorDetection(serial: string, kind: import("./e21-profile.js").E21DetectionKind, detected: boolean): void;
   snapshot(serial: string, data: Buffer, contentType: string): void;
   pushDiagnostic(diagnostic: PushDiagnostic): void;
   eventReceiverState(state: EventReceiverState): void;
@@ -43,16 +86,105 @@ export interface ProviderEvents {
 /** Lifecycle and stream operations required by the gateway server. */
 export interface CameraProvider {
 
+  /** Read cached candidate field shapes once without updating state or enabling controls. */
+  readReportedParameters?(serial: string, signal: AbortSignal): Promise<ParameterCheckSummary>;
+
+  /** Read current NVR admission without opening media. Optional quality checks the exact profile. */
+  nvrLiveSettingAdmitted?(serial: string, quality?: number): boolean;
+
+
+  /** Inject media facts without transferring ownership of sources or viewer leases. */
+  setNvrLiveMediaChecks?(checks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean }): void;
+
+  /** Change the idle camera's next-stream view, with no device write. */
+  setNvrView?(serial: string, view: number): Promise<CameraIdentity>;
+
+  /** Submit one finite experimental movement, requiring physical confirmation. */
+  performNvrLiveControl?(serial: string, request: NvrLiveControl, signal?: AbortSignal): Promise<NvrLiveControlResult>;
+
+
+  /** Submit one reviewed absolute camera setting and return fresh confirmed state. */
+  setCameraSetting?(serial: string, change: CameraSettingChange, signal?: AbortSignal): Promise<CameraIdentity>;
+
+  /** Refresh one admitted experimental lock without actuating it. */
+  refreshLock?(serial: string, signal?: AbortSignal): Promise<SmartLockState>;
+
+  /** Submit one absolute lock state and return only fresh confirmed readback. */
+  setLockState?(serial: string, locked: boolean, signal?: AbortSignal, onDispatch?: () => void): Promise<SmartLockState>;
+
+  /** Write one closed E30 setting and return independently confirmed facts. */
+  setLockSetting?(serial: string, change: E30LockSettingChange, signal?: AbortSignal, onDispatch?: () => void): Promise<SmartLockState>;
+
+  /** Reserve one owner-account clip whose preparation never changes normal routing. */
+  reserveGeneralRtcTrial?(serial: string, signal: AbortSignal): import("./general-rtc-trial.js").GeneralRtcTrialLease;
+
+  /** Reserve one consented native doorbell clip without enabling normal streaming. */
+  reserveDoorbellRtcTrial?(serial: string, signal: AbortSignal): () => Promise<void>;
+
+  /** Reserve one explicit NVR video trial until its awaited cleanup completes. */
+  reserveNvrLiveTrial?(serial: string, signal: AbortSignal): () => Promise<void>;
+
+  /** Query one exact attached FamiLock without registering or operating a lock. */
+  readT85V0StatusTrial?(serial: string, signal: AbortSignal): Promise<T85V0StatusSummary>;
+
+  /** Passively observe one consented T8910 channel without publishing motion events. */
+  readLocalMotionTrial?(serial: string, signal: AbortSignal): Promise<LocalMotionSummary>;
+
+  /** Run one explicitly consented source-defined C31 index query, returning structural counts only. */
+  readRecordingIndexTrial?(serial: string, signal: AbortSignal): Promise<C31IndexSummary>;
+
+  /** Run one separately consented NVR camera-power test, retaining its lease through restoration. */
+  testNvrCameraPower?(serial: string, request: NvrPowerRequest, signal: AbortSignal): Promise<NvrPowerSummary>;
+
+  /** Run one consented Schedule-to-Home NVR test, retaining its lease through restoration. */
+  testNvrGuardMode?(serial: string, request: NvrGuardRequest, signal: AbortSignal): Promise<NvrGuardSummary>;
+
+  /** Query private NVR settings once, retiring the exclusive session before returning. */
+  readNvrStateTrial?(serial: string, signal: AbortSignal): Promise<NvrStateSummary>;
+
+  /** List default-off exact-model trials, independently of verified capabilities. */
+  modelControlTrials?(serial: string): readonly ModelControlTrial["action"][];
+
+  /** Explain trial admission through a fixed, privacy-safe reason vocabulary. */
+  modelControlTrialAdmission?(serial: string): ModelControlTrialAdmission;
+
+  /** Submit one experimental command with fresh state confirmation for settings. */
+  performModelControlTrial?(serial: string, request: ModelControlTrial, signal?: AbortSignal): Promise<ModelControlTrialResult>;
+
+  /** Project active source counters synchronously, without opening a connection. */
+  streamDiagnostic?(serial: string): StreamDiagnostic | null;
+
   /** Read local completed event clips without exposing card paths or recording keys. */
   listStoredRecordings?(serial: string, date: string, signal?: AbortSignal): Promise<readonly StoredRecordingSummary[]>;
+
+  /** Manually check one history page for names without changing detection state. */
+  diagnoseEventNames?(serial: string, date: string, startId: string, signal: AbortSignal): Promise<EventNameHistorySummary>;
+
+  /** Run one manual history-owned thumbnail check without publishing the image. */
+  diagnoseEventPicture?(serial: string, date: string, startId: string, recordId: string | undefined, signal: AbortSignal, recordingPath?: string): Promise<EventPictureSummary>;
 
   /** Retrieve a previously listed opaque ID; null means the reference expired or is unknown. */
   downloadStoredRecording?(serial: string, id: string, signal?: AbortSignal): Promise<Buffer | null>;
   /** Optional read-only cloud metadata, independent of local station storage. */
   cloudHistory?(serial: string, query: CloudHistoryQuery): Promise<readonly CloudHistoryRecord[]>;
+
+  /** Read unconfirmed calendar hints under fresh camera binding without media or key access. */
+  cloudCalendar?(serial: string, query: CloudCalendarQuery, signal: AbortSignal): Promise<CloudCalendarResult>;
+
+  /** Prepare one consented private cloud recording, without any camera or account writes. */
+  cloudRecordingTrial?(serial: string, id: string, query: CloudHistoryQuery, signal: AbortSignal): Promise<Buffer>;
+  /** Admit one explicitly consented account reauthentication and start a detached owned flight. */
+  prepareGeneralRtc?(serial: string): GeneralRtcPreparationState;
+
+  /** Return fixed preparation state from memory without authentication or network effects. */
+  generalRtcPrepareStatus?(): GeneralRtcPreparationState;
+
   start(events: ProviderEvents): Promise<void>;
   startStream(serial: string): Promise<void>;
   stopStream(serial: string): Promise<void>;
+
+  /** Play bounded native AAC on the leased live source, stopping on cancellation or failure. */
+  playCameraAudio?(serial: string, audio: Buffer, signal?: AbortSignal): Promise<void>;
 
   /** Write camera enablement and return only state confirmed by fresh readback. */
   setCameraEnabled(serial: string, enabled: boolean): Promise<CameraIdentity>;
@@ -60,11 +192,17 @@ export interface CameraProvider {
   /** Write camera motion detection and return fresh inventory-backed state. */
   setCameraMotionDetection(serial: string, enabled: boolean): Promise<CameraIdentity>;
 
+  /** Write one admitted model-specific preference and return fresh confirmed state. */
+  setCameraPreference?(serial: string, name: string, value: number): Promise<CameraIdentity>;
+
+  /** Write one exact E21 preference through its authenticated experimental queue and fresh raw confirmation. */
+  setE21Preference?(serial: string, name: string, value: number): Promise<CameraIdentity>;
+
   /** Write recorded audio separately from microphone enablement, returning fresh confirmed state. */
   setCameraAudioRecording?(serial: string, enabled: boolean): Promise<CameraIdentity>;
 
   /** Write a model-reported live quality preference and return fresh confirmed inventory. */
-  setCameraStreamingQuality?(serial: string, quality: number): Promise<CameraIdentity>;
+  setCameraStreamingQuality?(serial: string, quality: number, signal?: AbortSignal): Promise<CameraIdentity>;
 
   /** Refresh one direct camera's safe reads from its on-device parameter table. */
   refreshCameraCapabilities(serial: string): Promise<CameraIdentity>;
@@ -73,10 +211,13 @@ export interface CameraProvider {
   setCameraGuardMode(serial: string, mode: number): Promise<CameraIdentity>;
 
   /** Write a reported night-vision mode and return fresh inventory-backed state. */
-  setCameraNightVision(serial: string, mode: number): Promise<CameraIdentity>;
+  setCameraNightVision(serial: string, mode: number, signal?: AbortSignal): Promise<CameraIdentity>;
 
   /** Send the camera family's momentary manual-light command. */
   setCameraLight(serial: string, enabled: boolean): Promise<void>;
+
+  /** Send one admitted direct movement click, with physical position unconfirmed. */
+  panCamera?(serial: string, direction: "left" | "right" | "up" | "down"): Promise<void>;
 
   /** Trigger or stop the camera siren using its device-side duration. */
   setCameraSiren(serial: string, durationSeconds: number): Promise<void>;
@@ -87,8 +228,8 @@ export interface CameraProvider {
   /** Move a camera once to an enabled stored position. */
   selectCameraPresetPosition(serial: string, index: number): Promise<void>;
 
-  /** Send the camera's physically verified AI-tracking action. */
-  setCameraAiTracking(serial: string, enabled: boolean): Promise<void>;
+  /** Send admitted tracking and require the model's independent setting confirmation. */
+  setCameraAiTracking(serial: string, enabled: boolean, signal?: AbortSignal): Promise<void>;
 
   /** Send the camera's physically verified automatic-cruise action. */
   setCameraAutoCruise(serial: string, enabled: boolean): Promise<void>;

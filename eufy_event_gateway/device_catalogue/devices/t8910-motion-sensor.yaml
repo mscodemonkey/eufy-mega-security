@@ -13,6 +13,17 @@ models:
 device_type: 10
 capabilities:
   readable:
+    last_seen:
+      connections:
+        T8010:
+          status: declared
+        T8025:
+          status: declared
+        T8030:
+          status: declared
+      read:
+        parameter: 1605
+      notes: Shows when motion was last reported. This still needs testing on a device.
     battery_low:
       connections:
         T8010:
@@ -57,7 +68,7 @@ capabilities:
           status: tested
           tested_on: 2026-10-02
           tested_by: ooorit
-          notes: Motion pushes and matching Home Assistant state changes are confirmed when notifications for the sensor are enabled in the active Eufy mode. The inventory-backed last-seen value remains unavailable.
+          notes: Keep this sensor's notifications switched on in the active Eufy mode for confirmed motion updates.
         T8025:
           status: declared
         T8030:

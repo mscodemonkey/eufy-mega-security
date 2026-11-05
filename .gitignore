@@ -21,3 +21,17 @@ docs/capability-workflow.local.md
 docs/TODO.md
 /AGENTS.md
 /.plans/
+
+# Private diagnostic exports.
+*diagnostics*.json.gz
+
+# Local project notes.
+/docs/project-memory/
+
+# Website build staging and browser-check artifacts.
+/site/.build-output/
+/site/test-results/
+/site/playwright-report/
+
+# Standalone gateway credentials.
+/docker/options.json
