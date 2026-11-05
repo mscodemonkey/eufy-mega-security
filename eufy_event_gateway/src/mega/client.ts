@@ -927,10 +927,10 @@ export class MegaClient {
             gtoken: megaUserToken(session.userId), "x-auth-token": session.authToken, authorization: session.authToken },
           redirect: "manual", signal,
         });
-        if (!response.ok) { await response.body?.cancel(); throw new NvrTrialError("region_or_authorization_rejected"); }
+        if (!response.ok) { await response.body?.cancel(); throw new NvrTrialError("region_or_authorization_rejected", "unspecified", response.status); }
         const value: unknown = JSON.parse((await readBoundedResponse(response, 65536, signal)).toString("utf8"));
         if (!isRecord(value) || value.code !== 0 || typeof value.data !== "string" || !value.data.length || value.data.length > 8192) {
-          throw new NvrTrialError("region_or_authorization_rejected");
+          throw new NvrTrialError("region_or_authorization_rejected", "unspecified", response.status);
         }
         if (this.#session !== session) throw new NvrTrialError("cancelled");
         return { host, region: selected.toUpperCase() as "US" | "EU" | "IE", authToken: session.authToken,

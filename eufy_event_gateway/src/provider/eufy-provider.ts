@@ -1792,9 +1792,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       });
       await session.start();
     } catch (error) {
-      const failure = error instanceof DoorbellRtcError ? error : new DoorbellRtcError(entry.controller.signal.aborted ? "cancelled" : "sign");
+      const failure = error instanceof DoorbellRtcError ? error : new DoorbellRtcError(
+        entry.controller.signal.aborted || error instanceof NvrTrialError && error.stage === "cancelled" ? "cancelled" : "sign",
+        error instanceof NvrTrialError && error.stage === "region_or_authorization_rejected" ? "region_or_authorization_rejected" : "unspecified",
+        error instanceof NvrTrialError ? error.httpStatus : undefined);
       logger.warn(entry.diagnostic ? "doorbell_rtc_trial_failed" : "doorbell_rtc_stream_failed",
-        `stage=${failure.stage} reason=${failure.reason}`);
+        `stage=${failure.stage} reason=${failure.reason}${failure.httpStatus === undefined ? "" : ` http_status=${failure.httpStatus}`}`);
       await entry.release(); throw failure;
     }
   }
