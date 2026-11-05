@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.242
+
+- Correct experimental S350 controls behind NVR S4: receipt-only pan acknowledgement, 1x/2x/3x zoom, app-matched streaming-quality labels, and AI tracking with fresh readback. Keep exact model, owner and opt-in boundaries.
+- Add a consented Home Assistant terminal state check for T8030, T8410 and T8417 that uses the saved integration connection without displaying the gateway token.
+- Preserve standalone T8224 RTC signing rejection categories and safe HTTP status diagnostics. This does not establish a web-portal login requirement or fix every service rejection.
+- Record two-camera T8134 direct Wi-Fi video, event, battery and enablement results. Keep stale event images, receive audio and optional talkback/settings scope separate.
+
 ## 0.1.241
 
 - Preserve supplied visitor names on doorbell press events instead of replacing them with the generic ring label. Automatic recovery when no name reaches the gateway remains open.
