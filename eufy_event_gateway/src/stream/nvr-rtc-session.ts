@@ -12,6 +12,7 @@ import { observeRawSocket } from "../diagnostics/raw-network.js";
 import { createHash, randomUUID } from "node:crypto";
 import { PassThrough } from "node:stream";
 import WebSocket from "ws";
+import type { Socket } from "node:dgram";
 import { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, type RTCDataChannel, type RTCIceServer } from "werift";
 import type { VideoCodec } from "../domain/types.js";
 import { NvrPtcsReassembler, type NvrPtcsReassemblyStats } from "./nvr-ptcs-reassembly.js";
@@ -29,6 +30,7 @@ import { nvrEffectiveModeBroadcast, type NvrEffectiveModeObservation } from "./n
 import { nvrLiveCommand, nvrLiveJson, nvrLiveReceipt, nvrLivePanReply, nvrLiveSettings, type NvrLiveSettings, type NvrLiveWrite } from "./nvr-live-control-protocol.js";
 
 const HEARTBEAT_ECHO = nvrHeartbeat();
+const NVR_RECEIVE_BUFFER_BYTES = 4 * 1024 * 1024;
 
 /**
  * Identify supported coded-picture NAL units in already checked Annex-B output.
@@ -210,6 +212,22 @@ export interface NvrRtcStats {
  * attempts stop once if needed, and releases resources before its owner releases
  * the lease. All externally visible errors have fixed diagnostic stages.
  */
+/**
+ * A large keyframe arrives as one burst, bigger than the default UDP receive buffer. If the gateway
+ * is slow to read, the kernel discards the overflow. Hosts may cap this below the request.
+ */
+export function widenNvrReceiveBuffers(peer: RTCPeerConnection): void {
+  for (const transport of peer.iceTransports) {
+
+    // werift keeps its sockets out of its types, and its version is pinned. A test covers the real path.
+    const { protocols } = transport.connection as unknown as { protocols: { transport?: { socket?: Socket } }[] };
+    for (const protocol of protocols) {
+      try { protocol.transport?.socket?.setRecvBufferSize(NVR_RECEIVE_BUFFER_BYTES); }
+      catch { /* The default buffer still works, with more loss under load. */ }
+    }
+  }
+}
+
 export class NvrRtcSession {
   #startInvoked = false;
   #timingsEmitted = false;
@@ -867,6 +885,7 @@ export class NvrRtcSession {
       for (const candidate of this.#pendingCandidates.splice(0)) await this.#candidate(candidate);
       const answer = await this.#step("create_answer", () => peer.createAnswer()); this.#guard();
       await this.#step("local_description", () => peer.setLocalDescription(answer)); this.#guard();
+      widenNvrReceiveBuffers(peer);
       await this.#step("send_answer", () => { this.#action("info", { sdp: peer.localDescription!.sdp }); this.#markTiming("answerSent"); this.#answerSent = true; this.#flushLocal(); });
     }
   }
