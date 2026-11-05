@@ -57,8 +57,11 @@ export interface NvrPtcsReassemblyStats {
 }
 
 interface PendingFrame {
+  readonly channel: number;
   readonly total: number;
-  readonly firstArrival: number;
+
+  /** Updated by each new fragment, so a large frame still arriving does not expire. */
+  lastArrival: number;
   readonly compressed: boolean;
   readonly keyframe: boolean;
   readonly fragments: Map<number, { readonly bytes: Buffer; readonly final: boolean }>;
@@ -74,15 +77,17 @@ interface Tombstone {
 /**
  * Owns bounded fragment buffers and replay history for one caller-owned session.
  * The caller supplies a monotonic millisecond clock and clears state at retirement.
- * Only complete type-3 fragment sets are accepted. Missing fragments expire,
- * unsupported recovery packets are rejected, and completed application frames
- * transfer to the RTC session. A completed Buffer is mutable and owned solely by
- * the caller.
+ * Only complete type-3 fragment sets are accepted. A frame expires when its
+ * channel carries on without it, so a stall that delays every packet costs
+ * nothing. Unsupported recovery packets are rejected, and completed application
+ * frames transfer to the RTC session. A completed Buffer is mutable and owned
+ * solely by the caller.
  */
 export class NvrPtcsReassembler {
   readonly #limits: NvrPtcsReassemblyLimits;
   readonly #pending = new Map<string, PendingFrame>();
   readonly #tombstones = new Map<string, Tombstone>();
+  readonly #lastHeard = new Map<number, number>();
   readonly #rejected: Partial<Record<NvrPtcsRejection, number>> = {};
   #bufferedBytes = 0;
   #retainedFragments = 0;
@@ -109,8 +114,14 @@ export class NvrPtcsReassembler {
   clear(): void {
     this.#pending.clear();
     this.#tombstones.clear();
+    this.#lastHeard.clear();
     this.#bufferedBytes = 0;
     this.#retainedFragments = 0;
+  }
+
+  /** When a channel last delivered a well-formed fragment, or null before its first. */
+  lastHeard(channel: number): number | null {
+    return this.#lastHeard.get(channel) ?? null;
   }
 
   /** Expire idle state without a timer. Invalid clocks leave every entry intact. */
@@ -120,7 +131,8 @@ export class NvrPtcsReassembler {
     }
     this.#lastNow = nowMilliseconds;
     for (const [key, pending] of this.#pending) {
-      if (nowMilliseconds - pending.firstArrival >= this.#limits.expiryMilliseconds) this.#release(key, pending);
+      const heard = this.#lastHeard.get(pending.channel) ?? pending.lastArrival;
+      if (heard - pending.lastArrival >= this.#limits.expiryMilliseconds) this.#release(key, pending);
     }
     for (const [key, tombstone] of this.#tombstones) {
       if (nowMilliseconds - tombstone.firstArrival >= this.#limits.expiryMilliseconds) this.#tombstones.delete(key);
@@ -147,6 +159,7 @@ export class NvrPtcsReassembler {
     if (length === 0 && !(total === 0 && index === 0 && final)) return this.#reject("length");
     if (total > this.#limits.maxFrameBytes) return this.#reject("frame-too-large");
     if (index >= this.#limits.maxFragmentsPerFrame) return this.#reject("index");
+    this.#lastHeard.set(channel, nowMilliseconds);
     const key = `${channel}:${sequence}:${timestamp}`;
     const tombstone = this.#tombstones.get(key);
     if (tombstone) return this.#reject(tombstone.reason);
@@ -158,7 +171,7 @@ export class NvrPtcsReassembler {
       if (this.#pending.size >= this.#limits.maxPendingFrames
         || total > this.#limits.maxBufferedBytes - this.#bufferedBytes
         || this.#retainedFragments >= this.#limits.maxRetainedFragments) return this.#reject("capacity");
-      pending = { total, firstArrival: nowMilliseconds, compressed, keyframe, fragments: new Map(),
+      pending = { channel, total, lastArrival: nowMilliseconds, compressed, keyframe, fragments: new Map(),
         receivedBytes: 0, finalIndex: null };
       this.#pending.set(key, pending);
       this.#bufferedBytes += total;
@@ -175,6 +188,7 @@ export class NvrPtcsReassembler {
     const copy = Buffer.alloc(length);
     part.copy(copy);
     pending.fragments.set(index, { bytes: copy, final });
+    pending.lastArrival = nowMilliseconds;
     pending.receivedBytes += length;
     this.#retainedFragments++;
     if (pending.receivedBytes > total) return this.#poison(key, pending, "length");
@@ -204,11 +218,11 @@ export class NvrPtcsReassembler {
         output = Buffer.alloc(decompressed.length);
         decompressed.copy(output);
       } catch {
-        this.#remember(key, { firstArrival: pending.firstArrival, reason: "poisoned" });
+        this.#remember(key, { firstArrival: pending.lastArrival, reason: "poisoned" });
         return this.#reject("decompression");
       }
     }
-    this.#remember(key, { firstArrival: pending.firstArrival, reason: "replay" });
+    this.#remember(key, { firstArrival: pending.lastArrival, reason: "replay" });
     return { status: "complete", channel, sequence, timestamp, frame: output };
   }
 
@@ -234,7 +248,7 @@ export class NvrPtcsReassembler {
 
   #poison(key: string, pending: PendingFrame, reason: NvrPtcsRejection): NvrPtcsReassemblyResult {
     this.#release(key, pending);
-    this.#remember(key, { firstArrival: pending.firstArrival, reason: "poisoned" });
+    this.#remember(key, { firstArrival: pending.lastArrival, reason: "poisoned" });
     return this.#reject(reason);
   }
 

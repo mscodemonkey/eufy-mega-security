@@ -50,7 +50,7 @@ function keyframePackets(frame: Buffer, sequence: number): Buffer[] {
   });
 }
 
-for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'start-no-ack-recording', 'start-late-video', 'start-s1-late-video', 'start-s1-empty', 'start-s1-cancel-no-ack', 'start-s1-negative-ack', 'start-s1-wrong-type', 'start-s1-other-view', 'start-s1-stale-no-ack', 'start-s1-ack-empty', 'start-s1-after-deadline', 'start-stale-no-ack', 'start-no-ack-h264', 'start-no-ack-h265', 'start-parameters-only', 'start-empty', 'start-negative-ack', 'start-cancel-no-ack', 'observer', 'observer-signalling-close', 'continuous-modes', 'continuous-parameters', 'continuous-h265', 'continuous-controls', 'continuous-video', 'continuous-signalling-close', 'continuous-stall', 'continuous-heartbeat', 'continuous-gap', 'continuous-cancel', 'live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-receiptonly', 'live-pan-nonzero', 'live-tracking', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
+for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'full-queue', 'start-no-ack-recording', 'start-late-video', 'start-s1-late-video', 'start-s1-empty', 'start-s1-cancel-no-ack', 'start-s1-negative-ack', 'start-s1-wrong-type', 'start-s1-other-view', 'start-s1-stale-no-ack', 'start-s1-ack-empty', 'start-s1-after-deadline', 'start-stale-no-ack', 'start-no-ack-h264', 'start-no-ack-h265', 'start-parameters-only', 'start-empty', 'start-negative-ack', 'start-cancel-no-ack', 'observer', 'observer-signalling-close', 'continuous-modes', 'continuous-parameters', 'continuous-h265', 'continuous-controls', 'continuous-video', 'continuous-signalling-close', 'continuous-stall', 'continuous-heartbeat', 'continuous-gap', 'continuous-cancel', 'live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-receiptonly', 'live-pan-nonzero', 'live-tracking', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
   const s1Grace = scenario.startsWith('start-s1-');
   const cameraType = s1Grace && scenario !== 'start-s1-wrong-type' ? 89 : scenario === 'legacy-first-lens' ? 14 : 301;
   let mediaRequested = false;
@@ -372,7 +372,7 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'sta
       return new WebSocket(`ws://127.0.0.1:${(address as { port: number }).port}`, protocols, options);
     }, peer: () => {
       const client = new RTCPeerConnection({ iceServers: [], iceUseIpv6: false });
-      if (scenario === 'repaired-gap' || scenario === 'missing-gap' || scenario === 'missing-video-gap') {
+      if (scenario === 'repaired-gap' || scenario === 'missing-gap' || scenario === 'missing-video-gap' || scenario === 'full-queue') {
         const create = client.createDataChannel.bind(client);
         client.createDataChannel = (label, options) => {
           const channel = create(label, options);
@@ -384,7 +384,7 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'sta
     },
   });
   try {
-    if (scenario === 'repaired-gap' || scenario === 'missing-gap' || scenario === 'missing-video-gap') {
+    if (scenario === 'repaired-gap' || scenario === 'missing-gap' || scenario === 'missing-video-gap' || scenario === 'full-queue') {
       await session.start();
       if (sendVideo) clearInterval(sendVideo);
       await new Promise(resolve => setTimeout(resolve, 250));
@@ -394,7 +394,7 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'sta
       const nativeNow = performance.now.bind(performance);
       let offset = 0;
       const clock = context.mock.method(performance, 'now', () => nativeNow() + offset);
-      const inject = (sequence: number, mode: number): void => {
+      const inject = (sequence: number, mode: number, channel = 2): void => {
         if (scenario === 'missing-video-gap') {
           const body = Buffer.alloc(22 + generated.stdout.length);
           body.writeUInt32LE(generated.stdout.length, 0);
@@ -407,10 +407,23 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'sta
         } else {
           const frame = application(1151, 0, Buffer.alloc(8));
           frame[14] = 0; frame.writeInt32LE(mode, 16);
-          for (const packet of receivePackets(frame, sequence, 2)) clientDataChannel!.onmessage?.({ data: packet });
+          for (const packet of receivePackets(frame, sequence, channel)) clientDataChannel!.onmessage?.({ data: packet });
         }
       };
       try {
+        if (scenario === 'full-queue') {
+          for (const channel of [2, 3]) {
+            inject(0, 1, channel);
+            for (let sequence = 2; sequence < 10; sequence++) inject(sequence, 1, channel);
+          }
+          inject(10, 1);
+          assert.equal(session.output.destroyed, false);
+          assert.equal(session.stats.applicationSequenceRecoveries, 1);
+          await new Promise(resolve => setImmediate(resolve));
+          assert.deepEqual(errors, []);
+          await session.close();
+          return;
+        }
         inject(0, 1);
         inject(2, 3);
         offset += 1001;
@@ -419,17 +432,20 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'sta
           assert.deepEqual(modes, [{ mode: 1 }, { mode: 0 }, { mode: 3 }]);
           assert.equal(session.output.destroyed, false);
           assert.equal(session.stats.applicationSequenceRecoveries, 0);
-        } else assert.equal(session.output.destroyed, true);
+        } else {
+          if (scenario === 'missing-gap') assert.deepEqual(modes, [{ mode: 1 }, { mode: 3 }, { mode: 0 }]);
+          assert.equal(session.output.destroyed, false);
+          assert.equal(session.stats.applicationSequenceRecoveries, 1);
+        }
         await new Promise(resolve => setImmediate(resolve));
+        assert.deepEqual(errors, []);
         if (scenario !== 'repaired-gap') {
-          assert.equal(errors[0]?.reason, 'frame_reorder_timeout');
           assert.equal(session.stats.reorderTimeoutChannel, scenario === 'missing-video-gap' ? 5 : 2);
           assert.equal(session.stats.reorderTimeoutExpected, 1);
           assert.equal(session.stats.reorderTimeoutWaiting, 2);
           assert.ok(session.stats.reorderTimeoutAgeMs >= 1000);
           assert.equal(session.stats.reorderTimeoutQueued, 2);
         } else {
-          assert.deepEqual(errors, []);
           assert.equal(session.stats.reorderTimeoutChannel, -1);
         }
         const terminalStats = { ...session.stats };
