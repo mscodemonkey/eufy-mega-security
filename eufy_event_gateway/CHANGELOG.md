@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.243
+
+- Correct automatic RTC video-service selection for countries whose web and phone service regions differ. Keep explicit region overrides and the existing login unchanged.
+- Add the exact T8E00/type 301 through T9000/type 27 pairing to normal Home Assistant video behind the existing default-off NVR option. Playback on this pairing still needs reporter confirmation.
+- Record direct S220 fresh snapshots, stable compatible video and video-only clip recording, while keeping event-picture and audio gaps explicit.
+
 ## 0.1.242
 
 - Correct experimental S350 controls behind NVR S4: receipt-only pan acknowledgement, 1x/2x/3x zoom, app-matched streaming-quality labels, and AI tracking with fresh readback. Keep exact model, owner and opt-in boundaries.
