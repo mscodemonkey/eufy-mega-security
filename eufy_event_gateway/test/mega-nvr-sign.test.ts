@@ -23,7 +23,12 @@ for (const mode of ['ie', 'eu', 'us', 'unknown', 'redirect', 'unauthorized', 'fo
     identities: { [securityHost]: { keyIdent: 'synthetic', sharedKey: '00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100', clientPublicKey: 'public' } } }));
   const client = new MegaClient({ email: 'user@example.invalid', password: 'password', country: 'AU', persistentDirectory: directory,
     minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000, fetch: async (input, init) => {
-      requests++; const url = new URL(String(input));
+      const url = new URL(String(input));
+      if (url.pathname === '/passport/estimate_domain') {
+        assert.equal(new Headers(init?.headers).get('model-type'), 'WEB');
+        return new Response(JSON.stringify({ code: 0, data: { domain: mode === 'unknown' ? 'unknown.example.invalid' : `mega-${region}-pr.eufy.com` } }));
+      }
+      requests++;
       if (mode === 'queued-cancel') { await waiting; return new Response(JSON.stringify({ code: 0, data: 'synthetic-sign' })); }
       assert.equal(url.hostname, `security-smart${region === 'us' ? '' : '-' + region}.eufylife.com`);
       assert.equal(url.pathname, '/v1/smart/nvr/ws/sign'); assert.equal(init?.redirect, 'manual');
