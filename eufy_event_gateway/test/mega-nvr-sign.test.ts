@@ -9,8 +9,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MegaClient } from '../src/mega/client.js';
 import { credentialVerifier } from '../src/mega/crypto.js';
+import { NvrTrialError } from '../src/stream/nvr-protocol.js';
 
-for (const mode of ['ie', 'eu', 'us', 'unknown', 'redirect', 'oversize', 'queued-cancel']) test(`NVR sign ${mode} reuses one session without redirects or login`, async () => {
+for (const mode of ['ie', 'eu', 'us', 'unknown', 'redirect', 'unauthorized', 'forbidden', 'application-rejected', 'oversize', 'queued-cancel']) test(`NVR sign ${mode} reuses one session without redirects or login`, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'nvr-sign-'));
   let requests = 0, release!: () => void;
   const waiting = new Promise<void>(resolve => { release = resolve; });
@@ -28,6 +29,8 @@ for (const mode of ['ie', 'eu', 'us', 'unknown', 'redirect', 'oversize', 'queued
       assert.equal(url.pathname, '/v1/smart/nvr/ws/sign'); assert.equal(init?.redirect, 'manual');
       assert.equal(new Headers(init?.headers).get('x-auth-token'), 'synthetic-token');
       if (mode === 'redirect') return new Response('', { status: 302, headers: { location: 'https://unknown.example.invalid' } });
+      if (mode === 'unauthorized' || mode === 'forbidden') return new Response('private-vendor-body', { status: mode === 'unauthorized' ? 401 : 403 });
+      if (mode === 'application-rejected') return new Response(JSON.stringify({ code: 401, msg: 'private-vendor-body' }));
       return new Response(JSON.stringify({ code: 0, data: mode === 'oversize' ? 'x'.repeat(70000) : 'synthetic-sign' }));
     } });
   try {
@@ -38,8 +41,14 @@ for (const mode of ['ie', 'eu', 'us', 'unknown', 'redirect', 'oversize', 'queued
       await new Promise<void>(resolve => setImmediate(resolve));
       const pending = client.nvrSignallingContext('synthetic-station', 'auto', controller.signal);
       controller.abort(); await assert.rejects(pending, /cancelled/); assert.equal(requests, 1); release(); await inventory;
-    } else if (['unknown', 'redirect', 'oversize'].includes(mode)) {
-      await assert.rejects(client.nvrSignallingContext('synthetic-station', 'auto', controller.signal));
+    } else if (['unknown', 'redirect', 'unauthorized', 'forbidden', 'application-rejected', 'oversize'].includes(mode)) {
+      await assert.rejects(client.nvrSignallingContext('synthetic-station', 'auto', controller.signal), error => {
+        assert.ok(error instanceof NvrTrialError);
+        const status = mode === 'redirect' ? 302 : mode === 'unauthorized' ? 401 : mode === 'forbidden' ? 403 : mode === 'application-rejected' ? 200 : undefined;
+        assert.equal(error.httpStatus, status);
+        assert.ok(!error.message.includes('private-vendor-body'));
+        return true;
+      });
       assert.equal(requests, mode === 'unknown' ? 0 : 1); assert.equal(client.isAuthenticated, true);
     } else {
       const value = await client.nvrSignallingContext('synthetic-station', 'auto', controller.signal);

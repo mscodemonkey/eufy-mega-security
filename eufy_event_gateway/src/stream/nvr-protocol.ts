@@ -38,11 +38,15 @@ export class NvrTrialError extends Error {
   /** Fixed reason safe to include in a reporter's single failure line. */
   readonly reason: NvrTrialReason;
 
-  constructor(readonly stage: NvrTrialStage, reason: NvrTrialReason = "unspecified") {
+  /** HTTP response status from signing only, without a vendor body or token. */
+  readonly httpStatus: number | undefined;
+
+  constructor(readonly stage: NvrTrialStage, reason: NvrTrialReason = "unspecified", httpStatus?: number) {
     super(stage === "region_or_authorization_rejected"
       ? "NVR region or authorization rejected. Check the experimental NVR service region, including ie for GB-style accounts."
       : `NVR video test failed at ${stage}`);
     this.reason = nvrTrialReasons.includes(reason) ? reason : "unspecified";
+    this.httpStatus = Number.isInteger(httpStatus) && httpStatus! >= 100 && httpStatus! <= 599 ? httpStatus : undefined;
   }
 }
 

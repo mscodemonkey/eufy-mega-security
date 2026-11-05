@@ -15,6 +15,7 @@ import type { ProviderEvents } from "../src/provider/provider.js";
 import { GatewayState } from "../src/domain/gateway-state.js";
 import { DoorbellRtcSession } from "../src/stream/doorbell-rtc-session.js";
 import { DoorbellRtcError } from "../src/stream/doorbell-rtc-offer.js";
+import { NvrTrialError } from "../src/stream/nvr-protocol.js";
 
 const contextValue = { host: "security-smart-eu.eufylife.com", region: "EU" as const,
   authToken: "synthetic-token", gtoken: "synthetic-gtoken", sign: "synthetic-sign" };
@@ -106,3 +107,28 @@ test("stopping a pending sign prevents late media and releases only the original
     assert.equal(starts.mock.callCount(), 0); await next();
   } finally { finish(contextValue); await f.close(); }
 });
+
+for (const mode of ["unauthorized", "forbidden", "cancelled", "network"] as const) {
+  test(`doorbell signing ${mode} retains safe diagnostics and releases its lease`, async context => {
+    const f = await fixture(context);
+    const status = mode === "unauthorized" ? 401 : mode === "forbidden" ? 403 : undefined;
+    const received = status ? new NvrTrialError("region_or_authorization_rejected", "unspecified", status)
+      : mode === "cancelled" ? new NvrTrialError("cancelled") : new Error("private-vendor-body synthetic-token");
+    context.mock.method(MegaClient.prototype, "nvrSignallingContext", async () => { throw received; });
+    const starts = context.mock.method(DoorbellRtcSession.prototype, "start", async () => undefined);
+    try {
+      await assert.rejects(f.provider.startStream("synthetic-doorbell"), error => {
+        assert.ok(error instanceof DoorbellRtcError);
+        assert.equal(error.stage, mode === "cancelled" ? "cancelled" : "sign");
+        assert.equal(error.reason, status ? "region_or_authorization_rejected" : "unspecified");
+        assert.equal(error.httpStatus, status);
+        assert.ok(!JSON.stringify(error).includes("synthetic-token"));
+        assert.ok(!error.message.includes("private-vendor-body"));
+        return true;
+      });
+      assert.equal(starts.mock.callCount(), 0);
+      const next = f.provider.reserveDoorbellRtcTrial("synthetic-doorbell", new AbortController().signal);
+      await next();
+    } finally { await f.close(); }
+  });
+}

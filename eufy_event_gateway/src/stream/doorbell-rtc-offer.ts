@@ -11,7 +11,7 @@ export type DoorbellRtcStage = "admission" | "sign" | "join" | "call" | "busy" |
   | "peer" | "video" | "cancelled" | "deadline";
 
 /** Content-free reason categories for offer validation and support follow-up. */
-export type DoorbellRtcReason = "unspecified" | "offer_text" | "media_sections" | "media_kinds"
+export type DoorbellRtcReason = "unspecified" | "region_or_authorization_rejected" | "offer_text" | "media_sections" | "media_kinds"
   | "media_shape" | "mid" | "video_count" | "video_shape" | "transport_field"
   | "payloads" | "codec" | "fmtp" | "candidate_limit" | "candidate" | "connection";
 
@@ -20,8 +20,13 @@ export type DoorbellRtcReason = "unspecified" | "offer_text" | "media_sections" 
  * Received messages, SDP, credentials and causes must never enter this error.
  */
 export class DoorbellRtcError extends Error {
-  constructor(readonly stage: DoorbellRtcStage, readonly reason: DoorbellRtcReason = "unspecified") {
+
+  /** Signing response status only. Received text and account data are excluded. */
+  readonly httpStatus: number | undefined;
+
+  constructor(readonly stage: DoorbellRtcStage, readonly reason: DoorbellRtcReason = "unspecified", httpStatus?: number) {
     super(`Standalone doorbell video test failed at ${stage}`);
+    this.httpStatus = Number.isInteger(httpStatus) && httpStatus! >= 100 && httpStatus! <= 599 ? httpStatus : undefined;
   }
 }
 
