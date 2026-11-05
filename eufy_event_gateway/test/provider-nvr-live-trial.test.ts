@@ -128,6 +128,7 @@ for (const mode of [...additional.keys(), 'state-read', 'state-read-failure', 's
 
 for (const route of [
   { cameraModel: "T8E00", cameraType: 301, stationModel: "T8N00", stationType: 300 },
+  { cameraModel: "T8E00", cameraType: 301, stationModel: "T9000", stationType: 27 },
   { cameraModel: "T8P10", cameraType: 303, stationModel: "T8N00", stationType: 300 },
   { cameraModel: "T8416", cameraType: 104, stationModel: "T8N00", stationType: 300 },
   { cameraModel: "T8214", cameraType: 94, stationModel: "T8N00", stationType: 300 },
@@ -226,7 +227,11 @@ for (const route of [
 }
 
 for (const route of [
-  { model: "T8E00", type: 301, parent: "T9000", parentType: 27, enabled: true },
+  { model: "T8E00", type: 301, parent: "T9000", parentType: 27, enabled: false },
+  { model: "T8E00", type: 302, parent: "T9000", parentType: 27, enabled: true },
+  { model: "T8E00X", type: 301, parent: "T9000", parentType: 27, enabled: true },
+  { model: "T8E00", type: 301, parent: "T9000", parentType: 300, enabled: true },
+  { model: "T8E00", type: 301, parent: "T8030", parentType: 18, enabled: true },
   { model: "T8P10", type: 303, parent: "T8N00", parentType: 300, enabled: false },
   { model: "T8P10", type: 301, parent: "T8N00", parentType: 300, enabled: true },
   { model: "T8P10X", type: 303, parent: "T8N00", parentType: 300, enabled: true },

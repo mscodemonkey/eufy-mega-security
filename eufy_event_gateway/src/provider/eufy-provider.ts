@@ -2491,7 +2491,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       && (device.model === "T8E00" && device.deviceType === 301 || device.model === "T8P10" && device.deviceType === 303
         || device.model === "T8416" && device.deviceType === 104 || device.model === "T8214" && device.deviceType === 94)
       || station.model === "T9000" && station.deviceType === 27 && (
-        (device.model === "T8140-Z" || device.model === "T8140") && device.deviceType === 14
+        device.model === "T8E00" && device.deviceType === 301
+        || (device.model === "T8140-Z" || device.model === "T8140") && device.deviceType === 14
         || device.model === "T8113-V" && device.deviceType === 8
         || device.model === "T8172" && device.deviceType === 89
         || device.model === "T8215" && device.deviceType === 97);
