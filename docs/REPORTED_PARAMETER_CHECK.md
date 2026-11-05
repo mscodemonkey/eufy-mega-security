@@ -31,6 +31,36 @@ candidates with `valid` so they cannot disclose a possible privacy setting.
 Neither result is proof of physical state, freshness or permission to use a
 control. This check does not resolve manual siren-state feedback.
 
+## Home Assistant terminal method
+
+Supervisor discovery keeps the gateway token private. The diagnostics page does
+not fill its token field automatically. Use this method instead of looking for
+the token in Home Assistant's storage.
+
+In the **Terminal & SSH** app, download both helpers from the version installed
+on your gateway. Replace `v0.1.XXX` with that release tag:
+
+```sh
+mkdir -p /config/eufy-diagnostics-tools
+curl -fL https://raw.githubusercontent.com/mscodemonkey/eufy-mega-security/v0.1.XXX/eufy_event_gateway/scripts/diagnostic-bundle.py -o /config/eufy-diagnostics-tools/diagnostic-bundle.py
+curl -fL https://raw.githubusercontent.com/mscodemonkey/eufy-mega-security/v0.1.XXX/eufy_event_gateway/scripts/export-event-image-capture.py -o /config/eufy-diagnostics-tools/export-event-image-capture.py
+python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py list
+```
+
+Keep **Experimental model controls** enabled. Replace `1` below with the
+supported device's current index from the list:
+
+```sh
+python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py state-check --target-index 1 --consent-read
+```
+
+This uses the existing integration connection and sends one read request. It
+does not open video, change a setting or print the token. Share only its summary
+or fixed failure message. Missing or invalid readings remain unresolved. Keep
+your configured account as it is, including when the request is refused.
+
+## API boundary
+
 The endpoint is `POST /api/diagnostics/parameter-check`, with bearer
 authentication even on loopback, JSON content type and exactly a selected serial
 plus `consent: true`. The body limit is 1 KiB. Only one provider flight runs at a

@@ -42,6 +42,53 @@ def encoded(value: dict) -> bytes:
 
 
 class DiagnosticBundleTests(unittest.TestCase):
+
+    def test_state_check_uses_saved_connection_without_exposing_credentials(self):
+        """Send one consented read and print only the closed model summary."""
+        summary = {"model": "T8030", "profile": "alarm_volume_candidate", "observations": {"1235": "missing"}}
+        target = {"serial": "private-station", "model": "T8030", "streamSupported": False}
+
+        def reply(url, token, method="GET", value=None, **kwargs):
+            if url.endswith("/targets"):
+                return json.dumps({"devices": [target]}).encode()
+            self.assertEqual((method, value, kwargs), ("POST", {"serial": "private-station", "consent": True}, {"timeout": 35}))
+            return json.dumps(summary).encode()
+
+        output = io.StringIO()
+        with patch.object(TOOL.HELPERS, "gateway_connection", return_value=("http://private.invalid", "private-token")), patch.object(TOOL, "request", side_effect=reply) as request, redirect_stdout(output):
+            self.assertEqual(TOOL.main(["state-check", "--target-index", "1", "--consent-read"]), 0)
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(json.loads(output.getvalue()), summary)
+        self.assertNotIn("private", output.getvalue())
+
+    def test_state_check_requires_consent_before_loading_the_connection(self):
+        """An omitted consent flag sends no read and accesses no stored credential."""
+        with patch.object(TOOL.HELPERS, "gateway_connection") as connection, patch.object(TOOL, "request") as request, redirect_stderr(io.StringIO()):
+            self.assertEqual(TOOL.main(["state-check", "--target-index", "1"]), 1)
+        connection.assert_not_called()
+        request.assert_not_called()
+
+    def test_state_check_rejects_unselected_or_private_response_fields(self):
+        """Unknown data and another device's result never reach terminal output."""
+        valid = {"model": "T8417", "profile": "privacy_candidates", "observations": {"1035": "missing", "2001": "zero", "6250": "one", "6271": "conflicting"}}
+        target = {"serial": "private-camera", "model": "T8417"}
+        for result in [dict(valid, token="private-token"), dict(valid, model="T8410"), dict(valid, observations={"1035": "private-value"}), dict(valid, observations=[]), []]:
+            with patch.object(TOOL, "request", return_value=json.dumps(result).encode()):
+                with self.assertRaisesRegex(TOOL.DiagnosticError, "unsupported summary"):
+                    TOOL.parameter_check("http://private.invalid", "private-token", target)
+        with patch.object(TOOL, "request", return_value=json.dumps(valid).encode()):
+            self.assertEqual(TOOL.parameter_check("http://private.invalid", "private-token", target), valid)
+        with patch.object(TOOL, "request") as request:
+            with self.assertRaises(TOOL.DiagnosticError):
+                TOOL.parameter_check("http://private.invalid", "private-token", {"model": "T8134"})
+            request.assert_not_called()
+
+    def test_state_check_never_retries_a_refused_read(self):
+        """Keep authorization failures fixed and leave the account untouched."""
+        with patch.object(TOOL, "request", side_effect=TOOL.DiagnosticRequestError(409)) as request:
+            with self.assertRaisesRegex(TOOL.DiagnosticError, "HTTP 409"):
+                TOOL.parameter_check("http://private.invalid", "private-token", {"model": "T8030", "serial": "private-station"})
+            self.assertEqual(request.call_count, 1)
     """Exercise integrity, resource and private-file boundaries offline."""
 
     def test_valid_and_corrupt_media(self):
