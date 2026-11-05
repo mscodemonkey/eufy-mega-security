@@ -27,8 +27,7 @@ import { validateC31Preference, type C31Preference } from "../provider/c31-prefe
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
 import {
-  buildHomeBase2DownloadValue, HOMEBASE2_DOWNLOAD_CANCEL_COMMAND, HOMEBASE2_DOWNLOAD_COMMAND,
-  HomeBase2EventFrameReader, type RecordedEventFrames,
+  buildHomeBase2DownloadValue, HOMEBASE2_DOWNLOAD_CANCEL_COMMAND, HOMEBASE2_DOWNLOAD_COMMAND, HomeBase2EventFrameReader,
 } from "./homebase2-event-frame.js";
 import { HomeBaseRecordingReader } from "./homebase-recordings.js";
 import type { PushRecordingReference } from "../mega/push-recording-reference.js";
@@ -2803,21 +2802,22 @@ export class FirstPartyPpcsSession {
   }
 
   /**
-   * Read the opening frames of one HomeBase 2 clip for a full-scene event picture.
+   * Read the first picture of one HomeBase 2 clip for a full-scene event image.
    *
-   * The T8010 accepts the legacy fixed-width download command with level-one
-   * encryption, matching its direct media stop. Signed frames wrap their AES
-   * key with the station cipher's RSA key, which the provider resolves for
-   * this clip only. A fresh reader per call keeps that key out of later reads.
+   * The unconfirmed T8010 contract is the legacy fixed-width download command
+   * with level-one encryption, matching its direct media stop. Signed frames
+   * wrap their AES key with the station cipher's RSA key, which the provider
+   * resolves for this clip only. The reader is dropped afterwards so that key
+   * is not retained by the session. The provider owns the peer reservation.
    */
-  async readHomeBase2EventFrames(path: string, cipherPrivateKey: KeyObject, signal?: AbortSignal): Promise<RecordedEventFrames> {
-    if (!this.#options.homeBaseAttached || this.#options.stationModel !== "T8010" ||
-      this.#options.purpose !== "control" || !this.#options.accountId) {
-      throw new Error("HomeBase 2 event frames require a HomeBase 2 control session");
+  async readHomeBase2EventFrame(path: string, cipherPrivateKey: KeyObject, signal: AbortSignal): Promise<Buffer> {
+    if (this.#closed || !this.#options.homeBaseAttached || this.#options.stationModel !== "T8010"
+      || this.#options.purpose !== "control" || !this.#options.accountId || this.#recordings || this.#eventNames || this.#eventPicture
+      || this.#eventFrames || this.#pendingControl || this.#pendingControlQuery || this.#pendingCameraInfo || this.#alarmRead || this.#lockStatus) {
+      throw new Error("HomeBase 2 event frames require an idle HomeBase 2 control session");
     }
-    if (!this.#remote) throw new Error("HomeBase 2 session is not connected");
-    if (this.#recordings?.downloading || this.#eventFrames?.downloading) throw new Error("HomeBase 2 recording operation is already active");
     await this.#waitForLevel2Key();
+    if (this.#closed || signal.aborted) throw new Error("HomeBase 2 recording operation was cancelled");
     const key = commandKey(this.#options.stationSerial, this.#options.p2pDid);
     const channel = this.#options.channel;
     const accountId = this.#options.accountId;
@@ -2826,6 +2826,9 @@ export class FirstPartyPpcsSession {
       request: (filePath) => this.#sendCommand(HOMEBASE2_DOWNLOAD_COMMAND,
         rawPayload(encryptLevel1(buildHomeBase2DownloadValue(filePath, accountId), key), channel, 1, [1, 0], 0)),
       cancel: () => {
+
+        // A closed session has already ended the peer session and its socket.
+        if (this.#closed) return;
         const value = Buffer.alloc(4);
         value.writeUInt32LE(channel, 0);
         this.#sendCommand(HOMEBASE2_DOWNLOAD_CANCEL_COMMAND, rawPayload(encryptLevel1(value, key), channel, 1, [1, 0], 0));
@@ -2840,7 +2843,8 @@ export class FirstPartyPpcsSession {
         return null;
       },
     });
-    return await this.#eventFrames.firstFrames(path, signal);
+    try { return await this.#eventFrames.firstFrameJpeg(path, signal); }
+    finally { this.#eventFrames = null; }
   }
 
   #recordingReader(): SoloCamRecordingReader | HomeBaseRecordingReader {

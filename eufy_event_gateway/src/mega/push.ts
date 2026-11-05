@@ -72,10 +72,10 @@ export interface MegaPushEvent {
   readonly pictureUrl: string | null;
   readonly filePath: string | null;
 
-  /** HomeBase 2 camera channel that names the clip folder when only a clip name is pushed. */
+  /** Clip channel pushed by a HomeBase 2 camera, which must match the camera's inventory channel. */
   readonly recordingChannel?: number | null;
 
-  /** Station cipher that protects the stored clip, used only to retrieve its full frame. */
+  /** Station cipher protecting the stored clip, used only by the opt-in HomeBase 2 event frames. */
   readonly cipherId?: number | null;
   /** Exact private recording identity, present only when its complete innermost reference is supported. */
   readonly recording?: PushRecordingReference;

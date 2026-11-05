@@ -1,16 +1,18 @@
 /**
- * Reads the opening frames of one HomeBase 2 event recording.
+ * Reads the first picture of one HomeBase 2 event recording.
  *
  * Eufy's push picture for some HomeBase 2 cameras is a small AI close-up. The
  * full scene exists only in the clip the HomeBase stores on its SD card. This
  * reader requests that clip with the legacy download command, keeps video from
- * the first keyframe onwards and stops the transfer once one picture can be
- * decoded. The owning session supplies the request, cancel and key callbacks;
- * paths, keys and media never leave this module except as Annex-B video.
+ * the first keyframe onwards, stops the transfer once one picture can be decoded
+ * and returns it as a JPEG. The owning session supplies the request, cancel and
+ * key callbacks. The provider owns peer reservation and stale-result rejection.
+ * This download contract is unconfirmed on hardware, so the feature stays opt-in.
  */
 import { createPrivateKey, type KeyObject } from "node:crypto";
 import type { VideoCodec } from "../domain/types.js";
 import { decodePpcsVideoFrame, PpcsVideoStreamNormalizer } from "./first-party-ppcs.js";
+import { extractFirstJpeg } from "./live-stream-manager.js";
 
 /** Legacy download command and its station-side completion marker. */
 export const HOMEBASE2_DOWNLOAD_COMMAND = 1024;
@@ -21,6 +23,10 @@ const SD_CAMERA_PREFIX = "/media/mmcblk0p1/Camera";
 const FRAME_TARGET = 8;
 const BYTE_LIMIT = 8 * 1024 * 1024;
 const TIMEOUT_MILLISECONDS = 25_000;
+
+// Observed close-ups were about 150 pixels wide and full-scene pictures at least
+// 640, so anything narrower than this cannot be showing the whole scene.
+const CROPPED_PICTURE_WIDTH = 320;
 
 /** Session-owned callbacks for one HomeBase 2 child channel. */
 export interface HomeBase2EventFrameTransport {
@@ -65,17 +71,42 @@ export function isHomeBase2RecordingPath(path: string): boolean {
 /**
  * Resolve the recording path carried by a HomeBase 2 camera push.
  *
- * Older pushes carry only the clip name and the camera channel, while others
- * carry the absolute path. Anything outside the SD-card camera folders is
- * rejected so a push can never select an arbitrary station file.
+ * Older pushes carry only the clip name, while others carry the absolute path.
+ * The caller supplies the camera's inventory channel. Anything outside that
+ * camera's SD-card folder is rejected, so a push can never select another
+ * camera's clip or an arbitrary station file.
  */
-export function homeBase2RecordingPath(filePath: string | null, channel: number | null): string | null {
-  if (!filePath) return null;
-  if (filePath.startsWith("/")) return isHomeBase2RecordingPath(filePath) ? filePath : null;
-  if (channel === null || !Number.isInteger(channel) || channel < 0 || channel > 99) return null;
+export function homeBase2RecordingPath(filePath: string | null | undefined, channel: number): string | null {
+  if (!filePath || !Number.isInteger(channel) || channel < 0 || channel > 99) return null;
+  const folder = `${SD_CAMERA_PREFIX}${String(channel).padStart(2, "0")}/`;
+  if (filePath.startsWith("/")) return filePath.startsWith(folder) && isHomeBase2RecordingPath(filePath) ? filePath : null;
   const name = filePath.endsWith(".dat") ? filePath.slice(0, -4) : filePath;
-  const path = `${SD_CAMERA_PREFIX}${String(channel).padStart(2, "0")}/${name}.dat`;
+  const path = `${folder}${name}.dat`;
   return isHomeBase2RecordingPath(path) ? path : null;
+}
+
+/**
+ * Report whether a retained event picture is too narrow to show the whole scene.
+ *
+ * This walks JPEG marker segments to the frame header without decoding pixels.
+ * An unreadable picture is not treated as a crop, so it never starts a clip read.
+ */
+export function isCroppedEventPicture(picture: Buffer): boolean {
+  if (picture[0] !== 0xff || picture[1] !== 0xd8) return false;
+  for (let offset = 2; offset + 9 <= picture.length;) {
+    if (picture[offset] !== 0xff) return false;
+    const marker = picture[offset + 1]!;
+    if (marker === 0xff) { offset++; continue; }
+
+    // Frame headers are C0-CF, except C4 (Huffman), C8 (reserved) and CC (arithmetic).
+    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+      const width = picture.readUInt16BE(offset + 7);
+      return width > 0 && width < CROPPED_PICTURE_WIDTH;
+    }
+    if (marker === 0xda || marker === 0xd9) return false;
+    offset += 2 + picture.readUInt16BE(offset + 2);
+  }
+  return false;
 }
 
 /**
@@ -127,6 +158,13 @@ export class HomeBase2EventFrameReader {
 
   /** Whether binary recording data should currently reach this reader. */
   get downloading(): boolean { return this.#transfer !== null; }
+
+  /** Read one clip's opening video and decode its first picture, clearing the video afterwards. */
+  async firstFrameJpeg(path: string, signal?: AbortSignal): Promise<Buffer> {
+    const frames = await this.firstFrames(path, signal);
+    try { return await extractFirstJpeg(frames.video, frames.codec, signal); }
+    finally { frames.video.fill(0); }
+  }
 
   /** Request one clip and return its opening Annex-B video from the first keyframe. */
   async firstFrames(path: string, signal?: AbortSignal): Promise<RecordedEventFrames> {

@@ -49,7 +49,7 @@ The production operations are:
 | Verification | `/app/sendmsg/verify_code` | Ask Eufy to send an email code | gateway Web UI |
 | Inventory | `/app/house/get_devs_list` | Enumerate stations, cameras, channels, and P2P metadata | provider |
 | DSK lookup | `/app/devicerelation/get_dsk_keys` | Obtain station secrets for PPCS lookup | PPCS session |
-| Cipher lookup | `/v3/app/cipher/get_ciphers` | Obtain ECC private keys for HomeBase level-two setup | PPCS session |
+| Cipher lookup | `/v3/app/cipher/get_ciphers` | Obtain ECC private keys for HomeBase level-two setup, and the RSA key for opt-in HomeBase 2 clip frames | PPCS session |
 | Push registration | `/app/push/register_push_token` | Register the Firebase receiver | push receiver |
 
 The actual host is selected from the discovered product-domain map. Hard-coding one global Eufy host would break accounts in other regions and is one reason host discovery belongs in `MegaClient`.

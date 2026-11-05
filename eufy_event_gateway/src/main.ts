@@ -104,6 +104,7 @@ if (config.provider === "simulated") {
     experimentalCloudRecordings: config.experimentalCloudRecordings,
     experimentalEventImageRequest: config.experimentalEventImageRequest,
     experimentalHomeBaseEventImages: config.experimentalHomeBaseEventImages,
+    experimentalHomeBase2EventFrames: config.experimentalHomeBase2EventFrames,
     experimentalNvrRegion: config.experimentalNvrRegion,
     ...(eventImageCapture ? { eventImageCapture } : {}),
     ...(config.eufy.verifyCode ? { verifyCode: config.eufy.verifyCode } : {}),
