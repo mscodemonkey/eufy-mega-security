@@ -906,7 +906,14 @@ export class MegaClient {
     return { response, initial: mediaRequestDiagnostic(url) };
   }
 
-  /** Obtain a transient, private NVR join context without another login or session bypass. */
+  /**
+   * Obtain a transient RTC join context from the existing authenticated session.
+   *
+   * Automatic routing first resolves the credential-free WEB service region.
+   * Explicit overrides skip discovery. Queueing, discovery and signing share a
+   * ten-second deadline, and a replaced session or failed discovery cannot send
+   * its token to a newly discovered host. Account domains remain unchanged.
+   */
   async nvrSignallingContext(station: string, region: "auto" | "us" | "eu" | "ie", cancellation: AbortSignal): Promise<NvrSignallingContext> {
     this.#requireAuthentication();
     const session = this.#session!;
