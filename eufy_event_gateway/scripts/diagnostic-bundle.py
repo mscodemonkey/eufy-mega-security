@@ -59,14 +59,14 @@ class DiagnosticRequestError(DiagnosticError):
         super().__init__(message)
 
 
-def request(url: str, token: str, method: str = "GET", value=None) -> bytes:
+def request(url: str, token: str, method: str = "GET", value=None, *, timeout: int = 15) -> bytes:
     """Reject redirects and proxies, and limit response size and transfer time."""
     data = json.dumps(value).encode() if value is not None else None
     headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
     opener = build_opener(ProxyHandler({}), HELPERS.NoRedirect())
     deadline = time.monotonic() + 45
     try:
-        with opener.open(Request(url, data=data, headers=headers, method=method), timeout=15) as response:
+        with opener.open(Request(url, data=data, headers=headers, method=method), timeout=timeout) as response:
             body = bytearray()
             while True:
                 if time.monotonic() >= deadline:
@@ -250,16 +250,43 @@ def movement_test(url: str, token: str, rows: list[dict], index: int, direction:
             "next": "Check whether the camera moved, then restore its original view in Eufy."}
 
 
+def parameter_check(url: str, token: str, target: dict) -> dict:
+    """Read one supported profile and reject private or unrecognised response fields."""
+    profiles = {
+        "T8410": ("power_candidates", {"1035", "2001"}),
+        "T8417": ("privacy_candidates", {"1035", "2001", "6250", "6271"}),
+        "T8030": ("alarm_volume_candidate", {"1235"}),
+    }
+    model = target["model"]
+    if model not in profiles:
+        raise DiagnosticError("The selected model does not support this read-only state check.")
+    result = json.loads(request(url + "/api/diagnostics/parameter-check", token, "POST",
+                                {"serial": target["serial"], "consent": True}, timeout=35))
+    profile, fields = profiles[model]
+    allowed = {"missing", "invalid", "conflicting", "valid"} if model == "T8030" else {"missing", "invalid", "conflicting", "zero", "one"}
+    if (not isinstance(result, dict) or set(result) != {"model", "profile", "observations"}
+            or result["model"] != model or result["profile"] != profile
+            or not isinstance(result["observations"], dict) or set(result["observations"]) != fields
+            or any(not isinstance(value, str) or value not in allowed for value in result["observations"].values())):
+        raise DiagnosticError("The read-only state check returned an unsupported summary.")
+    return result
+
+
 def run(options) -> dict:
     """Perform the selected owner-requested workflow, retaining tokens only in memory."""
     if options.command == "inspect":
         return inspect_archive(read_archive(options.input))
+    if options.command == "state-check" and not options.consent_read:
+        raise DiagnosticError("The read-only state check requires explicit read consent.")
     url, token = HELPERS.gateway_connection(options.config, options.entry_id)
     endpoint = url + "/api/diagnostics/bundle"
     if options.command == "list":
         rows = devices(endpoint, token)
         return {"devices": [{"index": i + 1, "model": row["model"], "streamSupported": row["streamSupported"]}
                             for i, row in enumerate(rows)]}
+    if options.command == "state-check":
+        rows = devices(endpoint, token)
+        return parameter_check(url, token, selected_device(rows, options.target_index))
     if options.command == "movement-check":
         rows = devices(endpoint, token)
         movement_admission(url, token, selected_device(rows, options.target_index))
@@ -309,6 +336,11 @@ def main(arguments=None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("list", "status", "clear"):
         sub.add_parser(name)
+    state = sub.add_parser("state-check", help="Run one consented read-only reported-parameter check.")
+    state.add_argument("--target-index", type=int, required=True,
+                       help="Current one-based device index from the list command.")
+    state.add_argument("--consent-read", action="store_true",
+                       help="Allow one cloud parameter read using the existing configured account.")
     check = sub.add_parser("movement-check", help="Read movement admission without moving the camera.")
     check.add_argument("--target-index", type=int, required=True,
                        help="Current one-based device index from the list command.")
