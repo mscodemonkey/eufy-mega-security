@@ -18,13 +18,14 @@ import type { LiveStreamManager } from "../src/stream/live-stream-manager.js";
 test("NVR routes reject unauthenticated, duplicate, unknown and conflicting inputs", async () => {
   const directory = await mkdtemp(join(tmpdir(), "nvr-live-http-")), state = new GatewayState();
   const identity = { serial: "synthetic", name: "Synthetic", model: "T8416", stationSerial: "synthetic-parent",
-    streamSupported: true, doorbellSupported: false, nvrViewOptions: ["Wide", "Telephoto"], nvrSelectedView: 0 };
+    streamSupported: true, doorbellSupported: false, nvrViewOptions: [], nvrSelectedView: null, nvrLiveControlsSupported: true };
   state.registerCamera(identity);
   let calls = 0, active = false, limited = false, admitted = false;
   const provider = {
     nvrLiveSettingAdmitted: (_serial: string, quality?: number) => admitted && (quality === undefined || [0, 1, 2, 3, 4].includes(quality)),
     setCameraStreamingQuality: async () => { calls++; return identity; },
     setCameraNightVision: async () => { calls++; return identity; },
+    setCameraAiTracking: async (_serial: string, _enabled: boolean, signal?: AbortSignal) => { calls++; assert.ok(signal); },
     setNvrView: async () => { calls++; return { ...identity, nvrSelectedView: 1 }; },
     performNvrLiveControl: async () => { calls++; if (limited) throw new NvrLiveControlError("rate_limited"); return { outcome: "request_accepted", physicalConfirmationRequired: true }; },
   } as unknown as CameraProvider;
@@ -44,10 +45,12 @@ test("NVR routes reject unauthenticated, duplicate, unknown and conflicting inpu
     assert.equal((await send("synthetic/night-vision", '{"mode":1}', false)).status, 401);
     assert.equal((await send("synthetic/streaming-quality", '{"quality":1}')).status, 409);
     assert.equal((await send("synthetic/night-vision", '{"mode":1}')).status, 409);
+    assert.equal((await send("synthetic/ai-tracking", '{"enabled":true}')).status, 409);
     for (const mode of ["1", true, 1.5, null]) {
       assert.equal((await send("synthetic/night-vision", JSON.stringify({ mode }))).status, 400);
     }
     assert.equal(calls, 0); admitted = true;
+    assert.equal((await send("synthetic/ai-tracking", '{"enabled":false}')).status, 200); assert.equal(calls, 1);
     assert.equal((await send("synthetic/streaming-quality", '{"quality":4}')).status, 200);
     active = true; assert.equal((await send("synthetic/nvr-view", '{"view":1}')).status, 409);
     active = false; assert.equal((await send("synthetic/nvr-view", '{"view":1}')).status, 200);

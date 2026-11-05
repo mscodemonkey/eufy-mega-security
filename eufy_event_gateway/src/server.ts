@@ -1434,7 +1434,7 @@ export class GatewayServer {
     const body = await readJson(request);
     const quality = requiredInteger(body.quality);
     const nvr = this.provider.nvrLiveSettingAdmitted?.(serial) === true;
-    if (!nvr && this.state.getCamera(serial).nvrViewOptions?.length) throw new NvrLiveControlError("disabled");
+    if (!nvr && this.state.getCamera(serial).nvrLiveControlsSupported) throw new NvrLiveControlError("disabled");
     if (quality < 0 || quality > 4 || quality === 4 && !this.provider.nvrLiveSettingAdmitted?.(serial, quality)
       || nvr && !this.provider.nvrLiveSettingAdmitted?.(serial, quality)) throw new SyntaxError("Unsupported streaming quality");
     if (!this.provider.setCameraStreamingQuality) return json(response, 409, { error: "Streaming quality control unavailable" });
@@ -1461,7 +1461,7 @@ export class GatewayServer {
     const body = await readJson(request);
     const mode = requiredInteger(body.mode);
     const nvr = this.provider.nvrLiveSettingAdmitted?.(serial) === true;
-    if (!nvr && this.state.getCamera(serial).nvrViewOptions?.length) throw new NvrLiveControlError("disabled");
+    if (!nvr && this.state.getCamera(serial).nvrLiveControlsSupported) throw new NvrLiveControlError("disabled");
     const operation = (signal?: AbortSignal) => this.provider.setCameraNightVision(serial, mode, signal);
     const identity = nvr ? await this.#withNvrSettingSource(request, response, serial, operation) : await operation();
     return json(response, 200, this.state.registerCamera(identity));
@@ -1523,7 +1523,11 @@ export class GatewayServer {
   async #cameraAiTracking(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     const body = await readJson(request);
-    await this.provider.setCameraAiTracking(serial, requiredBoolean(body.enabled));
+    const enabled = requiredBoolean(body.enabled);
+    const nvr = this.provider.nvrLiveSettingAdmitted?.(serial) === true;
+    if (!nvr && this.state.getCamera(serial).nvrLiveControlsSupported) throw new NvrLiveControlError("disabled");
+    if (nvr) await this.#withNvrSettingSource(request, response, serial, signal => this.provider.setCameraAiTracking(serial, enabled, signal));
+    else await this.provider.setCameraAiTracking(serial, enabled);
     return json(response, 200, { ok: true });
   }
 

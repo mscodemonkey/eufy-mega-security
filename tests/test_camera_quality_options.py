@@ -49,11 +49,20 @@ class NvrQualityOptionsTest(StreamingQualityOptionsTest):
     """Keep the unconfirmed Highest tier limited to the advertised NVR profile."""
 
     def test_highest_requires_exact_profile(self) -> None:
-        """Reject tier four unless T8416 supplies the explicit NVR view choices."""
-        mode = [{"value": 4, "name": "Highest"}]
-        for camera in ({}, {"model": "T8171"}, {"model": "T8416"}):
-            self.assertEqual(self.map_modes({**camera, "streamingQualityModes": mode}), {})
-        self.assertEqual(self.map_modes({"model": "T8416", "nvrViewOptions": ["Wide", "Telephoto"], "streamingQualityModes": mode}), {4: "highest"})
+        """Reject tier four unless T8416 carries the explicit NVR controls marker."""
+        for name, key in (("Highest", "highest"), ("Ultra 4K", "ultra_4k")):
+            mode = [{"value": 4, "name": name}]
+            for camera in ({}, {"model": "T8171"}, {"model": "T8416"}, {"model": "T8416", "nvrViewOptions": ["Wide", "Telephoto"]},
+                           {"model": "T8416", "nvrLiveControlsSupported": "true"}, {"model": "T8171", "nvrLiveControlsSupported": True}):
+                self.assertEqual(self.map_modes({**camera, "streamingQualityModes": mode}), {})
+            self.assertEqual(self.map_modes({"model": "T8416", "nvrLiveControlsSupported": True, "streamingQualityModes": mode}), {4: key})
+
+    def test_s350_names_follow_the_app(self) -> None:
+        """The relabelled T8416 tiers map to existing translated states."""
+        modes = [{"value": 0, "name": "Auto"}, {"value": 1, "name": "HD (720P)"}, {"value": 2, "name": "Full HD (1080P)"},
+                 {"value": 3, "name": "2K"}, {"value": 4, "name": "Ultra 4K"}]
+        self.assertEqual(self.map_modes({"model": "T8416", "nvrLiveControlsSupported": True, "streamingQualityModes": modes}),
+                         {0: "auto", 1: "hd", 2: "full_hd", 3: "2k", 4: "ultra_4k"})
 
 
 if __name__ == '__main__':

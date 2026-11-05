@@ -15,14 +15,14 @@ import { NvrRtcSession } from "../src/stream/nvr-rtc-session.js";
 import { GatewayState } from "../src/domain/gateway-state.js";
 import type { NvrLiveWrite } from "../src/stream/nvr-live-control-protocol.js";
 
-async function fixture(context: TestContext, model = "T8E00", type = 301, flags = true, inherited = false, normal = true) {
+async function fixture(context: TestContext, model = "T8E00", type = 301, flags = true, inherited = false, normal = true, parent: readonly [string, number] | null = ["T8N00", 300]) {
   const directory = await mkdtemp(join(tmpdir(), "nvr-live-controls-"));
   let missing = false;
   let clock = 1000, viewer = true, recording = false, active = false, mismatch = false, partial = false;
-  let night = 1, quality = 0;
+  let night = 1, quality = 0, tracking: 0 | 1 = 1;
   const raw = { devices: [
-    { device_sn: "synthetic-parent", device_model: "T8N00", device_type: 300, category: "eufy_security", member: { admin_user_id: "synthetic-owner" } },
-    { device_sn: "synthetic-camera", parent_sn: "synthetic-parent", device_channel: 3, device_model: model, device_type: type,
+    ...parent ? [{ device_sn: "synthetic-parent", device_model: parent[0], device_type: parent[1], category: "eufy_security", member: { admin_user_id: "synthetic-owner" } }] : [],
+    { device_sn: "synthetic-camera", ...parent ? { parent_sn: "synthetic-parent", device_channel: 3 } : {}, device_model: model, device_type: type,
       category: "eufy_security", member: inherited ? {} : { admin_user_id: "synthetic-owner" } },
   ] };
   const writes: NvrLiveWrite[] = [], refreshes: (() => void)[] = [];
@@ -39,8 +39,8 @@ async function fixture(context: TestContext, model = "T8E00", type = 301, flags 
   context.mock.method(MegaClient.prototype, "nvrSignallingContext", async () => ({ host: "security-smart-ie.eufylife.com", region: "IE", authToken: "synthetic", gtoken: "synthetic", sign: "synthetic" }));
   context.mock.method(NvrRtcSession.prototype, "start", async () => {});
   context.mock.method(NvrRtcSession.prototype, "close", async () => {});
-  context.mock.method(NvrRtcSession.prototype, "initialLiveSettings", async () => ({ night, quality }));
-  context.mock.method(NvrRtcSession.prototype, "readLiveSettings", async () => ({ night, quality: missing ? null : quality }));
+  context.mock.method(NvrRtcSession.prototype, "initialLiveSettings", async () => ({ night, quality, tracking }));
+  context.mock.method(NvrRtcSession.prototype, "readLiveSettings", async () => ({ night, quality: missing ? null : quality, tracking }));
   context.mock.method(NvrRtcSession.prototype, "prepareLiveControl", async () => {});
   context.mock.getter(NvrRtcSession.prototype, "remainingLifetimeMilliseconds", () => 120000);
   context.mock.method(NvrRtcSession.prototype, "writeLiveControl", async (request: NvrLiveWrite, signal: AbortSignal, before: () => void) => {
@@ -48,6 +48,7 @@ async function fixture(context: TestContext, model = "T8E00", type = 301, flags 
     if (partial && request.kind === "quality" && request.sensor === 1) throw Error("private canary");
     if (!mismatch && request.kind === "night") night = request.value;
     if (!mismatch && request.kind === "quality") quality = request.value;
+    if (!mismatch && request.kind === "tracking") tracking = request.value;
   });
   const state = new GatewayState();
   const events = new Proxy({ camera: (value: Parameters<ProviderEvents["camera"]>[0]) => state.registerCamera(value) }, { get: (target, key) => Reflect.get(target, key) ?? (() => {}) }) as unknown as ProviderEvents;
@@ -100,13 +101,22 @@ for (const mode of ["disabled", "inherited", "recording", "drift", "partial", "v
   assert.equal(value.writes.length, mode === "partial" ? 2 : 0);
 });
 
-test("104 profile admits Wide default and software Telephoto choice, without optical zoom", async context => {
+test("104 profile offers no view choice, with pan and optical zoom on its only source", async context => {
   const value = await fixture(context, "T8416", 104);
-  assert.equal(value.state.getCamera("synthetic-camera").streamSupported, true);
-  assert.equal(value.state.getCamera("synthetic-camera").nvrSelectedView, 0);
-  assert.equal(value.state.getCamera("synthetic-camera").nvrOpticalZoomControlSupported, false);
-  await value.provider.setNvrView("synthetic-camera", 1);
-  assert.equal(value.state.getCamera("synthetic-camera").nvrSelectedView, 1);
+  const camera = () => value.state.getCamera("synthetic-camera");
+  assert.equal(camera().streamSupported, true);
+  assert.equal(camera().nvrLiveControlsSupported, true);
+  assert.deepEqual(camera().nvrViewOptions, []); assert.equal(camera().nvrSelectedView, null);
+  assert.equal(camera().nvrPanControlSupported, true); assert.equal(camera().nvrOpticalZoomControlSupported, true);
+  await assert.rejects(value.provider.setNvrView("synthetic-camera", 1), { code: "unavailable" });
+  await assert.rejects(value.provider.setNvrView("synthetic-camera", 0), { code: "unavailable" });
+  await value.provider.startStream("synthetic-camera"); await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(camera().streamingQualityModes?.map(mode => mode.name), ["Auto", "HD (720P)", "Full HD (1080P)", "2K", "Ultra 4K"]);
+  const accepted = { outcome: "request_accepted", physicalConfirmationRequired: true };
+  assert.deepEqual(await value.provider.performNvrLiveControl("synthetic-camera", { kind: "zoom", level: 2 }), accepted);
+  value.advance();
+  assert.deepEqual(await value.provider.performNvrLiveControl("synthetic-camera", { kind: "pan", direction: "left" }), accepted);
+  assert.deepEqual(value.writes, [{ kind: "zoom", level: 2 }, { kind: "pan", direction: "left" }]);
 });
 
 test("104 streams with only the video flag but offers no NVR controls", async context => {
@@ -227,11 +237,47 @@ test("owner omission withdraws admission and restart clears observed cache", asy
 });
 
 
+test("104 AI tracking writes on the NVR and confirms by read-back", async context => {
+  const value = await fixture(context, "T8416", 104);
+  const camera = () => value.state.getCamera("synthetic-camera");
+  assert.equal(camera().aiTrackingControlSupported, false);
+  await value.provider.startStream("synthetic-camera"); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(camera().aiTrackingControlSupported, true); assert.equal(camera().aiTrackingEnabled, true);
+  value.advance(); await value.provider.setCameraAiTracking("synthetic-camera", false);
+  assert.deepEqual(value.writes, [{ kind: "tracking", value: 0 }]); assert.equal(camera().aiTrackingEnabled, false);
+  value.advance(); value.mismatch();
+  await assert.rejects(value.provider.setCameraAiTracking("synthetic-camera", true), { code: "outcome_unknown" });
+  assert.equal(camera().aiTrackingEnabled, null);
+});
+
+test("T8E00 offers no NVR AI tracking", async context => {
+  const value = await fixture(context);
+  await value.provider.startStream("synthetic-camera"); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(value.state.getCamera("synthetic-camera").aiTrackingControlSupported, false);
+  await assert.rejects(value.provider.setCameraAiTracking("synthetic-camera", true), { code: "unavailable" });
+  assert.equal(value.writes.length, 0);
+});
+
+
+for (const [route, parent] of [["HomeBase 3", ["T8030", 18]], ["Wi-Fi", null]] as const) test(`S350 on ${route} keeps its own route, without NVR identity or controls`, async context => {
+  const value = await fixture(context, "T8416", 104, true, false, true, parent);
+  const camera = value.state.getCamera("synthetic-camera");
+  assert.equal(camera.nvrLiveControlsSupported, false); assert.deepEqual(camera.nvrViewOptions, []);
+  assert.equal(camera.nvrPanControlSupported, false); assert.equal(camera.nvrOpticalZoomControlSupported, false);
+  assert.ok(!camera.streamingQualityModes?.some(mode => mode.name === "Ultra 4K"));
+  assert.equal(value.provider.nvrLiveSettingAdmitted("synthetic-camera"), false);
+  await assert.rejects(value.provider.performNvrLiveControl("synthetic-camera", { kind: "pan", direction: "left" }), { code: "disabled" });
+  await assert.rejects(value.provider.setNvrView("synthetic-camera", 0), { code: "disabled" });
+  assert.equal(value.writes.length, 0);
+});
+
+
 test("controls are not advertised when the normal route is disabled", async context => {
   const value = await fixture(context, "T8E00", 301, true, false, false);
   const camera = value.state.getCamera("synthetic-camera");
   assert.equal(camera.nvrPanControlSupported, false); assert.equal(camera.nvrOpticalZoomControlSupported, false);
   assert.deepEqual(camera.nvrViewOptions, []); assert.equal(camera.reportedSettings, null);
+  assert.equal(camera.nvrLiveControlsSupported, false);
 });
 
 

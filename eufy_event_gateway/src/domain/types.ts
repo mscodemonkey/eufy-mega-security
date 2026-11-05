@@ -201,6 +201,9 @@ export interface CameraState {
   readonly nvrViewOptions?: readonly string[];
   readonly nvrSelectedView?: number | null;
 
+  /** Exact-profile NVR controls are admitted, whether or not the profile offers a view choice. */
+  readonly nvrLiveControlsSupported?: boolean;
+
 
   /** Strictly validated camera-owned settings, with unknown values left absent. */
   readonly reportedSettings: CameraReportedSettings | null;
@@ -274,7 +277,7 @@ export interface NightVisionMode {
 /** One exact model's app-confirmed streaming quality, independent of recorded-video quality. */
 export interface CameraStreamingQualityMode {
   readonly value: number;
-  readonly name: "Auto" | "HD (720P)" | "Full HD (1080P)" | "2K" | "4K" | "Medium" | "High" | "Low" | "Highest";
+  readonly name: "Auto" | "HD (720P)" | "Full HD (1080P)" | "2K" | "4K" | "Ultra 4K" | "Medium" | "High" | "Low" | "Highest";
 }
 
 /** Normalized battery reads exposed only when a device reports each field. */
@@ -521,6 +524,9 @@ export interface CameraIdentity {
   readonly nvrOpticalZoomControlSupported?: boolean;
   readonly nvrViewOptions?: readonly string[];
   readonly nvrSelectedView?: number | null;
+
+  /** Exact-profile NVR controls are admitted, whether or not the profile offers a view choice. */
+  readonly nvrLiveControlsSupported?: boolean;
 
 
   /** Optional read-only configuration projection from fresh device inventory. */

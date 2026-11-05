@@ -171,7 +171,7 @@ class EufyNightVisionSelect(EufyGatewayEntity, SelectEntity):
         try:
             camera = await self.coordinator.client.set_camera_night_vision(
                 self.serial, mode,
-                **({"nvr": True} if self.camera.get("nvrViewOptions") in (["Fixed", "Movable"], ["Wide", "Telephoto"]) else {}),
+                **({"nvr": True} if self.camera.get("nvrLiveControlsSupported") is True else {}),
             )
             self.coordinator.async_set_camera(camera)
         except GatewayClientError as error:
@@ -246,7 +246,7 @@ class EufyStreamingQualitySelect(EufyGatewayEntity, SelectEntity):
         try:
             camera = await self.coordinator.client.set_camera_streaming_quality(
                 self.serial, quality,
-                **({"nvr": True} if self.camera.get("nvrViewOptions") in (["Fixed", "Movable"], ["Wide", "Telephoto"]) else {}),
+                **({"nvr": True} if self.camera.get("nvrLiveControlsSupported") is True else {}),
             )
             self.coordinator.async_set_camera(camera)
         except GatewayClientError as error:
@@ -260,7 +260,7 @@ def _streaming_quality_modes(camera: dict[str, Any]) -> dict[int, str]:
     names = {
         "Auto": "auto", "HD (720P)": "hd",
         "Full HD (1080P)": "full_hd", "2K": "2k",
-        "Medium": "medium", "High": "high", "Low": "low", "Highest": "highest",
+        "Medium": "medium", "High": "high", "Low": "low", "Highest": "highest", "Ultra 4K": "ultra_4k",
     }
     raw_modes = camera.get("streamingQualityModes")
     if not isinstance(raw_modes, list):
@@ -273,8 +273,8 @@ def _streaming_quality_modes(camera: dict[str, Any]) -> dict[int, str]:
         if (
             isinstance(value, int)
             and not isinstance(value, bool)
-            and (0 <= value <= 3 or value == 4 and name == "Highest"
-                 and camera.get("model") == "T8416" and bool(camera.get("nvrViewOptions")))
+            and (0 <= value <= 3 or value == 4 and name in ("Highest", "Ultra 4K")
+                 and camera.get("model") == "T8416" and camera.get("nvrLiveControlsSupported") is True)
             and isinstance(name, str)
             and name in names
         ):

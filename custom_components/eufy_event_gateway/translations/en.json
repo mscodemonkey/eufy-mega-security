@@ -201,7 +201,8 @@
           "medium": "Medium",
           "high": "High",
           "low": "Low",
-          "highest": "Highest"
+          "highest": "Highest",
+          "ultra_4k": "Ultra 4K"
         }
       },
       "camera_night_vision": {
