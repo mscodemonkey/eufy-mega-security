@@ -14,9 +14,11 @@ from datetime import date, datetime, timedelta
 import logging
 import os
 import re
+import secrets
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import voluptuous as vol
 from homeassistant.components.camera import (
@@ -54,6 +56,7 @@ _LOGGER = logging.getLogger(__name__)
 CONF_DURATION = "duration"
 STREAM_SOURCE_REFRESH_INTERVAL = timedelta(minutes=5)
 STREAM_URL_RENEWAL_TIMEOUT = 10
+LIVE_VIEW_QUERY = "view"
 
 
 def _cloud_day_window(day: str, zone: Any) -> tuple[int, int, int]:
@@ -171,6 +174,31 @@ async def async_setup_entry(
     )
 
 
+def _view_of(url: str) -> str | None:
+    """Return the view mark a stream URL carries, if any."""
+    return dict(parse_qsl(urlsplit(url).query)).get(LIVE_VIEW_QUERY)
+
+
+def _with_view(url: str, view: str | None) -> str:
+    """Set or remove the view mark, leaving the signed token as it is."""
+    parts = urlsplit(url)
+    query = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True) if key != LIVE_VIEW_QUERY]
+    if view is not None:
+        query.append((LIVE_VIEW_QUERY, view))
+    return urlunsplit(parts._replace(query=urlencode(query)))
+
+
+def _new_view(url: str) -> str:
+    """Mark a person's new view.
+
+    The gateway lets a marked view move an NVR's one call from another marked
+    view, once. Reconnects and renewals keep the same mark, so a camera that lost
+    the call cannot take it back. Preload and recording use unmarked URLs, which
+    neither take the call nor give it up.
+    """
+    return _with_view(url, secrets.token_urlsafe(16))
+
+
 class EufyGatewayCamera(EufyGatewayEntity, Camera):
     """Represent one camera with retained imagery and explicit media actions.
 
@@ -277,7 +305,13 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         stream = await super().async_create_stream()
         if stream is None:
             return stream
-        if stream is cached and not stream.outputs() and not stream.dynamic_stream_settings.preload_stream and not self._stream_source_refreshing:
+        preload = stream.dynamic_stream_settings.preload_stream
+        if stream is not cached and preload:
+            stream.source = _with_view(stream.source, None)
+
+        # A request while the worker is down is a person coming back to a camera
+        # that lost its NVR call, so restart it now with a view that may take it.
+        if stream is cached and not preload and not self._stream_source_refreshing and (not stream.outputs() or not stream.available):
             self._stream_source_refreshing = True
             try:
                 source = await asyncio.wait_for(
@@ -285,7 +319,10 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
                     timeout=STREAM_URL_RENEWAL_TIMEOUT,
                 )
                 if self.hass is not None and self.stream is stream:
-                    stream.source = source
+                    if stream.outputs():
+                        stream.update_source(_new_view(source))
+                    else:
+                        stream.source = _new_view(source)
             except (GatewayClientError, asyncio.TimeoutError):
                 _LOGGER.debug("Stream URL renewal failed, keeping the previous URL")
             finally:
@@ -297,6 +334,8 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
 
         def add_output(fmt: str, timeout: int | None = None) -> StreamOutput:
             """Arm the startup deadline when a consumer requests ordinary HLS."""
+            if fmt != "hls":
+                stream.source = _with_view(stream.source, None)
             tune_first_output = (fast_native_hls and fmt == "hls" and timeout is None
                                  and not stream.outputs()
                                  and not stream.dynamic_stream_settings.preload_stream)
@@ -367,7 +406,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
             if self.hass is not None and self.stream is stream and (
                 stream.outputs() or stream.dynamic_stream_settings.preload_stream
             ):
-                stream.source = source
+                stream.source = _with_view(source, _view_of(stream.source))
         except GatewayClientError:
             _LOGGER.debug("Stream URL renewal failed, keeping the previous URL")
         finally:
@@ -509,7 +548,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = (
             self._native_video or self.camera.get("liveAudioSupported") is not True
         )
-        return await self._async_stream_url()
+        return _new_view(await self._async_stream_url())
 
     async def _async_stream_url(self) -> str:
         """Select the same source profile for initial open and both renewals."""

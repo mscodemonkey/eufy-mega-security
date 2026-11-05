@@ -28,8 +28,11 @@ import { LiveTransportMuxer, type VideoViewerResponse } from "./live-transport-m
 /** Provider operations needed to open and close a camera source. */
 export interface StreamController {
 
-  /** Retain ownership of provider I/O, including cleanup if startup rejects. */
-  startStream(serial: string): Promise<void>;
+  /**
+   * Retain ownership of provider I/O, including cleanup if startup rejects.
+   * With takeOver, an NVR may move its one call here from a camera that can yield.
+   */
+  startStream(serial: string, takeOver?: boolean): Promise<void>;
 
   /** Resolve after the old source's stop callbacks and owned media I/O have retired. */
   stopStream(serial: string): Promise<void>;
@@ -204,6 +207,9 @@ interface Session {
   viewerStartup: ViewerStartupTimeline;
   viewerStartupAttempt: number;
   readonly recordings: Set<Recording>;
+
+  /** Clients that opened a marked view, which gives way to a newer view on the same NVR. */
+  readonly yieldingClients: Set<VideoViewerResponse>;
   readonly audioConsumers: Set<(chunk: Buffer) => void>;
   parameterSets: VideoParameterSetCache;
   state: "idle" | "starting" | "streaming" | "stopping" | "error";
@@ -267,6 +273,7 @@ type ViewerTranscoderFactory = () => ChildProcessWithoutNullStreams;
 type SnapshotExtractorFactory = (codec: VideoCodec) => ChildProcessWithoutNullStreams;
 
 const MAX_RECORDING_BYTES = 256 * 1024 * 1024;
+const MAX_DELIVERED_VIEWS = 1024;
 const MEDIA_PROCESS_TERMINATION_GRACE_MILLISECONDS = 2_000;
 const MAX_PARAMETER_SET_SCAN_BYTES = 1024 * 1024;
 const MAX_STARTUP_GROUP_BYTES = 1024 * 1024;
@@ -572,6 +579,7 @@ function annexBStarts(data: Buffer): Array<{ offset: number; payloadOffset: numb
  */
 export class LiveStreamManager extends EventEmitter {
   readonly #sessions = new Map<string, Session>();
+  readonly #deliveredViews = new Set<string>();
   #closed = false;
 
   /**
@@ -602,12 +610,12 @@ export class LiveStreamManager extends EventEmitter {
    * registration, so its stop notification cannot close this new request.
    * Startup failures reach every waiter. Closed requests never start a source.
    */
-  addClient(serial: string, response: VideoViewerResponse, profile: ViewerProfile = "compatible"): Promise<void> {
-    return this.#addClient(serial, response, profile, performance.now());
+  addClient(serial: string, response: VideoViewerResponse, profile: ViewerProfile = "compatible", view?: string): Promise<void> {
+    return this.#addClient(serial, response, profile, performance.now(), view);
   }
 
   /** Keep the original request clock across retirement and transport setup. */
-  async #addClient(serial: string, response: VideoViewerResponse, profile: ViewerProfile, requestedAtMilliseconds: number): Promise<void> {
+  async #addClient(serial: string, response: VideoViewerResponse, profile: ViewerProfile, requestedAtMilliseconds: number, view?: string): Promise<void> {
     if (response.destroyed || response.writableEnded) return;
     const session = this.#session(serial);
     this.#assertShareable(session);
@@ -617,6 +625,7 @@ export class LiveStreamManager extends EventEmitter {
     }
     this.#cancelStop(session);
     session.clients.add(response);
+    if (view) session.yieldingClients.add(response);
     session.clientDeliveries.set(response, {
       closeReason: null,
       sourceAttached: session.source !== null,
@@ -667,11 +676,22 @@ export class LiveStreamManager extends EventEmitter {
     // Start the provider only after the HTTP client is registered so the first
     // video bytes can be fanned out to Home Assistant immediately.
     try {
-      await this.#ensureStarted(serial, session);
+      await this.#ensureStarted(serial, session, !!view && !this.#deliveredViews.has(view));
+      if (view) this.#rememberDeliveredView(view);
     } catch (error) {
       this.#markViewerClose(session, response, "start_failed");
       response.destroy(error instanceof Error ? error : undefined);
     }
+  }
+
+  /**
+   * A view that has started can never take a call again. Home Assistant reuses
+   * its URL when it retries a dropped stream, so a camera that lost the call
+   * cannot take it back from the camera that was opened after it.
+   */
+  #rememberDeliveredView(view: string): void {
+    this.#deliveredViews.add(view);
+    if (this.#deliveredViews.size > MAX_DELIVERED_VIEWS) this.#deliveredViews.delete(this.#deliveredViews.values().next().value!);
   }
 
   /**
@@ -754,6 +774,17 @@ export class LiveStreamManager extends EventEmitter {
   hasActiveViewer(serial: string): boolean {
     const session = this.#sessions.get(serial);
     return !!session && !session.privateTrial && session.state === "streaming" && !!session.source && session.clients.size > 0;
+  }
+
+  /**
+   * True when only marked views use this source, so its NVR call may move to
+   * another camera. Leases, clips, unmarked consumers and starting or stopping
+   * sources always keep the call. Whether a marked view is still watched is unknown.
+   */
+  canYieldSource(serial: string): boolean {
+    const session = this.#sessions.get(serial);
+    return !!session && !session.privateTrial && session.state === "streaming" && !!session.source && !session.start && !session.stop
+      && session.leases === 0 && session.recordings.size === 0 && [...session.clients].every(client => session.yieldingClients.has(client));
   }
 
   /** Identify local clip consumers so control admission can reject recording conflicts. */
@@ -1041,6 +1072,7 @@ export class LiveStreamManager extends EventEmitter {
     const session = this.#session(serial);
     session.clients.delete(response);
     session.pendingClients.delete(response);
+    session.yieldingClients.delete(response);
     this.#emitViewerClientSummary(session, response);
     if (this.#profileClients(session, "compatible").length === 0) this.#stopViewerTranscoder(session);
     this.#updateState(serial, session);
@@ -1115,7 +1147,7 @@ export class LiveStreamManager extends EventEmitter {
   }
 
   /** Share a pending provider start while keeping its settlement inside the owning session. */
-  async #ensureStarted(serial: string, session: Session): Promise<void> {
+  async #ensureStarted(serial: string, session: Session, takeOver = false): Promise<void> {
     if (this.#closed) throw new Error("Gateway closed before camera stream started");
     if (session.stop) throw new Error("Camera stream is still stopping");
     if (session.state === "error" && session.owned) throw new Error("Previous camera stream has not stopped");
@@ -1147,7 +1179,7 @@ export class LiveStreamManager extends EventEmitter {
 
       // A synchronous state observer may have retired the start before I/O.
       if (session.start === start && !this.#closed) {
-        void Promise.resolve(this.controller.startStream(serial)).then(() => {
+        void Promise.resolve(this.controller.startStream(serial, takeOver)).then(() => {
           if (session.start !== start) return;
           session.start = null;
           resolve();
@@ -1642,6 +1674,7 @@ export class LiveStreamManager extends EventEmitter {
         viewerStartup: new ViewerStartupTimeline(),
         viewerStartupAttempt: 0,
         recordings: new Set(),
+        yieldingClients: new Set(),
         audioConsumers: new Set(),
         parameterSets: new VideoParameterSetCache(),
         state: "idle",
