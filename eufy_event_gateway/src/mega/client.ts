@@ -15,6 +15,7 @@ import { ParameterCheckError, projectReportedParameters, type ParameterCheckMode
 import { MEDIA_HOST, MEDIA_OBJECT_HOST, MediaHttpError, mediaRequestDiagnostic } from "./media-request-diagnostic.js";
 import type { NvrSignallingContext } from "../stream/nvr-rtc-session.js";
 import { NvrTrialError } from "../stream/nvr-protocol.js";
+import { discoverNvrServiceRegion } from "./nvr-service-region.js";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { parseE30MqttCredentials, type E30MqttCredentials } from "../provider/e30-lock-protocol.js";
 import { join } from "node:path";
@@ -909,19 +910,14 @@ export class MegaClient {
   async nvrSignallingContext(station: string, region: "auto" | "us" | "eu" | "ie", cancellation: AbortSignal): Promise<NvrSignallingContext> {
     this.#requireAuthentication();
     const session = this.#session!;
-    let selected = region;
-    if (selected === "auto") {
-      const domain = session.domains.eufy_security;
-      if (domain === "security-app-ie.eufylife.com") selected = "ie";
-      else if (domain === "security-app-eu.eufylife.com") selected = "eu";
-      else if (domain === "security-app.eufylife.com") selected = session.megaDomain.includes("-us-") ? "us" : "eu";
-      else throw new NvrTrialError("region_or_authorization_rejected");
-    }
-    const host = selected === "us" ? "security-smart.eufylife.com" : `security-smart-${selected}.eufylife.com`;
     const deadline = AbortSignal.any([cancellation, AbortSignal.timeout(10_000)]);
     const pending = this.#enqueue(async lifetime => {
       const signal = AbortSignal.any([lifetime, deadline]); signal.throwIfAborted();
       try {
+        const selected = region === "auto" ? await discoverNvrServiceRegion(this.#fetch, this.#country, signal) : region;
+        signal.throwIfAborted();
+        if (this.#session !== session) throw new NvrTrialError("cancelled");
+        const host = selected === "us" ? "security-smart.eufylife.com" : `security-smart-${selected}.eufylife.com`;
         const response = await this.#fetch(`https://${host}/v1/smart/nvr/ws/sign?station_sn=${encodeURIComponent(station)}`, {
           headers: { "app-name": "eufy_mega", "model-type": "WEB", "web-country": this.#country.toUpperCase(),
             gtoken: megaUserToken(session.userId), "x-auth-token": session.authToken, authorization: session.authToken },
