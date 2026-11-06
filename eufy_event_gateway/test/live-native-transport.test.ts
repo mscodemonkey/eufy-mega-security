@@ -61,8 +61,16 @@ function probe(data: Buffer): { streams: { codec_type: string; codec_name: strin
   return JSON.parse(result.stdout.toString());
 }
 
-/** Decode every packet, failing on any decoder error. */
+/** go2rtc refuses a transport packet whose adaptation field claims more than 182 bytes. */
+function go2rtcAccepts(data: Buffer): void {
+  for (let offset = 0; offset < data.length; offset += 188) {
+    if ((data[offset + 3]! & 0x20) !== 0) assert.ok(data[offset + 4]! <= 182, `packet at ${offset} has a ${data[offset + 4]}-byte adaptation field`);
+  }
+}
+
+/** Decode every packet, failing on any decoder error, and apply go2rtc's packet rule. */
 function decodes(data: Buffer): void {
+  go2rtcAccepts(data);
   const result = spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-xerror", "-f", "mpegts", "-i", "pipe:0", "-f", "null", "-"],
     { input: data, maxBuffer: 1024 * 1024 });
   assert.equal(result.status, 0, result.stderr.toString());
@@ -145,6 +153,7 @@ test("a muted camera starts after the bound without an audio track, and later au
   await delay(0);
   h.muxer.close();
   assert.deepEqual(probe(h.output()).streams.map(stream => stream.codec_name), ["hevc"]);
+  go2rtcAccepts(h.output());
   assert.equal(h.summaries[0]?.audio, false);
   assert.equal(h.summaries[0]?.audioBatches, 0);
 });
@@ -162,6 +171,9 @@ test("audio arriving before video starts the program with the first picture", as
   h.muxer.close();
   assert.equal(h.summaries[0]?.startWaitMilliseconds, 0);
   assert.deepEqual(probe(h.output()).streams.map(stream => stream.codec_name).sort(), ["aac", "hevc"]);
+  go2rtcAccepts(h.output());
+  const firstMedia = probe(h.output()).packets[0];
+  assert.equal(firstMedia?.codec_type, "video");
 });
 
 test("late audio moves its clock up to arrival and early audio is dropped, keeping audio monotonic", async () => {
