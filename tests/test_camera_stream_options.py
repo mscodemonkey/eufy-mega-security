@@ -46,8 +46,10 @@ class CameraStreamOptionsTest(unittest.TestCase):
             ({"liveAudioSupported": True}, False),
             ({"liveAudioSupported": "true"}, True),
         ]:
-            with self.subTest(camera=camera):
-                self.assertIs(eval(expression, {}, {"self": SimpleNamespace(camera=camera, _native_video=False)}), expected)
+            for native in (False, True):
+                with self.subTest(camera=camera, native=native):
+                    self.assertIs(eval(expression, {}, {"self": SimpleNamespace(camera=camera, _native_video=native)}), expected)
+        self.assertEqual(ast.unparse(assignments[0].value), ast.unparse(assignments[1].value))
 
     def test_stream_url_action_requires_a_response(self) -> None:
         """Keep the temporary URL out of state attributes and event data."""

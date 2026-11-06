@@ -229,8 +229,9 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
 
         # Raw Annex-B needs arrival timestamps. MPEG-TS already supplies a
         # shared video/audio clock, which must survive Home Assistant's remux.
+        # Cameras with live audio get MPEG-TS in both profiles.
         self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = (
-            self._native_video or self.camera.get("liveAudioSupported") is not True
+            self.camera.get("liveAudioSupported") is not True
         )
 
     def playback_diagnostic(self) -> dict[str, Any]:
@@ -556,7 +557,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         # reads these options after obtaining this source, so choose its clock
         # from the same current capability that selects the gateway transport.
         self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = (
-            self._native_video or self.camera.get("liveAudioSupported") is not True
+            self.camera.get("liveAudioSupported") is not True
         )
         return _new_view(await self._async_stream_url())
 

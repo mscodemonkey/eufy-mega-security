@@ -18,12 +18,13 @@ import { type Readable, type Writable } from "node:stream";
 import type { DiagnosticMedia } from "../diagnostics/bundle-capture.js";
 
 import { GatewayState } from "../domain/gateway-state.js";
-import type { GatewayEvent, SnapshotInfo, VideoCodec } from "../domain/types.js";
+import type { CameraState, GatewayEvent, SnapshotInfo, VideoCodec } from "../domain/types.js";
 import { SnapshotStore } from "../storage/snapshot-store.js";
 import { ViewerStartupTimeline, type ViewerStartupMilestones } from "./viewer-startup-timeline.js";
 import { JpegParser } from "./jpeg-parser.js";
 import { qualifiedS340LiveSource } from "./live-frame-clock.js";
 import { LiveTransportMuxer, type VideoViewerResponse } from "./live-transport-muxer.js";
+import { NativeTransportMuxer } from "./live-native-transport.js";
 
 /** Provider operations needed to open and close a camera source. */
 export interface StreamController {
@@ -725,9 +726,10 @@ export class LiveStreamManager extends EventEmitter {
   /**
    * Share a video source with a bounded MPEG-TS muxer and checked camera audio.
    * Wait for retirement before registering either media consumer, keeping audio
-   * from the old source out of a new viewer's startup buffer.
+   * from the old source out of a new viewer's startup buffer. The native profile
+   * carries the camera's own video unconverted; compatible carries H.264.
    */
-  async addTransportClient(serial: string, response: ServerResponse): Promise<void> {
+  async addTransportClient(serial: string, response: ServerResponse, profile: ViewerProfile = "compatible", view?: string): Promise<void> {
     const requestedAtMilliseconds = performance.now();
     if (response.destroyed || response.writableEnded) return;
     const session = this.#session(serial);
@@ -736,13 +738,19 @@ export class LiveStreamManager extends EventEmitter {
       if (!await this.#waitForStop(session, response)) return;
       this.#assertShareable(session);
     }
+    const audioWait = liveAudioStartWaitMilliseconds(this.state.getCamera(serial));
+    const stopped = (reason: string): void => { this.emit("warning", new Error(`Camera live transport stopped: reason=${reason}`)); };
+    if (profile === "native") {
+      const muxer = new NativeTransportMuxer(response, () => session.audioConsumers.delete(consumeNative), audioWait, stopped,
+        summary => this.emit("native-transport-closed", summary));
+      const consumeNative = (chunk: Buffer): void => muxer.acceptAudio(chunk);
+      session.audioConsumers.add(consumeNative);
+      await this.#addClient(serial, muxer.videoInput, "native", requestedAtMilliseconds, view);
+      return;
+    }
     const consumeAudio = (chunk: Buffer): void => muxer.acceptAudio(chunk);
-    const camera = this.state.getCamera(serial);
-
-    // HomeBase 3 can deliver SoloCam AAC about eight seconds after its first video.
-    const audioWait = camera.model === "T8171" && camera.stationSerial !== camera.serial ? 12_000 : 2_000;
     const muxer = new LiveTransportMuxer(response, () => session.audioConsumers.delete(consumeAudio), audioWait,
-      (reason) => this.emit("warning", new Error(`Camera live transport stopped: reason=${reason}`)), () => this.experimentalS340SmoothLive && qualifiedS340LiveSource(session.source),
+      stopped, () => this.experimentalS340SmoothLive && qualifiedS340LiveSource(session.source),
       summary => this.emit("live-pacing-closed", summary));
     session.audioConsumers.add(consumeAudio);
     await this.#addClient(serial, muxer.videoInput, "compatible", requestedAtMilliseconds);
@@ -1809,6 +1817,15 @@ export class LiveStreamManager extends EventEmitter {
  * helper retains the close listener and escalation timer until the child is
  * reaped. The grace override exists for focused lifecycle tests.
  */
+/**
+ * Longest hold of a transport viewer's video for its first AAC. A viewer whose
+ * audio arrives sooner starts at once; one whose audio does not arrive starts muted.
+ * HomeBase 3 can deliver SoloCam AAC about eight seconds after its first video.
+ */
+export function liveAudioStartWaitMilliseconds(camera: Pick<CameraState, "model" | "serial" | "stationSerial">): number {
+  return camera.model === "T8171" && camera.stationSerial !== camera.serial ? 12_000 : 2_000;
+}
+
 export function terminateMediaProcess(
   process: Pick<ChildProcess, "kill" | "exitCode" | "signalCode" | "once"> & { stdin?: Pick<Writable, "writable" | "end"> | null },
   forceAfterMilliseconds = MEDIA_PROCESS_TERMINATION_GRACE_MILLISECONDS,

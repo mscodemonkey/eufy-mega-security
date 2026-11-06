@@ -421,9 +421,9 @@ export class GatewayServer {
         const streamAuthorized =
           request.method === "GET" &&
           segments[1] === "cameras" &&
-          (segments[3] === "live.h264" || segments[3] === "live.ts" || segments[3] === "live-native.annexb") &&
+          (segments[3] === "live.h264" || segments[3] === "live.ts" || segments[3] === "live-native.annexb" || segments[3] === "live-native.ts") &&
           segments.length === 4 &&
-          (segments[3] === "live-native.annexb"
+          (segments[3] === "live-native.annexb" || segments[3] === "live-native.ts"
             ? url.searchParams.getAll(STREAM_TOKEN_QUERY).length === 1
               && validateNativeStreamToken(segments[2]!, url.searchParams.get(STREAM_TOKEN_QUERY), this.config.apiToken)
             : validateStreamToken(segments[2]!, url.searchParams.get(STREAM_TOKEN_QUERY), this.config.apiToken));
@@ -1205,9 +1205,10 @@ export class GatewayServer {
       if (
         request.method === "GET" &&
         segments[0] === "api" && segments[1] === "cameras"
-        && (segments[3] === "live.h264" || segments[3] === "live.ts" || segments[3] === "live-native.annexb") && segments.length === 4
+        && (segments[3] === "live.h264" || segments[3] === "live.ts" || segments[3] === "live-native.annexb" || segments[3] === "live-native.ts") && segments.length === 4
       ) {
-        return await this.#live(segments[2]!, response, segments[3] === "live.ts", segments[3] === "live-native.annexb" ? "native" : "compatible", liveViewMark(url));
+        return await this.#live(segments[2]!, response, segments[3] === "live.ts" || segments[3] === "live-native.ts",
+          segments[3].startsWith("live-native.") ? "native" : "compatible", liveViewMark(url));
       }
       if (request.method === "GET" && url.pathname === "/api/events") return this.#events(request, response);
       if (request.method === "POST" && url.pathname === "/api/simulate/detection" && this.simulatedProvider) {
@@ -1614,7 +1615,7 @@ export class GatewayServer {
       return json(response, 409, { error: "Live audio transport is unavailable for this camera" });
     }
     logger.info("camera_media_request", `model=${safeCameraModel(this.state.getCamera(serial).model)} operation=${profile === "native" ? "live_view_native" : "live_view"}`);
-    if (transport) await this.streams.addTransportClient(serial, response);
+    if (transport) await this.streams.addTransportClient(serial, response, profile, view);
     else await this.streams.addClient(serial, response, profile, view);
   }
 
@@ -1631,7 +1632,8 @@ export class GatewayServer {
       ? profile === "native" ? createNativeStreamToken(serial, expiresAt, this.config.apiToken)
         : createStreamToken(serial, expiresAt, this.config.apiToken)
       : null;
-    const media = profile === "native" ? "live-native.annexb" : this.state.getCamera(serial).liveAudioSupported ? "live.ts" : "live.h264";
+    const audio = this.state.getCamera(serial).liveAudioSupported === true;
+    const media = profile === "native" ? audio ? "live-native.ts" : "live-native.annexb" : audio ? "live.ts" : "live.h264";
     const path = `/api/cameras/${encodeURIComponent(serial)}/${media}${token ? `?${STREAM_TOKEN_QUERY}=${encodeURIComponent(token)}` : ""}`;
     if (profile === "native") response.setHeader("Cache-Control", "no-store");
     return json(response, 200, { path, expiresAt, ...(profile ? { profile } : {}) });

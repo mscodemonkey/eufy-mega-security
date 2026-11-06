@@ -68,6 +68,17 @@ class NativeStreamTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(self.error, "invalid native stream response"):
             await self.client.stream_url("fixture", native=True)
 
+    async def test_native_transport_path_is_accepted_for_cameras_with_audio(self):
+        """The gateway names MPEG-TS for a camera with live audio; the same checks apply."""
+        path = f"/api/cameras/fixture/live-native.ts?access_token={self.native}"
+        self.client._json.return_value = {"profile": "native", "path": path}
+        self.assertEqual(await self.client.stream_url("fixture", native=True), "http://fixture" + path)
+        for bad in (path.replace("live-native.ts", "live.ts"), path.replace("live-native.ts", "live-native.ts/extra"),
+                    path.replace("live-native.ts", "live-native.mp4"), path.replace("fixture/", "other/")):
+            self.client._json.return_value = {"profile": "native", "path": bad}
+            with self.subTest(path=bad), self.assertRaises(self.error):
+                await self.client.stream_url("fixture", native=True)
+
     async def test_unsigned_source_requires_no_gateway_token(self):
         """Only a gateway configured without authentication may omit a signature."""
         self.client._headers = {}
