@@ -431,7 +431,8 @@ class GatewayClient:
             if parts.scheme or parts.netloc or parts.fragment or re.search(r"%(?![0-9a-fA-F]{2})", parts.path):
                 raise ValueError
             segments = [unquote(segment, errors="strict") for segment in parts.path.split("/")]
-            if segments != ["", "api", "cameras", serial, "live-native.annexb"]:
+            if segments[:4] != ["", "api", "cameras", serial] or len(segments) != 5 \
+                    or segments[4] not in ("live-native.annexb", "live-native.ts"):
                 raise ValueError
             query = parse_qsl(parts.query, keep_blank_values=True, strict_parsing=True) if parts.query else []
             if len(query) > 1 or any(key != "access_token" for key, _ in query):

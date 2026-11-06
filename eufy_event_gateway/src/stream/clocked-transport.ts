@@ -1,9 +1,10 @@
 /**
- * Frames qualified H.264 and AAC as MPEG-TS using the viewer's media clock.
+ * Frames qualified H.264 or H.265 and AAC as MPEG-TS using the viewer's media clock.
  * One viewer owns each writer and its packet counters. Source admission,
- * timing, byte limits and disconnect cleanup belong to LiveTransportMuxer.
+ * timing, byte limits and disconnect cleanup belong to the owning muxer.
  * The writer retains no media, process, socket or asynchronous callback.
  */
+import type { VideoCodec } from "../domain/types.js";
 import { parseAdtsAccessUnits } from "./ppcs-audio.js";
 
 const VIDEO_PID = 0x100;
@@ -12,25 +13,30 @@ const PMT_PID = 0x1000;
 const MAX_INPUT_BYTES = 4 * 1024 * 1024;
 const AUD = Buffer.from([0, 0, 0, 1, 9, 0xf0]);
 
+// An H.265 access unit delimiter allowing I, P and B slices.
+const HEVC_AUD = Buffer.from([0, 0, 0, 1, 0x46, 0x01, 0x50]);
+
 /**
  * Own one program's continuity counters until its viewer closes.
  * The supplied output consumes complete TS packets synchronously. Video units
- * must already be complete Annex-B H.264, without B-frame clock reordering.
- * Audio is a fixed startup choice, and every batch is independently validated.
+ * must already be complete Annex-B access units of the fixed codec, without
+ * B-frame clock reordering. Audio is a fixed startup choice, and every batch is
+ * independently validated.
  */
 export class ClockedTransportWriter {
   readonly #counters = new Map<number, number>();
   #started = false;
 
-  /** Bind the owning viewer's bounded output and immutable audio admission. */
-  constructor(private readonly output: (data: Buffer) => void, private readonly withAudio: boolean) {}
+  /** Bind the owning viewer's bounded output, immutable audio admission and video codec. */
+  constructor(private readonly output: (data: Buffer) => void, private readonly withAudio: boolean,
+    private readonly codec: VideoCodec = "h264") {}
 
   /** Publish a complete video unit with PCR before its media and unchanged presentation time. */
   video(data: Buffer, milliseconds: number): void {
     this.#validate(data, milliseconds);
     this.#tables();
     this.#started = true;
-    this.#pes(VIDEO_PID, 0xe0, Buffer.concat([AUD, data]), Math.round(milliseconds * 90), true);
+    this.#pes(VIDEO_PID, 0xe0, this.codec === "h265" ? hevcDelimited(data) : Buffer.concat([AUD, data]), Math.round(milliseconds * 90), true);
   }
 
   /** Publish checked ADTS frames on their declared sample intervals, including multi-frame batches. */
@@ -61,7 +67,7 @@ export class ClockedTransportWriter {
   #tables(): void {
     const pat = Buffer.from([0, 0xb0, 13, 0, 1, 0xc1, 0, 0, 0, 1, 0xf0, 0]);
     this.#pack(0, Buffer.concat([Buffer.from([0]), pat, sectionChecksum(pat)]));
-    const streams = [0x1b, 0xe1, 0, 0xf0, 0];
+    const streams = [this.codec === "h265" ? 0x24 : 0x1b, 0xe1, 0, 0xf0, 0];
     if (this.withAudio) streams.push(0x0f, 0xe1, 1, 0xf0, 0);
     const pmt = Buffer.from([2, 0xb0, 13 + streams.length, 0, 1, 0xc1, 0, 0, 0xe1, 0, 0xf0, 0, ...streams]);
     this.#pack(PMT_PID, Buffer.concat([Buffer.from([0]), pmt, sectionChecksum(pmt)]));
@@ -114,6 +120,12 @@ export class ClockedTransportWriter {
     }
     if (packets.length) this.output(Buffer.concat(packets));
   }
+}
+
+/** Start an H.265 unit with one delimiter, keeping a delimiter the camera already sent. */
+function hevcDelimited(data: Buffer): Buffer {
+  const header = data[2] === 1 ? 3 : data[2] === 0 && data[3] === 1 ? 4 : 0;
+  return data[0] === 0 && data[1] === 0 && header && ((data[header]! >> 1) & 0x3f) === 35 ? data : Buffer.concat([HEVC_AUD, data]);
 }
 
 function sectionChecksum(data: Buffer): Buffer {
