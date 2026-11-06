@@ -302,6 +302,16 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         recordings, preload and unknown HA settings contracts retain defaults.
         """
         cached = self.stream
+
+        # A person is coming back to a camera whose NVR call moved away. Home
+        # Assistant keeps that stream for a while, but it can only retry a view
+        # that has had its turn and holds old video. Its worker also stops for good
+        # if the source changes during a retry wait, so start a new stream instead.
+        if (cached is not None and not cached.dynamic_stream_settings.preload_stream
+                and "recorder" not in cached.outputs()
+                and self.camera.get("stream", {}).get("state") in {"idle", "stopping", "error"}):
+            await cached.stop()
+            self.stream = cached = None
         stream = await super().async_create_stream()
         if stream is None:
             return stream
@@ -309,13 +319,9 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         if stream is not cached and preload:
             stream.source = _with_view(stream.source, None)
 
-        # A request while the worker is down or the gateway has stopped this camera
-        # is a person coming back after its NVR call moved away. Home Assistant keeps
-        # that stream for a while, and its worker can only retry a view that has had
-        # its turn, so restart it now with a view that may take the call.
-        if stream is cached and not preload and not self._stream_source_refreshing and (
-            not stream.outputs() or not stream.available or not self.is_streaming
-        ):
+        # A request while the worker is down is a person coming back to a camera
+        # that lost its NVR call, so restart it now with a view that may take it.
+        if stream is cached and not preload and not self._stream_source_refreshing and (not stream.outputs() or not stream.available):
             self._stream_source_refreshing = True
             try:
                 source = await asyncio.wait_for(

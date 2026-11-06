@@ -45,7 +45,7 @@ class LiveViewMarkTest(unittest.IsolatedAsyncioTestCase):
         self.camera._fast_native_hls = False
         self.camera._hls_idle_stream = None
         self.camera._stream_source_refreshing = False
-        self.camera.is_streaming = True
+        self.camera.camera = {"stream": {"state": "streaming"}}
         self.camera.hass = object()
         self.camera._async_stream_url = AsyncMock(return_value=URL)
         self.stream = SimpleNamespace(source=URL, available=True, update_source=Mock(), outputs=Mock(return_value={}),
@@ -56,13 +56,23 @@ class LiveViewMarkTest(unittest.IsolatedAsyncioTestCase):
     def _view(self, url: str) -> str | None:
         return self.namespace["_view_of"](url)
 
-    async def test_a_person_returning_to_a_camera_that_lost_its_call_gets_a_new_view(self) -> None:
-        self.camera.stream = self.stream
-        self.camera.is_streaming = False
-        self.stream.outputs.return_value = {"hls": object()}
-        await self.camera.async_create_stream()
-        self.stream.update_source.assert_called_once()
-        self.assertIsNotNone(self._view(self.stream.update_source.call_args.args[0]))
+    async def test_a_person_returning_to_a_camera_that_lost_its_call_gets_a_new_stream(self) -> None:
+        old = SimpleNamespace(stop=AsyncMock(), outputs=Mock(return_value={"hls": object()}),
+                              dynamic_stream_settings=SimpleNamespace(preload_stream=False))
+        self.camera.stream = old
+        self.camera.camera = {"stream": {"state": "idle"}}
+        self.assertIs(await self.camera.async_create_stream(), self.stream)
+        old.stop.assert_awaited_once()
+        self.assertIsNone(self.camera.stream)
+
+    async def test_a_starting_preloaded_or_recording_stream_is_kept(self) -> None:
+        for state, preload, outputs in (("starting", False, {"hls": 1}), ("idle", True, {"hls": 1}), ("idle", False, {"recorder": 1})):
+            old = SimpleNamespace(stop=AsyncMock(), outputs=Mock(return_value=outputs),
+                                  dynamic_stream_settings=SimpleNamespace(preload_stream=preload))
+            self.camera.stream = old
+            self.camera.camera = {"stream": {"state": state}}
+            await self.camera.async_create_stream()
+            old.stop.assert_not_awaited()
 
     def test_mark_keeps_the_signed_token_and_can_be_removed(self) -> None:
         marked = self.namespace["_new_view"](URL)
