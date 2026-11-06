@@ -16,6 +16,11 @@ const REQUIRED_FLAG = 0x4000;
 // Reporter observations mark every fragment of a keyframe with this bit.
 const KEYFRAME_FLAG = 0x2000;
 
+// An NVR S4 sets the compressed bit on every live audio frame yet sends it as a
+// plain application frame, so a marked frame that already begins with the
+// application magic is taken as it is. Anything else marked must be Zstandard.
+const APPLICATION_MAGIC = Buffer.from("XZYH");
+
 /** Independent allocation and replay-history budgets for one owned session. */
 export interface NvrPtcsReassemblyLimits {
   readonly maxFrameBytes: number;
@@ -212,7 +217,7 @@ export class NvrPtcsReassembler {
     }
     this.#release(key, pending);
     let output = frame;
-    if (compressed) {
+    if (compressed && !frame.subarray(0, 4).equals(APPLICATION_MAGIC)) {
       try {
         const decompressed = zstdDecompressSync(frame, { maxOutputLength: this.#limits.maxDecompressedBytes });
         output = Buffer.alloc(decompressed.length);
