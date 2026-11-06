@@ -67,7 +67,7 @@ test("IP-only candidates permit local media while refusing DNS hosts and related
 test("inventory log projection rejects arbitrary values and unknown fields", () => {
   const bad = {
     operation: "private-operation", boundary: "private-boundary", page: 7, httpStatus: 999,
-    apiCode: "private-code", token: "private-token",
+    apiCode: "private-code", responseClass: "private-response", token: "private-token",
   } as unknown as NonNullable<GeneralRtcError["inventory"]>;
   assert.equal(generalRtcFailureDiagnostic(new GeneralRtcError("inventory", "response", bad)), "stage=inventory reason=response");
   assert.equal(generalRtcFailureDiagnostic(new GeneralRtcError("video", "media", {

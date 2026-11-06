@@ -14,7 +14,7 @@ import { MegaSessionStore } from "../src/mega/session-store.js";
 import { credentialVerifier, decryptEnvelope, sharedAesKey } from "../src/mega/crypto.js";
 import { captureGeneralRtcIdentity } from "../src/mega/general-rtc-identity.js";
 import type { MegaSession } from "../src/mega/types.js";
-import { GeneralRtcError } from "../src/stream/general-rtc-protocol.js";
+import { GeneralRtcError, generalRtcFailureDiagnostic } from "../src/stream/general-rtc-protocol.js";
 
 const security = "security-app-ie.eufylife.com", openapi = "app-openapi-eu-pr.eufy.com";
 const sharedKey = "a".repeat(64);
@@ -219,6 +219,10 @@ test("a stalled native request uses the declared ten-second cap", async context 
 for (const target of [hubPath, devicePath]) {
   const cases = [
     { name: "HTTP refusal", reply: () => new Response("private-server-text", { status: 503 }), boundary: "request", httpStatus: 503 },
+    { name: "empty 463", reply: () => new Response("", { status: 463 }), boundary: "request", httpStatus: 463, responseClass: "empty_or_truncated" },
+    { name: "non-JSON 463", reply: () => new Response("private-server-text", { status: 463 }), boundary: "request", httpStatus: 463, responseClass: "non_json" },
+    { name: "463 without numeric code", reply: () => new Response(JSON.stringify({ code: "private-code", msg: "private-message" }), { status: 463 }), boundary: "request", httpStatus: 463, responseClass: "json_without_numeric_code" },
+    { name: "463 application refusal", reply: () => new Response(JSON.stringify({ code: 20004, msg: "private-message" }), { status: 463 }), boundary: "request", httpStatus: 463, apiCode: 20004, responseClass: "json_with_numeric_code" },
     { name: "invalid JSON", reply: () => new Response("private-not-json"), boundary: "request", httpStatus: 200 },
     { name: "API refusal", reply: () => new Response(JSON.stringify({ code: 20004, msg: "private-message", data: {} })), boundary: "application", httpStatus: 200, apiCode: 20004 },
     { name: "undecodable data", reply: () => new Response(JSON.stringify({ code: 0, data: "private-invalid-ciphertext" })), boundary: "decode", httpStatus: 200, apiCode: 0 },
@@ -234,8 +238,13 @@ for (const target of [hubPath, devicePath]) {
       assert.deepEqual(error.inventory, {
         operation: target === hubPath ? "hubs" : "devices", boundary: scenario.boundary, page: 0,
         httpStatus: scenario.httpStatus, ...("apiCode" in scenario ? { apiCode: scenario.apiCode } : {}),
+        ...("responseClass" in scenario ? { responseClass: scenario.responseClass } : {}),
       });
       assert.doesNotMatch(JSON.stringify(error), /private-/);
+      const diagnostic = generalRtcFailureDiagnostic(error);
+      assert.doesNotMatch(diagnostic, /private-/);
+      if ("responseClass" in scenario) assert.ok(diagnostic.includes(`response_class=${scenario.responseClass}`));
+      if ("apiCode" in scenario) assert.ok(diagnostic.includes(`api_code=${scenario.apiCode}`));
       return true;
     });
     assert.equal(f.requests.filter(row => row.path === target).length, 1);

@@ -16,6 +16,10 @@ export type GeneralRtcReason = "unspecified" | "shape" | "transport" | "response
   | "heartbeat" | "turn_address" | "turn_change" | "offer_shape" | "candidate" | "media"
   | "native_identity_missing" | "native_identity_rejected";
 
+/** Closed HTTP refusal categories. They describe response shape, not its cause. */
+export type GeneralRtcResponseClass = "empty" | "empty_or_truncated" | "non_json"
+  | "json_without_numeric_code" | "json_with_numeric_code" | "unavailable";
+
 /** Content-free inventory failure facts retained only for one diagnostic attempt. */
 export interface GeneralRtcInventoryDiagnostic {
   readonly operation: "hubs" | "devices" | "projection";
@@ -23,6 +27,7 @@ export interface GeneralRtcInventoryDiagnostic {
   readonly page?: number;
   readonly httpStatus?: number;
   readonly apiCode?: number;
+  readonly responseClass?: GeneralRtcResponseClass;
 }
 
 /**
@@ -47,6 +52,9 @@ export function generalRtcFailureDiagnostic(failure: GeneralRtcError): string {
   if (Number.isInteger(detail.page) && detail.page! >= 0 && detail.page! <= 4) fields.push(`page=${detail.page}`);
   if (Number.isInteger(detail.httpStatus) && detail.httpStatus! >= 100 && detail.httpStatus! <= 599) fields.push(`http_status=${detail.httpStatus}`);
   if (Number.isSafeInteger(detail.apiCode) && Math.abs(detail.apiCode!) <= 1_000_000_000) fields.push(`api_code=${detail.apiCode}`);
+  if (["empty", "empty_or_truncated", "non_json", "json_without_numeric_code", "json_with_numeric_code", "unavailable"].includes(detail.responseClass ?? "")) {
+    fields.push(`response_class=${detail.responseClass}`);
+  }
   return fields.join(" ");
 }
 
