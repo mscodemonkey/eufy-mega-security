@@ -44,7 +44,7 @@ import { CloudCalendarError, cloudCalendarBounds, projectCloudCalendar, type Clo
 import { MegaSessionStore } from "./session-store.js";
 import { captureGeneralRtcIdentity, generalRtcCipher, type GeneralRtcCipher } from "./general-rtc-identity.js";
 import { createLogger } from "../logging.js";
-import { GeneralRtcError, generalRtcSmartHost, generalRtcAwait, type GeneralRtcStage, type GeneralRtcInventoryDiagnostic } from "../stream/general-rtc-protocol.js";
+import { GeneralRtcError, generalRtcSmartHost, generalRtcAwait, type GeneralRtcStage, type GeneralRtcInventoryDiagnostic, type GeneralRtcResponseClass } from "../stream/general-rtc-protocol.js";
 import type { MegaAuthResult, MegaCaptcha, MegaIdentity, MegaInventory, MegaResult, MegaSession } from "./types.js";
 
 // These codes are handled at the transport boundary so every caller gets the
@@ -119,11 +119,13 @@ export function megaOperation(path: string): MegaOperation {
 /**
  * Carries an unclassified HTTP rejection without treating it as an expired login.
  * The request caller owns any narrowly scoped read retry. This error retains
- * only a response category, never the server body or account material.
+ * only a response category and numeric application code, never the server body
+ * or account material. A numeric code does not itself authorize a retry.
  */
 class MegaHttpRejection extends Error {
-  constructor(readonly responseKind: string) {
-    super(`Mega request failed (HTTP 463 response ${responseKind})`);
+  constructor(readonly responseKind: GeneralRtcResponseClass, readonly applicationCode?: number) {
+    super(applicationCode === undefined ? `Mega request failed (HTTP 463 response ${responseKind})`
+      : `Mega request failed (HTTP 463 code ${applicationCode})`);
   }
 }
 
@@ -332,9 +334,11 @@ export class MegaClient {
       return data;
     } catch (error) {
       const failure = generalRtcRequestFailure(error, "inventory");
+      if (error instanceof MegaHttpRejection) apiCode = error.applicationCode;
       throw new GeneralRtcError("inventory", failure.reason, {
         operation: path === "/v3/web/get_hub_list" ? "hubs" : "devices", boundary, page,
         ...(httpStatus === undefined ? {} : { httpStatus }), ...(apiCode === undefined ? {} : { apiCode }),
+        ...(error instanceof MegaHttpRejection ? { responseClass: error.responseKind } : {}),
       });
     }
   }
@@ -1279,7 +1283,7 @@ export class MegaClient {
       }
       if (response.status === 463) {
         let applicationCode: number | undefined;
-        let responseKind = "unavailable";
+        let responseKind: GeneralRtcResponseClass = "unavailable";
         try {
           const body = await readBoundedResponse(response, 2 * 1024 * 1024, signal);
           responseKind = body.length === 0 ? "empty" : "non_json";
@@ -1287,6 +1291,7 @@ export class MegaClient {
           responseKind = "json_without_numeric_code";
           if (isRecord(value) && Number.isSafeInteger(value.code)) {
             applicationCode = value.code as number;
+            responseKind = "json_with_numeric_code";
             if (TRANSIENT_IDENTITY_ERRORS.has(applicationCode)) return value as unknown as MegaResult;
           }
         } catch (error) {
@@ -1295,8 +1300,7 @@ export class MegaClient {
             responseKind = "empty_or_truncated";
           }
         }
-        if (applicationCode !== undefined) throw new Error(`Mega request failed (HTTP 463 code ${applicationCode})`);
-        throw new MegaHttpRejection(responseKind);
+        throw new MegaHttpRejection(responseKind, applicationCode);
       }
       await response.body?.cancel();
       throw new Error(`Mega request failed (HTTP ${response.status})`);
