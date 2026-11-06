@@ -992,11 +992,16 @@ export class NvrRtcSession {
     for (const item of this.#reorder.values()) {
       const age = this.#now() - item.at;
       if (age >= 1000) {
-        this.stats.reorderTimeoutChannel = item.channel;
-        this.stats.reorderTimeoutExpected = ((this.#lastSequence.get(item.channel) ?? 65535) + 1) % 65536;
-        this.stats.reorderTimeoutWaiting = item.sequence;
-        this.stats.reorderTimeoutAgeMs = age;
-        this.stats.reorderTimeoutQueued = this.#reorder.size;
+
+        // A stop reply can drain this queue again during retirement. Preserve
+        // the first failure instead of replacing it with cleanup observations.
+        if (this.stats.reorderTimeoutChannel === -1) {
+          this.stats.reorderTimeoutChannel = item.channel;
+          this.stats.reorderTimeoutExpected = ((this.#lastSequence.get(item.channel) ?? 65535) + 1) % 65536;
+          this.stats.reorderTimeoutWaiting = item.sequence;
+          this.stats.reorderTimeoutAgeMs = age;
+          this.stats.reorderTimeoutQueued = this.#reorder.size;
+        }
         throw new NvrTrialError("framing", "frame_reorder_timeout");
       }
     }
