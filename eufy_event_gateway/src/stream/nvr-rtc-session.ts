@@ -1067,7 +1067,7 @@ export class NvrRtcSession {
         if (!nvrLiveReceipt(frame.payload)) { this.controlStats.rejected++; pending.reject(new NvrLiveControlError("outcome_unknown", "receipt")); return; }
         pending.acknowledged = true;
 
-        // Some profiles send no PTZ data after the receipt; others resolve on the data reply.
+        // Receipt-only profiles send no PTZ data after the receipt; any other pan resolves on the data reply.
         if (!pending.pan) pending.resolve();
         else if (this.options.panReceiptOnly) { this.controlStats.panReceipts++; pending.resolve(); }
         return;

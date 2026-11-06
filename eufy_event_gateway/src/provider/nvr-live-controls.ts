@@ -60,7 +60,7 @@ export function nvrLiveProfile(model: string, type: number | null, stationModel?
   if (model === "T8E00" && type === 301) return {
     night: [{ value: 0, name: "Standard" }, { value: 1, name: "Infrared" }, { value: 2, name: "Spotlight" }],
     quality: [{ value: 0, name: "Auto" }, { value: 1, name: "Low" }, { value: 3, name: "High" }],
-    views: ["Fixed", "Movable"], defaultView: 1, opticalZoom: true, movementView: 1, panReceiptOnly: false, aiTracking: false,
+    views: ["Fixed", "Movable"], defaultView: 1, opticalZoom: true, movementView: 1, panReceiptOnly: true, aiTracking: false,
   };
   if (model === "T8416" && type === 104) return {
     night: [{ value: 0, name: "Off" }, { value: 1, name: "Auto Infrared" }, { value: 3, name: "Infrared on" }],

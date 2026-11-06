@@ -127,6 +127,10 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'sta
             const receipt = application(1700, request.segment, Buffer.alloc(132)); receipt[12] = 3;
             if (scenario === 'live-pan-nonzero') receipt.writeInt32LE(-1, 16);
             for (const packet of nvrPackets(receipt, sequence++, 1)) channel.send(packet);
+            if (scenario === 'live-pan-receiptonly') {
+              const late = application(1351, request.segment, Buffer.from(JSON.stringify({ cmd: 6030, payload: { limit: -1 } }))); late[12] = 3;
+              for (const packet of nvrPackets(late, sequence++, 1)) channel.send(packet);
+            }
             return;
           }
           if (scenario === 'live-badcontrol') {
@@ -355,7 +359,7 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'sta
   let clientDataChannel: ReturnType<RTCPeerConnection["createDataChannel"]> | undefined;
   const session = new NvrRtcSession({ onEffectiveMode: value => modes.push(value), onTimings: value => timingReports.push(value), station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
     ...(scenario.startsWith('observer') ? { modeObserver: true, maximumLifetimeMilliseconds: null } : {}),
-    powerTrial: scenario.startsWith('power'), liveControls: scenario.startsWith('live-') || scenario === 'continuous-controls', panReceiptOnly: scenario === 'live-pan-receiptonly',
+    powerTrial: scenario.startsWith('power'), liveControls: scenario.startsWith('live-') || scenario === 'continuous-controls', panReceiptOnly: ['live-pan-receiptonly', 'live-pan-nonzero'].includes(scenario),
     ...(scenario.startsWith('continuous-') || scenario.startsWith('start-') ? { maximumLifetimeMilliseconds: null, videoProgressNow: () => nativeVideoNow() + videoProgressOffset } : {}),
     guardTrial: scenario === 'guard', ...(scenario === 'guard' ? { userName: 'Synthetic' } : {}),
     cameraType, ...(s1Grace ? { s1FirstPictureGrace: true } : {}), sensor: scenario === 'legacy-first-lens' || s1Grace && cameraType === 89 && scenario !== 'start-s1-other-view' ? 0 : 1,
@@ -758,6 +762,7 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'sta
         assert.ok(session.stats.video > before); assert.equal(session.output.destroyed, false);
         assert.equal(commands.filter(command => command === 6030).length, 1);
         if (scenario === 'live-pan-ackonly') assert.equal(session.controlStats.panAcknowledgedWithoutData, 1);
+        if (scenario === 'live-pan-nonzero') { assert.equal(session.controlStats.panReceipts, 0); assert.equal(session.controlStats.rejected, 1); }
         await session.close(); return;
       }
       if (scenario === 'live-tracking') {
@@ -767,7 +772,10 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'sta
         await session.close(); return;
       }
       if (scenario === 'live-pan-receiptonly') {
+        const stale = session.stats.staleReplies;
         await session.writeLiveControl({ kind: 'pan', direction: 'left' }, controller.signal, () => {});
+        await new Promise(resolve => setTimeout(resolve, 250));
+        assert.ok(session.stats.staleReplies > stale);
         assert.equal(session.controlStats.panReceipts, 1); assert.equal(session.controlStats.panData, 0);
         assert.equal(session.controlStats.panTimeouts, 0); assert.equal(session.output.destroyed, false);
         await session.close(); return;
