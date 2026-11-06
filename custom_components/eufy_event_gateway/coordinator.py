@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import timedelta
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +66,19 @@ class EufyGatewayCoordinator(
             self._camera_control_failed,
             self.async_update_listeners,
         )
+
+        # Each camera's Live audio choice, owned by its switch and read when a
+        # stream URL is made. A camera registers to drop its cached stream.
+        self.live_audio: dict[str, bool] = {}
+        self.live_audio_changed: dict[str, Callable[[], Awaitable[None]]] = {}
+
+    async def async_set_live_audio(self, serial: str, enabled: bool) -> None:
+        """Record a Live audio choice so the camera's next view opens on its route."""
+        changed = self.live_audio.get(serial, False) is not enabled
+        self.live_audio[serial] = enabled
+        callback = self.live_audio_changed.get(serial)
+        if changed and callback is not None:
+            await callback()
 
     def submit_camera_control(self, serial: str, action: str, enabled: bool) -> None:
         """Accept only the two approved switch operations without optimistic state."""

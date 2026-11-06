@@ -365,6 +365,9 @@
       "camera_audio_recording": {
         "name": "Lydoptagelse"
       },
+      "camera_live_audio": {
+        "name": "Live lyd"
+      },
       "auto_night_vision": {
         "name": "Auto night vision"
       },

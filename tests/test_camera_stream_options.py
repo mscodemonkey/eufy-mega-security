@@ -10,6 +10,7 @@ import ast
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
+from urllib.parse import urlsplit
 from unittest.mock import AsyncMock, Mock
 
 
@@ -39,17 +40,22 @@ class CameraStreamOptionsTest(unittest.TestCase):
         ]
 
         self.assertEqual(len(assignments), 2)
-        expression = compile(ast.Expression(assignments[0].value), str(CAMERA_SOURCE), "eval")
-        for camera, expected in [
-            ({}, True),
-            ({"liveAudioSupported": False}, True),
-            ({"liveAudioSupported": True}, False),
-            ({"liveAudioSupported": "true"}, True),
+
+        # Raw video until a source is chosen; then the clock follows the route the gateway returned.
+        self.assertEqual(ast.unparse(assignments[0].value), "True")
+        self.assertEqual(ast.unparse(assignments[1].value), "not _carries_audio(source)")
+        helper = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_carries_audio")
+        namespace = {"urlsplit": urlsplit}
+        exec(compile(ast.Module(body=[helper], type_ignores=[]), str(CAMERA_SOURCE), "exec"), namespace)
+        for url, expected in [
+            ("http://gateway/api/cameras/a/live-native.ts?access_token=x&view=y", True),
+            ("http://gateway/api/cameras/a/live.ts?access_token=x", True),
+            ("http://gateway/api/cameras/a/live-native.annexb?access_token=x", False),
+            ("http://gateway/api/cameras/a/live.h264?access_token=x", False),
+            ("http://gateway/api/cameras/live.ts/live.h264", False),
         ]:
-            for native in (False, True):
-                with self.subTest(camera=camera, native=native):
-                    self.assertIs(eval(expression, {}, {"self": SimpleNamespace(camera=camera, _native_video=native)}), expected)
-        self.assertEqual(ast.unparse(assignments[0].value), ast.unparse(assignments[1].value))
+            with self.subTest(url=url):
+                self.assertIs(namespace["_carries_audio"](url), expected)
 
     def test_stream_url_action_requires_a_response(self) -> None:
         """Keep the temporary URL out of state attributes and event data."""
@@ -304,21 +310,21 @@ class CameraStreamUrlActionTest(unittest.IsolatedAsyncioTestCase):
 class CameraCurrentStreamClockTest(unittest.IsolatedAsyncioTestCase):
     """Choose timestamps from current admission instead of startup inventory."""
 
-    async def test_capability_changes_before_opening_source(self):
-        """Preserve transport clocks after AAC admission and raw-video clocks after removal."""
+    async def test_clock_follows_the_route_the_gateway_returns(self):
+        """MPEG-TS keeps its own clock; raw video gets arrival timestamps; no route opens nothing."""
         tree = ast.parse(CAMERA_SOURCE.read_text())
         method = next(node for node in ast.walk(tree)
                       if isinstance(node, ast.AsyncFunctionDef) and node.name == "stream_source")
-        namespace = {"_new_view": lambda url: url, "CONF_USE_WALLCLOCK_AS_TIMESTAMPS": "wallclock"}
-        exec(compile(ast.Module(body=[method], type_ignores=[]), str(CAMERA_SOURCE), "exec"), namespace)
-        client = SimpleNamespace(stream_url=AsyncMock(return_value="signed-source"))
+        helper = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_carries_audio")
+        namespace = {"_new_view": lambda url: url, "CONF_USE_WALLCLOCK_AS_TIMESTAMPS": "wallclock", "urlsplit": urlsplit}
+        exec(compile(ast.Module(body=[helper, method], type_ignores=[]), str(CAMERA_SOURCE), "exec"), namespace)
+        client = SimpleNamespace(stream_url=AsyncMock(return_value="http://gateway/api/cameras/s/live-native.ts?access_token=x"))
         entity = SimpleNamespace(camera={"streamSupported": True}, stream_options={"wallclock": True},
-                                 _native_video=False, _async_stream_url=client.stream_url,
-                                 serial="synthetic", coordinator=SimpleNamespace(client=client))
-        entity.camera["liveAudioSupported"] = True
-        self.assertEqual(await namespace["stream_source"](entity), "signed-source")
+                                 _native_video=True, _async_stream_url=client.stream_url,
+                                 serial="synthetic", coordinator=SimpleNamespace(client=client, live_audio={}))
+        self.assertEqual(await namespace["stream_source"](entity), "http://gateway/api/cameras/s/live-native.ts?access_token=x")
         self.assertIs(entity.stream_options["wallclock"], False)
-        entity.camera["liveAudioSupported"] = False
+        client.stream_url.return_value = "http://gateway/api/cameras/s/live-native.annexb?access_token=x"
         await namespace["stream_source"](entity)
         self.assertIs(entity.stream_options["wallclock"], True)
         entity.camera["streamSupported"] = False

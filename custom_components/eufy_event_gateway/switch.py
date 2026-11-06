@@ -11,6 +11,7 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
@@ -35,6 +36,7 @@ async def async_setup_entry(
     known_motion: set[str] = set()
     known_audio_recording: set[str] = set()
     known_auto_night_vision: set[str] = set()
+    known_live_audio: set[str] = set()
 
     def add_new() -> None:
         for serial, lock in getattr(coordinator, "locks", {}).items():
@@ -89,6 +91,17 @@ async def async_setup_entry(
             async_add_entities(
                 EufyAudioRecordingSwitch(coordinator, serial)
                 for serial in sorted(audio_serials)
+            )
+        live_audio_serials = {
+            serial
+            for serial, camera in coordinator.cameras.items()
+            if camera.get("liveAudioSupported") is True and camera.get("streamSupported") is True
+        } - known_live_audio
+        if live_audio_serials:
+            known_live_audio.update(live_audio_serials)
+            async_add_entities(
+                EufyLiveAudioSwitch(coordinator, serial)
+                for serial in sorted(live_audio_serials)
             )
         auto_night_vision_serials = {
             serial
@@ -217,6 +230,49 @@ class EufyAudioRecordingSwitch(EufyGatewayEntity, SwitchEntity):
             raise HomeAssistantError(
                 f"Could not change audio recording: {error}"
             ) from error
+
+
+class EufyLiveAudioSwitch(EufyGatewayEntity, SwitchEntity, RestoreEntity):
+    """Choose whether a camera's live views carry its sound, off by default.
+
+    A Home Assistant choice, not a camera setting: nothing is written to the
+    camera. Off, views open on the camera's video alone, which is fastest.
+    On, they carry its audio. The change applies the next time a view opens.
+    """
+
+    _attr_translation_key = "camera_live_audio"
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Bind the switch to a camera whose route delivers live audio."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        SwitchEntity.__init__(self)
+        self._attr_unique_id = f"{serial}_camera_live_audio"
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the last choice, or leave live audio off."""
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        await self.coordinator.async_set_live_audio(self.serial, last is not None and last.state == "on")
+
+    @property
+    def available(self) -> bool:
+        """Stay usable while the gateway is briefly offline; the choice is local."""
+        return bool(self.camera)
+
+    @property
+    def is_on(self) -> bool:
+        """Return this camera's Live audio choice."""
+        return self.coordinator.live_audio.get(self.serial, False)
+
+    async def async_turn_on(self, **kwargs: object) -> None:
+        """Carry sound from the next view on."""
+        await self.coordinator.async_set_live_audio(self.serial, True)
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: object) -> None:
+        """Open views on video alone from the next view on."""
+        await self.coordinator.async_set_live_audio(self.serial, False)
+        self.async_write_ha_state()
 
 
 class EufyAutoNightVisionSwitch(EufyGatewayEntity, SwitchEntity):

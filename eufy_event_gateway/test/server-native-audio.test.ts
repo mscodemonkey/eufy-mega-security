@@ -17,7 +17,7 @@ import { GatewayServer } from "../src/server.js";
 import { SnapshotStore } from "../src/storage/snapshot-store.js";
 import { liveAudioStartWaitMilliseconds, type LiveStreamManager, type ViewerProfile } from "../src/stream/live-stream-manager.js";
 
-test("native tokens name the MPEG-TS route only for cameras with live audio", async () => {
+test("tokens name an audio route only when audio is asked for and the camera has it", async () => {
   const directory = await mkdtemp(join(tmpdir(), "native-audio-"));
   const state = new GatewayState();
   for (const [serial, audio] of [["audio", true], ["video", false]] as const) {
@@ -44,14 +44,26 @@ test("native tokens name the MPEG-TS route only for cameras with live audio", as
     await server.listen();
     const base = `http://127.0.0.1:${server.port}`;
     const headers = { authorization: "Bearer fixture-only" };
-    const token = async (serial: string, native: boolean): Promise<string> => ((await (await fetch(`${base}/api/cameras/${serial}/stream-token`,
-      { method: "POST", headers, ...(native ? { body: '{"profile":"native"}' } : {}) })).json()) as { path: string }).path;
+    const token = async (serial: string, body?: string): Promise<string> => ((await (await fetch(`${base}/api/cameras/${serial}/stream-token`,
+      { method: "POST", headers, ...(body ? { body } : {}) })).json()) as { path: string }).path;
+    const route = (path: string): string => path.split("?")[0]!.split("/").at(-1)!;
 
-    const nativeAudio = await token("audio", true);
+    // Audio on asks for sound; off, or a camera without it, gets video only. No choice keeps an older integration's default.
+    const nativeAudio = await token("audio", '{"profile":"native","audio":"on"}');
     assert.ok(nativeAudio.startsWith("/api/cameras/audio/live-native.ts?access_token=native."));
-    assert.ok((await token("video", true)).startsWith("/api/cameras/video/live-native.annexb?access_token=native."));
-    const compatibleAudio = await token("audio", false);
+    assert.equal(route(await token("audio", '{ "audio" : "off", "profile" : "native" }')), "live-native.annexb");
+    assert.equal(route(await token("audio", '{"profile":"native"}')), "live-native.annexb");
+    assert.equal(route(await token("video", '{"profile":"native","audio":"on"}')), "live-native.annexb");
+    const compatibleAudio = await token("audio", '{"audio":"on"}');
     assert.ok(compatibleAudio.startsWith("/api/cameras/audio/live.ts?access_token="));
+    assert.equal(route(await token("audio", '{"audio":"off"}')), "live.h264");
+    assert.equal(route(await token("audio")), "live.ts");
+    assert.equal(route(await token("video", '{"audio":"on"}')), "live.h264");
+    for (const body of ['{"audio":true}', '{"audio":"yes"}', '{"audio":"on","audio":"off"}', '{"audio":"on","\\u0061udio":"off"}',
+      '{"profile":"native","audio":"on","x":"y"}', '{"audio":null}']) {
+      const refused = await fetch(`${base}/api/cameras/audio/stream-token`, { method: "POST", headers, body });
+      assert.equal(refused.status, 400, body);
+    }
 
     const viewed = await fetch(`${base}${nativeAudio}&view=fixture-view-mark-0001`);
     assert.equal(viewed.status, 200);
