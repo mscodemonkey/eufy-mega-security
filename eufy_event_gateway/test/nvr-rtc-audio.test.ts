@@ -52,7 +52,9 @@ async function fixture(audio: boolean) {
   assert.equal(generated.status, 0, generated.stderr.toString());
   const starts: { channel: number; audio: number }[] = [], receiver = new NvrPtcsReassembler();
   let reply = 0, transport = 0, sequence = 0, sender: NodeJS.Timeout | undefined;
+  let audioChannel: { send: (data: Buffer) => void } | undefined;
   peer.onDataChannel.subscribe(channel => {
+    if (channel.label === 'audio') audioChannel = channel;
     if (channel.label !== 'WebrtcDataChannel') return;
     channel.onmessage = event => {
       if (!Buffer.isBuffer(event.data) || event.data[4] !== 3) return;
@@ -70,15 +72,24 @@ async function fixture(audio: boolean) {
       sequence = 0; transport = 0;
       const send = (frame: Buffer): void => { for (const packet of nvrPackets(frame, transport++, Date.now(), 2)) channel.send(packet); };
 
+      // As an NVR S4 sends it: on the audio data channel, sharing video's transport channel and counter,
+      // with the compressed bit set over a plain application frame.
+      const sendAudio = (frame: Buffer): void => {
+        for (const packet of nvrPackets(frame, transport++, Date.now(), 2)) {
+          packet.writeUInt16LE(packet.readUInt16LE(18) | 0x0800, 18);
+          (audioChannel ?? channel).send(packet);
+        }
+      };
+
       // Audio before the first picture, then a picture with each tick, good audio, and one damaged audio frame.
-      send(audioFrame(aac, 0));
+      sendAudio(audioFrame(aac, 0));
       sender = setInterval(() => {
         const media = Buffer.alloc(22 + generated.stdout.length); media.writeUInt32LE(generated.stdout.length, 0);
         media[4] = 1; media.writeUInt16LE(sequence, 6); media[8] = 10; media.writeUInt16LE(320, 10); media.writeUInt16LE(180, 12);
         media.writeBigUInt64LE(BigInt(sequence++) * 2000n, 14); generated.stdout.copy(media, 22);
         const frame = application(1300, 0, media, 101); frame[14] = 1;
         send(frame);
-        send(audioFrame(sequence === 3 ? aac.subarray(0, aac.length - 1) : aac, sequence));
+        sendAudio(audioFrame(sequence === 3 ? aac.subarray(0, aac.length - 1) : aac, sequence));
       }, 50);
     };
   });
