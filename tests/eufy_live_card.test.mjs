@@ -207,3 +207,16 @@ test("keeps the picture's shape while video is closed", () => {
   assert.equal(card.cssRatio("tall"), "16 / 9");
   assert.equal(card.cssRatio("0:9"), "16 / 9");
 });
+
+test("the S350 and S4 offer their two lenses, 1x and 3x", () => {
+  const zoom = { 1: "button.z1", 2: "button.z2", 3: "button.z3" };
+  for (const model of ["T8416", "T8E00"]) {
+    assert.deepEqual(card.lensChips(model, zoom), [
+      { label: "1x", level: 1, entityId: "button.z1" },
+      { label: "3x", level: 2, entityId: "button.z2" },
+    ]);
+  }
+  assert.deepEqual(card.lensChips("T8E00", { 1: "button.z1" }), [{ label: "1x", level: 1, entityId: "button.z1" }], "a withdrawn step is not offered");
+  assert.deepEqual(card.lensChips("T9999", zoom).map((chip) => chip.label), ["1x", "2x", "3x"]);
+  assert.deepEqual(card.lensChips(undefined, {}), []);
+});

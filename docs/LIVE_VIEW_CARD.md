@@ -28,7 +28,7 @@ The card shows only the controls a camera already has as entities. If a control 
 | --- | --- | --- |
 | Pan and tilt pad | Over the bottom-left of the picture, shown or hidden by **Pan/tilt** | The four direction buttons |
 | Lens: Fixed or Movable | Bottom of the picture (T8E00 behind the NVR) | The Camera view select |
-| Zoom 1x, 2x, 3x | Bottom of the picture | The three zoom buttons |
+| Lens 1x and 3x (T8416, T8E00), or the zoom steps a camera offers | Bottom of the picture | The zoom buttons: on T8416 and T8E00, 1x sends optical step 1 (wide lens) and 3x sends step 2 (telephoto) |
 | Night vision, Quality | **More** menu | Their selects |
 | AI tracking, Auto cruise | **More** menu | Their switch, or their on and off buttons |
 | Presets | **More** menu | The preset buttons |
@@ -37,6 +37,8 @@ The card shows only the controls a camera already has as entities. If a control 
 | Settings | Top right | Opens the camera's normal Home Assistant dialog |
 
 Tap an empty part of the picture, or the eye button at the top right, to hide the controls and see the whole picture. Tap the picture again to bring them back. Results of a request stay visible while the controls are hidden.
+
+The T8416 and T8E00 each have two lenses, a wide one and a 3x telephoto. Step 2 selects the telephoto, and on hardware step 3 after step 2 changed nothing, so the card shows 1x and 3x for these models rather than the three zoom buttons.
 
 Pan, tilt and zoom stay unavailable until the camera reports live video, because the gateway accepts them only while a viewer is attached. One request runs at a time, and the next waits at least one second.
 

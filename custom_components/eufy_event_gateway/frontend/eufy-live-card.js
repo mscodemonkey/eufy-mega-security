@@ -49,6 +49,24 @@ export const CONTROL_KEYS = Object.freeze({
   }),
 });
 
+/**
+ * Lens chips per model. The T8416 and T8E00 each have a wide lens and a 3x
+ * telephoto. The gateway's optical step 1 selects the wide lens and step 2 the
+ * telephoto; on hardware, step 3 after step 2 changed nothing. So these models
+ * show 1x and 3x, and 3x sends step 2. Other models show the steps their
+ * entities offer.
+ */
+export const LENSES = Object.freeze({
+  T8416: Object.freeze([{ label: "1x", level: 1 }, { label: "3x", level: 2 }]),
+  T8E00: Object.freeze([{ label: "1x", level: 1 }, { label: "3x", level: 2 }]),
+});
+
+/** Return the lens chips for a camera: label, optical step and the button entity that sends it. */
+export function lensChips(model, zoom) {
+  const table = LENSES[model] ?? Object.keys(zoom).sort().map((level) => ({ label: `${level}x`, level: Number(level) }));
+  return table.filter((chip) => zoom[chip.level]).map((chip) => ({ ...chip, entityId: zoom[chip.level] }));
+}
+
 /** Codes the integration's client puts in "NVR control <code>" errors. */
 export const FAILURE_CODES = Object.freeze(["busy", "unavailable", "rate_limited", "disabled", "outcome_unknown"]);
 
@@ -730,12 +748,13 @@ export class EufyLiveCard extends BaseElement {
         }).join("")}</div>`);
       }
     }
-    if (hasZoom) {
+    const chips = lensChips(hass.devices?.[hass.entities?.[this._camera]?.device_id]?.model, c.zoom);
+    if (chips.length) {
       const requested = this._controller.requestedZoom.get(this._camera);
-      lensParts.push(`<div class="chips glass" role="group" aria-label="${escapeHtml(t.lens)}">${Object.keys(c.zoom).sort().map((level) => {
-        const isRequested = Number(level) === requested;
-        const label = `${level}x`;
-        return `<button class="${isRequested ? "requested" : ""}${this._controller.pending === c.zoom[level] ? " active-press" : ""}" data-action="zoom" data-level="${level}" data-entity="${escapeHtml(c.zoom[level])}"${isRequested ? ` title="${escapeHtml(format(t.requested, { level: label }))}" aria-label="${escapeHtml(format(t.requested, { level: label }))}"` : ` aria-label="${label}"`}${busy || !streaming ? " disabled" : ""}>${label}</button>`;
+      lensParts.push(`<div class="chips glass" role="group" aria-label="${escapeHtml(t.lens)}">${chips.map((chip) => {
+        const isRequested = chip.level === requested;
+        const label = chip.label;
+        return `<button class="${isRequested ? "requested" : ""}${this._controller.pending === chip.entityId ? " active-press" : ""}" data-action="zoom" data-level="${chip.level}" data-entity="${escapeHtml(chip.entityId)}"${isRequested ? ` title="${escapeHtml(format(t.requested, { level: label }))}" aria-label="${escapeHtml(format(t.requested, { level: label }))}"` : ` aria-label="${label}"`}${busy || !streaming ? " disabled" : ""}>${label}</button>`;
       }).join("")}</div>`);
     }
     if (lensParts.length) parts.push(`<div class="lens${padShown ? " beside-pad" : ""}">${lensParts.join("")}</div>`);
