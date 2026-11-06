@@ -106,7 +106,7 @@ const STRINGS = {
     unknown_setting: "No confirmation came back. Check the setting in Eufy before trying again.",
     busy: "The camera is busy with another request or a recording. Try again shortly.",
     rate_limited: "Too soon after the last request. Wait a moment and try again.",
-    unavailable: "That control is not available on this camera right now.",
+    unavailable: "That request could not be completed. Check the picture before trying again.",
     disabled: "Camera controls are turned off in the Eufy Mega Security options.",
     failed: "That did not work: {message}",
     no_detail: "no reason was given.",

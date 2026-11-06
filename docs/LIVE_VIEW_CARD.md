@@ -45,7 +45,8 @@ Pan, tilt and zoom stay unavailable until the camera reports live video, because
 - **Request sent. Check the picture to confirm.** The gateway accepted a movement or zoom (`request_accepted`). This does not establish that the camera moved or which lens is in use. The zoom chip keeps a marked outline on the level last requested, never a confirmed state.
 - **A confirmed value**, such as "Night vision: Infrared on". Night vision, quality, the lens and switches such as AI tracking report back before the integration returns, so the card names the value. On and off buttons, presets, the light and the siren have no read-back, so they report "Request sent" like a movement.
 - **No confirmation came back.** The outcome is unknown (`outcome_unknown`). The camera may still have moved. Check the picture before pressing again. The card never repeats a request for you.
-- **Busy, too soon, not available, or turned off.** The gateway refused the request.
+- **Busy, too soon, or turned off.** The gateway refused the request.
+- **Could not be completed** (`unavailable`). The gateway gives this when a control is withdrawn and also when the live source drops during a request, so check the picture before trying again.
 
 ## Changing the T8E00 lens
 
