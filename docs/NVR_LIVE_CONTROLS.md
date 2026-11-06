@@ -1,6 +1,6 @@
 # Experimental NVR live controls
 
-These controls are off by default and hardware-unconfirmed. They are available only for an explicitly owned T8N00 NVR, type 300, with an exact T8E00/type301 or T8416/type104 child. Guest access, inherited child ownership and T8416121 are excluded. The exact T8E00/type301 through HomeBase S1 T9000/type27 has a separate pan-only experimental profile. It uses the Movable source and offers single direction clicks, with no zoom, view selector, night-vision or quality controls. Physical movement on S1 remains unconfirmed. The same T8416 on its own Wi-Fi or behind a HomeBase keeps its existing route and controls. None of these NVR profiles, labels or markers apply to it.
+These controls are off by default. Hardware results are limited to what is listed under [Hardware results](#hardware-results), and every other pairing stays unconfirmed. They are available only for an explicitly owned T8N00 NVR, type 300, with an exact T8E00/type301 or T8416/type104 child. Guest access, inherited child ownership and T8416121 are excluded. The exact T8E00/type301 through HomeBase S1 T9000/type27 has a separate pan-only experimental profile. It uses the Movable source and offers single direction clicks, with no zoom, view selector, night-vision or quality controls. Physical movement on S1 remains unconfirmed. The same T8416 on its own Wi-Fi or behind a HomeBase keeps its existing route and controls. None of these NVR profiles, labels or markers apply to it.
 
 Enable `experimental_nvr_live`, `experimental_model_controls` and `experimental_nvr_controls`, and configure gateway API authentication. Enabling those flags also exposes the separate power and guard trials. Those trials retain their own consent and are never run by these normal controls. No physical control test runs automatically. Martin authorised implementation of #433, not unattended movement or security changes.
 
@@ -29,6 +29,12 @@ Normal NVR live view keeps its source while the viewer owns it and usable video 
 
 Actions are exclusive per NVR and spaced at least one second apart. Explicit capability refresh has a ten-second cooldown. Refresh reads settings without starting video when the camera is idle.
 
+## Hardware results
+
+Two T8416/type 104 cameras on firmware 1.5.6.4 behind one T8N00 were tested on 4 November 2026 with the changes released in v0.1.242. The owner watched one camera and saw all four pan directions. Video from the second camera shows its picture shifting after each of the four pan requests, and returning after the opposite one. Both cameras showed 2x and 3x zoom narrowing the picture and 1x restoring it. Streaming quality and AI tracking changed and read back on both, and the eufy app confirmed the quality values and an AI tracking change. Night vision has readback evidence only, from a daylight test.
+
+These results show that the T8416 movement path works on that setup. They do not qualify T8416 on Wi-Fi or a HomeBase, T8416121, T9000 or other firmware. T8E00 pan has no recorded physical result, and a single `request_accepted` still does not prove that a single movement happened.
+
 ## Interpreting results
 
 `request_accepted` requires physical confirmation. It does not establish movement, lens position or optical magnification. Some vendor paths accept a pan acknowledgement alone. T8416 and T8E00 behind T8N00 send only that acknowledgement, with no data reply, so their pan settles on it. T8E00 through S1 still requires a matching data reply, and a device that sends only an acknowledgement there can move and still return `outcome_unknown`. A refused or missing acknowledgement returns `outcome_unknown`, and the camera may still have moved. Do not immediately repeat it. Check the camera in Eufy first.
@@ -39,11 +45,11 @@ Observed night and quality values expire after 30 minutes and clear on a binding
 
 The experimental NVR identity uses `ready_to_test`, so Home Assistant may also offer a compatibility-report button. Pressing that button opens a report workflow. It does not confirm support or run a physical test.
 
-For a reporter retest, use one model at a time. Start with Wide or Movable video, try one direction, and check what actually happened. If it fails, send the single `nvr_live_control_failed` line. Test persistent settings only while watching the result in Eufy, then restore the original values. Physical behaviour remains unconfirmed until the reporter supplies that result.
+For a reporter retest, use one model at a time. Start with Wide or Movable video, try one direction, and check what actually happened. If it fails, send the single `nvr_live_control_failed` line. Test persistent settings only while watching the result in Eufy, then restore the original values. Physical behaviour on any other model, firmware or route remains unconfirmed until the reporter supplies that result.
 
 The first control on a source reconfirms its child identity with a fresh echoed request segment. Devices that reply without echoing that segment cannot use controls, even if legacy video plays. This is a hardware-unconfirmed compatibility limit. PTZ data on the child channel or channel 255 is accepted, with the latter still unconfirmed on hardware. An accepted PTZ request may mean the camera has reached its movement limit.
 
-T8E00 optical levels 1x to 3x deliberately restrict the vendor's 1x to 8x range to the reporter-tested subset. T8416 uses the same 1x to 3x levels, which an owner test confirmed on one S350. The T8E00 Auto/Low/High choices follow the portal fallback UI, rather than an explicit resolution list in that model profile.
+T8E00 optical levels 1x to 3x deliberately restrict the vendor's 1x to 8x range to the reporter-tested subset. T8416 uses the same 1x to 3x levels, which an owner test confirmed on two S350 cameras. The T8E00 Auto/Low/High choices follow the portal fallback UI, rather than an explicit resolution list in that model profile.
 
 A fresh inventory that omits explicit ownership withdraws control admission until membership returns. Raw ownership is mandatory for these controls and the manual guard/power writes. T8416 live video itself needs only `experimental_nvr_live`: without control admission it plays the Wide view and offers no controls. Legacy video and diagnostic playback admission are unchanged.
 
