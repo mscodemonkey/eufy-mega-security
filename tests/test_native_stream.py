@@ -79,6 +79,33 @@ class NativeStreamTest(unittest.IsolatedAsyncioTestCase):
             with self.subTest(path=bad), self.assertRaises(self.error):
                 await self.client.stream_url("fixture", native=True)
 
+    async def test_audio_choice_is_sent_and_an_older_gateway_still_answers(self):
+        """On and off are explicit; a gateway that refuses the field gets the request without it."""
+        path = f"/api/cameras/fixture/live-native.ts?access_token={self.native}"
+        self.client._json.return_value = {"profile": "native", "path": path}
+        await self.client.stream_url("fixture", native=True, audio=True)
+        self.client._json.assert_awaited_with("/api/cameras/fixture/stream-token", method="POST",
+                                              payload={"profile": "native", "audio": "on"})
+        self.client._json.return_value = {"path": "/api/cameras/fixture/live.h264?access_token=x"}
+        await self.client.stream_url("fixture", audio=False)
+        self.client._json.assert_awaited_with("/api/cameras/fixture/stream-token", method="POST", payload={"audio": "off"})
+
+        older = f"/api/cameras/fixture/live-native.annexb?access_token={self.native}"
+        self.client._json.reset_mock()
+        self.client._json.side_effect = [self.error("Gateway returned HTTP 400: Invalid stream profile request", status=400),
+                                         {"profile": "native", "path": older}]
+        self.assertEqual(await self.client.stream_url("fixture", native=True, audio=True), "http://fixture" + older)
+        self.assertEqual(self.client._json.await_args_list[-1].kwargs["payload"], {"profile": "native"})
+        self.client._json.side_effect = [self.error("Gateway returned HTTP 400: Invalid stream profile request", status=400),
+                                         {"path": "/api/cameras/fixture/live.ts?access_token=x"}]
+        self.assertEqual(await self.client.stream_url("fixture", audio=False), "http://fixture/api/cameras/fixture/live.ts?access_token=x")
+        self.assertNotIn("payload", self.client._json.await_args_list[-1].kwargs)
+
+        # Any other failure is not retried.
+        self.client._json.side_effect = [self.error("Gateway returned HTTP 500: broken", status=500)]
+        with self.assertRaises(self.error):
+            await self.client.stream_url("fixture", audio=True)
+
     async def test_unsigned_source_requires_no_gateway_token(self):
         """Only a gateway configured without authentication may omit a signature."""
         self.client._headers = {}
@@ -92,12 +119,16 @@ class NativeStreamTest(unittest.IsolatedAsyncioTestCase):
         namespace = {}
         exec(compile(ast.Module(body=[method], type_ignores=[]), "camera.py", "exec"), namespace)
         request = AsyncMock(return_value="source")
-        camera = SimpleNamespace(serial="fixture", _native_video=True, coordinator=SimpleNamespace(client=SimpleNamespace(stream_url=request)))
+        camera = SimpleNamespace(serial="fixture", _native_video=True,
+                                 coordinator=SimpleNamespace(client=SimpleNamespace(stream_url=request), live_audio={}))
         self.assertEqual(await namespace["_async_stream_url"](camera), "source")
-        request.assert_awaited_with("fixture", native=True)
+        request.assert_awaited_with("fixture", native=True, audio=False)
+        camera.coordinator.live_audio["fixture"] = True
+        await namespace["_async_stream_url"](camera)
+        request.assert_awaited_with("fixture", native=True, audio=True)
         camera._native_video = False
         await namespace["_async_stream_url"](camera)
-        request.assert_awaited_with("fixture")
+        request.assert_awaited_with("fixture", audio=True)
 
 
 class VideoFormatChoiceTest(unittest.TestCase):

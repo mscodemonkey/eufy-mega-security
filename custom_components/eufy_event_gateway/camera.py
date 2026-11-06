@@ -191,6 +191,11 @@ def _with_view(url: str, view: str | None) -> str:
     return urlunsplit(parts._replace(query=urlencode(query)))
 
 
+def _carries_audio(url: str) -> bool:
+    """Return whether a gateway URL is a live audio transport rather than raw video."""
+    return urlsplit(url).path.rsplit("/", 1)[-1] in ("live.ts", "live-native.ts")
+
+
 def _new_view(url: str) -> str:
     """Mark a person's new view.
 
@@ -240,12 +245,9 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         self._stream_source_refreshing = False
         self._cloud_metadata_busy = False
 
-        # Raw Annex-B needs arrival timestamps. MPEG-TS already supplies a
-        # shared video/audio clock, which must survive Home Assistant's remux.
-        # Cameras with live audio get MPEG-TS in both profiles.
-        self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = (
-            self.camera.get("liveAudioSupported") is not True
-        )
+        # Raw video needs arrival timestamps. The source chosen for each stream
+        # replaces this before Home Assistant reads it.
+        self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = True
 
     def playback_diagnostic(self) -> dict[str, Any]:
         """Describe cached HA playback without requesting a URL or waking a camera.
@@ -430,6 +432,8 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
     async def async_added_to_hass(self) -> None:
         """Start updates and refresh credentials on Home Assistant's cached stream."""
         await super().async_added_to_hass()
+        self.coordinator.live_audio_changed[self.serial] = self._async_live_audio_changed
+        self.async_on_remove(lambda: self.coordinator.live_audio_changed.pop(self.serial, None))
         self.async_on_remove(
             async_track_time_interval(
                 self.hass,
@@ -595,13 +599,13 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         if not self.camera.get("streamSupported"):
             return None
 
-        # Inventory can admit AAC after entity construction. Home Assistant
-        # reads these options after obtaining this source, so choose its clock
-        # from the same current capability that selects the gateway transport.
-        self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = (
-            self.camera.get("liveAudioSupported") is not True
-        )
-        return _view_for(self, await self._async_stream_url())
+        # Raw video needs arrival timestamps. MPEG-TS supplies a shared
+        # video/audio clock, which must survive Home Assistant's remux. Home
+        # Assistant reads these options after obtaining this source, so take the
+        # clock from the route the gateway actually returned.
+        source = await self._async_stream_url()
+        self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = not _carries_audio(source)
+        return _view_for(self, source)
 
     def _begin_recording_hold(self) -> object:
         """Stop new views taking NVR calls until this recording's call is protected."""
@@ -628,10 +632,25 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         )
 
     async def _async_stream_url(self) -> str:
-        """Select the same source profile for initial open and both renewals."""
+        """Select the same source profile and audio choice for initial open and both renewals."""
+        audio = self.coordinator.live_audio.get(self.serial, False)
         if self._native_video:
-            return await self.coordinator.client.stream_url(self.serial, native=True)
-        return await self.coordinator.client.stream_url(self.serial)
+            return await self.coordinator.client.stream_url(self.serial, native=True, audio=audio)
+        return await self.coordinator.client.stream_url(self.serial, audio=audio)
+
+    async def _async_live_audio_changed(self) -> None:
+        """Open the next view on the route the new Live audio choice selects.
+
+        Home Assistant fixes a stream's source clock when it creates the stream,
+        so the cached stream is stopped and dropped. WebRTC registers the source
+        again on its next offer.
+        """
+        stream = self.stream
+        if stream is None:
+            return
+        self.stream = None
+        self._hls_idle_stream = None
+        await stream.stop()
 
     async def async_get_stream_url(self) -> dict[str, str]:
         """Start Home Assistant's HLS provider and return its temporary URL.

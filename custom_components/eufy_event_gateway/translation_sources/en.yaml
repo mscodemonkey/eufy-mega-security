@@ -261,6 +261,8 @@ entity:
       name: Motion detection
     camera_audio_recording:
       name: Audio recording
+    camera_live_audio:
+      name: Live audio
     auto_night_vision:
       name: Auto night vision
     camera_microphone:

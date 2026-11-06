@@ -405,23 +405,38 @@ class GatewayClient:
         except (ClientError, TimeoutError) as error:
             raise GatewayClientError(str(error)) from error
 
-    async def stream_url(self, serial: str, *, native: bool = False) -> str:
+    async def stream_url(self, serial: str, *, native: bool = False, audio: bool | None = None) -> str:
         """Create a signed viewer URL, validating the opt-in native boundary.
 
-        Compatible calls preserve the existing request and response behavior.
-        Native responses fail closed when an older gateway ignores the profile.
+        Compatible calls without an audio choice keep the existing request and
+        response behavior. An audio choice asks for the camera's live audio, or
+        for video only; a gateway that predates it refuses the field, and the
+        request is repeated without it. Native responses fail closed when an
+        older gateway ignores the profile.
         """
+        choice = {} if audio is None else {"audio": "on" if audio else "off"}
         if not native:
-            payload = await self._json(f"/api/cameras/{serial}/stream-token", method="POST")
+            if choice:
+                try:
+                    payload = await self._json(f"/api/cameras/{serial}/stream-token", method="POST", payload=choice)
+                except GatewayClientError as error:
+                    if error.status != 400:
+                        raise
+                    payload = await self._json(f"/api/cameras/{serial}/stream-token", method="POST")
+            else:
+                payload = await self._json(f"/api/cameras/{serial}/stream-token", method="POST")
             path = payload.get("path")
             if not isinstance(path, str) or not path.startswith("/"):
                 raise GatewayClientError("Gateway returned an invalid stream path")
             return self._url(path)
         try:
-            payload = await self._json(
-                f"/api/cameras/{quote(serial, safe='')}/stream-token", method="POST",
-                payload={"profile": "native"},
-            )
+            token_path = f"/api/cameras/{quote(serial, safe='')}/stream-token"
+            try:
+                payload = await self._json(token_path, method="POST", payload={"profile": "native", **choice})
+            except GatewayClientError as error:
+                if not choice or error.status != 400:
+                    raise
+                payload = await self._json(token_path, method="POST", payload={"profile": "native"})
             if not isinstance(payload, dict) or payload.get("profile") != "native":
                 raise ValueError
             path = payload.get("path")
