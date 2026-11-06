@@ -79,6 +79,8 @@ If you are new to the project, read [`DEVELOPERS_START_HERE.md`](DEVELOPERS_STAR
 | `custom_components/eufy_event_gateway/coordinator.py` | Polling recovery plus reconnecting SSE updates. |
 | `custom_components/eufy_event_gateway/entity.py` | Shared device registry information and availability for all entities. |
 | `custom_components/eufy_event_gateway/camera.py` | Retained-image cameras, temporary Home Assistant HLS handoffs, fresh snapshots, and clip actions. |
+| `custom_components/eufy_event_gateway/live_card.py` | Serves the live view card and registers it with the Home Assistant frontend once per run. |
+| `custom_components/eufy_event_gateway/frontend/eufy-live-card.js` | The live view dashboard card: live video with the camera's existing control entities on top. Plain JavaScript, no build step. |
 | `custom_components/eufy_event_gateway/alarm_control_panel.py` | Code-free Away, Home, and Disarmed control with transient command progress. |
 | `custom_components/eufy_event_gateway/binary_sensor.py` | Camera detections, battery charging, standalone contact/PIR, and HomeBase connection sensors. |
 | `custom_components/eufy_event_gateway/number.py` | HomeBase alarm and prompt volume controls. |

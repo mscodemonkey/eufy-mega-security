@@ -369,6 +369,17 @@ Recordings are assembled by the gateway with a hard stream-start timeout and dur
 - A familiar-person name appears only when HomeBase supplies an explicit identity. Generic detections such as `Someone` remain unknown.
 - Powered cameras with their own RTSP feed can continue using that feed for video while this integration supplies Eufy/HomeBase detection entities.
 
+## Live view card
+
+The integration includes an **Eufy live view** dashboard card: live video with the camera's controls on top, such as pan and tilt, lens and zoom, night vision, quality, AI tracking and presets. It arrives with the integration, so there is nothing else to install. Add it from the card picker, or:
+
+```yaml
+type: custom:eufy-live-card
+entity: camera.driveway
+```
+
+A camera shows only the controls it already has as entities. A movement or zoom reports that the request was sent, not that the camera moved. See [Eufy live view card](docs/LIVE_VIEW_CARD.md).
+
 ## Standalone gateway
 
 For a failing event picture, the opt-in [private evidence capture](docs/EVENT_IMAGE_EVIDENCE.md)
