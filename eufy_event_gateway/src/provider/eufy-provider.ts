@@ -13,6 +13,7 @@
  * newly added devices without replacing push receivers or active media sessions.
  */
 import { ppcsSourceDiagnostic } from "../diagnostics/ppcs-source-diagnostic.js";
+import { GENERATED_CATALOGUE_DEVICES } from "./devices/generated-catalogue.js";
 import { classicLockInventory } from "./classic-lock-inventory.js";
 import { ParameterCheckError, parameterCheckLog, type ParameterCheckModel, type ParameterCheckSummary } from "./reported-parameter-check.js";
 import { nvrLiveProfile, NvrLiveControlError, type NvrLiveControl, type NvrLiveControlResult } from "./nvr-live-controls.js";
@@ -87,6 +88,7 @@ class AlarmReadRouteChangedError extends Error {
 }
 
 const logger = createLogger("provider");
+const knownPushModels = new Set(GENERATED_CATALOGUE_DEVICES.flatMap(device => device.models));
 const DSK_REFRESH_SKEW_MILLISECONDS = 60_000;
 const STATION_REFRESH_DISCONNECT_FAILURES = 4;
 
@@ -7070,7 +7072,8 @@ export function safePushLogSummary(
   else if (cameraAccepted && isCameraDetection(event.eventType)) {
     handling = cameraDetectionKind(event.eventType) ?? "unhandled";
   }
-  const model = device?.model === "T8N00" ? device.model : device?.model && /^T[0-9]{3,4}(?:[A-Z]{1,2}|-[A-Z]{1,2})?$/.test(device.model)
+  const model = device?.model && (knownPushModels.has(device.model)
+    || /^T[0-9]{3,4}(?:[A-Z]{1,2}|-[A-Z]{1,2})?$/.test(device.model))
     ? device.model
     : "unknown";
   return [

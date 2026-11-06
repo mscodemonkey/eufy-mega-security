@@ -1525,7 +1525,10 @@ capabilities:
     snapshot:
       connections:
         T8030:
-          status: declared
+          status: tested
+          tested_on: 2026-11-06
+          tested_by: 3VITAERC
+          notes: Issue 636 confirms a fresh 1600 x 1600 snapshot on v0.1.237.
   events:
     motion:
       connections:
@@ -1554,4 +1557,7 @@ capabilities:
     doorbell_press:
       connections:
         T8030:
-          status: declared
+          status: tested
+          tested_on: 2026-11-06
+          tested_by: 3VITAERC
+          notes: Issue 636 confirms a press turns the HA sensor on for ten seconds and updates its event image on v0.1.237.
