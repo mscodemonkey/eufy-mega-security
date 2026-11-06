@@ -5,6 +5,7 @@
  */
 import { isIP } from "node:net";
 import type { VideoCodec } from "../domain/types.js";
+import { parseAdtsAccessUnits } from "./ppcs-audio.js";
 
 /** Fixed diagnostic stages contain no vendor messages or private connection data. */
 export type NvrTrialStage = "admission" | "region_or_authorization_rejected" | "sign" | "join" | "call" | "busy"
@@ -79,15 +80,20 @@ export function nvrTrialSensor(model: string, deviceType: number | null): 0 | 1 
   return cameras.some(([name, type]) => name === model && type === deviceType) ? 0 : null;
 }
 
-/** Encode only fixed trial operations, keeping the chosen lens separate from its channel. */
-export function nvrCommand(account: string, command: 9100 | 1003 | 1004 | 1103, segment: number, channel: number, sensor: 0 | 1 = 1): Buffer {
+/**
+ * Encode only fixed trial operations, keeping the chosen lens separate from its channel.
+ * A start asks for no audio unless an audio channel is given.
+ */
+export function nvrCommand(account: string, command: 9100 | 1003 | 1004 | 1103, segment: number, channel: number, sensor: 0 | 1 = 1,
+  audioChannel = -1): Buffer {
   if (![9100, 1003, 1004, 1103].includes(command)) throw new NvrTrialError("framing");
-  if (!Number.isInteger(segment) || segment < 1 || segment > 254 || !Number.isInteger(channel) || channel < 0 || channel > 254) {
+  if (!Number.isInteger(segment) || segment < 1 || segment > 254 || !Number.isInteger(channel) || channel < 0 || channel > 254
+    || !Number.isInteger(audioChannel) || audioChannel < -1 || audioChannel > 254) {
     throw new NvrTrialError("framing");
   }
   if (sensor !== 0 && sensor !== 1) throw new NvrTrialError("framing");
   const payload = command === 1003 ? { ClientOS: "WEB", entrytype: 1, camera_type: 0, streamtype: 2,
-    key: "", msg_id: "", audio_chn: -1, stitch_mode: 1, chn_list: [{ index: 0, chn: channel, sensor }] }
+    key: "", msg_id: "", audio_chn: audioChannel, stitch_mode: 1, chn_list: [{ index: 0, chn: channel, sensor }] }
     : command === 1103 ? { channel_info: { array_size: 2, channel_array: [255, channel] } } : {};
   const body = Buffer.from(JSON.stringify({ account_id: account, cmd: command, payload }));
   const header = Buffer.alloc(16);
@@ -257,6 +263,24 @@ export function nvrVideo(frame: NvrApplicationFrame, channel: number): NvrVideoF
     throw new NvrTrialError("video");
   }
   return { codec: body[5] === 1 ? "h265" : "h264", sequence: body.readUInt16LE(6), timestamp: body.readBigUInt64LE(14), bytes };
+}
+
+/** The start request's audio channel for a single-camera view of this channel. */
+export function nvrAudioChannel(channel: number): number {
+  return channel;
+}
+
+/**
+ * Return complete ADTS AAC from a 1301 frame for the owning single-camera session,
+ * or null. The media header matches video's: a length, a codec byte, sequence
+ * and timestamp, then the payload. Anything that is not complete ADTS is refused.
+ */
+export function nvrAudio(frame: NvrApplicationFrame, channel: number): Buffer | null {
+  const body = frame.payload;
+  if (frame.command !== 1301 || body.length < 29 || body.length > 65_536 + 22
+    || ![channel, 255, 101].includes(frame.channel) || body.readUInt32LE(0) !== body.length - 22) return null;
+  const audio = body.subarray(22);
+  return parseAdtsAccessUnits(audio) ? Buffer.from(audio) : null;
 }
 
 /** Fresh discovery must bind the selected serial, channel and exact camera type. */

@@ -539,6 +539,17 @@ export function supportsCameraLiveAudio(
       || (!route.homeBaseAttached && device.channel === 0 && route.peer.serial === device.serial));
 }
 
+/**
+ * NVR camera models whose live audio is proven through the gateway: the start
+ * request asks for it and the camera reports live audio, so viewers get MPEG-TS.
+ */
+const NVR_LIVE_AUDIO_MODELS: readonly (readonly [string, number])[] = [];
+
+/** Admit NVR live audio only for an exact model and type proven on hardware. */
+export function nvrLiveAudioAdmitted(device: Pick<MegaInventoryDevice, "model" | "deviceType">): boolean {
+  return NVR_LIVE_AUDIO_MODELS.some(([model, type]) => model === device.model && type === device.deviceType);
+}
+
 /** Admit preset movement only on the exact SoloCam direct or HomeBase route proven by saved target scenes. */
 export function supportsSoloCamPresetControl(
   device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">,
@@ -1851,7 +1862,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       doorbellSupported: isDoorbellDevice(device), audioRecordingControlSupported: false,
       careMonitor: false, preferenceRanges: {}, carePreferences: {},
       supportedDetections: ["motion", "person", "stranger", "pet", "vehicle", "dog", "crying", "sound", "packageDelivered", "packageTaken", "packageStranded"],
-      streamingQualityControlSupported: !!profile && values.quality !== null, storedRecordingsSupported: false, liveAudioSupported: false,
+      streamingQualityControlSupported: !!profile && values.quality !== null, storedRecordingsSupported: false,
+      liveAudioSupported: this.#normalNvrLiveBinding(device, station) && nvrLiveAudioAdmitted(device),
       talkbackSupported: false, enableControlSupported: false, motionDetectionControlSupported: false,
       guardModeControlSupported: false, guardModeRefreshSupported: false, nightVisionControlSupported: !!profile && values.night !== null,
       autoNightVisionControlSupported: false, cameraLightControlSupported: false, timedLightControlSupported: false,
@@ -1973,6 +1985,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       cameraType: entry.device.deviceType!, sensor: entry.sensor,
       liveControls: !entry.diagnostic && this.#nvrLiveAdmitted(entry.device, entry.station),
       panReceiptOnly: this.#nvrProfile(entry.device)?.panReceiptOnly === true,
+      audio: !entry.diagnostic && !entry.stateOnly && nvrLiveAudioAdmitted(entry.device),
       signal: entry.controller.signal, current,
       ...(!entry.diagnostic && !entry.stateOnly && entry.station.model === "T8N00" && entry.station.deviceType === 300 ? {
         onEffectiveMode: (observation: NvrEffectiveModeObservation | null): void => {
@@ -1983,9 +1996,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         const model = safeLogModel(entry.device.model);
         logger.info("nvr_live_timings", `model=${model} offer_ms=${timings.offer ?? "none"} first_local_candidate_ms=${timings.firstLocalCandidate ?? "none"} answer_sent_ms=${timings.answerSent ?? "none"} channel_open_ms=${timings.channelOpen ?? "none"} media_request_ms=${timings.mediaRequest ?? "none"} first_video_ms=${timings.firstVideo ?? "none"}`);
       } } : {}),
-      ready: (output, codec) => {
+      ready: (output, codec, audio) => {
         entry.sourceReported = true;
-        this.#events?.streamStarted(serial, output, codec);
+        this.#events?.streamStarted(serial, output, codec, audio);
       } };
   }
 
@@ -5041,7 +5054,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       doorbellSupported: isDoorbellDevice(device),
       streamSupported: nvrLive || isPpcsStreamSupported(device, this.#devices, dskPeerSerials) || this.#doorbellRtcBinding(device),
       ...(nvrLive ? { startupSnapshotSupported: false } : {}),
-      liveAudioSupported: !nvrLive && supportsCameraLiveAudio(device, route, isPpcsStreamSupported(device, this.#devices, dskPeerSerials)),
+      liveAudioSupported: nvrLive ? nvrLiveAudioAdmitted(device)
+        : supportsCameraLiveAudio(device, route, isPpcsStreamSupported(device, this.#devices, dskPeerSerials)),
       enabled: device.reads.enabled ?? null,
       enableControlSupported: supportsCameraEnablement(
         device,
