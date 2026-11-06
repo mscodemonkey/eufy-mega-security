@@ -11,6 +11,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 import { splitAccessUnits } from "../src/stream/annexb-access-units.js";
 import { NativeTransportMuxer, type NativeTransportSummary } from "../src/stream/live-native-transport.js";
+import { markSourceTime } from "../src/stream/media-source-clock.js";
 import { parseAdtsAccessUnits } from "../src/stream/ppcs-audio.js";
 
 /** Collects one synthetic HTTP response while the test owns its disconnect. */
@@ -222,4 +223,51 @@ test("an unknown codec, oversized startup or closed viewer releases the camera o
   quiet.muxer.close();
   assert.equal(quiet.closes(), 1);
   assert.equal(quiet.muxer.videoInput.destroyed, true);
+});
+
+test("marked audio follows the picture by capture time, not by its earlier arrival, and opening backlog is dropped", async () => {
+  const h = harness("h265");
+  const frames = video("h265", 90), sound = audio(7);
+  const base = 1_790_000_000_000, videoLag = 450, backlog = 1_500;
+
+  // As measured on an NVR S4: a view opens with 1.5 s of buffered pictures and
+  // audio sent at once, then live video arrives 450 ms after audio of the same moment.
+  const opened = base + backlog + videoLag;
+  const events: { at: number; act: () => void }[] = [];
+
+  // Each stream arrives in order with a little jitter, the backlog a millisecond apart.
+  let videoAt = 0, audioAt = 0;
+  frames.forEach((frame, index) => {
+    const stamp = base + index * 1_000 / 15;
+    videoAt = Math.max(videoAt + 1, opened, stamp + videoLag + (index % 3) * 5);
+    events.push({ at: videoAt, act: () => { markSourceTime(frame, stamp); h.muxer.videoInput.write(frame); } });
+  });
+  sound.forEach((frame, index) => {
+    const stamp = base + 200 + index * 64;
+    if (stamp > base + 90 * 1_000 / 15) return;
+    audioAt = Math.max(audioAt + 1, opened + 1, stamp + (index % 2) * 7);
+    events.push({ at: audioAt, act: () => { markSourceTime(frame, stamp); h.muxer.acceptAudio(frame); } });
+  });
+  let lastVideoStamp = 0, lastAudioStamp = 0;
+  frames.forEach((_frame, index) => { lastVideoStamp = base + index * 1_000 / 15; });
+  sound.forEach((_frame, index) => { const stamp = base + 200 + index * 64; if (stamp <= base + 90 * 1_000 / 15) lastAudioStamp = stamp; });
+  for (const event of events.sort((left, right) => left.at - right.at)) {
+    h.clock.now = event.at - base;
+    event.act();
+    await delay(0);
+  }
+  h.muxer.close();
+  const summary = h.summaries[0]!;
+  assert.ok(summary.audioDropped > 5, JSON.stringify({ summary, failures: h.failures }));
+  const result = probe(h.output());
+  const audioTimes = result.packets.filter(packet => packet.codec_type === "audio").map(packet => Number(packet.pts_time));
+  const videoTimes = result.packets.filter(packet => packet.codec_type === "video").map(packet => Number(packet.pts_time));
+  assert.ok(audioTimes.every((time, index) => index === 0 || time > audioTimes[index - 1]!));
+
+  // Capture-time alignment puts the last sound within one AAC frame of its picture
+  // (the last picture arrived 10 ms late); arrival would put it 0.45 s early.
+  const placed = (audioTimes.at(-1)! - videoTimes.at(-1)!) * 1_000;
+  const expected = lastAudioStamp - lastVideoStamp - 10;
+  assert.ok(Math.abs(placed - expected) <= 80, `audio placed ${placed.toFixed(0)} ms from video, expected ${expected.toFixed(0)}`);
+  decodes(h.output());
 });

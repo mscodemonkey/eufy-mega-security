@@ -14,6 +14,7 @@ import { RTCPeerConnection, RTCSessionDescription } from 'werift';
 import { NvrRtcSession, type NvrSwitchTarget } from '../src/stream/nvr-rtc-session.js';
 import { nvrApplication, nvrAudio, nvrCommand, nvrPackets } from '../src/stream/nvr-protocol.js';
 import { NvrPtcsReassembler } from '../src/stream/nvr-ptcs-reassembly.js';
+import { sourceTime } from '../src/stream/media-source-clock.js';
 import { parseAdtsAccessUnits } from '../src/stream/ppcs-audio.js';
 
 function application(command: number, segment: number, body: Buffer, channel = 255): Buffer {
@@ -23,11 +24,12 @@ function application(command: number, segment: number, body: Buffer, channel = 2
   return frame;
 }
 
-/** A 1301 frame with video's media header: length, codec byte, sequence and timestamp, then ADTS. */
+/** A 1301 frame as the NVR sends it: length, 101, codec 0, sequence and a millisecond capture time, then one ADTS frame. */
 function audioFrame(adts: Buffer, sequence: number): Buffer {
-  const media = Buffer.alloc(22 + adts.length);
-  media.writeUInt32LE(adts.length, 0); media.writeUInt16LE(sequence, 6); media.writeBigUInt64LE(BigInt(sequence) * 64n, 14);
-  adts.copy(media, 22);
+  const media = Buffer.alloc(16 + adts.length);
+  media.writeUInt32LE(adts.length, 0); media[4] = 101; media.writeUInt16LE(sequence, 6);
+  media.writeBigUInt64LE(1_790_000_000_000n + BigInt(sequence) * 64n, 8);
+  adts.copy(media, 16);
   const frame = application(1301, 0, media, 101); frame[14] = 1;
   return frame;
 }
@@ -106,7 +108,8 @@ async function fixture(audio: boolean) {
   });
   const started = async (): Promise<void> => {
     await session.start();
-    while (!session.switchable || session.stats.audio < 3) await new Promise(resolve => setTimeout(resolve, 20));
+    for (let attempt = 0; attempt < 500 && (!session.switchable || session.stats.audio < 3); attempt++) await new Promise(resolve => setTimeout(resolve, 20));
+    assert.ok(session.stats.audio >= 3, JSON.stringify(session.stats));
   };
   return { session, starts, audioOutputs, audioBytes, started,
     close: async () => { clearInterval(sender); await session.close(); await peer.close(); await new Promise<void>(resolve => server.close(() => resolve())); } };
@@ -120,6 +123,7 @@ test('an admitted camera asks for its audio and gets checked AAC after its first
     const first = value.audioOutputs[0]!;
     assert.ok(first);
     assert.ok(value.audioBytes.every(chunk => chunk.equals(aac)));
+    assert.ok(value.audioBytes.every(chunk => (sourceTime(chunk) ?? 0) >= 1_790_000_000_000));
     assert.ok(value.session.stats.ignoredAudio >= 1);
     assert.equal(value.session.stats.rejectedAudio, 1);
 
@@ -142,7 +146,7 @@ test('a camera without admitted audio asks for none and ignores audio frames', {
   const value = await fixture(false);
   try {
     await value.session.start();
-    while (value.session.stats.ignoredAudio < 3) await new Promise(resolve => setTimeout(resolve, 20));
+    for (let attempt = 0; attempt < 500 && value.session.stats.ignoredAudio < 3; attempt++) await new Promise(resolve => setTimeout(resolve, 20));
     assert.deepEqual(value.starts, [{ channel: 3, audio: -1 }]);
     assert.deepEqual(value.audioOutputs, [undefined]);
     assert.equal(value.session.stats.audio, 0);
@@ -152,13 +156,16 @@ test('a camera without admitted audio asks for none and ignores audio frames', {
 test('the audio check refuses everything but complete ADTS for this camera', () => {
   const frame = (body: Buffer, channel = 101) => nvrApplication(application(1301, 0, body, channel));
   const good = audioFrame(aac, 1).subarray(16);
-  assert.ok(nvrAudio(frame(good), 3)?.equals(aac));
-  assert.ok(parseAdtsAccessUnits(nvrAudio(frame(good, 3), 3)!));
+  assert.ok(nvrAudio(frame(good), 3)?.bytes.equals(aac));
+  assert.equal(nvrAudio(frame(good), 3)?.timestamp, 1_790_000_000_064);
+  assert.ok(parseAdtsAccessUnits(nvrAudio(frame(good, 3), 3)!.bytes));
   assert.equal(nvrAudio(frame(good, 7), 3), null);
   const short = Buffer.from(good); short.writeUInt32LE(aac.length + 1, 0);
   assert.equal(nvrAudio(frame(short), 3), null);
-  const damaged = Buffer.from(good); damaged[22] = 0;
+  const damaged = Buffer.from(good); damaged[16] = 0;
   assert.equal(nvrAudio(frame(damaged), 3), null);
+  const otherCodec = Buffer.from(good); otherCodec[5] = 1;
+  assert.equal(nvrAudio(frame(otherCodec), 3), null);
   assert.equal(nvrAudio({ ...frame(good), command: 1300 }, 3), null);
   assert.throws(() => nvrCommand('synthetic', 1003, 1, 3, 1, 255));
   assert.throws(() => nvrCommand('synthetic', 1003, 1, 3, 1, -2));
