@@ -741,8 +741,9 @@ export class LiveStreamManager extends EventEmitter {
     const audioWait = liveAudioStartWaitMilliseconds(this.state.getCamera(serial));
     const stopped = (reason: string): void => { this.emit("warning", new Error(`Camera live transport stopped: reason=${reason}`)); };
     if (profile === "native") {
+      const model = this.state.getCamera(serial).model;
       const muxer = new NativeTransportMuxer(response, () => session.audioConsumers.delete(consumeNative), audioWait, stopped,
-        summary => this.emit("native-transport-closed", summary));
+        summary => this.emit("native-transport-closed", { model, ...summary }));
       const consumeNative = (chunk: Buffer): void => muxer.acceptAudio(chunk);
       session.audioConsumers.add(consumeNative);
       await this.#addClient(serial, muxer.videoInput, "native", requestedAtMilliseconds, view);
