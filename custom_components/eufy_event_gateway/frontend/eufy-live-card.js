@@ -922,8 +922,11 @@ export class EufyLiveCard extends BaseElement {
   }
 }
 
-if (globalThis.customElements && !customElements.get(CARD_TYPE)) {
-  customElements.define(CARD_TYPE, EufyLiveCard);
+/** Register the card in the registry Home Assistant's card loader reads. */
+function defineCard() {
+  const registry = window.customElements;
+  if (registry.get(CARD_TYPE)) return;
+  registry.define(CARD_TYPE, EufyLiveCard);
   window.customCards = window.customCards || [];
   window.customCards.push({
     type: CARD_TYPE,
@@ -932,4 +935,14 @@ if (globalThis.customElements && !customElements.get(CARD_TYPE)) {
     preview: false,
     documentationURL: "https://github.com/mscodemonkey/eufy-mega-security/blob/main/docs/LIVE_VIEW_CARD.md",
   });
+}
+
+// Home Assistant imports integration modules alongside its own bundles, and
+// its app bundle replaces window.customElements with a scoped registry. A
+// definition made before that lands in the old registry, where the card loader
+// never finds it ("Custom element doesn't exist"). So wait for Home
+// Assistant's root element, which the app defines after the swap.
+if (globalThis.customElements) {
+  if (customElements.get("home-assistant")) defineCard();
+  else customElements.whenDefined("home-assistant").then(defineCard);
 }

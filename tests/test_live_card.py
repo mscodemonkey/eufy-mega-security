@@ -74,6 +74,13 @@ class LiveCardContractTest(unittest.TestCase):
         self.assertEqual(set(re.findall(r'"(\w+)"', codes.group(1))), {"unavailable", "busy", "rate_limited", "outcome_unknown", "disabled"})
         self.assertIn("/NVR control (busy|unavailable|rate_limited|disabled|outcome_unknown)\\b/", source)
 
+    def test_card_defines_itself_in_home_assistants_registry(self) -> None:
+        """Defining before HA's scoped registry exists hides the card from the loader."""
+        source = CARD.read_text()
+        self.assertIn('customElements.whenDefined("home-assistant").then(defineCard)', source)
+        self.assertEqual(source.count("registry.define(CARD_TYPE, EufyLiveCard)"), 1)
+        self.assertNotIn("customElements.define(CARD_TYPE", source)
+
     def test_manifest_declares_frontend(self) -> None:
         """Hassfest requires the frontend dependency for add_extra_js_url."""
         manifest = json.loads((INTEGRATION / "manifest.json").read_text())
