@@ -200,12 +200,15 @@ export class NativeTransportMuxer {
     this.#pending = [];
     this.#pendingBytes = 0;
 
-    // Audio from well before the first picture would only hold that picture back.
+    // The program opens with its first picture. go2rtc refuses the clock-only
+    // packet a transport writer needs to open on audio (its 183-byte adaptation
+    // field), and audio from before the picture is dropped anyway.
     const firstVideo = pending.findIndex(item => item.kind === "video");
-    const firstAt = pending[firstVideo]!.at;
-    const ordered = pending.filter((item, index) => item.kind === "video" ? index >= firstVideo : withAudio && item.at >= firstAt - NATIVE_AUDIO_SLEW_MILLISECONDS)
+    const opening = pending[firstVideo]!;
+    const rest = pending.filter((item, index) => index !== firstVideo
+      && (item.kind === "video" ? index > firstVideo : withAudio && item.at >= opening.at - NATIVE_AUDIO_SLEW_MILLISECONDS))
       .sort((left, right) => left.at - right.at);
-    for (const item of ordered) {
+    for (const item of [opening, ...rest]) {
       if (this.#closed) return;
       if (item.kind === "video") this.#writeVideo(item.data, item.at, item.continuesPrevious, item.stamp);
       else this.#writeAudio(item.data, item.at, item.stamp);
