@@ -378,7 +378,7 @@ type: custom:eufy-live-card
 entity: camera.driveway
 ```
 
-A camera shows only the controls it already has as entities. A movement or zoom reports that the request was sent, not that the camera moved. See [Eufy live view card](docs/LIVE_VIEW_CARD.md).
+Tap the picture to hide or show the controls. A camera shows only the controls it already has as entities. A movement or zoom reports that the request was sent, not that the camera moved. See [Eufy live view card](docs/LIVE_VIEW_CARD.md).
 
 ## Standalone gateway
 

@@ -36,6 +36,8 @@ The card shows only the controls a camera already has as entities. If a control 
 | Siren | Top right, after a confirmation | The camera siren |
 | Settings | Top right | Opens the camera's normal Home Assistant dialog |
 
+Tap an empty part of the picture, or the eye button at the top right, to hide the controls and see the whole picture. Tap the picture again to bring them back. Results of a request stay visible while the controls are hidden.
+
 Pan, tilt and zoom stay unavailable until the camera reports live video, because the gateway accepts them only while a viewer is attached. One request runs at a time, and the next waits at least one second.
 
 ## What the results mean

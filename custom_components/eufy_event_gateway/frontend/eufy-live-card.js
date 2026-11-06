@@ -62,6 +62,8 @@ const STRINGS = {
   en: {
     camera: "Camera",
     settings: "Camera settings",
+    hide_controls: "Hide controls",
+    show_controls: "Show controls",
     more: "More controls",
     pan_tilt: "Pan and tilt",
     pan_tilt_short: "Pan/tilt",
@@ -372,6 +374,8 @@ const STYLE = `
   .video > * { display: block; }
   .overlay { position: absolute; inset: 0; pointer-events: none; font: 500 13px/1.3 var(--ha-font-family-body, system-ui, sans-serif); }
   .overlay > * { pointer-events: auto; }
+  .catcher { position: absolute; inset: 0; width: 100%; height: 100%; cursor: default; }
+  .catcher:focus-visible { outline-offset: -3px; }
   button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
   button:focus-visible, select:focus-visible { outline: 2px solid var(--primary-color, #03a9f4); outline-offset: 2px; }
   button:disabled { cursor: default; opacity: .4; }
@@ -498,6 +502,7 @@ export class EufyLiveCard extends BaseElement {
     this._signature = "";
     this._menu = null;
     this._padOpen = true;
+    this._controlsHidden = false;
     this._confirm = null;
     this._live = true;
     this._videoToken = 0;
@@ -676,13 +681,23 @@ export class EufyLiveCard extends BaseElement {
     const parts = [];
 
     const cameraName = friendlyName(hass, this._camera);
+
+    // A tap on the picture itself hides or shows the controls, as in the eufy
+    // app. The catcher sits under every control, so only empty picture hits it.
+    const hidden = this._controlsHidden;
+    parts.push(`<button class="catcher" data-action="toggle-controls" aria-label="${escapeHtml(hidden ? t.show_controls : t.hide_controls)}" aria-pressed="${hidden}"></button>`);
+    if (hidden) {
+      const status = this._controller.status;
+      if (status) parts.push(this._statusHtml(status));
+      return parts.join("");
+    }
     const picker = cameras.length > 1
       ? `<span class="chev">${icon("mdi:chevron-down")}</span><select data-action="camera" aria-label="${escapeHtml(t.camera)}">${cameras
         .map((id) => `<option value="${escapeHtml(id)}"${id === this._camera ? " selected" : ""}>${escapeHtml(friendlyName(hass, id))}</option>`).join("")}</select>`
       : "";
     parts.push(`<div class="top"><div class="title"><span class="name">${escapeHtml(cameraName)}</span>${picker}</div><div class="actions glass">${
       c.siren ? `<button class="icon-btn" data-action="siren" title="${escapeHtml(t.siren)}" aria-label="${escapeHtml(t.siren)}"${busy ? " disabled" : ""}>${icon("mdi:alarm-light-outline")}</button>` : ""
-    }<button class="icon-btn" data-action="settings" title="${escapeHtml(t.settings)}" aria-label="${escapeHtml(t.settings)}">${icon("mdi:cog-outline")}</button></div></div>`);
+    }<button class="icon-btn" data-action="toggle-controls" title="${escapeHtml(t.hide_controls)}" aria-label="${escapeHtml(t.hide_controls)}">${icon("mdi:eye-off-outline")}</button><button class="icon-btn" data-action="settings" title="${escapeHtml(t.settings)}" aria-label="${escapeHtml(t.settings)}">${icon("mdi:cog-outline")}</button></div></div>`);
 
     if (!this._live) {
       parts.push(`<button class="play glass" data-action="play" aria-label="${escapeHtml(t.play)}">${icon("mdi:play")}</button>`);
@@ -735,13 +750,18 @@ export class EufyLiveCard extends BaseElement {
     if (this._confirm === "siren") {
       parts.push(`<div class="status glass unknown" role="alertdialog">${icon("mdi:alarm-light")}<div>${escapeHtml(format(t.siren_confirm, { camera: cameraName }))}<div class="choices"><button class="danger" data-action="siren-on">${escapeHtml(t.siren_sound)}</button><button data-action="siren-off">${escapeHtml(t.siren_stop)}</button><button data-action="siren-cancel">${escapeHtml(t.cancel)}</button></div></div></div>`);
     } else if (status) {
-      const glyph = { sent: "mdi:send-check-outline", done: "mdi:check-circle-outline", unknown: "mdi:help-circle-outline", error: "mdi:alert-circle-outline" }[status.tone];
-      const body = `${status.tone === "pending" ? '<span class="spin"></span>' : icon(glyph)}<span>${escapeHtml(status.text)}</span>`;
-      parts.push(status.tone === "pending"
-        ? `<div class="status glass pending" role="status" aria-live="polite">${body}</div>`
-        : `<button class="status glass ${status.tone}" role="status" aria-live="polite" data-action="dismiss" title="${escapeHtml(t.dismiss)}">${body}</button>`);
+      parts.push(this._statusHtml(status));
     }
     return parts.join("");
+  }
+
+  _statusHtml(status) {
+    const t = this._controller.text;
+    const glyph = { sent: "mdi:send-check-outline", done: "mdi:check-circle-outline", unknown: "mdi:help-circle-outline", error: "mdi:alert-circle-outline" }[status.tone];
+    const body = `${status.tone === "pending" ? '<span class="spin"></span>' : icon(glyph)}<span>${escapeHtml(status.text)}</span>`;
+    return status.tone === "pending"
+      ? `<div class="status glass pending" role="status" aria-live="polite">${body}</div>`
+      : `<button class="status glass ${status.tone}" role="status" aria-live="polite" data-action="dismiss" title="${escapeHtml(t.dismiss)}">${body}</button>`;
   }
 
   _optionLabel(stateObj, option) {
@@ -824,6 +844,14 @@ export class EufyLiveCard extends BaseElement {
       case "play":
         this._live = true;
         this._startVideo();
+        break;
+      case "toggle-controls":
+        if (this._menu !== null || this._confirm !== null) {
+          this._menu = null;
+          this._confirm = null;
+        } else {
+          this._controlsHidden = !this._controlsHidden;
+        }
         break;
       case "pad":
         this._padOpen = !this._padOpen;
