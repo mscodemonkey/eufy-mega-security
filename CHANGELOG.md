@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.244
+
+- Correct copyable push logs that showed known alphanumeric device models, including T85V0 and T8W11C, as unknown. Unknown inventory strings remain hidden.
+- Record confirmed T85V0 snapshots, doorbell presses and event-picture updates through HomeBase 3, plus T8E00 PTZ-lens live view through T9000. Sustained video, fixed-lens selection and controls retain their separate evidence limits.
+
 ## 0.1.243
 
 - Correct automatic RTC video-service selection for countries whose web and phone service regions differ. Keep explicit region overrides and the existing login unchanged.
