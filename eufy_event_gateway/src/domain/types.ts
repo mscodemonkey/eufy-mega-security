@@ -739,5 +739,6 @@ export interface StreamDiagnostic {
     | "parserResyncs" | "pendingBytes" | "incompleteAccessUnits" | "incompleteAccessUnitBytes", number>>
     & Readonly<Partial<Record<"camId" | "gatewayInfo" | "level2" | "cameraInfoFrames" | "foreignVideoFrames"
       | "gatewayInfoAcknowledged" | "gatewayInfoRetransmitted" | "gatewayInfoExpired"
-      | "mediaStartAttempts" | "mediaStartAcknowledged" | "mediaStartRetransmitted" | "mediaStartExpired", number>>>;
+      | "mediaStartAttempts" | "mediaStartAcknowledged" | "mediaStartRetransmitted" | "mediaStartExpired"
+      | "audioFrames" | "audioClearFrames" | "audioAdtsFrames" | "audioProtectedFrames" | "foreignAudioFrames", number>>>;
 }
