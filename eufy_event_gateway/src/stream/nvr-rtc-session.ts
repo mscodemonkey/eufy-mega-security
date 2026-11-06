@@ -177,6 +177,19 @@ export interface NvrRtcStats {
   /** Video sequence gaps that forced decoder bootstrap to restart. */
   videoSequenceRecoveries: number;
 
+  /** Transport channel of the terminal reorder timeout, or -1 when none occurred. */
+  reorderTimeoutChannel: number;
+
+  /** Missing predecessor sequence at that timeout, or -1 when none occurred. */
+  reorderTimeoutExpected: number;
+
+  /** Complete waiting frame that reached its deadline, or -1 when none occurred. */
+  reorderTimeoutWaiting: number;
+
+  /** Age and total queue size at the terminal timeout, retained after close clears buffers. */
+  reorderTimeoutAgeMs: number;
+  reorderTimeoutQueued: number;
+
   /** Signalling sockets retired after a normal viewer had valid video. */
   signallingClosuresAfterVideo: number;
 
@@ -208,6 +221,8 @@ export class NvrRtcSession {
   readonly stats: NvrRtcStats = { packets: 0, frames: 0, video: 0, controlPackets: 0, rejected: 0,
     segmentNotEchoed: 0, staleReplies: 0, ignoredAudio: 0, ignoredUnknownMedia: 0,
     applicationSequenceRecoveries: 0, videoSequenceRecoveries: 0, signallingClosuresAfterVideo: 0, signallingClosuresAfterModeObservation: 0, stopUnconfirmed: 0,
+    reorderTimeoutChannel: -1, reorderTimeoutExpected: -1, reorderTimeoutWaiting: -1,
+    reorderTimeoutAgeMs: 0, reorderTimeoutQueued: 0,
     channel0Frames: 0, channel1Frames: 0, channel2Frames: 0, channel3Frames: 0, channel4Frames: 0, channel5Frames: 0 };
   readonly #abort = new AbortController();
   readonly #negotiation = new AbortController();
@@ -975,7 +990,20 @@ export class NvrRtcSession {
     // Arrival order can place a repaired predecessor after an older waiter.
     // Drain every ready frame before deciding whether a gap still exists.
     for (const item of this.#reorder.values()) {
-      if (this.#now() - item.at >= 1000) throw new NvrTrialError("framing", "frame_reorder_timeout");
+      const age = this.#now() - item.at;
+      if (age >= 1000) {
+
+        // A stop reply can drain this queue again during retirement. Preserve
+        // the first failure instead of replacing it with cleanup observations.
+        if (this.stats.reorderTimeoutChannel === -1) {
+          this.stats.reorderTimeoutChannel = item.channel;
+          this.stats.reorderTimeoutExpected = ((this.#lastSequence.get(item.channel) ?? 65535) + 1) % 65536;
+          this.stats.reorderTimeoutWaiting = item.sequence;
+          this.stats.reorderTimeoutAgeMs = age;
+          this.stats.reorderTimeoutQueued = this.#reorder.size;
+        }
+        throw new NvrTrialError("framing", "frame_reorder_timeout");
+      }
     }
   }
 
