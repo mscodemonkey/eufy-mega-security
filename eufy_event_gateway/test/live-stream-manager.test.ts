@@ -118,6 +118,13 @@ test("H.265 conversion runs below the gateway so it cannot starve live video", (
   }
 });
 
+test("H.265 viewer output keeps keyframes close and follows the source's", () => {
+  const args = h265ViewerTranscoderArguments();
+  assert.match(args[args.indexOf("-x264-params") + 1]!, /keyint=10/);
+  assert.equal(args[args.indexOf("-force_key_frames") + 1], "source");
+  assert.equal(args[args.indexOf("-forced-idr") + 1], "1");
+});
+
 test("fixed H.265 viewer output adds a stable 1080p filter only when enabled", () => {
   const unchanged = h265ViewerTranscoderArguments();
   assert.equal(unchanged.includes("-vf"), false);
@@ -506,6 +513,54 @@ test("bootstraps first and repeat HTTP viewers from the current keyframe", async
   assert.deepEqual(Buffer.concat(firstBytes).subarray(before), Buffer.concat([oversized, delta]));
   assert.deepEqual(Buffer.concat(repeatBytes).subarray(sps.length + pps.length + idr.length), Buffer.concat([oversized, delta]));
   await manager.close();
+});
+
+test("a stopped H.265 conversion carries on with the next camera only if its stream matches", async () => {
+  const state = new GatewayState();
+  const other = { ...camera, serial: `${camera.serial}-other` }, third = { ...camera, serial: `${camera.serial}-third` };
+  for (const value of [camera, other, third]) state.registerCamera(value);
+  let manager: LiveStreamManager;
+  const sources = new Map<string, PassThrough>();
+  const made: ChildProcessWithoutNullStreams[] = [];
+  const kills: ChildProcessWithoutNullStreams[] = [];
+  const create = () => {
+    const process = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+      exitCode: null, signalCode: null, kill: () => { kills.push(process); return true; } }) as unknown as ChildProcessWithoutNullStreams;
+    (process.stdin as PassThrough).resume();
+    made.push(process);
+    return process;
+  };
+  manager = new LiveStreamManager(state, {} as never, {
+    async startStream(serial: string) { const source = new PassThrough(); sources.set(serial, source); manager.attachSource(serial, source); },
+    async stopStream(serial: string) { sources.get(serial)!.end(); },
+  }, 0, undefined, create);
+  const view = async (serial: string, sps: Buffer) => {
+    const response = new PassThrough() as unknown as ServerResponse;
+    response.writeHead = (() => response) as ServerResponse["writeHead"];
+    (response as unknown as PassThrough).resume();
+    await manager.addClient(serial, response);
+    sources.get(serial)!.write(Buffer.concat([annexBNal(0x40, 0x01, 0x0c), sps, annexBNal(0x44, 0x01, 0xc0), annexBNal(0x26, 0x01, 0xbb)]));
+    return response;
+  };
+  const closed = async (response: ServerResponse) => {
+    response.destroy();
+    await new Promise(resolve => setTimeout(resolve, 20));
+  };
+  const same = annexBNal(0x42, 0x01, 0x01), different = annexBNal(0x42, 0x01, 0x02);
+
+  await closed(await view(camera.serial, same));
+  assert.equal(made.length, 1);
+  assert.equal(kills.length, 0);
+
+  await closed(await view(other.serial, same));
+  assert.equal(made.length, 1, "a matching stream reuses the running conversion");
+
+  const response = await view(third.serial, different);
+  assert.equal(made.length, 2, "a different stream needs a new encoder");
+  assert.deepEqual(kills, [made[0]]);
+  await closed(response);
+  await manager.close();
+  assert.deepEqual(kills, [made[0], made[1]]);
 });
 
 test("shares an H.264 fallback with viewers when a camera returns H.265", async () => {

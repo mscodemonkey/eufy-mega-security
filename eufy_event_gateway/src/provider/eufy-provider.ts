@@ -90,6 +90,9 @@ class AlarmReadRouteChangedError extends Error {
 const logger = createLogger("provider");
 const knownPushModels = new Set(GENERATED_CATALOGUE_DEVICES.flatMap(device => device.models));
 const DSK_REFRESH_SKEW_MILLISECONDS = 60_000;
+
+// Long enough for a call to finish starting or moving, short of the wait a viewer will sit through.
+const NVR_SWITCH_WAIT_MILLISECONDS = 6_000;
 const STATION_REFRESH_DISCONNECT_FAILURES = 4;
 
 /** Return whether a cached PPCS lookup key should be replaced before another session starts. */
@@ -691,7 +694,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #nvrReadIntervals = new Map<string, number>();
   readonly #nvrViews = new Map<string, { binding: string; value: 0 | 1 }>();
   readonly #nvrSettings = new Map<string, { binding: string; values: NvrLiveSettings; nightAt: number; qualityAt: number; trackingAt: number; timer: NodeJS.Timeout | null }>();
-  #nvrMediaChecks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean } | null = null;
+  #nvrMediaChecks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean } | null = null;
   readonly #nvrTrials = new Map<string, NvrTrialEntry>();
 
   /** Private card references expire in memory and are never published as filesystem paths. */
@@ -1877,6 +1880,30 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       && entry.generation === this.#startupGeneration && entry.session?.switchable && this.#nvrMediaChecks?.yieldable(serial) ? entry : null;
   }
 
+  /**
+   * Wait for a call that is only part-way through starting, stopping or moving.
+   * A person opening cameras in quick succession lands here, and refusing would
+   * cost them Home Assistant's whole retry backoff. A call held by a recording
+   * or a lease is not going anywhere, so that case is refused at once as before.
+   */
+  async #nvrCallOnceSettled(device: MegaInventoryDevice, station: MegaInventoryDevice, current: () => void, signal: AbortSignal): Promise<NvrTrialEntry | null> {
+    const deadline = performance.now() + NVR_SWITCH_WAIT_MILLISECONDS;
+    for (;;) {
+      const call = this.#nvrCallToTake(device, station);
+      const rows = [...this.#nvrTrials];
+      const settling = rows.length === 1 && rows[0]![0] !== device.serial && rows[0]![1].station.serial === station.serial
+        && !rows[0]![1].diagnostic && !rows[0]![1].stateOnly
+        && (this.#nvrMediaChecks?.settling(rows[0]![0]) || !rows[0]![1].session?.switchable);
+      if (call || !settling || performance.now() >= deadline) return call;
+      await new Promise<void>(resolve => {
+        const done = (): void => { clearTimeout(timer); signal.removeEventListener("abort", done); resolve(); };
+        const timer = setTimeout(done, 100);
+        signal.addEventListener("abort", done, { once: true });
+      });
+      current();
+    }
+  }
+
   #reserveNvrTrial(serial: string, signal: AbortSignal, stateOnly: boolean, diagnostic: boolean, handover: NvrTrialEntry | null = null): () => Promise<void> {
     const device = this.#devices.get(serial), station = device ? this.#devices.get(device.parentSerial) : undefined;
     if (!this.config.experimentalNvrLive || this.#recordingClosing || signal.aborted || !this.#client.isAuthenticated
@@ -2513,7 +2540,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const nvrStation = nvrDevice ? this.#devices.get(nvrDevice.parentSerial) : undefined;
       if (nvrStation && this.#nvrControlReserved(nvrStation.serial)) throw new NvrTrialError("admission");
       if (nvrDevice && this.#normalNvrLiveBinding(nvrDevice, nvrStation)) {
-        const handover = takeOver ? this.#nvrCallToTake(nvrDevice, nvrStation!) : null;
+        const handover = takeOver ? await this.#nvrCallOnceSettled(nvrDevice, nvrStation!, current, cancellation.signal) : null;
         this.#reserveNvrTrial(serial, new AbortController().signal, false, false, handover);
         return this.#startNvrTrial(serial, handover);
       }
@@ -2549,7 +2576,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   /** Install read-only media facts. The manager remains the sole owner of sources and viewers. */
-  setNvrLiveMediaChecks(checks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean }): void {
+  setNvrLiveMediaChecks(checks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean }): void {
     this.#nvrMediaChecks = checks;
   }
 

@@ -274,6 +274,12 @@ type SnapshotExtractorFactory = (codec: VideoCodec) => ChildProcessWithoutNullSt
 
 const MAX_RECORDING_BYTES = 256 * 1024 * 1024;
 const MAX_DELIVERED_VIEWS = 1024;
+
+// Longer than a call takes to settle, and shorter than Home Assistant's second stream retry.
+const NEW_VIEW_MILLISECONDS = 8_000;
+
+// Long enough for a person to pick the next camera.
+const PARKED_TRANSCODER_MILLISECONDS = 15_000;
 const MEDIA_PROCESS_TERMINATION_GRACE_MILLISECONDS = 2_000;
 const MAX_PARAMETER_SET_SCAN_BYTES = 1024 * 1024;
 const MAX_STARTUP_GROUP_BYTES = 1024 * 1024;
@@ -580,6 +586,8 @@ function annexBStarts(data: Buffer): Array<{ offset: number; payloadOffset: numb
 export class LiveStreamManager extends EventEmitter {
   readonly #sessions = new Map<string, Session>();
   readonly #deliveredViews = new Set<string>();
+  readonly #newViews = new Map<string, number>();
+  #parkedTranscoder: { process: ChildProcessWithoutNullStreams; headers: Buffer; timer: NodeJS.Timeout } | null = null;
   #closed = false;
 
   /**
@@ -618,6 +626,7 @@ export class LiveStreamManager extends EventEmitter {
   async #addClient(serial: string, response: VideoViewerResponse, profile: ViewerProfile, requestedAtMilliseconds: number, view?: string): Promise<void> {
     if (response.destroyed || response.writableEnded) return;
     const session = this.#session(serial);
+    const mayTakeCall = !!view && this.#viewMayTakeCall(view);
     this.#assertShareable(session);
     if (session.stop) {
       if (!await this.#waitForStop(session, response)) return;
@@ -660,7 +669,10 @@ export class LiveStreamManager extends EventEmitter {
     } else {
       session.pendingClients.add(response);
       const startup = session.parameterSets.startup;
-      if (profile === "compatible" && sourceCodec === "h265" && startup && !session.viewerFfmpeg) {
+
+      // Any other marked view is a retry from a client that lost the call. It will
+      // most likely be refused, so don't spend a conversion on its old picture.
+      if (profile === "compatible" && sourceCodec === "h265" && startup && !session.viewerFfmpeg && (!view || mayTakeCall)) {
         this.#startViewerTranscoder(serial, session, startup);
       }
     }
@@ -676,12 +688,28 @@ export class LiveStreamManager extends EventEmitter {
     // Start the provider only after the HTTP client is registered so the first
     // video bytes can be fanned out to Home Assistant immediately.
     try {
-      await this.#ensureStarted(serial, session, !!view && !this.#deliveredViews.has(view));
+      await this.#ensureStarted(serial, session, mayTakeCall);
       if (view) this.#rememberDeliveredView(view);
     } catch (error) {
       this.#markViewerClose(session, response, "start_failed");
       response.destroy(error instanceof Error ? error : undefined);
     }
+  }
+
+  /**
+   * A person's new view opens at once. Home Assistant retries a stream for a long
+   * while after its viewer has gone, so a mark that is no longer new must not take
+   * the call from whatever is being watched by then.
+   */
+  #viewMayTakeCall(view: string): boolean {
+    if (this.#deliveredViews.has(view)) return false;
+    const now = this.nowMilliseconds();
+    const first = this.#newViews.get(view) ?? now;
+    if (!this.#newViews.has(view)) {
+      this.#newViews.set(view, now);
+      if (this.#newViews.size > MAX_DELIVERED_VIEWS) this.#newViews.delete(this.#newViews.keys().next().value!);
+    }
+    return now - first < NEW_VIEW_MILLISECONDS;
   }
 
   /**
@@ -774,6 +802,12 @@ export class LiveStreamManager extends EventEmitter {
   hasActiveViewer(serial: string): boolean {
     const session = this.#sessions.get(serial);
     return !!session && !session.privateTrial && session.state === "streaming" && !!session.source && session.clients.size > 0;
+  }
+
+  /** True while this source is starting or stopping, so whether it can yield is about to be known. */
+  isSourceSettling(serial: string): boolean {
+    const session = this.#sessions.get(serial);
+    return !!session && !session.privateTrial && (!!session.start || !!session.stop);
   }
 
   /**
@@ -1054,6 +1088,7 @@ export class LiveStreamManager extends EventEmitter {
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
+    this.#dropParkedTranscoder();
     this.emit("closed");
     await Promise.all(
       [...this.#sessions.entries()].map(async ([serial, session]) => {
@@ -1409,7 +1444,7 @@ export class LiveStreamManager extends EventEmitter {
   ): void {
     const generation = session.generation;
     session.viewerStartup.conversionStarted();
-    const process = this.createViewerTranscoder();
+    const process = this.#takeTranscoder(session.parameterSets.bootstrap);
     session.viewerFfmpeg = process;
     session.viewerParameterSets = new VideoParameterSetCache();
     if (!preserveSummary) {
@@ -1545,10 +1580,53 @@ export class LiveStreamManager extends EventEmitter {
     this.#stopViewerTranscoder(session);
   }
 
+  /**
+   * Bringing a conversion up to its first picture takes a small host about a
+   * second, which is most of the wait when a person changes camera. So a stopped
+   * conversion is kept for a moment and carries on with the next camera, provided
+   * that camera's stream has the same headers. Its encoder must not change size.
+   * Pictures still in the pipeline are dropped by the next view's wait for a keyframe.
+   */
+  #parkTranscoder(process: ChildProcessWithoutNullStreams, headers: Buffer | null): void {
+    this.#dropParkedTranscoder();
+    if (this.#closed || !headers || process.exitCode !== null || process.signalCode !== null) {
+      terminateMediaProcess(process);
+      return;
+    }
+    process.stdout.removeAllListeners("data"); process.stderr.removeAllListeners("data");
+    process.removeAllListeners("error"); process.removeAllListeners("close"); process.stdin.removeAllListeners("error");
+    process.stdout.on("data", () => undefined); process.stderr.on("data", () => undefined);
+    process.on("error", () => undefined); process.stdin.on("error", () => undefined);
+    const timer = setTimeout(() => this.#dropParkedTranscoder(), PARKED_TRANSCODER_MILLISECONDS);
+    timer.unref?.();
+    this.#parkedTranscoder = { process, headers, timer };
+  }
+
+  #takeTranscoder(headers: Buffer | null): ChildProcessWithoutNullStreams {
+    const parked = this.#parkedTranscoder;
+    if (!parked || !headers?.equals(parked.headers) || parked.process.exitCode !== null || parked.process.signalCode !== null) {
+      this.#dropParkedTranscoder();
+      return this.createViewerTranscoder();
+    }
+    clearTimeout(parked.timer);
+    this.#parkedTranscoder = null;
+    parked.process.stdout.removeAllListeners("data"); parked.process.stderr.removeAllListeners("data");
+    parked.process.removeAllListeners("error"); parked.process.stdin.removeAllListeners("error");
+    return parked.process;
+  }
+
+  #dropParkedTranscoder(): void {
+    const parked = this.#parkedTranscoder;
+    this.#parkedTranscoder = null;
+    if (!parked) return;
+    clearTimeout(parked.timer);
+    terminateMediaProcess(parked.process);
+  }
+
   #stopViewerTranscoder(session: Session): void {
     if (session.viewerFfmpeg) {
       this.#emitViewerTranscoderSummary(session);
-      terminateMediaProcess(session.viewerFfmpeg);
+      this.#parkTranscoder(session.viewerFfmpeg, session.parameterSets.bootstrap);
       session.viewerFfmpeg = null;
     }
     session.viewerParameterSets = new VideoParameterSetCache();
@@ -1760,7 +1838,7 @@ export function h265ViewerTranscoderArguments(fixedResolution = false): string[]
     // analysis limit avoids FFmpeg's automatic multi-second probe without
     // dropping the buffered keyframe or changing input cadence.
     "-probesize",
-    "32768",
+    "2048",
     "-analyzeduration",
     "1",
     "-fpsprobesize",
@@ -1790,9 +1868,15 @@ export function h265ViewerTranscoderArguments(fixedResolution = false): string[]
     ] : []),
     "-x264-params",
 
-    // Short keyframe spacing lets a second viewer join the shared fallback
-    // from a recent keyframe instead of waiting up to x264's default 250 frames.
-    "repeat-headers=1:keyint=50",
+    // A viewer starts on a keyframe, and a WebRTC viewer connects just after the
+    // first one has gone. Half-second spacing is the most it should have to wait.
+    "repeat-headers=1:keyint=10",
+
+    // A conversion that carries on with another camera starts that camera on a keyframe too.
+    "-force_key_frames",
+    "source",
+    "-forced-idr",
+    "1",
     "-f",
     "h264",
     "pipe:1",

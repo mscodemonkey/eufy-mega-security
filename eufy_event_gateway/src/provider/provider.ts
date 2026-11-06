@@ -94,7 +94,7 @@ export interface CameraProvider {
 
 
   /** Inject media facts without transferring ownership of sources or viewer leases. */
-  setNvrLiveMediaChecks?(checks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean }): void;
+  setNvrLiveMediaChecks?(checks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean }): void;
 
   /** Change the idle camera's next-stream view, with no device write. */
   setNvrView?(serial: string, view: number): Promise<CameraIdentity>;

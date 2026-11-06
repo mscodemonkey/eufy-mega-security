@@ -32,9 +32,6 @@ import { nvrLiveCommand, nvrLiveJson, nvrLiveReceipt, nvrLivePanReply, nvrLiveSe
 const HEARTBEAT_ECHO = nvrHeartbeat();
 const NVR_RECEIVE_BUFFER_BYTES = 4 * 1024 * 1024;
 
-// The NVR needs a moment between stopping one channel and starting the next.
-const SWITCH_SETTLE_MILLISECONDS = 300;
-
 // The slowest measured camera, a doorbell, gave its first picture in 3.4 seconds.
 const SWITCH_PICTURE_MILLISECONDS = 8_000;
 
@@ -306,6 +303,9 @@ export class NvrRtcSession {
 
   /** Video from the previous camera may still be arriving and is never delivered. */
   #switching = false;
+
+  /** The NVR's camera list from this call's start. It cannot change during a call. */
+  #inventory: Record<string, unknown> | null = null;
   #switchPicture: { readonly resolve: () => void; readonly reject: (error: Error) => void } | null = null;
 
   /** Fixed S1 first-picture bound, independent of a delayed timer or start receipt. */
@@ -413,7 +413,7 @@ export class NvrRtcSession {
 
   /** True while this viewer-owned call is delivering video and nothing else is using it. */
   get switchable(): boolean {
-    return this.#maximumLifetimeMilliseconds === null && !this.options.modeObserver && this.#startSent && this.#bootstrapped
+    return this.#maximumLifetimeMilliseconds === null && !this.options.modeObserver && this.#startSent && this.#startVideoObserved
       && !this.#retired && !this.#switching && !this.#pending && !this.#livePending
       && this.#channels.get("WebrtcDataChannel")?.readyState === "open";
   }
@@ -438,18 +438,18 @@ export class NvrRtcSession {
     this.#resetVideo();
     this.#renewVideoProgress();
     this.#stage = "stop";
-    const stopped = performance.now();
     await this.#request(1004, 1500);
     this.#stage = "inventory";
-    const discovery = await this.#request(9100, 1500);
-    nvrMatchCamera(discovery, target.camera, target.channel, target.cameraType ?? 301);
-    await new Promise(resolve => setTimeout(resolve, Math.max(0, stopped + SWITCH_SETTLE_MILLISECONDS - performance.now())));
+    nvrMatchCamera(this.#inventory!, target.camera, target.channel, target.cameraType ?? 301);
     this.#guard();
     this.#resetVideo();
     this.#switching = false;
     this.#stage = "start";
     const requested = performance.now();
-    await this.#request(1003, 5000);
+
+    // A slow camera's picture can come before any receipt does, so give both the same window.
+    this.#firstPictureDeadline = requested + SWITCH_PICTURE_MILLISECONDS;
+    await this.#request(1003, 5000, false, false, this.#firstPictureDeadline);
     if (!this.#startVideoObserved) await this.#nextPicture();
     const firstPicture = Math.round(performance.now() - requested);
     this.#stage = "video";
@@ -796,6 +796,7 @@ export class NvrRtcSession {
     this.#stage = "inventory";
     const discovery = await this.#request(9100, 5000);
     nvrMatchCamera(discovery, this.options.camera, this.options.channel, this.options.cameraType ?? 301);
+    this.#inventory = discovery;
     this.#guard();
   }
 

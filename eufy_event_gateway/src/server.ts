@@ -106,6 +106,10 @@ export class GatewayServer {
   /** Bind the configured host and port and begin accepting requests. */
   async listen(): Promise<void> {
     const server = createServer((request, response) => void this.#route(request, response));
+
+    // Home Assistant's client keeps a connection for 15 seconds. Closing it first
+    // would reset whichever request came next, such as a camera's stream URL.
+    server.keepAliveTimeout = 20_000;
     this.#server = server;
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);

@@ -42,9 +42,8 @@ async function fixture(context: TestContext, parent: "T8N00" | "T9000" = "T8N00"
     ...[a, b].map((device_sn, device_channel) => ({ device_sn, ...model, category: "eufy_security", parent_sn: "synthetic-station", device_channel, member: { admin_user_id: "synthetic-owner" } })),
   ] }));
   context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
-  
   context.mock.method(process.stderr, "write", (() => true) as typeof process.stderr.write);
-  let joins = 0, failSwitch = false;
+  let joins = 0, failSwitch = false, switchable = true, clock = 0;
   const sessions: NvrRtcSession[] = [], switches: NvrSwitchTarget[] = [];
   context.mock.method(MegaClient.prototype, "nvrSignallingContext", async () => {
     joins++;
@@ -55,7 +54,7 @@ async function fixture(context: TestContext, parent: "T8N00" | "T9000" = "T8N00"
     (Reflect.get(this, "options") as NvrRtcOptions).ready(this.output, () => "h264");
     this.output.write(Buffer.from([0, 0, 0, 1, 0x67, 0x42, 0, 0x1e, 0x80]));
   });
-  context.mock.getter(NvrRtcSession.prototype, "switchable", () => true);
+  context.mock.getter(NvrRtcSession.prototype, "switchable", () => switchable);
   context.mock.method(NvrRtcSession.prototype, "switchCamera", async function(this: NvrRtcSession, target: NvrSwitchTarget) {
     switches.push(target);
     const next = new PassThrough();
@@ -80,12 +79,12 @@ async function fixture(context: TestContext, parent: "T8N00" | "T9000" = "T8N00"
   const provider = new EufyProvider({ username: "fixture", password: "redacted", country: "AU", persistentDirectory: directory,
     maxStreamSeconds: 120, experimentalNvrLive: true, normalNvrLive: true });
   const fakeProcess = () => Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill: () => true }) as unknown as ChildProcessWithoutNullStreams;
-  manager = new LiveStreamManager(state, {} as never, provider, 5, undefined, fakeProcess, fakeProcess);
+  manager = new LiveStreamManager(state, {} as never, provider, 5, undefined, fakeProcess, fakeProcess, 30_000, () => clock);
   manager.on("warning", () => {});
   provider.setNvrLiveMediaChecks({ viewer: serial => manager.hasActiveViewer(serial), active: serial => manager.hasActiveSession(serial),
-    recording: serial => manager.hasActiveRecording(serial), yieldable: serial => manager.canYieldSource(serial) });
+    recording: serial => manager.hasActiveRecording(serial), yieldable: serial => manager.canYieldSource(serial), settling: serial => manager.isSourceSettling(serial) });
   await provider.start(events);
-  return { manager, provider, sessions, switches, joins: () => joins, failSwitch: () => { failSwitch = true; },
+  return { manager, provider, sessions, switches, joins: () => joins, failSwitch: () => { failSwitch = true; }, setSwitchable: (value: boolean) => { switchable = value; }, advance: (milliseconds: number) => { clock += milliseconds; },
     close: async () => { await manager.close(); await provider.close(); await tick(); await rm(directory, { recursive: true, force: true }); } };
 }
 
@@ -108,6 +107,43 @@ test("a new marked view moves the call and ends the old view cleanly", async con
     assert.equal(second.destroyed, false);
     assert.equal(value.manager.hasActiveSession(a), false);
     assert.equal(value.manager.hasActiveViewer(b), true);
+  } finally { await value.close(); }
+});
+
+test("a view waits for a call that is part-way through moving instead of being refused", async context => {
+  const value = await fixture(context);
+  try {
+    await open(value, a, view("a"));
+    value.setSwitchable(false);
+    const response = viewer();
+    const opening = value.manager.addClient(b, response as never, "native", view("b"));
+    await new Promise(resolve => setTimeout(resolve, 250));
+    assert.equal(value.switches.length, 0);
+    value.setSwitchable(true);
+    await opening; await settled();
+    assert.deepEqual(value.switches.map(row => row.camera), [b]);
+    assert.equal(response.destroyed, false);
+  } finally { await value.close(); }
+});
+
+test("a mark that is no longer new cannot take the call", async context => {
+  const value = await fixture(context);
+  try {
+    await open(value, a, view("a"));
+    const blocking = await open(value, a);
+    const refused = await open(value, b, view("late"));
+    assert.equal(refused.destroyed, true);
+    blocking.destroy(); await settled();
+
+    // Home Assistant's later retry of a view its viewer has long left.
+    value.advance(9_000);
+    const retry = await open(value, b, view("late"));
+    assert.equal(retry.destroyed, true);
+    assert.equal(value.switches.length, 0);
+
+    const fresh = await open(value, b, view("fresh"));
+    assert.equal(fresh.destroyed, false);
+    assert.deepEqual(value.switches.map(row => row.camera), [b]);
   } finally { await value.close(); }
 });
 
