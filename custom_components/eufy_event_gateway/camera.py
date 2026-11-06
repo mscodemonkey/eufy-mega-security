@@ -44,7 +44,7 @@ from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity
-from .const import CONF_SHORT_HLS_IDLE, CONF_NATIVE_VIDEO, CONF_FAST_NATIVE_HLS, DOMAIN
+from .const import CONF_H264_COMPATIBILITY, CONF_SHORT_HLS_IDLE, CONF_FAST_NATIVE_HLS, DOMAIN
 from .playback_diagnostics import serialize_stream
 
 if TYPE_CHECKING:
@@ -114,8 +114,8 @@ async def async_setup_entry(
                 EufyGatewayCamera(
                     coordinator, serial,
                     short_hls_idle=entry.options.get(CONF_SHORT_HLS_IDLE) is True,
-                    native_video=entry.options.get(CONF_NATIVE_VIDEO) is True,
                     fast_native_hls=entry.options.get(CONF_FAST_NATIVE_HLS) is True,
+                    h264_compatibility=entry.options.get(CONF_H264_COMPATIBILITY) is True,
                 )
                 for serial in sorted(serials)
             ]
@@ -213,7 +213,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
 
     def __init__(
         self, coordinator: EufyGatewayCoordinator, serial: str,
-        *, short_hls_idle: bool = False, native_video: bool = False, fast_native_hls: bool = False,
+        *, short_hls_idle: bool = False, h264_compatibility: bool = False, fast_native_hls: bool = False,
     ) -> None:
         """Bind playback options for this entity until the next entry reload."""
         EufyGatewayEntity.__init__(self, coordinator, serial)
@@ -221,7 +221,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         self._attr_unique_id = f"{serial}_camera"
         self._published_snapshot_revision = self._snapshot_revision
         self._short_hls_idle = short_hls_idle
-        self._native_video = native_video
+        self._native_video = not h264_compatibility
         self._fast_native_hls = fast_native_hls
         self._hls_idle_stream: Stream | None = None
         self._stream_source_refreshing = False
@@ -309,9 +309,13 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         if stream is not cached and preload:
             stream.source = _with_view(stream.source, None)
 
-        # A request while the worker is down is a person coming back to a camera
-        # that lost its NVR call, so restart it now with a view that may take it.
-        if stream is cached and not preload and not self._stream_source_refreshing and (not stream.outputs() or not stream.available):
+        # A request while the worker is down or the gateway has stopped this camera
+        # is a person coming back after its NVR call moved away. Home Assistant keeps
+        # that stream for a while, and its worker can only retry a view that has had
+        # its turn, so restart it now with a view that may take the call.
+        if stream is cached and not preload and not self._stream_source_refreshing and (
+            not stream.outputs() or not stream.available or not self.is_streaming
+        ):
             self._stream_source_refreshing = True
             try:
                 source = await asyncio.wait_for(
