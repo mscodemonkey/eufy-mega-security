@@ -1643,6 +1643,13 @@ export class FirstPartyPpcsSession {
     level2: 0,
     videoFrames: 0,
     videoOutputFrames: 0,
+
+    /** Complete audio frames across channels. The format counts below exclude foreign channels. */
+    audioFrames: 0,
+    audioClearFrames: 0,
+    audioAdtsFrames: 0,
+    audioProtectedFrames: 0,
+    foreignAudioFrames: 0,
     incompleteAccessUnits: 0,
     incompleteAccessUnitBytes: 0,
     foreignVideoFrames: 0,
@@ -3297,13 +3304,23 @@ export class FirstPartyPpcsSession {
           this.#firstFrameTimer = null;
         }
       }
-    } else if (command === 1301 && signCode === 0
-      && acceptsSoloCamAudio(this.#options.cameraModel, this.#options.homeBaseAttached === true, this.#options.channel,
-        frameChannel ?? -1, this.#options.purpose)) {
-      const audio = decodePpcsAac(payload);
+    } else if (command === 1301) {
+      this.stats.audioFrames++;
+      if (frameChannel !== this.#options.channel) {
+        this.stats.foreignAudioFrames++;
+      } else if (signCode !== 0) {
+        this.stats.audioProtectedFrames++;
+      } else {
+        this.stats.audioClearFrames++;
+        const audio = decodePpcsAac(payload);
+        if (audio) this.stats.audioAdtsFrames++;
 
-      // Discard audio without consumers instead of retaining an unbounded stream.
-      if (audio && this.audioOutput.listenerCount("data") > 0) this.audioOutput.write(audio);
+        // Observe unsupported routes without admitting their audio to playback.
+        // Discard bytes without consumers instead of retaining an unbounded stream.
+        if (audio && acceptsSoloCamAudio(this.#options.cameraModel, this.#options.homeBaseAttached === true,
+          this.#options.channel, frameChannel ?? -1, this.#options.purpose)
+          && this.audioOutput.listenerCount("data") > 0) this.audioOutput.write(audio);
+      }
     } else if (command === 1300 && this.#options.homeBaseAttached) {
       this.stats.foreignVideoFrames++;
     }

@@ -11,7 +11,8 @@ type SourceStats = Pick<FirstPartyPpcsSession["stats"], "camId" | "gatewayInfo" 
   | "mediaStartAttempts" | "mediaStartAcknowledged" | "mediaStartRetransmitted" | "mediaStartExpired"
   | "dataDatagrams" | "frameHeaders" | "videoFrames" | "videoOutputFrames" | "sequenceGaps" | "sequenceRestarts"
   | "duplicateDatagrams" | "staleDatagrams" | "parserResyncs" | "pendingBytes" | "incompleteAccessUnits"
-  | "incompleteAccessUnitBytes" | "frameShapes">;
+  | "incompleteAccessUnitBytes" | "frameShapes" | "audioFrames" | "audioClearFrames" | "audioAdtsFrames"
+  | "audioProtectedFrames" | "foreignAudioFrames">;
 
 /**
  * Snapshot the observed source boundary and complete frame kinds without copying raw stats.
@@ -31,6 +32,8 @@ export function ppcsSourceDiagnostic(stats: SourceStats, sourceAttempt: number):
     sequenceRestarts: stats.sequenceRestarts, duplicateDatagrams: stats.duplicateDatagrams,
     staleDatagrams: stats.staleDatagrams, parserResyncs: stats.parserResyncs, pendingBytes: stats.pendingBytes,
     incompleteAccessUnits: stats.incompleteAccessUnits, incompleteAccessUnitBytes: stats.incompleteAccessUnitBytes,
+    audioFrames: stats.audioFrames, audioClearFrames: stats.audioClearFrames, audioAdtsFrames: stats.audioAdtsFrames,
+    audioProtectedFrames: stats.audioProtectedFrames, foreignAudioFrames: stats.foreignAudioFrames,
   };
   let startupBoundary: StreamStartupBoundary = "unknown";
   if ([stats.camId, stats.mediaStartAttempts, stats.mediaStartAcknowledged, stats.videoFrames, stats.videoOutputFrames]

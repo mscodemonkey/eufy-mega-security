@@ -210,7 +210,8 @@ test("captures renumber sources independently and keep startup evidence within c
   const counters = { dataDatagrams: 5, frameHeaders: 5, videoFrames: 0, videoOutputFrames: 0,
     sequenceGaps: 0, sequenceRestarts: 0, duplicateDatagrams: 0, staleDatagrams: 0,
     parserResyncs: 0, pendingBytes: 0, incompleteAccessUnits: 0, incompleteAccessUnitBytes: 0,
-    mediaStartAcknowledged: 1, mediaStartAttempts: 1 };
+    mediaStartAcknowledged: 1, mediaStartAttempts: 1, audioFrames: 4, audioClearFrames: 2, audioAdtsFrames: 1,
+    audioProtectedFrames: 1, foreignAudioFrames: 1, audioPayload: "PRIVATE" };
   const diagnostic = { stage: "first-frame", sourceAttempt: 99, startupBoundary: "start-acknowledged-no-video", counters,
     frameKinds: [{ kind: "response", command: 1350, signCode: 1, transportType: 0, payload: "PRIVATE" },
       { kind: "PRIVATE", command: 1, signCode: 0, transportType: 0 },
@@ -224,6 +225,11 @@ test("captures renumber sources independently and keep startup evidence within c
     assert.deepEqual(rows.map((value: { sourceAttempt: number }) => value.sourceAttempt), [1, 1, 2]);
     assert.equal(decode(second).records[0].sourceAttempt, 1);
     assert.equal(rows[0].counters.mediaStartAcknowledged, 1);
+    assert.equal(rows[0].counters.audioFrames, 4);
+    assert.equal(rows[0].counters.audioClearFrames, 2);
+    assert.equal(rows[0].counters.audioAdtsFrames, 1);
+    assert.equal(rows[0].counters.audioProtectedFrames, 1);
+    assert.equal(rows[0].counters.foreignAudioFrames, 1);
     assert.equal(rows[0].startupBoundary, "start-acknowledged-no-video");
     assert.deepEqual(rows[0].frameKinds, [{ kind: "response", command: 1350, signCode: 1, transportType: 0 }]);
     assert.doesNotMatch(JSON.stringify(rows), /PRIVATE|payload|65536|private-camera/);

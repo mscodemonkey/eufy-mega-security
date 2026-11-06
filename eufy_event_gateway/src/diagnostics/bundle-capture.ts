@@ -181,7 +181,8 @@ export class BundleCapture {
       "sequenceRestarts", "duplicateDatagrams", "staleDatagrams", "parserResyncs", "pendingBytes",
       "incompleteAccessUnits", "incompleteAccessUnitBytes", "camId", "gatewayInfo", "level2", "cameraInfoFrames",
       "foreignVideoFrames", "gatewayInfoAcknowledged", "gatewayInfoRetransmitted", "gatewayInfoExpired",
-      "mediaStartAttempts", "mediaStartAcknowledged", "mediaStartRetransmitted", "mediaStartExpired"] as const) {
+      "mediaStartAttempts", "mediaStartAcknowledged", "mediaStartRetransmitted", "mediaStartExpired",
+      "audioFrames", "audioClearFrames", "audioAdtsFrames", "audioProtectedFrames", "foreignAudioFrames"] as const) {
       const value = diagnostic.counters[key];
       if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) counters[key] = value;
     }

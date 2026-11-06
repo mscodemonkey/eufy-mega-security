@@ -8,6 +8,7 @@ import { ppcsSourceDiagnostic } from "../src/diagnostics/ppcs-source-diagnostic.
 
 function fixture(): Parameters<typeof ppcsSourceDiagnostic>[0] {
   return { camId: 0, gatewayInfo: 0, level2: 0, cameraInfoFrames: 0, foreignVideoFrames: 0,
+    audioFrames: 0, audioClearFrames: 0, audioAdtsFrames: 0, audioProtectedFrames: 0, foreignAudioFrames: 0,
     gatewayInfoAcknowledged: 0, gatewayInfoRetransmitted: 0, gatewayInfoExpired: 0,
     mediaStartAttempts: 0, mediaStartAcknowledged: 0, mediaStartRetransmitted: 0, mediaStartExpired: 0,
     dataDatagrams: 0, frameHeaders: 0, videoFrames: 0, videoOutputFrames: 0, sequenceGaps: 0,
