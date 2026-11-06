@@ -6,7 +6,7 @@ Enable `experimental_nvr_live`, `experimental_model_controls` and `experimental_
 
 | Camera | Night vision | Streaming quality | Camera view | Movement | AI tracking |
 | --- | --- | --- | --- | --- | --- |
-| T8E00/type301 | Standard, Infrared, Spotlight | Auto, Low, High | Fixed, Movable or Both, default Both | Single pan clicks and optical zoom 1x, 2x, 3x on Movable and Both | No |
+| T8E00/type301 | Standard, Infrared, Spotlight | Auto, Low, High | Fixed, Movable or Both, default Both | Single pan clicks and optical zoom 1x, 2x, 3x on Movable and Both | Not offered here; Eufy app only |
 | T8416/type104 | Off, Auto Infrared, Infrared on | Auto, HD (720P), Full HD (1080P), 2K, Ultra 4K | None (wide source) | Single pan clicks and zoom 1x, 2x, 3x | Enable or disable |
 
 T8416 offers no Camera view choice. A reporter described a Telephoto source, but on an owner-tested S350 the second NVR source showed the same wide picture, while zoom 2x and 3x narrowed it to the telephoto picture and 1x restored the wide one. T8416 quality names follow the eufy app's Streaming Quality. The T8416 NVR night values differ from the separate HomeBase connection.
@@ -14,6 +14,8 @@ T8416 offers no Camera view choice. A reporter described a Telephoto source, but
 T8E00 Both shows the Fixed and Movable lenses together, Fixed above Movable, as the eufy app's live view does. It is the default view where Camera view is offered. Live video without these controls keeps the Movable lens. The NVR stacks them into one 1280×1440 picture, two 1280×720 panes, so it is still one source and one live view, with fewer pixels than a single 1920×1080 view. While Both is chosen, every card that shows the camera shows the stacked picture. Direction and zoom act on the Movable lens, the lower pane. With `experimental_fixed_h265_resolution` on, the H.264 compatibility conversion fits the stacked picture inside 1920×1080 with bars at the sides, as it does any other size. Both is not a separate Fixed camera entity.
 
 T8416 AI tracking is a persistent setting like night vision. The gateway sends 6016 on the PTZ transport, accepts the receipt, and then requires the channel row to read back the requested value before reporting success. The Home Assistant enable and disable buttons appear once a live start or capability refresh has read the current value. On an owner-tested S350 the eufy app showed each change.
+
+T8E00 AI tracking has no control here, but the camera does have the feature in the eufy app. While it is on, the camera can move with no request, so a shift in the picture alone doesn't show that a pan worked.
 
 ## Using the controls
 
@@ -33,7 +35,9 @@ Actions are exclusive per NVR and spaced at least one second apart. Explicit cap
 
 Two T8416/type 104 cameras on firmware 1.5.6.4 behind one T8N00 were tested on 4 November 2026 with the changes released in v0.1.242. The owner watched one camera and saw all four pan directions. Video from the second camera shows its picture shifting after each of the four pan requests, and returning after the opposite one. Both cameras showed 2x and 3x zoom narrowing the picture and 1x restoring it. Streaming quality and AI tracking changed and read back on both, and the eufy app confirmed the quality values and an AI tracking change. Night vision has readback evidence only, from a daylight test.
 
-These results show that the T8416 movement path works on that setup. They do not qualify T8416 on Wi-Fi or a HomeBase, T8416121, T9000 or other firmware. T8E00 pan has no recorded physical result, and a single `request_accepted` still does not prove that a single movement happened.
+One T8E00/type 301 on firmware 1.1.2.9 behind the same T8N00 was tested on 6 November 2026 on v0.1.241, in the Movable view with a live view held. The owner watched it move in all four directions, and picture measurements agree on each direction. Each press moved the camera one step, but all 14 presses returned `outcome_unknown` with `pan_data=0`: the camera sent the acknowledgement and no data reply.
+
+These results show that the T8416 and T8E00 movement paths work on that setup. They do not qualify T8416 on Wi-Fi or a HomeBase, T8416121, T9000, T8E00 behind T9000 or other firmware. A single `request_accepted` still does not prove that a single movement happened.
 
 ## Interpreting results
 
