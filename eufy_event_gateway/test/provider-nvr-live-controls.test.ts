@@ -55,7 +55,7 @@ async function fixture(context: TestContext, model = "T8E00", type = 301, flags 
   const provider = new EufyProvider({ username: "synthetic", password: "synthetic", country: "AU", persistentDirectory: directory,
     maxStreamSeconds: 120, normalNvrLive: normal, experimentalNvrLive: true, experimentalModelControls: flags,
     experimentalNvrControls: flags, apiAuthenticationConfigured: flags });
-  provider.setNvrLiveMediaChecks({ viewer: () => viewer, recording: () => recording, active: () => active, yieldable: () => false });
+  provider.setNvrLiveMediaChecks({ viewer: () => viewer, recording: () => recording, active: () => active, yieldable: () => false, settling: () => false });
   await provider.start(events);
   context.after(async () => { await provider.close(); await rm(directory, { recursive: true, force: true }); });
   return { provider, raw, state, writes, advance: () => { clock += 2000; }, noViewer: () => { viewer = false; },
