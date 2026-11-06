@@ -17,6 +17,7 @@ import { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, type RTCData
 import type { VideoCodec } from "../domain/types.js";
 import { NvrPtcsReassembler, type NvrPtcsReassemblyStats } from "./nvr-ptcs-reassembly.js";
 import { VideoParameterSetCache } from "./live-stream-manager.js";
+import { markSourceTime } from "./media-source-clock.js";
 import { installNvrIceTiming } from "./nvr-ice-timing.js";
 import { installNvrIceGathering } from "./nvr-ice-gathering.js";
 import { NvrPowerError, type NvrCameraPower } from "../provider/nvr-power-trial.js";
@@ -1171,7 +1172,10 @@ export class NvrRtcSession {
       const audio = nvrAudio(frame, this.options.channel);
       if (!audio) { this.stats.rejectedAudio++; return; }
       this.stats.audio++;
-      this.#audioOutput.write(audio);
+
+      // Video reaches viewers later than audio of the same moment, so viewers align the two by these capture times.
+      markSourceTime(audio.bytes, audio.timestamp);
+      this.#audioOutput.write(audio.bytes);
       return;
     }
     if (frame.command === 1303) { this.stats.ignoredUnknownMedia++; return; }
@@ -1196,9 +1200,13 @@ export class NvrRtcSession {
         this.#bootstrapped = true;
         if (this.#firstFrame) clearTimeout(this.#firstFrame);
         this.#markTiming("firstVideo");
+        markSourceTime(startup, Number(video.timestamp));
         if (!this.output.write(startup)) throw new NvrTrialError("video");
         delivered = startup;
-      } else if (!this.output.write(video.bytes)) throw new NvrTrialError("video");
+      } else {
+        markSourceTime(video.bytes, Number(video.timestamp));
+        if (!this.output.write(video.bytes)) throw new NvrTrialError("video");
+      }
       const picture = hasCodedPicture(delivered, video.codec);
       if (picture) {
         this.#startVideoObserved = true;

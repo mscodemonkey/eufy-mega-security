@@ -10,6 +10,7 @@ import type { VideoCodec } from "../domain/types.js";
 import { splitAccessUnits } from "./annexb-access-units.js";
 import { ClockedTransportWriter } from "./clocked-transport.js";
 import type { VideoViewerResponse } from "./live-transport-muxer.js";
+import { sourceTime } from "./media-source-clock.js";
 import { parseAdtsAccessUnits } from "./ppcs-audio.js";
 
 const MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
@@ -18,8 +19,15 @@ const MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
 // program clock one second in to keep that first DTS positive.
 const CLOCK_OFFSET_MILLISECONDS = 1_000;
 
-/** Audio further than this from its arrival time is resynchronized, never left to drift. */
+/** Audio further than this from its place on the video's timeline is resynchronized, never left to drift. */
 export const NATIVE_AUDIO_SLEW_MILLISECONDS = 300;
+
+/** Audio placed by capture time keeps within about one AAC frame of the picture. */
+export const NATIVE_MARKED_AUDIO_TOLERANCE_MILLISECONDS = 80;
+
+// Video that arrives late on a busy link is ignored when mapping camera time to
+// the video's timeline: the lowest offset over this window is the mapping.
+const SOURCE_CLOCK_WINDOW_MILLISECONDS = 2_000;
 
 /**
  * One muxer's native Annex-B sink, enrolled as a native viewer by the stream manager.
@@ -43,6 +51,9 @@ interface PendingMedia {
   readonly data: Buffer;
   readonly at: number;
   readonly continuesPrevious: boolean;
+
+  /** Capture time on the camera's clock, when the source marked this chunk. */
+  readonly stamp: number | undefined;
 }
 
 /** Content-free counters reported once when the viewer closes. */
@@ -61,6 +72,8 @@ export interface NativeTransportSummary {
  * Video waits for the first AAC at most `audioWaitMilliseconds`, then the program
  * starts with or without an audio track; a track is never declared before audio
  * has arrived, so neither HA's stream worker nor go2rtc waits on a silent one.
+ * Video is timed by arrival. When the source marks both with capture times,
+ * audio is placed on the video's timeline by them; otherwise by its own arrival.
  */
 export class NativeTransportMuxer {
 
@@ -77,7 +90,10 @@ export class NativeTransportMuxer {
   #firstVideoAt: number | null = null;
   #startWait: number | null = null;
   #videoTicks = -1;
+  #firstVideoTicks = -1;
   #audioNext: number | null = null;
+  #audioDropping = false;
+  #sourceOffsets: { at: number; offset: number }[] = [];
   #videoUnits = 0;
   #audioBatches = 0;
   #audioResyncs = 0;
@@ -108,12 +124,13 @@ export class NativeTransportMuxer {
   /** Consume only AAC already validated by the provider. Late audio after a muted start is ignored. */
   acceptAudio(chunk: Buffer): void {
     if (this.#closed || chunk.length === 0) return;
+    const stamp = sourceTime(chunk);
     if (this.#writer) {
-      if (this.#withAudio) this.#writeAudio(chunk, this.now());
+      if (this.#withAudio) this.#writeAudio(chunk, this.now(), stamp);
       return;
     }
     if (!parseAdtsAccessUnits(chunk)) return;
-    this.#hold({ kind: "audio", data: Buffer.from(chunk), at: this.now(), continuesPrevious: false });
+    this.#hold({ kind: "audio", data: Buffer.from(chunk), at: this.now(), continuesPrevious: false, stamp });
     if (this.#firstVideoAt !== null) this.#start(true);
   }
 
@@ -146,11 +163,14 @@ export class NativeTransportMuxer {
     if (!codec) return this.close("codec_unknown");
     const at = this.now();
     const { units, continuesPrevious } = splitAccessUnits(chunk, codec);
+
+    // A mark names one picture's capture time, so only a one-picture chunk can carry it.
+    const stamp = units.length === 1 && !continuesPrevious ? sourceTime(chunk) : undefined;
     if (this.#writer) {
-      units.forEach((unit, index) => this.#writeVideo(unit, at, continuesPrevious && index === 0));
+      units.forEach((unit, index) => this.#writeVideo(unit, at, continuesPrevious && index === 0, stamp));
       return;
     }
-    units.forEach((unit, index) => this.#hold({ kind: "video", data: Buffer.from(unit), at, continuesPrevious: continuesPrevious && index === 0 }));
+    units.forEach((unit, index) => this.#hold({ kind: "video", data: Buffer.from(unit), at, continuesPrevious: continuesPrevious && index === 0, stamp }));
     if (this.#closed) return;
     if (this.#firstVideoAt === null) {
       this.#firstVideoAt = at;
@@ -187,39 +207,60 @@ export class NativeTransportMuxer {
       .sort((left, right) => left.at - right.at);
     for (const item of ordered) {
       if (this.#closed) return;
-      if (item.kind === "video") this.#writeVideo(item.data, item.at, item.continuesPrevious);
-      else this.#writeAudio(item.data, item.at);
+      if (item.kind === "video") this.#writeVideo(item.data, item.at, item.continuesPrevious, item.stamp);
+      else this.#writeAudio(item.data, item.at, item.stamp);
     }
     this.#awaitOutput();
   }
 
-  /** Stamp each unit with its arrival, strictly after the last; a continued picture keeps its time. */
-  #writeVideo(unit: Buffer, at: number, continuesPrevious: boolean): void {
+  /**
+   * Stamp each unit with its arrival, strictly after the last; a continued picture
+   * keeps its time. A marked picture also maps camera time to this timeline.
+   */
+  #writeVideo(unit: Buffer, at: number, continuesPrevious: boolean, stamp: number | undefined): void {
     const arrival = this.#ticks(at);
     const ticks = continuesPrevious && this.#videoTicks >= 0 ? this.#videoTicks : Math.max(arrival, this.#videoTicks + 1);
     this.#videoTicks = ticks;
+    if (this.#firstVideoTicks < 0) this.#firstVideoTicks = ticks;
     this.#videoUnits++;
+    if (stamp !== undefined) {
+      const milliseconds = ticks / 90;
+      this.#sourceOffsets = this.#sourceOffsets.filter(sample => milliseconds - sample.at <= SOURCE_CLOCK_WINDOW_MILLISECONDS);
+      this.#sourceOffsets.push({ at: milliseconds, offset: milliseconds - stamp });
+    }
     this.#write(() => this.#writer!.video(unit, ticks / 90));
   }
 
   /**
-   * Keep AAC on its sample clock from the first batch's arrival. A batch that
-   * arrives too late moves the clock up to its arrival; one too early is dropped.
+   * Keep AAC on its sample clock, starting at its place on the video's timeline.
+   * A batch whose place has moved on by more than the tolerance moves the clock
+   * up to it. One whose clock slot runs ahead of it is dropped, as is everything
+   * after it until the timeline catches up,
+   * which also discards the buffered audio a camera sends when a view opens.
+   * Audio that belongs before the first picture is dropped too.
    */
-  #writeAudio(chunk: Buffer, at: number): void {
+  #writeAudio(chunk: Buffer, at: number, stamp: number | undefined): void {
     const units = parseAdtsAccessUnits(chunk);
     if (!units) return;
-    const arrival = this.#ticks(at) / 90;
-    if (this.#audioNext === null) this.#audioNext = arrival;
-    else if (arrival - this.#audioNext > NATIVE_AUDIO_SLEW_MILLISECONDS) {
-      this.#audioNext = arrival;
-      this.#audioResyncs++;
-    } else if (this.#audioNext - arrival > NATIVE_AUDIO_SLEW_MILLISECONDS) {
+    const marked = stamp !== undefined && this.#sourceOffsets.length > 0;
+    const place = marked ? stamp + Math.min(...this.#sourceOffsets.map(sample => sample.offset)) : this.#ticks(at) / 90;
+    const tolerance = marked ? NATIVE_MARKED_AUDIO_TOLERANCE_MILLISECONDS : NATIVE_AUDIO_SLEW_MILLISECONDS;
+    if (place < this.#firstVideoTicks / 90) {
       this.#audioDropped++;
       return;
     }
-    const start = this.#audioNext;
-    this.#audioNext += units.reduce((total, unit) => total + unit.samples * 1_000 / unit.sampleRate, 0);
+    let start: number;
+    if (this.#audioNext === null) start = place;
+    else if (place - this.#audioNext > tolerance) {
+      start = place;
+      this.#audioResyncs++;
+    } else if (this.#audioNext - place > (this.#audioDropping ? 0 : tolerance)) {
+      this.#audioDropped++;
+      this.#audioDropping = true;
+      return;
+    } else start = this.#audioDropping ? place : this.#audioNext;
+    this.#audioDropping = false;
+    this.#audioNext = start + units.reduce((total, unit) => total + unit.samples * 1_000 / unit.sampleRate, 0);
     this.#audioBatches++;
     this.#write(() => this.#writer!.audio(chunk, start));
   }

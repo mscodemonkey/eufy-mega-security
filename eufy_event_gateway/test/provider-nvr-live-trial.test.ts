@@ -200,9 +200,12 @@ for (const route of [
       if (route.cameraModel === "T8416" || route.cameraModel === "T8214") {
         assert.equal(discovered?.catalogueStatus, "supported");
         assert.equal(discovered?.doorbellSupported, route.cameraModel === "T8214");
-        assert.equal(discovered?.liveAudioSupported, false);
         assert.deepEqual(discovered?.nvrViewOptions ?? [], []);
       }
+
+      // Live audio is proven only for these four models behind a T8N00.
+      assert.equal(discovered?.liveAudioSupported, route.stationModel === "T8N00"
+        && ["T8E00", "T8P10", "T8416", "T8214"].includes(route.cameraModel));
       await provider.startStream("synthetic-camera");
       assert.equal(contexts, 1);
       assert.equal(starts, 1);

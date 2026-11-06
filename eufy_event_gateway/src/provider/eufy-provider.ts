@@ -540,14 +540,17 @@ export function supportsCameraLiveAudio(
 }
 
 /**
- * NVR camera models whose live audio is proven through the gateway: the start
- * request asks for it and the camera reports live audio, so viewers get MPEG-TS.
+ * NVR camera models whose live audio is proven on hardware behind a T8N00: the
+ * start request asks for it and the camera reports live audio, so viewers get
+ * MPEG-TS. Each sent 16 kHz mono AAC on a fresh call and after a camera switch.
  */
-const NVR_LIVE_AUDIO_MODELS: readonly (readonly [string, number])[] = [];
+const NVR_LIVE_AUDIO_MODELS: readonly (readonly [string, number])[] = [["T8E00", 301], ["T8416", 104], ["T8214", 94], ["T8P10", 303]];
 
-/** Admit NVR live audio only for an exact model and type proven on hardware. */
-export function nvrLiveAudioAdmitted(device: Pick<MegaInventoryDevice, "model" | "deviceType">): boolean {
-  return NVR_LIVE_AUDIO_MODELS.some(([model, type]) => model === device.model && type === device.deviceType);
+/** Admit NVR live audio only for an exact model and type proven on hardware, behind a T8N00. */
+export function nvrLiveAudioAdmitted(device: Pick<MegaInventoryDevice, "model" | "deviceType">,
+  station: Pick<MegaInventoryDevice, "model" | "deviceType"> | undefined): boolean {
+  return station?.model === "T8N00" && station.deviceType === 300
+    && NVR_LIVE_AUDIO_MODELS.some(([model, type]) => model === device.model && type === device.deviceType);
 }
 
 /** Admit preset movement only on the exact SoloCam direct or HomeBase route proven by saved target scenes. */
@@ -1863,7 +1866,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       careMonitor: false, preferenceRanges: {}, carePreferences: {},
       supportedDetections: ["motion", "person", "stranger", "pet", "vehicle", "dog", "crying", "sound", "packageDelivered", "packageTaken", "packageStranded"],
       streamingQualityControlSupported: !!profile && values.quality !== null, storedRecordingsSupported: false,
-      liveAudioSupported: this.#normalNvrLiveBinding(device, station) && nvrLiveAudioAdmitted(device),
+      liveAudioSupported: this.#normalNvrLiveBinding(device, station) && nvrLiveAudioAdmitted(device, station),
       talkbackSupported: false, enableControlSupported: false, motionDetectionControlSupported: false,
       guardModeControlSupported: false, guardModeRefreshSupported: false, nightVisionControlSupported: !!profile && values.night !== null,
       autoNightVisionControlSupported: false, cameraLightControlSupported: false, timedLightControlSupported: false,
@@ -1985,7 +1988,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       cameraType: entry.device.deviceType!, sensor: entry.sensor,
       liveControls: !entry.diagnostic && this.#nvrLiveAdmitted(entry.device, entry.station),
       panReceiptOnly: this.#nvrProfile(entry.device)?.panReceiptOnly === true,
-      audio: !entry.diagnostic && !entry.stateOnly && nvrLiveAudioAdmitted(entry.device),
+      audio: !entry.diagnostic && !entry.stateOnly && nvrLiveAudioAdmitted(entry.device, entry.station),
       signal: entry.controller.signal, current,
       ...(!entry.diagnostic && !entry.stateOnly && entry.station.model === "T8N00" && entry.station.deviceType === 300 ? {
         onEffectiveMode: (observation: NvrEffectiveModeObservation | null): void => {
@@ -5054,7 +5057,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       doorbellSupported: isDoorbellDevice(device),
       streamSupported: nvrLive || isPpcsStreamSupported(device, this.#devices, dskPeerSerials) || this.#doorbellRtcBinding(device),
       ...(nvrLive ? { startupSnapshotSupported: false } : {}),
-      liveAudioSupported: nvrLive ? nvrLiveAudioAdmitted(device)
+      liveAudioSupported: nvrLive ? nvrLiveAudioAdmitted(device, this.#devices.get(device.parentSerial))
         : supportsCameraLiveAudio(device, route, isPpcsStreamSupported(device, this.#devices, dskPeerSerials)),
       enabled: device.reads.enabled ?? null,
       enableControlSupported: supportsCameraEnablement(

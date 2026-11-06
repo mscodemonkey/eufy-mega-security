@@ -5,7 +5,7 @@
  */
 import { isIP } from "node:net";
 import type { VideoCodec } from "../domain/types.js";
-import { parseAdtsAccessUnits } from "./ppcs-audio.js";
+import { decodePpcsAac } from "./ppcs-audio.js";
 
 /** Fixed diagnostic stages contain no vendor messages or private connection data. */
 export type NvrTrialStage = "admission" | "region_or_authorization_rejected" | "sign" | "join" | "call" | "busy"
@@ -270,17 +270,25 @@ export function nvrAudioChannel(channel: number): number {
   return channel;
 }
 
+/** Checked AAC from one 1301 frame, with its capture time on the camera's clock. */
+export interface NvrAudioFrame {
+  readonly bytes: Buffer;
+  readonly timestamp: number;
+}
+
 /**
  * Return complete ADTS AAC from a 1301 frame for the owning single-camera session,
- * or null. The media header matches video's: a length, a codec byte, sequence
- * and timestamp, then the payload. Anything that is not complete ADTS is refused.
+ * or null. The sixteen-byte media header is a length, 101, a codec byte (0 for
+ * AAC), a sequence number and a 64-bit millisecond capture time, as PPCS audio.
+ * Anything that is not complete ADTS is refused.
  */
-export function nvrAudio(frame: NvrApplicationFrame, channel: number): Buffer | null {
+export function nvrAudio(frame: NvrApplicationFrame, channel: number): NvrAudioFrame | null {
   const body = frame.payload;
-  if (frame.command !== 1301 || body.length < 29 || body.length > 65_536 + 22
-    || ![channel, 255, 101].includes(frame.channel) || body.readUInt32LE(0) !== body.length - 22) return null;
-  const audio = body.subarray(22);
-  return parseAdtsAccessUnits(audio) ? Buffer.from(audio) : null;
+  if (frame.command !== 1301 || ![channel, 255, 101].includes(frame.channel) || body.length < 23 || body[5] !== 0) return null;
+  const bytes = decodePpcsAac(body);
+  if (!bytes) return null;
+  const timestamp = Number(body.readBigUInt64LE(8));
+  return Number.isSafeInteger(timestamp) ? { bytes, timestamp } : null;
 }
 
 /** Fresh discovery must bind the selected serial, channel and exact camera type. */
