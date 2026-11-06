@@ -232,10 +232,14 @@ export interface NvrApplicationFrame {
   readonly payload: Buffer;
 }
 
-/** Reject inconsistent lengths before interpreting command or media bytes. */
+/**
+ * Reject inconsistent lengths before interpreting command or media bytes.
+ * Byte 10 is 0 or 1 on control and video frames; live audio (1301) uses 2.
+ */
 export function nvrApplication(frame: Buffer): NvrApplicationFrame {
   if (frame.length < 16 || !frame.subarray(0, 4).equals(Buffer.from("XZYH"))
-    || frame.readUInt32LE(6) !== frame.length - 16 || ![0, 1].includes(frame[10]!) || frame[13] !== 0) throw new NvrTrialError("framing");
+    || frame.readUInt32LE(6) !== frame.length - 16 || frame[13] !== 0
+    || !([0, 1].includes(frame[10]!) || frame[10] === 2 && frame.readUInt16LE(4) === 1301)) throw new NvrTrialError("framing");
   return { command: frame.readUInt16LE(4), segment: frame[11]!, channel: frame[12]!, stream: frame[14]!, payload: frame.subarray(16) };
 }
 
