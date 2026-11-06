@@ -30,7 +30,9 @@ function audioFrame(adts: Buffer, sequence: number): Buffer {
   media.writeUInt32LE(adts.length, 0); media[4] = 101; media.writeUInt16LE(sequence, 6);
   media.writeBigUInt64LE(1_790_000_000_000n + BigInt(sequence) * 64n, 8);
   adts.copy(media, 16);
-  const frame = application(1301, 0, media, 101); frame[14] = 1;
+
+  // The application header as an NVR S4 sends audio: byte 10 is 2, channel 101, stream 1, byte 15 zero.
+  const frame = application(1301, 0, media, 101); frame[10] = 2; frame[14] = 1; frame[15] = 0;
   return frame;
 }
 
@@ -178,6 +180,8 @@ test('the audio check refuses everything but complete ADTS for this camera', () 
   const otherCodec = Buffer.from(good); otherCodec[5] = 1;
   assert.equal(nvrAudio(frame(otherCodec), 3), null);
   assert.equal(nvrAudio({ ...frame(good), command: 1300 }, 3), null);
+  const video = application(1300, 0, Buffer.alloc(30)); video[10] = 2;
+  assert.throws(() => nvrApplication(video), { stage: 'framing' });
   assert.throws(() => nvrCommand('synthetic', 1003, 1, 3, 1, 255));
   assert.throws(() => nvrCommand('synthetic', 1003, 1, 3, 1, -2));
   assert.equal(JSON.parse(nvrCommand('synthetic', 1003, 1, 3, 1).subarray(16).toString()).payload.audio_chn, -1);
