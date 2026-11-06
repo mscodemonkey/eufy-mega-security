@@ -43,7 +43,7 @@ const aac = (() => {
   return result.stdout.subarray(0, size);
 })();
 
-async function fixture(audio: boolean) {
+async function fixture(audio: boolean, slowKeyframe = false) {
   const server = new WebSocketServer({ port: 0 });
   await once(server, 'listening');
   const port = (server.address() as { port: number }).port;
@@ -72,7 +72,7 @@ async function fixture(audio: boolean) {
       if (body.cmd !== 1003) return;
       starts.push({ channel: body.payload.chn_list[0].chn, audio: body.payload.audio_chn });
       sequence = 0; transport = 0;
-      const send = (frame: Buffer): void => { for (const packet of nvrPackets(frame, transport++, Date.now(), 2)) channel.send(packet); };
+      const send = (frame: Buffer, number = transport++): void => { for (const packet of nvrPackets(frame, number, Date.now(), 2)) channel.send(packet); };
 
       // As an NVR S4 sends it: on the audio data channel, sharing video's transport channel and counter,
       // with the compressed bit set over a plain application frame.
@@ -83,15 +83,27 @@ async function fixture(audio: boolean) {
         }
       };
 
-      // Audio before the first picture, then a picture with each tick, good audio, and one damaged audio frame.
-      sendAudio(audioFrame(aac, 0));
+      // A picture with each tick, good audio, and one damaged audio frame. As on the NVR, each
+      // camera's first audio takes a number after its keyframe's, yet completes before it.
       sender = setInterval(() => {
         const media = Buffer.alloc(22 + generated.stdout.length); media.writeUInt32LE(generated.stdout.length, 0);
         media[4] = 1; media.writeUInt16LE(sequence, 6); media[8] = 10; media.writeUInt16LE(320, 10); media.writeUInt16LE(180, 12);
         media.writeBigUInt64LE(BigInt(sequence++) * 2000n, 14); generated.stdout.copy(media, 22);
         const frame = application(1300, 0, media, 101); frame[14] = 1;
-        send(frame);
+
+        // As on the NVR, the one-packet audio frame takes the next number but completes first.
+        const videoNumber = transport++;
+        if (slowKeyframe && sequence === 1) {
+
+          // A keyframe still arriving while twenty audio frames complete.
+          const packets = nvrPackets(frame, videoNumber, Date.now(), 2);
+          channel.send(packets[0]!);
+          for (let index = 0; index < 20; index++) sendAudio(audioFrame(aac, 100 + index));
+          for (const packet of packets.slice(1)) channel.send(packet);
+          return;
+        }
         sendAudio(audioFrame(sequence === 3 ? aac.subarray(0, aac.length - 1) : aac, sequence));
+        send(frame, videoNumber);
       }, 50);
     };
   });
@@ -112,10 +124,14 @@ async function fixture(audio: boolean) {
   });
   const audioOutputs: (PassThrough | undefined)[] = [];
   const audioBytes: Buffer[] = [];
+  const firstPictures: (number | undefined)[] = [];
   const session = new NvrRtcSession({ station: 'synthetic-station', camera: 'synthetic-camera', channel: 3, cameraType: 301, sensor: 1, audio,
     administrator: 'synthetic-administrator', context: { host: 'security-smart-ie.eufylife.com', region: 'IE', authToken: 'synthetic-token', gtoken: 'synthetic-gtoken', sign: 'synthetic-sign' },
     signal: new AbortController().signal, current: () => true, maximumLifetimeMilliseconds: null,
-    ready: (output, _codec, sound) => { output.resume(); audioOutputs.push(sound); sound?.on('data', (chunk: Buffer) => audioBytes.push(chunk)); } }, {
+    ready: (output, _codec, sound) => {
+      output.once('data', (chunk: Buffer) => firstPictures.push(sourceTime(chunk))); output.resume();
+      audioOutputs.push(sound); sound?.on('data', (chunk: Buffer) => audioBytes.push(chunk));
+    } }, {
     socket: (_url, protocols, options) => new WebSocket(`ws://127.0.0.1:${port}`, protocols, options),
     peer: servers => new RTCPeerConnection({ iceServers: servers, iceUseIpv6: false }),
   });
@@ -124,7 +140,7 @@ async function fixture(audio: boolean) {
     for (let attempt = 0; attempt < 500 && (!session.switchable || session.stats.audio < 3); attempt++) await new Promise(resolve => setTimeout(resolve, 20));
     assert.ok(session.stats.audio >= 3, JSON.stringify(session.stats));
   };
-  return { session, starts, audioOutputs, audioBytes, started,
+  return { session, starts, audioOutputs, audioBytes, firstPictures, started,
     close: async () => { clearInterval(sender); await session.close(); await peer.close(); await new Promise<void>(resolve => server.close(() => resolve())); } };
 }
 
@@ -133,6 +149,10 @@ test('an admitted camera asks for its audio and gets checked AAC after its first
   try {
     await value.started();
     assert.deepEqual(value.starts, [{ channel: 3, audio: 3 }]);
+
+    // The camera's first picture (capture time 0) is delivered, not dropped behind earlier-completing audio.
+    assert.deepEqual(value.firstPictures, [0]);
+    assert.equal(value.session.stats.applicationSequenceRecoveries, 0);
     const first = value.audioOutputs[0]!;
     assert.ok(first);
     assert.ok(value.audioBytes.every(chunk => chunk.equals(aac)));
@@ -143,7 +163,10 @@ test('an admitted camera asks for its audio and gets checked AAC after its first
     const ended = once(first, 'end');
     const target: NvrSwitchTarget = { camera: 'synthetic-next', channel: 8, cameraType: 303, sensor: 0, audio: true,
       signal: new AbortController().signal, current: () => true,
-      ready: (output, _codec, sound) => { output.resume(); value.audioOutputs.push(sound); sound?.resume(); } };
+      ready: (output, _codec, sound) => {
+        output.once('data', (chunk: Buffer) => value.firstPictures.push(sourceTime(chunk))); output.resume();
+        value.audioOutputs.push(sound); sound?.resume();
+      } };
     await value.session.switchCamera(target);
     await ended;
     assert.deepEqual(value.starts.at(-1), { channel: 8, audio: 8 });
@@ -152,6 +175,19 @@ test('an admitted camera asks for its audio and gets checked AAC after its first
     const delivered = value.session.stats.audio;
     await new Promise(resolve => setTimeout(resolve, 300));
     assert.ok(value.session.stats.audio > delivered);
+    assert.deepEqual(value.firstPictures, [0, 0]);
+    assert.equal(value.session.stats.applicationSequenceRecoveries, 0);
+  } finally { await value.close(); }
+});
+
+test('audio completing while a keyframe is still arriving neither fills the reorder queue nor costs the picture', { timeout: 30000 }, async () => {
+  const value = await fixture(true, true);
+  try {
+    await value.started();
+    await new Promise(resolve => setTimeout(resolve, 200));
+    assert.deepEqual(value.firstPictures, [0]);
+    assert.equal(value.session.stats.applicationSequenceRecoveries, 0);
+    assert.ok(value.session.stats.video >= 3);
   } finally { await value.close(); }
 });
 

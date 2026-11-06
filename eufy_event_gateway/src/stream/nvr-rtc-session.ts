@@ -32,6 +32,7 @@ import { nvrLiveCommand, nvrLiveJson, nvrLiveReceipt, nvrLivePanReply, nvrLiveSe
 
 const HEARTBEAT_ECHO = nvrHeartbeat();
 const NVR_RECEIVE_BUFFER_BYTES = 4 * 1024 * 1024;
+const XZYH = Buffer.from("XZYH");
 
 // The slowest measured camera, a doorbell, gave its first picture in 3.4 seconds.
 const SWITCH_PICTURE_MILLISECONDS = 8_000;
@@ -279,6 +280,9 @@ export class NvrRtcSession {
   readonly #sentCandidates = new Set<string>();
   readonly #turn: RTCIceServer[] = [];
   readonly #lastSequence = new Map<number, number>();
+
+  /** Transport sequences live audio has already used, per channel, which video must not wait for. */
+  readonly #audioSequences = new Map<number, Set<number>>();
   readonly #reorder = new Map<string, { channel: number; sequence: number; frame: Buffer; at: number }>();
   #reorderBytes = 0;
   #candidateBytes = 0;
@@ -482,7 +486,7 @@ export class NvrRtcSession {
     this.#cache = new VideoParameterSetCache();
     this.#codec = null; this.#videoSequence = null;
     this.#bootstrapped = false; this.#startVideoObserved = false; this.#settingsFlight = null;
-    this.#reassembler.clear(); this.#lastSequence.clear(); this.#reorder.clear(); this.#reorderBytes = 0;
+    this.#reassembler.clear(); this.#lastSequence.clear(); this.#audioSequences.clear(); this.#reorder.clear(); this.#reorderBytes = 0;
   }
 
   #nextPicture(): Promise<void> {
@@ -873,7 +877,7 @@ export class NvrRtcSession {
         try { await Promise.race([peer.close().catch(() => {}), new Promise<void>(resolve => { timer = setTimeout(resolve, 2500); })]); }
         finally { if (timer) clearTimeout(timer); }
       }
-      this.#reassembler.clear(); this.#reorder.clear(); this.#reorderBytes = 0;
+      this.#reassembler.clear(); this.#reorder.clear(); this.#reorderBytes = 0; this.#audioSequences.clear();
       this.#pendingCandidates.length = 0; this.#localCandidates.clear(); this.#turn.length = 0;
       this.output.end();
       this.#audioOutput.end();
@@ -1085,6 +1089,14 @@ export class NvrRtcSession {
     if (result.status !== "complete") return;
     const counter = (["channel0Frames", "channel1Frames", "channel2Frames", "channel3Frames", "channel4Frames", "channel5Frames"] as const)[result.channel];
     if (counter) this.stats[counter]++;
+
+    // Live audio shares video's transport sequence but arrives on its own data channel,
+    // one packet a frame, so it completes ahead of a large keyframe. It never waits for
+    // video and never sets the order, or that keyframe would look old and be dropped.
+    if (result.frame.length >= 6 && result.frame.readUInt16LE(4) === 1301 && result.frame.subarray(0, 4).equals(XZYH)) {
+      this.#audioArrived(result.channel, result.sequence, result.frame);
+      return;
+    }
     const previous = this.#lastSequence.get(result.channel);
     if (previous !== undefined) {
       const distance = (result.sequence - previous + 65536) % 65536;
@@ -1110,7 +1122,29 @@ export class NvrRtcSession {
     this.#reorderBytes += result.frame.length; this.#drain();
   }
 
+  /** Deliver audio at once and record its number, so video ordering steps over it. */
+  #audioArrived(channel: number, sequence: number, frame: Buffer): void {
+    const previous = this.#lastSequence.get(channel);
+
+    // Behind the delivered video, it belongs before the current picture or to the previous camera.
+    if (previous !== undefined && (sequence - previous + 65536) % 65536 >= 32768) return;
+    const used = this.#audioSequences.get(channel) ?? new Set<number>();
+    this.#audioSequences.set(channel, used);
+    if (used.size < 64) used.add(sequence);
+    this.#frame(frame, channel);
+    this.#drain();
+  }
+
   #drain(): void {
+    for (const [channel, used] of this.#audioSequences) {
+      let previous = this.#lastSequence.get(channel);
+      if (previous === undefined) continue;
+      while (used.delete((previous + 1) % 65536)) {
+        previous = (previous + 1) % 65536;
+        this.#lastSequence.set(channel, previous);
+      }
+      for (const sequence of used) if ((sequence - previous + 65536) % 65536 >= 32768) used.delete(sequence);
+    }
     for (const [key, item] of this.#reorder) {
       const previous = this.#lastSequence.get(item.channel);
       if (previous !== undefined && item.sequence !== (previous + 1) % 65536) continue;
