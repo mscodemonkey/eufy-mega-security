@@ -779,12 +779,16 @@ implementation limit may cancel an unusually slow connection before it can
 return a full clip. It is not a measured hardware performance guarantee.
 Trial footage is excluded from retained snapshots and diagnostic media capture.
 
-### Optional native camera video
+### Camera video format
 
-In **Settings → Devices & services → Eufy Mega Security → Configure**, enable
-**Try native camera video (video only)** to share the original H.264 or H.265
-video with Home Assistant. This option is off by default. Saving reloads the
-integration. Native H.265 avoids the gateway's H.264 compatibility conversion.
+Cameras send Home Assistant their own video, in whatever format they use. Avoiding
+the gateway's H.264 conversion saves up to two seconds each time a view opens and
+takes load off small hosts. This route is video only, so cameras with live audio
+are silent on it. A device that cannot play a camera's format shows no picture,
+and there is no automatic fallback. In either case enable **H.264 compatibility
+mode (slower)** in **Settings → Devices & services → Eufy Mega Security →
+Configure**, which converts every camera and restores live audio where a camera
+has it. Saving reloads the integration.
 Home Assistant's existing go2rtc provider continues to own WebRTC signalling.
 
 **Try faster native startup** is a separate, default-off option. With native video enabled, it gives a new ordinary HLS stream a two-second segment target. It uses less playback buffering, so turn it off if playback becomes unstable. Home Assistant must have low-latency HLS enabled. Existing streams, active recordings, preload and other cameras' settings are left to Home Assistant. Camera connection and keyframe timing can still limit startup.

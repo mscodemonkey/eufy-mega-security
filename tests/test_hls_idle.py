@@ -41,6 +41,7 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         self.camera._fast_native_hls = False
         self.camera._hls_idle_stream = None
         self.camera._stream_source_refreshing = False
+        self.camera.is_streaming = True
         self.original = Mock(return_value=SimpleNamespace(idle_timer=Mock()))
         self.stream = SimpleNamespace(add_provider=self.original, outputs=Mock(return_value={"hls": object()}),
                                       source="old", available=True, update_source=Mock(),

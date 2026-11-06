@@ -87,3 +87,14 @@ class NativeStreamTest(unittest.IsolatedAsyncioTestCase):
         camera._native_video = False
         await namespace["_async_stream_url"](camera)
         request.assert_awaited_with("fixture")
+
+
+class VideoFormatChoiceTest(unittest.TestCase):
+    """A camera's own video is the default, and the toggle converts every camera."""
+
+    def test_compatibility_is_the_only_choice(self) -> None:
+        tree = ast.parse((Path(__file__).parents[1] / "custom_components/eufy_event_gateway/camera.py").read_text())
+        value = next(node.value for node in ast.walk(tree) if isinstance(node, ast.Assign)
+                     and ast.unparse(node.targets[0]) == "self._native_video")
+        self.assertIs(eval(ast.unparse(value), {}, {"h264_compatibility": False}), True)
+        self.assertIs(eval(ast.unparse(value), {}, {"h264_compatibility": True}), False)
