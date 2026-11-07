@@ -236,12 +236,13 @@ for (const target of [hubPath, devicePath]) {
     await assert.rejects(f.client.generalRtcInventory(new AbortController().signal), error => {
       assert.ok(error instanceof GeneralRtcError);
       assert.deepEqual(error.inventory, {
-        operation: target === hubPath ? "hubs" : "devices", boundary: scenario.boundary, page: 0,
+        operation: target === hubPath ? "hubs" : "devices", boundary: scenario.boundary, page: 0, serviceRegion: "ie",
         httpStatus: scenario.httpStatus, ...("apiCode" in scenario ? { apiCode: scenario.apiCode } : {}),
         ...("responseClass" in scenario ? { responseClass: scenario.responseClass } : {}),
       });
       assert.doesNotMatch(JSON.stringify(error), /private-/);
       const diagnostic = generalRtcFailureDiagnostic(error);
+      assert.ok(diagnostic.includes("service_region=ie"));
       assert.doesNotMatch(diagnostic, /private-/);
       if ("responseClass" in scenario) assert.ok(diagnostic.includes(`response_class=${scenario.responseClass}`));
       if ("apiCode" in scenario) assert.ok(diagnostic.includes(`api_code=${scenario.apiCode}`));
@@ -256,7 +257,7 @@ test("transport failure keeps the inventory operation without inventing an HTTP 
   const f = await fixture(context, async () => { throw new Error("private-url-and-token"); });
   await assert.rejects(f.client.generalRtcHubs(2, new AbortController().signal), error => {
     assert.ok(error instanceof GeneralRtcError);
-    assert.deepEqual(error.inventory, { operation: "hubs", boundary: "request", page: 2 });
+    assert.deepEqual(error.inventory, { operation: "hubs", boundary: "request", page: 2, serviceRegion: "ie" });
     assert.doesNotMatch(JSON.stringify(error), /private-/);
     return true;
   });

@@ -1,10 +1,11 @@
 /**
  * Checks closed trial inputs and network policy without creating sockets.
  * Fixtures own only synthetic request bytes and SDP/network descriptions.
+ * The protocol formatter consumes their closed failure facts for support logs.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { GeneralRtcError, generalRtcFailureDiagnostic, generalRtcSubmission, generalRtcSmartHost } from "../src/stream/general-rtc-protocol.js";
+import { GeneralRtcError, generalRtcFailureDiagnostic, generalRtcServiceRegion, generalRtcSubmission, generalRtcSmartHost } from "../src/stream/general-rtc-protocol.js";
 import { generalRtcCandidate, generalRtcRelays } from "../src/stream/general-rtc-network.js";
 
 test("strict submission decodes escapes and permits either key order", () => {
@@ -67,10 +68,24 @@ test("IP-only candidates permit local media while refusing DNS hosts and related
 test("inventory log projection rejects arbitrary values and unknown fields", () => {
   const bad = {
     operation: "private-operation", boundary: "private-boundary", page: 7, httpStatus: 999,
-    apiCode: "private-code", responseClass: "private-response", token: "private-token",
+    apiCode: "private-code", responseClass: "private-response", serviceRegion: "private-host", token: "private-token",
   } as unknown as NonNullable<GeneralRtcError["inventory"]>;
   assert.equal(generalRtcFailureDiagnostic(new GeneralRtcError("inventory", "response", bad)), "stage=inventory reason=response");
   assert.equal(generalRtcFailureDiagnostic(new GeneralRtcError("video", "media", {
     operation: "hubs", boundary: "request", page: 0, httpStatus: 503,
   })), "stage=video reason=media");
+});
+
+test("inventory failures identify only an allowlisted service region, never the supplied host", () => {
+  for (const [host, expected] of [
+    ["security-app.eufylife.com", "us"], ["security-app-eu.eufylife.com", "eu"],
+    ["security-app-ie.eufylife.com", "ie"], ["private-host.invalid", "unknown"],
+    ["security-app.eufylife.com.private-host.invalid", "unknown"],
+  ] as const) {
+    const diagnostic = generalRtcFailureDiagnostic(new GeneralRtcError("inventory", "response", {
+      operation: "hubs", boundary: "request", httpStatus: 401, serviceRegion: generalRtcServiceRegion(host),
+    }));
+    assert.ok(diagnostic.includes(`service_region=${expected}`));
+    assert.doesNotMatch(diagnostic, /private-|eufylife\.com/);
+  }
 });
