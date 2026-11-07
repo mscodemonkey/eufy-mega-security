@@ -73,6 +73,9 @@ export const FAILURE_CODES = Object.freeze(["busy", "unavailable", "rate_limited
 /** How long the S4 lens change waits for the camera's last session to close. */
 export const LENS_WAIT_MS = 90000;
 
+/** The S4 Camera view option that shows Fixed above Movable in one picture. */
+export const STACKED_VIEW = "both";
+
 /** The gateway spaces NVR actions at least one second apart. */
 export const ACTION_GAP_MS = 1000;
 
@@ -106,6 +109,7 @@ const STRINGS = {
     off: "Off",
     lens: "Lens",
     lens_switch: "Use the {lens} lens. Live video restarts.",
+    both_switch: "Show both lenses, Fixed above Movable. Live video restarts.",
     requested: "{level} requested, not confirmed",
     siren: "Siren",
     siren_confirm: "Siren on {camera}",
@@ -131,6 +135,7 @@ const STRINGS = {
     lens_closing: "Closing the live view so the lens can change… {seconds} s",
     lens_sending: "Changing the lens…",
     lens_done: "Lens changed to {lens}. Starting live video…",
+    both_done: "Showing both lenses. Starting live video…",
     lens_busy: "Another live view or recording is still using this camera. Close it and try again.",
     no_cameras: "No Eufy Mega Security cameras were found.",
   },
@@ -150,6 +155,18 @@ export function cssRatio(value) {
   const percent = /^(\d+(?:\.\d+)?)%$/.exec(text);
   if (percent && Number(percent[1]) > 0) return `100 / ${percent[1]}`;
   return Number(text) > 0 ? text : "16 / 9";
+}
+
+/**
+ * How the picture card shows a camera's stream for its Camera view.
+ *
+ * Both is one 8:9 picture of two 16:9 panes, Fixed above Movable. Cover keeps
+ * the panes edge to edge even when a compatibility conversion has added side
+ * bars. Every other view keeps the configured shape.
+ */
+export function pictureLayout(view, aspectRatio) {
+  if (view === STACKED_VIEW) return { stacked: true, aspectRatio: "8:9", fitMode: "cover" };
+  return { stacked: false, aspectRatio: aspectRatio || "16:9", fitMode: "contain" };
 }
 
 /** Fill {name} placeholders in a card string. */
@@ -358,7 +375,7 @@ export class LiveController {
         show({ tone: "pending", text: this.text.lens_sending });
         try {
           await this.callService("select", "select_option", { entity_id: entityId, option });
-          outcome = { tone: "done", text: format(this.text.lens_done, { lens: lensName }) };
+          outcome = { tone: "done", text: option === STACKED_VIEW ? this.text.both_done : format(this.text.lens_done, { lens: lensName }) };
         } catch (error) {
           if (failureCode(error) === "busy" && this.now() < deadline) {
             show({ tone: "pending", text: format(this.text.lens_closing, { seconds: Math.round((this.now() - started) / 1000) }) });
@@ -372,7 +389,10 @@ export class LiveController {
       if (!stale()) {
         this.lens = null;
         if (outcome) this.status = outcome;
-        this.startVideo();
+
+        // Home Assistant may deliver the new Camera view after the service call
+        // returns, so the restart is told which view it now shows.
+        this.startVideo(outcome?.tone === "done" ? option : undefined);
         this.onChange();
       }
     }
@@ -448,6 +468,10 @@ const STYLE = `
   .chips button.requested { box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, .85); }
   .chips button.requested::after { content: "?"; font-size: 9px; vertical-align: super; margin-left: 1px; opacity: .8; }
 
+  .pane-label { position: absolute; left: 10px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; pointer-events: none; }
+  .pane-label.upper { bottom: calc(50% + 8px); }
+  .pane-label.lower { top: calc(50% + 8px); }
+
   .hint { position: absolute; left: 50%; bottom: 48px; transform: translateX(-50%); padding: 4px 10px; border-radius: 999px; font-size: 11.5px; white-space: nowrap; }
 
   .menu { position: absolute; right: 66px; top: 50%; transform: translateY(-50%); width: 236px; max-width: calc(100% - 84px);
@@ -473,6 +497,7 @@ const STYLE = `
     .menu { right: 58px; }
     .status { max-width: calc(100% - 80px); top: 44px; left: 8px; }
     .chips button { min-width: 30px; height: 26px; padding: 0 7px; }
+    .pane-label { left: 8px; font-size: 11px; }
   }
   @container (min-width: 720px) {
     .pad { width: 128px; height: 128px; left: 16px; bottom: 16px; }
@@ -528,7 +553,7 @@ export class EufyLiveCard extends BaseElement {
     this._controller = new LiveController({
       callService: (domain, service, data) => this._hass.callService(domain, service, data, undefined, false),
       cameraState: () => this._hass?.states?.[this._camera]?.state,
-      startVideo: () => this._startVideo(),
+      startVideo: (view) => this._startVideo(view),
       stopVideo: () => this._stopVideo(),
       onChange: () => this._render(true),
       text: STRINGS.en,
@@ -615,17 +640,19 @@ export class EufyLiveCard extends BaseElement {
     this._render(true);
   }
 
-  async _startVideo() {
+  async _startVideo(view) {
     if (!this.shadowRoot || !this._hass || !this._camera) return;
     const token = ++this._videoToken;
+    const layout = pictureLayout(view ?? this._viewState(), this._config?.aspect_ratio);
+    this._videoStacked = layout.stacked;
     const config = {
       type: "picture-entity",
       entity: this._camera,
       camera_view: this._live ? "live" : "auto",
       show_name: false,
       show_state: false,
-      fit_mode: "contain",
-      aspect_ratio: this._config?.aspect_ratio || "16:9",
+      fit_mode: layout.fitMode,
+      aspect_ratio: layout.aspectRatio,
       tap_action: { action: "none" },
       hold_action: { action: "none" },
     };
@@ -636,6 +663,12 @@ export class EufyLiveCard extends BaseElement {
     element.hass = this._hass;
     this._videoEl = element;
     this._videoHost.replaceChildren(element);
+  }
+
+  /** The shown camera's Camera view option, if it has one. */
+  _viewState() {
+    const view = findControls(this._hass, this._camera).view;
+    return view ? this._hass.states?.[view]?.state : undefined;
   }
 
   _stopVideo() {
@@ -670,6 +703,14 @@ export class EufyLiveCard extends BaseElement {
     if (!force && signature === this._signature) return;
     this._signature = signature;
     this._controls = findControls(this._hass, this._camera);
+
+    // A new Camera view changes the picture's shape. The lens change restarts
+    // video itself, so only a change made elsewhere restarts it here.
+    const view = this._controls.view ? this._hass.states?.[this._controls.view]?.state : undefined;
+    if (view !== this._lastView) {
+      this._lastView = view;
+      if (this._videoEl && !this._controller.lens && pictureLayout(view).stacked !== this._videoStacked) this._startVideo();
+    }
     this._overlay.innerHTML = this._camera ? this._overlayHtml() : `<div class="empty">${escapeHtml(this._controller.text.no_cameras)}</div>`;
     this._scheduleStatusClear();
   }
@@ -721,6 +762,14 @@ export class EufyLiveCard extends BaseElement {
       parts.push(`<button class="play glass" data-action="play" aria-label="${escapeHtml(t.play)}">${icon("mdi:play")}</button>`);
     }
 
+    // Both: name each pane, as the eufy app does. Only over live stacked video,
+    // because a still image may come from an earlier single-lens view.
+    if (this._live && this._videoStacked && !this._controller.lens && c.view) {
+      const view = hass.states[c.view];
+      parts.push(`<span class="pane-label upper glass">${escapeHtml(this._optionLabel(view, "fixed"))}</span>`
+        + `<span class="pane-label lower glass">${escapeHtml(this._optionLabel(view, "movable"))}</span>`);
+    }
+
     parts.push(`<div class="strip glass">${
       hasPan ? `<button data-action="pad" aria-pressed="${this._padOpen}" aria-label="${escapeHtml(t.pan_tilt)}">${icon("mdi:arrow-all")}<span>${escapeHtml(t.pan_tilt_short)}</span></button>` : ""
     }<button data-action="menu" aria-expanded="${this._menu !== null}" aria-label="${escapeHtml(t.more)}">${icon("mdi:dots-horizontal")}<span>${escapeHtml(t.more_short)}</span></button></div>`);
@@ -744,7 +793,7 @@ export class EufyLiveCard extends BaseElement {
           const label = this._optionLabel(view, option);
           const current = option === view.state;
           const pending = this._controller.lens?.option === option;
-          return `<button role="radio" aria-checked="${current}" class="${current ? "current" : ""}${pending ? " requested" : ""}" data-action="lens" data-option="${escapeHtml(option)}"${current ? "" : ` title="${escapeHtml(format(t.lens_switch, { lens: label }))}"`}${busy || current ? " disabled" : ""}>${escapeHtml(label)}</button>`;
+          return `<button role="radio" aria-checked="${current}" class="${current ? "current" : ""}${pending ? " requested" : ""}" data-action="lens" data-option="${escapeHtml(option)}"${current ? "" : ` title="${escapeHtml(option === STACKED_VIEW ? t.both_switch : format(t.lens_switch, { lens: label }))}"`}${busy || current ? " disabled" : ""}>${escapeHtml(label)}</button>`;
         }).join("")}</div>`);
       }
     }

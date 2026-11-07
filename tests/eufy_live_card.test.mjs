@@ -208,6 +208,35 @@ test("keeps the picture's shape while video is closed", () => {
   assert.equal(card.cssRatio("0:9"), "16 / 9");
 });
 
+test("Both is one 8:9 picture, cover-fitted; other views keep the configured shape", () => {
+  assert.deepEqual(card.pictureLayout("both", "4:3"), { stacked: true, aspectRatio: "8:9", fitMode: "cover" });
+  assert.deepEqual(card.pictureLayout("movable", "4:3"), { stacked: false, aspectRatio: "4:3", fitMode: "contain" });
+  assert.deepEqual(card.pictureLayout("fixed", undefined), { stacked: false, aspectRatio: "16:9", fitMode: "contain" });
+  assert.deepEqual(card.pictureLayout(undefined, ""), { stacked: false, aspectRatio: "16:9", fitMode: "contain" });
+  assert.equal(card.cssRatio(card.pictureLayout("both").aspectRatio), "8 / 9");
+});
+
+test("changing to Both says so and restarts video on the Both view", async () => {
+  const starts = [];
+  const time = clock();
+  const instance = new card.LiveController({
+    callService: async () => {},
+    cameraState: () => "idle",
+    startVideo: (view) => starts.push(view),
+    stopVideo: () => {},
+    onChange: () => {},
+    text,
+    wait: time.wait,
+    now: time.now,
+  });
+  assert.equal(await instance.changeLens("select.drive_view", "both", "Both"), true);
+  assert.equal(instance.status.text, text.both_done);
+  assert.deepEqual(starts, ["both"]);
+  assert.equal(await instance.changeLens("select.drive_view", "movable", "Movable"), true);
+  assert.equal(instance.status.text, card.format(text.lens_done, { lens: "Movable" }));
+  assert.deepEqual(starts, ["both", "movable"]);
+});
+
 test("the S350 and S4 offer their two lenses, 1x and 3x", () => {
   const zoom = { 1: "button.z1", 2: "button.z2", 3: "button.z3" };
   for (const model of ["T8416", "T8E00"]) {
