@@ -490,10 +490,10 @@ class EufyNvrViewSelect(EufyGatewayEntity, SelectEntity):
 
     @property
     def options(self) -> list[str]:
-        """Map only the two admitted model-specific choices."""
-        labels = {"Fixed": "fixed", "Movable": "movable", "Wide": "wide", "Telephoto": "telephoto"}
+        """Map only the admitted model-specific choices."""
+        labels = {"Fixed": "fixed", "Movable": "movable", "Both": "both", "Wide": "wide", "Telephoto": "telephoto"}
         raw = self.camera.get("nvrViewOptions")
-        if raw not in (["Fixed", "Movable"], ["Wide", "Telephoto"]):
+        if raw not in (["Fixed", "Movable"], ["Fixed", "Movable", "Both"], ["Wide", "Telephoto"]):
             return []
         return [labels[value] for value in raw]
 

@@ -31,10 +31,11 @@ class NvrUiTest(unittest.TestCase):
         return namespace[name]
 
     def test_view_choices_are_closed_and_not_physical_state(self) -> None:
-        """Only the two source-defined pairs form a selectable next-start choice."""
+        """Only the source-defined sets form a selectable next-start choice."""
         cls = self.load_class("select.py", "EufyNvrViewSelect")
         entity = object.__new__(cls)
-        for raw, options in ((["Wide", "Telephoto"], ["wide", "telephoto"]), (["Fixed", "Movable"], ["fixed", "movable"]), (["arbitrary"], []), (None, [])):
+        for raw, options in ((["Wide", "Telephoto"], ["wide", "telephoto"]), (["Fixed", "Movable"], ["fixed", "movable"]),
+                             (["Fixed", "Movable", "Both"], ["fixed", "movable", "both"]), (["Wide", "Telephoto", "Both"], []), (["arbitrary"], []), (None, [])):
             entity.camera = {"nvrViewOptions": raw, "nvrSelectedView": 1}
             self.assertEqual(entity.options, options)
             self.assertEqual(entity.available, bool(options))
@@ -99,6 +100,10 @@ class NvrClientTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls[-1][1]["payload"], {"kind": "zoom", "level": 2})
         with self.assertRaises(error):
             await instance.perform_nvr_live_control("synthetic", direction="held")
+        await instance.set_nvr_view("synthetic", 2)
+        self.assertEqual(calls[-1][1]["payload"], {"view": 2})
+        with self.assertRaises(error):
+            await instance.set_nvr_view("synthetic", 3)
 
     async def test_invalid_nvr_bodies_are_fixed_uncertainty(self) -> None:
         """A bad response never turns a possible device write into a safe retry."""

@@ -140,6 +140,19 @@ test('NVR trial profiles match only exact reported model and type pairs', () => 
   assert.throws(() => nvrCommand('synthetic', 1224 as never, 1, 0));
 });
 
+test('the stacked source asks for both lenses of one channel in one picture, lens 0 first', () => {
+  const start = JSON.parse(nvrApplication(nvrCommand('synthetic', 1003, 1, 9, 'both')).payload.toString()).payload;
+  assert.equal(start.stitch_mode, 5);
+  assert.deepEqual(start.chn_list, [{ index: 0, chn: 9, sensor: 0 }, { index: 1, chn: 9, sensor: 1 }]);
+  assert.deepEqual(start.stitch_resolution, { width: 1280, height: 1440 });
+  const single = JSON.parse(nvrApplication(nvrCommand('synthetic', 1003, 1, 9, 1)).payload.toString()).payload;
+  assert.equal(single.stitch_mode, 1);
+  assert.equal(single.stitch_resolution, undefined);
+  assert.deepEqual(JSON.parse(nvrApplication(nvrCommand('synthetic', 1103, 1, 9, 'both')).payload.toString()).payload,
+    { channel_info: { array_size: 2, channel_array: [255, 9] } });
+  for (const wrong of ['Both', 2, -1]) assert.throws(() => nvrCommand('synthetic', 1003, 1, 9, wrong as never));
+});
+
 test('NVR discovery rejects ambiguous aliases and duplicate selected identities before video', () => {
   const row = { sn: 'synthetic-camera', ch: 0, dev_type: 14 };
   for (const rows of [[{ ...row, type: 301 }], [{ ...row, type: '14' }], [row, { ...row, dev_type: 301 }], [row, { ...row, sn: 'synthetic-other' }], [row, { ...row, ch: 1 }], [{ ...row, dev_type: undefined }]]) {

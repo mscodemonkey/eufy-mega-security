@@ -38,7 +38,7 @@ test("NVR routes reject unauthenticated, duplicate, unknown and conflicting inpu
     const send = (path: string, body: string, authorised = true) => fetch(`${base}/${path}`, { method: "POST", headers: authorised ? { authorization: "Bearer synthetic-secret", "content-type": "application/json" } : {}, body });
     assert.equal((await send("synthetic/nvr-view", '{"view":1}', false)).status, 401);
     assert.equal((await send("missing/nvr-view", '{"view":1}')).status, 404);
-    for (const body of ['{"view":0,"view":1}', '{"view":1,"extra":0}', '{"view":true}', '{"view":2}', '{"view":0,"\\u0076iew":1}']) assert.equal((await send("synthetic/nvr-view", body)).status, 400);
+    for (const body of ['{"view":0,"view":1}', '{"view":1,"extra":0}', '{"view":true}', '{"view":3}', '{"view":0,"\\u0076iew":1}']) assert.equal((await send("synthetic/nvr-view", body)).status, 400);
     for (const body of ['{"kind":"pan","direction":"left","extra":0}', '{"kind":"pan","direction":"left","direction":"right"}', '{"kind":"zoom","level":4}', '{"kind":"pan","direction":"held"}']) assert.equal((await send("synthetic/nvr-live-control", body)).status, 400);
     assert.equal(calls, 0);
     assert.equal((await send("synthetic/streaming-quality", '{"quality":1}', false)).status, 401);
@@ -54,6 +54,7 @@ test("NVR routes reject unauthenticated, duplicate, unknown and conflicting inpu
     assert.equal((await send("synthetic/streaming-quality", '{"quality":4}')).status, 200);
     active = true; assert.equal((await send("synthetic/nvr-view", '{"view":1}')).status, 409);
     active = false; assert.equal((await send("synthetic/nvr-view", '{"view":1}')).status, 200);
+    assert.equal((await send("synthetic/nvr-view", '{"view":2}')).status, 200);
     assert.equal((await send("synthetic/nvr-live-control", '{"kind":"pan","direction":"left"}')).status, 200);
     limited = true;
     const response = await send("synthetic/nvr-live-control", '{"kind":"pan","direction":"left"}');

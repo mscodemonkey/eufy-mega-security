@@ -81,19 +81,28 @@ export function nvrTrialSensor(model: string, deviceType: number | null): 0 | 1 
 }
 
 /**
+ * One lens, or "both" for the two lenses of one channel stacked by the recorder
+ * into a single picture: lens 0 above lens 1, each 1280x720.
+ */
+export type NvrSource = 0 | 1 | "both";
+
+/**
  * Encode only fixed trial operations, keeping the chosen lens separate from its channel.
  * A start asks for no audio unless an audio channel is given.
  */
-export function nvrCommand(account: string, command: 9100 | 1003 | 1004 | 1103, segment: number, channel: number, sensor: 0 | 1 = 1,
+export function nvrCommand(account: string, command: 9100 | 1003 | 1004 | 1103, segment: number, channel: number, sensor: NvrSource = 1,
   audioChannel = -1): Buffer {
   if (![9100, 1003, 1004, 1103].includes(command)) throw new NvrTrialError("framing");
   if (!Number.isInteger(segment) || segment < 1 || segment > 254 || !Number.isInteger(channel) || channel < 0 || channel > 254
     || !Number.isInteger(audioChannel) || audioChannel < -1 || audioChannel > 254) {
     throw new NvrTrialError("framing");
   }
-  if (sensor !== 0 && sensor !== 1) throw new NvrTrialError("framing");
+  if (sensor !== 0 && sensor !== 1 && sensor !== "both") throw new NvrTrialError("framing");
+  const start = sensor === "both"
+    ? { stitch_mode: 5, chn_list: [{ index: 0, chn: channel, sensor: 0 }, { index: 1, chn: channel, sensor: 1 }], stitch_resolution: { width: 1280, height: 1440 } }
+    : { stitch_mode: 1, chn_list: [{ index: 0, chn: channel, sensor }] };
   const payload = command === 1003 ? { ClientOS: "WEB", entrytype: 1, camera_type: 0, streamtype: 2,
-    key: "", msg_id: "", audio_chn: audioChannel, stitch_mode: 1, chn_list: [{ index: 0, chn: channel, sensor }] }
+    key: "", msg_id: "", audio_chn: audioChannel, ...start }
     : command === 1103 ? { channel_info: { array_size: 2, channel_array: [255, channel] } } : {};
   const body = Buffer.from(JSON.stringify({ account_id: account, cmd: command, payload }));
   const header = Buffer.alloc(16);
