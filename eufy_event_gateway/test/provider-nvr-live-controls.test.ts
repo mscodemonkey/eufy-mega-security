@@ -119,6 +119,17 @@ test("104 profile offers no view choice, with pan and optical zoom on its only s
   assert.deepEqual(value.writes, [{ kind: "zoom", level: 2 }, { kind: "pan", direction: "left" }]);
 });
 
+for (const [model, type] of [["T8E00", 301], ["T8416", 104]] as const) test(`${model} sessions settle pan on the receipt`, async context => {
+  const value = await fixture(context, model, type);
+  let receiptOnly: boolean | undefined;
+  context.mock.method(NvrRtcSession.prototype, "writeLiveControl", async function (this: unknown, _request: NvrLiveWrite, _signal: AbortSignal, before: () => void) {
+    before(); receiptOnly = (this as { options: { panReceiptOnly?: boolean } }).options.panReceiptOnly;
+  });
+  await value.provider.startStream("synthetic-camera"); await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(await value.provider.performNvrLiveControl("synthetic-camera", { kind: "pan", direction: "left" }), { outcome: "request_accepted", physicalConfirmationRequired: true });
+  assert.equal(receiptOnly, true);
+});
+
 test("104 streams with only the video flag but offers no NVR controls", async context => {
   const value = await fixture(context, "T8416", 104, false);
   const camera = value.state.getCamera("synthetic-camera");
