@@ -345,7 +345,14 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         def add_output(fmt: str, timeout: int | None = None) -> StreamOutput:
             """Arm the startup deadline when a consumer requests ordinary HLS."""
             if fmt != "hls":
+                view = _view_of(stream.source)
                 stream.source = _with_view(stream.source, None)
+
+                # A recording added to a running view shares its connection, so
+                # the gateway would still let another camera take that call. A
+                # stream with no output yet opens with the unmarked URL instead.
+                if view is not None and stream.outputs() and self.hass is not None:
+                    self.hass.async_create_task(self._async_hold_view(view))
             tune_first_output = (fast_native_hls and fmt == "hls" and timeout is None
                                  and not stream.outputs()
                                  and not stream.dynamic_stream_settings.preload_stream)
@@ -559,6 +566,13 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
             self._native_video or self.camera.get("liveAudioSupported") is not True
         )
         return _new_view(await self._async_stream_url())
+
+    async def _async_hold_view(self, view: str) -> None:
+        """Ask the gateway to keep the NVR call with a view that is now recording."""
+        try:
+            await self.coordinator.client.hold_live_view(self.serial, view)
+        except (GatewayClientError, ValueError):
+            _LOGGER.debug("Live view hold failed, so another camera's view may take this recording's call")
 
     async def _async_stream_url(self) -> str:
         """Select the same source profile for initial open and both renewals."""

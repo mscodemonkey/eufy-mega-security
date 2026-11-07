@@ -324,6 +324,6 @@ options:
         experimental_fast_native_hls: Prøv hurtigere opstart af original video
         experimental_short_hls_idle: Prøv en HLS-inaktivitetstimeout på 60 sekunder
       data_description:
-        h264_compatibility: Slået fra som standard. Kameraer sender deres egen video til Home Assistant i det format, de bruger, hvilket åbner og skifter hurtigst. Slå kun dette til, hvis en enhed ikke kan afspille det format. Alle kameraer bruger så H.264-konvertering, som lægger op til to sekunder til hver visning.
+        h264_compatibility: "Slået fra for nye installationer. Installationer fra før denne indstilling beholder den video, de havde: slået til, medmindre native kameravideo var aktiveret. Når den er slået fra, sender kameraer deres egen video til Home Assistant i det format, de bruger, hvilket åbner og skifter hurtigst. Slå dette til, hvis en enhed ikke kan afspille det format. Alle kameraer bruger så H.264-konvertering, som lægger op til to sekunder til hver visning."
         experimental_fast_native_hls: Slået fra som standard. Kræver original kameravideo. Bruger mindre afspilningsbuffer. Slå fra, hvis afspilningen bliver ustabil.
         experimental_short_hls_idle: Slået fra som standard. Afslutter ubrugt livevisning i HA tidligere baseret på seerforespørgsler. Slå kameraets forudindlæsning fra under testen. Optagelser beholder deres egen timeout. Ved meget langsom opstart kan det være nødvendigt at slå indstillingen fra igen.

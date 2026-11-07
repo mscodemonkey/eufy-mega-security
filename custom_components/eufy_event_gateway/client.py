@@ -444,6 +444,14 @@ class GatewayClient:
             raise GatewayClientError("Gateway returned an invalid native stream response") from None
         return self._url(path)
 
+    async def hold_live_view(self, serial: str, view: str) -> bool:
+        """Keep an NVR call with a marked view that Home Assistant now records from."""
+        payload = await self._json(
+            f"/api/cameras/{quote(serial, safe='')}/live-view-hold", method="POST",
+            payload={"view": view}, timeout=10,
+        )
+        return payload.get("held") is True
+
     async def capture_snapshot(self, serial: str) -> None:
         """Ask the gateway to wake a supported camera and retain a new JPEG."""
         await self._json(f"/api/cameras/{serial}/capture-snapshot", method="POST")

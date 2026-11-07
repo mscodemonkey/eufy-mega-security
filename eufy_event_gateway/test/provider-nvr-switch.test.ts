@@ -225,6 +225,45 @@ test("a lease or a recording keeps the call", async context => {
   } finally { await value.close(); }
 });
 
+test("a Home Assistant recording added to a running marked view keeps the call", async context => {
+  const value = await fixture(context);
+  try {
+    const recording = await open(value, a, view("a"));
+    assert.equal(value.manager.canYieldSource(a), true);
+
+    // HA records over the connection the view already has; only the hold tells the gateway.
+    assert.equal(value.manager.holdView(a, view("a")), true);
+    assert.equal(value.manager.canYieldSource(a), false);
+    const refused = await open(value, b, view("b"));
+    assert.equal(refused.destroyed, true);
+    assert.equal(recording.destroyed, false);
+    assert.equal(value.manager.hasActiveViewer(a), true);
+    assert.equal(value.switches.length, 0);
+
+    // A reconnect that still carries the held mark keeps the call as well.
+    recording.destroy(); await settled();
+    const reconnected = await open(value, a, view("a"));
+    assert.equal(value.manager.canYieldSource(a), false);
+    const again = await open(value, b, view("b-again"));
+    assert.equal(again.destroyed, true);
+    assert.equal(reconnected.destroyed, false);
+    assert.equal(value.switches.length, 0);
+  } finally { await value.close(); }
+});
+
+test("holding one camera's view leaves another camera's view free to yield", async context => {
+  const value = await fixture(context);
+  try {
+    await open(value, a, view("a"));
+    assert.equal(value.manager.holdView(b, view("a")), false);
+    assert.equal(value.manager.holdView(a, view("other")), false);
+    assert.equal(value.manager.canYieldSource(a), true);
+    const second = await open(value, b, view("b"));
+    assert.equal(second.destroyed, false);
+    assert.deepEqual(value.switches.map(row => row.camera), [b]);
+  } finally { await value.close(); }
+});
+
 test("a HomeBase route has no call to move", async context => {
   const value = await fixture(context, "T9000");
   try {

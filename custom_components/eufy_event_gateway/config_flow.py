@@ -37,6 +37,9 @@ class EufyGatewayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """
 
     VERSION = 1
+
+    # Minor version 2 replaced the native-video opt-in with H.264 compatibility mode.
+    MINOR_VERSION = 2
     _discovered_data: dict[str, Any] | None = None
 
     @staticmethod

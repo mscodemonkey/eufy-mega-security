@@ -56,6 +56,9 @@ CONF_SHORT_HLS_IDLE = "experimental_short_hls_idle"
 
 CONF_H264_COMPATIBILITY = "h264_compatibility"
 
+# The earlier native-video opt-in. Migration turns it into the option above.
+CONF_LEGACY_NATIVE_VIDEO = "experimental_native_video"
+
 
 # Shorten only a new, isolated native HLS stream after explicit entry opt-in.
 CONF_FAST_NATIVE_HLS = "experimental_fast_native_hls"

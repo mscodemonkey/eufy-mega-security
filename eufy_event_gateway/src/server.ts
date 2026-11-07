@@ -1202,6 +1202,9 @@ export class GatewayServer {
       ) {
         return await this.#eventImage(segments[2]!, response);
       }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras" && segments[3] === "live-view-hold" && segments.length === 4) {
+        return await this.#holdLiveView(request, segments[2]!, response);
+      }
       if (
         request.method === "GET" &&
         segments[0] === "api" && segments[1] === "cameras"
@@ -1618,6 +1621,17 @@ export class GatewayServer {
     else await this.streams.addClient(serial, response, profile, view);
   }
 
+  /** Keep an NVR call with a marked view that Home Assistant has started recording from. */
+  async #holdLiveView(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
+    let body: Record<string, unknown>;
+    try { body = await readJson(request); }
+    catch { return json(response, 400, { error: "Invalid live view hold request" }); }
+    const view = typeof body.view === "string" && LIVE_VIEW_PATTERN.test(body.view) ? body.view : undefined;
+    if (!view) return json(response, 400, { error: "Invalid live view hold request" });
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    return json(response, 200, { held: this.streams.holdView(serial, view) });
+  }
+
   async #streamToken(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
     let profile: ViewerProfile | undefined;
     try { profile = await readStreamProfile(request); }
@@ -1875,6 +1889,7 @@ async function readStreamProfile(request: IncomingMessage): Promise<ViewerProfil
 
 const STREAM_TOKEN_QUERY = "access_token";
 const LIVE_VIEW_QUERY = "view";
+const LIVE_VIEW_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 
 /** Sign a native-only camera URL with a key separated from compatible tokens. */
 export function createNativeStreamToken(serial: string, expiresAt: number, apiToken: string): string {
@@ -1896,7 +1911,7 @@ export function validateNativeStreamToken(serial: string, token: string | null, 
 /** Home Assistant marks an ordinary view so it may move an NVR's call, and may yield it. */
 function liveViewMark(url: URL): string | undefined {
   const marks = url.searchParams.getAll(LIVE_VIEW_QUERY);
-  return marks.length === 1 && /^[A-Za-z0-9_-]{16,64}$/.test(marks[0]!) ? marks[0] : undefined;
+  return marks.length === 1 && LIVE_VIEW_PATTERN.test(marks[0]!) ? marks[0] : undefined;
 }
 
 function safeError(error: unknown): string {

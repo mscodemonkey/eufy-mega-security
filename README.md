@@ -788,7 +788,9 @@ are silent on it. A device that cannot play a camera's format shows no picture,
 and there is no automatic fallback. In either case enable **H.264 compatibility
 mode (slower)** in **Settings → Devices & services → Eufy Mega Security →
 Configure**, which converts every camera and restores live audio where a camera
-has it. Saving reloads the integration.
+has it. Saving reloads the integration. Installations set up before this option
+keep the video they had: compatibility mode is on unless they had enabled
+**Try native camera video**, so native video stays opt-in for them.
 Home Assistant's existing go2rtc provider continues to own WebRTC signalling.
 
 **Try faster native startup** is a separate, default-off option. With native video enabled, it gives a new ordinary HLS stream a two-second segment target. It uses less playback buffering, so turn it off if playback becomes unstable. Home Assistant must have low-latency HLS enabled. Existing streams, active recordings, preload and other cameras' settings are left to Home Assistant. Camera connection and keyframe timing can still limit startup.

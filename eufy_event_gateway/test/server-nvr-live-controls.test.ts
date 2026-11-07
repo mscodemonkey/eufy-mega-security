@@ -60,3 +60,25 @@ test("NVR routes reject unauthenticated, duplicate, unknown and conflicting inpu
     assert.equal(response.status, 409); assert.equal((await response.json()).code, "rate_limited");
   } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+test("the live view hold route checks its input and holds only the named view", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "nvr-live-hold-")), state = new GatewayState();
+  state.registerCamera({ serial: "synthetic", name: "Synthetic", model: "T8416", stationSerial: "synthetic-parent",
+    streamSupported: true, doorbellSupported: false, nvrViewOptions: [], nvrSelectedView: null, nvrLiveControlsSupported: true });
+  const held: Array<[string, string]> = [];
+  const streams = { holdView: (serial: string, view: string) => { held.push([serial, view]); return true; } } as unknown as LiveStreamManager;
+  const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "synthetic-secret" }, state, new SnapshotStore(directory), streams, {} as CameraProvider, null);
+  try {
+    await server.listen();
+    const send = (path: string, body: string, authorised = true) => fetch(`http://127.0.0.1:${server.port}/api/cameras/${path}/live-view-hold`,
+      { method: "POST", headers: authorised ? { authorization: "Bearer synthetic-secret", "content-type": "application/json" } : {}, body });
+    const mark = "synthetic-view-0000000";
+    assert.equal((await send("synthetic", JSON.stringify({ view: mark }), false)).status, 401);
+    assert.equal((await send("missing", JSON.stringify({ view: mark }))).status, 404);
+    for (const body of ["{}", '{"view":1}', '{"view":"short"}', '{"view":"has spaces in it here"}', "not json"]) assert.equal((await send("synthetic", body)).status, 400);
+    assert.deepEqual(held, []);
+    const response = await send("synthetic", JSON.stringify({ view: mark }));
+    assert.equal(response.status, 200); assert.deepEqual(await response.json(), { held: true });
+    assert.deepEqual(held, [["synthetic", mark]]);
+  } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
+});

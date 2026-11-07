@@ -23,7 +23,7 @@ def _load() -> tuple[dict, type]:
                and node.name in {"_view_of", "_with_view", "_new_view"}]
     camera = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "EufyGatewayCamera")
     hooks = [node for node in camera.body if isinstance(node, ast.AsyncFunctionDef)
-             and node.name in {"async_create_stream", "_async_refresh_stream_source"}]
+             and node.name in {"async_create_stream", "_async_refresh_stream_source", "_async_hold_view"}]
     base = type("CameraBase", (), {"async_create_stream": AsyncMock()})
     cls = ast.ClassDef(name="TestCamera", bases=[ast.Name(id="CameraBase", ctx=ast.Load())], keywords=[], body=hooks, decorator_list=[])
     module = ast.fix_missing_locations(ast.Module(body=[*helpers, cls], type_ignores=[]))
@@ -123,6 +123,36 @@ class LiveViewMarkTest(unittest.IsolatedAsyncioTestCase):
         await self.camera.async_create_stream()
         self.stream.add_provider("recorder", 30)
         self.assertIsNone(self._view(self.stream.source))
+
+    async def test_a_recording_added_to_a_running_view_holds_its_call(self) -> None:
+        self.camera.stream = self.stream
+        self.stream.outputs.return_value = {"hls": object()}
+        self.stream.source = self.namespace["_with_view"](URL, "running-mark-000000")
+        hold = AsyncMock(return_value=True)
+        self.camera.serial = "demo"
+        self.camera.coordinator = SimpleNamespace(client=SimpleNamespace(hold_live_view=hold))
+        tasks: list = []
+        self.camera.hass = SimpleNamespace(async_create_task=lambda coro: tasks.append(asyncio.ensure_future(coro)))
+        await self.camera.async_create_stream()
+        self.stream.add_provider("recorder", 30)
+        self.assertIsNone(self._view(self.stream.source))
+        self.assertEqual(len(tasks), 1)
+        await tasks[0]
+        hold.assert_awaited_once_with("demo", "running-mark-000000")
+
+    async def test_a_recording_on_an_unmarked_stream_sends_no_hold(self) -> None:
+        self.camera.stream = self.stream
+        self.stream.outputs.return_value = {"hls": object()}
+        self.camera.hass = SimpleNamespace(async_create_task=Mock())
+        await self.camera.async_create_stream()
+        self.stream.add_provider("recorder", 30)
+        self.camera.hass.async_create_task.assert_not_called()
+
+    async def test_a_failed_hold_is_logged_and_does_not_stop_the_recording(self) -> None:
+        self.camera.serial = "demo"
+        for failure in (RuntimeError("gateway"), ValueError("body")):
+            self.camera.coordinator = SimpleNamespace(client=SimpleNamespace(hold_live_view=AsyncMock(side_effect=failure)))
+            await self.camera._async_hold_view("running-mark-000000")
 
 
 if __name__ == "__main__":

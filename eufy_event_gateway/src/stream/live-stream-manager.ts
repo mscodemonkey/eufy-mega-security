@@ -208,8 +208,8 @@ interface Session {
   viewerStartupAttempt: number;
   readonly recordings: Set<Recording>;
 
-  /** Clients that opened a marked view, which gives way to a newer view on the same NVR. */
-  readonly yieldingClients: Set<VideoViewerResponse>;
+  /** Clients that opened a marked view, with its mark. They give way to a newer view on the same NVR. */
+  readonly yieldingClients: Map<VideoViewerResponse, string>;
   readonly audioConsumers: Set<(chunk: Buffer) => void>;
   parameterSets: VideoParameterSetCache;
   state: "idle" | "starting" | "streaming" | "stopping" | "error";
@@ -587,6 +587,7 @@ export class LiveStreamManager extends EventEmitter {
   readonly #sessions = new Map<string, Session>();
   readonly #deliveredViews = new Set<string>();
   readonly #newViews = new Map<string, number>();
+  readonly #heldViews = new Set<string>();
   #parkedTranscoder: { process: ChildProcessWithoutNullStreams; headers: Buffer; timer: NodeJS.Timeout } | null = null;
   #closed = false;
 
@@ -634,7 +635,7 @@ export class LiveStreamManager extends EventEmitter {
     }
     this.#cancelStop(session);
     session.clients.add(response);
-    if (view) session.yieldingClients.add(response);
+    if (view && !this.#heldViews.has(view)) session.yieldingClients.set(response, view);
     session.clientDeliveries.set(response, {
       closeReason: null,
       sourceAttached: session.source !== null,
@@ -819,6 +820,22 @@ export class LiveStreamManager extends EventEmitter {
     const session = this.#sessions.get(serial);
     return !!session && !session.privateTrial && session.state === "streaming" && !!session.source && !session.start && !session.stop
       && session.leases === 0 && session.recordings.size === 0 && [...session.clients].every(client => session.yieldingClients.has(client));
+  }
+
+  /**
+   * Home Assistant is recording from a marked view, so it must keep its call.
+   * It records over the connection the view already has, so the gateway sees no
+   * new consumer. The mark stays held, and a reconnect with it keeps the call too.
+   * Returns whether an open connection used the mark.
+   */
+  holdView(serial: string, view: string): boolean {
+    this.#heldViews.add(view);
+    if (this.#heldViews.size > MAX_DELIVERED_VIEWS) this.#heldViews.delete(this.#heldViews.values().next().value!);
+    const session = this.#sessions.get(serial);
+    if (!session) return false;
+    const clients = [...session.yieldingClients].filter(([, mark]) => mark === view).map(([client]) => client);
+    for (const client of clients) session.yieldingClients.delete(client);
+    return clients.length > 0;
   }
 
   /** Identify local clip consumers so control admission can reject recording conflicts. */
@@ -1752,7 +1769,7 @@ export class LiveStreamManager extends EventEmitter {
         viewerStartup: new ViewerStartupTimeline(),
         viewerStartupAttempt: 0,
         recordings: new Set(),
-        yieldingClients: new Set(),
+        yieldingClients: new Map(),
         audioConsumers: new Set(),
         parameterSets: new VideoParameterSetCache(),
         state: "idle",
