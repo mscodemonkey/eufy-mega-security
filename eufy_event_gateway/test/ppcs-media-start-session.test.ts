@@ -764,3 +764,39 @@ for (const [width, height, keyframe, changed] of [
     assert.equal(qualifiedLiveFrameClock(chunks.at(-1)!)?.encoderFormatChanged === true, changed);
   } finally { f.session.close(); }
 });
+
+
+test("the exact T8210 first-start low-power reply survives transport acknowledgement", async context => {
+  const f = await peer(context, true, "T8210", "media", "T8030", undefined, 4, 7);
+  try {
+    await f.negotiate();
+    const start = f.sent.at(-1)!;
+    f.ack(start.readUInt16BE(6));
+    const reply = Buffer.alloc(132); reply.writeInt32LE(-117);
+    f.frame(1350, reply, 4, true);
+    assert.equal(f.session.stats.mediaStartAcknowledged, 1);
+    assert.equal(f.session.stats.mediaStartLowPower, 1);
+    context.mock.timers.tick(10_000);
+    assert.equal(f.session.stats.mediaStartAttempts, 1);
+    assert.equal(f.session.stats.mediaStopAttempts, 0);
+    assert.equal(f.session.stats.closeReason, "open");
+  } finally { f.session.close(); }
+});
+
+for (const variant of ["model", "type", "station", "channel", "purpose", "result", "sign", "command", "short", "padding", "success", "video", "not-result"] as const) {
+  test(`low-power startup evidence rejects the unqualified ${variant} reply`, async context => {
+    const f = await peer(context, true, variant === "model" ? "T8211" : "T8210",
+      variant === "purpose" ? "control" : "media", variant === "station" ? "T8010" : "T8030",
+      undefined, 4, variant === "type" ? 88 : 7);
+    try {
+      await f.negotiate();
+      const reply = Buffer.alloc(variant === "short" ? 4 : 132);
+      reply.writeInt32LE(variant === "success" ? 0 : variant === "result" ? -118 : -117);
+      if (variant === "padding") reply[131] = 1;
+      if (variant === "video") f.video(4);
+      f.frame(variant === "command" ? 1003 : 1350, reply, variant === "channel" ? 3 : 4,
+        variant !== "not-result", variant === "sign" ? 8 : 0);
+      assert.equal(f.session.stats.mediaStartLowPower, 0);
+    } finally { f.session.close(); }
+  });
+}

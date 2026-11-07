@@ -181,7 +181,7 @@ export class BundleCapture {
       "sequenceRestarts", "duplicateDatagrams", "staleDatagrams", "parserResyncs", "pendingBytes",
       "incompleteAccessUnits", "incompleteAccessUnitBytes", "camId", "gatewayInfo", "level2", "cameraInfoFrames",
       "foreignVideoFrames", "gatewayInfoAcknowledged", "gatewayInfoRetransmitted", "gatewayInfoExpired",
-      "mediaStartAttempts", "mediaStartAcknowledged", "mediaStartRetransmitted", "mediaStartExpired",
+      "mediaStartLowPower", "mediaStartAttempts", "mediaStartAcknowledged", "mediaStartRetransmitted", "mediaStartExpired",
       "audioFrames", "audioClearFrames", "audioAdtsFrames", "audioProtectedFrames", "foreignAudioFrames"] as const) {
       const value = diagnostic.counters[key];
       if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) counters[key] = value;
@@ -193,7 +193,7 @@ export class BundleCapture {
       sourceAttempt = attempts.get(diagnostic.sourceAttempt);
       if (sourceAttempt === undefined) { sourceAttempt = attempts.size + 1; attempts.set(diagnostic.sourceAttempt, sourceAttempt); }
     }
-    const startupBoundary = ["lookup", "start-not-sent", "start-unacknowledged", "start-acknowledged-no-video",
+    const startupBoundary = ["lookup", "start-not-sent", "start-unacknowledged", "start-acknowledged-no-video", "start-rejected-low-power",
       "video-without-output", "output", "unknown"].includes(diagnostic.startupBoundary ?? "") ? diagnostic.startupBoundary : undefined;
     const frameKinds: StreamFrameKind[] = [];
     for (const value of Array.isArray(diagnostic.frameKinds) ? diagnostic.frameKinds.slice(0, 20) : []) {

@@ -8,7 +8,7 @@ import type { FirstPartyPpcsSession } from "../stream/first-party-ppcs.js";
 
 type SourceStats = Pick<FirstPartyPpcsSession["stats"], "camId" | "gatewayInfo" | "level2" | "cameraInfoFrames"
   | "foreignVideoFrames" | "gatewayInfoAcknowledged" | "gatewayInfoRetransmitted" | "gatewayInfoExpired"
-  | "mediaStartAttempts" | "mediaStartAcknowledged" | "mediaStartRetransmitted" | "mediaStartExpired"
+  | "mediaStartLowPower" | "mediaStartAttempts" | "mediaStartAcknowledged" | "mediaStartRetransmitted" | "mediaStartExpired"
   | "dataDatagrams" | "frameHeaders" | "videoFrames" | "videoOutputFrames" | "sequenceGaps" | "sequenceRestarts"
   | "duplicateDatagrams" | "staleDatagrams" | "parserResyncs" | "pendingBytes" | "incompleteAccessUnits"
   | "incompleteAccessUnitBytes" | "frameShapes" | "audioFrames" | "audioClearFrames" | "audioAdtsFrames"
@@ -27,7 +27,7 @@ export function ppcsSourceDiagnostic(stats: SourceStats, sourceAttempt: number):
     gatewayInfoAcknowledged: stats.gatewayInfoAcknowledged, gatewayInfoRetransmitted: stats.gatewayInfoRetransmitted,
     gatewayInfoExpired: stats.gatewayInfoExpired, mediaStartAttempts: stats.mediaStartAttempts,
     mediaStartAcknowledged: stats.mediaStartAcknowledged, mediaStartRetransmitted: stats.mediaStartRetransmitted,
-    mediaStartExpired: stats.mediaStartExpired, dataDatagrams: stats.dataDatagrams, frameHeaders: stats.frameHeaders,
+    mediaStartLowPower: stats.mediaStartLowPower, mediaStartExpired: stats.mediaStartExpired, dataDatagrams: stats.dataDatagrams, frameHeaders: stats.frameHeaders,
     videoFrames: stats.videoFrames, videoOutputFrames: stats.videoOutputFrames, sequenceGaps: stats.sequenceGaps,
     sequenceRestarts: stats.sequenceRestarts, duplicateDatagrams: stats.duplicateDatagrams,
     staleDatagrams: stats.staleDatagrams, parserResyncs: stats.parserResyncs, pendingBytes: stats.pendingBytes,
@@ -40,7 +40,7 @@ export function ppcsSourceDiagnostic(stats: SourceStats, sourceAttempt: number):
     .every(value => Number.isSafeInteger(value) && value >= 0)) {
     startupBoundary = stats.videoOutputFrames > 0 ? "output" : stats.videoFrames > 0 ? "video-without-output"
       : stats.camId === 0 ? "lookup" : stats.mediaStartAttempts === 0 ? "start-not-sent"
-        : stats.mediaStartAcknowledged === 0 ? "start-unacknowledged" : "start-acknowledged-no-video";
+        : stats.mediaStartLowPower === 1 ? "start-rejected-low-power" : stats.mediaStartAcknowledged === 0 ? "start-unacknowledged" : "start-acknowledged-no-video";
   }
   const frameKinds: StreamFrameKind[] = [];
   for (const shape of stats.frameShapes.slice(0, 20)) {

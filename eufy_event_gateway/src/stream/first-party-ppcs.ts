@@ -1685,6 +1685,9 @@ export class FirstPartyPpcsSession {
     gatewayInfoExpired: 0,
     mediaStartAttempts: 0,
     mediaStartAcknowledged: 0,
+
+    /** Exact type-7 first-start replies reporting SDK POWER_LOW, never transport ACKs. */
+    mediaStartLowPower: 0,
     mediaStartRetransmitted: 0,
     mediaStartExpired: 0,
     mediaStartProtocols: [] as ("level1" | "level2" | "t8200-clear")[],
@@ -3191,6 +3194,18 @@ export class FirstPartyPpcsSession {
     const shape = `${command}:${signCode}:${size}:${type}`;
     if (!this.stats.frameShapes.includes(shape) && this.stats.frameShapes.length < 20) {
       this.stats.frameShapes.push(shape);
+    }
+
+    // The pinned app's P2PErrorCode defines -117 as POWER_LOW. This exact
+    // attached doorbell reply has a four-byte result and 128 zero padding bytes.
+    // Retain only that fact, without changing startup or retry decisions.
+    if (usesT8210DirectMediaStop(this.#options.channel, this.#options)
+      && this.#options.purpose !== "control" && this.#options.purpose !== "passive"
+      && this.stats.mediaStartAttempts === 1 && this.stats.mediaStopAttempts === 0
+      && this.stats.videoFrames === 0 && command === 1350 && frameChannel === this.#options.channel
+      && signCode === 0 && header[14] === 1 && header[15] === 0 && payload.length === 132
+      && payload.readInt32LE(0) === -117 && payload.subarray(4).every(value => value === 0)) {
+      this.stats.mediaStartLowPower = 1;
     }
 
     if (header[14] === 1 && this.#pendingControl?.command === command) {
