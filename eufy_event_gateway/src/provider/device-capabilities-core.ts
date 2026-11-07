@@ -40,6 +40,9 @@ export function isSupportedCameraType(device: { readonly category: string | null
   if (device.model.toUpperCase() === "T8215" || device.deviceType === 97) {
     return device.model.toUpperCase() === "T8215" && device.deviceType === 97;
   }
+  if (device.model.toUpperCase() === "T8404" || device.deviceType === 314) {
+    return device.model.toUpperCase() === "T8404" && device.deviceType === 314;
+  }
   if (megaDeviceRole(device.deviceType) !== "camera") return false;
 
   if (device.deviceType === 37) return device.model.toUpperCase() === "T8422";
@@ -67,6 +70,7 @@ export function directCameraDetectionKinds(
   if (model === "T86P2" && device.deviceType === 111) return ["motion", "person", "pet", "vehicle", "sound"];
   if ((model === "T8224" && device.deviceType === 96)
     || (model === "T8422" && device.deviceType === 37)
+    || (model === "T8404" && device.deviceType === 314)
     || (model === "T8W11C" && device.deviceType === 10008)) return ["motion", "person"];
   return undefined;
 }

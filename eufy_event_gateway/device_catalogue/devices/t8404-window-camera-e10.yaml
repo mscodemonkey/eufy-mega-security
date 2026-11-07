@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=../device.schema.json
+
+schema: 1
+id: t8404
+name: Window Camera E10
+category: camera
+integration:
+  status: ready_to_test
+  handler: camera
+models:
+  - T8404
+device_type: 314
+notes: Issue 627 supplies exact T8404 type 314 standalone inventory. Admission enables discovery and existing push handling for testing. No usable media route was reported. Live video, fresh snapshots, detection delivery and controls remain unconfirmed. Model aliases are not admitted.
+capabilities:
+  events:
+    motion:
+      connections:
+        direct:
+          status: declared
+    person:
+      connections:
+        direct:
+          status: declared

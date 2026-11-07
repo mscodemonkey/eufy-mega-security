@@ -1826,7 +1826,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #nvrTrialIdentity(device: MegaInventoryDevice): Required<CameraIdentity> | null {
     const station = this.#devices.get(device.parentSerial);
     if (!this.#nvrBinding(device, station) && !this.#nvrLiveAdmitted(device, station)) return null;
-    const profile = this.#normalNvrLiveBinding(device, station) && this.#nvrLiveAdmitted(device, station) ? nvrLiveProfile(device.model, device.deviceType) : null;
+    const profile = this.#normalNvrLiveBinding(device, station) && this.#nvrLiveAdmitted(device, station) ? this.#nvrProfile(device) : null;
     const values = this.#nvrCachedSettings(device);
     const view = this.#nvrView(device);
     return {
@@ -1936,7 +1936,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         liveControls: !entry.diagnostic && this.#nvrLiveAdmitted(entry.device, entry.station),
         ...(!entry.diagnostic && !entry.stateOnly && entry.sensor === 0 && entry.device.model === "T8172" && entry.device.deviceType === 89
           && entry.station.model === "T9000" && entry.station.deviceType === 27 ? { s1FirstPictureGrace: true } : {}),
-        panReceiptOnly: nvrLiveProfile(entry.device.model, entry.device.deviceType)?.panReceiptOnly === true,
+        panReceiptOnly: this.#nvrProfile(entry.device)?.panReceiptOnly === true,
         administrator: entry.station.adminUserId!, context, signal: entry.controller.signal, current,
         maximumLifetimeMilliseconds: entry.diagnostic ? 75_000 : entry.stateOnly ? this.config.maxStreamSeconds * 1_000 : null,
         ...(!entry.diagnostic && !entry.stateOnly && entry.station.model === "T8N00" && entry.station.deviceType === 300 ? {
@@ -2515,24 +2515,33 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const preference = this.#nvrViews.get(device.serial);
     if (preference?.binding === this.#nvrBindingKey(device)) return preference.value;
     this.#nvrViews.delete(device.serial);
-    return nvrLiveProfile(device.model, device.deviceType)?.defaultView ?? nvrTrialSensor(device.model, device.deviceType) ?? 0;
+    return this.#nvrProfile(device)?.defaultView ?? nvrTrialSensor(device.model, device.deviceType) ?? 0;
   }
 
   #nvrLiveAdmitted(device: MegaInventoryDevice, station: MegaInventoryDevice | undefined): boolean {
     return !this.#recordingClosing && !!this.config.normalNvrLive && !!this.config.experimentalNvrLive && !!this.config.experimentalModelControls && !!this.config.experimentalNvrControls
-      && !!this.config.apiAuthenticationConfigured && !!nvrLiveProfile(device.model, device.deviceType)
-      && device.category === "eufy_security" && !!station && station.category === "eufy_security" && station.model === "T8N00" && station.deviceType === 300 && !!station.adminUserId
+      && !!this.config.apiAuthenticationConfigured && !!this.#nvrProfile(device)
+      && device.category === "eufy_security" && !!station && station.category === "eufy_security"
+      && (station.model === "T8N00" && station.deviceType === 300
+        || station.model === "T9000" && station.deviceType === 27 && device.model === "T8E00" && device.deviceType === 301)
+      && !!station.adminUserId
       && /^[A-Za-z0-9_-]{1,255}$/.test(station.adminUserId) && this.#client.isAuthenticatedUser(station.adminUserId) && device.adminUserId === station.adminUserId
       && this.#nvrExplicitOwners.get(device.serial) === station.adminUserId && this.#nvrExplicitOwners.get(station.serial) === station.adminUserId
       && Number.isInteger(device.channel) && device.channel !== null && device.channel >= 0 && device.channel <= 254
       && [...this.#devices.values()].filter(row => row.parentSerial === station.serial && row.serial !== station.serial && row.channel === device.channel).length === 1;
   }
 
+  /** Select controls for the bound station without giving S1 the NVR settings profile. */
+  #nvrProfile(device: MegaInventoryDevice): ReturnType<typeof nvrLiveProfile> {
+    const station = this.#devices.get(device.parentSerial);
+    return nvrLiveProfile(device.model, device.deviceType, station?.model, station?.deviceType);
+  }
+
   /** Query current provider admission only. Optional quality validates the closed profile. */
   nvrLiveSettingAdmitted(serial: string, quality?: number): boolean {
     const device = this.#devices.get(serial);
     if (!device || !this.#nvrLiveAdmitted(device, this.#devices.get(device.parentSerial))) return false;
-    return quality === undefined || nvrLiveProfile(device.model, device.deviceType)!.quality.some(mode => mode.value === quality);
+    return quality === undefined || this.#nvrProfile(device)!.quality.some(mode => mode.value === quality);
   }
 
   #clearNvrSettings(serial: string): void {
@@ -2564,7 +2573,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   #publishNvrSettings(device: MegaInventoryDevice, values: NvrLiveSettings, field?: "night" | "quality" | "tracking" | "expiry"): void {
-    const profile = nvrLiveProfile(device.model, device.deviceType), stored = this.#devices.get(device.serial);
+    const profile = this.#nvrProfile(device), stored = this.#devices.get(device.serial);
     if (!stored || inventoryBindingChanged(device, stored) || !profile || !this.#nvrLiveAdmitted(stored, this.#devices.get(stored.parentSerial))) {
       this.#clearNvrSettings(device.serial); return;
     }
@@ -2597,7 +2606,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#assertRtcPreparationIdle();
     const device = this.#devices.get(serial), station = device && this.#devices.get(device.parentSerial);
     if (!device || !this.#nvrLiveAdmitted(device, station)) throw new NvrLiveControlError("disabled");
-    if (view !== 0 && view !== 1 || view >= (nvrLiveProfile(device.model, device.deviceType)?.views.length ?? 0)) throw new NvrLiveControlError("unavailable");
+    if (view !== 0 && view !== 1 || view >= (this.#nvrProfile(device)?.views.length ?? 0)) throw new NvrLiveControlError("unavailable");
     if (!this.#nvrMediaChecks || this.#nvrMediaChecks.active(serial) || this.#nvrTrials.has(serial) || this.#streamStarts.has(serial)
       || this.#nvrLiveJobs.has(device.parentSerial) || this.#recordingPeerReserved(serial) || this.#nvrControlReserved(device.parentSerial)) throw new NvrLiveControlError("busy");
     this.#nvrViews.set(serial, { binding: this.#nvrBindingKey(device), value: view });
@@ -2616,7 +2625,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     external?: AbortSignal): Promise<CameraIdentity> {
     const device = this.#devices.get(serial), station = device && this.#devices.get(device.parentSerial);
     if (!device || !station || !this.#nvrLiveAdmitted(device, station)) throw new NvrLiveControlError("disabled");
-    const profile = nvrLiveProfile(device.model, device.deviceType)!;
+    const profile = this.#nvrProfile(device)!;
     const movement = request.kind === "pan" || request.kind === "zoom";
     const entry = this.#nvrTrials.get(serial), binding = this.#nvrBindingKey(device), view = this.#nvrView(device);
     const signal = AbortSignal.any([external ?? new AbortController().signal, entry?.controller.signal ?? AbortSignal.abort(), AbortSignal.timeout(90000)]);
@@ -3121,7 +3130,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const peer = route?.peer;
     const profile = device && route ? cameraSettingProfile(this.#modelTrialRoute(device, route), change.setting) : null;
     if (!device || !route || !peer || !profile || !device.adminUserId || this.#recordingClosing) throw new CameraSettingError("unavailable");
-    const optInSetting = change.setting === "lightBrightness" || change.setting === "manualFloodlight" || profile.form === "motion-control";
+    const optInSetting = change.setting === "lightBrightness" || change.setting === "manualFloodlight"
+      || profile.form === "motion-control" || profile.form === "solo-sensitivity";
+    if (profile.form === "solo-sensitivity" && !this.config.apiAuthenticationConfigured) throw new CameraSettingError("unavailable");
     const settingBinding = optInSetting ? this.#client.authenticatedBinding() : null;
     if (optInSetting && (!this.config.experimentalModelControls || !this.#client.isAuthenticatedUser(device.adminUserId) || !settingBinding)) throw new CameraSettingError("unavailable");
     cameraSettingWireValue(profile, change);
@@ -3236,6 +3247,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         || !this.#client.isAuthenticatedUser(device.adminUserId)) return { actions: [], unavailableReason: "owner_account_required" };
       if (!this.#c37ControlRouteReady(device)) return { actions: [], unavailableReason: "connection_key_unavailable" };
     }
+    if (device.model === "T8110" && device.deviceType === 10035 && !this.#c35LightRouteReady(device)) {
+      return { actions: [], unavailableReason: "owner_account_required" };
+    }
     if (actions.includes("manualLight") && (route.peer.adminUserId !== device.adminUserId
       || !this.#client.isAuthenticatedUser(device.adminUserId)
       || [...this.#devices.values()].filter(row => row.parentSerial === route.peer.serial && row.channel === device.channel).length !== 1)) {
@@ -3340,6 +3354,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (this.#recordingClosing || !current || !currentPeer || inventoryBindingChanged(device, current)
         || inventoryBindingChanged(peer, currentPeer) || currentPeer.p2pDid !== peer.p2pDid
         || currentPeer.p2pConnection !== peer.p2pConnection
+        || (device.model === "T8110" && device.deviceType === 10035 && (signal?.aborted || !this.#c35LightRouteReady(current)))
         || (device.model === "T814X" && device.deviceType === 10037 && (signal?.aborted || !this.#c37ControlRouteReady(current)))) {
         if (request.action === "sirenConnection") throw new S100SirenTrialError(["session_prepare"]);
         throw new Error("Model control route changed or closed");
@@ -4839,6 +4854,18 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       && isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys()));
   }
 
+  /** Admit the C35 manual-light trial only on its current owner's exact standalone route. */
+  #c35LightRouteReady(device: MegaInventoryDevice): boolean {
+    const route = ppcsStreamRoute(device, this.#devices);
+    return !this.#recordingClosing && this.config.experimentalModelControls === true
+      && this.config.apiAuthenticationConfigured === true
+      && device.model === "T8110" && device.deviceType === 10035 && device.category === "eufy_security"
+      && device.channel === 0 && !!device.adminUserId && this.#client.isAuthenticatedUser(device.adminUserId)
+      && route?.homeBaseAttached === false && route.peer.serial === device.serial
+      && route.peer.adminUserId === device.adminUserId
+      && isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys()));
+  }
+
   /** Admit tracking only after this model reports a strict current boolean preference. */
   #c37TrackingReady(device: MegaInventoryDevice): boolean {
     return this.#c37ControlRouteReady(device) && typeof device.reads.aiTrackingEnabled === "boolean";
@@ -4883,7 +4910,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       },
       talkbackSupported: supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
       motionSensitivityControlSupported: settingRouteReady && sensitivityProfile !== null
-        && (sensitivityProfile.form !== "motion-control" || experimentalSettingsReady) && device.reads.motionSensitivityStep !== undefined,
+        && (!["motion-control", "solo-sensitivity"].includes(sensitivityProfile.form) || experimentalSettingsReady)
+        && (sensitivityProfile.form !== "solo-sensitivity" || this.config.apiAuthenticationConfigured === true && this.#client.authenticatedBinding() !== null)
+        && device.reads.motionSensitivityStep !== undefined,
       motionSensitivitySteps: sensitivityProfile?.ladder?.length ?? null,
       manualFloodlightControlSupported: this.config.experimentalModelControls === true && settingRouteReady
         && !!settingRoute && cameraSettingProfile(settingRoute, "manualFloodlight") !== null
@@ -4992,7 +5021,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === true
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       directionalPanControlSupported: this.#c37ControlRouteReady(device),
-      cameraLightControlSupported: this.#c37ControlRouteReady(device) || cameraLightControlProtocol(device, route) !== null
+      cameraLightControlSupported: this.#c35LightRouteReady(device) || this.#c37ControlRouteReady(device) || cameraLightControlProtocol(device, route) !== null
         && (cameraLightControlProtocol(device, route) !== "c31-json"
           || supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)))
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === false
@@ -5047,7 +5076,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
     const selected = this.#devices.get(serial);
-    if (selected?.model === "T814X" && selected.deviceType === 10_037) {
+    if ((selected?.model === "T814X" && selected.deviceType === 10_037)
+      || (selected?.model === "T8110" && selected.deviceType === 10035)) {
       return this.performModelControlTrial(serial, { action: "spotlight", enabled }).then(() => undefined);
     }
     const previous = this.#lightOperations.get(serial) ?? Promise.resolve();
@@ -6355,7 +6385,8 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const nativeLightProfile = (deviceType === 38 && model === "T8423")
     || (deviceType === 105 && model === "T8417")
     || (deviceType === 151 && model === "T84A1");
-  const spotlight = c37Tracking ? finiteNumber(params.get(1400))
+  const c35ManualLight = deviceType === 10035 && model === "T8110" && standaloneChannelZero;
+  const spotlight = c37Tracking || c35ManualLight ? finiteNumber(params.get(1400))
     : qualityFamily || nativeLightProfile ? finiteNumber(params.get(1403)) : null;
   const sensitivity = qualityFamily ? finiteNumber(params.get(1276)) : null;
   const compositeQuality = deviceType === 5 ? finiteNumber(params.get(1705)) : null;

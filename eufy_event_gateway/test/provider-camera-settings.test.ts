@@ -51,3 +51,48 @@ test("settings reject stale baselines and exclude competing camera operations", 
     finish(); assert.equal((await pending).reportedSettings?.motionSensitivityStep, 2); assert.equal(writes, 1);
   } finally { finish?.(); await provider.close(); await rm(directory, { recursive: true, force: true }); assert.equal(network.mock.callCount(), 0); }
 });
+
+for (const mode of ["ready", "disabled", "guest", "no-binding", "no-api", "missing-read", "changed-binding"] as const) {
+  test(`S220 sensitivity retains current account, opt-in and fresh baseline: ${mode}`, async context => {
+    const directory = await mkdtemp(join(tmpdir(), "s220-setting-"));
+    let actual = 2, writes = 0, bound = true;
+    context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
+    context.mock.method(globalThis, "setInterval", (() => ({ unref() {} })) as unknown as typeof setInterval);
+    context.mock.method(globalThis, "clearInterval", (() => {}) as typeof clearInterval);
+    context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
+    context.mock.method(MegaClient.prototype, "isAuthenticatedUser", () => mode !== "guest");
+    context.mock.method(MegaClient.prototype, "authenticatedBinding", () => mode === "no-binding" ? null : () => bound);
+    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{ device_sn: "test", device_model: "T8134", device_type: 63,
+      category: "eufy_security", parent_sn: "test", device_channel: 0, p2p_did: "TEST-12345678-TEST", p2p_conn: "synthetic",
+      member: { admin_user_id: "synthetic" }, params: [{ param_type: 6070, param_value: "2" }] }] }));
+    context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ test: { key: "synthetic", expiresAt: null } }));
+    context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
+    context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => {});
+    context.mock.method(FirstPartyPpcsSession.prototype, "close");
+    context.mock.method(FirstPartyPpcsSession.prototype, "readCameraInfo", async () => {
+      if (mode === "changed-binding") bound = false;
+      return mode === "missing-read" ? [] : [{ param_type: 6070, param_value: `${actual}` }];
+    });
+    context.mock.method(FirstPartyPpcsSession.prototype, "writeReviewedCameraSetting", async (_change: unknown, _route: unknown, dispatch: () => void) => {
+      dispatch(); writes++; actual = 5;
+    });
+    const state = new GatewayState();
+    const events = new Proxy({ camera: (identity: Parameters<ProviderEvents["camera"]>[0]) => state.registerCamera(identity) },
+      { get: (target, key) => Reflect.get(target, key) ?? (() => {}) }) as unknown as ProviderEvents;
+    const provider = new EufyProvider({ username: "synthetic", password: "redacted", country: "AU", persistentDirectory: directory,
+      maxStreamSeconds: 120, experimentalModelControls: mode !== "disabled", apiAuthenticationConfigured: mode !== "no-api" });
+    try {
+      await provider.start(events);
+      if (mode === "ready") {
+        assert.equal(state.getCamera("test").motionSensitivityControlSupported, true);
+        assert.equal(state.getCamera("test").motionSensitivitySteps, 7);
+        assert.equal((await provider.setCameraSetting("test", { setting: "motionSensitivity", value: 5 })).reportedSettings?.motionSensitivityStep, 5);
+        assert.equal(writes, 1);
+      } else {
+        if (["disabled", "guest", "no-binding", "no-api"].includes(mode)) assert.equal(state.getCamera("test").motionSensitivityControlSupported, false);
+        await assert.rejects(provider.setCameraSetting("test", { setting: "motionSensitivity", value: 5 }));
+        assert.equal(writes, 0);
+      }
+    } finally { await provider.close(); await rm(directory, { recursive: true, force: true }); }
+  });
+}

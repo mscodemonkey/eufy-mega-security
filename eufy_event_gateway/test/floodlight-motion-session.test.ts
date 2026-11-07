@@ -1,5 +1,5 @@
 /**
- * Exercises exact floodlight motion envelopes through the real PPCS session.
+ * Exercises exact floodlight and S220 sensitivity envelopes through the real PPCS session.
  * Test-owned socket messages replace network I/O. The provider still owns fresh
  * setting readback, while this boundary must send once without starting media.
  */
@@ -9,7 +9,7 @@ import { Socket } from "node:dgram";
 import test from "node:test";
 import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 
-for (const [model, type] of [["T8425", 47], ["T8426", 87]] as const) for (const setting of ["motionDetection", "motionSensitivity"] as const) for (const mode of ["on", "off", "guard", "wrong-model", "wrong-type", "attached", "closed"] as const) {
+for (const [model, type] of [["T8425", 47], ["T8426", 87], ["T8134", 63]] as const) for (const setting of (model === "T8134" ? ["motionSensitivity"] as const : ["motionDetection", "motionSensitivity"] as const)) for (const mode of ["on", "off", "guard", "wrong-model", "wrong-type", "attached", "closed"] as const) {
   test(`native ${model} ${setting} ${mode}`, async context => {
     const sent: Buffer[] = [];
     context.mock.method(Socket.prototype, "bind", function(this: Socket) {
@@ -46,7 +46,9 @@ for (const [model, type] of [["T8425", 47], ["T8426", 87]] as const) for (const 
         decipher.setAutoPadding(false);
         const clear = Buffer.concat([decipher.update(frames[0].subarray(at + 16)), decipher.final()]);
         const text = clear.toString().replace(/\x00+$/, "").trim();
-        assert.deepEqual(JSON.parse(text), setting === "motionDetection"
+        assert.deepEqual(JSON.parse(text), model === "T8134"
+          ? { commandType: 6070, data: { value: mode === "off" ? 4 : 2 } }
+          : setting === "motionDetection"
           ? { commandType: 6040, data: { status: mode === "on" ? 1 : 0 } }
           : { commandType: 6041, data: { value: mode === "off" ? 4 : 2, index: mode === "off" ? 4 : 2, channel: 0 } });
       }

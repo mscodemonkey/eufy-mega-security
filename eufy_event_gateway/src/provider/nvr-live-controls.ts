@@ -48,8 +48,15 @@ export interface NvrLiveProfile {
 /**
  * Match exact model/type pairs only. T8416 offers no view choice: its second NVR source showed the
  * same wide picture on hardware, and zoom reaches the telephoto. Its quality names follow the eufy app.
+ * An explicit S1 binding selects the separate pan-only profile. Callers that
+ * omit station identity retain the established recorder profile.
  */
-export function nvrLiveProfile(model: string, type: number | null): NvrLiveProfile | null {
+export function nvrLiveProfile(model: string, type: number | null, stationModel?: string, stationType?: number | null): NvrLiveProfile | null {
+  if (stationModel === "T9000") {
+    if (stationType !== 27 || model !== "T8E00" || type !== 301) return null;
+    return { night: [], quality: [], views: [], defaultView: 1, opticalZoom: false,
+      movementView: 1, panReceiptOnly: false, aiTracking: false };
+  }
   if (model === "T8E00" && type === 301) return {
     night: [{ value: 0, name: "Standard" }, { value: 1, name: "Infrared" }, { value: 2, name: "Spotlight" }],
     quality: [{ value: 0, name: "Auto" }, { value: 1, name: "Low" }, { value: 3, name: "High" }],

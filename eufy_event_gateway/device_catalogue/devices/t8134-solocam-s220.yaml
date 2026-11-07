@@ -37,6 +37,20 @@ capabilities:
       read:
         parameter: 1138
   controls:
+    motion_sensitivity:
+      connections:
+        direct:
+          status: declared
+          notes: Opt-in exact T8134 type 63 standalone seven-step candidate. Requires owner authentication, a fresh native baseline and independent matching readback. Physical sensitivity behaviour remains unconfirmed.
+      read:
+        parameter: 6070
+      write:
+        command: 1700
+        input:
+          name: sensitivity_step
+          type: integer
+          minimum: 1
+          maximum: 7
     enabled:
       connections:
         direct:

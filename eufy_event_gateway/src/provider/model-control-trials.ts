@@ -129,6 +129,7 @@ export function modelControlTrialActions(route: ModelControlRoute): readonly Mod
       && route.channel >= 0 && route.channel <= 255 ? ["ptz"] : [];
   }
   if (!route.selfPeer || route.channel !== 0) return [];
+  if (route.model === "T8110" && route.deviceType === 10035 && route.peerModel === "T8110") return ["spotlight"];
   if (route.model === "T814X" && route.deviceType === 10037 && route.peerModel === "T814X") return ["ptz", "spotlight", "aiTracking"];
   if (route.model === "T8425" && route.deviceType === 47 && route.peerModel === "T8425") return ["ptz"];
   if (route.model === "T8170" && route.deviceType === 48 && route.peerModel === "T8170") return ["alarmState"];
@@ -156,7 +157,7 @@ export function modelControlTrialCommand(
     return { command: 1700, value: JSON.stringify({ commandType: 6016,
       data: { value: request.enabled ? 1 : 0, transaction: `${transaction}` } }) };
   }
-  if (request.action === "spotlight" && route.model === "T814X") {
+  if (request.action === "spotlight" && (route.model === "T814X" || route.model === "T8110")) {
     return { command: 1700, value: JSON.stringify({ commandType: 1400,
       data: { value: request.enabled ? 1 : 0, open: request.enabled ? 1 : 0, type: 2, transaction: `${transaction}` } }) };
   }

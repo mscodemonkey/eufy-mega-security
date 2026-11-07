@@ -304,3 +304,32 @@ test("idle settings refresh retains a finite lifetime without starting video", a
   assert.equal(starts, 0);
   assert.equal(value.state.getCamera("synthetic-camera").nightVisionMode, 1);
 });
+
+test("S1 T8E00 opt-in supports pan without recorder settings or zoom", async context => {
+  const value = await fixture(context, "T8E00", 301, true, false, true, ["T9000", 27]);
+  const camera = value.state.getCamera("synthetic-camera");
+  assert.equal(camera.nvrPanControlSupported, true);
+  assert.equal(camera.nvrOpticalZoomControlSupported, false);
+  assert.equal(camera.nightVisionControlSupported, false);
+  assert.equal(camera.streamingQualityControlSupported, false);
+  assert.deepEqual(camera.nvrViewOptions, []);
+  await value.provider.startStream("synthetic-camera");
+  await value.provider.performNvrLiveControl("synthetic-camera", { kind: "pan", direction: "left" });
+  value.advance();
+  await assert.rejects(value.provider.performNvrLiveControl("synthetic-camera", { kind: "zoom", level: 2 }));
+  await assert.rejects(value.provider.setCameraNightVision("synthetic-camera", 1));
+  await assert.rejects(value.provider.setCameraStreamingQuality("synthetic-camera", 3));
+  assert.deepEqual(value.writes, [{ kind: "pan", direction: "left" }]);
+  value.advance(); value.noViewer();
+  await assert.rejects(value.provider.performNvrLiveControl("synthetic-camera", { kind: "pan", direction: "right" }), { code: "busy" });
+});
+
+for (const [model, type, flags, inherited] of [["T8E00", 301, false, false], ["T8E00", 301, true, true],
+  ["T8E00S", 301, true, false], ["T8416", 104, true, false]] as const) {
+  test(`S1 movement preserves admission: ${model}/${flags}/${inherited}`, async context => {
+    const value = await fixture(context, model, type, flags, inherited, true, ["T9000", 27]);
+    assert.equal(value.provider.nvrLiveSettingAdmitted("synthetic-camera"), false);
+    await assert.rejects(value.provider.performNvrLiveControl("synthetic-camera", { kind: "pan", direction: "left" }));
+    assert.equal(value.writes.length, 0);
+  });
+}

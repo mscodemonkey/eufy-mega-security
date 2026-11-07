@@ -57,6 +57,18 @@ capabilities:
       read:
         field: charging_days
   controls:
+    manual_spotlight:
+      connections:
+        direct:
+          status: declared
+          notes: Opt-in candidate for exact T8110 type 10035 on standalone channel zero with owner authentication and fresh native switch confirmation. Physical illumination and persistence after session close remain unconfirmed. Attached routes are excluded.
+      read:
+        parameter: 1400
+      write:
+        command: 1700
+      values:
+        "0": Manual light off
+        "1": Manual light on
     enabled:
       connections:
         direct:
