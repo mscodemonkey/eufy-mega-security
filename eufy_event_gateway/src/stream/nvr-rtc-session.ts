@@ -207,12 +207,6 @@ export interface NvrRtcStats {
 }
 
 /**
- * Owns socket, peer, channels, timers, fragment buffers and pending requests.
- * One instance may start once and close repeatedly. Close settles pending work,
- * attempts stop once if needed, and releases resources before its owner releases
- * the lease. All externally visible errors have fixed diagnostic stages.
- */
-/**
  * A large keyframe arrives as one burst, bigger than the default UDP receive buffer. If the gateway
  * is slow to read, the kernel discards the overflow. Hosts may cap this below the request.
  */
@@ -228,6 +222,12 @@ export function widenNvrReceiveBuffers(peer: RTCPeerConnection): void {
   }
 }
 
+/**
+ * Owns socket, peer, channels, timers, fragment buffers and pending requests.
+ * One instance may start once and close repeatedly. Close settles pending work,
+ * attempts stop once if needed, and releases resources before its owner releases
+ * the lease. All externally visible errors have fixed diagnostic stages.
+ */
 export class NvrRtcSession {
   #startInvoked = false;
   #timingsEmitted = false;

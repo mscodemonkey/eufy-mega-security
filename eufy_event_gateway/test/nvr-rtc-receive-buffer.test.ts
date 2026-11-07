@@ -1,3 +1,8 @@
+/**
+ * Checks the pinned werift socket boundary and best-effort buffer failures.
+ * Each fixture owns and closes its peers. The NVR session consumes the helper
+ * only after ICE gathering, without requiring a particular host buffer cap.
+ */
 import assert from "node:assert/strict";
 import type { Socket } from "node:dgram";
 import test from "node:test";
