@@ -724,7 +724,7 @@ export interface StreamFrameKind {
 
 /** Last observed startup boundary, without claiming transport ACK means camera acceptance. */
 export type StreamStartupBoundary = "lookup" | "start-not-sent" | "start-unacknowledged"
-  | "start-acknowledged-no-video" | "video-without-output" | "output" | "unknown";
+  | "start-acknowledged-no-video" | "start-rejected-low-power" | "video-without-output" | "output" | "unknown";
 
 /** Numeric source-transport evidence without peer addresses, keys or payload bytes. */
 export interface StreamDiagnostic {
@@ -739,6 +739,6 @@ export interface StreamDiagnostic {
     | "parserResyncs" | "pendingBytes" | "incompleteAccessUnits" | "incompleteAccessUnitBytes", number>>
     & Readonly<Partial<Record<"camId" | "gatewayInfo" | "level2" | "cameraInfoFrames" | "foreignVideoFrames"
       | "gatewayInfoAcknowledged" | "gatewayInfoRetransmitted" | "gatewayInfoExpired"
-      | "mediaStartAttempts" | "mediaStartAcknowledged" | "mediaStartRetransmitted" | "mediaStartExpired"
+      | "mediaStartLowPower" | "mediaStartAttempts" | "mediaStartAcknowledged" | "mediaStartRetransmitted" | "mediaStartExpired"
       | "audioFrames" | "audioClearFrames" | "audioAdtsFrames" | "audioProtectedFrames" | "foreignAudioFrames", number>>>;
 }

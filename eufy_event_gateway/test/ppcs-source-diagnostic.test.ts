@@ -10,7 +10,7 @@ function fixture(): Parameters<typeof ppcsSourceDiagnostic>[0] {
   return { camId: 0, gatewayInfo: 0, level2: 0, cameraInfoFrames: 0, foreignVideoFrames: 0,
     audioFrames: 0, audioClearFrames: 0, audioAdtsFrames: 0, audioProtectedFrames: 0, foreignAudioFrames: 0,
     gatewayInfoAcknowledged: 0, gatewayInfoRetransmitted: 0, gatewayInfoExpired: 0,
-    mediaStartAttempts: 0, mediaStartAcknowledged: 0, mediaStartRetransmitted: 0, mediaStartExpired: 0,
+    mediaStartLowPower: 0, mediaStartAttempts: 0, mediaStartAcknowledged: 0, mediaStartRetransmitted: 0, mediaStartExpired: 0,
     dataDatagrams: 0, frameHeaders: 0, videoFrames: 0, videoOutputFrames: 0, sequenceGaps: 0,
     sequenceRestarts: 0, duplicateDatagrams: 0, staleDatagrams: 0, parserResyncs: 0, pendingBytes: 0,
     incompleteAccessUnits: 0, incompleteAccessUnitBytes: 0, frameShapes: [] };
@@ -26,6 +26,8 @@ test("startup boundaries separate request dispatch, transport ACK and usable out
   assert.equal(boundary(), "start-unacknowledged");
   stats.mediaStartAcknowledged = 1;
   assert.equal(boundary(), "start-acknowledged-no-video");
+  stats.mediaStartLowPower = 1;
+  assert.equal(boundary(), "start-rejected-low-power");
   stats.videoFrames = 1;
   assert.equal(boundary(), "video-without-output");
   stats.videoOutputFrames = 1;
