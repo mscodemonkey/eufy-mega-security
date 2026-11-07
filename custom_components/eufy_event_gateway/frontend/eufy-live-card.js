@@ -408,6 +408,11 @@ const STYLE = `
   .stage { position: relative; container-type: inline-size; background: #000; color: #fff;
     --ha-card-border-radius: 0; --ha-card-border-width: 0; --ha-card-box-shadow: none; --ha-card-background: #000; }
   .video { display: block; }
+
+  /* Both is taller than it is wide. Home Assistant caps live video at the
+     window height less 97 px and would crop it, so lift the cap and size the
+     picture to that height instead, centred on the card's black. */
+  .stage.stacked { --video-max-height: none; max-width: min(100%, calc((100vh - 97px) * 8 / 9)); margin-inline: auto; }
   .video:empty { aspect-ratio: var(--eufy-ratio, 16 / 9); }
   .video > * { display: block; }
   .overlay { position: absolute; inset: 0; pointer-events: none; font: 500 13px/1.3 var(--ha-font-family-body, system-ui, sans-serif); }
@@ -611,6 +616,7 @@ export class EufyLiveCard extends BaseElement {
   _build() {
     const root = this.attachShadow({ mode: "open" });
     root.innerHTML = `<style>${STYLE}</style><ha-card><div class="stage"><div class="video"></div><div class="overlay"></div></div></ha-card>`;
+    this._stage = root.querySelector(".stage");
     this._videoHost = root.querySelector(".video");
     this._overlay = root.querySelector(".overlay");
     this._overlay.addEventListener("click", (event) => this._onClick(event));
@@ -645,6 +651,7 @@ export class EufyLiveCard extends BaseElement {
     const token = ++this._videoToken;
     const layout = pictureLayout(view ?? this._viewState(), this._config?.aspect_ratio);
     this._videoStacked = layout.stacked;
+    this._stage.classList.toggle("stacked", layout.stacked);
     const config = {
       type: "picture-entity",
       entity: this._camera,
