@@ -1,5 +1,5 @@
 /**
- * Checks motion connection ownership and fresh confirmation with offline peers.
+ * Checks camera-control ownership and fresh confirmation with offline peers.
  * The provider owns inventory and borrowed-stream selection. Tests replace
  * network/session effects and never actuate a camera or change an account.
  */
@@ -8,7 +8,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { EufyProvider } from "../src/provider/eufy-provider.js";
+import { EufyProvider, cameraEnableRawValue } from "../src/provider/eufy-provider.js";
 import { MegaClient } from "../src/mega/client.js";
 import { MegaPushReceiver } from "../src/mega/push.js";
 import { HomeBasePpcsSession } from "../src/stream/homebase-ppcs.js";
@@ -17,9 +17,10 @@ import type { ProviderEvents } from "../src/provider/provider.js";
 import { observeLogEvents } from "../src/logging.js";
 
 /** Own a normalized camera, confirmed settings and all synthetic session effects. */
-async function fixture(context: TestContext, standalone = false, stationModel = "T8010", extra = false, stationSerial = "base", cameraChannel = standalone ? 0 : 1, chargingDays?: number) {
+async function fixture(context: TestContext, standalone = false, stationModel = "T8010", extra = false, stationSerial = "base", cameraChannel = standalone ? 0 : 1, chargingDays?: number, enableParam?: 1035 | 2001) {
   const directory = await mkdtemp(join(tmpdir(), "motion-reliability-"));
   let motion = true;
+  let enabled: boolean | undefined = true;
   const sessions: FirstPartyPpcsSession[] = [];
   const closes: FirstPartyPpcsSession[] = [];
   const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
@@ -32,6 +33,7 @@ async function fixture(context: TestContext, standalone = false, stationModel = 
       parent_sn: standalone ? "camera" : stationSerial, device_channel: cameraChannel,
       p2p_did: "synthetic-camera", p2p_conn: "synthetic-route", category: "eufy_security", member: { admin_user_id: "owner" },
       params: [{ param_type: standalone ? 6040 : 1011, param_value: motion ? "1" : "0" },
+        ...(enableParam && enabled !== undefined ? [{ param_type: enableParam, param_value: String(enableParam === 2001 ? Number(enabled) : cameraEnableRawValue(8, enabled)) }] : []),
         ...(chargingDays !== undefined ? [{ param_type: 1101, param_value: "60" }] : [])] },
     ...(extra ? [
       { device_sn: "base2", device_model: "T8010", device_type: 0, p2p_did: "synthetic-peer2", p2p_conn: "synthetic-route", category: "eufy_security", member: { admin_user_id: "owner" } },
@@ -59,7 +61,7 @@ async function fixture(context: TestContext, standalone = false, stationModel = 
   const events = new Proxy({}, { get: (_target, property) => property === "streamStarted"
     ? (...arguments_: unknown[]) => { published.push(arguments_); } : () => undefined }) as ProviderEvents;
   await provider.start(events); await new Promise(resolve => setImmediate(resolve));
-  return { provider, sessions, closes, start, write, inventory, published, setMotion: (value: boolean) => { motion = value; },
+  return { provider, sessions, closes, start, write, inventory, published, setMotion: (value: boolean) => { motion = value; }, setEnabled: (value: boolean | undefined) => { enabled = value; },
     dispose: async () => { await provider.close(); assert.equal(network.mock.callCount(), 0); await rm(directory, { recursive: true, force: true }); } };
 }
 
@@ -118,6 +120,53 @@ for (const stationModel of ["T8010", "T8030"]) {
       await f.provider.refreshStation("synthetic-base");
       const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeMotionDetection", async (_value: boolean, dispatched?: () => void) => { dispatched?.(); });
       await assert.rejects(f.provider.setCameraMotionDetection("camera", false), /not confirmed by readback/);
+      assert.equal(write.mock.callCount(), 1);
+    } finally { await f.dispose(); }
+  });
+}
+
+for (const stationModel of ["T8010", "T8030"]) {
+  for (const enableParam of [1035, 2001] as const) {
+    for (const acknowledgementLost of [false, true]) {
+      for (const desired of [false, true]) {
+        test(`fresh enablement replaces the HomeBase cache: ${stationModel}, param=${enableParam}, lost=${acknowledgementLost}, enabled=${desired}`, async context => {
+          const f = await fixture(context, false, stationModel, false, "synthetic-base", 1, undefined, enableParam);
+          context.mock.method(HomeBasePpcsSession.prototype, "readState", async () => ({ childParams: [
+            { channel: 1, type: enableParam, value: String(enableParam === 2001 ? Number(!desired) : cameraEnableRawValue(8, !desired)) },
+            { channel: 1, type: 1011, value: "0" },
+            { channel: 1, type: 1101, value: "72" },
+          ] }));
+          try {
+            await f.provider.refreshStation("synthetic-base");
+            const reads = f.inventory.mock.callCount();
+            const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeCameraEnabled", async (value: number) => {
+              assert.equal(value, cameraEnableRawValue(8, desired));
+              f.setEnabled(desired);
+              if (acknowledgementLost) throw new CameraControlAcknowledgementTimeoutError();
+            });
+            const result = await f.provider.setCameraEnabled("camera", desired);
+            assert.equal(result.enabled, desired);
+            assert.equal(result.motionDetectionEnabled, false);
+            assert.equal(result.battery?.level, 72);
+            assert.equal(write.mock.callCount(), 1);
+            assert.equal(f.inventory.mock.callCount(), reads + 1);
+          } finally { await f.dispose(); }
+        });
+      }
+    }
+  }
+}
+
+for (const freshValue of [true, undefined]) {
+  test(`a matching old enablement cache cannot replace fresh confirmation: value=${freshValue}`, async context => {
+    const f = await fixture(context, false, "T8030", false, "synthetic-base", 1, undefined, 1035);
+    context.mock.method(HomeBasePpcsSession.prototype, "readState", async () => ({ childParams: [
+      { channel: 1, type: 1035, value: "1" },
+    ] }));
+    try {
+      await f.provider.refreshStation("synthetic-base");
+      const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeCameraEnabled", async () => { f.setEnabled(freshValue); });
+      await assert.rejects(f.provider.setCameraEnabled("camera", false), /not confirmed by readback/);
       assert.equal(write.mock.callCount(), 1);
     } finally { await f.dispose(); }
   });

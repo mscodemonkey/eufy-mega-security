@@ -2935,9 +2935,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       } finally {
         session.close();
       }
-      if (supportsStandaloneC31Presets(device, route, true)) {
-        this.#invalidateLiveReads(serial, ["enabled", "privacy6250Value"]);
-      }
+
+      // Retire the pre-write setting without discarding unrelated local readings.
+      this.#invalidateLiveReads(serial, supportsStandaloneC31Presets(device, route, true)
+        ? ["enabled", "privacy6250Value"] : ["enabled"]);
       for (let attempt = 0; attempt < 12; attempt += 1) {
         await this.#refreshInventoryReads();
         const refreshed = this.#devices.get(serial);

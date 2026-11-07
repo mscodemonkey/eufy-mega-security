@@ -1190,7 +1190,7 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
       "T8404"
     ],
     "deviceType": 314,
-    "status": "ready_to_test",
+    "status": "supported",
     "handler": "camera"
   },
   {
