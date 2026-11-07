@@ -109,6 +109,7 @@ test("T8E00 Both stacks both lenses in one source and keeps pan and zoom on its 
   });
   const camera = () => value.state.getCamera("synthetic-camera");
   assert.deepEqual(camera().nvrViewOptions, ["Fixed", "Movable", "Both"]);
+  assert.equal(camera().nvrSelectedView, 2, "Both is the default where Camera view is offered");
   await value.provider.setNvrView("synthetic-camera", 2);
   assert.equal(camera().nvrSelectedView, 2);
   assert.equal(camera().nvrPanControlSupported, true); assert.equal(camera().nvrOpticalZoomControlSupported, true);
@@ -190,7 +191,7 @@ test("view change and binding change clear cached observations", async context =
   assert.equal(value.state.getCamera("synthetic-camera").nightVisionMode, null);
   value.raw.devices[1]!.device_channel = 4;
   await value.refresh();
-  assert.equal(value.state.getCamera("synthetic-camera").nvrSelectedView, 1);
+  assert.equal(value.state.getCamera("synthetic-camera").nvrSelectedView, 2);
 });
 
 test("a second control is rejected while the first owns the parent", async context => {

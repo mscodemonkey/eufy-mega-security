@@ -32,7 +32,7 @@ export interface NvrLiveProfile {
   readonly night: readonly NightVisionMode[];
   readonly quality: readonly CameraStreamingQualityMode[];
   readonly views: readonly string[];
-  readonly defaultView: 0 | 1;
+  readonly defaultView: number;
   readonly opticalZoom: boolean;
 
   /** The only single-lens view that accepts pan and zoom, or null when every view does. */
@@ -51,7 +51,8 @@ export interface NvrLiveProfile {
 /**
  * Match exact model/type pairs only. T8416 offers no view choice: its second NVR source showed the
  * same wide picture on hardware, and zoom reaches the telephoto. Its quality names follow the eufy app.
- * T8E00 behind T8N00 adds Both, its Fixed and Movable lenses stacked by the recorder, as the eufy app shows them.
+ * T8E00 behind T8N00 adds Both, its Fixed and Movable lenses stacked by the recorder, as the eufy app shows them,
+ * and opens on Both by default.
  * An explicit S1 binding selects the separate pan-only profile. Callers that
  * omit station identity retain the established recorder profile.
  */
@@ -64,7 +65,7 @@ export function nvrLiveProfile(model: string, type: number | null, stationModel?
   if (model === "T8E00" && type === 301) return {
     night: [{ value: 0, name: "Standard" }, { value: 1, name: "Infrared" }, { value: 2, name: "Spotlight" }],
     quality: [{ value: 0, name: "Auto" }, { value: 1, name: "Low" }, { value: 3, name: "High" }],
-    views: ["Fixed", "Movable", "Both"], defaultView: 1, opticalZoom: true, movementView: 1, stackedView: 2, panReceiptOnly: true, aiTracking: false,
+    views: ["Fixed", "Movable", "Both"], defaultView: 2, opticalZoom: true, movementView: 1, stackedView: 2, panReceiptOnly: true, aiTracking: false,
   };
   if (model === "T8416" && type === 104) return {
     night: [{ value: 0, name: "Off" }, { value: 1, name: "Auto Infrared" }, { value: 3, name: "Infrared on" }],
