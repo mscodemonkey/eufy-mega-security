@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.246
+
+- Add the selected service region to the optional general-camera video test's inventory failure line, helping distinguish service routing from a refusal after sign-in.
+- Keep the diagnostic limited to fixed region values without hostnames, account details or response contents. T8422 playback remains unconfirmed, and authentication and retries are unchanged.
+
 ## 0.1.245
 
 - Prevent an old HomeBase motion setting from hiding fresh confirmation after a change. This addresses a reproduced cause of false unconfirmed notifications in #539. Reporter hardware confirmation is still needed.
