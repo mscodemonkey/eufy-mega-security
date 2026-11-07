@@ -6,8 +6,8 @@
  * opening a real PPCS socket.
  */
 import assert from "node:assert/strict";
-import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { EventEmitter } from "node:events";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { EventEmitter, once } from "node:events";
 import type { ServerResponse } from "node:http";
 import { getPriority } from "node:os";
 import { PassThrough } from "node:stream";
@@ -855,6 +855,78 @@ test("cancels forced media termination after the child closes", async () => {
   await new Promise((resolve) => setTimeout(resolve, 15));
 
   assert.deepEqual(signals, ["SIGTERM"]);
+});
+
+/** A real child that never reads stdin, as FFmpeg behaves once it has stopped reading at SIGTERM. */
+function nonReadingChild(): ChildProcessWithoutNullStreams {
+  return spawn(process.execPath, ["-e", "setInterval(() => {}, 1000);"]);
+}
+
+/** Resolve once the child has exited and its stdin has closed, by whichever route. */
+async function reaped(child: ChildProcessWithoutNullStreams): Promise<void> {
+  await Promise.all([
+    child.exitCode !== null || child.signalCode !== null ? undefined : new Promise((resolve) => child.once("close", resolve)),
+    child.stdin.closed ? undefined : new Promise((resolve) => child.stdin.once("close", resolve)),
+  ]);
+}
+
+test("drops input a terminated media child has not read instead of failing it with EPIPE", async () => {
+  const child = nonReadingChild();
+  const errors: Error[] = [];
+  child.stdin.on("error", (error) => errors.push(error));
+  await once(child, "spawn");
+
+  // More than a pipe holds, so the rest stays queued in the gateway when termination starts.
+  child.stdin.write(Buffer.alloc(4 * 1024 * 1024));
+  assert.ok(child.stdin.writableLength > 0);
+  terminateMediaProcess(child);
+  await reaped(child);
+
+  assert.deepEqual(errors, []);
+});
+
+test("reports no pipeline warning for FFmpeg input left queued when a viewer leaves or the source closes", async () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  const viewers: ChildProcessWithoutNullStreams[] = [];
+  const extractors: ChildProcessWithoutNullStreams[] = [];
+  let source: PassThrough;
+  let manager: LiveStreamManager;
+
+  // The long grace keeps the source open after the viewer leaves, as an NVR session holds it.
+  manager = new LiveStreamManager(state, {} as never, {
+    async startStream() {
+      source = new PassThrough();
+      manager.attachSource(camera.serial, source, () => "h265");
+    },
+    async stopStream() {
+      source.end();
+    },
+  }, 60_000, undefined, () => {
+    viewers.push(nonReadingChild());
+    return viewers.at(-1)!;
+  }, () => {
+    extractors.push(nonReadingChild());
+    return extractors.at(-1)!;
+  });
+  const warnings: Error[] = [];
+  manager.on("warning", (error: Error) => warnings.push(error));
+  const response = new PassThrough() as unknown as ServerResponse;
+  response.writeHead = (() => response) as ServerResponse["writeHead"];
+  await manager.addClient(camera.serial, response);
+  source!.write(Buffer.concat([annexBNal(0x40, 0x01, 0x0c), annexBNal(0x42, 0x01, 0x01), annexBNal(0x44, 0x01, 0xc0), annexBNal(0x26, 0x01, 0xbb)]));
+  for (let index = 0; index < 400; index++) source!.write(Buffer.concat([annexBNal(0x02, 0x01), Buffer.alloc(6_000, 0x55)]));
+  const [viewer, extractor] = [viewers[0]!, extractors[0]!];
+  assert.equal(viewers.length + extractors.length, 2);
+  assert.ok(viewer.stdin.writableLength > 0 && extractor.stdin.writableLength > 0);
+
+  response.emit("close");
+  await reaped(viewer);
+  assert.deepEqual(warnings, []);
+
+  await manager.close();
+  await reaped(extractor);
+  assert.deepEqual(warnings, []);
 });
 
 test("ignores callbacks from a replaced source generation", async () => {
