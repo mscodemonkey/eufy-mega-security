@@ -599,7 +599,7 @@ class GatewayClient:
 
     async def set_nvr_view(self, serial: str, view: int) -> dict[str, Any]:
         """Change the idle camera's next-stream preference, owned by the gateway."""
-        if type(view) is not int or view not in (0, 1):
+        if type(view) is not int or view not in (0, 1, 2):
             raise GatewayClientError("Unavailable NVR view", code="unavailable")
         camera = await self._json(f"/api/cameras/{serial}/nvr-view", method="POST", payload={"view": view}, timeout=120, nvr=True)
         if camera.get("serial") != serial:

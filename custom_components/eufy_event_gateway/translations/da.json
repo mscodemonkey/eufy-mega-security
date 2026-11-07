@@ -247,6 +247,7 @@
         "state": {
           "fixed": "Fast",
           "movable": "Bevægelig",
+          "both": "Begge",
           "wide": "Vidvinkel",
           "telephoto": "Telefoto"
         }

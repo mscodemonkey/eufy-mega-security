@@ -86,6 +86,8 @@ test("exact model matrix excludes suffixes and cross types", () => {
   assert.equal(nvrLiveProfile("T8416", 104)?.panReceiptOnly, true);
   assert.equal(nvrLiveProfile("T8E00", 301)?.panReceiptOnly, true);
   assert.equal(nvrLiveProfile("T8416", 104)?.aiTracking, true); assert.equal(nvrLiveProfile("T8E00", 301)?.aiTracking, false);
+  assert.deepEqual(nvrLiveProfile("T8E00", 301)?.views, ["Fixed", "Movable", "Both"]);
+  assert.equal(nvrLiveProfile("T8E00", 301)?.stackedView, 2); assert.equal(nvrLiveProfile("T8416", 104)?.stackedView, null);
   for (const [model, type] of [["T8416121", 104], ["T8416", 105], ["T8416", 301], ["T8E00121", 301]] as const) assert.equal(nvrLiveProfile(model, type), null);
 });
 
@@ -93,6 +95,7 @@ test("the S1 profile is exact, pan-only and distinct from T8N00 settings", () =>
   const profile = nvrLiveProfile("T8E00", 301, "T9000", 27)!;
   assert.equal(profile.defaultView, 1);
   assert.equal(profile.movementView, 1);
+  assert.equal(profile.stackedView, null);
   assert.equal(profile.opticalZoom, false);
   assert.deepEqual(profile.night, []);
   assert.deepEqual(profile.quality, []);

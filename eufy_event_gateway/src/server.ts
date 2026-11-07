@@ -1393,7 +1393,7 @@ export class GatewayServer {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     const body = await readClosedNvrBody(request);
     if (view) {
-      if (Object.keys(body).length !== 1 || !Number.isInteger(body.view) || ![0, 1].includes(Number(body.view))) throw new SyntaxError("Invalid camera view");
+      if (Object.keys(body).length !== 1 || !Number.isInteger(body.view) || ![0, 1, 2].includes(Number(body.view))) throw new SyntaxError("Invalid camera view");
       if (!this.provider.setNvrView) throw new NvrLiveControlError("disabled");
       if (this.streams.hasActiveSession(serial) || this.streams.hasActiveRecording(serial)) throw new NvrLiveControlError("busy");
       const identity = await this.provider.setNvrView(serial, body.view as number);

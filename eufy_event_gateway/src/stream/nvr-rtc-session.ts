@@ -24,7 +24,7 @@ import { NvrPowerError, type NvrCameraPower } from "../provider/nvr-power-trial.
 import { NvrGuardError } from "../provider/nvr-guard-trial.js";
 import type { NvrGuardEffective } from "../provider/nvr-guard-schedule.js";
 import { NvrTrialError, nvrAudio, nvrAudioChannel, nvrCameraPowerCommand, nvrGuardModeCommand, nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrJson,
-  nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrRecord, nvrVideo, nvrStateSummary, type NvrStateSummary, type NvrTrialStage, type NvrTrialReason } from "./nvr-protocol.js";
+  nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrRecord, nvrVideo, nvrStateSummary, type NvrSource, type NvrStateSummary, type NvrTrialStage, type NvrTrialReason } from "./nvr-protocol.js";
 
 import { NvrLiveControlError } from "../provider/nvr-live-controls.js";
 import { nvrEffectiveModeBroadcast, type NvrEffectiveModeObservation } from "./nvr-effective-mode.js";
@@ -115,8 +115,8 @@ export interface NvrRtcOptions {
    */
   readonly s1FirstPictureGrace?: boolean;
 
-  /** Provider-selected lens. Omission preserves the original T8E00 trial. */
-  readonly sensor?: 0 | 1;
+  /** Provider-selected lens, or both lenses stacked. Omission preserves the original T8E00 trial. */
+  readonly sensor?: NvrSource;
   readonly administrator: string;
 
   /** Freshly bound administrator display name required by the closed guard command. */

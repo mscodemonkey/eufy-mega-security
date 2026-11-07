@@ -101,6 +101,31 @@ for (const mode of ["disabled", "inherited", "recording", "drift", "partial", "v
   assert.equal(value.writes.length, mode === "partial" ? 2 : 0);
 });
 
+test("T8E00 Both stacks both lenses in one source and keeps pan and zoom on its movable lens", async context => {
+  const value = await fixture(context);
+  const sources: unknown[] = [];
+  context.mock.method(NvrRtcSession.prototype, "start", async function (this: NvrRtcSession) {
+    sources.push((this as unknown as { options: { sensor?: unknown } }).options.sensor);
+  });
+  const camera = () => value.state.getCamera("synthetic-camera");
+  assert.deepEqual(camera().nvrViewOptions, ["Fixed", "Movable", "Both"]);
+  await value.provider.setNvrView("synthetic-camera", 2);
+  assert.equal(camera().nvrSelectedView, 2);
+  assert.equal(camera().nvrPanControlSupported, true); assert.equal(camera().nvrOpticalZoomControlSupported, true);
+  await value.provider.startStream("synthetic-camera"); await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(sources, ["both"]);
+  const accepted = { outcome: "request_accepted", physicalConfirmationRequired: true };
+  assert.deepEqual(await value.provider.performNvrLiveControl("synthetic-camera", { kind: "pan", direction: "left" }), accepted);
+  value.advance();
+  assert.deepEqual(await value.provider.performNvrLiveControl("synthetic-camera", { kind: "zoom", level: 2 }), accepted);
+  assert.deepEqual(value.writes, [{ kind: "pan", direction: "left" }, { kind: "zoom", level: 2 }]);
+  await value.provider.stopStream("synthetic-camera");
+  await assert.rejects(value.provider.setNvrView("synthetic-camera", 3), { code: "unavailable" });
+  await value.provider.setNvrView("synthetic-camera", 1);
+  await value.provider.startStream("synthetic-camera"); await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(sources, ["both", 1]);
+});
+
 test("104 profile offers no view choice, with pan and optical zoom on its only source", async context => {
   const value = await fixture(context, "T8416", 104);
   const camera = () => value.state.getCamera("synthetic-camera");
@@ -110,6 +135,7 @@ test("104 profile offers no view choice, with pan and optical zoom on its only s
   assert.equal(camera().nvrPanControlSupported, true); assert.equal(camera().nvrOpticalZoomControlSupported, true);
   await assert.rejects(value.provider.setNvrView("synthetic-camera", 1), { code: "unavailable" });
   await assert.rejects(value.provider.setNvrView("synthetic-camera", 0), { code: "unavailable" });
+  await assert.rejects(value.provider.setNvrView("synthetic-camera", 2), { code: "unavailable" });
   await value.provider.startStream("synthetic-camera"); await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(camera().streamingQualityModes?.map(mode => mode.name), ["Auto", "HD (720P)", "Full HD (1080P)", "2K", "Ultra 4K"]);
   const accepted = { outcome: "request_accepted", physicalConfirmationRequired: true };

@@ -175,6 +175,7 @@ entity:
       state:
         fixed: Fixed
         movable: Movable
+        both: Both
         wide: Wide
         telephoto: Telephoto
   sensor:
