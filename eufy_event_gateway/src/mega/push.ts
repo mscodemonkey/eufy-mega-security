@@ -72,6 +72,11 @@ export interface MegaPushEvent {
   readonly pictureUrl: string | null;
   readonly filePath: string | null;
 
+  /** Clip channel pushed by a HomeBase 2 camera, which must match the camera's inventory channel. */
+  readonly recordingChannel?: number | null;
+
+  /** Station cipher protecting the stored clip, used only by the opt-in HomeBase 2 event frames. */
+  readonly cipherId?: number | null;
   /** Exact private recording identity, present only when its complete innermost reference is supported. */
   readonly recording?: PushRecordingReference;
   readonly fetchId: number | null;
@@ -480,6 +485,8 @@ export function parsePushEvent(data: unknown): MegaPushEvent | null {
     content: field("content"),
     pictureUrl: text(payload.pic_url),
     filePath: text(payload.file_path) ?? text(payload.p),
+    recordingChannel: integer(payload.channel) ?? integer(payload.c),
+    cipherId: integer(payload.cipher) ?? integer(payload.k),
     ...(recording ? { recording } : {}),
     fetchId: integer(payload.fetch_id) ?? integer(payload.i),
     senseId: text(payload.sense_id) ?? text(payload.j),

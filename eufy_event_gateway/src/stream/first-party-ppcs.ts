@@ -20,12 +20,15 @@ import { buildT85V0StatusQuery, decodeT85V0StatusReply, T85V0StatusError, type T
 import { C31IndexError, summarizeC31Index, validateC31IndexWindow, type C31IndexSummary } from "./c31-recording-index.js";
 import { buildS100SirenCommand } from "./s100-siren-command.js";
 import { S100SirenTrialError, type S100SirenTrialTransport, type S100SirenFailureStage } from "../provider/s100-siren-trial.js";
-import { createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes } from "node:crypto";
+import { createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes, type KeyObject } from "node:crypto";
 import { unwrapAuthenticatedMediaKey } from "../crypto/media-key.js";
 import { modelControlTrialCommand, type ModelControlRoute, type ModelControlTrial, type AlarmStateTrialResult } from "../provider/model-control-trials.js";
 import { validateC31Preference, type C31Preference } from "../provider/c31-preferences.js";
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
+import {
+  buildHomeBase2DownloadValue, HOMEBASE2_DOWNLOAD_CANCEL_COMMAND, HOMEBASE2_DOWNLOAD_COMMAND, HomeBase2EventFrameReader,
+} from "./homebase2-event-frame.js";
 import { HomeBaseRecordingReader } from "./homebase-recordings.js";
 import type { PushRecordingReference } from "../mega/push-recording-reference.js";
 import { EventPictureReader, decodeEventPictureReply, decodeLegacyEventPictureReply, type EventPictureSummary } from "./homebase-event-picture.js";
@@ -1754,6 +1757,7 @@ export class FirstPartyPpcsSession {
 
   /** Own correlated card reads separately from live media and camera-setting requests. */
   #recordings: SoloCamRecordingReader | HomeBaseRecordingReader | null = null;
+  #eventFrames: HomeBase2EventFrameReader | null = null;
 
   /** Own one manually requested history-name check independently of saved media. */
   #eventNames: EventNameHistoryReader | null = null;
@@ -2816,6 +2820,52 @@ export class FirstPartyPpcsSession {
     return await reader.download(record, signal);
   }
 
+  /**
+   * Read the first picture of one HomeBase 2 clip for a full-scene event image.
+   *
+   * The unconfirmed T8010 contract is the legacy fixed-width download command
+   * with level-one encryption, matching its direct media stop. Signed frames
+   * wrap their AES key with the station cipher's RSA key, which the provider
+   * resolves for this clip only. The reader is dropped afterwards so that key
+   * is not retained by the session. The provider owns the peer reservation.
+   */
+  async readHomeBase2EventFrame(path: string, cipherPrivateKey: KeyObject, signal: AbortSignal): Promise<Buffer> {
+    if (this.#closed || !this.#options.homeBaseAttached || this.#options.stationModel !== "T8010"
+      || this.#options.purpose !== "control" || !this.#options.accountId || this.#recordings || this.#eventNames || this.#eventPicture
+      || this.#eventFrames || this.#pendingControl || this.#pendingControlQuery || this.#pendingCameraInfo || this.#alarmRead || this.#lockStatus) {
+      throw new Error("HomeBase 2 event frames require an idle HomeBase 2 control session");
+    }
+    await this.#waitForLevel2Key();
+    if (this.#closed || signal.aborted) throw new Error("HomeBase 2 recording operation was cancelled");
+    const key = commandKey(this.#options.stationSerial, this.#options.p2pDid);
+    const channel = this.#options.channel;
+    const accountId = this.#options.accountId;
+    this.#eventFrames = new HomeBase2EventFrameReader({
+      channel,
+      request: (filePath) => this.#sendCommand(HOMEBASE2_DOWNLOAD_COMMAND,
+        rawPayload(encryptLevel1(buildHomeBase2DownloadValue(filePath, accountId), key), channel, 1, [1, 0], 0)),
+      cancel: () => {
+
+        // A closed session has already ended the peer session and its socket.
+        if (this.#closed) return;
+        const value = Buffer.alloc(4);
+        value.writeUInt32LE(channel, 0);
+        this.#sendCommand(HOMEBASE2_DOWNLOAD_CANCEL_COMMAND, rawPayload(encryptLevel1(value, key), channel, 1, [1, 0], 0));
+      },
+      unwrapKey: (wrapped) => privateDecrypt({ key: cipherPrivateKey, padding: 1 }, wrapped),
+      decodeReply: (payload, sign) => {
+        if (sign === 0) return payload;
+        if ((sign === 8 || sign === 2) && this.#level2Key) return decryptLevel2(payload, this.#level2Key, sign) ?? null;
+        if (sign === 1 && payload.length % 16 === 0) {
+          try { return decryptEcb(payload, key); } catch { return null; }
+        }
+        return null;
+      },
+    });
+    try { return await this.#eventFrames.firstFrameJpeg(path, signal); }
+    finally { this.#eventFrames = null; }
+  }
+
   #recordingReader(): SoloCamRecordingReader | HomeBaseRecordingReader {
     if (this.#options.homeBaseAttached) {
       if (this.#options.cameraModel !== "T8171" || this.#options.stationModel !== "T8030" || this.#options.channel !== 1 ||
@@ -2913,6 +2963,7 @@ export class FirstPartyPpcsSession {
     this.#finishC31Index(new C31IndexError("cancelled"));
     this.#finishLockStatus(new T85V0StatusError("cancelled"));
     this.#recordings?.close();
+    this.#eventFrames?.close();
     this.#eventNames?.close();
     this.#eventPicture?.close();
     if (this.#maximumDurationTimer) clearTimeout(this.#maximumDurationTimer);
@@ -3091,7 +3142,9 @@ export class FirstPartyPpcsSession {
       this.#send(REQ.ack, Buffer.concat([type, u16(1), u16(seq)]), this.#remote);
       const dataType = type[1] ?? 0;
       if (type.equals(DATA.video) || type.equals(DATA.data) || dataType === 2 ||
-        (dataType === 3 && this.#recordings?.downloading)) this.#datagramOrder.push(message.subarray(8), seq, dataType);
+        (dataType === 3 && (this.#recordings?.downloading || this.#eventFrames?.downloading))) {
+        this.#datagramOrder.push(message.subarray(8), seq, dataType);
+      }
     }
     return false;
   }
@@ -3182,6 +3235,7 @@ export class FirstPartyPpcsSession {
     if (this.#eventPicture?.handleFrame(header, payload)) return;
     if (this.#eventNames?.handleFrame(header, payload)) return;
     if (this.#recordings?.handleFrame(header, payload, type)) return;
+    if (this.#eventFrames?.handleFrame(header, payload, type)) return;
     const command = header.readUInt16LE(4);
     if (this.#options.purpose === "passive" && command === 1300) { this.close("client_stop"); return; }
     const size = header.readUInt32LE(6);
