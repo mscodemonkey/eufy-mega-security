@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import type { ServerResponse } from "node:http";
+import { getPriority } from "node:os";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 
@@ -16,6 +17,7 @@ import { GatewayState } from "../src/domain/gateway-state.js";
 import {
   LiveStreamManager,
   h265ViewerTranscoderArguments,
+  spawnH265ViewerTranscoder,
   SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS,
   StreamCadenceTracker,
   terminateMediaProcess,
@@ -105,6 +107,15 @@ test("source activity resets the quiet deadline and idle cleanup cancels it", as
 
 test("allows slower cameras 30 seconds to produce a fresh snapshot", () => {
   assert.equal(SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS, 30_000);
+});
+
+test("H.265 conversion runs below the gateway so it cannot starve live video", () => {
+  const child = spawnH265ViewerTranscoder();
+  try {
+    assert.equal(getPriority(child.pid), 10);
+  } finally {
+    child.kill("SIGKILL");
+  }
 });
 
 test("fixed H.265 viewer output adds a stable 1080p filter only when enabled", () => {

@@ -12,6 +12,7 @@ import { observeRawSocket } from "../diagnostics/raw-network.js";
 import { createHash, randomUUID } from "node:crypto";
 import { PassThrough } from "node:stream";
 import WebSocket from "ws";
+import type { Socket } from "node:dgram";
 import { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, type RTCDataChannel, type RTCIceServer } from "werift";
 import type { VideoCodec } from "../domain/types.js";
 import { NvrPtcsReassembler, type NvrPtcsReassemblyStats } from "./nvr-ptcs-reassembly.js";
@@ -29,6 +30,7 @@ import { nvrEffectiveModeBroadcast, type NvrEffectiveModeObservation } from "./n
 import { nvrLiveCommand, nvrLiveJson, nvrLiveReceipt, nvrLivePanReply, nvrLiveSettings, type NvrLiveSettings, type NvrLiveWrite } from "./nvr-live-control-protocol.js";
 
 const HEARTBEAT_ECHO = nvrHeartbeat();
+const NVR_RECEIVE_BUFFER_BYTES = 4 * 1024 * 1024;
 
 /**
  * Identify supported coded-picture NAL units in already checked Annex-B output.
@@ -202,6 +204,22 @@ export interface NvrRtcStats {
   channel3Frames: number;
   channel4Frames: number;
   channel5Frames: number;
+}
+
+/**
+ * A large keyframe arrives as one burst, bigger than the default UDP receive buffer. If the gateway
+ * is slow to read, the kernel discards the overflow. Hosts may cap this below the request.
+ */
+export function widenNvrReceiveBuffers(peer: RTCPeerConnection): void {
+  for (const transport of peer.iceTransports) {
+
+    // werift keeps its sockets out of its types, and its version is pinned. A test covers the real path.
+    const { protocols } = transport.connection as unknown as { protocols: { transport?: { socket?: Socket } }[] };
+    for (const protocol of protocols) {
+      try { protocol.transport?.socket?.setRecvBufferSize(NVR_RECEIVE_BUFFER_BYTES); }
+      catch { /* The default buffer still works, with more loss under load. */ }
+    }
+  }
 }
 
 /**
@@ -867,6 +885,7 @@ export class NvrRtcSession {
       for (const candidate of this.#pendingCandidates.splice(0)) await this.#candidate(candidate);
       const answer = await this.#step("create_answer", () => peer.createAnswer()); this.#guard();
       await this.#step("local_description", () => peer.setLocalDescription(answer)); this.#guard();
+      widenNvrReceiveBuffers(peer);
       await this.#step("send_answer", () => { this.#action("info", { sdp: peer.localDescription!.sdp }); this.#markTiming("answerSent"); this.#answerSent = true; this.#flushLocal(); });
     }
   }
@@ -973,7 +992,11 @@ export class NvrRtcSession {
     }
     const key = `${result.channel}:${result.sequence}`;
     if (this.#reorder.has(key)) return;
-    if (this.#reorder.size >= 16 || this.#reorderBytes + result.frame.length > 8 * 1024 * 1024) throw new NvrTrialError("framing", "frame_reorder_limit");
+    if (this.#reorderFull(result.frame.length)) {
+      const [oldest] = this.#reorder.values();
+      if (oldest) this.#skipGap(oldest.channel);
+      if (this.#reorderFull(result.frame.length)) throw new NvrTrialError("framing", "frame_reorder_limit");
+    }
     this.#reorder.set(key, { channel: result.channel, sequence: result.sequence, frame: result.frame, at: this.#now() });
     this.#reorderBytes += result.frame.length; this.#drain();
   }
@@ -990,11 +1013,10 @@ export class NvrRtcSession {
     // Arrival order can place a repaired predecessor after an older waiter.
     // Drain every ready frame before deciding whether a gap still exists.
     for (const item of this.#reorder.values()) {
-      const age = this.#now() - item.at;
+      const age = (this.#reassembler.lastHeard(item.channel) ?? item.at) - item.at;
       if (age >= 1000) {
 
-        // A stop reply can drain this queue again during retirement. Preserve
-        // the first failure instead of replacing it with cleanup observations.
+        // Keep the first lasting gap for diagnostics. The session carries on from the next keyframe.
         if (this.stats.reorderTimeoutChannel === -1) {
           this.stats.reorderTimeoutChannel = item.channel;
           this.stats.reorderTimeoutExpected = ((this.#lastSequence.get(item.channel) ?? 65535) + 1) % 65536;
@@ -1002,9 +1024,25 @@ export class NvrRtcSession {
           this.stats.reorderTimeoutAgeMs = age;
           this.stats.reorderTimeoutQueued = this.#reorder.size;
         }
-        throw new NvrTrialError("framing", "frame_reorder_timeout");
+        this.#skipGap(item.channel);
+        return;
       }
     }
+  }
+
+  #reorderFull(incomingBytes: number): boolean {
+    return this.#reorder.size >= 16 || this.#reorderBytes + incomingBytes > 8 * 1024 * 1024;
+  }
+
+  /** Resume from the oldest waiter. Video freezes until the next keyframe rebuilds its startup. */
+  #skipGap(channel: number): void {
+    const previous = this.#lastSequence.get(channel) ?? 0;
+    const waiting = [...this.#reorder.values()].filter(item => item.channel === channel);
+    const distance = (sequence: number): number => (sequence - previous + 65536) % 65536;
+    const oldest = waiting.reduce((best, item) => distance(item.sequence) < distance(best.sequence) ? item : best);
+    this.#lastSequence.set(channel, (oldest.sequence + 65535) % 65536);
+    this.stats.applicationSequenceRecoveries++;
+    this.#drain();
   }
 
   #frame(bytes: Buffer, transportChannel: number): void {

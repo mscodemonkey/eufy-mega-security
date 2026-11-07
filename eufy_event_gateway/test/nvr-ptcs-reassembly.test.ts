@@ -186,9 +186,54 @@ test("fragment budgets protect existing frames and release reservations", () => 
   rejection(receiver, index, "index");
 });
 
+test("a large frame still receiving fragments outlives the expiry window", () => {
+  const receiver = new NvrPtcsReassembler({ expiryMilliseconds: 1000 });
+  const frame = Buffer.alloc(5000, 7), parts = packets(frame, { exact: true, keyframe: true });
+  parts.slice(0, -1).forEach((part, index) => {
+    assert.deepEqual(receiver.push(part, index * 600), { status: "incomplete" });
+  });
+  const result = receiver.push(parts.at(-1)!, (parts.length - 1) * 600);
+  assert.equal(result.status, "complete");
+  assert.ok(result.status === "complete" && result.frame.equals(frame));
+  assert.equal(receiver.stats.pendingFrames, 0);
+});
+
+test("a repeated fragment does not keep a stalled frame alive", () => {
+  const receiver = new NvrPtcsReassembler({ expiryMilliseconds: 1000 });
+  const first = packets(Buffer.alloc(1001), { exact: true })[0]!;
+  receiver.push(first, 0);
+  receiver.push(first, 900);
+  receiver.push(first, 1000);
+  receiver.expire(1000);
+  assert.equal(receiver.stats.pendingFrames, 0);
+  assert.equal(receiver.stats.bufferedBytes, 0);
+});
+
+test("a stall that silences the channel does not expire the frame caught in it", () => {
+  const receiver = new NvrPtcsReassembler({ expiryMilliseconds: 1000 });
+  const frame = Buffer.alloc(2001, 7);
+  const fragments = packets(frame, { exact: true });
+  receiver.push(fragments[0]!, 0);
+  receiver.expire(5000);
+  assert.equal(receiver.stats.pendingFrames, 1);
+  receiver.push(fragments[1]!, 5000);
+  const result = receiver.push(fragments[2]!, 5001);
+  assert.ok(result.status === "complete" && result.frame.equals(frame));
+});
+
+test("a frame abandoned while its channel carries on still expires", () => {
+  const receiver = new NvrPtcsReassembler({ expiryMilliseconds: 1000 });
+  receiver.push(packets(Buffer.alloc(1001), { exact: true, sequence: 1 })[0]!, 0);
+  receiver.push(packets(Buffer.alloc(1001), { exact: true, sequence: 2 })[0]!, 1000);
+  receiver.expire(1000);
+  assert.equal(receiver.stats.pendingFrames, 1);
+});
+
 test("expiry, clear, limits and monotonic clocks preserve bounded accounting", () => {
   const receiver = new NvrPtcsReassembler({ expiryMilliseconds: 10 });
-  receiver.push(packets(Buffer.alloc(1001), { exact: true })[0]!, 5);
+  const fragment = packets(Buffer.alloc(1001), { exact: true })[0]!;
+  receiver.push(fragment, 5);
+  receiver.push(fragment, 15);
   receiver.expire(15);
   assert.equal(receiver.stats.bufferedBytes, 0);
   receiver.push(packets(Buffer.alloc(1001), { exact: true })[0]!, 15);
