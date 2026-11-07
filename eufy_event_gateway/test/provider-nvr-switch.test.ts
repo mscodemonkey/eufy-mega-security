@@ -251,6 +251,28 @@ test("a Home Assistant recording added to a running marked view keeps the call",
   } finally { await value.close(); }
 });
 
+test("while a recording's hold is pending or rejected, the unmarked view HA gives camera B is refused", async context => {
+  const value = await fixture(context);
+  try {
+
+    // Camera A's view is recording but the gateway has no hold: it would still yield to a marked view.
+    const recording = await open(value, a, view("a"));
+    assert.equal(value.manager.canYieldSource(a), true);
+    const pending = await open(value, b);
+    assert.equal(pending.destroyed, true);
+    assert.equal(recording.destroyed, false);
+    assert.equal(value.manager.hasActiveViewer(a), true);
+
+    // A rejected hold leaves the view yieldable, and HA keeps camera B unmarked for the recording.
+    assert.equal(value.manager.holdView(a, view("not-this-one")), false);
+    const rejected = await open(value, b);
+    assert.equal(rejected.destroyed, true);
+    assert.equal(recording.destroyed, false);
+    assert.equal(value.manager.hasActiveViewer(a), true);
+    assert.equal(value.switches.length, 0);
+  } finally { await value.close(); }
+});
+
 test("holding one camera's view leaves another camera's view free to yield", async context => {
   const value = await fixture(context);
   try {

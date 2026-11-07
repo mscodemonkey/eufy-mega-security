@@ -32,7 +32,7 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
                            keywords=[], body=[method, next(n for n in camera.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "_async_stream_url")], decorator_list=[])
         module = ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[]))
         namespace = {"CameraBase": base, "Stream": object, "StreamOutput": object, "GatewayClientError": RuntimeError, "_LOGGER": Mock(), "asyncio": asyncio, "STREAM_URL_RENEWAL_TIMEOUT": 0.02,
-                     "_new_view": lambda url: url, "_with_view": lambda url, _view: url, "_view_of": lambda _url: None}
+                     "_new_view": lambda url: url, "_view_for": lambda _camera, url: url, "_with_view": lambda url, _view: url, "_view_of": lambda _url: None}
         exec(compile(module, str(SOURCE), "exec"), namespace)
         self.base = base
         self.camera = namespace["TestCamera"]()

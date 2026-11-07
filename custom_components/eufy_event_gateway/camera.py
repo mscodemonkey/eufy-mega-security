@@ -58,6 +58,9 @@ STREAM_SOURCE_REFRESH_INTERVAL = timedelta(minutes=5)
 STREAM_URL_RENEWAL_TIMEOUT = 10
 LIVE_VIEW_QUERY = "view"
 
+# Past a recording's own length, for HA to close its recorder output.
+RECORDING_HOLD_MARGIN = 10
+
 
 def _cloud_day_window(day: str, zone: Any) -> tuple[int, int, int]:
     """Use true local midnights, resolving a gap's offset at its converted instant."""
@@ -199,6 +202,16 @@ def _new_view(url: str) -> str:
     return _with_view(url, secrets.token_urlsafe(16))
 
 
+def _view_for(camera: Any, url: str) -> str:
+    """Mark a person's new view, unless a recording's call is not yet protected.
+
+    An unmarked view never takes an NVR call, so the gateway refuses it while
+    another camera has the call. Views and recordings start on HA's one event
+    loop, so no view can be marked between a recording starting and its hold.
+    """
+    return _with_view(url, None) if camera.coordinator.recording_holds else _new_view(url)
+
+
 class EufyGatewayCamera(EufyGatewayEntity, Camera):
     """Represent one camera with retained imagery and explicit media actions.
 
@@ -330,9 +343,9 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
                 )
                 if self.hass is not None and self.stream is stream:
                     if stream.outputs():
-                        stream.update_source(_new_view(source))
+                        stream.update_source(_view_for(self, source))
                     else:
-                        stream.source = _new_view(source)
+                        stream.source = _view_for(self, source)
             except (GatewayClientError, asyncio.TimeoutError):
                 _LOGGER.debug("Stream URL renewal failed, keeping the previous URL")
             finally:
@@ -348,11 +361,11 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
                 view = _view_of(stream.source)
                 stream.source = _with_view(stream.source, None)
 
-                # A recording added to a running view shares its connection, so
-                # the gateway would still let another camera take that call. A
-                # stream with no output yet opens with the unmarked URL instead.
+                # A recorder added some other way than async_record below cannot
+                # wait for the hold here, so no new view takes a call meanwhile.
                 if view is not None and stream.outputs() and self.hass is not None:
-                    self.hass.async_create_task(self._async_hold_view(view))
+                    hold = self._begin_recording_hold()
+                    self.hass.async_create_task(self._async_hold_view(view, hold, timeout or 30))
             tune_first_output = (fast_native_hls and fmt == "hls" and timeout is None
                                  and not stream.outputs()
                                  and not stream.dynamic_stream_settings.preload_stream)
@@ -387,7 +400,29 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
                 provider.idle_timer.start()
             return provider
 
+        async_record = getattr(stream, "async_record", None)
+
+        async def record(*args: Any, **kwargs: Any) -> None:
+            """Hold a running view's NVR call before Home Assistant adds its recorder.
+
+            The recorder shares the view's connection, so until the gateway holds
+            that view another camera could take its call. No new view is marked
+            from the moment the recording is asked for, and the recorder is added
+            only after the gateway answers. A stream with no output yet opens
+            unmarked, so it needs no hold.
+            """
+            view = _view_of(stream.source)
+            if view is not None and stream.outputs():
+                stream.source = _with_view(stream.source, None)
+                hold = self._begin_recording_hold()
+                duration = kwargs.get("duration", args[1] if len(args) > 1 else 30)
+                lookback = kwargs.get("lookback", args[2] if len(args) > 2 else 5)
+                await self._async_hold_view(view, hold, duration + lookback)
+            await async_record(*args, **kwargs)
+
         stream.add_provider = add_output
+        if async_record is not None:
+            stream.async_record = record
         self._hls_idle_stream = stream
         return stream
 
@@ -565,14 +600,31 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = (
             self._native_video or self.camera.get("liveAudioSupported") is not True
         )
-        return _new_view(await self._async_stream_url())
+        return _view_for(self, await self._async_stream_url())
 
-    async def _async_hold_view(self, view: str) -> None:
-        """Ask the gateway to keep the NVR call with a view that is now recording."""
+    def _begin_recording_hold(self) -> object:
+        """Stop new views taking NVR calls until this recording's call is protected."""
+        hold = object()
+        self.coordinator.recording_holds.add(hold)
+        return hold
+
+    async def _async_hold_view(self, view: str, hold: object, seconds: float) -> None:
+        """Ask the gateway to keep the NVR call with a view that is now recording.
+
+        If the gateway does not confirm it, the recording still goes ahead, and
+        no new view takes a call until it has had time to finish.
+        """
         try:
-            await self.coordinator.client.hold_live_view(self.serial, view)
+            held = await self.coordinator.client.hold_live_view(self.serial, view) is True
         except (GatewayClientError, ValueError):
-            _LOGGER.debug("Live view hold failed, so another camera's view may take this recording's call")
+            held = False
+        if held:
+            self.coordinator.recording_holds.discard(hold)
+            return
+        _LOGGER.debug("Live view hold not confirmed, so new views will not take NVR calls until the recording ends")
+        asyncio.get_running_loop().call_later(
+            seconds + RECORDING_HOLD_MARGIN, self.coordinator.recording_holds.discard, hold,
+        )
 
     async def _async_stream_url(self) -> str:
         """Select the same source profile for initial open and both renewals."""

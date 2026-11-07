@@ -307,7 +307,7 @@ class CameraCurrentStreamClockTest(unittest.IsolatedAsyncioTestCase):
         tree = ast.parse(CAMERA_SOURCE.read_text())
         method = next(node for node in ast.walk(tree)
                       if isinstance(node, ast.AsyncFunctionDef) and node.name == "stream_source")
-        namespace = {"_new_view": lambda url: url, "CONF_USE_WALLCLOCK_AS_TIMESTAMPS": "wallclock"}
+        namespace = {"_new_view": lambda url: url, "_view_for": lambda _camera, url: url, "CONF_USE_WALLCLOCK_AS_TIMESTAMPS": "wallclock"}
         exec(compile(ast.Module(body=[method], type_ignores=[]), str(CAMERA_SOURCE), "exec"), namespace)
         client = SimpleNamespace(stream_url=AsyncMock(return_value="signed-source"))
         entity = SimpleNamespace(camera={"streamSupported": True}, stream_options={"wallclock": True},

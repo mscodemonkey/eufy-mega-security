@@ -448,7 +448,7 @@ class GatewayClient:
         """Keep an NVR call with a marked view that Home Assistant now records from."""
         payload = await self._json(
             f"/api/cameras/{quote(serial, safe='')}/live-view-hold", method="POST",
-            payload={"view": view}, timeout=10,
+            payload={"view": view}, timeout=5,
         )
         return payload.get("held") is True
 

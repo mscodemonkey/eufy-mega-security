@@ -52,6 +52,10 @@ class EufyGatewayCoordinator(
             always_update=False,
         )
         self.client = client
+
+        # Recordings whose NVR call the gateway has not confirmed it will keep.
+        # While any is open, cameras give new views no mark, so none takes a call.
+        self.recording_holds: set[object] = set()
         self.image_cache = CameraImageCache(
             Path(hass.config.path(".storage", DOMAIN, "camera-images")),
             hass.async_add_executor_job,
