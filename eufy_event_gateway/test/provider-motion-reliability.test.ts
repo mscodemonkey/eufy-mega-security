@@ -82,6 +82,47 @@ test("HB2 stops live media before its owned motion session and confirms fresh in
   } finally { await f.dispose(); }
 });
 
+for (const stationModel of ["T8010", "T8030"]) {
+  for (const acknowledgementLost of [false, true]) {
+    test(`fresh motion inventory replaces the pre-write HomeBase cache: ${stationModel}, lost=${acknowledgementLost}`, async context => {
+      const f = await fixture(context, false, stationModel, false, "synthetic-base");
+      context.mock.method(HomeBasePpcsSession.prototype, "readState", async () => ({ childParams: [
+        { channel: 1, type: 1011, value: "1" },
+        { channel: 1, type: 1101, value: "72" },
+      ] }));
+      try {
+        await f.provider.refreshStation("synthetic-base");
+        const reads = f.inventory.mock.callCount();
+        const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeMotionDetection", async (value: boolean, dispatched?: () => void) => {
+          dispatched?.();
+          f.setMotion(value);
+          if (acknowledgementLost) throw new CameraControlAcknowledgementTimeoutError();
+        });
+        const result = await f.provider.setCameraMotionDetection("camera", false);
+        assert.equal(result.motionDetectionEnabled, false);
+        assert.equal(result.battery?.level, 72);
+        assert.equal(write.mock.callCount(), 1);
+        assert.equal(f.inventory.mock.callCount(), reads + 1);
+      } finally { await f.dispose(); }
+    });
+  }
+}
+
+for (const stationModel of ["T8010", "T8030"]) {
+  test(`a matching old HomeBase cache cannot confirm an unchanged cloud setting: ${stationModel}`, async context => {
+    const f = await fixture(context, false, stationModel, false, "synthetic-base");
+    context.mock.method(HomeBasePpcsSession.prototype, "readState", async () => ({ childParams: [
+      { channel: 1, type: 1011, value: "0" },
+    ] }));
+    try {
+      await f.provider.refreshStation("synthetic-base");
+      const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeMotionDetection", async (_value: boolean, dispatched?: () => void) => { dispatched?.(); });
+      await assert.rejects(f.provider.setCameraMotionDetection("camera", false), /not confirmed by readback/);
+      assert.equal(write.mock.callCount(), 1);
+    } finally { await f.dispose(); }
+  });
+}
+
 test("successful camera startup emits the closed stage-timing event", async context => {
   const observed: string[] = [];
   const stopObserving = observeLogEvents((component, event) => { observed.push(`${component}:${event}`); });

@@ -3695,7 +3695,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           if (error instanceof CameraControlAcknowledgementTimeoutError) acknowledgementTimedOut = true;
           else if (!soloCam) throw error;
         } finally { removeCleanup(); retire(); await retirement; }
-        if (supportsStandaloneC31Presets(device, route, true)) this.#invalidateLiveReads(serial, ["motionDetectionEnabled"]);
+
+        // A pre-write HomeBase snapshot must not override fresh command confirmation.
+        this.#invalidateLiveReads(serial, ["motionDetectionEnabled"]);
         for (let attempt = 0; attempt < 12; attempt++) {
           current();
           await scope.wait(() => this.#refreshInventoryReads());
