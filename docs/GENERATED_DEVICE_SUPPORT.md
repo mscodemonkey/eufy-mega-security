@@ -41,6 +41,7 @@ hardware evidence and topology-specific results remain in
 | T8223 | Video Doorbell C31 | 96 | camera | ready_to_test |
 | T8224 | Video Doorbell C30 | 96 | camera | supported |
 | T8400 | Indoor Cam C120 / 2K (Solo IndoorCam C24) | 30 | camera | supported |
+| T8404 | Window Camera E10 | 314 | camera | ready_to_test |
 | T8410, T8413 | Indoor Cam E220 / 2K Pan & Tilt (Solo IndoorCam P24) | 31 | camera | supported |
 | T8410C, T8410C21 | Indoor Cam Pan & Tilt 2K (T8410C) | 31 | camera | supported |
 | T8416, T8416121 | Indoor Cam S350 | 104 | camera | supported |

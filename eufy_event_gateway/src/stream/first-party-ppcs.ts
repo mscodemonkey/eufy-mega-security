@@ -1012,7 +1012,7 @@ export function buildReviewedCameraSettingPayload(
   if (!profile || !accountId || key.length !== 32 || !Number.isSafeInteger(now) || !/^\d{13}$/.test(`${now}`)) {
     throw new Error("Reviewed camera setting route unavailable");
   }
-  if (profile.form === "manual-light" || profile.form === "motion-control") throw new Error("Floodlight setting requires its native level-one envelope");
+  if (profile.form === "manual-light" || profile.form === "motion-control" || profile.form === "solo-sensitivity") throw new Error("Floodlight setting requires its native level-one envelope");
   const native = cameraSettingWireValue(profile, change);
   const clear = profile.form === "binary" ? buildCameraEnableBody(route.channel!, native, accountId)
     : Buffer.from(JSON.stringify(profile.form === "payload"
@@ -2252,7 +2252,11 @@ export class FirstPartyPpcsSession {
     if (this.#closed || this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
       || this.#options.cameraModel !== route.model || this.#options.channel !== route.channel
       || this.#options.homeBaseAttached !== route.homeBaseAttached) throw new Error("Invalid model trial session");
-    if (request.action === "spotlight" || request.action === "ptz" || route.homeBaseAttached) await this.#waitForLevel2Key();
+
+    // The standalone C35 manual switch uses its pinned level-one JSON path.
+    // Its master-enable setting remains outside this profile.
+    if ((request.action === "spotlight" && !(route.model === "T8110" && route.deviceType === 10035))
+      || request.action === "ptz" || route.homeBaseAttached) await this.#waitForLevel2Key();
     current();
     const frame = buildModelControlTrialPayload(request, route, this.#options.accountId,
       commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key, this.#level2Seq++, Date.now());
@@ -2270,6 +2274,14 @@ export class FirstPartyPpcsSession {
       || this.#options.cameraModel !== route.model || this.#options.channel !== route.channel
       || this.#options.homeBaseAttached !== route.homeBaseAttached) throw new Error("Reviewed camera setting session unavailable");
     cameraSettingWireValue(profile, change);
+    if (profile.form === "solo-sensitivity") {
+      const value = cameraSettingWireValue(profile, change);
+      const payload = buildStandaloneJsonControlPayload(JSON.stringify({ commandType: 6070, data: { value } }), route.channel!,
+        commandKey(this.#options.stationSerial, this.#options.p2pDid));
+      onDispatch();
+      this.#sendCommand(1700, payload);
+      return;
+    }
     if (profile.form === "motion-control") {
       const payload = buildStandaloneJsonControlPayload(buildFloodlightMotionControlValue(change, route), route.channel!,
         commandKey(this.#options.stationSerial, this.#options.p2pDid));

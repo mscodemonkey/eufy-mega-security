@@ -23,6 +23,7 @@ import type { ProviderEvents } from "../src/provider/provider.js";
 const profiles = [
   { serial: "flood", model: "T8420", deviceType: 3, kinds: ["motion"] },
   { serial: "bell", model: "T8224", deviceType: 96, kinds: ["motion", "person"] },
+  { serial: "window", model: "T8404", deviceType: 314, kinds: ["motion", "person"] },
   { serial: "e2k", model: "T8422", deviceType: 37, kinds: ["motion", "person"] },
   { serial: "c220", model: "T8W11C", deviceType: 10008, kinds: ["motion", "person"] },
   { serial: "lte", model: "T86P2", deviceType: 111, kinds: ["motion", "person", "pet", "vehicle", "sound"] },
@@ -40,6 +41,7 @@ test("exact direct profiles agree with declared events without sharing mutable l
     const files: Record<string, string> = {
       T8420: "t8420-floodlight-cam-1080p.yaml",
       T8224: "t8224-video-doorbell-c30.yaml",
+      T8404: "t8404-window-camera-e10.yaml",
       T8422: "t8422-floodlight-cam-e-2k.yaml",
       T8W11C: "t8w11c-indoor-cam-c220-original.yaml",
       T86P2: "t86p2-4g-lte-cam-s330.yaml",
@@ -100,6 +102,7 @@ test("provider publishes exact profiles and refuses aliases or incomplete live r
   context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
   context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
   const rejected = [
+    { serial: "wrong314", model: "T8404S", deviceType: 314 },
     { serial: "wrong37", model: "T8422S", deviceType: 37 },
     { serial: "wrong111", model: "T86P2S", deviceType: 111 },
     { serial: "wrong10008", model: "T8W11", deviceType: 10008 },
@@ -143,4 +146,20 @@ test("provider publishes exact profiles and refuses aliases or incomplete live r
     await provider.close();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+
+test("E10 discovery does not invent a live route from self-parent metadata", () => {
+  const base = { category: "eufy_security", model: "T8404", deviceType: 314 };
+  assert.equal(isSupportedCameraType(base), true);
+  for (const patch of [{ model: "T8404S" }, { model: "T8400" }, { model: "" }, { deviceType: 30 }, { category: "other" }]) {
+    assert.equal(isSupportedCameraType({ ...base, ...patch }), false);
+  }
+  const [device] = parseMegaInventory({ devices: [{ device_sn: "window", device_model: "T8404", device_type: 314,
+    category: "eufy_security", parent_sn: "window", device_channel: 0, params: [] }] });
+  assert.equal(isPpcsStreamSupported(device!, new Map([[device!.serial, device!]]), new Set(["window"])), false);
+  const manifest = describeCameraCapabilities({ ...base, serial: "window", paramTypes: [1277] },
+    { doorbellSupported: false, streamSupported: false, routeReady: false, homeBaseAttached: false });
+  assert.equal(manifest.acceptedAsCamera, true);
+  assert.equal(manifest.capabilities.some(row => row.id === "liveVideo"), false);
 });

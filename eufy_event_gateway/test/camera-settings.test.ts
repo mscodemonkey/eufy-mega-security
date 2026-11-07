@@ -168,3 +168,16 @@ for (const [model, type] of [["T8425", 47], ["T8426", 87]] as const) test(`${mod
   assert.throws(() => buildReviewedCameraSettingPayload({ setting: "motionDetection", value: true }, r, "owner", Buffer.alloc(32), 1, 1791464400000), /level-one/);
   assert.equal(safeInventoryReads([{ param_type: 1011, param_value: 1 }], type, model, true).motionDetectionEnabled, undefined);
 });
+
+
+test("standalone S220 sensitivity has seven explicit steps and no attached fallback", () => {
+  const route = { model: "T8134", deviceType: 63, peerModel: "T8134", channel: 0, homeBaseAttached: false, selfPeer: true };
+  const profile = cameraSettingProfile(route, "motionSensitivity")!;
+  assert.equal(profile.readParam, 6070);
+  assert.deepEqual(profile.ladder, [1, 2, 3, 4, 5, 6, 7]);
+  for (const patch of [{ model: "T8134S" }, { deviceType: 88 }, { peerModel: "T8030" }, { channel: 1 }, { homeBaseAttached: true }]) {
+    assert.equal(cameraSettingProfile({ ...route, ...patch }, "motionSensitivity"), null);
+  }
+  for (const value of [0, 8, "3", null]) assert.equal(readCameraSetting([{ param_type: 6070, param_value: value }], "T8134", 63, true, "motionSensitivity"), value === "3" ? 3 : undefined);
+  assert.equal(readCameraSetting([{ param_type: 6070, param_value: "2" }, { param_type: 6070, param_value: "2" }], "T8134", 63, true, "motionSensitivity"), undefined);
+});

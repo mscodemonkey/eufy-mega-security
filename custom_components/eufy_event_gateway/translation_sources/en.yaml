@@ -1,6 +1,8 @@
 title: Eufy Mega Security
 entity:
   light:
+    spotlight:
+      name: Spotlight
     manual_floodlight:
       name: Manual floodlight
   camera:

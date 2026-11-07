@@ -18,7 +18,7 @@ export type CameraSettingChange =
 export interface CameraSettingProfile {
   readonly readParam: number;
   readonly command: number;
-  readonly form: "binary" | "payload" | "control" | "manual-light" | "motion-control";
+  readonly form: "binary" | "payload" | "control" | "manual-light" | "motion-control" | "solo-sensitivity";
 
   /** Least-sensitive first; absent for boolean controls. */
   readonly ladder?: readonly number[];
@@ -53,6 +53,9 @@ export function parseCameraSettingChange(value: unknown): CameraSettingChange {
 }
 
 function nativeProfile(model: string, type: number | null, standalone: boolean, setting: CameraSettingChange["setting"]): CameraSettingProfile | null {
+  if (setting === "motionSensitivity" && standalone && model === "T8134" && type === 63) {
+    return { readParam: 6070, command: 1700, form: "solo-sensitivity", ladder: [1, 2, 3, 4, 5, 6, 7] };
+  }
   const floodlight = standalone && ((model === "T8425" && type === 47) || (model === "T8426" && type === 87));
   if (setting === "motionDetection") return floodlight ? { readParam: 6040, command: 1700, form: "motion-control" } : null;
   if (setting === "motionSensitivity" && floodlight) return { readParam: 6041, command: 1700, form: "motion-control", ladder: [1, 2, 3, 4, 5] };
@@ -70,6 +73,7 @@ function nativeProfile(model: string, type: number | null, standalone: boolean, 
 
 /** Admit exact reviewed transport families, excluding nearby model variants; the provider owns opt-in and account gates. */
 export function cameraSettingProfile(route: ModelControlRoute, setting: CameraSettingChange["setting"]): CameraSettingProfile | null {
+  if (route.model === "T8134" && route.peerModel !== "T8134") return null;
   if (!Number.isInteger(route.channel) || route.channel! < 0 || route.channel! > 255) return null;
   if (route.homeBaseAttached ? route.selfPeer || route.peerModel !== "T8030" : !route.selfPeer || route.channel !== 0) return null;
   return nativeProfile(route.model, route.deviceType, !route.homeBaseAttached, setting);

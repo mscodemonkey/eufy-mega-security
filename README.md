@@ -598,6 +598,10 @@ enabling it.
 
 ### Experimental model controls
 
+The standalone C35 T8110/type10035 has an opt-in [manual spotlight candidate](docs/C35_SPOTLIGHT.md). Hardware confirmation remains outstanding.
+
+The exact standalone SoloCam S220 T8134/type63 offers an opt-in seven-step motion sensitivity number when its current value is reported. It requires the configured owner account, gateway API authentication and fresh camera confirmation. Physical sensitivity behaviour remains unconfirmed. Talkback, guard modes and the other requested settings remain separate.
+
 The exact standalone T8426/type 87 has an opt-in [Manual floodlight light entity](docs/T8426_MANUAL_FLOODLIGHT.md). It controls the reported manual override independently of motion detection, requires the current owner account and fresh setting readback, and has no automatic-off guarantee. Physical behaviour remains unconfirmed.
 
 The exact standalone T8425/type 47 and T8426/type 87 have an opt-in [brightness number](docs/T8425_CONTROLS.md). It requires the current owner account and a readable value, sends once and confirms independently. Physical brightness behaviour is unconfirmed. The same exact standalone models also have an opt-in motion-detection switch and five-step sensitivity number, with current-owner, fresh-baseline, single-write and independent-readback checks. Physical detection and sensitivity behaviour remain unconfirmed. Pan/tilt remains separate work.
