@@ -88,6 +88,7 @@ test("exact model matrix excludes suffixes and cross types", () => {
   assert.equal(nvrLiveProfile("T8416", 104)?.aiTracking, true); assert.equal(nvrLiveProfile("T8E00", 301)?.aiTracking, false);
   assert.deepEqual(nvrLiveProfile("T8E00", 301)?.views, ["Fixed", "Movable", "Both"]);
   assert.equal(nvrLiveProfile("T8E00", 301)?.stackedView, 2); assert.equal(nvrLiveProfile("T8416", 104)?.stackedView, null);
+  assert.equal(nvrLiveProfile("T8E00", 301)?.defaultView, 2);
   for (const [model, type] of [["T8416121", 104], ["T8416", 105], ["T8416", 301], ["T8E00121", 301]] as const) assert.equal(nvrLiveProfile(model, type), null);
 });
 

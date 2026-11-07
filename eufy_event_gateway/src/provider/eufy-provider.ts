@@ -2606,7 +2606,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const preference = this.#nvrViews.get(device.serial);
     if (preference?.binding === this.#nvrBindingKey(device)) return preference.value;
     this.#nvrViews.delete(device.serial);
-    return this.#nvrProfile(device)?.defaultView ?? nvrTrialSensor(device.model, device.deviceType) ?? 0;
+    const profile = this.#nvrProfile(device);
+
+    // Both is the default only where Camera view is offered. Video without
+    // the view choice keeps the movable lens it has always shown.
+    if (profile?.stackedView !== null && profile?.stackedView !== undefined && profile.movementView !== null
+      && !this.#nvrLiveAdmitted(device, this.#devices.get(device.parentSerial))) return profile.movementView;
+    return profile?.defaultView ?? nvrTrialSensor(device.model, device.deviceType) ?? 0;
   }
 
   /** The lens a session asks for: the trial's own lens, the selected single view, or both lenses stacked. */
