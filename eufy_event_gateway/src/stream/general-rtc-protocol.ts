@@ -28,6 +28,17 @@ export interface GeneralRtcInventoryDiagnostic {
   readonly httpStatus?: number;
   readonly apiCode?: number;
   readonly responseClass?: GeneralRtcResponseClass;
+
+  /** Selected request service, independent of the account's configured country. */
+  readonly serviceRegion?: "us" | "eu" | "ie" | "unknown";
+}
+
+/** Classify only known Security hosts so support logs never expose an arbitrary hostname. */
+export function generalRtcServiceRegion(host: string): "us" | "eu" | "ie" | "unknown" {
+  if (host === "security-app.eufylife.com") return "us";
+  if (host === "security-app-eu.eufylife.com") return "eu";
+  if (host === "security-app-ie.eufylife.com") return "ie";
+  return "unknown";
 }
 
 /**
@@ -55,6 +66,7 @@ export function generalRtcFailureDiagnostic(failure: GeneralRtcError): string {
   if (["empty", "empty_or_truncated", "non_json", "json_without_numeric_code", "json_with_numeric_code", "unavailable"].includes(detail.responseClass ?? "")) {
     fields.push(`response_class=${detail.responseClass}`);
   }
+  if (["us", "eu", "ie", "unknown"].includes(detail.serviceRegion ?? "")) fields.push(`service_region=${detail.serviceRegion}`);
   return fields.join(" ");
 }
 

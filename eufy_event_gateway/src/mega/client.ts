@@ -44,7 +44,7 @@ import { CloudCalendarError, cloudCalendarBounds, projectCloudCalendar, type Clo
 import { MegaSessionStore } from "./session-store.js";
 import { captureGeneralRtcIdentity, generalRtcCipher, type GeneralRtcCipher } from "./general-rtc-identity.js";
 import { createLogger } from "../logging.js";
-import { GeneralRtcError, generalRtcSmartHost, generalRtcAwait, type GeneralRtcStage, type GeneralRtcInventoryDiagnostic, type GeneralRtcResponseClass } from "../stream/general-rtc-protocol.js";
+import { GeneralRtcError, generalRtcSmartHost, generalRtcServiceRegion, generalRtcAwait, type GeneralRtcStage, type GeneralRtcInventoryDiagnostic, type GeneralRtcResponseClass } from "../stream/general-rtc-protocol.js";
 import type { MegaAuthResult, MegaCaptcha, MegaIdentity, MegaInventory, MegaResult, MegaSession } from "./types.js";
 
 // These codes are handled at the transport boundary so every caller gets the
@@ -316,6 +316,7 @@ export class MegaClient {
 
   async #generalRtcInventoryPage(path: "/v3/web/get_hub_list" | "/v3/web/get_devs_list", page: number,
     signal: AbortSignal): Promise<readonly unknown[]> {
+    const serviceRegion = generalRtcServiceRegion(this.#clusterHost("security"));
     let httpStatus: number | undefined, apiCode: number | undefined;
     let boundary: GeneralRtcInventoryDiagnostic["boundary"] = "request";
     try {
@@ -336,7 +337,7 @@ export class MegaClient {
       const failure = generalRtcRequestFailure(error, "inventory");
       if (error instanceof MegaHttpRejection) apiCode = error.applicationCode;
       throw new GeneralRtcError("inventory", failure.reason, {
-        operation: path === "/v3/web/get_hub_list" ? "hubs" : "devices", boundary, page,
+        operation: path === "/v3/web/get_hub_list" ? "hubs" : "devices", boundary, page, serviceRegion,
         ...(httpStatus === undefined ? {} : { httpStatus }), ...(apiCode === undefined ? {} : { apiCode }),
         ...(error instanceof MegaHttpRejection ? { responseClass: error.responseKind } : {}),
       });
