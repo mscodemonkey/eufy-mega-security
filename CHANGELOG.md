@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.245
+
+- Prevent an old HomeBase motion setting from hiding fresh confirmation after a change. This addresses a reproduced cause of false unconfirmed notifications in #539. Reporter hardware confirmation is still needed.
+- Add initial Window Camera E10 T8404 discovery and motion/person detections. Live video and fresh pictures remain unconfirmed.
+- Add optional, restricted C35 spotlight, standalone S220 sensitivity and T8E00 pan/tilt through HomeBase S1 controls. These candidates are off by default and still need hardware confirmation.
+- Improve diagnostics for Eufy video refusals, missing live audio and interrupted doorbell streams without collecting raw response content.
+
 ## 0.1.244
 
 - Correct copyable push logs that showed known alphanumeric device models, including T85V0 and T8W11C, as unknown. Unknown inventory strings remain hidden.
