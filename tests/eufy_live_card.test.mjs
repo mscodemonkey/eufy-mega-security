@@ -267,3 +267,28 @@ test("the S350 and S4 offer their two lenses, 1x and 3x", () => {
   assert.deepEqual(card.lensChips("T9999", zoom).map((chip) => chip.label), ["1x", "2x", "3x"]);
   assert.deepEqual(card.lensChips(undefined, {}), []);
 });
+
+// Removing the card must retire a lens change before its next service call.
+test("disconnect cancels a waiting lens change and removes owned video", async () => {
+  const element = new card.EufyLiveCard();
+  let resume;
+  let selected = 0;
+  let starts = 0;
+  let cleared = 0;
+  let state = "streaming";
+  element._videoHost = { replaceChildren: () => { cleared += 1; } };
+  element._videoEl = {};
+  element._controller.cameraState = () => state;
+  element._controller.wait = () => new Promise(resolve => { resume = resolve; });
+  element._controller.callService = async () => { selected += 1; };
+  element._controller.startVideo = () => { starts += 1; };
+  const pending = element._controller.changeLens("select.synthetic_view", "fixed", "Fixed");
+  element.disconnectedCallback();
+  state = "idle";
+  resume();
+  assert.equal(await pending, false);
+  assert.equal(selected, 0);
+  assert.equal(starts, 0);
+  assert.equal(element._videoEl, null);
+  assert.ok(cleared >= 1);
+});

@@ -516,7 +516,11 @@ const STYLE = `
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const icon = (name) => `<ha-icon icon="${name}"></ha-icon>`;
 
-/** The dashboard card: a thin view over LiveController and the stock live picture card. */
+/**
+ * Owns one dashboard view and its controller until Home Assistant disconnects it.
+ * The stock picture card owns playback. Disconnection invalidates pending lens
+ * work and releases this card's video so late reads cannot reopen a viewer.
+ */
 export class EufyLiveCard extends BaseElement {
   static getStubConfig(hass) {
     return { entity: eufyCameras(hass)[0] ?? "" };
@@ -610,6 +614,8 @@ export class EufyLiveCard extends BaseElement {
   }
 
   disconnectedCallback() {
+    this._controller.reset();
+    this._stopVideo();
     clearTimeout(this._statusTimer);
     this._statusTimer = null;
     this._timedStatus = null;
