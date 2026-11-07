@@ -23,6 +23,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .client import GatewayClient, GatewayClientError
 from .const import CONF_API_TOKEN, DOMAIN, PLATFORMS
 from .coordinator import EufyGatewayCoordinator
+from .live_card import async_register_live_card
 
 _LOGGER = logging.getLogger(__name__)
 _CAPABILITY_REFRESH_TIMEOUT_SECONDS = 45
@@ -49,7 +50,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: EufyGatewayConfigEntry) 
     The initial refresh is deliberately completed before platform forwarding so
     entity factories can make capability decisions from a complete inventory.
     The long-lived event listener starts only after those platforms subscribe.
+    The live view card is served first, so dashboards can load it while the
+    gateway is still connecting.
     """
+    await async_register_live_card(hass)
     client = GatewayClient(
         async_get_clientsession(hass),
         entry.data["url"],
