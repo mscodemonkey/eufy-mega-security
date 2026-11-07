@@ -208,6 +208,24 @@ test("keeps the picture's shape while video is closed", () => {
   assert.equal(card.cssRatio("0:9"), "16 / 9");
 });
 
+test("a finished status clears on time even while other entities keep re-rendering", (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const element = Object.create(card.EufyLiveCard.prototype);
+  const status = { tone: "done", text: "Showing both lenses. Starting live video…" };
+  element._controller = { status, busy: false };
+  element._statusTimer = null;
+  let renders = 0;
+  element._render = () => { renders++; };
+  for (let second = 0; second < 5; second++) {
+    element._scheduleStatusClear();
+    context.mock.timers.tick(1000);
+  }
+  assert.equal(element._controller.status, status, "still shown before 6 s");
+  context.mock.timers.tick(1000);
+  assert.equal(element._controller.status, null, "cleared 6 s after it appeared");
+  assert.equal(renders, 1);
+});
+
 test("Both is one 8:9 picture, cover-fitted; other views keep the configured shape", () => {
   assert.deepEqual(card.pictureLayout("both", "4:3"), { stacked: true, aspectRatio: "8:9", fitMode: "cover" });
   assert.deepEqual(card.pictureLayout("movable", "4:3"), { stacked: false, aspectRatio: "4:3", fitMode: "contain" });

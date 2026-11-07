@@ -611,6 +611,8 @@ export class EufyLiveCard extends BaseElement {
 
   disconnectedCallback() {
     clearTimeout(this._statusTimer);
+    this._statusTimer = null;
+    this._timedStatus = null;
   }
 
   _build() {
@@ -722,12 +724,23 @@ export class EufyLiveCard extends BaseElement {
     this._scheduleStatusClear();
   }
 
+  /**
+   * Clear a finished status after a while. The countdown starts once per
+   * status: renders caused by other entities on the device must not restart
+   * it, or a status shown during live video never clears.
+   */
   _scheduleStatusClear() {
-    clearTimeout(this._statusTimer);
     const status = this._controller.status;
+    if (status && status === this._timedStatus && this._statusTimer) return;
+    clearTimeout(this._statusTimer);
+    this._statusTimer = null;
+    this._timedStatus = null;
     if (!status || status.tone === "pending" || this._controller.busy) return;
     const delay = status.tone === "sent" || status.tone === "done" ? 6000 : 15000;
+    this._timedStatus = status;
     this._statusTimer = setTimeout(() => {
+      this._statusTimer = null;
+      this._timedStatus = null;
       if (this._controller.status === status) {
         this._controller.status = null;
         this._render(true);
