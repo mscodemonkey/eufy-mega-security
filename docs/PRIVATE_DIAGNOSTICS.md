@@ -49,10 +49,14 @@ This is the gateway app's page, rather than the integration's **Download
 diagnostics** menu under **Settings > Devices & services**. That menu downloads
 an information-only report and doesn't open the capture tool.
 
-Enter your gateway API token and click **Load devices**. You'll find the token
-in the Eufy Mega Security app's **Configuration** tab as `api_token`. This is the
-gateway's token, not your Eufy password. Keep it private and don't send it with
-your capture.
+If you run the gateway separately and already have its API token, enter it and
+click **Load devices**. This is the gateway's token, not your Eufy password. Keep
+it private and don't send it with your capture.
+
+The Home Assistant app generates this token automatically. It isn't an app
+configuration field, so use the terminal method below if you don't already have
+it. That method uses the integration's saved connection without displaying the
+token.
 
 **Don't know your token?** Home Assistant users can use the terminal method
 below instead. It uses your saved connection automatically.
