@@ -50,7 +50,7 @@ function keyframePackets(frame: Buffer, sequence: number): Buffer[] {
   });
 }
 
-for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'full-queue', 'start-no-ack-recording', 'start-late-video', 'start-s1-late-video', 'start-s1-empty', 'start-s1-cancel-no-ack', 'start-s1-negative-ack', 'start-s1-wrong-type', 'start-s1-other-view', 'start-s1-stale-no-ack', 'start-s1-ack-empty', 'start-s1-after-deadline', 'start-stale-no-ack', 'start-no-ack-h264', 'start-no-ack-h265', 'start-parameters-only', 'start-empty', 'start-negative-ack', 'start-cancel-no-ack', 'observer', 'observer-signalling-close', 'continuous-modes', 'continuous-parameters', 'continuous-h265', 'continuous-controls', 'continuous-video', 'continuous-signalling-close', 'continuous-stall', 'continuous-heartbeat', 'continuous-gap', 'continuous-cancel', 'live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-receiptonly', 'live-pan-nonzero', 'live-tracking', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
+for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'full-queue', 'start-no-ack-recording', 'start-late-video', 'start-s1-late-video', 'start-s1-empty', 'start-s1-cancel-no-ack', 'start-s1-negative-ack', 'start-s1-wrong-type', 'start-s1-other-view', 'start-s1-stale-no-ack', 'start-s1-ack-empty', 'start-s1-after-deadline', 'start-stale-no-ack', 'start-no-ack-h264', 'start-no-ack-h265', 'start-parameters-only', 'start-empty', 'start-negative-ack', 'start-cancel-no-ack', 'observer', 'observer-signalling-close', 'continuous-modes', 'continuous-parameters', 'continuous-h265', 'continuous-controls', 'continuous-video', 'continuous-signalling-close', 'continuous-stall', 'continuous-heartbeat', 'continuous-gap', 'continuous-cancel', 'live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-receiptonly', 'live-pan-nonzero', 'live-tracking', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'inventory-repeat', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
   const s1Grace = scenario.startsWith('start-s1-');
   const cameraType = s1Grace && scenario !== 'start-s1-wrong-type' ? 89 : scenario === 'legacy-first-lens' ? 14 : 301;
   let mediaRequested = false;
@@ -104,6 +104,9 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'ful
       if (assembled.status !== 'complete') return;
       const request = nvrApplication(assembled.frame), body = JSON.parse(request.payload.toString());
       commands.push(body.cmd);
+
+      // The NVR has just ended a call: it answered this one but leaves the first camera list unanswered.
+      if (scenario === 'inventory-repeat' && body.cmd === 9100 && commands.length === 1) return;
       if ((scenario.startsWith('live-') || scenario === 'continuous-controls') && [6030, 6203, 1277, 2730, 6016].includes(body.cmd)) {
         assert.equal(request.channel, 3); assert.ok(request.segment > 0);
         if (body.cmd === 6016) {
@@ -807,9 +810,10 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'ful
     }
     const clip = await manager.recordClip('synthetic-camera', 10, 75000, true);
     const decoded = spawnSync('ffmpeg', ['-v', 'error', '-xerror', '-i', 'pipe:0', '-f', 'null', '-'], { input: clip });
-    assert.equal(decoded.status, 0, decoded.stderr.toString()); assert.ok(clip.length > 1000); assert.equal(session.codec, codec); assert.equal(snapshots, 0); assert.equal(extractors, 0); assert.equal(diagnosticMedia, 0); assert.equal(attached, 1); assert.deepEqual(commands, [9100, 1003, 1004]);
+    assert.equal(decoded.status, 0, decoded.stderr.toString()); assert.ok(clip.length > 1000); assert.equal(session.codec, codec); assert.equal(snapshots, 0); assert.equal(extractors, 0); assert.equal(diagnosticMedia, 0); assert.equal(attached, 1); assert.deepEqual(commands, scenario === 'inventory-repeat' ? [9100, 9100, 1003, 1004] : [9100, 1003, 1004]);
     controller.abort(); await session.close(); await session.close();
-    assert.deepEqual(commands, [9100, 1003, 1004]); assert.equal(session.stats.stopUnconfirmed, 0);
+    assert.deepEqual(commands, scenario === 'inventory-repeat' ? [9100, 9100, 1003, 1004] : [9100, 1003, 1004]); assert.equal(session.stats.stopUnconfirmed, 0);
+    assert.equal(session.stats.inventoryRepeated, scenario === 'inventory-repeat' ? 1 : 0);
     assert.equal(timingReports.length, 1);
     const timing = timingReports[0]!;
     assert.equal(Object.isFrozen(timing), true);
