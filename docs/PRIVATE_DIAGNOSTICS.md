@@ -202,7 +202,9 @@ HomeBase 3 T8030/type 18 history route. A notification must supply its own event
 identity, recording ID, storage path and recent trigger clock. The name is used
 only when that exact camera, parent, record and full path match one history row,
 and the matching crops identify a single familiar name. Ambiguous names stay
-unresolved. Names and identifiers never enter support logs or count diagnostics.
+unresolved. Only the first page of at most 50 station records is read, so a busy
+history page can omit the selected visit. Names and identifiers never enter
+support logs or count diagnostics.
 
 At most three metadata reads are scheduled around 10 seconds, one minute and nine
 minutes after the event. Active views and recording reservations are left alone.
