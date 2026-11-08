@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import { RawHistory, decodeRawSegment, setRawHistory } from "../src/diagnostics/raw-history.js";
-import { observeRawFetch, observeRawSocket } from "../src/diagnostics/raw-network.js";
+import { observeRawFetch, observeRawSocket, rawSocketConnection } from "../src/diagnostics/raw-network.js";
 
 async function fixture(t: test.TestContext, limits = {}) {
   const directory = await mkdtemp(join(tmpdir(), "raw-history-"));
@@ -67,13 +67,18 @@ test("taps precede parser rejection and preserve send return, this and callback"
   class Socket extends EventEmitter {
     send(this: Socket, value: Buffer, callback: () => void): number { assert.equal(this, socket); assert.equal(value[0], 9); callback(); return 42; }
   }
-  const socket = new Socket(); observeRawSocket(socket, "udp-test", "udp");
+  const socket = new Socket();
+  assert.equal(rawSocketConnection(socket), undefined);
+  const connection = observeRawSocket(socket, "udp-test", "udp");
+  assert.equal(rawSocketConnection(socket), connection);
   socket.on("message", () => { throw new Error("parser refused"); });
   assert.throws(() => socket.emit("message", Buffer.from([0xff]), { address: "synthetic" }));
   assert.equal(socket.send(Buffer.from([9]), () => { called = true; }), 42); assert.equal(called, true);
   await history.flush(); const raw = await records(directory) as { direction: string; bytes: string }[];
   assert.ok(raw.some(record => record.direction === "receive" && record.bytes === "/w=="));
   assert.ok(raw.some(record => record.direction === "send" && record.bytes === "CQ=="));
+  setRawHistory(undefined);
+  assert.equal(rawSocketConnection(socket), undefined);
 });
 test("fetch retains malformed data and marks cancelled bodies incomplete", async t => {
   const { directory, history } = await fixture(t); setRawHistory(history);
