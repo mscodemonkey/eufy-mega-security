@@ -32,8 +32,9 @@ export function diagnosticsPage(): string {
 <button id="trial-send">Try once</button><button id="trial-siren-stop" hidden>Stop siren</button>
 <p id="trial-help"></p>
 <pre id="trial-status" role="status">No control trial started.</pre></details>
-<details><summary>Experimental NVR video test</summary>
+<details><summary>Experimental NVR and E10 video test</summary>
 <p>Enable experimental NVR live video in the app options. This test is for T8E00, T8140, T8140-Z, T8113-V, T8172, T8162, T8170, T81A0 and T8425 cameras through T8N00 or T9000. Additional models use their first lens, and hardware behaviour is unconfirmed. Stop other live viewers first. For GB-style accounts the service region may need to be ie.</p>
+<p>The same private clip test also admits an owner-account standalone Window Camera E10 T8404/type 314 on channel 0. Its video is unconfirmed. This does not enable normal E10 video, pictures, settings or the NVR state test. Keep a working shared account unchanged.</p>
 <label><input id="nvr-consent" type="checkbox"> I agree to request a ten-second private video clip from the selected camera.</label>
 <button id="nvr-test">Try NVR video once</button><button id="nvr-stop">Cancel NVR test</button>
 <label><input id="nvr-state-consent" type="checkbox"> I agree to connect once and read the selected camera and NVR settings without changing them.</label>

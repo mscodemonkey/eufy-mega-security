@@ -1826,13 +1826,23 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
+  /** Admit only the owned standalone E10 to the manual RTC clip, never normal video or settings. */
+  #e10RtcTrialBinding(device: MegaInventoryDevice | undefined, station: MegaInventoryDevice | undefined): boolean {
+    return !!device && !!station && device.model === "T8404" && device.deviceType === 314
+      && station.model === "T8404" && station.deviceType === 314
+      && device.serial === station.serial && device.parentSerial === device.serial
+      && device.channel === 0 && !device.p2pConnection && !!device.adminUserId
+      && this.#client.isAuthenticatedUser(device.adminUserId);
+  }
+
   #nvrBinding(device: MegaInventoryDevice | undefined, station: MegaInventoryDevice | undefined): boolean {
     const parents = [["T8N00", 300], ["T9000", 27]] as const;
     return !!this.config.experimentalNvrLive && !!device && !!station
       && device.category === "eufy_security" && station.category === "eufy_security"
       && nvrTrialSensor(device.model, device.deviceType) !== null && device.channel !== null
       && Number.isInteger(device.channel) && device.channel >= 0 && device.channel <= 254
-      && parents.some(([model, type]) => station.model === model && station.deviceType === type)
+      && (device.model === "T8404" ? this.#e10RtcTrialBinding(device, station)
+        : parents.some(([model, type]) => station.model === model && station.deviceType === type))
       && (device.model !== "T8215" || station.model === "T9000" && station.deviceType === 27)
       && (!["T8P10", "T8416", "T8214"].includes(device.model) || station.model === "T8N00" && station.deviceType === 300)
       && !!station.adminUserId && (device.adminUserId === null || device.adminUserId === station.adminUserId);
@@ -1923,6 +1933,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const device = this.#devices.get(serial), station = device ? this.#devices.get(device.parentSerial) : undefined;
     if (!this.config.experimentalNvrLive || this.#recordingClosing || signal.aborted || !this.#client.isAuthenticated
       || this.#localMotionAborters.size || !handover && this.#nvrTrials.size || !device || !station || this.#nvrControlReserved(station.serial) || !(diagnostic ? this.#nvrBinding(device, station) : this.#normalNvrLiveBinding(device, station)) || !handover && (this.#recordingPeerReserved(serial) || this.#stationHasActiveMedia(station.serial))) throw new NvrTrialError("admission");
+    if (stateOnly && this.#e10RtcTrialBinding(device, station)) throw new NvrTrialError("admission");
     const controller = new AbortController();
     let closed: Promise<void> | null = null;
     const deadline = diagnostic
