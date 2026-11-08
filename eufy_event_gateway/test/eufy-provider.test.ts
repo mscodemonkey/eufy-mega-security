@@ -410,6 +410,20 @@ test("live audio retains E30 routes and isolates the exact standalone C31", () =
   assert.equal(supportsCameraLiveAudio(e30, { ...attached, peer: { ...attached.peer, model: "T8010" } }, true), false);
 });
 
+test("S220 audio requires exact type 63 on its own ready direct channel", () => {
+  const device = { serial: "fixture-s220", model: "T8134", deviceType: 63, channel: 0, adminUserId: "fixture-admin" };
+  const peer = { serial: device.serial, model: "T8134" } as MegaInventoryDevice;
+  const route = { homeBaseAttached: false, peer };
+  assert.equal(supportsCameraLiveAudio(device, route, true), true);
+  assert.equal(supportsCameraLiveAudio(device, route, false), false);
+  assert.equal(supportsCameraLiveAudio(device, null, true), false);
+  for (const changed of [{ model: "T8134X" }, { deviceType: 14 }, { deviceType: null }, { channel: 1 }, { channel: null }, { adminUserId: null }]) {
+    assert.equal(supportsCameraLiveAudio({ ...device, ...changed }, route, true), false);
+  }
+  assert.equal(supportsCameraLiveAudio(device, { ...route, homeBaseAttached: true }, true), false);
+  assert.equal(supportsCameraLiveAudio(device, { ...route, peer: { ...peer, serial: "foreign-peer" } }, true), false);
+});
+
 test("limits privacy parameter diagnostics to T8416 and T8417", () => {
   assert.equal(supportsPrivacyParameterProbe({ deviceType: 104 }), true);
   assert.equal(supportsPrivacyParameterProbe({ deviceType: 105 }), true);

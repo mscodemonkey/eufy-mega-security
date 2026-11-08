@@ -158,13 +158,15 @@ export function acceptsAttachedCameraMedia(command: number, frameChannel: number
 }
 
 /**
- * Limit clear E30/C31 AAC to its requested channel and media lifecycle.
- * Attached E30 routes may use assigned channels; direct E30/C31 routes use zero.
+ * Limit clear AAC to admitted models, their requested channel and media lifecycle.
+ * Attached E30 routes may use assigned channels. Direct routes use zero, and
+ * S220 additionally requires its exact reported device type.
  * Payload validation and protection checks remain with the owning session.
  */
 export function acceptsSoloCamAudio(cameraModel: string, homeBaseAttached: boolean, requestedChannel: number,
-  frameChannel: number, purpose: string | undefined): boolean {
-  return (cameraModel === "T8171" || (["T817L", "T8354"].includes(cameraModel) && !homeBaseAttached))
+  frameChannel: number, purpose: string | undefined, cameraDeviceType?: number | null): boolean {
+  return (cameraModel === "T8171" || (["T817L", "T8354"].includes(cameraModel) && !homeBaseAttached)
+    || (cameraModel === "T8134" && cameraDeviceType === 63 && !homeBaseAttached))
     && Number.isSafeInteger(requestedChannel) && requestedChannel >= 0
     && frameChannel === requestedChannel && (homeBaseAttached || requestedChannel === 0) && purpose !== "control" && purpose !== "passive";
 }
@@ -1607,7 +1609,7 @@ export class CameraControlAcknowledgementTimeoutError extends Error {
  * eufy-security-client or the expiring Web Portal PIN.
  *
  * Media sessions emit Annex-B bytes on `output` and optional validated AAC on
- * `audioOutput` for T8171 media consumers and direct T817L consumers. Control sessions suppress
+ * `audioOutput` for admitted E30 and direct C31, E21 and S220 consumers. Control sessions suppress
  * media startup and expose the closed command set below, including explicitly
  * admitted experimental controls. Some writes
  * wait for a result frame, while the observed fire-and-repeat forms return
@@ -1622,7 +1624,7 @@ export class FirstPartyPpcsSession {
   /** Ordered Annex-B video bytes; the session ends this stream when it closes. */
   readonly output = new PassThrough();
 
-  /** Optional checked AAC for admitted E30/C31 media, ended with the video session. */
+  /** Optional checked AAC for admitted media routes, ended with the video session. */
   readonly audioOutput = new PassThrough();
 
   /**
@@ -3349,7 +3351,7 @@ export class FirstPartyPpcsSession {
         // Observe unsupported routes without admitting their audio to playback.
         // Discard bytes without consumers instead of retaining an unbounded stream.
         if (audio && acceptsSoloCamAudio(this.#options.cameraModel, this.#options.homeBaseAttached === true,
-          this.#options.channel, frameChannel ?? -1, this.#options.purpose)
+          this.#options.channel, frameChannel ?? -1, this.#options.purpose, this.#options.cameraDeviceType)
           && this.audioOutput.listenerCount("data") > 0) this.audioOutput.write(audio);
       }
     } else if (command === 1300 && this.#options.homeBaseAttached) {

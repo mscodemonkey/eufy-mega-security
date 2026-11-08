@@ -1,7 +1,7 @@
 /**
  * Sends synthetic audio through a test-owned UDP peer and the real PPCS parser.
- * Session counters feed diagnostics without admitting an unsupported model or
- * retaining audio. These fixtures establish software behaviour, not device support.
+ * Session counters feed diagnostics independently of playback admission. Exact
+ * model, type, route and lifecycle fixtures prove isolation without retaining audio. These fixtures establish software behaviour, not device support.
  */
 import assert from "node:assert/strict";
 import { createSocket, Socket } from "node:dgram";
@@ -26,8 +26,17 @@ function audioFrame(channel: number, sign: number, valid = true): Buffer {
   return Buffer.concat([header, body]);
 }
 
-for (const model of ["T8134", "T8171"]) {
-  test(`${model} counts audio independently of playback admission and frame-shape limits`, { timeout: 5000 }, async context => {
+for (const { model, type, attached, channel, purpose, admitted } of [
+  { model: "T8134", type: 63, attached: false, channel: 0, purpose: "media", admitted: true },
+  { model: "T8134", type: 14, attached: false, channel: 0, purpose: "media", admitted: false },
+  { model: "T8134", type: undefined, attached: false, channel: 0, purpose: "media", admitted: false },
+  { model: "T8134", type: 63, attached: true, channel: 0, purpose: "media", admitted: false },
+  { model: "T8134", type: 63, attached: false, channel: 1, purpose: "media", admitted: false },
+  { model: "T8134", type: 63, attached: false, channel: 0, purpose: "control", admitted: false },
+  { model: "T8134", type: 63, attached: false, channel: 0, purpose: "passive", admitted: false },
+  { model: "T8171", type: 88, attached: false, channel: 0, purpose: "media", admitted: true },
+]) {
+  test(`${model}/${type}/${attached}/${channel}/${purpose} counts audio independently of playback admission and frame-shape limits`, { timeout: 5000 }, async context => {
     const peer = createSocket("udp4");
     peer.bind(0, "127.0.0.1");
     await once(peer, "listening");
@@ -44,8 +53,8 @@ for (const model of ["T8134", "T8171"]) {
         .call(this, packet, this === peer ? port : peer.address().port, "127.0.0.1", callback);
     });
     const session = new FirstPartyPpcsSession({ stationSerial: "SYNTHETIC1234567", p2pDid: "TEST-12345678-TEST", appConnection: "",
-      dskKey: "synthetic", accountId: "synthetic-owner", localAddress: "127.0.0.1", channel: 0,
-      cameraModel: model, homeBaseAttached: false, purpose: "media", maxSeconds: 30 });
+      dskKey: "synthetic", accountId: "synthetic-owner", localAddress: "127.0.0.1", channel,
+      cameraModel: model, ...(type === undefined ? {} : { cameraDeviceType: type }), homeBaseAttached: attached, purpose: purpose as "media" | "control" | "passive", maxSeconds: 30 });
     const output: Buffer[] = [];
     session.audioOutput.on("data", chunk => output.push(chunk));
     try {
@@ -53,7 +62,7 @@ for (const model of ["T8134", "T8171"]) {
 
       // A busy video source can exhaust the shape sample before audio arrives.
       session.stats.frameShapes = Array.from({ length: 20 }, (_, index) => `1300:0:${100 + index}:1`);
-      const bodies = [audioFrame(0, 0), audioFrame(0, 8), audioFrame(1, 0), audioFrame(0, 0, false)];
+      const bodies = [audioFrame(channel, 0), audioFrame(channel, 8), audioFrame(channel + 1, 0), audioFrame(channel, 0, false)];
       for (const [sequence, body] of bodies.entries()) {
         const header = Buffer.from([0xf1, 0xd0, 0, 0, 0xd1, 1, 0, 0]);
         header.writeUInt16BE(body.length + 4, 2);
@@ -70,7 +79,7 @@ for (const model of ["T8134", "T8171"]) {
       assert.equal(diagnostic.counters.foreignAudioFrames, 1);
       assert.equal(diagnostic.frameKinds?.some(value => value.kind === "audio"), false);
       assert.equal(diagnostic.counters.videoOutputFrames, 0);
-      assert.equal(output.length, model === "T8171" ? 1 : 0);
+      assert.equal(output.length, admitted ? 1 : 0);
       assert.equal(session.audioOutput.readableLength, 0);
     } finally {
       session.close();

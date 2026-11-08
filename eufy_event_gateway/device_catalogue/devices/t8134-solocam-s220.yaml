@@ -82,7 +82,7 @@ capabilities:
           status: reported
           tested_on: 2026-11-05
           tested_by: luxt12
-          notes: Default compatible H.264 starts in approximately 1 to 3 seconds and plays stably. Native mode without faster startup takes over 30 seconds and initially freezes. Receive audio is unavailable on this route.
+          notes: Default compatible H.264 starts in approximately 1 to 3 seconds and plays stably. Native mode without faster startup takes over 30 seconds and initially freezes. Receive audio was unavailable in that test. A later v0.1.248 diagnostic counted clear AAC. The exact type-63 direct-route candidate uses the default-off Live audio switch. Audible playback remains unconfirmed.
         T8030:
           status: reported
           tested_on: 2026-09-16
