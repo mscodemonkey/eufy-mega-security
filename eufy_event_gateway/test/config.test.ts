@@ -147,3 +147,11 @@ test("S340 smoothing is an explicit default-off authenticated playback option", 
   assert.equal(loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE: "true", EUFY_GATEWAY_API_TOKEN: "x".repeat(32) }).experimentalS340SmoothLive, true);
   assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE: "yes" }), /must be true or false/);
 });
+
+
+test("HomeBase name recovery is a separate authenticated opt-in", () => {
+  assert.equal(loadConfig({}).experimentalHomeBaseEventNames, false);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_NAMES: "true" }), /API_TOKEN/);
+  assert.equal(loadConfig({ EUFY_GATEWAY_API_TOKEN: "x".repeat(32), EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_NAMES: "true" }).experimentalHomeBaseEventNames, true);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_NAMES: "maybe" }), /HOMEBASE_EVENT_NAMES/);
+});
