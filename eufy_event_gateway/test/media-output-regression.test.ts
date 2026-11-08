@@ -6,12 +6,12 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import test from "node:test";
-import { h265ViewerTranscoderArguments, remuxVideoToMp4 } from "../src/stream/live-stream-manager.js";
+import { h265ViewerTranscoderArguments, remuxVideoToMp4, snapshotExtractorArguments } from "../src/stream/live-stream-manager.js";
 
-function hevc(noisy = false): Buffer {
+function hevc(noisy = false, size = "640x360", frames = noisy ? 80 : 40): Buffer {
   return execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
-    "testsrc2=size=640x360:rate=20", ...(noisy ? ["-vf", "noise=alls=100:allf=u:all_seed=1"] : []),
-    "-frames:v", noisy ? "80" : "40", "-c:v", "libx265", "-preset", "ultrafast", "-crf", "14",
+    `testsrc2=size=${size}:rate=20`, ...(noisy ? ["-vf", "noise=alls=100:allf=u:all_seed=1"] : []),
+    "-frames:v", String(frames), "-c:v", "libx265", "-preset", "ultrafast", "-crf", "14",
     "-x265-params", "log-level=error:pools=1:bframes=0:keyint=20:aud=1", "-f", "hevc", "pipe:1"],
   { maxBuffer: 32 * 1024 * 1024, stdio: ["pipe", "pipe", "ignore"] });
 }
@@ -97,6 +97,33 @@ test("browser conversion emits a playable startup while the HEVC input remains o
     assert.equal(decoded.packets.filter(packet => packet.codec_type === "video").length, 40);
   } finally {
     if (timer) clearTimeout(timer);
+    child.stdin.destroy();
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await exited.catch(() => {});
+  }
+});
+
+test("the H.265 snapshot extractor gives one JPEG per keyframe while its input stays open", { timeout: 15_000 }, async () => {
+  const source = hevc(false, "640x360", 60);
+  const delimiters = [...source.toString("latin1").matchAll(/\x00\x00\x00\x01|\x00\x00\x01/g)]
+    .filter(match => ((source[match.index! + match[0].length]! >> 1) & 63) === 35).map(match => match.index!);
+  assert.equal(delimiters.length, 60);
+  const child = spawn("ffmpeg", snapshotExtractorArguments("h265"));
+  const exited = new Promise<number | null>((resolve, reject) => { child.once("error", reject); child.once("exit", resolve); });
+  let jpegs = 0;
+  child.stderr.resume();
+  child.stdout.on("data", (bytes: Buffer) => { for (let index = 0; index + 1 < bytes.length; index++) if (bytes[index] === 0xff && bytes[index + 1] === 0xd9) jpegs++; });
+  try {
+    // Keyframes at pictures 0, 20 and 40. Up to the picture after the second, so both keyframes are complete.
+    child.stdin.write(source.subarray(0, delimiters[22]));
+    const deadline = Date.now() + 10_000;
+    while (jpegs < 2 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(jpegs, 2, "a keyframe's JPEG must not wait for the next keyframe or for more input");
+    assert.equal(child.stdin.writableEnded, false);
+    child.stdin.end(source.subarray(delimiters[22]));
+    assert.equal(await exited, 0);
+    assert.equal(jpegs, 3);
+  } finally {
     child.stdin.destroy();
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
     await exited.catch(() => {});

@@ -1958,24 +1958,49 @@ function yieldToGateway(child: ChildProcessWithoutNullStreams): ChildProcessWith
   return child;
 }
 
-/** Start the JPEG extractor that retains a fresh image from the shared camera source. */
-function spawnSnapshotExtractor(codec: VideoCodec): ChildProcessWithoutNullStreams {
-  return yieldToGateway(spawn("ffmpeg", [
+/**
+ * Arguments for the JPEG extractor that retains a fresh image from the shared camera source.
+ *
+ * H.265 decodes only keyframes, one JPEG each. Decoding every picture to keep
+ * one in two seconds took more than a core of a Green, beside the conversion.
+ * A viewer joining an H.265 source already waits for a keyframe, so these
+ * arrive often enough. One thread, so a keyframe is not held back behind
+ * later pictures, and the conversion's short probe, so the first one is not
+ * either. H.264 is unchanged: it decodes far more cheaply, and a camera using
+ * intra refresh would send no keyframes at all.
+ */
+export function snapshotExtractorArguments(codec: VideoCodec): string[] {
+  return [
     "-hide_banner",
     "-loglevel",
     "error",
+    ...(codec === "h265" ? [
+      "-probesize",
+      "2048",
+      "-analyzeduration",
+      "1",
+      "-fpsprobesize",
+      "0",
+      "-threads",
+      "1",
+      "-skip_frame",
+      "nokey",
+    ] : []),
     "-f",
     codec === "h265" ? "hevc" : "h264",
     "-i",
     "pipe:0",
-    "-vf",
-    "fps=1/2",
+    ...(codec === "h265" ? ["-fps_mode", "passthrough"] : ["-vf", "fps=1/2"]),
     "-f",
     "image2pipe",
     "-vcodec",
     "mjpeg",
     "pipe:1",
-  ]));
+  ];
+}
+
+function spawnSnapshotExtractor(codec: VideoCodec): ChildProcessWithoutNullStreams {
+  return yieldToGateway(spawn("ffmpeg", snapshotExtractorArguments(codec)));
 }
 
 /** Remux checked elementary streams, optionally retaining recorded frame timing. Aborting terminates the owned FFmpeg process. */

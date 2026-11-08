@@ -17,6 +17,7 @@ import { GatewayState } from "../src/domain/gateway-state.js";
 import {
   LiveStreamManager,
   h265ViewerTranscoderArguments,
+  snapshotExtractorArguments,
   spawnH265ViewerTranscoder,
   SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS,
   StreamCadenceTracker,
@@ -136,6 +137,17 @@ test("fixed H.265 viewer output adds a stable 1080p filter only when enabled", (
     fixed[filterIndex + 1],
     "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
   );
+});
+
+test("the H.265 snapshot extractor decodes keyframes only and H.264's is unchanged", () => {
+  const h265 = snapshotExtractorArguments("h265");
+  assert.equal(h265[h265.indexOf("-skip_frame") + 1], "nokey");
+  assert.equal(h265[h265.indexOf("-threads") + 1], "1");
+  assert.equal(h265[h265.indexOf("-fps_mode") + 1], "passthrough");
+  assert.equal(h265.includes("fps=1/2"), false);
+  assert.deepEqual(snapshotExtractorArguments("h264"), [
+    "-hide_banner", "-loglevel", "error", "-f", "h264", "-i", "pipe:0", "-vf", "fps=1/2", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1",
+  ]);
 });
 
 test("summarizes stream cadence without retaining timestamps", () => {
