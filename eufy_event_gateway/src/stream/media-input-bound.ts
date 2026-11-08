@@ -1,5 +1,5 @@
 /**
- * Bounds how far each FFmpeg media child may fall behind the camera.
+ * Limits the age of gateway-queued input for each FFmpeg media child.
  * LiveStreamManager owns one bound per child, for the snapshot extractor and
  * the H.265 viewer conversion, together with the child's process, lifetime and
  * the stop summaries that report the skip counters. This boundary owns only
@@ -11,9 +11,9 @@ import type { Writable } from "node:stream";
 import type { VideoCodec } from "../domain/types.js";
 
 /**
- * Oldest camera input a media child may leave unread before it skips ahead.
- * Long enough that a keyframe burst on a busy host does not trip it, short
- * enough that a converted view stays within a few seconds of live.
+ * Maximum age of a write still pending on the gateway-to-child pipe.
+ * The allowance accommodates keyframe bursts. OS-pipe, decoder and player
+ * queues are outside this observation, so this is not a display-latency cap.
  */
 export const MAX_MEDIA_INPUT_AGE_MILLISECONDS = 2_000;
 
@@ -31,9 +31,9 @@ const END_OF_SEQUENCE: Record<VideoCodec, Buffer> = {
  * order. A child slower than the camera therefore falls further behind for as
  * long as the source runs, and the input it has not read waits in gateway
  * memory. Once the oldest unread input is older than the limit, the child gets
- * nothing more until it has read what it holds and a keyframe arrives. It then
+ * nothing more until the gateway queue drains and a keyframe arrives. It then
  * starts again from that keyframe's cached decoder start, so it skips to live
- * instead of drifting behind.
+ * instead of letting gateway input accumulate for the whole view.
  *
  * One bound belongs to one consumer. {@link attach} moves it to a replacement
  * process and keeps its counters for that consumer's summary.
