@@ -36,7 +36,7 @@ import { E30LockError } from "./e30-lock-protocol.js";
 import { careMonitorPushKind, careMonitorSensorState } from "./care-monitor.js";
 import { E21ControlError, e21Readings, e21PreferenceContracts, e21PreferenceNames, isE21, validateE21Preference, type E21Readings } from "./e21-profile.js";
 import { NvrRtcSession, type NvrSwitchTarget } from "../stream/nvr-rtc-session.js";
-import { NvrTrialError, nvrTrialSensor, type NvrStateSummary } from "../stream/nvr-protocol.js";
+import { NvrTrialError, nvrTrialSensor, type NvrSource, type NvrStateSummary } from "../stream/nvr-protocol.js";
 import { modelControlTrialActions, parseModelControlTrial, runModelControlTrial, type ModelControlRoute, type ModelControlTrial, type ModelControlTrialAdmission, type ModelControlTrialFailureStage, type ModelControlTrialResult, type AlarmStateTrialResult } from "./model-control-trials.js";
 import { join } from "node:path";
 import { setTimeout as cancellableDelay } from "node:timers/promises";
@@ -653,7 +653,7 @@ export interface PpcsStreamRoute {
 /** One NVR call and the camera it currently serves. */
 interface NvrTrialEntry {
   controller: AbortController; device: MegaInventoryDevice; station: MegaInventoryDevice; stateOnly: boolean; diagnostic: boolean;
-  generation: number; sensor: 0 | 1; connecting: boolean; retiring: boolean; terminalRetirement: boolean; sourceReported: boolean;
+  generation: number; sensor: number; connecting: boolean; retiring: boolean; terminalRetirement: boolean; sourceReported: boolean;
   startOwner: { promise: Promise<void>; cancelled: boolean } | undefined; session: NvrRtcSession | null;
   retireStart: () => void; releasePeer: () => void; release: () => Promise<void>;
 }
@@ -706,7 +706,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #nvrLiveJobs = new Set<string>();
   readonly #nvrLiveIntervals = new Map<string, number>();
   readonly #nvrReadIntervals = new Map<string, number>();
-  readonly #nvrViews = new Map<string, { binding: string; value: 0 | 1 }>();
+  readonly #nvrViews = new Map<string, { binding: string; value: number }>();
   readonly #nvrSettings = new Map<string, { binding: string; values: NvrLiveSettings; nightAt: number; qualityAt: number; trackingAt: number; timer: NodeJS.Timeout | null }>();
   #nvrMediaChecks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean } | null = null;
   readonly #nvrTrials = new Map<string, NvrTrialEntry>();
@@ -1856,9 +1856,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       catalogueStatus: profile ? "ready_to_test" : "recognised", firmware: device.firmware, hardwareVersion: device.hardwareVersion ?? null, firmwareSubVersion: device.firmwareSubVersion ?? null,
       firmwareUpdateAvailable: device.firmwareUpdateAvailable ?? null, rssi: device.reads.rssi ?? null, audioSettings: null, reportedSettings: profile ? { streamingQualityTier: values.quality, imageFlipped: null, statusLedEnabled: null, soundDetectionEnabled: null } : null,
       enabled: null, motionDetectionEnabled: null, guardMode: null, nightVisionMode: values.night,
-      nvrPanControlSupported: !!profile && (profile.movementView === null || view === profile.movementView),
+      nvrPanControlSupported: !!profile && (profile.movementView === null || view === profile.movementView || view === profile.stackedView),
       directionalPanControlSupported: false,
-      nvrOpticalZoomControlSupported: !!profile?.opticalZoom && (profile.movementView === null || view === profile.movementView),
+      nvrOpticalZoomControlSupported: !!profile?.opticalZoom && (profile.movementView === null || view === profile.movementView || view === profile.stackedView),
       nvrViewOptions: profile?.views ?? [], nvrSelectedView: profile?.views.length ? view : null, nvrLiveControlsSupported: !!profile,
       autoNightVisionEnabled: null, aiTrackingEnabled: values.tracking === null ? null : values.tracking === 1, battery: batteryState(device),
       streamSupported: this.#normalNvrLiveBinding(device, station), startupSnapshotSupported: false,
@@ -1985,7 +1985,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && station.deviceType === entry.station.deviceType && station.model === entry.station.model && station.adminUserId === entry.station.adminUserId;
     };
     return { camera: serial, channel: entry.device.channel!,
-      cameraType: entry.device.deviceType!, sensor: entry.sensor,
+      cameraType: entry.device.deviceType!, sensor: this.#nvrSource(entry),
       liveControls: !entry.diagnostic && this.#nvrLiveAdmitted(entry.device, entry.station),
       panReceiptOnly: this.#nvrProfile(entry.device)?.panReceiptOnly === true,
       audio: !entry.diagnostic && !entry.stateOnly && nvrLiveAudioAdmitted(entry.device, entry.station),
@@ -2602,11 +2602,24 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       station?.model, station?.deviceType, station?.adminUserId, this.#startupGeneration]);
   }
 
-  #nvrView(device: MegaInventoryDevice): 0 | 1 {
+  #nvrView(device: MegaInventoryDevice): number {
     const preference = this.#nvrViews.get(device.serial);
     if (preference?.binding === this.#nvrBindingKey(device)) return preference.value;
     this.#nvrViews.delete(device.serial);
-    return this.#nvrProfile(device)?.defaultView ?? nvrTrialSensor(device.model, device.deviceType) ?? 0;
+    const profile = this.#nvrProfile(device);
+
+    // Both is the default only where Camera view is offered. Video without
+    // the view choice keeps the movable lens it has always shown.
+    if (profile?.stackedView !== null && profile?.stackedView !== undefined && profile.movementView !== null
+      && !this.#nvrLiveAdmitted(device, this.#devices.get(device.parentSerial))) return profile.movementView;
+    return profile?.defaultView ?? nvrTrialSensor(device.model, device.deviceType) ?? 0;
+  }
+
+  /** The lens a session asks for: the trial's own lens, the selected single view, or both lenses stacked. */
+  #nvrSource(entry: { device: MegaInventoryDevice; diagnostic: boolean; sensor: number }): NvrSource {
+    if (!entry.diagnostic && entry.sensor === this.#nvrProfile(entry.device)?.stackedView) return "both";
+    if (entry.sensor !== 0 && entry.sensor !== 1) throw new NvrTrialError("framing");
+    return entry.sensor;
   }
 
   #nvrLiveAdmitted(device: MegaInventoryDevice, station: MegaInventoryDevice | undefined): boolean {
@@ -2697,7 +2710,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#assertRtcPreparationIdle();
     const device = this.#devices.get(serial), station = device && this.#devices.get(device.parentSerial);
     if (!device || !this.#nvrLiveAdmitted(device, station)) throw new NvrLiveControlError("disabled");
-    if (view !== 0 && view !== 1 || view >= (this.#nvrProfile(device)?.views.length ?? 0)) throw new NvrLiveControlError("unavailable");
+    if (![0, 1, 2].includes(view) || view >= (this.#nvrProfile(device)?.views.length ?? 0)) throw new NvrLiveControlError("unavailable");
     if (!this.#nvrMediaChecks || this.#nvrMediaChecks.active(serial) || this.#nvrTrials.has(serial) || this.#streamStarts.has(serial)
       || this.#nvrLiveJobs.has(device.parentSerial) || this.#recordingPeerReserved(serial) || this.#nvrControlReserved(device.parentSerial)) throw new NvrLiveControlError("busy");
     this.#nvrViews.set(serial, { binding: this.#nvrBindingKey(device), value: view });
@@ -2730,7 +2743,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     };
     current();
     if (this.#nvrLiveJobs.has(station.serial)) throw new NvrLiveControlError("busy");
-    if (movement && profile.movementView !== null && view !== profile.movementView || request.kind === "zoom" && (!profile.opticalZoom || ![1, 2, 3].includes(request.level))
+    if (movement && profile.movementView !== null && view !== profile.movementView && view !== profile.stackedView || request.kind === "zoom" && (!profile.opticalZoom || ![1, 2, 3].includes(request.level))
       || request.kind === "night" && !profile.night.some(mode => mode.value === request.value)
       || request.kind === "quality" && !profile.quality.some(mode => mode.value === request.value)
       || request.kind === "tracking" && !profile.aiTracking) throw new NvrLiveControlError("unavailable");

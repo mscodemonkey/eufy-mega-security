@@ -1,17 +1,21 @@
 # Experimental NVR live controls
 
-These controls are off by default and hardware-unconfirmed. They are available only for an explicitly owned T8N00 NVR, type 300, with an exact T8E00/type301 or T8416/type104 child. Guest access, inherited child ownership and T8416121 are excluded. The exact T8E00/type301 through HomeBase S1 T9000/type27 has a separate pan-only experimental profile. It uses the Movable source and offers single direction clicks, with no zoom, view selector, night-vision or quality controls. Physical movement on S1 remains unconfirmed. The same T8416 on its own Wi-Fi or behind a HomeBase keeps its existing route and controls. None of these NVR profiles, labels or markers apply to it.
+These controls are off by default. Hardware results are limited to what is listed under [Hardware results](#hardware-results), and every other pairing stays unconfirmed. They are available only for an explicitly owned T8N00 NVR, type 300, with an exact T8E00/type301 or T8416/type104 child. Guest access, inherited child ownership and T8416121 are excluded. The exact T8E00/type301 through HomeBase S1 T9000/type27 has a separate pan-only experimental profile. It uses the Movable source and offers single direction clicks, with no zoom, view selector, night-vision or quality controls. Physical movement on S1 remains unconfirmed. The same T8416 on its own Wi-Fi or behind a HomeBase keeps its existing route and controls. None of these NVR profiles, labels or markers apply to it.
 
 Enable `experimental_nvr_live`, `experimental_model_controls` and `experimental_nvr_controls`, and configure gateway API authentication. Enabling those flags also exposes the separate power and guard trials. Those trials retain their own consent and are never run by these normal controls. No physical control test runs automatically. Martin authorised implementation of #433, not unattended movement or security changes.
 
 | Camera | Night vision | Streaming quality | Camera view | Movement | AI tracking |
 | --- | --- | --- | --- | --- | --- |
-| T8E00/type301 | Standard, Infrared, Spotlight | Auto, Low, High | Fixed or Movable, default Movable | Single pan clicks and optical zoom 1x, 2x, 3x on Movable only | No |
+| T8E00/type301 | Standard, Infrared, Spotlight | Auto, Low, High | Fixed, Movable or Both, default Both | Single pan clicks and optical zoom 1x, 2x, 3x on Movable and Both | Not offered here; Eufy app only |
 | T8416/type104 | Off, Auto Infrared, Infrared on | Auto, HD (720P), Full HD (1080P), 2K, Ultra 4K | None (wide source) | Single pan clicks and zoom 1x, 2x, 3x | Enable or disable |
 
 T8416 offers no Camera view choice. A reporter described a Telephoto source, but on an owner-tested S350 the second NVR source showed the same wide picture, while zoom 2x and 3x narrowed it to the telephoto picture and 1x restored the wide one. T8416 quality names follow the eufy app's Streaming Quality. The T8416 NVR night values differ from the separate HomeBase connection.
 
+T8E00 Both shows the Fixed and Movable lenses together, Fixed above Movable, as the eufy app's live view does. It is the default view where Camera view is offered. Live video without these controls keeps the Movable lens. The NVR stacks them into one 1280×1440 picture, two 1280×720 panes, so it is still one source and one live view, with fewer pixels than a single 1920×1080 view. While Both is chosen, every card that shows the camera shows the stacked picture. Direction and zoom act on the Movable lens, the lower pane. With `experimental_fixed_h265_resolution` on, the H.264 compatibility conversion fits the stacked picture inside 1920×1080 with bars at the sides, as it does any other size. Both is not a separate Fixed camera entity.
+
 T8416 AI tracking is a persistent setting like night vision. The gateway sends 6016 on the PTZ transport, accepts the receipt, and then requires the channel row to read back the requested value before reporting success. The Home Assistant enable and disable buttons appear once a live start or capability refresh has read the current value. On an owner-tested S350 the eufy app showed each change.
+
+T8E00 AI tracking has no control here, but the camera does have the feature in the eufy app. While it is on, the camera can move with no request, so a shift in the picture alone doesn't show that a pan worked.
 
 ## Using the controls
 
@@ -27,6 +31,14 @@ Normal NVR live view keeps its source while the viewer owns it and usable video 
 
 Actions are exclusive per NVR and spaced at least one second apart. Explicit capability refresh has a ten-second cooldown. Refresh reads settings without starting video when the camera is idle.
 
+## Hardware results
+
+Two T8416/type 104 cameras on firmware 1.5.6.4 behind one T8N00 were tested on 4 November 2026 with the changes released in v0.1.242. The owner watched one camera and saw all four pan directions. Video from the second camera shows its picture shifting after each of the four pan requests, and returning after the opposite one. Both cameras showed 2x and 3x zoom narrowing the picture and 1x restoring it. Streaming quality and AI tracking changed and read back on both, and the eufy app confirmed the quality values and an AI tracking change. Night vision has readback evidence only, from a daylight test.
+
+One T8E00/type 301 on firmware 1.1.2.9 behind the same T8N00 was tested on 6 November 2026 on v0.1.241, in the Movable view with a live view held. The owner watched it move in all four directions, and picture measurements agree on each direction. Each press moved the camera one step, but all 14 presses returned `outcome_unknown` with `pan_data=0`: the camera sent the acknowledgement and no data reply.
+
+These results show that the T8416 and T8E00 movement paths work on that setup. They do not qualify T8416 on Wi-Fi or a HomeBase, T8416121, T9000, T8E00 behind T9000 or other firmware. A single `request_accepted` still does not prove that a single movement happened.
+
 ## Interpreting results
 
 `request_accepted` requires physical confirmation. It does not establish movement, lens position or optical magnification. Some vendor paths accept a pan acknowledgement alone. T8416 and T8E00 behind T8N00 send only that acknowledgement, with no data reply, so their pan settles on it. T8E00 through S1 still requires a matching data reply, and a device that sends only an acknowledgement there can move and still return `outcome_unknown`. A refused or missing acknowledgement returns `outcome_unknown`, and the camera may still have moved. Do not immediately repeat it. Check the camera in Eufy first.
@@ -37,11 +49,11 @@ Observed night and quality values expire after 30 minutes and clear on a binding
 
 The experimental NVR identity uses `ready_to_test`, so Home Assistant may also offer a compatibility-report button. Pressing that button opens a report workflow. It does not confirm support or run a physical test.
 
-For a reporter retest, use one model at a time. Start with Wide or Movable video, try one direction, and check what actually happened. If it fails, send the single `nvr_live_control_failed` line. Test persistent settings only while watching the result in Eufy, then restore the original values. Physical behaviour remains unconfirmed until the reporter supplies that result.
+For a reporter retest, use one model at a time. Start with Wide or Movable video, try one direction, and check what actually happened. If it fails, send the single `nvr_live_control_failed` line. Test persistent settings only while watching the result in Eufy, then restore the original values. Physical behaviour on any other model, firmware or route remains unconfirmed until the reporter supplies that result.
 
 The first control on a source reconfirms its child identity with a fresh echoed request segment. Devices that reply without echoing that segment cannot use controls, even if legacy video plays. This is a hardware-unconfirmed compatibility limit. PTZ data on the child channel or channel 255 is accepted, with the latter still unconfirmed on hardware. An accepted PTZ request may mean the camera has reached its movement limit.
 
-T8E00 optical levels 1x to 3x deliberately restrict the vendor's 1x to 8x range to the reporter-tested subset. T8416 uses the same 1x to 3x levels, which an owner test confirmed on one S350. The T8E00 Auto/Low/High choices follow the portal fallback UI, rather than an explicit resolution list in that model profile.
+T8E00 optical levels 1x to 3x deliberately restrict the vendor's 1x to 8x range to the reporter-tested subset. T8416 uses the same 1x to 3x levels, which an owner test confirmed on two S350 cameras. The T8E00 Auto/Low/High choices follow the portal fallback UI, rather than an explicit resolution list in that model profile.
 
 A fresh inventory that omits explicit ownership withdraws control admission until membership returns. Raw ownership is mandatory for these controls and the manual guard/power writes. T8416 live video itself needs only `experimental_nvr_live`: without control admission it plays the Wide view and offers no controls. Legacy video and diagnostic playback admission are unchanged.
 
