@@ -19,7 +19,8 @@ export function diagnosticsPage(): string {
 <button id="load">Load devices</button>
 <label>Device <select id="device"><option value="">All devices</option></select></label>
 <details><summary>Read-only state check</summary>
-<p>For T8410, T8417 and HomeBase 3 (T8030) only. Enable Experimental model controls first. This asks Eufy to authorise one cloud read using your existing account. It leaves settings unchanged and does not enable controls. Cloud readings may lag. The 6250 candidate is not a lens-position readback.</p>
+<p>For T8410, T8417, HomeBase 3 (T8030) and T8910 sensors through HomeBase 2 or 3 only. Enable Experimental model controls first. This asks Eufy to authorise one cloud read using your existing account. It leaves settings unchanged and does not enable controls. Cloud readings may lag. The 6250 candidate is not a lens-position readback.</p>
+<p>For a T8910, this checks whether a separate cloud read reports a cached motion time. Recent means within one minute of the gateway clock. It does not confirm motion delivery or enable a polling receiver. Keep your current notification and security settings.</p>
 <label><input id="parameter-consent" type="checkbox"> I agree to one read of cached candidate field shapes for the selected device.</label>
 <button id="parameter-start">Run once</button><button id="parameter-cancel">Cancel state check</button>
 <pre id="parameter-status" role="status">No state check started.</pre></details>

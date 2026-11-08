@@ -1,7 +1,7 @@
 /**
  * Exercises the diagnostic's closed data boundary using synthetic parameters.
  * Tests own every response and protect the browser and logging consumers from
- * raw fields, ambiguous observations and cached-value freshness claims.
+ * raw fields, ambiguous observations and unsupported device-freshness claims.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -48,8 +48,44 @@ test("HTTP DTO validation refuses all additional, mixed-profile and malicious fi
   const good = projectReportedParameters("T8410", { params: [] });
   for (const value of [null, {}, { ...good, raw: "SENTINEL" }, { ...good, model: "T8410-alias" },
     { ...good, profile: "privacy_candidates" }, { ...good, observations: { ...good.observations, private: "SENTINEL" } },
-    { ...good, observations: { 1035: "SENTINEL", 2001: "missing" } }, { ...good, observations: { 1035: "valid", 2001: "missing" } }]) {
+    { ...good, observations: { 1035: "SENTINEL", 2001: "missing" } }, { ...good, observations: { 1035: "valid", 2001: "missing" } },
+    { ...good, observations: { 1035: "recent", 2001: "missing" } }]) {
     assert.throws(() => validateParameterSummary(value), ParameterCheckError);
     assert.throws(() => parameterCheckLog(value), ParameterCheckError);
   }
+});
+
+test("T8910 reports only cached timestamp age classes in either established unit", () => {
+  const now = 1_800_000_000_000;
+  for (const value of [now / 1_000, String(now / 1_000), now, String(now)]) {
+    const result = projectReportedParameters("T8910", { device_sn: "PRIVATE_SENTINEL", params: [
+      { param_type: 1605, param_value: value, update_time: "PRIVATE_SENTINEL" },
+      { param_type: 1101, param_value: 90 },
+    ] }, now);
+    assert.deepEqual(result, { model: "T8910", profile: "motion_time_candidate", observations: { 1605: "recent" } });
+    assert.deepEqual(validateParameterSummary(result), result);
+    assert.equal(parameterCheckLog(result), "model=T8910 outcome=read 1605=recent");
+    assert.doesNotMatch(JSON.stringify(result), /1800000000|PRIVATE_SENTINEL|update_time|1101|device_sn/);
+  }
+});
+
+test("T8910 distinguishes absent, unset, old and future cache values without inferring motion", () => {
+  const now = 1_800_000_000_000;
+  const classify = (value: unknown) => projectReportedParameters("T8910", { params: [{ param_type: 1605, param_value: value }] }, now).observations[1605];
+  assert.equal(projectReportedParameters("T8910", { params: [] }, now).observations[1605], "missing");
+  for (const value of [0, "0"]) assert.equal(classify(value), "unset");
+  assert.equal(classify(now - 60_000), "recent");
+  assert.equal(classify(now - 60_001), "older");
+  assert.equal(classify(now + 2_000), "recent");
+  assert.equal(classify(now + 2_001), "future");
+  for (const value of [null, true, {}, [], "", "01", "1e9", " 1800000000", 1.5, -1, NaN, Infinity, 1_000, 4_102_444_800_000]) assert.equal(classify(value), "invalid");
+  const duplicate = projectReportedParameters("T8910", { params: [
+    { param_type: 1605, param_value: now }, { param_type: "1605", param_value: now },
+  ] }, now);
+  assert.equal(duplicate.observations[1605], "conflicting");
+  const good = projectReportedParameters("T8910", { params: [] }, now);
+  for (const value of ["one", "zero", "valid", "PRIVATE_SENTINEL"]) {
+    assert.throws(() => validateParameterSummary({ ...good, observations: { 1605: value } }), ParameterCheckError);
+  }
+  for (const clock of [NaN, Infinity, -1]) assert.throws(() => projectReportedParameters("T8910", { params: [] }, clock), ParameterCheckError);
 });

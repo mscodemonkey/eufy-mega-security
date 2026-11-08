@@ -32,6 +32,10 @@ test("parameter HTTP authenticates loopback, closes consent and rejects private 
     const good = await fetch(url, options); assert.equal(good.status, 200); assert.equal(good.headers.get("cache-control"), "no-store");
     assert.deepEqual(await good.json(), value); assert.equal(receivedSignal?.aborted, false);
     assert.equal((await fetch(url, { ...options, headers: { "content-type": "application/json" } })).status, 401);
+    value = projectReportedParameters("T8910", { params: [{ param_type: 1605, param_value: Date.now() }] });
+    const motion = await fetch(url, options);
+    assert.equal(motion.status, 200);
+    assert.deepEqual(await motion.json(), { model: "T8910", profile: "motion_time_candidate", observations: { 1605: "recent" } });
     const before = calls;
     for (const body of [{ serial: "target" }, { serial: "target", consent: false }, { serial: "target", consent: true, extra: "SENTINEL" },
       { serial: "x".repeat(129), consent: true }, { serial: {}, consent: true }, []]) {
