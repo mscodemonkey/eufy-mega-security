@@ -211,6 +211,9 @@ interface Session {
 
   /** Clients that opened a marked view, with its mark. They give way to a newer view on the same NVR. */
   readonly yieldingClients: Map<VideoViewerResponse, string>;
+
+  /** Recording protection remains attached to each live response even after the bounded mark cache expires. */
+  readonly heldClients: Map<VideoViewerResponse, string>;
   readonly audioConsumers: Set<(chunk: Buffer) => void>;
   parameterSets: VideoParameterSetCache;
   state: "idle" | "starting" | "streaming" | "stopping" | "error";
@@ -636,7 +639,7 @@ export class LiveStreamManager extends EventEmitter {
     }
     this.#cancelStop(session);
     session.clients.add(response);
-    if (view && !this.#heldViews.has(view)) session.yieldingClients.set(response, view);
+    if (view) (this.#heldViews.has(view) ? session.heldClients : session.yieldingClients).set(response, view);
     session.clientDeliveries.set(response, {
       closeReason: null,
       sourceAttached: session.source !== null,
@@ -835,7 +838,8 @@ export class LiveStreamManager extends EventEmitter {
    * Home Assistant is recording from a marked view, so it must keep its call.
    * It records over the connection the view already has, so the gateway sees no
    * new consumer. The mark stays held, and a reconnect with it keeps the call too.
-   * Returns whether an open connection used the mark.
+   * Returns whether an open connection uses the mark, including an already held
+   * connection, so retrying after a lost acknowledgment is safe.
    */
   holdView(serial: string, view: string): boolean {
     this.#heldViews.add(view);
@@ -843,8 +847,11 @@ export class LiveStreamManager extends EventEmitter {
     const session = this.#sessions.get(serial);
     if (!session) return false;
     const clients = [...session.yieldingClients].filter(([, mark]) => mark === view).map(([client]) => client);
-    for (const client of clients) session.yieldingClients.delete(client);
-    return clients.length > 0;
+    for (const client of clients) {
+      session.yieldingClients.delete(client);
+      session.heldClients.set(client, view);
+    }
+    return [...session.heldClients.values()].includes(view);
   }
 
   /** Identify local clip consumers so control admission can reject recording conflicts. */
@@ -1106,6 +1113,8 @@ export class LiveStreamManager extends EventEmitter {
     session.owned = false;
     for (const client of session.clients) { this.#markViewerClose(session, client, "provider_stopped"); client.end(); }
     session.clients.clear();
+    session.yieldingClients.clear();
+    session.heldClients.clear();
     session.pendingClients.clear();
     this.#updateState(serial, session);
   }
@@ -1134,6 +1143,7 @@ export class LiveStreamManager extends EventEmitter {
     session.clients.delete(response);
     session.pendingClients.delete(response);
     session.yieldingClients.delete(response);
+    session.heldClients.delete(response);
     this.#emitViewerClientSummary(session, response);
     if (this.#profileClients(session, "compatible").length === 0) this.#stopViewerTranscoder(session);
     this.#updateState(serial, session);
@@ -1394,6 +1404,8 @@ export class LiveStreamManager extends EventEmitter {
     session.owned = false;
     for (const client of session.clients) { this.#markViewerClose(session, client, error ? "source_error" : "source_ended"); client.end(); }
     session.clients.clear();
+    session.yieldingClients.clear();
+    session.heldClients.clear();
     session.pendingClients.clear();
     this.#updateState(serial, session, error?.message ?? null);
   }
@@ -1779,6 +1791,7 @@ export class LiveStreamManager extends EventEmitter {
         viewerStartupAttempt: 0,
         recordings: new Set(),
         yieldingClients: new Map(),
+        heldClients: new Map(),
         audioConsumers: new Set(),
         parameterSets: new VideoParameterSetCache(),
         state: "idle",

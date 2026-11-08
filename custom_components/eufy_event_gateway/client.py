@@ -50,13 +50,16 @@ class GatewayClient:
     One instance is owned by a config entry's coordinator and uses Home
     Assistant's shared HTTP session for its entire lifetime. It validates the
     portions of gateway responses consumed by entities and never handles Eufy
-    account credentials or vendor protocol payloads.
+    account credentials or vendor protocol payloads. The inventory response
+    negotiates live-view handover for this instance, defaulting off for older
+    gateways so they keep their existing recording behaviour.
     """
 
     def __init__(
         self, session: ClientSession, base_url: str, api_token: str = ""
     ) -> None:
         """Create a client from HA's shared HTTP session and gateway settings."""
+        self.live_view_handover_supported = False
         self._session = session
         self.base_url = base_url.rstrip("/")
         self._headers = {"Authorization": f"Bearer {api_token}"} if api_token else {}
@@ -131,6 +134,7 @@ class GatewayClient:
         cameras = payload.get("cameras")
         if not isinstance(cameras, list):
             raise GatewayClientError("Gateway returned an invalid camera list")
+        self.live_view_handover_supported = payload.get("liveViewHandoverSupported") is True
         return [
             camera
             for camera in cameras

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.247
+
+- Keep NVR live views running through recoverable frame gaps and reduce CPU and receive-buffer pressure on small hosts, contributed by Oliver Nixon (@OliNix, #651).
+- Settle accepted T8E00 pan requests through NVR S4 without waiting for a reply that the tested camera does not send, contributed by Oliver Nixon (@OliNix, #652). Other routes remain separate.
+- Add a bundled Eufy live view dashboard card with the camera's existing controls, contributed by Oliver Nixon (@OliNix, #653), and cancel pending card work when its dashboard view disconnects.
+- Confirm Camera enabled changes against fresh HomeBase readings instead of a retained old value (#649). Physical full-script timing remains unconfirmed.
+- Identify the qualified doorbell low-power startup refusal in diagnostic captures (#648).
+- Clarify Home Assistant diagnostic capture navigation and token-free terminal capture (#658), and distinguish contributor-tested S350 playback from unconfirmed routes.
+
 ## 0.1.246
 
 - Add the selected service region to the optional general-camera video test's inventory failure line, helping distinguish service routing from a refusal after sign-in.
