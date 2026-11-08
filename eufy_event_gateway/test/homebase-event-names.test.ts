@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { EventNameHistoryError, EventNameHistoryReader, eventHistoryCursor, eventHistoryId, nextEventHistoryDate, projectEventNameHistorySummary, summarizeEventNameHistory } from "../src/stream/homebase-event-names.js";
+import { EventNameHistoryError, EventNameHistoryReader, selectEventNameHistory, eventHistoryCursor, eventHistoryId, nextEventHistoryDate, projectEventNameHistorySummary, summarizeEventNameHistory } from "../src/stream/homebase-event-names.js";
 import { supportsEventNameHistory, type MegaInventoryDevice } from "../src/provider/eufy-provider.js";
 
 const serial = "invented-child", station = "invented-parent", date = "2026-10-31";
@@ -28,7 +28,7 @@ test("a correlated rejection retains its fixed parser stage without retaining th
 });
 
 /** Build the observed table shape without any private source values. */
-function page(records = [history], crops: (typeof crop & { picture_id?: unknown })[] = [crop], people = [person]) {
+function page(records: (typeof history & { storage_path?: unknown })[] = [history], crops: (typeof crop & { picture_id?: unknown })[] = [crop], people = [person]) {
   return { cmd: 10011, table: "history_record_info", transaction: "test", mIntRet: 0, data: [
     { table_name: "history_record_info", payload: records },
     { table_name: "record_crop_picture_info", payload: crops },
@@ -133,4 +133,36 @@ for (const mode of ["abort", "close", "timeout", "authentication"] as const) tes
   else if (mode === "timeout") context.mock.timers.tick(20_001);
   else { const header = Buffer.alloc(16); header.writeUInt16LE(1306, 4); header[12] = 255; reader.handleFrame(header, Buffer.alloc(1)); }
   await pending; assert.equal(calls, 1); reader.close();
+});
+
+
+test("late names require the exact owned record/path and a single familiar person", () => {
+  const storagePath = "/zx/hdd_data0/Camera02/202610/20261031092300/20261031092300.zxvideo";
+  const reference = { id: "123", storagePath, triggerMilliseconds: Date.parse("2026-10-30T23:23:00Z") };
+  const value = page([{ ...history, storage_path: storagePath }]);
+  assert.equal(selectEventNameHistory(value, serial, station, reference), "Invented Person");
+  assert.equal(selectEventNameHistory(value, serial, station, { ...reference, id: "124" }), null);
+  assert.equal(selectEventNameHistory(value, serial, station, { ...reference, storagePath: storagePath.replace("Camera02", "Camera03") }), null);
+  assert.equal(selectEventNameHistory(value, "sibling", station, reference), null);
+  assert.throws(() => selectEventNameHistory(value, serial, "foreign", reference), /invalid_response/);
+  assert.equal(selectEventNameHistory(page([{ ...history, storage_path: storagePath }], [crop], [{ ...person, group_id: 255 }]), serial, station, reference), null);
+  const ambiguous = page([{ ...history, storage_path: storagePath }], [crop, { ...crop, crop_id: 457, person_id: 10 }],
+    [person, { ...person, person_id: 10, name: "Other Invented Person" }]);
+  assert.equal(selectEventNameHistory(ambiguous, serial, station, reference), null);
+});
+
+test("the private name reader still requires its original transaction and never exposes a page", async () => {
+  let transaction = "";
+  const storagePath = "/zx/hdd_data0/Camera02/202610/20261031092300/20261031092300.zxvideo";
+  const reference = { id: "123", storagePath, triggerMilliseconds: Date.parse("2026-10-30T23:23:00Z") };
+  const reader = new EventNameHistoryReader({ serial, stationSerial: station,
+    query: value => { transaction = value; }, decodeReply: payload => payload });
+  const operation = reader.readName(reference);
+  const header = Buffer.alloc(16); header.writeUInt16LE(1306, 4); header[12] = 255;
+  const value = { ...page([{ ...history, storage_path: storagePath }]), transaction };
+  assert.equal(reader.handleFrame(header, Buffer.from(JSON.stringify({ ...value, transaction: "foreign" }))), false);
+  reader.handleFrame(header, Buffer.from(JSON.stringify(value)));
+  assert.equal(await operation, "Invented Person");
+  await assert.rejects(reader.readName(reference), /unavailable/);
+  reader.close();
 });

@@ -29,6 +29,9 @@ export interface GatewayConfig {
   /** Default-off exact-record thumbnail recovery on the observed HomeBase 3 route. */
   readonly experimentalHomeBaseEventImages: boolean;
 
+  /** Default-off exact-visit familiar-name recovery on the observed doorbell history route. */
+  readonly experimentalHomeBaseEventNames: boolean;
+
   /** Default-off official-model control trials, requiring bearer authentication. */
   readonly experimentalModelControls: boolean;
 
@@ -87,6 +90,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
   const host = environment.EUFY_GATEWAY_HOST ?? "127.0.0.1";
   const apiToken = nonEmpty(environment.EUFY_GATEWAY_API_TOKEN);
   const experimentalEventImageRequest = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_EVENT_IMAGE_REQUEST, "EUFY_GATEWAY_EXPERIMENTAL_EVENT_IMAGE_REQUEST");
+  const experimentalHomeBaseEventNames = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_NAMES, "EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_NAMES");
+  if (experimentalHomeBaseEventNames && !apiToken) throw new Error("Experimental HomeBase name recovery requires EUFY_GATEWAY_API_TOKEN");
   const experimentalHomeBaseEventImages = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_IMAGES, "EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_IMAGES");
   if (experimentalHomeBaseEventImages && !apiToken) throw new Error("Experimental HomeBase picture recovery requires EUFY_GATEWAY_API_TOKEN");
   const captureFailedEventImages = captureBoolean(environment.EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES);
@@ -140,6 +145,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
     captureFailedEventImages,
     experimentalEventImageRequest,
     experimentalHomeBaseEventImages,
+    experimentalHomeBaseEventNames,
     experimentalModelControls,
     experimentalE30Locks,
     experimentalNvrLive,

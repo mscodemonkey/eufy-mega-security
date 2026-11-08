@@ -93,3 +93,31 @@ for (const profile of ["gcm", "gcm_bad_tag", "legacy", "legacy_no_terminator", "
     assert.equal(commands.length, 2);
   } finally { session.close(); }
 });
+
+test("an exact private name uses the same authenticated read without starting media", async context => {
+  context.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const { session, socket, sent, key } = await peer(context);
+  const storagePath = "/zx/hdd_data0/Camera02/202610/20261031092300/20261031092300.zxvideo";
+  try {
+    const operation = session.recoverEventName({ id: "123", storagePath, triggerMilliseconds: Date.parse("2026-10-30T23:23:00Z") }, new AbortController().signal);
+    await new Promise(resolve => setImmediate(resolve));
+    const commands = sent.filter(value => value.subarray(8, 12).toString() === "XZYH");
+    assert.deepEqual(commands.map(value => value.readUInt16LE(12)), [1100, 1350]);
+    const body = commands[1]!.subarray(24), decoder = createDecipheriv("aes-256-gcm", key, body.subarray(16, 28));
+    decoder.setAAD(Buffer.from("eufy security")); decoder.setAuthTag(body.subarray(0, 16));
+    const request = JSON.parse(Buffer.concat([decoder.update(body.subarray(32)), decoder.final()]).toString());
+    assert.equal(request.cmd, 1306); assert.equal(request.payload.cmd, 10011); assert.equal(request.payload.payload.start_id, 0);
+    const value = { cmd: 10011, table: "history_record_info", transaction: request.payload.transaction, mIntRet: 0, data: [
+      { table_name: "history_record_info", payload: [{ record_id: 123, device_sn: "invented-child", station_sn: "SYNTHETIC1234567",
+        device_type: 7, start_time: "2026-10-31 09:23:00", time_zone: "+1000", storage_path: storagePath }] },
+      { table_name: "record_crop_picture_info", payload: [{ record_id: 123, crop_id: 0, picture_id: 90, detection_type: 1, person_id: 9 }] },
+      { table_name: "person_basic_info", payload: [{ person_id: 9, group_id: 0, name: "Fixture Person" }] },
+    ] };
+    const nonce = Buffer.alloc(12, 7), cipher = createCipheriv("aes-256-gcm", key, nonce);
+    cipher.setAAD(Buffer.from("eufy security"));
+    const encrypted = Buffer.concat([cipher.update(JSON.stringify(value)), cipher.final()]);
+    deliver(socket, 1306, Buffer.concat([cipher.getAuthTag(), nonce, Buffer.alloc(4), encrypted]), 8, 1);
+    assert.equal(await operation, "Fixture Person");
+    assert.equal(session.stats.mediaStartAttempts, 0);
+  } finally { session.close(); }
+});
