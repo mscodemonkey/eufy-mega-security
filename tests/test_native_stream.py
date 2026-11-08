@@ -24,7 +24,7 @@ class NativeStreamTest(unittest.IsolatedAsyncioTestCase):
         tree = ast.parse((ROOT / "client.py").read_text())
         client = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "GatewayClient")
         client.body = [n for n in client.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-                       and n.name in {"__init__", "stream_url", "_url"}]
+                       and n.name in {"__init__", "stream_url", "_url", "cameras"}]
         error = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "GatewayClientError")
         future = ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0)
         namespace = dict(re=re, quote=quote, urlsplit=urlsplit, unquote=unquote, parse_qsl=parse_qsl)
@@ -33,6 +33,16 @@ class NativeStreamTest(unittest.IsolatedAsyncioTestCase):
         self.client = namespace["GatewayClient"](None, "http://fixture", "fixture-only")
         self.native = "native.1600." + "a" * 43
         self.client._json = AsyncMock()
+
+    async def test_handover_requires_an_explicit_current_gateway_capability(self):
+        """Old, malformed and downgraded gateways cannot acquire takeover marks."""
+        for flag, expected in ((True, True), (False, False), ("true", False), (1, False), (None, False)):
+            self.client._json.return_value = {"cameras": [{"serial": "fixture"}], "liveViewHandoverSupported": flag}
+            self.assertEqual(await self.client.cameras(), [{"serial": "fixture"}])
+            self.assertIs(self.client.live_view_handover_supported, expected)
+        self.client._json.return_value = {"cameras": []}
+        await self.client.cameras()
+        self.assertFalse(self.client.live_view_handover_supported)
 
     async def test_compatible_request_stays_unchanged(self):
         """Default callers retain the existing empty POST and signed path."""
@@ -87,3 +97,14 @@ class NativeStreamTest(unittest.IsolatedAsyncioTestCase):
         camera._native_video = False
         await namespace["_async_stream_url"](camera)
         request.assert_awaited_with("fixture")
+
+
+class VideoFormatChoiceTest(unittest.TestCase):
+    """A camera's own video is the default, and the toggle converts every camera."""
+
+    def test_compatibility_is_the_only_choice(self) -> None:
+        tree = ast.parse((Path(__file__).parents[1] / "custom_components/eufy_event_gateway/camera.py").read_text())
+        value = next(node.value for node in ast.walk(tree) if isinstance(node, ast.Assign)
+                     and ast.unparse(node.targets[0]) == "self._native_video")
+        self.assertIs(eval(ast.unparse(value), {}, {"h264_compatibility": False}), True)
+        self.assertIs(eval(ast.unparse(value), {}, {"h264_compatibility": True}), False)

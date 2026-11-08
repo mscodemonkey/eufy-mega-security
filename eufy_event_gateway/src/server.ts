@@ -106,6 +106,10 @@ export class GatewayServer {
   /** Bind the configured host and port and begin accepting requests. */
   async listen(): Promise<void> {
     const server = createServer((request, response) => void this.#route(request, response));
+
+    // Home Assistant's client keeps a connection for 15 seconds. Closing it first
+    // would reset whichever request came next, such as a camera's stream URL.
+    server.keepAliveTimeout = 20_000;
     this.#server = server;
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
@@ -522,7 +526,7 @@ export class GatewayServer {
         });
       }
       if (request.method === "GET" && url.pathname === "/api/cameras") {
-        return json(response, 200, { cameras: this.state.listCameras() });
+        return json(response, 200, { cameras: this.state.listCameras(), liveViewHandoverSupported: true });
       }
       if (request.method === "GET" && url.pathname === "/api/locks") {
         return json(response, 200, { locks: this.#visibleLocks() });
@@ -1198,12 +1202,15 @@ export class GatewayServer {
       ) {
         return await this.#eventImage(segments[2]!, response);
       }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras" && segments[3] === "live-view-hold" && segments.length === 4) {
+        return await this.#holdLiveView(request, segments[2]!, response);
+      }
       if (
         request.method === "GET" &&
         segments[0] === "api" && segments[1] === "cameras"
         && (segments[3] === "live.h264" || segments[3] === "live.ts" || segments[3] === "live-native.annexb") && segments.length === 4
       ) {
-        return await this.#live(segments[2]!, response, segments[3] === "live.ts", segments[3] === "live-native.annexb" ? "native" : "compatible");
+        return await this.#live(segments[2]!, response, segments[3] === "live.ts", segments[3] === "live-native.annexb" ? "native" : "compatible", liveViewMark(url));
       }
       if (request.method === "GET" && url.pathname === "/api/events") return this.#events(request, response);
       if (request.method === "POST" && url.pathname === "/api/simulate/detection" && this.simulatedProvider) {
@@ -1601,7 +1608,7 @@ export class GatewayServer {
     response.end(image);
   }
 
-  async #live(serial: string, response: ServerResponse, transport = false, profile: ViewerProfile = "compatible"): Promise<void> {
+  async #live(serial: string, response: ServerResponse, transport = false, profile: ViewerProfile = "compatible", view?: string): Promise<void> {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     if (!this.state.getCamera(serial).streamSupported) {
       return json(response, 409, { error: "This camera was discovered through push events only; livestream control is unavailable" });
@@ -1611,7 +1618,18 @@ export class GatewayServer {
     }
     logger.info("camera_media_request", `model=${safeCameraModel(this.state.getCamera(serial).model)} operation=${profile === "native" ? "live_view_native" : "live_view"}`);
     if (transport) await this.streams.addTransportClient(serial, response);
-    else await this.streams.addClient(serial, response, profile);
+    else await this.streams.addClient(serial, response, profile, view);
+  }
+
+  /** Keep an NVR call with a marked view that Home Assistant has started recording from. */
+  async #holdLiveView(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
+    let body: Record<string, unknown>;
+    try { body = await readJson(request); }
+    catch { return json(response, 400, { error: "Invalid live view hold request" }); }
+    const view = typeof body.view === "string" && LIVE_VIEW_PATTERN.test(body.view) ? body.view : undefined;
+    if (!view) return json(response, 400, { error: "Invalid live view hold request" });
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    return json(response, 200, { held: this.streams.holdView(serial, view) });
   }
 
   async #streamToken(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
@@ -1870,6 +1888,8 @@ async function readStreamProfile(request: IncomingMessage): Promise<ViewerProfil
 }
 
 const STREAM_TOKEN_QUERY = "access_token";
+const LIVE_VIEW_QUERY = "view";
+const LIVE_VIEW_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 
 /** Sign a native-only camera URL with a key separated from compatible tokens. */
 export function createNativeStreamToken(serial: string, expiresAt: number, apiToken: string): string {
@@ -1886,6 +1906,12 @@ export function validateNativeStreamToken(serial: string, token: string | null, 
   const expiry = Number(match[1]);
   return Number.isSafeInteger(expiry) && expiry >= nowSeconds && expiry <= nowSeconds + STREAM_TOKEN_MAX_FUTURE_SECONDS
     && equalSecret(token!, createNativeStreamToken(serial, expiry, apiToken));
+}
+
+/** Home Assistant marks an ordinary view so it may move an NVR's call, and may yield it. */
+function liveViewMark(url: URL): string | undefined {
+  const marks = url.searchParams.getAll(LIVE_VIEW_QUERY);
+  return marks.length === 1 && LIVE_VIEW_PATTERN.test(marks[0]!) ? marks[0] : undefined;
 }
 
 function safeError(error: unknown): string {
