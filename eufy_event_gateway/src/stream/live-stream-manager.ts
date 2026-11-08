@@ -1855,13 +1855,18 @@ export function liveAudioStartWaitMilliseconds(camera: Pick<CameraState, "model"
  *
  * The owner drops its process reference immediately after this call, so this
  * helper retains the close listener and escalation timer until the child is
- * reaped. The grace override exists for focused lifecycle tests.
+ * reaped. Unread input is discarded because this is an intentional stop or
+ * abort. Successful recording remuxes use their own normal EOF path. The grace
+ * override exists for focused lifecycle tests.
  */
 export function terminateMediaProcess(
-  process: Pick<ChildProcess, "kill" | "exitCode" | "signalCode" | "once"> & { stdin?: Pick<Writable, "writable" | "end"> | null },
+  process: Pick<ChildProcess, "kill" | "exitCode" | "signalCode" | "once"> & { stdin?: Pick<Writable, "destroy"> | null },
   forceAfterMilliseconds = MEDIA_PROCESS_TERMINATION_GRACE_MILLISECONDS,
 ): void {
-  if (process.stdin?.writable) process.stdin.end();
+
+  // FFmpeg stops reading at SIGTERM, so input it has not taken yet is never delivered. Ending stdin
+  // would keep those writes pending until the child exits and then fail them with EPIPE.
+  process.stdin?.destroy();
   if (process.exitCode !== null || process.signalCode !== null) return;
   let forceTimer: NodeJS.Timeout | null = null;
   const closed = () => {
