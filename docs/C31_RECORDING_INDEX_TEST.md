@@ -14,10 +14,10 @@ Use this helper after installing the release containing the historical-window su
 
 ```sh
 python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py list
-python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py recording-index-check --target-index 1 --begin-time START_SECONDS --end-time END_SECONDS --consent-read
+python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py recording-index-check --target-index 1 --consent-read
 ```
 
-Replace `1` with the current C31 index. Replace the two time placeholders with UTC Unix seconds around an existing continuous recording, with an interval no longer than thirty minutes and entirely within the previous day. These are seconds, not milliseconds. The helper uses HA's saved gateway connection without displaying its generated token. It sends once and never falls back to another window after a refusal. An older release rejects the new request rather than silently checking a different interval.
+Replace `1` with the current C31 index. Without time flags this checks the previous thirty minutes. To check a known older continuous recording, add both `--begin-time START_SECONDS --end-time END_SECONDS`, replacing the placeholders with UTC Unix seconds around that recording, with an interval no longer than thirty minutes and entirely within the previous day. These are seconds, not milliseconds. The helper uses HA's saved gateway connection without displaying its generated token. It sends once and never falls back to another window after a refusal. An older release rejects the new request rather than silently checking a different interval.
 
 Close live viewers and playback in Eufy first. Enable Experimental model controls for the test, then restore that option afterwards. Share only the structural summary or the fixed error if requested. The helper does not confirm playback.
 

@@ -19,7 +19,7 @@ const route: ModelControlRoute = { model: "T8110", deviceType: 10035, channel: 0
   homeBaseAttached: false, selfPeer: true, peerModel: "T8110" };
 
 test("C35 manual switch keeps its exact route and level-one frame separate from master enable", () => {
-  assert.deepEqual(modelControlTrialActions(route), ["spotlight"]);
+  assert.deepEqual(modelControlTrialActions(route), ["spotlight", "spotlightState"]);
   for (const patch of [{ model: "T8110S" }, { deviceType: 1 }, { channel: 1 }, { selfPeer: false },
     { homeBaseAttached: true }, { peerModel: "T8030" }]) assert.deepEqual(modelControlTrialActions({ ...route, ...patch }), []);
   const key = Buffer.alloc(16, 9);
@@ -35,11 +35,14 @@ test("C35 manual switch keeps its exact route and level-one frame separate from 
   assert.equal(safeInventoryReads([{ param_type: 1400, param_value: "1" }], 10035, "T8110", false).spotlightEnabled, undefined);
 });
 
-for (const mode of ["ready", "disabled", "guest", "unknown-state", "failed-confirmation",
-  "read-no_reply", "read-not_decoded", "read-invalid_json", "read-invalid_schema", "read-private-error", "read-forged-reason"]) {
-  test(`C35 provider light confirmation: ${mode}`, async context => {
+for (const action of ["spotlight", "spotlightState"] as const) {
+for (const mode of ["ready", "on", "disabled", "guest", "unknown-state", "failed-confirmation",
+  "cancelled-read", "read-no_reply", "read-not_decoded", "read-invalid_json", "read-invalid_schema", "read-private-error", "read-forged-reason"]) {
+  test(`C35 provider ${action}: ${mode}`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "c35-light-"));
-    let light = false, writes = 0;
+    let light = mode === "on", writes = 0, reads = 0, publications = 0;
+    let entered!: () => void, cancel!: (error: Error) => void;
+    const reading = new Promise<void>(resolve => { entered = resolve; });
     const warnings: string[] = [];
     context.mock.method(process.stderr, "write", ((value: string | Uint8Array) => {
       warnings.push(String(value)); return true;
@@ -55,8 +58,10 @@ for (const mode of ["ready", "disabled", "guest", "unknown-state", "failed-confi
     context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ test: { key: "synthetic", expiresAt: null } }));
     context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
     context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => {});
-    context.mock.method(FirstPartyPpcsSession.prototype, "close", () => {});
+    context.mock.method(FirstPartyPpcsSession.prototype, "close", () => { cancel?.(new CameraInfoReadError("unavailable")); });
     context.mock.method(FirstPartyPpcsSession.prototype, "readCameraInfo", async () => {
+      reads++;
+      if (mode === "cancelled-read") { entered(); return await new Promise<never>((_resolve, reject) => { cancel = reject; }); }
       if (mode === "read-private-error") throw Error("private-response-content");
       if (mode === "read-forged-reason") {
         const error = new CameraInfoReadError("no_reply");
@@ -73,11 +78,38 @@ for (const mode of ["ready", "disabled", "guest", "unknown-state", "failed-confi
     const provider = new EufyProvider({ username: "synthetic", password: "redacted", country: "AU", persistentDirectory: directory,
       maxStreamSeconds: 120, experimentalModelControls: mode !== "disabled", apiAuthenticationConfigured: true });
     try {
-      await provider.start(new Proxy({}, { get: () => () => {} }) as ProviderEvents);
-      if (mode === "ready") { await provider.setCameraLight("test", true); assert.equal(light, true); assert.equal(writes, 1); }
+      if (action === "spotlight" && mode === "cancelled-read") return;
+      await provider.start(new Proxy({}, { get: () => () => { publications++; } }) as ProviderEvents);
+      const before = publications;
+      if (action === "spotlightState") {
+        if (mode === "disabled" || mode === "guest") {
+          await assert.rejects(provider.performModelControlTrial("test", {action, enabled:false}));
+          assert.equal(reads, 0);
+        } else {
+          const abort = new AbortController();
+          const pending = provider.performModelControlTrial("test", {action, enabled:false}, abort.signal);
+          if (mode === "cancelled-read") {
+            await reading;
+            await assert.rejects(provider.performModelControlTrial("test", {action, enabled:false}), /wait/i);
+            abort.abort();
+          }
+          const result = await pending;
+          const reason = mode === "cancelled-read" ? "unavailable" : mode === "unknown-state" ? "setting_missing"
+            : mode === "read-private-error" || mode === "read-forged-reason" ? "unavailable" : mode.slice(5);
+          assert.deepEqual(result, mode.startsWith("read-") || mode === "unknown-state" || mode === "cancelled-read"
+            ? {outcome:"unavailable",readOnly:true,reason}
+            : {outcome:"reported",readOnly:true,spotlightEnabled:light});
+          assert.equal(reads, 1);
+          assert.equal(publications, before);
+          assert.doesNotMatch(warnings.join(""), /private-response-content/);
+        }
+        assert.equal(writes, 0);
+        return;
+      }
+      if (mode === "ready" || mode === "on") { await provider.setCameraLight("test", true); assert.equal(light, true); assert.equal(writes, mode === "on" ? 0 : 1); }
       else { await assert.rejects(provider.setCameraLight("test", true)); assert.equal(writes, mode === "failed-confirmation" ? 1 : 0); }
       if (mode.startsWith("read-") || mode === "unknown-state") {
-        const reason = mode === "unknown-state" ? "setting_missing"
+        const reason = mode === "cancelled-read" ? "unavailable" : mode === "unknown-state" ? "setting_missing"
           : mode === "read-private-error" || mode === "read-forged-reason" ? "unavailable" : mode.slice(5);
         assert.match(warnings.join(""), new RegExp(`model=T8110 action=spotlight stage=initial_read reason=${reason}`));
         assert.doesNotMatch(warnings.join(""), /private-response-content/);
@@ -85,4 +117,5 @@ for (const mode of ["ready", "disabled", "guest", "unknown-state", "failed-confi
       }
     } finally { await provider.close(); await rm(directory, { recursive: true, force: true }); }
   });
+}
 }

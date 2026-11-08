@@ -43,7 +43,7 @@ import { GatewayState } from "./domain/gateway-state.js";
 import type { GatewayEvent } from "./domain/types.js";
 import { createLogger, observeLogEvents } from "./logging.js";
 import { S100SirenTrialError, type S100SirenFailureStage } from "./provider/s100-siren-trial.js";
-import { parseModelControlTrial, closedAlarmStateResult } from "./provider/model-control-trials.js";
+import { parseModelControlTrial, closedAlarmStateResult, closedSpotlightStateResult } from "./provider/model-control-trials.js";
 import { E30LockError } from "./provider/e30-lock-protocol.js";
 import { CameraSettingError, parseCameraSettingChange } from "./provider/camera-settings.js";
 import { validateC31Preference } from "./provider/c31-preferences.js";
@@ -1027,6 +1027,25 @@ export class GatewayServer {
         const trial = parseModelControlTrial(await readJson(request));
         if (!actions.includes(trial.action) || !this.provider.performModelControlTrial) return json(response, 409,
           trial.action === "alarmState" ? closedAlarmStateResult(null) : { error: "Model control trial unavailable" });
+        if (trial.action === "spotlightState") {
+          if (this.#recordingIndexJobs.size || this.#nvrTrialJobs.size || this.streams.hasActiveSession(segments[2]!)) {
+            return json(response, 409, { error: "Wait for other device operations before the state read" });
+          }
+          const controller = new AbortController(); this.#recordingIndexJobs.add(controller);
+          const deadline = setTimeout(() => controller.abort(), 45_000);
+          const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+          response.once("close", abort); request.once("aborted", abort);
+          try {
+            const result = await this.provider.performModelControlTrial(segments[2]!, trial, controller.signal);
+            if (!response.destroyed) return json(response, 200, closedSpotlightStateResult(result));
+          } catch {
+            if (!response.destroyed) return json(response, 200, closedSpotlightStateResult(null));
+          } finally {
+            controller.abort(); clearTimeout(deadline); this.#recordingIndexJobs.delete(controller);
+            response.removeListener("close", abort); request.removeListener("aborted", abort);
+          }
+          return;
+        }
         if (trial.action === "manualLight") {
           const controller = new AbortController();
           const abort = (): void => { if (!response.writableEnded) controller.abort(); };

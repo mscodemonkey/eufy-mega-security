@@ -43,9 +43,9 @@ function harness() {
     return elements.get(id)!;
   };
   const departures: (() => void)[] = [];
-  const calls: { path: string; method?: string; body?: string }[] = [];
+  const calls: { path: string; method?: string; body?: string; signal?: AbortSignal }[] = [];
   let reply: (path: string, options: { method?: string; body?: string }) => Promise<unknown> = async () => ({ actions: ["motion"] });
-  const fetch = async (path: string, options: { method?: string; body?: string }) => {
+  const fetch = async (path: string, options: { method?: string; body?: string; signal?: AbortSignal }) => {
     calls.push({ path, ...options });
     const result = path.endsWith("/general-rtc-prepare") ? { state: "idle" } : await reply(path, options);
     const failure = result as { httpFailure?: boolean; jsonFailure?: boolean };
@@ -60,6 +60,49 @@ function harness() {
   });
   el("device").value = "demo"; el("token").value = "fixture";
   return { el, calls, controls, departures, respond: (handler: typeof reply) => { reply = handler; } };
+}
+
+for (const actions of [["ptz", "spotlight", "aiTracking"], ["spotlight", "spotlightState"]]) {
+  test(`Diagnostics admits the full advertised control list: ${actions.join(",")}`, async () => {
+    const h = harness();
+    h.respond(async () => ({ actions }));
+    await h.el("trial-load").onclick!();
+    assert.equal(h.el("trial-send").disabled, false);
+    assert.equal(h.el("trial-action").value, actions[0]);
+    assert.doesNotMatch(h.el("trial-status").textContent, /owner-account/);
+  });
+}
+
+for (const scenario of ["on", "off", "missing", "private", "departure", "error"]) {
+  test(`C35 Diagnostics read never sends a light command: ${scenario}`, async () => {
+    const h = harness();
+    h.respond(async () => ({ actions: ["spotlightState"] }));
+    await h.el("trial-load").onclick!();
+    assert.equal(h.el("trial-value").value, "false");
+    assert.equal(h.el("trial-consent").checked, false);
+    assert.match(h.el("trial-help").textContent, /No light command/);
+    let release!: (value: unknown) => void;
+    h.respond(() => scenario === "departure" ? new Promise(resolve => { release = resolve; })
+      : scenario === "error" ? Promise.reject(Error("PRIVATE-CANARY"))
+      : Promise.resolve(scenario === "missing" ? { outcome: "unavailable", readOnly: true, reason: "no_reply" }
+        : { outcome: "reported", readOnly: true, spotlightEnabled: scenario === "on",
+          ...(scenario === "private" ? { privateValue: "PRIVATE-CANARY" } : {}) }));
+    h.el("trial-consent").checked = true;
+    const pending = h.el("trial-send").onclick!();
+    if (scenario === "departure") {
+      for (const callback of h.departures) callback();
+      assert.equal(h.calls.at(-1)!.signal!.aborted, true);
+      release({ outcome: "reported", readOnly: true, spotlightEnabled: true });
+    }
+    await pending;
+    assert.deepEqual(JSON.parse(h.calls.at(-1)!.body!), { action: "spotlightState", enabled: false });
+    assert.equal(h.calls.filter(row => row.method === "POST").length, 1);
+    assert.equal(h.el("trial-consent").checked, false);
+    assert.doesNotMatch(h.el("trial-status").textContent, /PRIVATE-CANARY/);
+    if (scenario === "on" || scenario === "off") assert.match(h.el("trial-status").textContent, new RegExp(`setting is ${scenario}`));
+    if (["private", "missing", "error"].includes(scenario)) assert.match(h.el("trial-status").textContent, /State read unavailable/);
+    if (scenario === "departure") assert.doesNotMatch(h.el("trial-status").textContent, /Camera reports/);
+  });
 }
 
 for (const scenario of ["initial", "empty", "reason", "success", "device", "reload", "failure", "http-failure", "json-failure", "no-selection", "pagehide", "general", "cloud", "siren-stop"]) {

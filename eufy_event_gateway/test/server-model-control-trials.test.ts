@@ -87,6 +87,51 @@ test("model control admission exposes only a fixed refusal reason", async () => 
   } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test("C35 state-read HTTP is closed, cancellable and reserved until provider cleanup", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "c35-read-http-"));
+  const state = new GatewayState();
+  state.registerCamera({ serial: "test", name: "Synthetic", model: "T8110", stationSerial: "test",
+    streamSupported: false, doorbellSupported: false });
+  let calls = 0, result: unknown = { outcome: "reported", readOnly: true, spotlightEnabled: false };
+  let block = false, active = false, entered!: () => void, aborted!: () => void, finish!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const cancelled = new Promise<void>(resolve => { aborted = resolve; });
+  const cleanup = new Promise<void>(resolve => { finish = resolve; });
+  const provider = { modelControlTrials: () => ["spotlightState"],
+    performModelControlTrial: async (_id: string, input: unknown, signal: AbortSignal) => {
+      calls++;
+      assert.deepEqual(input, { action: "spotlightState", enabled: false });
+      if (block) { signal.addEventListener("abort", aborted, { once: true }); entered(); await cleanup; }
+      if (result instanceof Error) throw result;
+      return result;
+    } } as unknown as CameraProvider;
+  const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "fixture", experimentalModelControls: true },
+    state, new SnapshotStore(directory), { hasActiveSession: () => active } as unknown as LiveStreamManager, provider, null);
+  const client = new AbortController();
+  try {
+    await server.listen();
+    const url = `http://127.0.0.1:${server.port}/api/cameras/test/model-control-trial`;
+    const options = { method: "POST", headers: { authorization: "Bearer fixture", "content-type": "application/json" },
+      body: JSON.stringify({ action: "spotlightState", enabled: false }) };
+    assert.equal((await fetch(url, { ...options, body: JSON.stringify({ action: "spotlightState", enabled: true }) })).status, 400);
+    active = true; assert.equal((await fetch(url, options)).status, 409); active = false;
+    assert.equal(calls, 0);
+    assert.deepEqual(await (await fetch(url, options)).json(), result);
+    for (const invalid of [{ outcome: "reported", readOnly: true, spotlightEnabled: true, secret: "PRIVATE" },
+      { outcome: "unavailable", readOnly: true, reason: "PRIVATE" }, Error("PRIVATE")]) {
+      result = invalid;
+      assert.deepEqual(await (await fetch(url, options)).json(), { outcome: "unavailable", readOnly: true, reason: "unavailable" });
+    }
+    block = true;
+    const pending = fetch(url, { ...options, signal: client.signal });
+    await started; client.abort(); await assert.rejects(pending, /abort/i); await cancelled;
+    const before = calls;
+    assert.equal((await fetch(url, options)).status, 409);
+    assert.equal(calls, before);
+    finish();
+  } finally { finish(); client.abort(); await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 
 test("S100 HTTP client disconnect leaves provider-owned stop cleanup running", async () => {
   const directory = await mkdtemp(join(tmpdir(), "eufy-s100-http-"));

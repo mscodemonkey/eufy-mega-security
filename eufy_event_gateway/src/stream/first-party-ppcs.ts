@@ -2267,6 +2267,7 @@ export class FirstPartyPpcsSession {
    * The caller can recheck ownership after key negotiation and before dispatch.
    */
   async writeModelControlTrial(request: ModelControlTrial, route: ModelControlRoute, current: () => void = () => undefined): Promise<void> {
+    if (request.action === "spotlightState") throw new Error("Spotlight state read cannot dispatch controls");
     if (request.action === "alarmState" || this.#alarmRead) throw new Error("Alarm state read cannot dispatch controls");
     if (this.#closed || this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
       || this.#options.cameraModel !== route.model || this.#options.channel !== route.channel
