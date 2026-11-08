@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.248
+
+- Improve camera switching without interrupting Home Assistant recordings, and reduce compatible-video startup probing. Each camera keeps its own converter so queued output cannot cross between camera views.
+- Add optional, default-off audio for supported NVR-connected cameras and a Both view for the T8E00 dual-lens camera through T8N00. Existing video choices are preserved during migration.
+- Add a default-off, owner-only standalone E10 diagnostic clip test. Normal E10 video, pictures and controls remain unavailable pending hardware verification.
+- Suppress expected broken-pipe warnings when intentionally stopping media conversion, while preserving normal recording finalization.
+- Add exact-socket stream-stage diagnostics to help investigate intermittent S340 pauses. The long-pause and playback-recovery issues remain open.
+
 ## 0.1.247
 
 - Keep NVR live views running through recoverable frame gaps and reduce CPU and receive-buffer pressure on small hosts, contributed by Oliver Nixon (@OliNix, #651).
