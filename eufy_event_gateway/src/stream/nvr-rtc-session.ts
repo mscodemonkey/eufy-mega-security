@@ -17,12 +17,13 @@ import { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, type RTCData
 import type { VideoCodec } from "../domain/types.js";
 import { NvrPtcsReassembler, type NvrPtcsReassemblyStats } from "./nvr-ptcs-reassembly.js";
 import { VideoParameterSetCache } from "./live-stream-manager.js";
+import { markSourceTime } from "./media-source-clock.js";
 import { installNvrIceTiming } from "./nvr-ice-timing.js";
 import { installNvrIceGathering } from "./nvr-ice-gathering.js";
 import { NvrPowerError, type NvrCameraPower } from "../provider/nvr-power-trial.js";
 import { NvrGuardError } from "../provider/nvr-guard-trial.js";
 import type { NvrGuardEffective } from "../provider/nvr-guard-schedule.js";
-import { NvrTrialError, nvrCameraPowerCommand, nvrGuardModeCommand, nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrJson,
+import { NvrTrialError, nvrAudio, nvrAudioChannel, nvrCameraPowerCommand, nvrGuardModeCommand, nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrJson,
   nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrRecord, nvrVideo, nvrStateSummary, type NvrStateSummary, type NvrTrialStage, type NvrTrialReason } from "./nvr-protocol.js";
 
 import { NvrLiveControlError } from "../provider/nvr-live-controls.js";
@@ -31,6 +32,7 @@ import { nvrLiveCommand, nvrLiveJson, nvrLiveReceipt, nvrLivePanReply, nvrLiveSe
 
 const HEARTBEAT_ECHO = nvrHeartbeat();
 const NVR_RECEIVE_BUFFER_BYTES = 4 * 1024 * 1024;
+const XZYH = Buffer.from("XZYH");
 
 // The slowest measured camera, a doorbell, gave its first picture in 3.4 seconds.
 const SWITCH_PICTURE_MILLISECONDS = 8_000;
@@ -122,7 +124,15 @@ export interface NvrRtcOptions {
   readonly context: NvrSignallingContext;
   readonly signal: AbortSignal;
   readonly current: () => boolean;
-  readonly ready: (output: PassThrough, codec: () => VideoCodec | null) => void;
+
+  /** Receives this camera's video, and its checked AAC when audio is admitted. */
+  readonly ready: (output: PassThrough, codec: () => VideoCodec | null, audio?: PassThrough) => void;
+
+  /**
+   * Provider admission, per camera model, to ask for this camera's audio on the
+   * start request and deliver checked AAC beside its video. Off by default.
+   */
+  readonly audio?: boolean;
 
   /**
    * Total owned lifetime, including signalling and media. Omission keeps the
@@ -153,7 +163,7 @@ export interface NvrRtcOptions {
 
 /** The camera a live call moves to, and the provider ownership that moves with it. */
 export type NvrSwitchTarget = Pick<NvrRtcOptions, "camera" | "channel" | "cameraType" | "sensor" | "liveControls" | "panReceiptOnly"
-  | "signal" | "current" | "ready" | "onEffectiveMode" | "onTimings">;
+  | "signal" | "current" | "ready" | "audio" | "onEffectiveMode" | "onTimings">;
 
 interface PendingRequest {
   readonly strict?: boolean;
@@ -178,6 +188,10 @@ export interface NvrRtcStats {
   segmentNotEchoed: number;
   staleReplies: number;
   ignoredAudio: number;
+
+  /** Checked AAC delivered for an admitted camera, and audio frames that failed the check. */
+  audio: number;
+  rejectedAudio: number;
   ignoredUnknownMedia: number;
 
   /** Forward application-frame gaps recovered within the owning channel. */
@@ -243,8 +257,9 @@ export class NvrRtcSession {
     offer: null, firstLocalCandidate: null, answerSent: null, channelOpen: null, mediaRequest: null, firstVideo: null,
   };
   #output = this.#createOutput();
+  #audioOutput = this.#createOutput();
   readonly stats: NvrRtcStats = { packets: 0, frames: 0, video: 0, controlPackets: 0, rejected: 0,
-    segmentNotEchoed: 0, staleReplies: 0, ignoredAudio: 0, ignoredUnknownMedia: 0,
+    segmentNotEchoed: 0, staleReplies: 0, ignoredAudio: 0, audio: 0, rejectedAudio: 0, ignoredUnknownMedia: 0,
     applicationSequenceRecoveries: 0, videoSequenceRecoveries: 0, signallingClosuresAfterVideo: 0, signallingClosuresAfterModeObservation: 0, stopUnconfirmed: 0,
     reorderTimeoutChannel: -1, reorderTimeoutExpected: -1, reorderTimeoutWaiting: -1,
     reorderTimeoutAgeMs: 0, reorderTimeoutQueued: 0,
@@ -265,6 +280,9 @@ export class NvrRtcSession {
   readonly #sentCandidates = new Set<string>();
   readonly #turn: RTCIceServer[] = [];
   readonly #lastSequence = new Map<number, number>();
+
+  /** Transport sequences live audio has already used, per channel, which video must not wait for. */
+  readonly #audioSequences = new Map<number, Set<number>>();
   readonly #reorder = new Map<string, { channel: number; sequence: number; frame: Buffer; at: number }>();
   #reorderBytes = 0;
   #candidateBytes = 0;
@@ -351,6 +369,9 @@ export class NvrRtcSession {
   /** The current camera's video. A camera switch ends this stream and starts another. */
   get output(): PassThrough { return this.#output; }
 
+  /** The current camera's checked AAC, ended and replaced with its video on a switch. */
+  get audioOutput(): PassThrough { return this.#audioOutput; }
+
   #createOutput(): PassThrough {
     const output = new PassThrough({ highWaterMark: 4 * 1024 * 1024 + 64 });
     output.on("error", () => {});
@@ -396,7 +417,7 @@ export class NvrRtcSession {
       ? new NvrGuardError("admission") : new NvrPowerError("admission");
     this.#startInvoked = true;
     await this.#connectAndDiscover();
-    this.options.ready(this.output, () => this.#codec);
+    this.options.ready(this.output, () => this.#codec, this.options.audio ? this.#audioOutput : undefined);
     this.#stage = "start";
     const pictureDeadline = this.options.s1FirstPictureGrace && this.options.cameraType === 89 && this.options.sensor === 0
       ? performance.now() + 20_000 : undefined;
@@ -432,9 +453,11 @@ export class NvrRtcSession {
     this.options.signal.removeEventListener("abort", this.#externalAbort);
     this.options = { ...this.options, ...target };
     this.options.signal.addEventListener("abort", this.#externalAbort, { once: true });
-    const previous = this.#output;
+    const previous = this.#output, previousAudio = this.#audioOutput;
     this.#output = this.#createOutput();
+    this.#audioOutput = this.#createOutput();
     previous.end();
+    previousAudio.end();
     this.#resetVideo();
     this.#renewVideoProgress();
     this.#stage = "stop";
@@ -453,7 +476,7 @@ export class NvrRtcSession {
     if (!this.#startVideoObserved) await this.#nextPicture();
     const firstPicture = Math.round(performance.now() - requested);
     this.#stage = "video";
-    this.options.ready(this.#output, () => this.#codec);
+    this.options.ready(this.#output, () => this.#codec, this.options.audio ? this.#audioOutput : undefined);
     if (this.options.liveControls) this.#settingsFlight = this.readLiveSettings().catch(() => ({ night: null, quality: null, tracking: null }));
     return firstPicture;
   }
@@ -463,7 +486,7 @@ export class NvrRtcSession {
     this.#cache = new VideoParameterSetCache();
     this.#codec = null; this.#videoSequence = null;
     this.#bootstrapped = false; this.#startVideoObserved = false; this.#settingsFlight = null;
-    this.#reassembler.clear(); this.#lastSequence.clear(); this.#reorder.clear(); this.#reorderBytes = 0;
+    this.#reassembler.clear(); this.#lastSequence.clear(); this.#audioSequences.clear(); this.#reorder.clear(); this.#reorderBytes = 0;
   }
 
   #nextPicture(): Promise<void> {
@@ -854,9 +877,10 @@ export class NvrRtcSession {
         try { await Promise.race([peer.close().catch(() => {}), new Promise<void>(resolve => { timer = setTimeout(resolve, 2500); })]); }
         finally { if (timer) clearTimeout(timer); }
       }
-      this.#reassembler.clear(); this.#reorder.clear(); this.#reorderBytes = 0;
+      this.#reassembler.clear(); this.#reorder.clear(); this.#reorderBytes = 0; this.#audioSequences.clear();
       this.#pendingCandidates.length = 0; this.#localCandidates.clear(); this.#turn.length = 0;
       this.output.end();
+      this.#audioOutput.end();
     })();
     return this.#closing;
   }
@@ -884,6 +908,7 @@ export class NvrRtcSession {
     this.#switchPicture?.reject(error);
     this.#pending?.reject(error);
     this.output.destroy(error);
+    this.#audioOutput.end();
     void this.close().catch(() => {});
   }
 
@@ -1064,6 +1089,14 @@ export class NvrRtcSession {
     if (result.status !== "complete") return;
     const counter = (["channel0Frames", "channel1Frames", "channel2Frames", "channel3Frames", "channel4Frames", "channel5Frames"] as const)[result.channel];
     if (counter) this.stats[counter]++;
+
+    // Live audio shares video's transport sequence but arrives on its own data channel,
+    // one packet a frame, so it completes ahead of a large keyframe. It never waits for
+    // video and never sets the order, or that keyframe would look old and be dropped.
+    if (result.frame.length >= 6 && result.frame.readUInt16LE(4) === 1301 && result.frame.subarray(0, 4).equals(XZYH)) {
+      this.#audioArrived(result.channel, result.sequence, result.frame);
+      return;
+    }
     const previous = this.#lastSequence.get(result.channel);
     if (previous !== undefined) {
       const distance = (result.sequence - previous + 65536) % 65536;
@@ -1089,7 +1122,29 @@ export class NvrRtcSession {
     this.#reorderBytes += result.frame.length; this.#drain();
   }
 
+  /** Deliver audio at once and record its number, so video ordering steps over it. */
+  #audioArrived(channel: number, sequence: number, frame: Buffer): void {
+    const previous = this.#lastSequence.get(channel);
+
+    // Behind the delivered video, it belongs before the current picture or to the previous camera.
+    if (previous !== undefined && (sequence - previous + 65536) % 65536 >= 32768) return;
+    const used = this.#audioSequences.get(channel) ?? new Set<number>();
+    this.#audioSequences.set(channel, used);
+    if (used.size < 64) used.add(sequence);
+    this.#frame(frame, channel);
+    this.#drain();
+  }
+
   #drain(): void {
+    for (const [channel, used] of this.#audioSequences) {
+      let previous = this.#lastSequence.get(channel);
+      if (previous === undefined) continue;
+      while (used.delete((previous + 1) % 65536)) {
+        previous = (previous + 1) % 65536;
+        this.#lastSequence.set(channel, previous);
+      }
+      for (const sequence of used) if ((sequence - previous + 65536) % 65536 >= 32768) used.delete(sequence);
+    }
     for (const [key, item] of this.#reorder) {
       const previous = this.#lastSequence.get(item.channel);
       if (previous !== undefined && item.sequence !== (previous + 1) % 65536) continue;
@@ -1144,7 +1199,19 @@ export class NvrRtcSession {
       }
       return;
     }
-    if (frame.command === 1301) { this.stats.ignoredAudio++; return; }
+    if (frame.command === 1301) {
+
+      // Audio before this camera's first picture may still be the previous camera's.
+      if (!this.options.audio || !this.#startSent || this.#retired || this.#switching || !this.#startVideoObserved) { this.stats.ignoredAudio++; return; }
+      const audio = nvrAudio(frame, this.options.channel);
+      if (!audio) { this.stats.rejectedAudio++; return; }
+      this.stats.audio++;
+
+      // Video reaches viewers later than audio of the same moment, so viewers align the two by these capture times.
+      markSourceTime(audio.bytes, audio.timestamp);
+      this.#audioOutput.write(audio.bytes);
+      return;
+    }
     if (frame.command === 1303) { this.stats.ignoredUnknownMedia++; return; }
     if (frame.command === 1300) {
       if (!this.#startSent || this.#retired || this.#switching) return;
@@ -1167,9 +1234,13 @@ export class NvrRtcSession {
         this.#bootstrapped = true;
         if (this.#firstFrame) clearTimeout(this.#firstFrame);
         this.#markTiming("firstVideo");
+        markSourceTime(startup, Number(video.timestamp));
         if (!this.output.write(startup)) throw new NvrTrialError("video");
         delivered = startup;
-      } else if (!this.output.write(video.bytes)) throw new NvrTrialError("video");
+      } else {
+        markSourceTime(video.bytes, Number(video.timestamp));
+        if (!this.output.write(video.bytes)) throw new NvrTrialError("video");
+      }
       const picture = hasCodedPicture(delivered, video.codec);
       if (picture) {
         this.#startVideoObserved = true;
@@ -1297,7 +1368,8 @@ export class NvrRtcSession {
       this.#pending = { command, segment, resolve, reject, timer, strict, deadline: performance.now() + timeout };
       if (command === 1003) this.#startSent = true;
       try {
-        for (const packet of nvrPackets(nvrCommand(this.options.administrator, command, segment, this.options.channel, this.options.sensor ?? 1), this.#outSequence++ % 65536, Date.now())) channel.send(packet);
+        const audio = command === 1003 && this.options.audio ? nvrAudioChannel(this.options.channel) : -1;
+        for (const packet of nvrPackets(nvrCommand(this.options.administrator, command, segment, this.options.channel, this.options.sensor ?? 1, audio), this.#outSequence++ % 65536, Date.now())) channel.send(packet);
         if (command === 1003) this.#markTiming("mediaRequest");
       } catch { clearTimeout(timer); this.#pending = null; reject(new NvrTrialError(this.#stage)); }
     });

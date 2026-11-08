@@ -783,14 +783,20 @@ Trial footage is excluded from retained snapshots and diagnostic media capture.
 
 Cameras send Home Assistant their own video, in whatever format they use. Avoiding
 the gateway's H.264 conversion saves up to two seconds each time a view opens and
-takes load off small hosts. This route is video only, so cameras with live audio
-are silent on it. A device that cannot play a camera's format shows no picture,
-and there is no automatic fallback. In either case enable **H.264 compatibility
+takes load off small hosts. A device that cannot play a camera's format shows no
+picture, and there is no automatic fallback. Then enable **H.264 compatibility
 mode (slower)** in **Settings → Devices & services → Eufy Mega Security →
-Configure**, which converts every camera and restores live audio where a camera
-has it. Saving reloads the integration. Installations set up before this option
-keep the video they had: compatibility mode is on unless they had enabled
-**Try native camera video**, so native video stays opt-in for them.
+Configure**, which converts every camera. Saving reloads the integration.
+Installations set up before this option keep the video they had: compatibility
+mode is on unless they had enabled **Try native camera video**, so native video
+stays opt-in for them.
+
+Each camera that delivers live audio has a **Live audio** switch, off by default.
+Off, its views carry video only and open fastest. On, they carry the camera's
+sound as well, in one MPEG-TS stream with the video left as it is; in a browser
+the view then opens a little later, because Home Assistant converts the audio for
+WebRTC. The switch is a Home Assistant choice and changes nothing on the camera.
+It applies the next time a view opens.
 Home Assistant's existing go2rtc provider continues to own WebRTC signalling.
 
 **Try faster native startup** is a separate, default-off option. With native video enabled, it gives a new ordinary HLS stream a two-second segment target. It uses less playback buffering, so turn it off if playback becomes unstable. Home Assistant must have low-latency HLS enabled. Existing streams, active recordings, preload and other cameras' settings are left to Home Assistant. Camera connection and keyframe timing can still limit startup.

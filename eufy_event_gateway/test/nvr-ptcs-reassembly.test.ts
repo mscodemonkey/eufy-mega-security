@@ -129,6 +129,28 @@ test("decompresses bounded Zstandard receive frames and poisons invalid streams"
   assert.deepEqual(result, { status: "rejected", reason: "decompression" });
 });
 
+test("takes a plain application frame marked compressed as it is, as NVR live audio arrives", () => {
+
+  // Observed on an NVR S4: every audio packet sets the compressed bit and carries a plain XZYH 1301 frame.
+  const audio = Buffer.concat([Buffer.from("XZYH"), Buffer.from([0x15, 0x05]), Buffer.alloc(10), Buffer.from([0xff, 0xf1, 0x60, 0x40])]);
+  const marked = packets(audio, { exact: true, channel: 5, sequence: 8 });
+  marked[0]!.writeUInt16LE(marked[0]!.readUInt16LE(18) | 0x0800, 18);
+  const receiver = new NvrPtcsReassembler();
+  const result = receiver.push(marked[0]!, 0);
+  assert.equal(result.status, "complete");
+  if (result.status === "complete") assert.deepEqual(result.frame, audio);
+  assert.deepEqual(receiver.stats.rejected, {});
+
+  // Real Zstandard of an application frame still decompresses; other marked bytes are still refused.
+  let compressed;
+  for (const part of packets(audio, { compressed: true, exact: true, sequence: 9 })) compressed = receiver.push(part, 0);
+  assert.equal(compressed!.status, "complete");
+  if (compressed!.status === "complete") assert.deepEqual(compressed!.frame, audio);
+  const other = packets(Buffer.from("XZY-not-zstd"), { exact: true, sequence: 10 });
+  other[0]!.writeUInt16LE(other[0]!.readUInt16LE(18) | 0x0800, 18);
+  rejection(receiver, other[0]!, "decompression");
+});
+
 test("rejects malformed receive geometry without retaining caller bytes", () => {
   const cases: Array<[Buffer, NvrPtcsRejection]> = [];
   const short = packets(Buffer.from([1]), { exact: true })[0]!;

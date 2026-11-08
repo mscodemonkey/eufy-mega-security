@@ -24,7 +24,7 @@ def _load() -> tuple[dict, type]:
     """Load the real helpers and stream hook without a Home Assistant runtime."""
     tree = ast.parse(SOURCE.read_text())
     helpers = [node for node in tree.body if isinstance(node, ast.FunctionDef)
-               and node.name in {"_view_of", "_with_view", "_new_view", "_view_for"}]
+               and node.name in {"_view_of", "_with_view", "_new_view", "_view_for", "_carries_audio"}]
     camera = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "EufyGatewayCamera")
     hooks = [node for node in camera.body if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
              and node.name in {"async_create_stream", "_async_refresh_stream_source", "_async_hold_view",

@@ -33,6 +33,7 @@ import {
   type ViewerTranscoderSummary,
 } from "./stream/live-stream-manager.js";
 import type { LivePacingSummary } from "./stream/live-frame-pacer.js";
+import type { NativeTransportSummary } from "./stream/live-native-transport.js";
 
 const logger = createLogger("gateway");
 const providerLogger = createLogger("provider");
@@ -124,6 +125,10 @@ const streams = new LiveStreamManager(
   undefined,
   config.experimentalS340SmoothLive,
 );
+streams.on("native-transport-closed", (summary: NativeTransportSummary & { model: string }) => {
+  const model = /^T[0-9A-Z]{3,15}$/.test(summary.model) ? summary.model : "unknown";
+  logger.info("camera_native_transport", `model=${model} codec=${summary.codec ?? "unknown"} audio=${summary.audio} start_wait_ms=${summary.startWaitMilliseconds ?? "none"} video_units=${summary.videoUnits} audio_batches=${summary.audioBatches} audio_resyncs=${summary.audioResyncs} audio_dropped=${summary.audioDropped}`);
+});
 streams.on("live-pacing-closed", (summary: LivePacingSummary) => {
   logger.info("camera_live_pacing", `model=T8171 buffer_ms=${summary.bufferMilliseconds} late_packets=${summary.latePackets} peak_queued_bytes=${summary.maximumQueuedBytes} video_packets=${summary.videoPackets} audio_packets=${summary.audioPackets} clock_rebases=${summary.clockRebases}`);
 });

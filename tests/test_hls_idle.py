@@ -49,7 +49,7 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         self.camera.stream = self.stream
         self.camera.hass = object()
         self.camera.serial = "demo"
-        self.camera.coordinator = SimpleNamespace(client=SimpleNamespace(stream_url=AsyncMock(return_value="fresh")))
+        self.camera.coordinator = SimpleNamespace(live_audio={}, client=SimpleNamespace(stream_url=AsyncMock(return_value="fresh")))
         base.async_create_stream.return_value = self.stream
 
     def test_stream_renewal_timeout_is_integration_owned(self) -> None:
@@ -130,7 +130,7 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         self.stream.outputs.return_value = {}
         self.assertIs(await self.camera.async_create_stream(), self.stream)
         self.assertEqual(self.stream.source, "fresh")
-        self.camera.coordinator.client.stream_url.assert_awaited_once_with("demo")
+        self.camera.coordinator.client.stream_url.assert_awaited_once_with("demo", audio=False)
 
     async def test_reopen_failure_keeps_previous_source(self):
         """A gateway failure does not erase the cached stream or start a worker."""
@@ -142,7 +142,7 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
     async def test_reopen_reply_after_replacement_is_discarded(self):
         """A late explicit reopen cannot mutate a stream removed during its request."""
         self.stream.outputs.return_value = {}
-        async def reply(_serial):
+        async def reply(_serial, **_options):
             self.camera.stream = None
             return "late"
         self.camera.coordinator.client.stream_url.side_effect = reply
@@ -170,7 +170,7 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         await self.camera.async_create_stream()
         self.camera.coordinator.client.stream_url.assert_not_awaited()
         self.camera._stream_source_refreshing = False
-        async def stalled(_serial):
+        async def stalled(_serial, **_options):
             await asyncio.sleep(5)
         self.camera.coordinator.client.stream_url.side_effect = stalled
         await self.camera.async_create_stream()
