@@ -32,11 +32,14 @@ export interface NvrLiveProfile {
   readonly night: readonly NightVisionMode[];
   readonly quality: readonly CameraStreamingQualityMode[];
   readonly views: readonly string[];
-  readonly defaultView: 0 | 1;
+  readonly defaultView: number;
   readonly opticalZoom: boolean;
 
-  /** The only view that accepts pan and zoom, or null when every view does. */
+  /** The only single-lens view that accepts pan and zoom, or null when every view does. */
   readonly movementView: 0 | 1 | null;
+
+  /** The view that shows both lenses stacked in one picture, or null. Pan and zoom act on its movable lens. */
+  readonly stackedView: number | null;
 
   /** The camera confirms a pan with its receipt alone and sends no PTZ data reply. */
   readonly panReceiptOnly: boolean;
@@ -48,6 +51,8 @@ export interface NvrLiveProfile {
 /**
  * Match exact model/type pairs only. T8416 offers no view choice: its second NVR source showed the
  * same wide picture on hardware, and zoom reaches the telephoto. Its quality names follow the eufy app.
+ * T8E00 behind T8N00 adds Both, its Fixed and Movable lenses stacked by the recorder, as the eufy app shows them,
+ * and opens on Both by default.
  * An explicit S1 binding selects the separate pan-only profile. Callers that
  * omit station identity retain the established recorder profile.
  */
@@ -55,17 +60,17 @@ export function nvrLiveProfile(model: string, type: number | null, stationModel?
   if (stationModel === "T9000") {
     if (stationType !== 27 || model !== "T8E00" || type !== 301) return null;
     return { night: [], quality: [], views: [], defaultView: 1, opticalZoom: false,
-      movementView: 1, panReceiptOnly: false, aiTracking: false };
+      movementView: 1, stackedView: null, panReceiptOnly: false, aiTracking: false };
   }
   if (model === "T8E00" && type === 301) return {
     night: [{ value: 0, name: "Standard" }, { value: 1, name: "Infrared" }, { value: 2, name: "Spotlight" }],
     quality: [{ value: 0, name: "Auto" }, { value: 1, name: "Low" }, { value: 3, name: "High" }],
-    views: ["Fixed", "Movable"], defaultView: 1, opticalZoom: true, movementView: 1, panReceiptOnly: true, aiTracking: false,
+    views: ["Fixed", "Movable", "Both"], defaultView: 2, opticalZoom: true, movementView: 1, stackedView: 2, panReceiptOnly: true, aiTracking: false,
   };
   if (model === "T8416" && type === 104) return {
     night: [{ value: 0, name: "Off" }, { value: 1, name: "Auto Infrared" }, { value: 3, name: "Infrared on" }],
     quality: [{ value: 0, name: "Auto" }, { value: 1, name: "HD (720P)" }, { value: 2, name: "Full HD (1080P)" }, { value: 3, name: "2K" }, { value: 4, name: "Ultra 4K" }],
-    views: [], defaultView: 0, opticalZoom: true, movementView: null, panReceiptOnly: true, aiTracking: true,
+    views: [], defaultView: 0, opticalZoom: true, movementView: null, stackedView: null, panReceiptOnly: true, aiTracking: true,
   };
   return null;
 }

@@ -14,9 +14,11 @@ from datetime import date, datetime, timedelta
 import logging
 import os
 import re
+import secrets
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import voluptuous as vol
 from homeassistant.components.camera import (
@@ -42,7 +44,7 @@ from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity
-from .const import CONF_SHORT_HLS_IDLE, CONF_NATIVE_VIDEO, CONF_FAST_NATIVE_HLS, DOMAIN
+from .const import CONF_H264_COMPATIBILITY, CONF_SHORT_HLS_IDLE, CONF_FAST_NATIVE_HLS, DOMAIN
 from .playback_diagnostics import serialize_stream
 
 if TYPE_CHECKING:
@@ -54,6 +56,7 @@ _LOGGER = logging.getLogger(__name__)
 CONF_DURATION = "duration"
 STREAM_SOURCE_REFRESH_INTERVAL = timedelta(minutes=5)
 STREAM_URL_RENEWAL_TIMEOUT = 10
+LIVE_VIEW_QUERY = "view"
 
 
 def _cloud_day_window(day: str, zone: Any) -> tuple[int, int, int]:
@@ -111,8 +114,8 @@ async def async_setup_entry(
                 EufyGatewayCamera(
                     coordinator, serial,
                     short_hls_idle=entry.options.get(CONF_SHORT_HLS_IDLE) is True,
-                    native_video=entry.options.get(CONF_NATIVE_VIDEO) is True,
                     fast_native_hls=entry.options.get(CONF_FAST_NATIVE_HLS) is True,
+                    h264_compatibility=entry.options.get(CONF_H264_COMPATIBILITY) is True,
                 )
                 for serial in sorted(serials)
             ]
@@ -171,6 +174,47 @@ async def async_setup_entry(
     )
 
 
+def _view_of(url: str) -> str | None:
+    """Return the view mark a stream URL carries, if any."""
+    return dict(parse_qsl(urlsplit(url).query)).get(LIVE_VIEW_QUERY)
+
+
+def _with_view(url: str, view: str | None) -> str:
+    """Set or remove the view mark, leaving the signed token as it is."""
+    parts = urlsplit(url)
+    query = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True) if key != LIVE_VIEW_QUERY]
+    if view is not None:
+        query.append((LIVE_VIEW_QUERY, view))
+    return urlunsplit(parts._replace(query=urlencode(query)))
+
+
+def _carries_audio(url: str) -> bool:
+    """Return whether a gateway URL is a live audio transport rather than raw video."""
+    return urlsplit(url).path.rsplit("/", 1)[-1] in ("live.ts", "live-native.ts")
+
+
+def _new_view(url: str) -> str:
+    """Mark a person's new view.
+
+    The gateway lets a marked view move an NVR's one call from another marked
+    view, once. Reconnects and renewals keep the same mark, so a camera that lost
+    the call cannot take it back. Preload and recording use unmarked URLs, which
+    neither take the call nor give it up.
+    """
+    return _with_view(url, secrets.token_urlsafe(16))
+
+
+def _view_for(camera: Any, url: str) -> str:
+    """Mark a person's new view, unless a recording's call is not yet protected.
+
+    An unmarked view never takes an NVR call, so the gateway refuses it while
+    another camera has the call. Views and recordings start on HA's one event
+    loop, so no view can be marked between a recording starting and its hold.
+    """
+    return (_new_view(url) if camera.coordinator.client.live_view_handover_supported
+            and not camera.coordinator.recording_holds else _with_view(url, None))
+
+
 class EufyGatewayCamera(EufyGatewayEntity, Camera):
     """Represent one camera with retained imagery and explicit media actions.
 
@@ -185,7 +229,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
 
     def __init__(
         self, coordinator: EufyGatewayCoordinator, serial: str,
-        *, short_hls_idle: bool = False, native_video: bool = False, fast_native_hls: bool = False,
+        *, short_hls_idle: bool = False, h264_compatibility: bool = False, fast_native_hls: bool = False,
     ) -> None:
         """Bind playback options for this entity until the next entry reload."""
         EufyGatewayEntity.__init__(self, coordinator, serial)
@@ -193,17 +237,15 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         self._attr_unique_id = f"{serial}_camera"
         self._published_snapshot_revision = self._snapshot_revision
         self._short_hls_idle = short_hls_idle
-        self._native_video = native_video
+        self._native_video = not h264_compatibility
         self._fast_native_hls = fast_native_hls
         self._hls_idle_stream: Stream | None = None
         self._stream_source_refreshing = False
         self._cloud_metadata_busy = False
 
-        # Raw Annex-B needs arrival timestamps. MPEG-TS already supplies a
-        # shared video/audio clock, which must survive Home Assistant's remux.
-        self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = (
-            self._native_video or self.camera.get("liveAudioSupported") is not True
-        )
+        # Raw video needs arrival timestamps. The source chosen for each stream
+        # replaces this before Home Assistant reads it.
+        self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = True
 
     def playback_diagnostic(self) -> dict[str, Any]:
         """Describe cached HA playback without requesting a URL or waking a camera.
@@ -274,10 +316,26 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         recordings, preload and unknown HA settings contracts retain defaults.
         """
         cached = self.stream
+
+        # A person is coming back to a camera whose NVR call moved away. Home
+        # Assistant keeps that stream for a while, but it can only retry a view
+        # that has had its turn and holds old video. Its worker also stops for good
+        # if the source changes during a retry wait, so start a new stream instead.
+        if (cached is not None and not cached.dynamic_stream_settings.preload_stream
+                and "recorder" not in cached.outputs()
+                and self.camera.get("stream", {}).get("state") in {"idle", "stopping", "error"}):
+            await cached.stop()
+            self.stream = cached = None
         stream = await super().async_create_stream()
         if stream is None:
             return stream
-        if stream is cached and not stream.outputs() and not stream.dynamic_stream_settings.preload_stream and not self._stream_source_refreshing:
+        preload = stream.dynamic_stream_settings.preload_stream
+        if stream is not cached and preload:
+            stream.source = _with_view(stream.source, None)
+
+        # A request while the worker is down is a person coming back to a camera
+        # that lost its NVR call, so restart it now with a view that may take it.
+        if stream is cached and not preload and not self._stream_source_refreshing and (not stream.outputs() or not stream.available):
             self._stream_source_refreshing = True
             try:
                 source = await asyncio.wait_for(
@@ -285,7 +343,10 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
                     timeout=STREAM_URL_RENEWAL_TIMEOUT,
                 )
                 if self.hass is not None and self.stream is stream:
-                    stream.source = source
+                    if stream.outputs():
+                        stream.update_source(_view_for(self, source))
+                    else:
+                        stream.source = _view_for(self, source)
             except (GatewayClientError, asyncio.TimeoutError):
                 _LOGGER.debug("Stream URL renewal failed, keeping the previous URL")
             finally:
@@ -297,6 +358,10 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
 
         def add_output(fmt: str, timeout: int | None = None) -> StreamOutput:
             """Arm the startup deadline when a consumer requests ordinary HLS."""
+            if fmt != "hls":
+                if _view_of(stream.source) is not None and stream.outputs():
+                    raise HomeAssistantError("Recording protection is required before adding a recorder")
+                stream.source = _with_view(stream.source, None)
             tune_first_output = (fast_native_hls and fmt == "hls" and timeout is None
                                  and not stream.outputs()
                                  and not stream.dynamic_stream_settings.preload_stream)
@@ -331,13 +396,35 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
                 provider.idle_timer.start()
             return provider
 
+        async_record = getattr(stream, "async_record", None)
+
+        async def record(*args: Any, **kwargs: Any) -> None:
+            """Hold a running view's NVR call before Home Assistant adds its recorder.
+
+            The recorder shares the view's connection, so until the gateway holds
+            that view another camera could take its call. No new view is marked
+            from the moment the recording is asked for, and the recorder is added
+            only after the gateway answers. A stream with no output yet opens
+            unmarked, so it needs no hold.
+            """
+            view = _view_of(stream.source)
+            if view is not None and stream.outputs():
+                hold = self._begin_recording_hold()
+                await self._async_hold_view(view, hold)
+                stream.source = _with_view(stream.source, None)
+            await async_record(*args, **kwargs)
+
         stream.add_provider = add_output
+        if async_record is not None:
+            stream.async_record = record
         self._hls_idle_stream = stream
         return stream
 
     async def async_added_to_hass(self) -> None:
         """Start updates and refresh credentials on Home Assistant's cached stream."""
         await super().async_added_to_hass()
+        self.coordinator.live_audio_changed[self.serial] = self._async_live_audio_changed
+        self.async_on_remove(lambda: self.coordinator.live_audio_changed.pop(self.serial, None))
         self.async_on_remove(
             async_track_time_interval(
                 self.hass,
@@ -367,7 +454,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
             if self.hass is not None and self.stream is stream and (
                 stream.outputs() or stream.dynamic_stream_settings.preload_stream
             ):
-                stream.source = source
+                stream.source = _with_view(source, _view_of(stream.source))
         except GatewayClientError:
             _LOGGER.debug("Stream URL renewal failed, keeping the previous URL")
         finally:
@@ -503,19 +590,60 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         if not self.camera.get("streamSupported"):
             return None
 
-        # Inventory can admit AAC after entity construction. Home Assistant
-        # reads these options after obtaining this source, so choose its clock
-        # from the same current capability that selects the gateway transport.
-        self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = (
-            self._native_video or self.camera.get("liveAudioSupported") is not True
-        )
-        return await self._async_stream_url()
+        # Raw video needs arrival timestamps. MPEG-TS supplies a shared
+        # video/audio clock, which must survive Home Assistant's remux. Home
+        # Assistant reads these options after obtaining this source, so take the
+        # clock from the route the gateway actually returned.
+        source = await self._async_stream_url()
+        self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = not _carries_audio(source)
+        return _view_for(self, source)
+
+    def _begin_recording_hold(self) -> object:
+        """Stop new views taking NVR calls until this recording's call is protected."""
+        hold = object()
+        self.coordinator.recording_holds.add(hold)
+        return hold
+
+    async def _async_hold_view(self, view: str, hold: object) -> None:
+        """Confirm protection before sharing a view with a recorder.
+
+        A local flag cannot revoke marked requests already in flight, or cover
+        another integration instance. A failed or ambiguous hold must leave
+        the source marked and reject recording so retries cannot bypass it.
+        """
+        try:
+            try:
+                held = await self.coordinator.client.hold_live_view(self.serial, view) is True
+            except (GatewayClientError, ValueError):
+                held = False
+            if not held:
+                raise HomeAssistantError("Could not protect the live view for recording, please retry")
+        finally:
+            self.coordinator.recording_holds.discard(hold)
 
     async def _async_stream_url(self) -> str:
-        """Select the same source profile for initial open and both renewals."""
+        """Select the same source profile and audio choice for initial open and both renewals."""
+        audio = self.coordinator.live_audio.get(self.serial, False)
         if self._native_video:
-            return await self.coordinator.client.stream_url(self.serial, native=True)
-        return await self.coordinator.client.stream_url(self.serial)
+            return await self.coordinator.client.stream_url(self.serial, native=True, audio=audio)
+        return await self.coordinator.client.stream_url(self.serial, audio=audio)
+
+    async def _async_live_audio_changed(self) -> None:
+        """Open the next view on the route the new Live audio choice selects.
+
+        Home Assistant fixes a stream's source clock when it creates the stream,
+        so the cached stream is stopped and dropped. WebRTC registers the source
+        again on its next offer. Active and pending recordings reject the change
+        without dropping their stream.
+        """
+        stream = self.stream
+        if stream is None:
+            return
+        if "recorder" in stream.outputs() or self.coordinator.recording_holds:
+            raise HomeAssistantError("Wait for the recording to finish before changing live audio")
+        self.stream = None
+        self._hls_idle_stream = None
+        await stream.stop()
 
     async def async_get_stream_url(self) -> dict[str, str]:
         """Start Home Assistant's HLS provider and return its temporary URL.

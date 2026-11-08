@@ -24,7 +24,7 @@ class NativeStreamTest(unittest.IsolatedAsyncioTestCase):
         tree = ast.parse((ROOT / "client.py").read_text())
         client = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "GatewayClient")
         client.body = [n for n in client.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-                       and n.name in {"__init__", "stream_url", "_url"}]
+                       and n.name in {"__init__", "stream_url", "_url", "cameras"}]
         error = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "GatewayClientError")
         future = ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0)
         namespace = dict(re=re, quote=quote, urlsplit=urlsplit, unquote=unquote, parse_qsl=parse_qsl)
@@ -33,6 +33,16 @@ class NativeStreamTest(unittest.IsolatedAsyncioTestCase):
         self.client = namespace["GatewayClient"](None, "http://fixture", "fixture-only")
         self.native = "native.1600." + "a" * 43
         self.client._json = AsyncMock()
+
+    async def test_handover_requires_an_explicit_current_gateway_capability(self):
+        """Old, malformed and downgraded gateways cannot acquire takeover marks."""
+        for flag, expected in ((True, True), (False, False), ("true", False), (1, False), (None, False)):
+            self.client._json.return_value = {"cameras": [{"serial": "fixture"}], "liveViewHandoverSupported": flag}
+            self.assertEqual(await self.client.cameras(), [{"serial": "fixture"}])
+            self.assertIs(self.client.live_view_handover_supported, expected)
+        self.client._json.return_value = {"cameras": []}
+        await self.client.cameras()
+        self.assertFalse(self.client.live_view_handover_supported)
 
     async def test_compatible_request_stays_unchanged(self):
         """Default callers retain the existing empty POST and signed path."""
@@ -68,6 +78,44 @@ class NativeStreamTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(self.error, "invalid native stream response"):
             await self.client.stream_url("fixture", native=True)
 
+    async def test_native_transport_path_is_accepted_for_cameras_with_audio(self):
+        """The gateway names MPEG-TS for a camera with live audio; the same checks apply."""
+        path = f"/api/cameras/fixture/live-native.ts?access_token={self.native}"
+        self.client._json.return_value = {"profile": "native", "path": path}
+        self.assertEqual(await self.client.stream_url("fixture", native=True), "http://fixture" + path)
+        for bad in (path.replace("live-native.ts", "live.ts"), path.replace("live-native.ts", "live-native.ts/extra"),
+                    path.replace("live-native.ts", "live-native.mp4"), path.replace("fixture/", "other/")):
+            self.client._json.return_value = {"profile": "native", "path": bad}
+            with self.subTest(path=bad), self.assertRaises(self.error):
+                await self.client.stream_url("fixture", native=True)
+
+    async def test_audio_choice_is_sent_and_an_older_gateway_still_answers(self):
+        """On and off are explicit; a gateway that refuses the field gets the request without it."""
+        path = f"/api/cameras/fixture/live-native.ts?access_token={self.native}"
+        self.client._json.return_value = {"profile": "native", "path": path}
+        await self.client.stream_url("fixture", native=True, audio=True)
+        self.client._json.assert_awaited_with("/api/cameras/fixture/stream-token", method="POST",
+                                              payload={"profile": "native", "audio": "on"})
+        self.client._json.return_value = {"path": "/api/cameras/fixture/live.h264?access_token=x"}
+        await self.client.stream_url("fixture", audio=False)
+        self.client._json.assert_awaited_with("/api/cameras/fixture/stream-token", method="POST", payload={"audio": "off"})
+
+        older = f"/api/cameras/fixture/live-native.annexb?access_token={self.native}"
+        self.client._json.reset_mock()
+        self.client._json.side_effect = [self.error("Gateway returned HTTP 400: Invalid stream profile request", status=400),
+                                         {"profile": "native", "path": older}]
+        self.assertEqual(await self.client.stream_url("fixture", native=True, audio=True), "http://fixture" + older)
+        self.assertEqual(self.client._json.await_args_list[-1].kwargs["payload"], {"profile": "native"})
+        self.client._json.side_effect = [self.error("Gateway returned HTTP 400: Invalid stream profile request", status=400),
+                                         {"path": "/api/cameras/fixture/live.ts?access_token=x"}]
+        self.assertEqual(await self.client.stream_url("fixture", audio=False), "http://fixture/api/cameras/fixture/live.ts?access_token=x")
+        self.assertNotIn("payload", self.client._json.await_args_list[-1].kwargs)
+
+        # Any other failure is not retried.
+        self.client._json.side_effect = [self.error("Gateway returned HTTP 500: broken", status=500)]
+        with self.assertRaises(self.error):
+            await self.client.stream_url("fixture", audio=True)
+
     async def test_unsigned_source_requires_no_gateway_token(self):
         """Only a gateway configured without authentication may omit a signature."""
         self.client._headers = {}
@@ -81,9 +129,24 @@ class NativeStreamTest(unittest.IsolatedAsyncioTestCase):
         namespace = {}
         exec(compile(ast.Module(body=[method], type_ignores=[]), "camera.py", "exec"), namespace)
         request = AsyncMock(return_value="source")
-        camera = SimpleNamespace(serial="fixture", _native_video=True, coordinator=SimpleNamespace(client=SimpleNamespace(stream_url=request)))
+        camera = SimpleNamespace(serial="fixture", _native_video=True,
+                                 coordinator=SimpleNamespace(client=SimpleNamespace(stream_url=request), live_audio={}))
         self.assertEqual(await namespace["_async_stream_url"](camera), "source")
-        request.assert_awaited_with("fixture", native=True)
+        request.assert_awaited_with("fixture", native=True, audio=False)
+        camera.coordinator.live_audio["fixture"] = True
+        await namespace["_async_stream_url"](camera)
+        request.assert_awaited_with("fixture", native=True, audio=True)
         camera._native_video = False
         await namespace["_async_stream_url"](camera)
-        request.assert_awaited_with("fixture")
+        request.assert_awaited_with("fixture", audio=True)
+
+
+class VideoFormatChoiceTest(unittest.TestCase):
+    """A camera's own video is the default, and the toggle converts every camera."""
+
+    def test_compatibility_is_the_only_choice(self) -> None:
+        tree = ast.parse((Path(__file__).parents[1] / "custom_components/eufy_event_gateway/camera.py").read_text())
+        value = next(node.value for node in ast.walk(tree) if isinstance(node, ast.Assign)
+                     and ast.unparse(node.targets[0]) == "self._native_video")
+        self.assertIs(eval(ast.unparse(value), {}, {"h264_compatibility": False}), True)
+        self.assertIs(eval(ast.unparse(value), {}, {"h264_compatibility": True}), False)

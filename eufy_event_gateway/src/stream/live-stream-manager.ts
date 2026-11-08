@@ -18,18 +18,22 @@ import { type Readable, type Writable } from "node:stream";
 import type { DiagnosticMedia } from "../diagnostics/bundle-capture.js";
 
 import { GatewayState } from "../domain/gateway-state.js";
-import type { GatewayEvent, SnapshotInfo, VideoCodec } from "../domain/types.js";
+import type { CameraState, GatewayEvent, SnapshotInfo, VideoCodec } from "../domain/types.js";
 import { SnapshotStore } from "../storage/snapshot-store.js";
 import { ViewerStartupTimeline, type ViewerStartupMilestones } from "./viewer-startup-timeline.js";
 import { JpegParser } from "./jpeg-parser.js";
 import { qualifiedS340LiveSource } from "./live-frame-clock.js";
 import { LiveTransportMuxer, type VideoViewerResponse } from "./live-transport-muxer.js";
+import { NativeTransportMuxer } from "./live-native-transport.js";
 
 /** Provider operations needed to open and close a camera source. */
 export interface StreamController {
 
-  /** Retain ownership of provider I/O, including cleanup if startup rejects. */
-  startStream(serial: string): Promise<void>;
+  /**
+   * Retain ownership of provider I/O, including cleanup if startup rejects.
+   * With takeOver, an NVR may move its one call here from a camera that can yield.
+   */
+  startStream(serial: string, takeOver?: boolean): Promise<void>;
 
   /** Resolve after the old source's stop callbacks and owned media I/O have retired. */
   stopStream(serial: string): Promise<void>;
@@ -204,6 +208,12 @@ interface Session {
   viewerStartup: ViewerStartupTimeline;
   viewerStartupAttempt: number;
   readonly recordings: Set<Recording>;
+
+  /** Clients that opened a marked view, with its mark. They give way to a newer view on the same NVR. */
+  readonly yieldingClients: Map<VideoViewerResponse, string>;
+
+  /** Recording protection remains attached to each live response even after the bounded mark cache expires. */
+  readonly heldClients: Map<VideoViewerResponse, string>;
   readonly audioConsumers: Set<(chunk: Buffer) => void>;
   parameterSets: VideoParameterSetCache;
   state: "idle" | "starting" | "streaming" | "stopping" | "error";
@@ -267,6 +277,13 @@ type ViewerTranscoderFactory = () => ChildProcessWithoutNullStreams;
 type SnapshotExtractorFactory = (codec: VideoCodec) => ChildProcessWithoutNullStreams;
 
 const MAX_RECORDING_BYTES = 256 * 1024 * 1024;
+const MAX_DELIVERED_VIEWS = 1024;
+
+// Longer than a call takes to settle, and shorter than Home Assistant's second stream retry.
+const NEW_VIEW_MILLISECONDS = 8_000;
+
+// Long enough for a person to pick the next camera.
+const PARKED_TRANSCODER_MILLISECONDS = 15_000;
 const MEDIA_PROCESS_TERMINATION_GRACE_MILLISECONDS = 2_000;
 const MAX_PARAMETER_SET_SCAN_BYTES = 1024 * 1024;
 const MAX_STARTUP_GROUP_BYTES = 1024 * 1024;
@@ -572,6 +589,10 @@ function annexBStarts(data: Buffer): Array<{ offset: number; payloadOffset: numb
  */
 export class LiveStreamManager extends EventEmitter {
   readonly #sessions = new Map<string, Session>();
+  readonly #deliveredViews = new Set<string>();
+  readonly #newViews = new Map<string, number>();
+  readonly #heldViews = new Set<string>();
+  #parkedTranscoder: { process: ChildProcessWithoutNullStreams; headers: Buffer; timer: NodeJS.Timeout } | null = null;
   #closed = false;
 
   /**
@@ -602,14 +623,15 @@ export class LiveStreamManager extends EventEmitter {
    * registration, so its stop notification cannot close this new request.
    * Startup failures reach every waiter. Closed requests never start a source.
    */
-  addClient(serial: string, response: VideoViewerResponse, profile: ViewerProfile = "compatible"): Promise<void> {
-    return this.#addClient(serial, response, profile, performance.now());
+  addClient(serial: string, response: VideoViewerResponse, profile: ViewerProfile = "compatible", view?: string): Promise<void> {
+    return this.#addClient(serial, response, profile, performance.now(), view);
   }
 
   /** Keep the original request clock across retirement and transport setup. */
-  async #addClient(serial: string, response: VideoViewerResponse, profile: ViewerProfile, requestedAtMilliseconds: number): Promise<void> {
+  async #addClient(serial: string, response: VideoViewerResponse, profile: ViewerProfile, requestedAtMilliseconds: number, view?: string): Promise<void> {
     if (response.destroyed || response.writableEnded) return;
     const session = this.#session(serial);
+    const mayTakeCall = !!view && this.#viewMayTakeCall(view);
     this.#assertShareable(session);
     if (session.stop) {
       if (!await this.#waitForStop(session, response)) return;
@@ -617,6 +639,7 @@ export class LiveStreamManager extends EventEmitter {
     }
     this.#cancelStop(session);
     session.clients.add(response);
+    if (view) (this.#heldViews.has(view) ? session.heldClients : session.yieldingClients).set(response, view);
     session.clientDeliveries.set(response, {
       closeReason: null,
       sourceAttached: session.source !== null,
@@ -651,7 +674,10 @@ export class LiveStreamManager extends EventEmitter {
     } else {
       session.pendingClients.add(response);
       const startup = session.parameterSets.startup;
-      if (profile === "compatible" && sourceCodec === "h265" && startup && !session.viewerFfmpeg) {
+
+      // Any other marked view is a retry from a client that lost the call. It will
+      // most likely be refused, so don't spend a conversion on its old picture.
+      if (profile === "compatible" && sourceCodec === "h265" && startup && !session.viewerFfmpeg && (!view || mayTakeCall)) {
         this.#startViewerTranscoder(serial, session, startup);
       }
     }
@@ -667,7 +693,8 @@ export class LiveStreamManager extends EventEmitter {
     // Start the provider only after the HTTP client is registered so the first
     // video bytes can be fanned out to Home Assistant immediately.
     try {
-      await this.#ensureStarted(serial, session);
+      await this.#ensureStarted(serial, session, mayTakeCall);
+      if (view) this.#rememberDeliveredView(view);
     } catch (error) {
       this.#markViewerClose(session, response, "start_failed");
       response.destroy(error instanceof Error ? error : undefined);
@@ -675,11 +702,38 @@ export class LiveStreamManager extends EventEmitter {
   }
 
   /**
+   * A person's new view opens at once. Home Assistant retries a stream for a long
+   * while after its viewer has gone, so a mark that is no longer new must not take
+   * the call from whatever is being watched by then.
+   */
+  #viewMayTakeCall(view: string): boolean {
+    if (this.#deliveredViews.has(view)) return false;
+    const now = this.nowMilliseconds();
+    const first = this.#newViews.get(view) ?? now;
+    if (!this.#newViews.has(view)) {
+      this.#newViews.set(view, now);
+      if (this.#newViews.size > MAX_DELIVERED_VIEWS) this.#newViews.delete(this.#newViews.keys().next().value!);
+    }
+    return now - first < NEW_VIEW_MILLISECONDS;
+  }
+
+  /**
+   * A view that has started can never take a call again. Home Assistant reuses
+   * its URL when it retries a dropped stream, so a camera that lost the call
+   * cannot take it back from the camera that was opened after it.
+   */
+  #rememberDeliveredView(view: string): void {
+    this.#deliveredViews.add(view);
+    if (this.#deliveredViews.size > MAX_DELIVERED_VIEWS) this.#deliveredViews.delete(this.#deliveredViews.values().next().value!);
+  }
+
+  /**
    * Share a video source with a bounded MPEG-TS muxer and checked camera audio.
    * Wait for retirement before registering either media consumer, keeping audio
-   * from the old source out of a new viewer's startup buffer.
+   * from the old source out of a new viewer's startup buffer. The native profile
+   * carries the camera's own video unconverted; compatible carries H.264.
    */
-  async addTransportClient(serial: string, response: ServerResponse): Promise<void> {
+  async addTransportClient(serial: string, response: ServerResponse, profile: ViewerProfile = "compatible", view?: string): Promise<void> {
     const requestedAtMilliseconds = performance.now();
     if (response.destroyed || response.writableEnded) return;
     const session = this.#session(serial);
@@ -688,16 +742,23 @@ export class LiveStreamManager extends EventEmitter {
       if (!await this.#waitForStop(session, response)) return;
       this.#assertShareable(session);
     }
+    const audioWait = liveAudioStartWaitMilliseconds(this.state.getCamera(serial));
+    const stopped = (reason: string): void => { this.emit("warning", new Error(`Camera live transport stopped: reason=${reason}`)); };
+    if (profile === "native") {
+      const model = this.state.getCamera(serial).model;
+      const muxer = new NativeTransportMuxer(response, () => session.audioConsumers.delete(consumeNative), audioWait, stopped,
+        summary => this.emit("native-transport-closed", { model, ...summary }));
+      const consumeNative = (chunk: Buffer): void => muxer.acceptAudio(chunk);
+      session.audioConsumers.add(consumeNative);
+      await this.#addClient(serial, muxer.videoInput, "native", requestedAtMilliseconds, view);
+      return;
+    }
     const consumeAudio = (chunk: Buffer): void => muxer.acceptAudio(chunk);
-    const camera = this.state.getCamera(serial);
-
-    // HomeBase 3 can deliver SoloCam AAC about eight seconds after its first video.
-    const audioWait = camera.model === "T8171" && camera.stationSerial !== camera.serial ? 12_000 : 2_000;
     const muxer = new LiveTransportMuxer(response, () => session.audioConsumers.delete(consumeAudio), audioWait,
-      (reason) => this.emit("warning", new Error(`Camera live transport stopped: reason=${reason}`)), () => this.experimentalS340SmoothLive && qualifiedS340LiveSource(session.source),
+      stopped, () => this.experimentalS340SmoothLive && qualifiedS340LiveSource(session.source),
       summary => this.emit("live-pacing-closed", summary));
     session.audioConsumers.add(consumeAudio);
-    await this.#addClient(serial, muxer.videoInput, "compatible", requestedAtMilliseconds);
+    await this.#addClient(serial, muxer.videoInput, "compatible", requestedAtMilliseconds, view);
   }
 
   /** Capture one fresh JPEG through the shared source and return its metadata. */
@@ -754,6 +815,43 @@ export class LiveStreamManager extends EventEmitter {
   hasActiveViewer(serial: string): boolean {
     const session = this.#sessions.get(serial);
     return !!session && !session.privateTrial && session.state === "streaming" && !!session.source && session.clients.size > 0;
+  }
+
+  /** True while this source is starting or stopping, so whether it can yield is about to be known. */
+  isSourceSettling(serial: string): boolean {
+    const session = this.#sessions.get(serial);
+    return !!session && !session.privateTrial && (!!session.start || !!session.stop);
+  }
+
+  /**
+   * True when only marked views use this source, so its NVR call may move to
+   * another camera. Leases, clips, unmarked consumers and starting or stopping
+   * sources always keep the call. Whether a marked view is still watched is unknown.
+   */
+  canYieldSource(serial: string): boolean {
+    const session = this.#sessions.get(serial);
+    return !!session && !session.privateTrial && session.state === "streaming" && !!session.source && !session.start && !session.stop
+      && session.leases === 0 && session.recordings.size === 0 && [...session.clients].every(client => session.yieldingClients.has(client));
+  }
+
+  /**
+   * Home Assistant is recording from a marked view, so it must keep its call.
+   * It records over the connection the view already has, so the gateway sees no
+   * new consumer. The mark stays held, and a reconnect with it keeps the call too.
+   * Returns whether an open connection uses the mark, including an already held
+   * connection, so retrying after a lost acknowledgment is safe.
+   */
+  holdView(serial: string, view: string): boolean {
+    this.#heldViews.add(view);
+    if (this.#heldViews.size > MAX_DELIVERED_VIEWS) this.#heldViews.delete(this.#heldViews.values().next().value!);
+    const session = this.#sessions.get(serial);
+    if (!session) return false;
+    const clients = [...session.yieldingClients].filter(([, mark]) => mark === view).map(([client]) => client);
+    for (const client of clients) {
+      session.yieldingClients.delete(client);
+      session.heldClients.set(client, view);
+    }
+    return [...session.heldClients.values()].includes(view);
   }
 
   /** Identify local clip consumers so control admission can reject recording conflicts. */
@@ -1015,6 +1113,8 @@ export class LiveStreamManager extends EventEmitter {
     session.owned = false;
     for (const client of session.clients) { this.#markViewerClose(session, client, "provider_stopped"); client.end(); }
     session.clients.clear();
+    session.yieldingClients.clear();
+    session.heldClients.clear();
     session.pendingClients.clear();
     this.#updateState(serial, session);
   }
@@ -1023,6 +1123,7 @@ export class LiveStreamManager extends EventEmitter {
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
+    this.#dropParkedTranscoder();
     this.emit("closed");
     await Promise.all(
       [...this.#sessions.entries()].map(async ([serial, session]) => {
@@ -1041,6 +1142,8 @@ export class LiveStreamManager extends EventEmitter {
     const session = this.#session(serial);
     session.clients.delete(response);
     session.pendingClients.delete(response);
+    session.yieldingClients.delete(response);
+    session.heldClients.delete(response);
     this.#emitViewerClientSummary(session, response);
     if (this.#profileClients(session, "compatible").length === 0) this.#stopViewerTranscoder(session);
     this.#updateState(serial, session);
@@ -1115,7 +1218,7 @@ export class LiveStreamManager extends EventEmitter {
   }
 
   /** Share a pending provider start while keeping its settlement inside the owning session. */
-  async #ensureStarted(serial: string, session: Session): Promise<void> {
+  async #ensureStarted(serial: string, session: Session, takeOver = false): Promise<void> {
     if (this.#closed) throw new Error("Gateway closed before camera stream started");
     if (session.stop) throw new Error("Camera stream is still stopping");
     if (session.state === "error" && session.owned) throw new Error("Previous camera stream has not stopped");
@@ -1147,7 +1250,7 @@ export class LiveStreamManager extends EventEmitter {
 
       // A synchronous state observer may have retired the start before I/O.
       if (session.start === start && !this.#closed) {
-        void Promise.resolve(this.controller.startStream(serial)).then(() => {
+        void Promise.resolve(this.controller.startStream(serial, takeOver)).then(() => {
           if (session.start !== start) return;
           session.start = null;
           resolve();
@@ -1301,6 +1404,8 @@ export class LiveStreamManager extends EventEmitter {
     session.owned = false;
     for (const client of session.clients) { this.#markViewerClose(session, client, error ? "source_error" : "source_ended"); client.end(); }
     session.clients.clear();
+    session.yieldingClients.clear();
+    session.heldClients.clear();
     session.pendingClients.clear();
     this.#updateState(serial, session, error?.message ?? null);
   }
@@ -1377,7 +1482,7 @@ export class LiveStreamManager extends EventEmitter {
   ): void {
     const generation = session.generation;
     session.viewerStartup.conversionStarted();
-    const process = this.createViewerTranscoder();
+    const process = this.#takeTranscoder(session.parameterSets.bootstrap);
     session.viewerFfmpeg = process;
     session.viewerParameterSets = new VideoParameterSetCache();
     if (!preserveSummary) {
@@ -1513,10 +1618,53 @@ export class LiveStreamManager extends EventEmitter {
     this.#stopViewerTranscoder(session);
   }
 
+  /**
+   * Bringing a conversion up to its first picture takes a small host about a
+   * second, which is most of the wait when a person changes camera. So a stopped
+   * conversion is kept for a moment and carries on with the next camera, provided
+   * that camera's stream has the same headers. Its encoder must not change size.
+   * Pictures still in the pipeline are dropped by the next view's wait for a keyframe.
+   */
+  #parkTranscoder(process: ChildProcessWithoutNullStreams, headers: Buffer | null): void {
+    this.#dropParkedTranscoder();
+    if (this.#closed || !headers || process.exitCode !== null || process.signalCode !== null) {
+      terminateMediaProcess(process);
+      return;
+    }
+    process.stdout.removeAllListeners("data"); process.stderr.removeAllListeners("data");
+    process.removeAllListeners("error"); process.removeAllListeners("close"); process.stdin.removeAllListeners("error");
+    process.stdout.on("data", () => undefined); process.stderr.on("data", () => undefined);
+    process.on("error", () => undefined); process.stdin.on("error", () => undefined);
+    const timer = setTimeout(() => this.#dropParkedTranscoder(), PARKED_TRANSCODER_MILLISECONDS);
+    timer.unref?.();
+    this.#parkedTranscoder = { process, headers, timer };
+  }
+
+  #takeTranscoder(headers: Buffer | null): ChildProcessWithoutNullStreams {
+    const parked = this.#parkedTranscoder;
+    if (!parked || !headers?.equals(parked.headers) || parked.process.exitCode !== null || parked.process.signalCode !== null) {
+      this.#dropParkedTranscoder();
+      return this.createViewerTranscoder();
+    }
+    clearTimeout(parked.timer);
+    this.#parkedTranscoder = null;
+    parked.process.stdout.removeAllListeners("data"); parked.process.stderr.removeAllListeners("data");
+    parked.process.removeAllListeners("error"); parked.process.stdin.removeAllListeners("error");
+    return parked.process;
+  }
+
+  #dropParkedTranscoder(): void {
+    const parked = this.#parkedTranscoder;
+    this.#parkedTranscoder = null;
+    if (!parked) return;
+    clearTimeout(parked.timer);
+    terminateMediaProcess(parked.process);
+  }
+
   #stopViewerTranscoder(session: Session): void {
     if (session.viewerFfmpeg) {
       this.#emitViewerTranscoderSummary(session);
-      terminateMediaProcess(session.viewerFfmpeg);
+      this.#parkTranscoder(session.viewerFfmpeg, session.parameterSets.bootstrap);
       session.viewerFfmpeg = null;
     }
     session.viewerParameterSets = new VideoParameterSetCache();
@@ -1642,6 +1790,8 @@ export class LiveStreamManager extends EventEmitter {
         viewerStartup: new ViewerStartupTimeline(),
         viewerStartupAttempt: 0,
         recordings: new Set(),
+        yieldingClients: new Map(),
+        heldClients: new Map(),
         audioConsumers: new Set(),
         parameterSets: new VideoParameterSetCache(),
         state: "idle",
@@ -1692,6 +1842,15 @@ export class LiveStreamManager extends EventEmitter {
 }
 
 /**
+ * Longest hold of a transport viewer's video for its first AAC. A viewer whose
+ * audio arrives sooner starts at once; one whose audio does not arrive starts muted.
+ * HomeBase 3 can deliver SoloCam AAC about eight seconds after its first video.
+ */
+export function liveAudioStartWaitMilliseconds(camera: Pick<CameraState, "model" | "serial" | "stationSerial">): number {
+  return camera.model === "T8171" && camera.stationSerial !== camera.serial ? 12_000 : 2_000;
+}
+
+/**
  * Stop an FFmpeg media child and force termination if graceful shutdown stalls.
  *
  * The owner drops its process reference immediately after this call, so this
@@ -1730,7 +1889,7 @@ export function h265ViewerTranscoderArguments(fixedResolution = false): string[]
     // analysis limit avoids FFmpeg's automatic multi-second probe without
     // dropping the buffered keyframe or changing input cadence.
     "-probesize",
-    "32768",
+    "2048",
     "-analyzeduration",
     "1",
     "-fpsprobesize",
@@ -1760,9 +1919,15 @@ export function h265ViewerTranscoderArguments(fixedResolution = false): string[]
     ] : []),
     "-x264-params",
 
-    // Short keyframe spacing lets a second viewer join the shared fallback
-    // from a recent keyframe instead of waiting up to x264's default 250 frames.
-    "repeat-headers=1:keyint=50",
+    // A viewer starts on a keyframe, and a WebRTC viewer connects just after the
+    // first one has gone. Half-second spacing is the most it should have to wait.
+    "repeat-headers=1:keyint=10",
+
+    // A conversion that carries on with another camera starts that camera on a keyframe too.
+    "-force_key_frames",
+    "source",
+    "-forced-idr",
+    "1",
     "-f",
     "h264",
     "pipe:1",

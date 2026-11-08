@@ -38,7 +38,7 @@ test("NVR routes reject unauthenticated, duplicate, unknown and conflicting inpu
     const send = (path: string, body: string, authorised = true) => fetch(`${base}/${path}`, { method: "POST", headers: authorised ? { authorization: "Bearer synthetic-secret", "content-type": "application/json" } : {}, body });
     assert.equal((await send("synthetic/nvr-view", '{"view":1}', false)).status, 401);
     assert.equal((await send("missing/nvr-view", '{"view":1}')).status, 404);
-    for (const body of ['{"view":0,"view":1}', '{"view":1,"extra":0}', '{"view":true}', '{"view":2}', '{"view":0,"\\u0076iew":1}']) assert.equal((await send("synthetic/nvr-view", body)).status, 400);
+    for (const body of ['{"view":0,"view":1}', '{"view":1,"extra":0}', '{"view":true}', '{"view":3}', '{"view":0,"\\u0076iew":1}']) assert.equal((await send("synthetic/nvr-view", body)).status, 400);
     for (const body of ['{"kind":"pan","direction":"left","extra":0}', '{"kind":"pan","direction":"left","direction":"right"}', '{"kind":"zoom","level":4}', '{"kind":"pan","direction":"held"}']) assert.equal((await send("synthetic/nvr-live-control", body)).status, 400);
     assert.equal(calls, 0);
     assert.equal((await send("synthetic/streaming-quality", '{"quality":1}', false)).status, 401);
@@ -54,9 +54,34 @@ test("NVR routes reject unauthenticated, duplicate, unknown and conflicting inpu
     assert.equal((await send("synthetic/streaming-quality", '{"quality":4}')).status, 200);
     active = true; assert.equal((await send("synthetic/nvr-view", '{"view":1}')).status, 409);
     active = false; assert.equal((await send("synthetic/nvr-view", '{"view":1}')).status, 200);
+    assert.equal((await send("synthetic/nvr-view", '{"view":2}')).status, 200);
     assert.equal((await send("synthetic/nvr-live-control", '{"kind":"pan","direction":"left"}')).status, 200);
     limited = true;
     const response = await send("synthetic/nvr-live-control", '{"kind":"pan","direction":"left"}');
     assert.equal(response.status, 409); assert.equal((await response.json()).code, "rate_limited");
+  } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("the live view hold route checks its input and holds only the named view", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "nvr-live-hold-")), state = new GatewayState();
+  state.registerCamera({ serial: "synthetic", name: "Synthetic", model: "T8416", stationSerial: "synthetic-parent",
+    streamSupported: true, doorbellSupported: false, nvrViewOptions: [], nvrSelectedView: null, nvrLiveControlsSupported: true });
+  const held: Array<[string, string]> = [];
+  const streams = { holdView: (serial: string, view: string) => { held.push([serial, view]); return true; } } as unknown as LiveStreamManager;
+  const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "synthetic-secret" }, state, new SnapshotStore(directory), streams, {} as CameraProvider, null);
+  try {
+    await server.listen();
+    const send = (path: string, body: string, authorised = true) => fetch(`http://127.0.0.1:${server.port}/api/cameras/${path}/live-view-hold`,
+      { method: "POST", headers: authorised ? { authorization: "Bearer synthetic-secret", "content-type": "application/json" } : {}, body });
+    const inventory = await fetch(`http://127.0.0.1:${server.port}/api/cameras`, { headers: { authorization: "Bearer synthetic-secret" } });
+    assert.equal((await inventory.json()).liveViewHandoverSupported, true);
+    const mark = "synthetic-view-0000000";
+    assert.equal((await send("synthetic", JSON.stringify({ view: mark }), false)).status, 401);
+    assert.equal((await send("missing", JSON.stringify({ view: mark }))).status, 404);
+    for (const body of ["{}", '{"view":1}', '{"view":"short"}', '{"view":"has spaces in it here"}', "not json"]) assert.equal((await send("synthetic", body)).status, 400);
+    assert.deepEqual(held, []);
+    const response = await send("synthetic", JSON.stringify({ view: mark }));
+    assert.equal(response.status, 200); assert.deepEqual(await response.json(), { held: true });
+    assert.deepEqual(held, [["synthetic", mark]]);
   } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
 });

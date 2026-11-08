@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import timedelta
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +53,10 @@ class EufyGatewayCoordinator(
             always_update=False,
         )
         self.client = client
+
+        # Recordings whose NVR call the gateway has not confirmed it will keep.
+        # While any is open, cameras give new views no mark, so none takes a call.
+        self.recording_holds: set[object] = set()
         self.image_cache = CameraImageCache(
             Path(hass.config.path(".storage", DOMAIN, "camera-images")),
             hass.async_add_executor_job,
@@ -65,6 +70,27 @@ class EufyGatewayCoordinator(
             self._camera_control_failed,
             self.async_update_listeners,
         )
+
+        # Each camera's Live audio choice, owned by its switch and read when a
+        # stream URL is made. A camera registers to drop its cached stream.
+        self.live_audio: dict[str, bool] = {}
+        self._live_audio_locks: dict[str, asyncio.Lock] = {}
+        self.live_audio_changed: dict[str, Callable[[], Awaitable[None]]] = {}
+
+    async def async_set_live_audio(self, serial: str, enabled: bool) -> None:
+        """Serialize local audio changes and publish only after the camera accepts one.
+
+        The camera can refuse while a recorder is active or awaiting protection.
+        A rejected change leaves the restored choice untouched. Locks belong to
+        this coordinator and prevent overlapping changes from reordering state.
+        """
+        lock = self._live_audio_locks.setdefault(serial, asyncio.Lock())
+        async with lock:
+            changed = self.live_audio.get(serial, False) is not enabled
+            callback = self.live_audio_changed.get(serial)
+            if changed and callback is not None:
+                await callback()
+            self.live_audio[serial] = enabled
 
     def submit_camera_control(self, serial: str, action: str, enabled: bool) -> None:
         """Accept only the two approved switch operations without optimistic state."""

@@ -31,7 +31,8 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         cls = ast.ClassDef(name="TestCamera", bases=[ast.Name(id="CameraBase", ctx=ast.Load())],
                            keywords=[], body=[method, next(n for n in camera.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "_async_stream_url")], decorator_list=[])
         module = ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[]))
-        namespace = {"CameraBase": base, "Stream": object, "StreamOutput": object, "GatewayClientError": RuntimeError, "_LOGGER": Mock(), "asyncio": asyncio, "STREAM_URL_RENEWAL_TIMEOUT": 0.02}
+        namespace = {"CameraBase": base, "Stream": object, "StreamOutput": object, "GatewayClientError": RuntimeError, "_LOGGER": Mock(), "asyncio": asyncio, "STREAM_URL_RENEWAL_TIMEOUT": 0.02,
+                     "_new_view": lambda url: url, "_view_for": lambda _camera, url: url, "_with_view": lambda url, _view: url, "_view_of": lambda _url: None}
         exec(compile(module, str(SOURCE), "exec"), namespace)
         self.base = base
         self.camera = namespace["TestCamera"]()
@@ -40,13 +41,15 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         self.camera._fast_native_hls = False
         self.camera._hls_idle_stream = None
         self.camera._stream_source_refreshing = False
+        self.camera.camera = {"stream": {"state": "streaming"}}
         self.original = Mock(return_value=SimpleNamespace(idle_timer=Mock()))
         self.stream = SimpleNamespace(add_provider=self.original, outputs=Mock(return_value={"hls": object()}),
-                                      source="old", dynamic_stream_settings=SimpleNamespace(preload_stream=False))
+                                      source="old", available=True, update_source=Mock(),
+                                      dynamic_stream_settings=SimpleNamespace(preload_stream=False))
         self.camera.stream = self.stream
         self.camera.hass = object()
         self.camera.serial = "demo"
-        self.camera.coordinator = SimpleNamespace(client=SimpleNamespace(stream_url=AsyncMock(return_value="fresh")))
+        self.camera.coordinator = SimpleNamespace(live_audio={}, client=SimpleNamespace(stream_url=AsyncMock(return_value="fresh")))
         base.async_create_stream.return_value = self.stream
 
     def test_stream_renewal_timeout_is_integration_owned(self) -> None:
@@ -127,7 +130,7 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         self.stream.outputs.return_value = {}
         self.assertIs(await self.camera.async_create_stream(), self.stream)
         self.assertEqual(self.stream.source, "fresh")
-        self.camera.coordinator.client.stream_url.assert_awaited_once_with("demo")
+        self.camera.coordinator.client.stream_url.assert_awaited_once_with("demo", audio=False)
 
     async def test_reopen_failure_keeps_previous_source(self):
         """A gateway failure does not erase the cached stream or start a worker."""
@@ -139,7 +142,7 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
     async def test_reopen_reply_after_replacement_is_discarded(self):
         """A late explicit reopen cannot mutate a stream removed during its request."""
         self.stream.outputs.return_value = {}
-        async def reply(_serial):
+        async def reply(_serial, **_options):
             self.camera.stream = None
             return "late"
         self.camera.coordinator.client.stream_url.side_effect = reply
@@ -167,7 +170,7 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         await self.camera.async_create_stream()
         self.camera.coordinator.client.stream_url.assert_not_awaited()
         self.camera._stream_source_refreshing = False
-        async def stalled(_serial):
+        async def stalled(_serial, **_options):
             await asyncio.sleep(5)
         self.camera.coordinator.client.stream_url.side_effect = stalled
         await self.camera.async_create_stream()
@@ -213,14 +216,14 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         self.stream.add_provider("hls")
         self.original.assert_called_once_with("hls", timeout=60)
         replacement_factory = Mock()
-        self.base.async_create_stream.return_value = SimpleNamespace(add_provider=replacement_factory)
+        self.base.async_create_stream.return_value = SimpleNamespace(dynamic_stream_settings=SimpleNamespace(preload_stream=False), add_provider=replacement_factory)
         replacement = await self.camera.async_create_stream()
         replacement.add_provider("hls")
         replacement_factory.assert_called_once_with("hls", timeout=60)
 
     async def test_other_streams_and_failures_stay_with_ha(self) -> None:
         """Never globally replace the provider method or hide failures."""
-        other = SimpleNamespace(add_provider=Mock())
+        other = SimpleNamespace(dynamic_stream_settings=SimpleNamespace(preload_stream=False), add_provider=Mock())
         await self.camera.async_create_stream()
         other.add_provider("hls")
         other.add_provider.assert_called_once_with("hls")

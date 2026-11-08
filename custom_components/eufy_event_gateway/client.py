@@ -50,13 +50,16 @@ class GatewayClient:
     One instance is owned by a config entry's coordinator and uses Home
     Assistant's shared HTTP session for its entire lifetime. It validates the
     portions of gateway responses consumed by entities and never handles Eufy
-    account credentials or vendor protocol payloads.
+    account credentials or vendor protocol payloads. The inventory response
+    negotiates live-view handover for this instance, defaulting off for older
+    gateways so they keep their existing recording behaviour.
     """
 
     def __init__(
         self, session: ClientSession, base_url: str, api_token: str = ""
     ) -> None:
         """Create a client from HA's shared HTTP session and gateway settings."""
+        self.live_view_handover_supported = False
         self._session = session
         self.base_url = base_url.rstrip("/")
         self._headers = {"Authorization": f"Bearer {api_token}"} if api_token else {}
@@ -131,6 +134,7 @@ class GatewayClient:
         cameras = payload.get("cameras")
         if not isinstance(cameras, list):
             raise GatewayClientError("Gateway returned an invalid camera list")
+        self.live_view_handover_supported = payload.get("liveViewHandoverSupported") is True
         return [
             camera
             for camera in cameras
@@ -405,23 +409,38 @@ class GatewayClient:
         except (ClientError, TimeoutError) as error:
             raise GatewayClientError(str(error)) from error
 
-    async def stream_url(self, serial: str, *, native: bool = False) -> str:
+    async def stream_url(self, serial: str, *, native: bool = False, audio: bool | None = None) -> str:
         """Create a signed viewer URL, validating the opt-in native boundary.
 
-        Compatible calls preserve the existing request and response behavior.
-        Native responses fail closed when an older gateway ignores the profile.
+        Compatible calls without an audio choice keep the existing request and
+        response behavior. An audio choice asks for the camera's live audio, or
+        for video only; a gateway that predates it refuses the field, and the
+        request is repeated without it. Native responses fail closed when an
+        older gateway ignores the profile.
         """
+        choice = {} if audio is None else {"audio": "on" if audio else "off"}
         if not native:
-            payload = await self._json(f"/api/cameras/{serial}/stream-token", method="POST")
+            if choice:
+                try:
+                    payload = await self._json(f"/api/cameras/{serial}/stream-token", method="POST", payload=choice)
+                except GatewayClientError as error:
+                    if error.status != 400:
+                        raise
+                    payload = await self._json(f"/api/cameras/{serial}/stream-token", method="POST")
+            else:
+                payload = await self._json(f"/api/cameras/{serial}/stream-token", method="POST")
             path = payload.get("path")
             if not isinstance(path, str) or not path.startswith("/"):
                 raise GatewayClientError("Gateway returned an invalid stream path")
             return self._url(path)
         try:
-            payload = await self._json(
-                f"/api/cameras/{quote(serial, safe='')}/stream-token", method="POST",
-                payload={"profile": "native"},
-            )
+            token_path = f"/api/cameras/{quote(serial, safe='')}/stream-token"
+            try:
+                payload = await self._json(token_path, method="POST", payload={"profile": "native", **choice})
+            except GatewayClientError as error:
+                if not choice or error.status != 400:
+                    raise
+                payload = await self._json(token_path, method="POST", payload={"profile": "native"})
             if not isinstance(payload, dict) or payload.get("profile") != "native":
                 raise ValueError
             path = payload.get("path")
@@ -431,7 +450,8 @@ class GatewayClient:
             if parts.scheme or parts.netloc or parts.fragment or re.search(r"%(?![0-9a-fA-F]{2})", parts.path):
                 raise ValueError
             segments = [unquote(segment, errors="strict") for segment in parts.path.split("/")]
-            if segments != ["", "api", "cameras", serial, "live-native.annexb"]:
+            if segments[:4] != ["", "api", "cameras", serial] or len(segments) != 5 \
+                    or segments[4] not in ("live-native.annexb", "live-native.ts"):
                 raise ValueError
             query = parse_qsl(parts.query, keep_blank_values=True, strict_parsing=True) if parts.query else []
             if len(query) > 1 or any(key != "access_token" for key, _ in query):
@@ -443,6 +463,14 @@ class GatewayClient:
         except (ValueError, TypeError, AttributeError, GatewayClientError):
             raise GatewayClientError("Gateway returned an invalid native stream response") from None
         return self._url(path)
+
+    async def hold_live_view(self, serial: str, view: str) -> bool:
+        """Keep an NVR call with a marked view that Home Assistant now records from."""
+        payload = await self._json(
+            f"/api/cameras/{quote(serial, safe='')}/live-view-hold", method="POST",
+            payload={"view": view}, timeout=5,
+        )
+        return payload.get("held") is True
 
     async def capture_snapshot(self, serial: str) -> None:
         """Ask the gateway to wake a supported camera and retain a new JPEG."""
@@ -575,7 +603,7 @@ class GatewayClient:
 
     async def set_nvr_view(self, serial: str, view: int) -> dict[str, Any]:
         """Change the idle camera's next-stream preference, owned by the gateway."""
-        if type(view) is not int or view not in (0, 1):
+        if type(view) is not int or view not in (0, 1, 2):
             raise GatewayClientError("Unavailable NVR view", code="unavailable")
         camera = await self._json(f"/api/cameras/{serial}/nvr-view", method="POST", payload={"view": view}, timeout=120, nvr=True)
         if camera.get("serial") != serial:
