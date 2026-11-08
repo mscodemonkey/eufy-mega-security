@@ -519,9 +519,9 @@ playback after restarting the app.
 ### Experimental fixed H.265 viewer resolution
 
 The app option `experimental_fixed_h265_resolution` is off by default. When
-enabled, the H.265 live-view fallback produces a fixed 1920 by 1080 H.264 output
-instead of following source resolution changes. It does not alter H.264 camera
-streams, retained snapshots, or saved clips.
+enabled, the H.265 live-view fallback produces a fixed 1920 by 1080 H.264 output,
+still at every second picture, instead of following source resolution changes.
+It does not alter H.264 camera streams, retained snapshots, or saved clips.
 
 This is a playback compatibility test. It may improve players that drop when
 the source changes resolution, but it can increase transcoder work for smaller
@@ -787,8 +787,10 @@ takes load off small hosts. A device that cannot play a camera's format shows no
 picture, and there is no automatic fallback. Then enable **H.264 compatibility
 mode (slower)** in **Settings → Devices & services → Eufy Mega Security →
 Configure**, which converts every camera. Saving reloads the integration.
-If an H.265 camera's converted view falls more than two seconds behind, it
-skips to the camera's next keyframe instead of falling further behind.
+An H.265 camera's converted view has every second picture of the camera's,
+at most 720 lines high, so a small host such as a Home Assistant Green keeps
+up. If the host still falls more than two seconds behind, the view skips to
+the camera's next keyframe instead of falling further behind.
 Installations set up before this option keep the video they had: compatibility
 mode is on unless they had enabled **Try native camera video**, so native video
 stays opt-in for them.

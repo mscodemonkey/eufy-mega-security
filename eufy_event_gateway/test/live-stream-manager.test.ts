@@ -121,21 +121,21 @@ test("H.265 conversion runs below the gateway so it cannot starve live video", (
 
 test("H.265 viewer output keeps keyframes close and follows the source's", () => {
   const args = h265ViewerTranscoderArguments();
-  assert.match(args[args.indexOf("-x264-params") + 1]!, /keyint=10/);
+  assert.match(args[args.indexOf("-x264-params") + 1]!, /keyint=5/);
   assert.equal(args[args.indexOf("-force_key_frames") + 1], "source");
   assert.equal(args[args.indexOf("-forced-idr") + 1], "1");
 });
 
-test("fixed H.265 viewer output adds a stable 1080p filter only when enabled", () => {
-  const unchanged = h265ViewerTranscoderArguments();
-  assert.equal(unchanged.includes("-vf"), false);
+test("H.265 viewer output encodes every second picture and source keyframe, at most 720 lines unless fixed at 1080p", () => {
+  const filter = (args: string[]): string => args[args.indexOf("-vf") + 1]!;
+  const normal = h265ViewerTranscoderArguments();
+  assert.equal(filter(normal), "select='key+not(mod(n,2))',scale=-2:'min(720,ih)'");
+  assert.equal(normal[normal.indexOf("-fps_mode") + 1], "passthrough");
 
   const fixed = h265ViewerTranscoderArguments(true);
-  const filterIndex = fixed.indexOf("-vf");
-  assert.notEqual(filterIndex, -1);
   assert.equal(
-    fixed[filterIndex + 1],
-    "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+    filter(fixed),
+    "select='key+not(mod(n,2))',scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
   );
 });
 

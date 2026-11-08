@@ -1887,7 +1887,15 @@ export function terminateMediaProcess(
   forceTimer.unref?.();
 }
 
-/** Bound H.265 browser conversion to 3 Mbit/s with a half-second encoder buffer. */
+/**
+ * Bound H.265 browser conversion to 3 Mbit/s with a half-second encoder buffer.
+ *
+ * On a Home Assistant Green (four Cortex-A55 cores), a recorded 1080p, 15 fps
+ * S350 stream took about 1.2 cores to decode and 2.1 to encode at full size, so
+ * with the snapshot extractor and the gateway beside it the conversion fell
+ * behind. Encoding every second picture at no more than 720 lines took about
+ * 0.7. Decoding still takes every picture, because each one refers to the last.
+ */
 export function h265ViewerTranscoderArguments(fixedResolution = false): string[] {
   return [
     "-hide_banner",
@@ -1922,15 +1930,22 @@ export function h265ViewerTranscoderArguments(fixedResolution = false): string[]
     "3M",
     "-bufsize",
     "1.5M",
-    ...(fixedResolution ? [
-      "-vf",
-      "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
-    ] : []),
+    "-vf",
+
+    // Every second picture by count, since raw input carries no timestamps, and every source keyframe
+    // so the forced keyframe below still has one to follow. Smaller pictures are not enlarged.
+    fixedResolution
+      ? "select='key+not(mod(n,2))',scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2"
+      : "select='key+not(mod(n,2))',scale=-2:'min(720,ih)'",
+
+    // Keep the gaps the selection leaves rather than repeat pictures to fill them.
+    "-fps_mode",
+    "passthrough",
     "-x264-params",
 
     // A viewer starts on a keyframe, and a WebRTC viewer connects just after the
-    // first one has gone. Half-second spacing is the most it should have to wait.
-    "repeat-headers=1:keyint=10",
+    // first one has gone. At every second picture, five keep the wait ten did.
+    "repeat-headers=1:keyint=5",
 
     // A conversion that carries on with another camera starts that camera on a keyframe too.
     "-force_key_frames",
