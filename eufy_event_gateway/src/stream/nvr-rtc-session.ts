@@ -37,6 +37,11 @@ const XZYH = Buffer.from("XZYH");
 // The slowest measured camera, a doorbell, gave its first picture in 3.4 seconds.
 const SWITCH_PICTURE_MILLISECONDS = 8_000;
 
+// For several seconds after a call on it hangs up, the NVR ignores a new call and
+// never answers it later. It answers the same call sent again once it is ready, as
+// the general route's peers do, so a call goes again at this interval until answered.
+const CALL_REPEAT_MILLISECONDS = 5_000;
+
 // The signalling service drops a socket that has been quiet for 120 s (code 1006),
 // and a call can only hang up while its socket is open. It answers the general
 // route's action-2 ping, so this keeps the socket for calls of any length.
@@ -218,6 +223,10 @@ export interface NvrRtcStats {
   reorderTimeoutAgeMs: number;
   reorderTimeoutQueued: number;
 
+  /** Calls sent again because the NVR had not answered, and camera lists asked for again. */
+  callsRepeated: number;
+  inventoryRepeated: number;
+
   /** Signalling sockets retired after a normal viewer had valid video. */
   signallingClosuresAfterVideo: number;
 
@@ -265,7 +274,7 @@ export class NvrRtcSession {
   #audioOutput = this.#createOutput();
   readonly stats: NvrRtcStats = { packets: 0, frames: 0, video: 0, controlPackets: 0, rejected: 0,
     segmentNotEchoed: 0, staleReplies: 0, ignoredAudio: 0, audio: 0, rejectedAudio: 0, ignoredUnknownMedia: 0,
-    applicationSequenceRecoveries: 0, videoSequenceRecoveries: 0, signallingClosuresAfterVideo: 0, signallingClosuresAfterModeObservation: 0, stopUnconfirmed: 0,
+    applicationSequenceRecoveries: 0, videoSequenceRecoveries: 0, callsRepeated: 0, inventoryRepeated: 0, signallingClosuresAfterVideo: 0, signallingClosuresAfterModeObservation: 0, stopUnconfirmed: 0,
     reorderTimeoutChannel: -1, reorderTimeoutExpected: -1, reorderTimeoutWaiting: -1,
     reorderTimeoutAgeMs: 0, reorderTimeoutQueued: 0,
     channel0Frames: 0, channel1Frames: 0, channel2Frames: 0, channel3Frames: 0, channel4Frames: 0, channel5Frames: 0 };
@@ -346,6 +355,7 @@ export class NvrRtcSession {
   #readyResolve: (() => void) | null = null;
   #readyReject: ((error: Error) => void) | null = null;
   #heartbeat: NodeJS.Timeout | null = null;
+  #callRepeat: NodeJS.Timeout | null = null;
   #signallingPing: NodeJS.Timeout | null = null;
   #sweep: NodeJS.Timeout | null = null;
   #deadline: NodeJS.Timeout | null = null;
@@ -823,7 +833,15 @@ export class NvrRtcSession {
       throw error instanceof NvrTrialError ? error : new NvrTrialError(this.#stage);
     } finally { clearTimeout(timer); }
     this.#stage = "inventory";
-    const discovery = await this.#request(9100, 5000);
+    let discovery: Record<string, unknown>;
+    try { discovery = await this.#request(9100, 5000); }
+    catch (error) {
+
+      // Just after a hang-up the NVR can answer a call before it replies on the channel. Ask once more.
+      if (!(error instanceof NvrTrialError) || error.stage !== "inventory" || error.reason !== "unspecified") throw error;
+      this.stats.inventoryRepeated++;
+      discovery = await this.#request(9100, 5000);
+    }
     nvrMatchCamera(discovery, this.options.camera, this.options.channel, this.options.cameraType ?? 301);
     this.#inventory = discovery;
     this.#guard();
@@ -853,7 +871,7 @@ export class NvrRtcSession {
     if (this.#pending) {
       clearTimeout(this.#pending.timer); this.#pending.reject(new NvrTrialError("cancelled")); this.#pending = null;
     }
-    for (const timer of [this.#deadline, this.#firstFrame, this.#heartbeat, this.#signallingPing, this.#sweep, this.#videoProgressTimer]) if (timer) clearTimeout(timer);
+    for (const timer of [this.#deadline, this.#firstFrame, this.#heartbeat, this.#callRepeat, this.#signallingPing, this.#sweep, this.#videoProgressTimer]) if (timer) clearTimeout(timer);
     this.#videoProgressTimer = null; this.#videoProgressExpiresAt = null;
     this.#closing = (async () => {
       if (this.#startSent && this.#channels.get("WebrtcDataChannel")?.readyState === "open") {
@@ -935,6 +953,16 @@ export class NvrRtcSession {
       data: JSON.stringify({ timestamp: ts, account, ...value }) };
   }
 
+  /** Send the call again until the NVR answers it; the join timer still bounds the whole attempt. */
+  #repeatCall(): void {
+    this.#callRepeat = setTimeout(() => {
+      this.#callRepeat = null;
+      if (this.#retired || this.#accepted) return;
+      try { this.#action("call", {}); this.stats.callsRepeated++; this.#repeatCall(); }
+      catch { /* The join timer reports a call that never connects. */ }
+    }, CALL_REPEAT_MILLISECONDS);
+  }
+
   #action(kind: string, value: Record<string, unknown>): void {
     this.#guard(); this.#send(this.#cameraMessage(kind, value));
   }
@@ -945,6 +973,7 @@ export class NvrRtcSession {
     if (inner.action === 1) {
       if (this.#authenticated || inner.code !== 200) throw new NvrTrialError("join");
       this.#authenticated = true; this.#stage = "call"; this.#action("call", {});
+      this.#repeatCall();
       this.#signallingPing = setInterval(() => {
         if (!this.#retired && this.#socket?.readyState === WebSocket.OPEN) {
           try { this.#send({ action: 2, data: JSON.stringify({ source: "WEB" }), code: 200 }, true); } catch { /* The socket's close event reports a lost socket. */ }
@@ -964,8 +993,12 @@ export class NvrRtcSession {
       if (data.status === 486) throw new NvrTrialError("busy");
       if (data.status === 408) throw new NvrTrialError("call", "call_timeout");
       if (data.status === 100) {
+
+        // Each call sent again gets its own relays. The latest apply until the offer creates the peer.
+        if (this.#peer) return;
         const rows = Array.isArray(data.turn) ? data.turn : [data.turn];
-        if (rows.length > 4 || this.#turn.length) throw new NvrTrialError("negotiation", "relay_count");
+        if (rows.length > 4) throw new NvrTrialError("negotiation", "relay_count");
+        this.#turn.length = 0;
         for (const row of rows) {
           if (!nvrRecord(row)) throw new NvrTrialError("negotiation", "relay_shape");
           const host = row.turn_addr ?? row.addr ?? row.host ?? row.ip, port = row.turn_port ?? row.port ?? 3478;
@@ -975,7 +1008,12 @@ export class NvrRtcSession {
             || typeof credential !== "string" || !credential.length || credential.length > 512) throw new NvrTrialError("negotiation", "relay_fields");
           this.#turn.push({ urls: `turn:${host}:${port}?transport=udp`, username, credential });
         }
-      } else if (data.status === 200 && !this.#accepted) { this.#accepted = true; this.#action("ack", {}); }
+      } else if (data.status === 200 && !this.#accepted) {
+        this.#accepted = true;
+        if (this.#callRepeat) clearTimeout(this.#callRepeat);
+        this.#callRepeat = null;
+        this.#action("ack", {});
+      }
       return;
     }
     if (inner.dataType !== "info") return;

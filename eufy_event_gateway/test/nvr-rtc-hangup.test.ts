@@ -118,3 +118,56 @@ test('a call keeps its signalling socket open with pings, so a long call can sti
     assert.equal(ping.msgid, '0'); assert.equal(ping.code, 200); assert.deepEqual(JSON.parse(ping.data as string), { source: 'WEB' });
   } finally { controller.abort(); await session.close(); server.close(); }
 });
+
+test('a call the NVR ignores is sent again until the NVR answers it', { timeout: 15000 }, async () => {
+  const server = new WebSocketServer({ port: 0 });
+  await once(server, 'listening');
+  const port = (server.address() as { port: number }).port;
+  const controller = new AbortController();
+  const received: { at: number; message: Record<string, unknown> }[] = [];
+  let acked!: () => void;
+  const ack = new Promise<void>(resolve => { acked = resolve; });
+  const closed = new Promise<void>(resolve => server.on('connection', connection => {
+    connection.once('close', () => resolve());
+    const send = (value: Record<string, unknown>): void => { connection.send(JSON.stringify({ data: JSON.stringify(value) })); };
+    const call = (status: number, relay: string): void => send({ action: 3, sessionId: 'synthetic-sign', sn: 'synthetic-station', channelId: 0,
+      dataType: 'call', data: JSON.stringify({ status, turn: [{ turn_addr: relay, turn_port: 3478, turn_user: 'u', turn_password: 'p' }] }) });
+    connection.on('message', raw => {
+      const message = JSON.parse(JSON.parse(raw.toString()).data) as Record<string, unknown>;
+      received.push({ at: performance.now(), message });
+      if (message.action === 1) send({ action: 1, code: 200 });
+      else if (message.dataType === 'call') {
+
+        // The cloud relays every call at once. The NVR, still ending a previous call, ignores the first.
+        const calls = received.filter(item => item.message.dataType === 'call').length;
+        call(100, `relay${calls}.example.com`);
+        if (calls > 1) call(200, `relay${calls}.example.com`);
+      } else if (message.dataType === 'ack') acked();
+    });
+  }));
+  const session = new NvrRtcSession({ station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
+    administrator: 'synthetic-administrator', context: { host: 'security-smart-ie.eufylife.com', region: 'IE',
+      authToken: 'synthetic-token', gtoken: 'synthetic-gtoken', sign: 'synthetic-sign' },
+    signal: controller.signal, current: () => true, ready: () => { throw new Error('No offer was sent'); } }, {
+    socket: (_url, protocols, options) => new WebSocket(`ws://127.0.0.1:${port}`, protocols, options),
+    peer: () => { throw new Error('No offer was sent'); },
+  });
+  try {
+    const starting = session.start();
+
+    // Fail rather than wait, so the local server still closes when the call never goes again.
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([ack, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('the call was not sent again')), 8000); })]);
+    clearTimeout(timer);
+    const calls = received.filter(item => item.message.dataType === 'call');
+    assert.equal(calls.length, 2);
+    assert.ok(calls[1]!.at - calls[0]!.at >= 4900, 'the call went again only after the repeat interval');
+
+    // Answered, so no further call goes out.
+    await new Promise(resolve => setTimeout(resolve, 200));
+    assert.deepEqual(received.map(item => item.message.dataType ?? `action${item.message.action}`), ['action1', 'call', 'call', 'ack']);
+    assert.equal(session.stats.callsRepeated, 1);
+    controller.abort();
+    await assert.rejects(starting, { stage: 'cancelled' });
+  } finally { controller.abort(); await session.close(); server.close(); await closed; }
+});
