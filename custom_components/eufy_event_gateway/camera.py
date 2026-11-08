@@ -58,8 +58,6 @@ STREAM_SOURCE_REFRESH_INTERVAL = timedelta(minutes=5)
 STREAM_URL_RENEWAL_TIMEOUT = 10
 LIVE_VIEW_QUERY = "view"
 
-# Past a recording's own length, for HA to close its recorder output.
-
 
 def _cloud_day_window(day: str, zone: Any) -> tuple[int, int, int]:
     """Use true local midnights, resolving a gap's offset at its converted instant."""
