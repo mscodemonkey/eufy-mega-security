@@ -82,7 +82,7 @@ async function fixture(context: TestContext, parent: "T8N00" | "T9000" = "T8N00"
   manager = new LiveStreamManager(state, {} as never, provider, 5, undefined, fakeProcess, fakeProcess, 30_000, () => clock);
   manager.on("warning", () => {});
   provider.setNvrLiveMediaChecks({ viewer: serial => manager.hasActiveViewer(serial), active: serial => manager.hasActiveSession(serial),
-    recording: serial => manager.hasActiveRecording(serial), yieldable: serial => manager.canYieldSource(serial), settling: serial => manager.isSourceSettling(serial) });
+    recording: serial => manager.hasActiveRecording(serial), yieldable: serial => manager.canYieldSource(serial), settling: serial => manager.isSourceSettling(serial), retireYieldable: serial => manager.retireYieldableSource(serial) });
   await provider.start(events);
   return { manager, provider, sessions, switches, joins: () => joins, failSwitch: () => { failSwitch = true; }, setSwitchable: (value: boolean) => { switchable = value; }, advance: (milliseconds: number) => { clock += milliseconds; },
     close: async () => { await manager.close(); await provider.close(); await tick(); await rm(directory, { recursive: true, force: true }); } };
@@ -201,8 +201,9 @@ test("an unmarked viewer keeps the call and an unmarked open never takes it", as
   } finally { await other.close(); }
 });
 
-test("a lease or a recording keeps the call", async context => {
-  const value = await fixture(context);
+for (const parent of ["T8N00", "T9000"] as const) {
+test(`a lease or a recording keeps the call (${parent})`, async context => {
+  const value = await fixture(context, parent);
   try {
     const first = await open(value, a, view("a"));
     let release!: () => void;
@@ -224,9 +225,11 @@ test("a lease or a recording keeps the call", async context => {
     first.destroy(); await value.close(); await clip;
   } finally { await value.close(); }
 });
+}
 
-test("a Home Assistant recording added to a running marked view keeps the call", async context => {
-  const value = await fixture(context);
+for (const parent of ["T8N00", "T9000"] as const) {
+test(`a Home Assistant recording added to a running marked view keeps the call (${parent})`, async context => {
+  const value = await fixture(context, parent);
   try {
     const recording = await open(value, a, view("a"));
     assert.equal(value.manager.canYieldSource(a), true);
@@ -253,9 +256,11 @@ test("a Home Assistant recording added to a running marked view keeps the call",
     assert.equal(value.switches.length, 0);
   } finally { await value.close(); }
 });
+}
 
-test("while a recording's hold is pending or rejected, the unmarked view HA gives camera B is refused", async context => {
-  const value = await fixture(context);
+for (const parent of ["T8N00", "T9000"] as const) {
+test(`while a recording's hold is pending or rejected, the unmarked view HA gives camera B is refused (${parent})`, async context => {
+  const value = await fixture(context, parent);
   try {
 
     // Camera A's view is recording but the gateway has no hold: it would still yield to a marked view.
@@ -275,6 +280,7 @@ test("while a recording's hold is pending or rejected, the unmarked view HA give
     assert.equal(value.switches.length, 0);
   } finally { await value.close(); }
 });
+}
 
 test("holding one camera's view leaves another camera's view free to yield", async context => {
   const value = await fixture(context);
@@ -289,14 +295,44 @@ test("holding one camera's view leaves another camera's view free to yield", asy
   } finally { await value.close(); }
 });
 
-test("a HomeBase route has no call to move", async context => {
+test("an S1 view closes the old call before opening a fresh call for the next camera", async context => {
   const value = await fixture(context, "T9000");
   try {
-    await open(value, a, view("a"));
-    const refused = await open(value, b, view("b"));
-    assert.equal(refused.destroyed, true);
+    const first = await open(value, a, view("a"));
+    const next = await open(value, b, view("b"));
+    assert.equal(first.ended, true);
+    assert.equal(next.destroyed, false);
+    assert.equal(value.joins(), 2);
     assert.equal(value.switches.length, 0);
+    assert.equal(value.manager.hasActiveViewer(a), false);
+    assert.equal(value.manager.hasActiveViewer(b), true);
+
+    // HA may retry the old URL, which must not reclaim the new camera's call.
+    const stale = await open(value, a, view("a"));
+    assert.equal(stale.destroyed, true);
+    assert.equal(value.joins(), 2);
+    assert.equal(value.manager.hasActiveViewer(b), true);
   } finally { await value.close(); }
+});
+
+test("an S1 close in progress cannot acknowledge a newly requested recording hold", async context => {
+  const value = await fixture(context, "T9000");
+  let finish!: () => void;
+  const gate = new Promise<void>(resolve => { finish = resolve; });
+  const stop = value.provider.stopStream.bind(value.provider);
+  context.mock.method(value.provider, "stopStream", async (serial: string) => { if (serial === a) await gate; await stop(serial); });
+  try {
+    await open(value, a, view("a"));
+    const moving = open(value, b, view("b"));
+    await settled();
+    assert.equal(value.manager.isSourceSettling(a), true);
+    assert.equal(value.manager.holdView(a, view("a")), false);
+    assert.equal(value.joins(), 1);
+    finish();
+    const next = await moving;
+    assert.equal(next.destroyed, false);
+    assert.equal(value.joins(), 2);
+  } finally { finish(); await value.close(); }
 });
 
 test("a failed move closes the call and opens a fresh one for the new viewer", async context => {

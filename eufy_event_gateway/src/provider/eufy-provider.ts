@@ -711,7 +711,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #nvrReadIntervals = new Map<string, number>();
   readonly #nvrViews = new Map<string, { binding: string; value: number }>();
   readonly #nvrSettings = new Map<string, { binding: string; values: NvrLiveSettings; nightAt: number; qualityAt: number; trackingAt: number; timer: NodeJS.Timeout | null }>();
-  #nvrMediaChecks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean } | null = null;
+  #nvrMediaChecks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean; retireYieldable?: (serial: string) => Promise<boolean> } | null = null;
   readonly #nvrTrials = new Map<string, NvrTrialEntry>();
 
   /** Private card references expire in memory and are never published as filesystem paths. */
@@ -1911,6 +1911,23 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   /**
+   * Let the media owner close an eligible S1 call before opening a new one.
+   * S1 does not reuse the NVR S4 in-call camera switch. Leases, recordings,
+   * unmarked viewers, diagnostic sessions and other parent operations retain
+   * their existing reservations. The manager rechecks eligibility atomically.
+   */
+  async #retireS1CallForView(device: MegaInventoryDevice, station: MegaInventoryDevice): Promise<void> {
+    if (station.model !== "T9000" || station.deviceType !== 27) return;
+    const rows = [...this.#nvrTrials];
+    if (rows.length !== 1 || this.#localMotionAborters.size
+      || [...this.#recordingReservations].some(camera => this.#devices.get(camera)?.parentSerial === station.serial)) return;
+    const [serial, entry] = rows[0]!;
+    if (serial === device.serial || entry.station.serial !== station.serial || entry.diagnostic || entry.stateOnly || entry.retiring
+      || entry.generation !== this.#startupGeneration || !entry.session?.switchable || !this.#nvrMediaChecks?.yieldable(serial)) return;
+    if (!await this.#nvrMediaChecks.retireYieldable?.(serial)) throw new NvrTrialError("admission");
+  }
+
+  /**
    * Wait for a call that is only part-way through starting, stopping or moving.
    * A person opening cameras in quick succession lands here, and refusing would
    * cost them Home Assistant's whole retry backoff. A call held by a recording
@@ -1963,11 +1980,18 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       // The media manager detaches its source listeners before stopping it.
       // Cancellation must still have an error sink during transport retirement.
       if (entry.session && entry.session.output.listenerCount("error") === 0) entry.session.output.on("error", () => {});
-      controller.abort();
       closed = (async () => {
         if (deadline) clearTimeout(deadline);
-        try { await entry.session?.close(); }
+        try {
+
+          // Retire the call before cancellation can report this intentional
+          // close as a failed source.
+          const closing = entry.session?.close();
+          controller.abort();
+          await closing;
+        }
         finally {
+          controller.abort();
           signal.removeEventListener("abort", abort);
           const owned = this.#nvrTrials.get(serial) === entry;
           if (owned) this.#nvrTrials.delete(serial);
@@ -2573,6 +2597,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (nvrStation && this.#nvrControlReserved(nvrStation.serial)) throw new NvrTrialError("admission");
       if (nvrDevice && this.#normalNvrLiveBinding(nvrDevice, nvrStation)) {
         const handover = takeOver ? await this.#nvrCallOnceSettled(nvrDevice, nvrStation!, current, cancellation.signal) : null;
+        current();
+        if (takeOver && !handover) {
+          await this.#retireS1CallForView(nvrDevice, nvrStation!);
+          current();
+        }
         this.#reserveNvrTrial(serial, new AbortController().signal, false, false, handover);
         return this.#startNvrTrial(serial, handover);
       }
@@ -2607,8 +2636,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         || device.model === "T8215" && device.deviceType === 97);
   }
 
-  /** Install read-only media facts. The manager remains the sole owner of sources and viewers. */
-  setNvrLiveMediaChecks(checks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean }): void {
+  /**
+   * Install media checks and guarded retirement owned by the media manager.
+   * The provider awaits retirement before a fresh S1 call. Recording and viewer
+   * eligibility remain the manager's decision rather than provider policy.
+   */
+  setNvrLiveMediaChecks(checks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean; retireYieldable?: (serial: string) => Promise<boolean> }): void {
     this.#nvrMediaChecks = checks;
   }
 

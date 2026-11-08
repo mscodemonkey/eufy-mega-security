@@ -64,3 +64,16 @@ The NVR serves one live call at a time. When a Home Assistant view opens another
 Only ordinary Home Assistant views give way. Snapshots, controls, clips, Home Assistant preload and recordings, and any other consumer of the stream URL keep the call, and a new camera is refused until they finish. A recording added to a view that is already running shares that view's connection, so the integration asks the gateway to hold that view before it adds the recorder. A held view keeps the call until its connection closes, including after the recording ends. From the moment the recording is asked for until the gateway confirms the hold, the integration opens new views without a mark, so the gateway refuses them instead of moving the call. If the hold is not confirmed, the recording goes ahead and new views stay unmarked until it has had time to finish. A view that lost the call is not able to take it back on its own retry. Opening that camera again does.
 
 HomeBase routes are unchanged. Both the gateway and the integration need this release. With only one of them updated, cameras behave as before.
+
+## HomeBase S1 camera switching candidate
+
+For the already admitted T9000/type 27 camera pairings, a new marked HA view can
+close the previous yielding call and open a fresh call for the next camera. This
+uses the existing S1 close/start lifecycle, not the NVR S4 in-call switch. S1
+hardware switching remains unconfirmed. The normal experimental NVR-live option
+is still required, and the accepted camera/parent pairings are unchanged.
+
+Recordings, held views, leases and unmarked consumers keep their connection. A
+new recording hold cannot be acknowledged while the old source is stopping.
+Previously delivered view URLs cannot take the call back after switching. This
+is a single-call handoff, not simultaneous-view support.
