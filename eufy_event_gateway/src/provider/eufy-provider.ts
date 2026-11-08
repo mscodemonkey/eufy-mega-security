@@ -6210,7 +6210,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (!current()) return;
     owner.nameRecoveryStarted = true;
     void (async () => {
-      for (const wait of [10_000, 50_000, 300_000]) {
+      for (const wait of [10_000, 50_000, 480_000]) {
         await this.nameRecoveryWait(wait, owner.controller.signal);
         if (!current()) return;
         const signal = AbortSignal.any([owner.controller.signal, AbortSignal.timeout(60_000)]);

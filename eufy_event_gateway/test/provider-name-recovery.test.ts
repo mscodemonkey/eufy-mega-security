@@ -116,7 +116,7 @@ for (const mode of ["empty", "generic"]) test(`unresolved ${mode} history is que
   const f = await fixture(context, mode);
   try {
     f.send(f.event()); await settle();
-    for (const wait of [10_000, 50_000, 300_000, 600_000]) { context.mock.timers.tick(wait); await settle(); }
+    for (const wait of [10_000, 50_000, 480_000, 600_000]) { context.mock.timers.tick(wait); await settle(); }
     assert.equal(f.recovery.mock.callCount(), 3);
     assert.equal(f.names.length, 0); assert.equal(f.people.length, 1);
   } finally { await f.provider.close(); context.mock.timers.reset(); }

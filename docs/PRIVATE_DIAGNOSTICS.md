@@ -204,7 +204,7 @@ only when that exact camera, parent, record and full path match one history row,
 and the matching crops identify a single familiar name. Ambiguous names stay
 unresolved. Names and identifiers never enter support logs or count diagnostics.
 
-At most three metadata reads are scheduled around 10 seconds, one minute and six
+At most three metadata reads are scheduled around 10 seconds, one minute and nine
 minutes after the event. Active views and recording reservations are left alone.
 Each request has a finite lifetime. A new visit, native name, provider shutdown or
 changed inventory prevents a late result from replacing the current visit.
