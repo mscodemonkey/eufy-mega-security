@@ -515,7 +515,48 @@ test("bootstraps first and repeat HTTP viewers from the current keyframe", async
   await manager.close();
 });
 
-test("a stopped H.265 conversion carries on with the next camera only if its stream matches", async () => {
+test("a new camera never receives pictures left in the previous camera's converter", async context => {
+  const state = new GatewayState();
+  const other = { ...camera, serial: "synthetic-camera-b" };
+  for (const value of [camera, other]) state.registerCamera(value);
+  const sources = new Map<string, PassThrough>();
+  const converters: ChildProcessWithoutNullStreams[] = [];
+  const fake = () => Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+    exitCode: null, signalCode: null, kill: () => true }) as unknown as ChildProcessWithoutNullStreams;
+  const create = () => { const child = fake(); (child.stdin as PassThrough).resume(); converters.push(child); return child; };
+  let manager!: LiveStreamManager;
+  manager = new LiveStreamManager(state, {} as never, {
+    async startStream(serial: string) { const source = new PassThrough(); sources.set(serial, source); manager.attachSource(serial, source, () => "h265"); },
+    async stopStream(serial: string) { sources.get(serial)?.end(); },
+  }, 0, undefined, create, fake);
+  context.after(() => manager.close());
+  const open = async (serial: string) => {
+    const response = new PassThrough() as unknown as ServerResponse;
+    const bytes: Buffer[] = [];
+    response.writeHead = (() => response) as ServerResponse["writeHead"];
+    response.on("data", (chunk: Buffer) => bytes.push(Buffer.from(chunk)));
+    await manager.addClient(serial, response);
+    sources.get(serial)!.write(Buffer.concat([annexBNal(0x40, 0x01, 0x0c), annexBNal(0x42, 0x01, 0x01), annexBNal(0x44, 0x01, 0xc0), annexBNal(0x26, 0x01, 0xbb)]));
+    return { response, bytes };
+  };
+  const first = await open(camera.serial);
+  const old = converters[0]!;
+  first.response.destroy();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  const second = await open(other.serial);
+  const oldPicture = Buffer.concat([annexBNal(0x67, 0x64, 0x00, 0x1f), annexBNal(0x68, 0xee, 0x3c), annexBNal(0x65, 0x88, 0x99)]);
+
+  // Matching encoder headers and an IDR do not identify which camera produced queued output.
+  old.stdout.emit("data", oldPicture);
+  assert.equal(Buffer.concat(second.bytes).length, 0, "old converted camera bytes must not start the new view");
+  assert.equal(converters.length, 2);
+  const newPicture = Buffer.concat([annexBNal(0x67, 0x64, 0x00, 0x1f), annexBNal(0x68, 0xee, 0x3c), annexBNal(0x65, 0x88, 0xaa)]);
+  converters[1]!.stdout.emit("data", newPicture);
+  assert.ok(Buffer.concat(second.bytes).includes(annexBNal(0x65, 0x88, 0xaa)));
+  assert.equal(Buffer.concat(second.bytes).includes(annexBNal(0x65, 0x88, 0x99)), false);
+});
+
+test("each stopped H.265 source retires its converter even when camera headers match", async () => {
   const state = new GatewayState();
   const other = { ...camera, serial: `${camera.serial}-other` }, third = { ...camera, serial: `${camera.serial}-third` };
   for (const value of [camera, other, third]) state.registerCamera(value);
@@ -550,17 +591,17 @@ test("a stopped H.265 conversion carries on with the next camera only if its str
 
   await closed(await view(camera.serial, same));
   assert.equal(made.length, 1);
-  assert.equal(kills.length, 0);
+  assert.deepEqual(kills, [made[0]]);
 
   await closed(await view(other.serial, same));
-  assert.equal(made.length, 1, "a matching stream reuses the running conversion");
+  assert.equal(made.length, 2, "matching headers do not permit another camera to borrow the conversion");
 
   const response = await view(third.serial, different);
-  assert.equal(made.length, 2, "a different stream needs a new encoder");
-  assert.deepEqual(kills, [made[0]]);
+  assert.equal(made.length, 3, "each new source owns a new encoder");
+  assert.deepEqual(kills, [made[0], made[1]]);
   await closed(response);
   await manager.close();
-  assert.deepEqual(kills, [made[0], made[1]]);
+  assert.deepEqual(kills, [made[0], made[1], made[2]]);
 });
 
 test("shares an H.264 fallback with viewers when a camera returns H.265", async () => {
