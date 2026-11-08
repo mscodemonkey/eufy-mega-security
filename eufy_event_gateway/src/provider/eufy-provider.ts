@@ -3285,8 +3285,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const profile = device && route ? cameraSettingProfile(this.#modelTrialRoute(device, route), change.setting) : null;
     if (!device || !route || !peer || !profile || !device.adminUserId || this.#recordingClosing) throw new CameraSettingError("unavailable");
     const optInSetting = change.setting === "lightBrightness" || change.setting === "manualFloodlight"
-      || profile.form === "motion-control" || profile.form === "solo-sensitivity";
-    if (profile.form === "solo-sensitivity" && !this.config.apiAuthenticationConfigured) throw new CameraSettingError("unavailable");
+      || profile.form === "motion-control" || profile.form === "solo-sensitivity" || profile.form === "solo-quality";
+    if (["solo-sensitivity", "solo-quality"].includes(profile.form) && !this.config.apiAuthenticationConfigured) throw new CameraSettingError("unavailable");
     const settingBinding = optInSetting ? this.#client.authenticatedBinding() : null;
     if (optInSetting && (!this.config.experimentalModelControls || !this.#client.isAuthenticatedUser(device.adminUserId) || !settingBinding)) throw new CameraSettingError("unavailable");
     cameraSettingWireValue(profile, change);
@@ -3299,7 +3299,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const releaseTrialPeer = this.#reserveTrialPeer(peer.serial);
     const generation = this.#startupGeneration;
     const deadline = Date.now() + 90_000;
-    const field = change.setting === "motionSensitivity" ? "motionSensitivityStep" : change.setting === "motionDetection" ? "motionDetectionEnabled" : change.setting === "lightBrightness" ? "lightBrightness" : change.setting === "manualFloodlight" ? "manualFloodlightEnabled" : "homebaseChimeEnabled";
+    const field = change.setting === "streamingQuality" ? "streamingQualityTier" : change.setting === "motionSensitivity" ? "motionSensitivityStep" : change.setting === "motionDetection" ? "motionDetectionEnabled" : change.setting === "lightBrightness" ? "lightBrightness" : change.setting === "manualFloodlight" ? "manualFloodlightEnabled" : "homebaseChimeEnabled";
     let session: FirstPartyPpcsSession | null = null;
     let dispatched = false;
     const check = (): void => {
@@ -3963,6 +3963,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#assertLegacyCamera(serial);
     const nvr = this.#devices.get(serial);
     if (nvr && this.#nvrLiveAdmitted(nvr, this.#devices.get(nvr.parentSerial))) return this.#runNvrLiveControl(serial, { kind: "quality", value: quality }, signal);
+    if (nvr?.model === "T8134" && nvr.deviceType === 63) {
+      return this.setCameraSetting(serial, { setting: "streamingQuality", value: quality }, signal);
+    }
     this.#assertNoModelTrial(serial);
     if (!Number.isInteger(quality) || quality < 0 || quality > 3) return Promise.reject(new Error("Unsupported streaming quality"));
     const previous = this.#streamingQualityOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
@@ -5047,6 +5050,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const experimentalSettingsReady = this.config.experimentalModelControls === true && !!device.adminUserId
       && this.#client.isAuthenticatedUser(device.adminUserId);
     const supportedDetections = directCameraDetectionKinds(device, route?.homeBaseAttached);
+    const s220Quality = experimentalSettingsReady && settingRouteReady && this.config.apiAuthenticationConfigured === true
+      && this.#client.authenticatedBinding() !== null && settingRoute !== null
+      && cameraSettingProfile(settingRoute, "streamingQuality") !== null
+      && device.reads.streamingQualityTier !== undefined;
+    const standaloneQuality = s220Quality || supportsStandaloneStreamingQuality(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials));
     const identity: CameraIdentity = {
       serial: device.serial,
       name: device.name,
@@ -5127,8 +5135,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         route,
         isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       ),
-      streamingQualityControlSupported: supportsStandaloneStreamingQuality(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
-      streamingQualityModes: supportsStandaloneStreamingQuality(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)) ? device.model === "T817L" ? [
+      streamingQualityControlSupported: standaloneQuality,
+      streamingQualityModes: s220Quality ? [
+        { value: 0, name: "Auto" }, { value: 1, name: "Low" }, { value: 2, name: "Medium" }, { value: 3, name: "High" },
+      ] : standaloneQuality ? device.model === "T817L" ? [
         { value: 0, name: "Auto" }, { value: 2, name: "Medium" }, { value: 3, name: "High" },
       ] : [
         { value: 0, name: "Auto" }, { value: 1, name: "HD (720P)" },
@@ -6530,8 +6540,10 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const qualityFamily = deviceType === 48 && /^T8170(?:$|[A-Z0-9-])/.test(model ?? "");
   const t8171 = deviceType === 88 && /^T8171(?:$|[A-Z0-9-])/.test(model ?? "");
   const t8425 = deviceType === 47 && /^T8425(?:$|[A-Z0-9-])/.test(model ?? "");
+  const reviewedStreamingQuality = readCameraSetting(settingRows, model ?? "", deviceType, standaloneChannelZero, "streamingQuality");
   const streamingQuality = c31 ? activeRecordingQuality(params.get(2730), 0) ?? null
-    : qualityFamily || t8171 ? finiteNumber(params.get(1020)) : null;
+    : typeof reviewedStreamingQuality === "number" ? reviewedStreamingQuality
+      : qualityFamily || t8171 ? finiteNumber(params.get(1020)) : null;
   const recordingQuality = c31 ? activeRecordingQuality(params.get(2731), 2)
     : qualityFamily || soloE30 ? activeRecordingQuality(params.get(2731)) : undefined;
   const solarIntensity = qualityFamily ? finiteNumber(params.get(1309)) : null;

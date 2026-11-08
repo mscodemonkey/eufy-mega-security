@@ -1,5 +1,5 @@
 /**
- * Defines reviewed sensitivity, chime and opt-in floodlight settings for exact camera routes.
+ * Defines reviewed sensitivity, live quality, chime and opt-in light settings for exact routes.
  * The provider owns leases, network reads and state publication. This module
  * owns native mappings and the single-write confirmation lifecycle consumed
  * by HTTP, PPCS and the Home Assistant settings boundary.
@@ -8,6 +8,7 @@ import type { ModelControlRoute } from "./model-control-trials.js";
 
 /** Closed absolute requests never carry arbitrary native command identifiers. */
 export type CameraSettingChange =
+  | { readonly setting: "streamingQuality"; readonly value: number }
   | { readonly setting: "motionSensitivity"; readonly value: number }
   | { readonly setting: "motionDetection"; readonly value: boolean }
   | { readonly setting: "lightBrightness"; readonly value: number }
@@ -18,7 +19,7 @@ export type CameraSettingChange =
 export interface CameraSettingProfile {
   readonly readParam: number;
   readonly command: number;
-  readonly form: "binary" | "payload" | "control" | "manual-light" | "motion-control" | "solo-sensitivity";
+  readonly form: "binary" | "payload" | "control" | "manual-light" | "motion-control" | "solo-sensitivity" | "solo-quality";
 
   /** Least-sensitive first; absent for boolean controls. */
   readonly ladder?: readonly number[];
@@ -44,6 +45,7 @@ export function parseCameraSettingChange(value: unknown): CameraSettingChange {
   if (!value || typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) throw new SyntaxError("Invalid camera setting");
   const row = value as Record<string, unknown>;
   if (Object.keys(row).length !== 2 || !Object.hasOwn(row, "setting") || !Object.hasOwn(row, "value")) throw new SyntaxError("Invalid camera setting");
+  if (row.setting === "streamingQuality" && typeof row.value === "number" && Number.isInteger(row.value) && row.value >= 0 && row.value <= 3) return { setting: row.setting, value: row.value };
   if (row.setting === "lightBrightness" && typeof row.value === "number" && Number.isInteger(row.value) && row.value >= 1 && row.value <= 100) return { setting: row.setting, value: row.value };
   if ((row.setting === "homebaseChime" || row.setting === "manualFloodlight" || row.setting === "motionDetection") && typeof row.value === "boolean") return { setting: row.setting, value: row.value };
   if (row.setting === "motionSensitivity" && typeof row.value === "number" && Number.isInteger(row.value) && row.value >= 1 && row.value <= 7) {
@@ -53,6 +55,8 @@ export function parseCameraSettingChange(value: unknown): CameraSettingChange {
 }
 
 function nativeProfile(model: string, type: number | null, standalone: boolean, setting: CameraSettingChange["setting"]): CameraSettingProfile | null {
+  if (setting === "streamingQuality") return standalone && model === "T8134" && type === 63
+    ? { readParam: 1020, command: 1700, form: "solo-quality" } : null;
   if (setting === "motionSensitivity" && standalone && model === "T8134" && type === 63) {
     return { readParam: 6070, command: 1700, form: "solo-sensitivity", ladder: [1, 2, 3, 4, 5, 6, 7] };
   }
@@ -91,6 +95,7 @@ export function readCameraSetting(
   const raw = rows[0]!.param_value;
   const value = typeof raw === "string" && /^(0|[1-9][0-9]*)$/.test(raw) ? Number(raw) : raw;
   if (typeof value !== "number" || !Number.isSafeInteger(value)) return undefined;
+  if (setting === "streamingQuality") return value >= 0 && value <= 3 ? value : undefined;
   if (setting === "homebaseChime" || setting === "manualFloodlight" || setting === "motionDetection") return value === 0 || value === 1 ? value === 1 : undefined;
   if (setting === "lightBrightness") return value >= 1 && value <= 100 ? value : undefined;
   const index = profile.ladder!.indexOf(value);
@@ -100,6 +105,10 @@ export function readCameraSetting(
 /** Convert one validated HA step to native bytes, rejecting profile-specific excess values. */
 export function cameraSettingWireValue(profile: CameraSettingProfile, change: CameraSettingChange): number {
   parseCameraSettingChange(change);
+  if (change.setting === "streamingQuality") {
+    if (profile.readParam !== 1020 || profile.command !== 1700 || profile.form !== "solo-quality" || profile.ladder) throw new CameraSettingError("unavailable");
+    return change.value;
+  }
   if (change.setting === "motionDetection") {
     if (profile.readParam !== 6040 || profile.command !== 1700 || profile.form !== "motion-control" || profile.ladder) throw new CameraSettingError("unavailable");
     return change.value ? 1 : 0;

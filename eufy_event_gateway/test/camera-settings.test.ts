@@ -8,7 +8,7 @@ import { createDecipheriv } from "node:crypto";
 import test from "node:test";
 import { cameraSettingProfile, cameraSettingWireValue, CameraSettingError, parseCameraSettingChange, readCameraSetting, runConfirmedCameraSetting } from "../src/provider/camera-settings.js";
 import type { ModelControlRoute } from "../src/provider/model-control-trials.js";
-import { buildFloodlightMotionControlValue, buildReviewedCameraSettingPayload } from "../src/stream/first-party-ppcs.js";
+import { buildFloodlightMotionControlValue, buildReviewedCameraSettingPayload, buildS220StreamingQualityControlValue, buildStandaloneJsonControlPayload } from "../src/stream/first-party-ppcs.js";
 import { safeInventoryReads } from "../src/provider/eufy-provider.js";
 
 const profiles = [
@@ -180,4 +180,35 @@ test("standalone S220 sensitivity has seven explicit steps and no attached fallb
   }
   for (const value of [0, 8, "3", null]) assert.equal(readCameraSetting([{ param_type: 6070, param_value: value }], "T8134", 63, true, "motionSensitivity"), value === "3" ? 3 : undefined);
   assert.equal(readCameraSetting([{ param_type: 6070, param_value: "2" }, { param_type: 6070, param_value: "2" }], "T8134", 63, true, "motionSensitivity"), undefined);
+});
+
+
+test("S220 live quality keeps exact standalone identity and its level-one native field", () => {
+  const selected = route("T8134", 63, false);
+  const profile = cameraSettingProfile(selected, "streamingQuality")!;
+  const key = Buffer.alloc(16, 9);
+  assert.equal(profile.readParam, 1020);
+  for (const value of [0, 1, 2, 3]) {
+    const change = { setting: "streamingQuality", value } as const;
+    const clear = buildS220StreamingQualityControlValue(change, selected);
+    assert.deepEqual(JSON.parse(clear), { commandType: 1020, data: { quality: value } });
+    const wire = buildStandaloneJsonControlPayload(clear, 0, key);
+    const decrypt = createDecipheriv("aes-128-ecb", key, null); decrypt.setAutoPadding(false);
+    assert.equal(Buffer.concat([decrypt.update(wire.subarray(10)), decrypt.final()]).toString().replace(/\0+$/, ""), clear);
+    const rows = [{ param_type: 1020, param_value: String(value) }];
+    assert.equal(readCameraSetting(rows, "T8134", 63, true, "streamingQuality"), value);
+    assert.equal(safeInventoryReads(rows, 63, "T8134", true).streamingQualityTier, value);
+    assert.equal(readCameraSetting([...rows, ...rows], "T8134", 63, true, "streamingQuality"), undefined);
+    assert.throws(() => buildReviewedCameraSettingPayload(change, selected, "synthetic", Buffer.alloc(32), 1, 1_800_000_000_000));
+  }
+  for (const patch of [{ model: "T8134X" }, { deviceType: 62 }, { peerModel: "T8030" },
+    { selfPeer: false }, { channel: 1 }, { homeBaseAttached: true }]) {
+    const other = { ...selected, ...patch };
+    assert.equal(cameraSettingProfile(other, "streamingQuality"), null);
+    assert.throws(() => buildS220StreamingQualityControlValue({ setting: "streamingQuality", value: 2 }, other));
+  }
+  for (const value of [-1, 4, true, null, "1", 1.5]) {
+    assert.throws(() => parseCameraSettingChange({ setting: "streamingQuality", value }));
+  }
+  assert.equal(safeInventoryReads([{ param_type: 1020, param_value: "1" }], 63, "T8134", false).streamingQualityTier, undefined);
 });
