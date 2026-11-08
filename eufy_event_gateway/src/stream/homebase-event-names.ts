@@ -15,11 +15,15 @@ export interface EventNameHistorySummary {
   readonly unresolvedPersonCrops: number;
 }
 
-/** Fixed failure reasons keep remote data and personal names out of errors. */
+/** Closed parser stages identify a rejected boundary without exposing rows or names. */
+export type EventNameHistoryStage = "unspecified" | "decode" | "json" | "envelope" | "tables" | "history_table" | "crop_table" | "people_table" | "history" | "people" | "crops";
+
+/** Operation-local failure metadata owned by the reader, safe for the HTTP diagnostic boundary. */
 export class EventNameHistoryError extends Error {
 
   /** Create one operation-local error without retaining transport values. */
-  constructor(readonly code: "unavailable" | "invalid_request" | "invalid_response" | "cancelled" | "timeout" | "busy") {
+  constructor(readonly code: "unavailable" | "invalid_request" | "invalid_response" | "cancelled" | "timeout" | "busy",
+    readonly stage: EventNameHistoryStage = "unspecified") {
     super(`Event name history check failed (${code})`);
     this.name = "EventNameHistoryError";
   }
@@ -80,11 +84,12 @@ function object(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function rows(value: Record<string, unknown>, name: string): Record<string, unknown>[] {
-  if (!Array.isArray(value.data)) throw new EventNameHistoryError("invalid_response");
+function rows(value: Record<string, unknown>, name: "history_record_info" | "record_crop_picture_info" | "person_basic_info"): Record<string, unknown>[] {
+  const stage = name === "history_record_info" ? "history_table" : name === "record_crop_picture_info" ? "crop_table" : "people_table";
+  if (!Array.isArray(value.data)) throw new EventNameHistoryError("invalid_response", "tables");
   const tables = value.data.filter(item => object(item) && item.table_name === name);
   if (tables.length !== 1 || !object(tables[0]) || !Array.isArray(tables[0].payload)
-    || tables[0].payload.length > 10_000 || !tables[0].payload.every(object)) throw new EventNameHistoryError("invalid_response");
+    || tables[0].payload.length > 10_000 || !tables[0].payload.every(object)) throw new EventNameHistoryError("invalid_response", stage);
   return tables[0].payload;
 }
 
@@ -101,18 +106,18 @@ function id(value: unknown): string {
  */
 export function summarizeEventNameHistory(value: unknown, serial: string, stationSerial: string, date: string): EventNameHistorySummary {
   validateRecordingDate(date);
-  if (!object(value) || value.mIntRet !== 0) throw new EventNameHistoryError("invalid_response");
+  if (!object(value) || value.mIntRet !== 0) throw new EventNameHistoryError("invalid_response", "envelope");
   const history = rows(value, "history_record_info"), crops = rows(value, "record_crop_picture_info"), people = rows(value, "person_basic_info");
-  if (history.length > 50) throw new EventNameHistoryError("invalid_response");
+  if (history.length > 50) throw new EventNameHistoryError("invalid_response", "history");
   const records = new Map<string, Record<string, unknown>>(), owners = new Map<string, string>();
   for (const row of history) {
     const key = id(row.record_id);
-    if (owners.has(key)) throw new EventNameHistoryError("invalid_response");
-    if (typeof row.device_sn !== "string" || row.station_sn !== stationSerial) throw new EventNameHistoryError("invalid_response");
+    if (owners.has(key)) throw new EventNameHistoryError("invalid_response", "history");
+    if (typeof row.device_sn !== "string" || row.station_sn !== stationSerial) throw new EventNameHistoryError("invalid_response", "history");
     owners.set(key, row.device_sn);
     if (row.device_sn !== serial) continue;
     if (row.device_type !== 7 || typeof row.start_time !== "string" || !recordTime(row.start_time, row.time_zone)) {
-      throw new EventNameHistoryError("invalid_response");
+      throw new EventNameHistoryError("invalid_response", "history");
     }
     if (row.start_time.slice(0, 10) === date) records.set(key, row);
   }
@@ -120,7 +125,7 @@ export function summarizeEventNameHistory(value: unknown, serial: string, statio
   for (const person of people) {
     if (!Number.isInteger(person.person_id) || typeof person.person_id !== "number" || person.person_id < -1
       || person.person_id > 2_147_483_647 || roster.has(person.person_id)
-      || person.station_sn !== undefined && person.station_sn !== stationSerial) throw new EventNameHistoryError("invalid_response");
+      || person.station_sn !== undefined && person.station_sn !== stationSerial) throw new EventNameHistoryError("invalid_response", "people");
     roster.set(person.person_id, person);
   }
   let personCrops = 0, unresolvedPersonCrops = 0;
@@ -130,7 +135,7 @@ export function summarizeEventNameHistory(value: unknown, serial: string, statio
     if (!records.has(record)) continue;
     const cropId = id(crop.crop_id);
     if (seen.has(cropId) || crop.station_sn !== undefined && crop.station_sn !== stationSerial
-      || crop.device_sn !== undefined && crop.device_sn !== serial) throw new EventNameHistoryError("invalid_response");
+      || crop.device_sn !== undefined && crop.device_sn !== serial) throw new EventNameHistoryError("invalid_response", "crops");
     seen.add(cropId);
     if (crop.detection_type !== 1) continue;
     personCrops++;
@@ -184,12 +189,12 @@ export class EventNameHistoryReader {
     const pending = this.#pending;
     if (!pending || header.length < 14 || header.readUInt16LE(4) !== 1306 || header[12] !== 255) return false;
     const clear = this.transport.decodeReply(payload, header[13] ?? 0);
-    if (!clear || clear.length > 2 * 1024 * 1024) { pending.reject(new EventNameHistoryError("invalid_response")); return true; }
+    if (!clear || clear.length > 2 * 1024 * 1024) { pending.reject(new EventNameHistoryError("invalid_response", "decode")); return true; }
     try {
       const value: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(clear).replace(/\0+$/, ""));
       if (!object(value) || value.cmd !== 10011 || value.table !== "history_record_info" || value.transaction !== pending.transaction) return false;
       pending.resolve(summarizeEventNameHistory(value, this.transport.serial, this.transport.stationSerial, pending.date));
-    } catch { pending.reject(new EventNameHistoryError("invalid_response")); }
+    } catch (error) { pending.reject(error instanceof EventNameHistoryError ? error : new EventNameHistoryError("invalid_response", "json")); }
     return true;
   }
 

@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { EventNameHistoryReader, eventHistoryCursor, eventHistoryId, nextEventHistoryDate, projectEventNameHistorySummary, summarizeEventNameHistory } from "../src/stream/homebase-event-names.js";
+import { EventNameHistoryError, EventNameHistoryReader, eventHistoryCursor, eventHistoryId, nextEventHistoryDate, projectEventNameHistorySummary, summarizeEventNameHistory } from "../src/stream/homebase-event-names.js";
 import { supportsEventNameHistory, type MegaInventoryDevice } from "../src/provider/eufy-provider.js";
 
 const serial = "invented-child", station = "invented-parent", date = "2026-10-31";
@@ -12,6 +12,20 @@ const history = { record_id: 123, device_sn: serial, station_sn: station, device
 const crop = { record_id: 123, crop_id: 456, person_id: 9, detection_type: 1 };
 const person = { person_id: 9, group_id: 0, name: "Invented Person" };
 const expected = { scope: "one_history_page", records: 1, personCrops: 1, recordsWithFamiliarNames: 1, unresolvedPersonCrops: 0 };
+
+test("a correlated rejection retains its fixed parser stage without retaining the reply", async () => {
+  let transaction = "";
+  const reader = new EventNameHistoryReader({ serial, stationSerial: station,
+    query: value => { transaction = value; }, decodeReply: payload => payload });
+  const operation = reader.read(date);
+  const rejected = assert.rejects(operation, error => error instanceof EventNameHistoryError
+    && error.code === "invalid_response" && error.stage === "envelope"
+    && !JSON.stringify(error).includes("PRIVATE-CANARY"));
+  const header = Buffer.alloc(16); header.writeUInt16LE(1306, 4); header[12] = 255;
+  reader.handleFrame(header, Buffer.from(JSON.stringify({ ...page(), transaction, mIntRet: 1, privateName: "PRIVATE-CANARY" })));
+  await rejected;
+  reader.close();
+});
 
 /** Build the observed table shape without any private source values. */
 function page(records = [history], crops = [crop], people = [person]) {

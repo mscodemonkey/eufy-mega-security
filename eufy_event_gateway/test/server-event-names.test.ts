@@ -13,14 +13,18 @@ import type { CameraProvider } from "../src/provider/provider.js";
 import { GatewayServer } from "../src/server.js";
 import { SnapshotStore } from "../src/storage/snapshot-store.js";
 import type { LiveStreamManager } from "../src/stream/live-stream-manager.js";
+import { EventNameHistoryError } from "../src/stream/homebase-event-names.js";
 
 test("manual name checks authenticate, validate before dispatch and expose only aggregate counts", async () => {
   const directory = await mkdtemp(join(tmpdir(), "event-names-http-")), state = new GatewayState();
   state.registerCamera({ serial: "invented", name: "Invented", model: "T8210", stationSerial: "parent", streamSupported: false, doorbellSupported: true });
   let calls = 0;
+  let failure = false;
   const summary = { scope: "one_history_page", records: 1, personCrops: 1, recordsWithFamiliarNames: 1, unresolvedPersonCrops: 0 };
   const provider = { diagnoseEventNames: async (_serial: string, date: string, cursor: string) => {
-    calls++; assert.equal(date, "2026-10-31"); assert.equal(cursor, "0"); return { ...summary, privateName: "PRIVATE-CANARY" };
+    calls++; assert.equal(date, "2026-10-31"); assert.equal(cursor, "0");
+    if (failure) throw Object.assign(new EventNameHistoryError("invalid_response", "history"), { privateName: "PRIVATE-CANARY" });
+    return { ...summary, privateName: "PRIVATE-CANARY" };
   } } as unknown as CameraProvider;
   const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "invented-secret" }, state,
     new SnapshotStore(directory), {} as LiveStreamManager, provider, null);
@@ -36,5 +40,9 @@ test("manual name checks authenticate, validate before dispatch and expose only 
     const response = await fetch(url, { method: "POST", headers, body });
     assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "no-store");
     assert.deepEqual(await response.json(), summary); assert.equal(calls, 1);
+    failure = true;
+    const failed = await fetch(url, { method: "POST", headers, body });
+    assert.equal(failed.status, 502);
+    assert.deepEqual(await failed.json(), { error: "Event name history check failed (invalid_response)", code: "invalid_response", stage: "history" });
   } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
