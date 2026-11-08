@@ -3818,6 +3818,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const requestedRoute = requested ? ppcsStreamRoute(requested, this.#devices) : null;
     const peerKey = requestedRoute?.homeBaseAttached && requestedRoute.peer.model === "T8010"
       ? requestedRoute.peer.serial : null;
+    const startedAt = performance.now();
+    const elapsed = { queue: 0, prepare: 0, connect: 0, write: 0, retire: 0, readback: 0, backoff: 0 };
+    let phase: keyof typeof elapsed = "queue", phaseAt = startedAt;
+    let failurePhase: keyof typeof elapsed | "none" = "none";
+    let confirmed = false, readbackAttempts = 0, connections = 0;
+    const enterPhase = (next: keyof typeof elapsed): void => {
+      const now = performance.now();
+      elapsed[phase] += now - phaseAt;
+      phase = next; phaseAt = now;
+    };
     const previous = (peerKey ? this.#homeBaseMotionOperations.get(peerKey) : this.#motionOperations.get(serial)) ?? Promise.resolve();
     let predecessorSettled = false;
     void previous.finally(() => { predecessorSettled = true; });
@@ -3827,6 +3837,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const retirements: Promise<void>[] = [];
     const result = withCameraControlDeadline(async scope => {
       await scope.wait(() => previous.catch(() => undefined));
+      enterPhase("prepare");
       const current = (): void => {
         scope.signal.throwIfAborted();
         if (generation !== this.#startupGeneration || this.#recordingClosing) throw new Error("Camera motion control cancelled");
@@ -3835,7 +3846,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (peerKey) {
         let stationOperation: Promise<HomeBaseState> | undefined;
         while ((stationOperation = this.#stationOperations.get(peerKey))) {
+          enterPhase("queue");
           await scope.wait(() => stationOperation!.catch(() => undefined));
+          enterPhase("prepare");
           current();
         }
       }
@@ -3866,6 +3879,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       current();
       if (!dsk) throw new Error("Camera motion detection control is unavailable for this camera");
       for (let operation = 0; operation < (soloCam ? 2 : 1); operation++) {
+        enterPhase("prepare");
         current();
         const session = new FirstPartyPpcsSession({
           stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
@@ -3884,35 +3898,51 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         const removeCleanup = scope.onAbort(retire);
         let acknowledgementTimedOut = false;
         try {
+          connections++; enterPhase("connect");
           await scope.wait(() => session.start());
           current();
+          enterPhase("write");
           await scope.wait(() => session.writeMotionDetection(enabled, scope.dispatched));
         } catch (error) {
           current();
           if (error instanceof CameraControlAcknowledgementTimeoutError) acknowledgementTimedOut = true;
-          else if (!soloCam) throw error;
-        } finally { removeCleanup(); retire(); await retirement; }
+          else if (!soloCam) { failurePhase = phase; throw error; }
+        } finally {
+          if (scope.signal.aborted) failurePhase = phase;
+          enterPhase("retire");
+          removeCleanup(); retire(); await retirement;
+        }
 
         // A pre-write HomeBase snapshot must not override fresh command confirmation.
         this.#invalidateLiveReads(serial, ["motionDetectionEnabled"]);
         for (let attempt = 0; attempt < 12; attempt++) {
           current();
+          enterPhase("readback"); readbackAttempts++;
           await scope.wait(() => this.#refreshInventoryReads());
           current();
           const refreshed = this.#devices.get(serial);
           if (refreshed?.reads.motionDetectionEnabled === enabled) {
             if (acknowledgementTimedOut) logger.warn("camera_motion_acknowledgement_missing", "Camera motion detection was confirmed by fresh inventory after its acknowledgement was unavailable");
+            confirmed = true;
             return this.#cameraIdentity(refreshed);
           }
+          enterPhase("backoff");
           await scope.wait(() => delay(2000));
         }
       }
+      failurePhase = "readback";
       throw new Error("Camera motion detection write was not confirmed by readback");
     }, controller.signal).catch((error: unknown) => {
+      if (failurePhase === "none") failurePhase = phase;
       logger.warn("camera_motion_detection_failed", `Camera motion command failed: error=${safeError(error)}`);
       throw error;
     }).finally(async () => {
       await Promise.allSettled(retirements);
+      enterPhase(phase);
+      logger.info("camera_motion_control_timings",
+        `model=${safeLogModel(requested?.model ?? "unknown")} outcome=${confirmed ? "confirmed" : "failed"} failure_phase=${failurePhase}`
+        + ` total_ms=${Math.round(performance.now() - startedAt)} ${Object.entries(elapsed).map(([name, value]) => `${name}_ms=${Math.round(value)}`).join(" ")}`
+        + ` connections=${connections} readback_attempts=${readbackAttempts}`);
       this.#motionAborters.delete(controller);
     });
 
