@@ -18,7 +18,7 @@ const nvrTrialReasons = [
   "station_mismatch", "channel_mismatch", "relay_count", "relay_shape", "relay_fields", "candidate_limit",
   "candidate_shape", "candidate_component", "candidate_transport", "candidate_priority", "candidate_host",
   "candidate_port", "candidate_type", "candidate_extension", "candidate_related_address", "candidate_related_port",
-  "offer_order", "offer_media", "offer_fingerprint", "offer_mid", "offer_ice",
+  "offer_order", "offer_media", "offer_size", "offer_media_count", "offer_media_tracks", "offer_fingerprint", "offer_mid", "offer_ice",
   "offer_setup", "offer_sctp", "offer_message_size", "offer_duplicate", "peer_setup", "peer_failed",
   "peer_disconnected", "local_candidate_limit", "remote_description", "remote_candidate", "create_answer",
   "local_description", "send_answer", "unexpected_negotiation_error",
@@ -345,14 +345,20 @@ export function nvrNetworkHost(host: string): boolean {
     && !value.endsWith(".localhost") && !value.endsWith(".local");
 }
 
-/** Validate a single data-channel offer and return its actual ICE mid. */
+/**
+ * Validate a single data-channel offer and return its actual ICE mid.
+ * Rejections identify only fixed shape categories, never received SDP. A track
+ * category does not qualify that offer for another transport or relax parsing.
+ */
 export function nvrOffer(value: unknown): { sdp: string; mid: string } {
   if (typeof value !== "string" || value.trimStart().startsWith("{")) throw new NvrTrialError("offer_compact");
   const lines = value.split(/\r?\n/), media = lines.filter(line => line.startsWith("m="));
   const fingerprints = lines.filter(line => line.startsWith("a=fingerprint:"));
   const mids = lines.filter(line => line.startsWith("a=mid:"));
-  if (Buffer.byteLength(value) > 65536 || media.length !== 1
-    || !/^m=application \d+ UDP\/DTLS\/SCTP webrtc-datachannel(?: \d+)?$/.test(media[0]!)) throw new NvrTrialError("negotiation", "offer_media");
+  if (Buffer.byteLength(value) > 65536) throw new NvrTrialError("negotiation", "offer_size");
+  if (media.some(line => /^m=(audio|video) /.test(line))) throw new NvrTrialError("negotiation", "offer_media_tracks");
+  if (media.length !== 1) throw new NvrTrialError("negotiation", "offer_media_count");
+  if (!/^m=application \d+ UDP\/DTLS\/SCTP webrtc-datachannel(?: \d+)?$/.test(media[0]!)) throw new NvrTrialError("negotiation", "offer_media");
   if (fingerprints.length !== 1 || !/^a=fingerprint:sha-256 (?:[0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2}$/.test(fingerprints[0]!)) throw new NvrTrialError("negotiation", "offer_fingerprint");
   if (mids.length !== 1 || !/^a=mid:[A-Za-z0-9_-]{1,32}$/.test(mids[0]!)) throw new NvrTrialError("negotiation", "offer_mid");
   if (!lines.some(line => /^a=ice-ufrag:[A-Za-z0-9+/]{4,256}$/.test(line))
