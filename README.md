@@ -516,6 +516,15 @@ Standalone installs can set `EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE=true`
 with a configured API token. Disabling the option restores ordinary transport
 playback after restarting the app.
 
+### Experimental shared NVR lens cameras
+
+For an owned T8E00 on T8N00, the existing experimental NVR controls can expose
+optional Fixed and Movable camera entities from one Both feed. Both entities
+start disabled in HA. Each shows its own 1280x720 video-only pane and retained
+image, sharing one camera connection and decoder. They require Both view and
+keep the NVR call while either view or its recording is active. Hardware
+simultaneous playback remains unconfirmed. See [shared lens setup and limits](docs/NVR_LIVE_CONTROLS.md#separate-shared-720p-lens-entities).
+
 ### Experimental fixed H.265 viewer resolution
 
 The app option `experimental_fixed_h265_resolution` is off by default. When
@@ -544,10 +553,11 @@ The saving costs detail and smoothness in each pane:
 | --- | --- | --- |
 | Single 1920 by 1080 view, 15 pictures a second | 1920 by 1080, 15 | 1280 by 720, 7.5 |
 | Single view 720 lines or fewer | unchanged size, every picture | unchanged size, every second picture |
-| NVR Both view, 1280 by 1440 stacked | each lens 1280 by 720 | 640 by 720 stacked, so each lens 640 by 360 |
+| NVR Both view, 1280 by 1440 stacked, as one camera | each lens 1280 by 720 | 640 by 720 stacked, so each lens 640 by 360 |
 
 With `experimental_fixed_h265_resolution` also on, the fixed 1920 by 1080 size
-applies and only the picture rate is halved. The profile was measured only on a
+applies and only the picture rate is halved. The shared 720p lens cameras have
+their own conversion, which this option does not change. The profile was measured only on a
 Home Assistant Green with a 1080p, 15 fps S350 behind an NVR S4, where it kept
 the converted view about 2.5 seconds behind live. Other cameras and hosts are
 unconfirmed. Standalone installs can set

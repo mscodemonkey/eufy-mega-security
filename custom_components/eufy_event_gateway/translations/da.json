@@ -10,6 +10,12 @@
       }
     },
     "camera": {
+      "shared_fixed": {
+        "name": "Fast (delt 720p)"
+      },
+      "shared_movable": {
+        "name": "Bevægelig (delt 720p)"
+      },
       "event_image": {
         "name": "Hændelsesbillede"
       }

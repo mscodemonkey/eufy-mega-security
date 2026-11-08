@@ -6,6 +6,10 @@ entity:
     manual_floodlight:
       name: Manual floodlight
   camera:
+    shared_fixed:
+      name: Fixed (shared 720p)
+    shared_movable:
+      name: Movable (shared 720p)
     event_image:
       name: Event image
   image:

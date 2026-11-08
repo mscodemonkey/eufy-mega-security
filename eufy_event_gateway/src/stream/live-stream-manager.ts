@@ -21,6 +21,7 @@ import { GatewayState } from "../domain/gateway-state.js";
 import type { CameraState, GatewayEvent, SnapshotInfo, VideoCodec } from "../domain/types.js";
 import { SnapshotStore } from "../storage/snapshot-store.js";
 import { ViewerStartupTimeline, type ViewerStartupMilestones } from "./viewer-startup-timeline.js";
+import { SharedLensViews, spawnSharedLensConverter, type SharedLens, type SharedLensConverterFactory } from "./shared-lens-views.js";
 import { JpegParser } from "./jpeg-parser.js";
 import { qualifiedS340LiveSource } from "./live-frame-clock.js";
 import { MediaInputBound } from "./media-input-bound.js";
@@ -601,6 +602,7 @@ function annexBStarts(data: Buffer): Array<{ offset: number; payloadOffset: numb
  */
 export class LiveStreamManager extends EventEmitter {
   readonly #sessions = new Map<string, Session>();
+  readonly #lensViews = new Map<string, SharedLensViews>();
   readonly #deliveredViews = new Set<string>();
   readonly #newViews = new Map<string, number>();
   readonly #heldViews = new Set<string>();
@@ -625,6 +627,7 @@ export class LiveStreamManager extends EventEmitter {
     private readonly sourceQuietMilliseconds = 30_000,
     private readonly nowMilliseconds: () => number = () => performance.now(),
     private readonly experimentalS340SmoothLive = false,
+    private readonly createLensConverter: SharedLensConverterFactory = spawnSharedLensConverter,
   ) {
     super();
   }
@@ -636,6 +639,32 @@ export class LiveStreamManager extends EventEmitter {
    */
   addClient(serial: string, response: VideoViewerResponse, profile: ViewerProfile = "compatible", view?: string): Promise<void> {
     return this.#addClient(serial, response, profile, performance.now(), view);
+  }
+
+  /** Share both pane outputs through one unmarked native viewer, protecting its camera call. */
+  async addLensClient(serial: string, lens: SharedLens, response: VideoViewerResponse): Promise<void> {
+    if (this.#closed || response.destroyed || response.writableEnded) return;
+    const admitted = (): boolean => {
+      if (!this.state.hasCamera(serial)) return false;
+      const camera = this.state.getCamera(serial);
+      return camera.model === "T8E00" && camera.nvrLiveControlsSupported === true && camera.nvrSelectedView === 2;
+    };
+    if (!admitted()) throw new Error("Select the admitted NVR Both view before opening a lens");
+    let pair = this.#lensViews.get(serial);
+    const fresh = !pair;
+    if (!pair) {
+      const owned = new SharedLensViews(() => new VideoParameterSetCache(), this.createLensConverter,
+        terminateMediaProcess, reason => {
+          if (this.#lensViews.get(serial) === owned) this.#lensViews.delete(serial);
+          this.emit("shared-lens-closed", { model: "T8E00", reason });
+        }, admitted);
+      pair = owned; this.#lensViews.set(serial, owned);
+    }
+    pair.add(lens, response);
+    if (fresh) {
+      try { await this.addClient(serial, pair.input, "native"); }
+      catch (error) { pair.close(); throw error; }
+    }
   }
 
   /** Keep the original request clock across retirement and transport setup. */
@@ -1156,6 +1185,7 @@ export class LiveStreamManager extends EventEmitter {
 
   /** Stop every source and release FFmpeg processes during shutdown. */
   async close(): Promise<void> {
+    for (const pair of this.#lensViews.values()) pair.close();
     if (this.#closed) return;
     this.#closed = true;
     this.emit("closed");

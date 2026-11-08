@@ -8,7 +8,7 @@ import { createCipheriv, createDecipheriv, createECDH, createHmac } from "node:c
 import { Socket } from "node:dgram";
 import test, { type TestContext } from "node:test";
 import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
-import { C31IndexError, summarizeC31Index, validateC31IndexWindow } from "../src/stream/c31-recording-index.js";
+import { C31IndexError, parseC31IndexRequest, summarizeC31Index, validateC31IndexWindow } from "../src/stream/c31-recording-index.js";
 
 /** Deliver a synthetic XZYH frame through the real session's socket listener. */
 function deliver(socket:Socket,command:number,payload:Buffer,sign=0,sequence=0):void {
@@ -61,9 +61,26 @@ test("index summaries reject private envelope mismatches and bound rows", () => 
   }
 });
 
-for (const mode of ["reply", "owner", "transaction", "closed", "timeout", "media", "oversized", "guard", "send"]) {
+test("historical consent accepts one closed bounded interval and preserves recent-window compatibility", () => {
+  const now = 1_800_000_000, window = { beginTime: now - 7500, endTime: now - 7200 };
+  assert.deepEqual(parseC31IndexRequest({ consentReadRecordingIndex: true, ...window }, now), window);
+  assert.equal(parseC31IndexRequest({ consentReadRecordingIndex: true }, now), undefined);
+  validateC31IndexWindow(now - 86400, now - 86400 + 60, now);
+  for (const body of [null, {}, { consentReadRecordingIndex: false },
+    { consentReadRecordingIndex: true, beginTime: window.beginTime },
+    { consentReadRecordingIndex: true, ...window, privateField: true },
+    ...[{ beginTime: now - 86401, endTime: now - 86400 }, { beginTime: now - 1801, endTime: now },
+      { beginTime: now, endTime: now + 1 }, { beginTime: window.beginTime * 1000, endTime: window.endTime * 1000 },
+      { beginTime: NaN, endTime: now }, { beginTime: "1799992500", endTime: now },
+      { beginTime: now - 60.5, endTime: now }, { beginTime: now, endTime: now }]
+      .map(value => ({ consentReadRecordingIndex: true, ...value }))]) {
+    assert.throws(() => parseC31IndexRequest(body, now), C31IndexError);
+  }
+});
+
+for (const mode of ["reply", "historical", "owner", "transaction", "closed", "timeout", "media", "oversized", "guard", "send"]) {
   test(`single scoped C31 query settles and cleans up: ${mode}`, async context => {
-    const p = await peer(context), end = Math.floor(Date.now() / 1000), begin = end - 1800;
+    const p = await peer(context), end = Math.floor(Date.now() / 1000) - (mode === "historical" ? 7200 : 0), begin = end - 1800;
     context.mock.timers.enable({ apis: ["setTimeout"] });
     if (mode === "send") context.mock.method(Socket.prototype, "send", function(data: Buffer) {
       p.sent.push(Buffer.from(data)); const at = data.indexOf(Buffer.from("XZYH"));
@@ -71,7 +88,8 @@ for (const mode of ["reply", "owner", "transaction", "closed", "timeout", "media
     });
     let guards = 0;
     const operation = p.session.readC31RecordingIndex(begin, end, () => { if (++guards === 2 && mode === "guard") throw new C31IndexError("cancelled"); });
-    const observed = mode === "reply" ? operation : assert.rejects(operation, C31IndexError);
+    const success = mode === "reply" || mode === "historical";
+    const observed = success ? operation : assert.rejects(operation, C31IndexError);
     await new Promise(resolve => setImmediate(resolve));
     const frames = p.sent.filter(b => { const at = b.indexOf(Buffer.from("XZYH")); return at >= 0 && b.readUInt16LE(at + 4) === 1700; });
     assert.equal(frames.length, mode === "guard" ? 0 : 1);
@@ -82,12 +100,13 @@ for (const mode of ["reply", "owner", "transaction", "closed", "timeout", "media
       const request = JSON.parse(Buffer.concat([decipher.update(encrypted.subarray(32)), decipher.final()]).toString());
       assert.deepEqual(Object.keys(request).sort(), ["commandType", "data"]);
       assert.equal(request.commandType, 6000);
-      assert.deepEqual(Object.keys(request.data).sort(), ["begin_time", "device_sn", "end_time", "transaction"]);
+      assert.deepEqual(Object.keys(request.data).sort(), ["begin_time", "device_sn", "end_time", "sensor_id"]);
+      assert.equal(request.data.sensor_id, 0);
       assert.equal(request.data.begin_time, begin); assert.equal(request.data.end_time, end);
-      assert.equal(request.data.device_sn, "SYNTHETIC1234567"); assert.match(request.data.transaction, /^\d{13}$/);
+      assert.equal(request.data.device_sn, "SYNTHETIC1234567");
     }
     const reply = { begin_time: begin, end_time: end, account: mode === "owner" ? "wrong" : "synthetic-account", id: 1, videos: [] };
-    if (["reply", "owner", "transaction"].includes(mode)) {
+    if (["reply", "historical", "owner", "transaction"].includes(mode)) {
       deliver(p.socket, 1351, Buffer.from(JSON.stringify({ cmd: 6004, payload: reply })), 0, 1);
       deliver(p.socket, 1351, Buffer.from(JSON.stringify({ cmd: 6003, payload: reply })), 0, 2);
       deliver(p.socket, 1351, Buffer.from(JSON.stringify({ cmd: 6000, payload: { ack: true } })), 0, 3);
@@ -97,7 +116,21 @@ for (const mode of ["reply", "owner", "transaction", "closed", "timeout", "media
     else if (mode === "oversized") deliver(p.socket, 1351, Buffer.alloc(256 * 1024 + 1), 0, 1);
     else if (mode === "timeout") context.mock.timers.tick(15_000);
     else p.session.close();
-    if (mode === "reply") assert.equal((await observed as { outcome: string }).outcome, "empty"); else await observed;
+    if (success) assert.equal((await observed as { outcome: string }).outcome, "empty"); else await observed;
     assert.equal(p.session.stats.mediaStartAttempts, 0); p.session.close(); p.session.close();
   });
 }
+
+test("index readers cannot replace each other's slot after waiting for a key", async context => {
+  const p = await peer(context), end = Math.floor(Date.now() / 1000), begin = end - 300;
+  try {
+    const first = p.session.readC31RecordingIndex(begin, end, () => {});
+    await assert.rejects(p.session.readC31RecordingIndex(begin, end, () => {}), /busy/);
+    deliver(p.socket, 1351, Buffer.from(JSON.stringify({ cmd: 6000, payload: {
+      begin_time: begin, end_time: end, account: "synthetic-account", id: 1, videos: [],
+    } })), 0, 1);
+    assert.equal((await first).outcome, "empty");
+    assert.equal(p.sent.filter(b => { const at = b.indexOf(Buffer.from("XZYH"));
+      return at >= 0 && b.readUInt16LE(at + 4) === 1700; }).length, 1);
+  } finally { p.session.close(); }
+});

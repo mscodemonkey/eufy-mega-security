@@ -11,7 +11,7 @@ Enable `experimental_nvr_live`, `experimental_model_controls` and `experimental_
 
 T8416 offers no Camera view choice. A reporter described a Telephoto source, but on an owner-tested S350 the second NVR source showed the same wide picture, while zoom 2x and 3x narrowed it to the telephoto picture and 1x restored the wide one. T8416 quality names follow the eufy app's Streaming Quality. The T8416 NVR night values differ from the separate HomeBase connection.
 
-T8E00 Both shows the Fixed and Movable lenses together, Fixed above Movable, as the eufy app's live view does. It is the default view where Camera view is offered. Live video without these controls keeps the Movable lens. The NVR stacks them into one 1280×1440 picture, two 1280×720 panes, so it is still one source and one live view, with fewer pixels than a single 1920×1080 view. While Both is chosen, every card that shows the camera shows the stacked picture. Direction and zoom act on the Movable lens, the lower pane. With `experimental_fixed_h265_resolution` on, the H.264 compatibility conversion fits the stacked picture inside 1920×1080 with bars at the sides, as it does any other size. With `experimental_low_cpu_h265_conversion` on, the conversion halves the stacked picture to 640×720, so each lens is 640×360, at every second picture. Both is not a separate Fixed camera entity.
+T8E00 Both shows the Fixed and Movable lenses together, Fixed above Movable, as the eufy app's live view does. It is the default view where Camera view is offered. Live video without these controls keeps the Movable lens. The NVR stacks them into one 1280×1440 picture, two 1280×720 panes, so it is still one source and one live view, with fewer pixels than a single 1920×1080 view. While Both is chosen, every card that shows the camera shows the stacked picture. Direction and zoom act on the Movable lens, the lower pane. With `experimental_fixed_h265_resolution` on, the H.264 compatibility conversion fits the stacked picture inside 1920×1080 with bars at the sides, as it does any other size. With `experimental_low_cpu_h265_conversion` on, the conversion of this combined view halves the stacked picture to 640×720, so each lens is 640×360, at every second picture. Both remains the combined camera view. The optional shared 720p entities below expose each pane separately, through their own conversion, which neither option changes.
 
 T8416 AI tracking is a persistent setting like night vision. The gateway sends 6016 on the PTZ transport, accepts the receipt, and then requires the channel row to read back the requested value before reporting success. The Home Assistant enable and disable buttons appear once a live start or capability refresh has read the current value. On an owner-tested S350 the eufy app showed each change.
 
@@ -77,3 +77,40 @@ Recordings, held views, leases and unmarked consumers keep their connection. A
 new recording hold cannot be acknowledged while the old source is stopping.
 Previously delivered view URLs cannot take the call back after switching. This
 is a single-call handoff, not simultaneous-view support.
+
+## Separate shared 720p lens entities
+
+The exact T8E00/type301 behind an owned T8N00/type300 has two optional camera
+entities, **Fixed (shared 720p)** and **Movable (shared 720p)**. They start disabled
+in Home Assistant. Enable the existing experimental NVR live, model controls and
+NVR controls options, select **Both** while the camera is idle, then enable the
+two entities on that same HA device. They become unavailable outside Both view.
+No setting changes or viewers start merely because the entities are discovered.
+
+Both entities share the existing NVR connection and one decoder. The gateway
+splits the recorder's 1280x1440 Both picture into a top Fixed 1280x720 pane and a
+bottom Movable 1280x720 pane, each encoded as H.264. This provides simultaneous
+views of the two lenses, not independent 1080p sources or simultaneous views of
+different NVR cameras. Their retained images have separate caches. An unexpected
+input resolution is refused rather than shown under the wrong lens label.
+
+These views are video-only, including when Live audio is enabled for the main
+camera. Opening both costs two 720p encodes plus one shared decode. A decoder
+that cannot keep up closes its views rather than retaining an ever-growing input
+queue. A slow viewer closes independently. An active pane keeps the NVR call,
+including while Home Assistant records from it. Other NVR cameras must wait
+until those views, recordings and any preload have finished. Closing one pane
+does not end the other or an unrelated recording on the shared physical source.
+
+Use Home Assistant's standard `camera.record` to record a pane. The integration's
+`record_clip` action is refused on these entities because that gateway action
+records the whole physical source. Fresh `capture_snapshot` reads the selected
+pane after the normal explicit capture. Retained dashboard images never start
+the camera and never substitute a whole-camera or opposite-lens image.
+
+Local synthetic video tests confirm the split, output dimensions, cache isolation
+and source ownership. Physical simultaneous playback and recording on T8E00/NVR
+hardware remain unconfirmed. For one test, open both new entities, verify the
+pictures match the app's two lenses and keep moving, then close one and check the
+other continues. No movement or security-setting change is needed. If they close
+unexpectedly, share only `shared_lens_view_closed`, keeping images and video private.

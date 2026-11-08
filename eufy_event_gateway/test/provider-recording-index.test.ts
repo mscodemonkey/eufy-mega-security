@@ -14,7 +14,7 @@ import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
 import { C31IndexError } from "../src/stream/c31-recording-index.js";
 
-for (const mode of ["valid", "disabled", "type", "model", "channel", "owner", "attached", "duplicate", "changed", "cancelled", "closed", "busy", "generation"]) {
+for (const mode of ["valid", "historical", "invalid-window", "disabled", "type", "model", "channel", "owner", "attached", "duplicate", "changed", "cancelled", "closed", "busy", "generation"]) {
   test(`manual index binding and recovery: ${mode}`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "index-provider-"));
     const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
@@ -33,11 +33,13 @@ for (const mode of ["valid", "disabled", "type", "model", "channel", "owner", "a
     context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => undefined);
     context.mock.method(FirstPartyPpcsSession.prototype, "readCameraInfo", async () => []);
     const controller = new AbortController();
+    const now = Math.floor(Date.now() / 1000), window = { beginTime: now - 7500, endTime: now - 7200 };
     const provider = new EufyProvider({ username: "synthetic", password: "synthetic", country: "AU", persistentDirectory: directory,
       maxStreamSeconds: 120, experimentalModelControls: mode !== "disabled" });
     let entered!: () => void, release!: () => void;
     const waiting = new Promise<void>(resolve => { entered = resolve; }), held = new Promise<void>(resolve => { release = resolve; });
     const query = context.mock.method(FirstPartyPpcsSession.prototype, "readC31RecordingIndex", async (_begin: number, _end: number, current: () => void) => {
+      if (mode === "historical") assert.deepEqual([_begin, _end], [window.beginTime, window.endTime]);
       current(); entered();
       if (mode === "cancelled") controller.abort();
       if (mode === "closed") await provider.close();
@@ -48,13 +50,17 @@ for (const mode of ["valid", "disabled", "type", "model", "channel", "owner", "a
     try {
       await provider.start(new Proxy({}, { get: () => () => undefined }) as ProviderEvents);
       await new Promise(resolve => setImmediate(resolve));
-      const operation = provider.readRecordingIndexTrial("camera", controller.signal);
+      const inputWindow = { ...window };
+      const operation = provider.readRecordingIndexTrial("camera", controller.signal,
+        mode === "historical" ? inputWindow : mode === "invalid-window" ? { beginTime: now - 86401, endTime: now } : undefined);
+      if (mode === "historical") inputWindow.beginTime = now;
       if (mode === "busy") { await waiting; await assert.rejects(provider.readRecordingIndexTrial("camera", new AbortController().signal), /busy/); release(); }
-      if (["valid", "busy"].includes(mode)) {
+      if (["valid", "historical", "busy"].includes(mode)) {
         assert.equal((await operation).outcome, "empty");
         await assert.rejects(provider.readRecordingIndexTrial("camera", new AbortController().signal), /busy/);
         assert.equal(query.mock.callCount(), 1);
       } else await assert.rejects(operation, C31IndexError);
+      if (mode === "invalid-window") assert.equal(query.mock.callCount(), 0);
       assert.equal(network.mock.callCount(), 0);
     } finally { release(); await provider.close(); await rm(directory, { recursive: true, force: true }); }
   });

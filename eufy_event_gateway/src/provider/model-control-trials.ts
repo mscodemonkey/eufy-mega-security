@@ -6,11 +6,12 @@
  */
 
 import { setTimeout as delay } from "node:timers/promises";
-import { CameraInfoReadError } from "../stream/camera-info-failure.js";
+import { CameraInfoReadError, cameraInfoFailureReason, type CameraInfoFailureReason } from "../stream/camera-info-failure.js";
 
 /** Only these operations may cross the experimental control boundary. */
 export type ModelControlTrial =
   | { readonly action: "alarmState"; readonly enabled: false }
+  | { readonly action: "spotlightState"; readonly enabled: false }
   | { readonly action: "manualLight"; readonly enabled: boolean }
   | { readonly action: "motion"; readonly enabled: boolean }
   | { readonly action: "aiTracking"; readonly enabled: boolean }
@@ -63,8 +64,32 @@ export type AlarmStateTrialResult = (
       readonly parseStage: "none" | "invalid_json" | "invalid_schema" | "parsed"; readonly keyReady: boolean }
 ) & { readonly physicalConfirmationRequired?: never; readonly stoppedEarly?: never; readonly acknowledgementReceived?: never };
 
+/** One C35 native switch observation, never a light command or illumination claim. */
+export type SpotlightStateReadResult = (
+  | { readonly outcome: "reported"; readonly readOnly: true; readonly spotlightEnabled: boolean }
+  | { readonly outcome: "unavailable"; readonly readOnly: true; readonly reason: CameraInfoFailureReason }
+) & { readonly physicalConfirmationRequired?: never; readonly stoppedEarly?: never; readonly acknowledgementReceived?: never };
+
 /** Separate read observations from the unchanged setting-write contract. */
-export type ModelControlTrialResult = ModelControlWriteTrialResult | AlarmStateTrialResult;
+export type ModelControlTrialResult = ModelControlWriteTrialResult | AlarmStateTrialResult | SpotlightStateReadResult;
+
+/** Project only a closed read observation at HTTP boundaries, rejecting extra fields. */
+export function closedSpotlightStateResult(value: unknown): SpotlightStateReadResult {
+  const unavailable: SpotlightStateReadResult = { outcome: "unavailable", readOnly: true, reason: "unavailable" };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return unavailable;
+  const row = value as Record<string, unknown>, keys = Object.keys(row);
+  if (row.readOnly !== true || keys.length !== 3) return unavailable;
+  if (row.outcome === "reported" && typeof row.spotlightEnabled === "boolean"
+    && keys.every(key => ["outcome", "readOnly", "spotlightEnabled"].includes(key))) {
+    return { outcome: "reported", readOnly: true, spotlightEnabled: row.spotlightEnabled };
+  }
+  if (row.outcome === "unavailable" && typeof row.reason === "string"
+    && keys.every(key => ["outcome", "readOnly", "reason"].includes(key))) {
+    return { outcome: "unavailable", readOnly: true,
+      reason: cameraInfoFailureReason(new CameraInfoReadError(row.reason as CameraInfoFailureReason)) };
+  }
+  return unavailable;
+}
 
 /** Rebuild a private read result at HTTP boundaries, discarding unknown fields. */
 export function closedAlarmStateResult(value: unknown): AlarmStateTrialResult {
@@ -108,6 +133,7 @@ export function parseModelControlTrial(value: unknown): ModelControlTrial {
   const row = value as Record<string, unknown>;
   if (Object.keys(row).length !== 2) throw new SyntaxError("Model control trial requires exactly two fields");
   if (row.action === "alarmState" && row.enabled === false) return { action: "alarmState", enabled: false };
+  if (row.action === "spotlightState" && row.enabled === false) return { action: "spotlightState", enabled: false };
   if (row.action === "sirenConnection" && row.enabled === false) return { action: "sirenConnection", enabled: false };
   if ((row.action === "manualLight" || row.action === "motion" || row.action === "aiTracking" || row.action === "spotlight" || row.action === "siren") && typeof row.enabled === "boolean") {
     return { action: row.action, enabled: row.enabled };
@@ -130,7 +156,7 @@ export function modelControlTrialActions(route: ModelControlRoute): readonly Mod
       && route.channel >= 0 && route.channel <= 255 ? ["ptz"] : [];
   }
   if (!route.selfPeer || route.channel !== 0) return [];
-  if (route.model === "T8110" && route.deviceType === 10035 && route.peerModel === "T8110") return ["spotlight"];
+  if (route.model === "T8110" && route.deviceType === 10035 && route.peerModel === "T8110") return ["spotlight", "spotlightState"];
   if (route.model === "T814X" && route.deviceType === 10037 && route.peerModel === "T814X") return ["ptz", "spotlight", "aiTracking"];
   if (route.model === "T8425" && route.deviceType === 47 && route.peerModel === "T8425") return ["ptz"];
   if (route.model === "T8170" && route.deviceType === 48 && route.peerModel === "T8170") return ["alarmState"];
@@ -149,6 +175,7 @@ export function modelControlTrialCommand(
   request: ModelControlTrial, route: ModelControlRoute, accountId: string, transaction: number,
 ): { readonly command: number; readonly value: string | boolean } {
   if (request.action === "alarmState") throw new Error("Alarm state read cannot dispatch controls");
+  if (request.action === "spotlightState") throw new Error("Spotlight state read cannot dispatch controls");
   if (request.action === "sirenConnection") throw new Error("S100 connection check cannot dispatch controls");
   if (request.action === "siren") throw new Error("S100 siren requires its dedicated encrypted trial session");
   if (!accountId || !modelControlTrialActions(route).includes(request.action)) throw new Error("Model control trial route unavailable");
@@ -203,6 +230,7 @@ export async function runModelControlTrial(
     try { observeStage(value); } catch {}
   };
   if (request.action === "alarmState") throw new Error("Alarm state read cannot dispatch controls");
+  if (request.action === "spotlightState") throw new Error("Spotlight state read cannot dispatch controls");
   if (request.action === "sirenConnection") throw new Error("S100 connection check cannot dispatch controls");
   checkOwnership();
   if (request.action === "siren") throw new Error("S100 siren requires its dedicated pulse runner");
