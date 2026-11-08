@@ -156,7 +156,7 @@ class E30LockTest(unittest.IsolatedAsyncioTestCase):
         update = method("coordinator.py", "EufyGatewayCoordinator", "_async_update_data", {"asyncio": asyncio, "GatewayClientError": ValueError, "UpdateFailed": RuntimeError})
         client = SimpleNamespace(**{family: AsyncMock(return_value=[{"serial": family}])
                                     for family in ("cameras", "stations", "sensors", "locks")})
-        coordinator = SimpleNamespace(client=client, _sync_device_names=lambda value: None)
+        coordinator = SimpleNamespace(client=client, data=None, _sync_device_names=lambda value: None)
         result = await update(coordinator)
         self.assertEqual(set(result), {"cameras", "stations", "sensors", "locks"})
         client.locks.return_value = []
