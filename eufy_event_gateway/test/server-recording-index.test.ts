@@ -14,11 +14,40 @@ import type { CameraProvider } from "../src/provider/provider.js";
 import { GatewayServer } from "../src/server.js";
 import { SnapshotStore } from "../src/storage/snapshot-store.js";
 import type { LiveStreamManager } from "../src/stream/live-stream-manager.js";
-import { C31IndexError } from "../src/stream/c31-recording-index.js";
+import { C31IndexError, type C31IndexWindow } from "../src/stream/c31-recording-index.js";
 
 const headers = { authorization: `Bearer ${"x".repeat(32)}`, "content-type": "application/json" };
 const body = JSON.stringify({ consentReadRecordingIndex: true });
 const summary = { outcome: "empty" as const, windowMatches: true, ownerMatches: true, valid: 0, invalid: 0, overlapping: 0 };
+
+test("historical index HTTP selection reaches the provider unchanged and invalid windows send no query", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "index-historical-"));
+  const state = new GatewayState();
+  state.registerCamera({ serial: "synthetic", name: "Synthetic", model: "T817L", stationSerial: "synthetic",
+    streamSupported: false, doorbellSupported: false });
+  const now = Math.floor(Date.now() / 1000), selected = { beginTime: now - 7500, endTime: now - 7200 };
+  let calls = 0;
+  const provider = { readRecordingIndexTrial: async (_serial: string, _signal: AbortSignal, window?: C31IndexWindow) => {
+    calls++; assert.deepEqual(window, selected); return { ...summary, privateCanary: "PRIVATE-CANARY" };
+  } } as unknown as CameraProvider;
+  const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "x".repeat(32), experimentalModelControls: true },
+    state, new SnapshotStore(directory), { hasActiveSession: () => false } as unknown as LiveStreamManager, provider, null);
+  try {
+    await server.listen();
+    const url = `http://127.0.0.1:${server.port}/api/cameras/synthetic/recording-index-trial`;
+    for (const value of [{ consentReadRecordingIndex: true, beginTime: selected.beginTime },
+      { consentReadRecordingIndex: false, ...selected }, { consentReadRecordingIndex: true, ...selected, extra: 1 },
+      { consentReadRecordingIndex: true, beginTime: now - 86401, endTime: now - 86400 }]) {
+      assert.equal((await fetch(url, { method: "POST", headers, body: JSON.stringify(value) })).status, 400);
+    }
+    assert.equal(calls, 0);
+    const result = await fetch(url, { method: "POST", headers,
+      body: JSON.stringify({ consentReadRecordingIndex: true, ...selected }) });
+    assert.equal(result.status, 200);
+    assert.deepEqual(await result.json(), summary);
+    assert.equal(calls, 1);
+  } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
 
 for (const enabled of [false, true]) test(`recording index HTTP admission and closed projection, enabled=${enabled}`, async () => {
   const directory = await mkdtemp(join(tmpdir(), "index-http-"));

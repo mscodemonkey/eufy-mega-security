@@ -2692,9 +2692,15 @@ export class FirstPartyPpcsSession {
     await this.#waitForLevel2Key();
     current();
     if (this.#closed || !this.#level2Key) throw new C31IndexError("cancelled");
+    if (this.#c31Index || this.#pendingControl || this.#pendingControlQuery || this.#pendingCameraInfo || this.#recordings) {
+      throw new C31IndexError("busy");
+    }
     const transaction = `${Date.now()}`;
+
+    // The app sends an explicit sensor and no wire transaction. Keep the local
+    // owner nonce private instead of adding an unobserved request field.
     const value = buildCameraControlQueryValue(6000, { begin_time: begin, end_time: end,
-      device_sn: this.#options.stationSerial, transaction });
+      device_sn: this.#options.stationSerial, sensor_id: 0 });
     return new Promise<C31IndexSummary>((resolve, reject) => {
       const timer = setTimeout(() => this.#finishC31Index(new C31IndexError("timeout")), 15_000);
       this.#c31Index = { begin, end, owner: this.#options.accountId!, transaction, resolve, reject, timer };

@@ -19,7 +19,7 @@ import { NvrGuardError, type NvrGuardRequest } from "./provider/nvr-guard-trial.
 import { nvrGuardTimeZone } from "./provider/nvr-guard-schedule.js";
 import { T85V0StatusError } from "./provider/t85v0-status.js";
 import { LocalMotionError } from "./stream/local-motion-trial.js";
-import { C31IndexError } from "./stream/c31-recording-index.js";
+import { C31IndexError, parseC31IndexRequest, type C31IndexWindow } from "./stream/c31-recording-index.js";
 import { recordingPathDate } from "./mega/push-recording-reference.js";
 import { projectEventPictureSummary } from "./stream/homebase-event-picture.js";
 import { EventNameHistoryError, eventHistoryCursor, eventHistoryId, nextEventHistoryDate, projectEventNameHistorySummary } from "./stream/homebase-event-names.js";
@@ -861,14 +861,16 @@ export class GatewayServer {
         if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { stage: "admission" });
         if ((request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase() !== "application/json") return json(response, 400, { stage: "admission" });
         const body = await readJson(request);
-        if (Object.keys(body).length !== 1 || body.consentReadRecordingIndex !== true) return json(response, 400, { stage: "admission" });
+        let window: C31IndexWindow | undefined;
+        try { window = parseC31IndexRequest(body, Math.floor(Date.now() / 1000)); }
+        catch { return json(response, 400, { stage: "admission" }); }
         if (this.#recordingIndexJobs.size || this.#nvrTrialJobs.size || this.streams.hasActiveSession(segments[2]!)) return json(response, 409, { stage: "busy" });
         const controller = new AbortController(); this.#recordingIndexJobs.add(controller);
         const deadline = setTimeout(() => controller.abort(), Math.min(45_000, this.nvrTrialDeadlineMilliseconds));
         const abort = (): void => { if (!response.writableEnded) controller.abort(); };
         response.once("close", abort); request.once("aborted", abort);
         try {
-          const result = await this.provider.readRecordingIndexTrial(segments[2]!, controller.signal);
+          const result = await this.provider.readRecordingIndexTrial(segments[2]!, controller.signal, window);
           if (controller.signal.aborted) throw new C31IndexError("cancelled");
           json(response, 200, { outcome: result.outcome, windowMatches: result.windowMatches,
             ownerMatches: result.ownerMatches, valid: result.valid, invalid: result.invalid, overlapping: result.overlapping });

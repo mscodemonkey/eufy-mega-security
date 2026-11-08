@@ -28,7 +28,7 @@ import { nvrGuardTimeZone, type NvrGuardEffective } from "./nvr-guard-schedule.j
 import { eventPictureUrl } from "./event-picture-url.js";
 import { T85V0StatusError, validT85V0StatusIdentity, type T85V0AdmissionReason, type T85V0StatusSummary } from "./t85v0-status.js";
 import { LocalMotionCollector, LocalMotionError, type LocalMotionSummary } from "../stream/local-motion-trial.js";
-import { C31IndexError, type C31IndexSummary } from "../stream/c31-recording-index.js";
+import { C31IndexError, validateC31IndexWindow, type C31IndexSummary, type C31IndexWindow } from "../stream/c31-recording-index.js";
 import type { E30LockSettingChange, SmartLockState } from "../domain/types.js";
 import { runS100SirenTrial, S100SirenTrialError, type S100SirenFailureStage } from "./s100-siren-trial.js";
 import { E30LockProvider } from "./e30-lock-provider.js";
@@ -984,7 +984,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
    * Fresh cloud bindings bracket the source-defined query. The result contains
    * no recording references, and its success does not establish playback.
    */
-  async readRecordingIndexTrial(serial: string, signal: AbortSignal): Promise<C31IndexSummary> {
+  async readRecordingIndexTrial(serial: string, signal: AbortSignal, window?: C31IndexWindow): Promise<C31IndexSummary> {
+    const selected = window ? { beginTime: window.beginTime, endTime: window.endTime } : undefined;
+    if (selected) validateC31IndexWindow(selected.beginTime, selected.endTime, Math.floor(Date.now() / 1000));
     this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     const device = this.#devices.get(serial), generation = this.#startupGeneration;
@@ -1027,7 +1029,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#recordingSessions.set(serial, session);
       await session.start(); current();
       const end = Math.floor(Date.now() / 1000);
-      const result = await session.readC31RecordingIndex(end - 1800, end, current);
+      const result = await session.readC31RecordingIndex(selected?.beginTime ?? end - 1800, selected?.endTime ?? end, current);
       current(); await freshBinding(); current();
       return result;
     } catch (error) {
