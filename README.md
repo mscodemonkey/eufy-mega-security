@@ -824,7 +824,8 @@ Configure**, which converts every camera. Saving reloads the integration.
 If H.265 conversion input stays queued in the gateway for more than two seconds,
 it skips ahead at the next keyframe. This threshold applies to gateway input
 queues. Home Assistant's playback pipeline adds its own delay. A host that keeps
-skipping can enable the experimental low-CPU H.265 conversion.
+skipping can enable the experimental low-CPU H.265 conversion. H.264 snapshot
+delivery retains its existing path, including streams without recurring keyframes.
 Installations set up before this option keep the video they had: compatibility
 mode is on unless they had enabled **Try native camera video**, so native video
 stays opt-in for them.

@@ -237,7 +237,7 @@ interface Session {
   ffmpeg: ChildProcessWithoutNullStreams | null;
   viewerFfmpeg: ChildProcessWithoutNullStreams | null;
 
-  /** Bound the unread input of the snapshot extractor and the conversion, one each per source session. */
+  /** Bound H.265 snapshot/conversion input. H.264 snapshots retain their existing delivery path. */
   snapshotInput: MediaInputBound | null;
   viewerInput: MediaInputBound | null;
   viewerParameterSets: VideoParameterSetCache;
@@ -1133,9 +1133,11 @@ export class LiveStreamManager extends EventEmitter {
         let snapshotStarted = false;
         if (!session.suppressSnapshots && !session.ffmpeg && startup) {
           session.ffmpeg = this.#startSnapshotExtractor(serial, codec);
-          session.snapshotInput = new MediaInputBound(session.ffmpeg.stdin, codec, this.nowMilliseconds);
+          session.snapshotInput = codec === "h265"
+            ? new MediaInputBound(session.ffmpeg.stdin, codec, this.nowMilliseconds) : null;
           snapshotStarted = session.parameterSets.startupIncludesLatest;
-          session.snapshotInput.write(startup);
+          if (session.snapshotInput) session.snapshotInput.write(startup);
+          else if (session.ffmpeg.stdin.writable) session.ffmpeg.stdin.write(startup);
         }
         if (codec === "h265") {
           let transcoderSeeded = false;
@@ -1156,7 +1158,10 @@ export class LiveStreamManager extends EventEmitter {
           this.#writeViewerChunk(session, chunk);
           if (startup) this.#startPendingClients(session, codec, startup, undefined, true);
         }
-        if (!snapshotStarted) session.snapshotInput?.write(chunk, restart);
+        if (!snapshotStarted) {
+          if (session.snapshotInput) session.snapshotInput.write(chunk, restart);
+          else if (session.ffmpeg?.stdin.writable) session.ffmpeg.stdin.write(chunk);
+        }
       }
       for (const recording of session.recordings) this.#appendRecordingChunk(session, recording, chunk);
     });

@@ -1688,3 +1688,32 @@ test("active-viewer lease never waits for a fresh image or captures a snapshot",
     assert.equal(snapshots, 0);
   } finally { await manager.close(); }
 });
+
+test("H.264 snapshot delivery keeps its existing path when backpressure is followed by no new keyframe", async () => {
+  const state = new GatewayState(); state.registerCamera(camera);
+  const source = new PassThrough();
+  const extractor = Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+    exitCode: null, signalCode: null, kill: () => true,
+  }) as unknown as ChildProcessWithoutNullStreams;
+  const written: Buffer[] = [];
+  extractor.stdin.on("data", (chunk: Buffer) => written.push(Buffer.from(chunk)));
+  Object.defineProperty(extractor.stdin, "writableLength", { get: () => 1024 });
+  let now = 0, manager: LiveStreamManager;
+  manager = new LiveStreamManager(state, {} as never, {
+    async startStream() { manager.attachSource(camera.serial, source, () => "h264"); },
+    async stopStream() { source.end(); },
+  }, 0, undefined, undefined, () => extractor, 30_000, () => now);
+  const response = new PassThrough() as unknown as ServerResponse;
+  response.writeHead = (() => response) as ServerResponse["writeHead"]; response.on("data", () => {});
+  try {
+    await manager.addClient(camera.serial, response);
+    source.write(Buffer.concat([annexBNal(0x67, 0x42, 0, 0x1f), annexBNal(0x68, 0xce),
+      annexBNal(0x65, 0xaa), annexBNal(0x41, 0xbb)]));
+    assert.ok(written.length > 0);
+    const before = written.length;
+    now = 3000; source.write(annexBNal(0x41, 0xcc));
+    now = 6000; source.write(annexBNal(0x41, 0xdd));
+    assert.equal(written.length, before + 2, "unchanged H.264 snapshots must not wait forever for another keyframe");
+  } finally { response.destroy(); await manager.close(); }
+});
