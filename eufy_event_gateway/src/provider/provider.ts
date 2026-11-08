@@ -92,6 +92,9 @@ export interface CameraProvider {
   /** Read current NVR admission without opening media. Optional quality checks the exact profile. */
   nvrLiveSettingAdmitted?(serial: string, quality?: number): boolean;
 
+  /** Exact owned T8E00/T8N00 Both source admission for derived video-only lens views. */
+  nvrSharedLensViewsAdmitted?(serial: string): boolean;
+
 
   /** Inject media checks and guarded retirement while the manager retains source and lease ownership. */
   setNvrLiveMediaChecks?(checks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean; retireYieldable?: (serial: string) => Promise<boolean> }): void;

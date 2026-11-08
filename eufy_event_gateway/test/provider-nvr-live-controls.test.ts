@@ -40,7 +40,12 @@ async function fixture(context: TestContext, model = "T8E00", type = 301, flags 
   context.mock.method(NvrRtcSession.prototype, "start", async () => {});
   context.mock.method(NvrRtcSession.prototype, "close", async () => {});
   context.mock.method(NvrRtcSession.prototype, "initialLiveSettings", async () => ({ night, quality, tracking }));
-  context.mock.method(NvrRtcSession.prototype, "readLiveSettings", async () => ({ night, quality: missing ? null : quality, tracking }));
+  context.mock.method(NvrRtcSession.prototype, "readLiveSettings", async () => {
+
+    // A negative readback still advances the synthetic clock towards its deadline.
+    if (mismatch) clock += 1000;
+    return { night, quality: missing ? null : quality, tracking };
+  });
   context.mock.method(NvrRtcSession.prototype, "prepareLiveControl", async () => {});
   context.mock.getter(NvrRtcSession.prototype, "remainingLifetimeMilliseconds", () => 120000);
   context.mock.method(NvrRtcSession.prototype, "writeLiveControl", async (request: NvrLiveWrite, signal: AbortSignal, before: () => void) => {
@@ -368,6 +373,26 @@ for (const [model, type, flags, inherited] of [["T8E00", 301, false, false], ["T
     const value = await fixture(context, model, type, flags, inherited, true, ["T9000", 27]);
     assert.equal(value.provider.nvrLiveSettingAdmitted("synthetic-camera"), false);
     await assert.rejects(value.provider.performNvrLiveControl("synthetic-camera", { kind: "pan", direction: "left" }));
+    assert.equal(value.writes.length, 0);
+  });
+}
+
+for (const mode of ["ready", "disabled", "inherited", "s1", "s350", "alias", "normal-off"] as const) {
+  test(`shared pane admission retains exact owner, model, station and Both gates: ${mode}`, async context => {
+    const value = await fixture(context, mode === "s350" ? "T8416" : mode === "alias" ? "T8E00S" : "T8E00",
+      mode === "s350" ? 104 : 301, mode !== "disabled", mode === "inherited", mode !== "normal-off",
+      mode === "s1" ? ["T9000", 27] : ["T8N00", 300]);
+    assert.equal(value.provider.nvrSharedLensViewsAdmitted("synthetic-camera"), mode === "ready");
+    assert.equal(value.provider.nvrSharedLensViewsAdmitted("missing"), false);
+    if (mode === "ready") {
+      await value.provider.setNvrView("synthetic-camera", 0);
+      assert.equal(value.provider.nvrSharedLensViewsAdmitted("synthetic-camera"), false);
+      await value.provider.setNvrView("synthetic-camera", 2);
+      assert.equal(value.provider.nvrSharedLensViewsAdmitted("synthetic-camera"), true);
+      value.raw.devices[1]!.member = {};
+      await value.refresh();
+      assert.equal(value.provider.nvrSharedLensViewsAdmitted("synthetic-camera"), false);
+    }
     assert.equal(value.writes.length, 0);
   });
 }

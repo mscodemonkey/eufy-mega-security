@@ -2693,6 +2693,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return nvrLiveProfile(device.model, device.deviceType, station?.model, station?.deviceType);
   }
 
+  /** Admit derived panes only on the existing owned T8E00/T8N00 Both source. */
+  nvrSharedLensViewsAdmitted(serial: string): boolean {
+    const device = this.#devices.get(serial), station = device && this.#devices.get(device.parentSerial);
+    return !!device && device.model === "T8E00" && device.deviceType === 301
+      && station?.model === "T8N00" && station.deviceType === 300
+      && this.#nvrLiveAdmitted(device, station) && this.#nvrView(device) === 2;
+  }
+
   /** Query current provider admission only. Optional quality validates the closed profile. */
   nvrLiveSettingAdmitted(serial: string, quality?: number): boolean {
     const device = this.#devices.get(serial);

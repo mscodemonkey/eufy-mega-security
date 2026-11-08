@@ -140,6 +140,9 @@ streams.on("warning", (error: unknown) => {
   const detail = error instanceof Error ? error.message : "Unknown media pipeline warning";
   logger.warn("media_pipeline_warning", `Camera media pipeline reported a recoverable warning: ${detail}`);
 });
+streams.on("shared-lens-closed", (detail: { model: string; reason: string }) => {
+  logger.info("shared_lens_view_closed", `model=${detail.model} reason=${detail.reason}`);
+});
 streams.on("viewer-transcoder-stopped", (detail: ViewerTranscoderSummary) => {
   const input = detail.inputCadence;
   const output = detail.outputCadence;
