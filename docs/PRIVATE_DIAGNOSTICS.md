@@ -285,3 +285,24 @@ the current authenticated session. The diagnostics screen describes it as an
 Eufy refusal, without recommending an account switch. Earlier releases used the
 same screen message for both outcomes, so that message alone cannot identify
 where an old check stopped. Neither outcome establishes polling availability.
+
+## Slow motion-detection controls
+
+The gateway logs one `camera_motion_control_timings` line after each ordinary
+legacy motion-detection operation finishes, including failed operations. This
+covers the existing HomeBase and standalone PPCS control path, not the separate
+experimental T8425/T8426 setting path. It does not initiate another write, retry,
+read or connection. There is no diagnostic switch to enable.
+
+The line contains the model, confirmation outcome, failure phase, total elapsed
+milliseconds and time spent waiting for the gateway control queue, preparing the
+route, connecting, writing, retiring the connection, reading confirmation and
+waiting between reads. Connection and readback attempt counts help distinguish
+one slow command from repeated confirmation reads. Durations use a monotonic
+clock. Queue time covers the gateway reservation, not time before HA sends the
+request or HA's service queue. A confirmation failure does not prove the setting
+was unchanged. The existing unknown-outcome handling still applies.
+
+If a maintainer asks for this event after a normal action, share only that line.
+It contains no camera label, serial, account, setting value or command payload.
+Do not repeat a failed security-setting change just to obtain timing data.

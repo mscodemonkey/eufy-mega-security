@@ -113,6 +113,7 @@ for (const stationModel of ["T8010", "T8030"]) {
 for (const stationModel of ["T8010", "T8030"]) {
   test(`a matching old HomeBase cache cannot confirm an unchanged cloud setting: ${stationModel}`, async context => {
     const f = await fixture(context, false, stationModel, false, "synthetic-base");
+    const timingLines = motionTimingLines(context);
     context.mock.method(HomeBasePpcsSession.prototype, "readState", async () => ({ childParams: [
       { channel: 1, type: 1011, value: "0" },
     ] }));
@@ -121,6 +122,9 @@ for (const stationModel of ["T8010", "T8030"]) {
       const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeMotionDetection", async (_value: boolean, dispatched?: () => void) => { dispatched?.(); });
       await assert.rejects(f.provider.setCameraMotionDetection("camera", false), /not confirmed by readback/);
       assert.equal(write.mock.callCount(), 1);
+      assert.equal(timingLines.length, 1);
+      assert.match(timingLines[0]!, /outcome=failed failure_phase=readback/);
+      assert.match(timingLines[0]!, /connections=1 readback_attempts=12/);
     } finally { await f.dispose(); }
   });
 }
@@ -257,6 +261,7 @@ for (const restart of [false, true]) {
 
 test("an expired queued member never releases its running predecessor", async context => {
   const f = await fixture(context);
+  const timingLines = motionTimingLines(context);
   const deadlines: (() => void)[] = [];
   const schedule = globalThis.setTimeout;
   context.mock.method(globalThis, "setTimeout", (callback: () => void, milliseconds?: number) => {
@@ -276,6 +281,9 @@ test("an expired queued member never releases its running predecessor", async co
     await new Promise(resolve => setImmediate(resolve));
     const second = assert.rejects(f.provider.setCameraMotionDetection("camera", true), /No change was sent/);
     deadlines[1]!(); await second;
+    assert.equal(timingLines.length, 1);
+    assert.match(timingLines[0]!, /outcome=failed failure_phase=queue/);
+    assert.match(timingLines[0]!, /connections=0 readback_attempts=0/);
     const third = f.provider.setCameraMotionDetection("camera", true);
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(values, [false]);
@@ -309,6 +317,7 @@ for (const samePeer of [false, true]) {
 for (const phase of ["lookup", "ack", "readback"]) {
   test(`deadline retires the owned ${phase} phase with no later write`, async context => {
     const f = await fixture(context);
+    const timingLines = motionTimingLines(context);
     const timers: (() => void)[] = [];
     const schedule = globalThis.setTimeout;
     context.mock.method(globalThis, "setTimeout", (callback: () => void, milliseconds?: number) => {
@@ -325,6 +334,8 @@ for (const phase of ["lookup", "ack", "readback"]) {
       const result = assert.rejects(f.provider.setCameraMotionDetection("camera", false), phase === "lookup" ? /No change was sent/ : /outcome is unknown/);
       await new Promise(resolve => setImmediate(resolve));
       timers[0]!(); await result;
+      assert.equal(timingLines.length, 1);
+      assert.ok(timingLines[0]!.includes(`outcome=failed failure_phase=${phase === "lookup" ? "connect" : phase === "ack" ? "write" : "readback"}`));
       assert.ok(f.closes.includes(phase === "lookup" ? owned : f.sessions[0]!));
       const starts = f.start.mock.callCount();
       release(); await new Promise(resolve => setImmediate(resolve));
@@ -585,4 +596,75 @@ test("motion readback skips optional charging history and retains its owned cach
     assert.ok(confirmations.every(call => call.arguments[1]?.includeChargingDays === false));
     assert.equal(f.write.mock.callCount(), 1);
   } finally { await f.dispose(); }
+});
+
+/** Capture only the public timing event while retaining unrelated test output. */
+function motionTimingLines(context: TestContext): string[] {
+  const lines: string[] = [];
+  const write = process.stdout.write.bind(process.stdout);
+  context.mock.method(process.stdout, "write", (chunk: string | Uint8Array) => {
+    if (String(chunk).includes("event=camera_motion_control_timings ")) {
+      lines.push(String(chunk)); return true;
+    }
+    return write(chunk);
+  });
+  return lines;
+}
+
+test("motion timings account for the owned phases without exposing identities or values", async context => {
+  const f = await fixture(context);
+  const lines = motionTimingLines(context);
+  let now = 0;
+  context.mock.method(performance, "now", () => now);
+  context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => { now += 11; });
+  context.mock.method(FirstPartyPpcsSession.prototype, "writeMotionDetection", async (value: boolean) => { now += 23; f.setMotion(value); });
+  context.mock.method(FirstPartyPpcsSession.prototype, "waitUntilClosed", async () => { now += 17; });
+  const inventory = MegaClient.prototype.inventory;
+  context.mock.method(MegaClient.prototype, "inventory", async function (this: MegaClient, ...args: Parameters<typeof inventory>) {
+    now += 37; return inventory.apply(this, args);
+  });
+  try {
+    await f.provider.setCameraMotionDetection("camera", false);
+    assert.equal(lines.length, 1);
+    assert.match(lines[0]!, /model=T8113-Z outcome=confirmed failure_phase=none total_ms=88 queue_ms=0 prepare_ms=0 connect_ms=11 write_ms=23 retire_ms=17 readback_ms=37 backoff_ms=0 connections=1 readback_attempts=1/);
+    assert.doesNotMatch(lines[0]!, /synthetic|owner|camera=|serial|enabled|false|true/);
+  } finally { await f.dispose(); }
+});
+
+test("failed motion writes report their failing phase after waiting for retirement", async context => {
+  const f = await fixture(context);
+  const lines = motionTimingLines(context);
+  let now = 0;
+  context.mock.method(performance, "now", () => now);
+  context.mock.method(FirstPartyPpcsSession.prototype, "writeMotionDetection", async () => { now += 41; throw Error("rejected"); });
+  context.mock.method(FirstPartyPpcsSession.prototype, "waitUntilClosed", async () => { now += 19; });
+  try {
+    await assert.rejects(f.provider.setCameraMotionDetection("camera", false), /rejected/);
+    assert.equal(lines.length, 1);
+    assert.match(lines[0]!, /outcome=failed failure_phase=write total_ms=60/);
+    assert.match(lines[0]!, /write_ms=41 retire_ms=19 readback_ms=0 backoff_ms=0 connections=1 readback_attempts=0/);
+  } finally { await f.dispose(); }
+});
+
+test("motion timings distinguish same-peer waiting from a slow command", async context => {
+  const f = await fixture(context, false, "T8010", true);
+  const lines = motionTimingLines(context);
+  let now = 0, release!: () => void, writes = 0;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  context.mock.method(performance, "now", () => now);
+  context.mock.method(FirstPartyPpcsSession.prototype, "writeMotionDetection", async (value: boolean) => {
+    if (++writes === 1) await held;
+    f.setMotion(value);
+  });
+  try {
+    const first = f.provider.setCameraMotionDetection("camera", false);
+    await new Promise(resolve => setImmediate(resolve));
+    const second = f.provider.setCameraMotionDetection("camera2", false);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(writes, 1);
+    now = 73; release(); await first; await second;
+    assert.equal(lines.length, 2);
+    assert.match(lines[0]!, /queue_ms=0 prepare_ms=0 connect_ms=0 write_ms=73/);
+    assert.match(lines[1]!, /queue_ms=73 prepare_ms=0 connect_ms=0 write_ms=0/);
+  } finally { release(); await f.dispose(); }
 });
