@@ -13,6 +13,7 @@ export type NvrTrialStage = "admission" | "region_or_authorization_rejected" | "
   | "start" | "video" | "stop" | "cancelled" | "deadline" | "framing" | "timing" | "state";
 
 const nvrTrialReasons = [
+  "call_timeout", "call_unexpected_action",
   "unspecified", "signalling_queue_limit", "signalling_closed", "signalling_error", "session_mismatch",
   "station_mismatch", "channel_mismatch", "relay_count", "relay_shape", "relay_fields", "candidate_limit",
   "candidate_shape", "candidate_component", "candidate_transport", "candidate_priority", "candidate_host",

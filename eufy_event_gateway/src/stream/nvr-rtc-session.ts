@@ -940,14 +940,14 @@ export class NvrRtcSession {
       if (this.#authenticated || inner.code !== 200) throw new NvrTrialError("join");
       this.#authenticated = true; this.#stage = "call"; this.#action("call", {}); return;
     }
-    if (!this.#authenticated || inner.action !== 3) throw new NvrTrialError("call");
+    if (!this.#authenticated || inner.action !== 3) throw new NvrTrialError("call", "call_unexpected_action");
     if (inner.sessionId !== this.options.context.sign) throw new NvrTrialError("negotiation", "session_mismatch");
     if (inner.sn !== this.options.station) throw new NvrTrialError("negotiation", "station_mismatch");
     if (inner.channelId !== 0) throw new NvrTrialError("negotiation", "channel_mismatch");
     const data = nvrJson(inner.data);
     if (inner.dataType === "call") {
       if (data.status === 486) throw new NvrTrialError("busy");
-      if (data.status === 408) throw new NvrTrialError("call");
+      if (data.status === 408) throw new NvrTrialError("call", "call_timeout");
       if (data.status === 100) {
         const rows = Array.isArray(data.turn) ? data.turn : [data.turn];
         if (rows.length > 4 || this.#turn.length) throw new NvrTrialError("negotiation", "relay_count");
