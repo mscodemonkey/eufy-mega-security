@@ -40,7 +40,7 @@ import { NvrTrialError, nvrTrialSensor, type NvrSource, type NvrStateSummary } f
 import { modelControlTrialActions, parseModelControlTrial, runModelControlTrial, type ModelControlRoute, type ModelControlTrial, type ModelControlTrialAdmission, type ModelControlTrialFailureStage, type ModelControlTrialResult, type AlarmStateTrialResult } from "./model-control-trials.js";
 import { join } from "node:path";
 import { setTimeout as cancellableDelay } from "node:timers/promises";
-import { createHmac, randomBytes } from "node:crypto";
+import { createHmac, randomBytes, type KeyObject } from "node:crypto";
 import type { EventImageCapture, EventImageContext, EventImageReferences } from "../diagnostics/event-image-capture.js";
 import { validateRecordingDate, type CameraStoredRecord, type StoredRecordingSummary } from "../stream/stored-recordings.js";
 import type { EventPictureSummary } from "../stream/homebase-event-picture.js";
@@ -65,6 +65,7 @@ import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, type P
 import { observeOwnedStartup } from "../stream/owned-startup-recovery.js";
 import { withCameraControlDeadline } from "./camera-control-deadline.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBaseChildParam, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
+import { homeBase2RecordingPath, isCroppedEventPicture, parseCipherRsaKey } from "../stream/homebase2-event-frame.js";
 import type { SensorContactObservation } from "../stream/sensor-status-notification.js";
 import { cameraCapabilityLogSummaries, describeCameraCapabilities, directCameraDetectionKinds, isSupportedCameraType, describeDeviceCapabilities, deviceCapabilityLogSummaries } from "./device-capabilities-core.js";
 import { generalRtcBinding, GeneralRtcTrial, GeneralRtcPinLimiter, type GeneralRtcTrialLease, type GeneralRtcBinding } from "./general-rtc-trial.js";
@@ -173,6 +174,9 @@ export interface EufyProviderConfig {
 
   /** Opt-in exact-record thumbnail recovery after a terminal cloud HTTP404. */
   readonly experimentalHomeBaseEventImages?: boolean;
+
+  /** Replace cropped pictures on the exact T8140 family and HomeBase 2 route with a frame read from the stored clip. */
+  readonly experimentalHomeBase2EventFrames?: boolean;
   readonly experimentalNvrRegion?: "auto" | "us" | "eu" | "ie";
 
   /** Optional process-owned evidence collector, closed by the composition root. */
@@ -611,6 +615,20 @@ export function supportsEventPictureHistory(
     && supportsOwnedHomeBaseHistory(device, route, routeReady);
 }
 
+/** Admit only the T8140 family on its current owner-bound HomeBase 2, the one route this experiment targets. */
+export function supportsHomeBase2EventFrames(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "parentSerial" | "category" | "adminUserId">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return routeReady && (device.model === "T8140" || device.model === "T8140-Z") && device.deviceType === 14
+    && device.category === "eufy_security"
+    && device.channel !== null && Number.isInteger(device.channel) && device.channel >= 0 && device.channel <= 31
+    && route?.homeBaseAttached === true && route.peer.model === "T8010" && route.peer.deviceType === 0 && route.peer.category === "eufy_security"
+    && route.peer.serial !== device.serial && route.peer.serial === device.parentSerial && Boolean(route.peer.adminUserId)
+    && device.adminUserId === route.peer.adminUserId;
+}
+
 /** Admit tracking only on the exact tested standalone camera routes with a known preference. */
 export function supportsStandaloneAiTracking(
   device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId" | "reads">,
@@ -747,6 +765,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #pictureOwners = new Map<string, PushPictureOwner>();
   readonly #pictureRecoveryCooldowns = new Map<string, number>();
   readonly #pushSnapshotQueues = new Map<string, Promise<void>>();
+
+  /** Filled only while HomeBase 2 event frames are enabled, and retired with the media keys. */
+  readonly #cipherRsaKeys = new Map<string, KeyObject>();
   readonly #pushDeduplicator = new PushEventDeduplicator();
   readonly #t8417ReadShapes = new T8417ReadShapeTracker();
   readonly #stationRefreshFailures = new Map<string, number>();
@@ -860,6 +881,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
             return (typeof id === "number" && Number.isSafeInteger(id)
               || typeof id === "string" && /^\d{1,10}$/.test(id)) && Number(id) === cipherId;
           });
+          const rsaKey = this.config.experimentalHomeBase2EventFrames && matches.length === 1 ? parseCipherRsaKey(matches[0]!.private_key) : null;
+          if (rsaKey) this.#cipherRsaKeys.set(cacheKey, rsaKey);
           const key = matches.length === 1 && typeof matches[0]!.ecc_private_key === "string" ? matches[0]!.ecc_private_key : undefined;
           if (key) { this.#cipherKeys.set(cacheKey, key); return { kind: "key", value: key }; }
           return { kind: "missing_key" };
@@ -1402,7 +1425,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   async #recordingOperation<T>(serial: string, signal: AbortSignal | undefined,
-    operation: (session: FirstPartyPpcsSession) => Promise<T>, purpose: "recordings" | "event_names" | "event_picture" = "recordings"): Promise<T> {
+    operation: (session: FirstPartyPpcsSession) => Promise<T>, purpose: "recordings" | "event_names" | "event_picture" | "event_frame" = "recordings"): Promise<T> {
     const generation = this.#startupGeneration, diagnostic = purpose !== "recordings";
     const previous = this.#panControlOperations.get(serial) ?? Promise.resolve();
     let result!: T;
@@ -1411,10 +1434,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const route = device ? ppcsStreamRoute(device, this.#devices) : null;
       const ready = device ? isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys())) : false;
       const admitted = device && (purpose === "event_picture" ? supportsEventPictureHistory(device, route, ready)
+        : purpose === "event_frame" ? supportsHomeBase2EventFrames(device, route, ready)
         : diagnostic ? supportsEventNameHistory(device, route, ready) : supportsSoloCamStoredRecordings(device, route, ready));
       if (this.#recordingClosing || !device || !admitted || signal?.aborted
         || diagnostic && generation !== this.#startupGeneration) {
-        throw new Error("Stored recordings require a verified ready SoloCam route");
+        throw new Error(purpose === "event_frame" ? "HomeBase 2 event frames require a verified ready route"
+          : "Stored recordings require a verified ready SoloCam route");
       }
       if (this.#recordingPeerReserved(serial)) throw new Error("Wait for this camera peer's recording retrieval");
       if (this.#ppcsStreams.has(serial) || (route!.homeBaseAttached && this.#stationHasActiveMedia(route!.peer.serial))) {
@@ -1441,7 +1466,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           appConnection: peer.p2pConnection!, localAddress: peer.localAddress, dskKey: dsk.key,
           channel: device.channel!, cameraModel: device.model, stationModel: peer.model, recordingCameraSerial: device.serial,
           accountId: diagnostic ? peer.adminUserId! : device.adminUserId!, homeBaseAttached: route!.homeBaseAttached,
-          purpose: "control", maxSeconds: purpose === "event_picture" ? 60 : 120, resolveCipherKey: (id) => this.#resolveCipherKey(id, peer) });
+          purpose: "control", maxSeconds: purpose === "event_picture" || purpose === "event_frame" ? 60 : 120, resolveCipherKey: (id) => this.#resolveCipherKey(id, peer) });
         this.#recordingSessions.set(serial, session);
         const abort = (): void => session.close();
         signal?.addEventListener("abort", abort, { once: true });
@@ -4334,6 +4359,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#streamStarts.clear();
     this.#cipherFlights.clear();
     this.#cipherKeys.clear();
+    this.#cipherRsaKeys.clear();
     for (const [peer, session] of this.#trialSessions) {
       if (!this.#trialSirenStops.has(peer)) session.close();
     }
@@ -4549,6 +4575,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
     this.#dskKeys.clear();
     this.#cipherKeys.clear();
+    this.#cipherRsaKeys.clear();
     const peers = [...new Map(devices
       .filter((device) => (!device.parentSerial || device.parentSerial === device.serial) && device.p2pDid)
       .map((device) => [device.serial, device] as const)).values()];
@@ -6156,6 +6183,82 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     } catch (error) { bytes?.fill(0); throw error; }
   }
 
+  /**
+   * Start one opt-in clip read after a cropped HomeBase 2 picture was retained.
+   *
+   * The picture owner is the job's whole lifetime. A newer detection, a changed
+   * binding or a gateway restart aborts it, and a newer crop starts its own job.
+   * Without an admitted route and a complete clip reference, the crop stays.
+   */
+  #queueHomeBase2EventFrame(events: ProviderEvents, event: MegaPushEvent, owner: PushPictureOwner, picture: Buffer): void {
+    if (!this.config.experimentalHomeBase2EventFrames || !this.config.apiAuthenticationConfigured
+      || !isCroppedEventPicture(picture) || !this.#pictureOwnerCurrent(owner)) return;
+    const { device } = owner, route = ppcsStreamRoute(device, this.#devices), model = safeLogModel(device.model);
+    if (!supportsHomeBase2EventFrames(device, route, true) || event.stationSerial !== route!.peer.serial) {
+      logger.info("event_frame_unavailable", `HomeBase 2 event frame skipped: model=${model} route_admitted=false`);
+      return;
+    }
+
+    // The first delivery of a visit can arrive without its picture, or without these fields.
+    const pushedChannel = event.recordingChannel ?? owner.event.recordingChannel ?? device.channel;
+    const path = pushedChannel === device.channel ? homeBase2RecordingPath(event.filePath ?? owner.event.filePath, device.channel!) : null;
+    const cipherId = event.cipherId ?? owner.event.cipherId ?? 0;
+    if (!path || cipherId <= 0) {
+      logger.info("event_frame_unavailable", `HomeBase 2 event frame skipped: model=${model} route_admitted=true path_present=${path !== null} cipher_present=${cipherId > 0}`);
+      return;
+    }
+    void this.#retainHomeBase2EventFrame(events, owner, path, cipherId);
+  }
+
+  /** Try while the clip is still being written, publishing only for the visit that still owns the picture. */
+  async #retainHomeBase2EventFrame(events: ProviderEvents, owner: PushPictureOwner, path: string, cipherId: number): Promise<void> {
+    const model = safeLogModel(owner.device.model);
+    for (const [index, wait] of EVENT_FRAME_ATTEMPT_DELAYS.entries()) {
+      try {
+        await eventFrameDelay(wait, owner.controller.signal);
+        const frame = await this.#readHomeBase2EventFrame(owner, path, cipherId);
+        if (!this.#pictureOwnerCurrent(owner)) { frame.fill(0); return; }
+        events.snapshot(owner.device.serial, frame, "image/jpeg");
+        logger.info("event_frame_retained", `HomeBase 2 event frame retained: model=${model} attempt=${index + 1} bytes=${frame.length}`);
+        return;
+      } catch (error) {
+        if (!this.#pictureOwnerCurrent(owner)) return;
+        logger.info("event_frame_attempt_failed", `HomeBase 2 event frame attempt failed: model=${model} attempt=${index + 1} reason=${error instanceof EventNameHistoryError ? error.code : safeError(error)}`);
+      }
+    }
+  }
+
+  /**
+   * Read one frame under the shared recording reservation.
+   *
+   * The key lookup needs no peer and can take seconds, so it finishes first. A
+   * viewer starting meanwhile is then seen by the operation's busy check, which
+   * reserves the peer in the same tick and holds it until the disconnect has been
+   * sent. Live viewers therefore keep precedence and the two sessions never overlap.
+   */
+  async #readHomeBase2EventFrame(owner: PushPictureOwner, path: string, cipherId: number): Promise<Buffer> {
+    const serial = owner.device.serial, signal = owner.controller.signal;
+    const key = await this.#resolveCipherRsaKey(cipherId, owner.parent);
+    if (!this.#pictureOwnerCurrent(owner)) throw new EventNameHistoryError("cancelled");
+    if (!key) throw new Error("Station cipher key is unavailable");
+    if (this.#panControlOperations.has(serial) || this.#recordingPeerReserved(serial)) throw new Error("HomeBase is busy");
+    let bytes: Buffer | undefined;
+    try {
+      return await this.#recordingOperation(serial, signal, async session => {
+        bytes = await session.readHomeBase2EventFrame(path, key, signal);
+        if (!this.#pictureOwnerCurrent(owner)) throw new EventNameHistoryError("cancelled");
+        return bytes;
+      }, "event_frame");
+    } catch (error) { bytes?.fill(0); throw error; }
+  }
+
+  /** Resolve the RSA key that unwraps one HomeBase 2 clip through the shared classified cipher lookup. */
+  async #resolveCipherRsaKey(cipherId: number, peer: MegaInventoryDevice): Promise<KeyObject | undefined> {
+    const cacheKey = JSON.stringify([peer.serial, peer.adminUserId, cipherId]);
+    if (!this.#cipherRsaKeys.has(cacheKey) && (await this.#resolveCipherKeyOutcome(cipherId, peer)).kind === "retired") return undefined;
+    return this.#cipherRsaKeys.get(cacheKey);
+  }
+
   #queuePushSnapshot(events: ProviderEvents, event: MegaPushEvent): void {
     if (this.#rtcPreparation.gated) return;
     const generation = this.#startupGeneration, owner = this.#pictureOwners.get(event.cameraSerial);
@@ -6191,6 +6294,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         }
         events.snapshot(event.cameraSerial, picture.data, "image/jpeg");
         logger.info("push_snapshot_retained", `Eufy push snapshot retained request_style=${recovered ? "homebase_recording" : "authenticated"}`);
+        if (owner && !recovered) this.#queueHomeBase2EventFrame(events, event, owner, picture.data);
       }
     }).catch((error: unknown) => {
       if (generation !== this.#startupGeneration || owner && !this.#pictureOwnerCurrent(owner)) return;
@@ -7359,6 +7463,21 @@ export function isDoorbellDevice(device: Pick<MegaInventoryDevice, "deviceType" 
 
 function isGenericPersonLabel(value: string): boolean {
   return /^(someone|stranger|unknown|unknown person|person)$/i.test(value);
+}
+
+/** Wait before each HomeBase 2 clip read, because the clip is still being written when its push arrives. */
+const EVENT_FRAME_ATTEMPT_DELAYS = [20_000, 40_000, 60_000] as const;
+
+/** Wait for one attempt, stopping as soon as the visit loses the picture. */
+function eventFrameDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const done = (): void => { signal.removeEventListener("abort", abort); resolve(); };
+    const timer = setTimeout(done, milliseconds);
+    timer.unref?.();
+    const abort = (): void => { clearTimeout(timer); reject(signal.reason); };
+    signal.addEventListener("abort", abort, { once: true });
+  });
 }
 
 function safeError(error: unknown): string {

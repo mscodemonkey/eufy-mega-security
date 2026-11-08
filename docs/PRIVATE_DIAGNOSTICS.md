@@ -242,3 +242,31 @@ The notification-to-history join and real protected replies have been replayed
 through EMS, and the exact thumbnail read has been exercised on local hardware.
 Automatic recovery on a fresh naturally failing notification still needs that
 separate confirmation. This option does not add HomeBase 2 or doorbell support.
+
+## Experimental HomeBase 2 event frames
+
+The app option **Experimental HomeBase 2 event frames** is off by default. Some
+notifications from a T8140 or T8140-Z/type 14 camera on HomeBase 2 T8010/type 0
+carry a small close-up rather than the scene. When the retained event picture is
+narrower than 320 pixels, this option reads the first picture of that event's
+clip from the HomeBase SD card and retains it as the event image. The cloud
+picture appears first and is replaced later.
+
+The clip download contract is unconfirmed on hardware. The gateway sends the
+legacy fixed-width download command with level-one encryption, then unwraps each
+signed frame's key with the RSA key from the station cipher lookup. The notification
+must name a clip in this camera's own SD-card folder and a station cipher.
+
+Attempts run 20, 60 and 120 seconds after the picture, because the clip is still
+being written when the notification arrives. The clip is on the HomeBase, so this
+is not expected to wake the battery camera. A newer event, changed camera/account binding or
+gateway restart invalidates the job, and a newer cropped picture starts its own.
+Live viewers take precedence over an attempt. While a clip is being read, the
+HomeBase is reserved until the disconnect has been sent, so a viewer on that
+camera waits and a viewer on another camera of that HomeBase is refused. Any
+failure leaves the cropped picture in place. Reading a clip does not create
+another detection or extend its timer.
+
+`event_frame_retained` records a replaced picture. `event_frame_attempt_failed`
+gives a structural reason, and `event_frame_unavailable` says which clip details
+a notification lacked. None of these lines contains a clip path or key.

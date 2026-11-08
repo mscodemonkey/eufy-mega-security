@@ -5,6 +5,9 @@ configuration:
   experimental_homebase_event_images:
     name: Experimental HomeBase picture recovery
     description: Try the matching recording thumbnail when a cloud event picture is missing. Limited to T8113-Z cameras on HomeBase 3. The recovered thumbnail may have lower resolution. Leaves the last good picture in place if no exact match is available. Off by default.
+  experimental_homebase2_event_frames:
+    name: Experimental HomeBase 2 event frames
+    description: When a T8140 or T8140-Z camera on HomeBase 2 sends a small cropped event picture, read the first frame of the stored clip and show the full scene instead. The picture updates about 20 seconds to two minutes after the event, and live view cannot start during the few seconds the clip is read. Keeps the cropped picture if the clip cannot be read. Unconfirmed on hardware. Off by default.
   experimental_event_image_request:
     name: Retired event picture request test (ignored)
     description: Retired after comparison with the current Eufy app. Existing settings are accepted, but this option has no effect. Pictures use authenticated requests.
