@@ -214,3 +214,42 @@ for (const scenario of ["video", "loss", "early-offer", "invalid-offer", "duplic
     }
   });
 }
+
+
+for (const scenario of ["join", "call", "offer", "call-rejected"] as const) {
+  test(`doorbell startup failure distinguishes ${scenario} without private signalling`, { timeout: 5000 }, async () => {
+    const server = new WebSocketServer({ port: 0 });
+    await once(server, "listening");
+    const address = server.address() as { port: number };
+    server.on("connection", socket => socket.on("message", raw => {
+      const inner = JSON.parse(JSON.parse(raw.toString()).data);
+      const send = (data: Record<string, unknown>): void => { socket.send(JSON.stringify({ data: JSON.stringify(data) })); };
+      if (inner.action === 1 && scenario !== "join") send({ action: 1, code: 200 });
+      if (inner.dataType === "call" && ["offer", "call-rejected"].includes(scenario)) {
+        send({ action: 3, code: 200, sessionId: "synthetic-sign", sn: "synthetic-station", channelId: 0,
+          dataType: "call", data: JSON.stringify({ status: scenario === "offer" ? 200 : 408 }) });
+      }
+    }));
+    const session = new DoorbellRtcSession({ station: "synthetic-station", administrator: "synthetic-owner",
+      context: { host: "security-smart-eu.eufylife.com", region: "EU", authToken: "synthetic-token", gtoken: "synthetic-gtoken", sign: "synthetic-sign" },
+      signal: new AbortController().signal, current: () => true, startupTimeoutMilliseconds: 300,
+      ready: () => { throw Error("No media expected"); },
+    }, {
+      socket: () => new WebSocket(`ws://127.0.0.1:${address.port}`),
+      peer: () => { throw Error("No peer expected"); },
+    });
+    try {
+      await assert.rejects(session.start(), error => {
+        assert.ok(error instanceof DoorbellRtcError);
+        assert.equal(error.stage, scenario === "call-rejected" ? "call" : "deadline");
+        assert.equal(error.reason, scenario === "call-rejected" ? "call_timeout" : `startup_${scenario}_timeout`);
+        assert.equal(error.message.includes("synthetic"), false);
+        return true;
+      });
+    } finally {
+      await session.close();
+      for (const socket of server.clients) socket.terminate();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+}

@@ -200,7 +200,7 @@ test('NVR state rejects malformed, oversized, duplicate and conflicting scoped r
 
 test('NVR setup reasons identify rejected fields without echoing their values', () => {
   const cases = [
-    [offer() + 'm=video 9 UDP/TLS/RTP/SAVPF 96\r\n', 'offer_media'],
+    [offer() + 'm=video 9 UDP/TLS/RTP/SAVPF 96\r\n', 'offer_media_tracks'],
     [offer().replace('sha-256', 'sha-1'), 'offer_fingerprint'],
     [offer().replace('a=mid:2', 'a=mid:'), 'offer_mid'],
     [offer().replace('a=ice-pwd:syntheticPasswordAtLeast22', 'a=ice-pwd:private'), 'offer_ice'],
@@ -322,4 +322,23 @@ test('NVR diagnostics distinguish custom labels and unknown local readings', () 
   assert.equal(page.includes("3: 'Geofence'"), false);
   assert.ok(page.includes('Unknown means this read returned no value or an unrecognised one.'));
   assert.ok(page.includes('Cloud inventory is checked during this test. It is not local confirmation. The effective-mode sensor uses separate reported updates.'));
+});
+
+
+test('NVR offer rejection separates track, count and size without admitting another carrier', () => {
+  const cases = [
+    [offer().replace('m=application 9 UDP/DTLS/SCTP webrtc-datachannel', 'm=video 9 UDP/TLS/RTP/SAVPF 96'), 'offer_media_tracks'],
+    [offer().replace('m=application 9 UDP/DTLS/SCTP webrtc-datachannel', 'm=audio 9 UDP/TLS/RTP/SAVPF 111'), 'offer_media_tracks'],
+    [offer() + 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n', 'offer_media_count'],
+    ['v=0\r\n', 'offer_media_count'],
+    [offer() + 'a=private:' + 'x'.repeat(65536), 'offer_size'],
+    [offer().replace('UDP/DTLS/SCTP', 'PRIVATE_TRANSPORT'), 'offer_media'],
+  ] as const;
+  for (const [input, reason] of cases) assert.throws(() => nvrOffer(input), error => {
+    assert.ok(error instanceof NvrTrialError);
+    assert.equal(error.stage, 'negotiation');
+    assert.equal(error.reason, reason);
+    assert.equal(error.message, 'NVR video test failed at negotiation');
+    return true;
+  });
 });
