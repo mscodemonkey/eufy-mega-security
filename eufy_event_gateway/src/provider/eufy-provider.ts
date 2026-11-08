@@ -526,7 +526,7 @@ export function supportsStandaloneC31Presets(
     && Boolean(device.adminUserId) && routeReady;
 }
 
-/** Admit checked live AAC only on exact E30 routes and the owned standalone C31 route. */
+/** Admit checked live AAC on exact E30 routes and owned standalone C31/S220 routes. */
 export function supportsCameraLiveAudio(
   device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">,
   route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
@@ -534,6 +534,9 @@ export function supportsCameraLiveAudio(
 ): boolean {
   if (!routeReady || !route || device.channel === null) return false;
   if (supportsStandaloneC31Presets(device, route, routeReady)) return true;
+  if (device.model === "T8134" && device.deviceType === 63) {
+    return !route.homeBaseAttached && device.channel === 0 && route.peer.serial === device.serial && Boolean(device.adminUserId);
+  }
   return device.model === "T8171" && device.deviceType === 88
     && ((route.homeBaseAttached && route.peer.model === "T8030")
       || (!route.homeBaseAttached && device.channel === 0 && route.peer.serial === device.serial));
