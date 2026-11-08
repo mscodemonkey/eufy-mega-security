@@ -282,8 +282,6 @@ const MAX_DELIVERED_VIEWS = 1024;
 // Longer than a call takes to settle, and shorter than Home Assistant's second stream retry.
 const NEW_VIEW_MILLISECONDS = 8_000;
 
-// Long enough for a person to pick the next camera.
-const PARKED_TRANSCODER_MILLISECONDS = 15_000;
 const MEDIA_PROCESS_TERMINATION_GRACE_MILLISECONDS = 2_000;
 const MAX_PARAMETER_SET_SCAN_BYTES = 1024 * 1024;
 const MAX_STARTUP_GROUP_BYTES = 1024 * 1024;
@@ -592,7 +590,6 @@ export class LiveStreamManager extends EventEmitter {
   readonly #deliveredViews = new Set<string>();
   readonly #newViews = new Map<string, number>();
   readonly #heldViews = new Set<string>();
-  #parkedTranscoder: { process: ChildProcessWithoutNullStreams; headers: Buffer; timer: NodeJS.Timeout } | null = null;
   #closed = false;
 
   /**
@@ -1123,7 +1120,6 @@ export class LiveStreamManager extends EventEmitter {
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
-    this.#dropParkedTranscoder();
     this.emit("closed");
     await Promise.all(
       [...this.#sessions.entries()].map(async ([serial, session]) => {
@@ -1482,7 +1478,7 @@ export class LiveStreamManager extends EventEmitter {
   ): void {
     const generation = session.generation;
     session.viewerStartup.conversionStarted();
-    const process = this.#takeTranscoder(session.parameterSets.bootstrap);
+    const process = this.createViewerTranscoder();
     session.viewerFfmpeg = process;
     session.viewerParameterSets = new VideoParameterSetCache();
     if (!preserveSummary) {
@@ -1618,53 +1614,13 @@ export class LiveStreamManager extends EventEmitter {
     this.#stopViewerTranscoder(session);
   }
 
-  /**
-   * Bringing a conversion up to its first picture takes a small host about a
-   * second, which is most of the wait when a person changes camera. So a stopped
-   * conversion is kept for a moment and carries on with the next camera, provided
-   * that camera's stream has the same headers. Its encoder must not change size.
-   * Pictures still in the pipeline are dropped by the next view's wait for a keyframe.
-   */
-  #parkTranscoder(process: ChildProcessWithoutNullStreams, headers: Buffer | null): void {
-    this.#dropParkedTranscoder();
-    if (this.#closed || !headers || process.exitCode !== null || process.signalCode !== null) {
-      terminateMediaProcess(process);
-      return;
-    }
-    process.stdout.removeAllListeners("data"); process.stderr.removeAllListeners("data");
-    process.removeAllListeners("error"); process.removeAllListeners("close"); process.stdin.removeAllListeners("error");
-    process.stdout.on("data", () => undefined); process.stderr.on("data", () => undefined);
-    process.on("error", () => undefined); process.stdin.on("error", () => undefined);
-    const timer = setTimeout(() => this.#dropParkedTranscoder(), PARKED_TRANSCODER_MILLISECONDS);
-    timer.unref?.();
-    this.#parkedTranscoder = { process, headers, timer };
-  }
-
-  #takeTranscoder(headers: Buffer | null): ChildProcessWithoutNullStreams {
-    const parked = this.#parkedTranscoder;
-    if (!parked || !headers?.equals(parked.headers) || parked.process.exitCode !== null || parked.process.signalCode !== null) {
-      this.#dropParkedTranscoder();
-      return this.createViewerTranscoder();
-    }
-    clearTimeout(parked.timer);
-    this.#parkedTranscoder = null;
-    parked.process.stdout.removeAllListeners("data"); parked.process.stderr.removeAllListeners("data");
-    parked.process.removeAllListeners("error"); parked.process.stdin.removeAllListeners("error");
-    return parked.process;
-  }
-
-  #dropParkedTranscoder(): void {
-    const parked = this.#parkedTranscoder;
-    this.#parkedTranscoder = null;
-    if (!parked) return;
-    clearTimeout(parked.timer);
-    terminateMediaProcess(parked.process);
-  }
-
   #stopViewerTranscoder(session: Session): void {
     if (session.viewerFfmpeg) {
       this.#emitViewerTranscoderSummary(session);
-      this.#parkTranscoder(session.viewerFfmpeg, session.parameterSets.bootstrap);
+
+      // Matching codec headers cannot identify pictures already queued inside a converter.
+      // Keep that process with its original source until termination, never lend it to another.
+      terminateMediaProcess(session.viewerFfmpeg);
       session.viewerFfmpeg = null;
     }
     session.viewerParameterSets = new VideoParameterSetCache();
