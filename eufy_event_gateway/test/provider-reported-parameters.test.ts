@@ -16,7 +16,7 @@ import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
 import { ParameterCheckError, projectReportedParameters, type ParameterCheckModel } from "../src/provider/reported-parameter-check.js";
 
-for (const mode of ["valid", "attached", "root", "self", "unauthenticated", "hung-inventory", "disabled", "token", "shared", "shared-denied", "missing-owner", "parent-owner", "model", "type", "parent", "channel", "ambiguous", "raw-duplicate", "changed", "binding", "inventory", "cancelled", "hung", "shutdown", "busy", "late", "pir-hb2", "pir-hb3", "pir-standalone", "pir-self", "pir-alias", "pir-type", "pir-parent", "pir-channel", "pir-parent-owner", "pir-duplicate", "pir-shared-denied"] as const) {
+for (const mode of ["valid", "attached", "root", "self", "unauthenticated", "hung-inventory", "disabled", "token", "shared", "shared-denied", "missing-owner", "parent-owner", "model", "type", "parent", "channel", "ambiguous", "raw-duplicate", "changed", "binding", "inventory", "cancelled", "hung", "shutdown", "busy", "late", "pir-hb2", "pir-hb3", "pir-standalone", "pir-self", "pir-alias", "pir-type", "pir-parent", "pir-channel", "pir-parent-owner", "pir-duplicate", "pir-shared-denied", "pir-missing-owner"] as const) {
   test(`reported parameters: ${mode}`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "parameter-provider-"));
     const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
@@ -28,9 +28,9 @@ for (const mode of ["valid", "attached", "root", "self", "unauthenticated", "hun
     const attached = (pir && !["pir-standalone", "pir-self"].includes(mode)) || ["attached", "parent-owner", "parent", "channel", "ambiguous"].includes(mode);
     const sensor = { device_sn: "target", device_model: pir ? mode === "pir-alias" ? "T8910C" : "T8910" : mode === "root" ? "T8030" : attached ? "T8417" : mode === "model" ? "T8410C" : "T8410",
       device_type: pir ? mode === "pir-type" ? 2 : 10 : mode === "root" ? 18 : attached ? 105 : mode === "type" ? 105 : 31, device_channel: ["channel", "pir-channel"].includes(mode) ? 255 : 1,
-      parent_sn: attached ? "station" : ["self", "pir-self"].includes(mode) ? "target" : "", category: "eufy_security", member: { admin_user_id: mode === "missing-owner" ? "" : "owner" }, params: [] };
+      parent_sn: attached ? "station" : ["self", "pir-self"].includes(mode) ? "target" : "", category: "eufy_security", member: { admin_user_id: ["missing-owner", "pir-missing-owner"].includes(mode) ? "" : "owner" }, params: [] };
     const station = { device_sn: "station", device_model: ["parent", "pir-parent"].includes(mode) ? "T9000" : mode === "pir-hb2" ? "T8010" : "T8030", device_type: mode === "pir-hb2" ? 0 : 18,
-      category: "eufy_security", member: { admin_user_id: ["parent-owner", "pir-parent-owner"].includes(mode) ? "other" : "owner" }, params: [] };
+      category: "eufy_security", member: { admin_user_id: mode === "pir-missing-owner" ? "" : ["parent-owner", "pir-parent-owner"].includes(mode) ? "other" : "owner" }, params: [] };
     const inventory = context.mock.method(MegaClient.prototype, "inventory", async () => {
       reads++;
       if (reads > 1 && mode === "hung-inventory") await new Promise(() => undefined);
@@ -65,7 +65,11 @@ for (const mode of ["valid", "attached", "root", "self", "unauthenticated", "hun
       context.mock.timers.enable({ apis: ["setTimeout"], now: Date.now() });
       const operation = provider.readReportedParameters("target", controller.signal);
       const succeeds = ["valid", "attached", "root", "self", "busy", "shared", "pir-hb2", "pir-hb3"].includes(mode);
-      const result = succeeds ? operation : assert.rejects(operation, ParameterCheckError);
+      const localBindingFailure = ["missing-owner", "parent-owner", "pir-parent-owner", "pir-missing-owner"].includes(mode);
+      const cloudRefusal = ["shared-denied", "pir-shared-denied"].includes(mode);
+      const result = succeeds ? operation : assert.rejects(operation, error => error instanceof ParameterCheckError
+        && (!localBindingFailure || error.stage === "owner_binding_unavailable")
+        && (!cloudRefusal || error.stage === "owner_account_required"));
       for (let index = 0; index < 10; index++) await new Promise(done => setImmediate(done));
       if (["busy", "hung", "late", "hung-inventory"].includes(mode)) {
         await assert.rejects(provider.readReportedParameters("target", new AbortController().signal), /busy/);
@@ -75,6 +79,8 @@ for (const mode of ["valid", "attached", "root", "self", "unauthenticated", "hun
       await result;
       if (succeeds && pir) assert.deepEqual((await operation).observations, { 1605: "recent" });
       if (pir) assert.equal(callbackCount, before);
+      if (localBindingFailure) assert.equal(query.mock.callCount(), 0);
+      if (cloudRefusal) assert.equal(query.mock.callCount(), 1);
       if (succeeds) { assert.equal(query.mock.callCount(), 1); assert.equal(reads, beforeReads + 2); assert.equal(callbackCount, before); }
       if (["hung", "late", "hung-inventory"].includes(mode)) {
         if (mode === "late") resolve();

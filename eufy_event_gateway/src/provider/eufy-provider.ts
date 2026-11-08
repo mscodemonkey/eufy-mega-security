@@ -1083,7 +1083,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
     // Cloud reads use the current session token. Eufy authorizes that token,
     // rather than treating an inventory administrator ID as an account-role proof.
-    if (!device.adminUserId || (parent && parent.adminUserId !== device.adminUserId)) throw new ParameterCheckError("owner_account_required");
+    if (!device.adminUserId || (parent && parent.adminUserId !== device.adminUserId)) {
+      logger.warn("reported_parameter_check", `model=${device.model} outcome=owner_binding_unavailable`);
+      throw new ParameterCheckError("owner_binding_unavailable");
+    }
     const binding = this.#client.authenticatedBinding();
     if (!binding) throw new ParameterCheckError("unauthorized");
     const controller = new AbortController();

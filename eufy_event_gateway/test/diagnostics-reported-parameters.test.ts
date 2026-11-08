@@ -19,12 +19,13 @@ test("state-check browser requires consent and drops cancelled or stale replies"
     }
     return elements.get(id)!;
   };
+  let ok = true;
   let calls = 0, finish!: (value: unknown) => void, signal: AbortSignal | undefined;
   const fetch = async (path: string, options: { signal: AbortSignal; body: string }) => {
     calls++; assert.equal(path, "api/diagnostics/parameter-check");
     assert.deepEqual(JSON.parse(options.body), { serial: "selected", consent: true });
     signal = options.signal;
-    return { ok: true, json: () => new Promise(resolve => { finish = resolve; }) };
+    return { ok, json: () => new Promise(resolve => { finish = resolve; }) };
   };
   const script = diagnosticsPage().split("<script>")[1]!.split("</script>")[0]!;
   new Function("document", "fetch", "Option", "window", "location", script)(
@@ -46,5 +47,19 @@ test("state-check browser requires consent and drops cancelled or stale replies"
   const next = element("parameter-start").onclick!(); await new Promise(resolve => setImmediate(resolve));
   finish({ model: "T8410", observations: { 1035: "one" } }); await next;
   assert.match(element("parameter-status").textContent, /Cached candidates only/);
+  ok = false;
+  for (const [stage, expected, absent] of [
+    ["owner_binding_unavailable", /No parameter request was sent/, /Eufy refused|requires an owner account/],
+    ["owner_account_required", /Eufy refused this read for the current account/, /No parameter request was sent/],
+  ] as const) {
+    element("parameter-consent").checked = true;
+    const failed = element("parameter-start").onclick!();
+    await new Promise(resolve => setImmediate(resolve));
+    finish({ stage, message: "SENTINEL_PRIVATE" }); await failed;
+    assert.match(element("parameter-status").textContent, expected);
+    assert.doesNotMatch(element("parameter-status").textContent, absent);
+    assert.doesNotMatch(element("parameter-status").textContent, /SENTINEL/);
+    assert.match(element("parameter-status").textContent, /Keep your current account/);
+  }
   assert.match(diagnosticsPage(), /6250 candidate is not a lens-position readback/);
 });

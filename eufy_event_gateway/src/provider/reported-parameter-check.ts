@@ -5,7 +5,7 @@
  */
 
 /** Fixed failures that may cross the diagnostic HTTP boundary without private data. */
-export const parameterCheckStages = ["disabled", "unauthorized", "invalid_request", "unsupported", "owner_account_required", "busy", "inventory", "binding_changed", "request", "invalid_response", "timeout", "cancelled", "shutdown"] as const;
+export const parameterCheckStages = ["disabled", "unauthorized", "invalid_request", "unsupported", "owner_account_required", "owner_binding_unavailable", "busy", "inventory", "binding_changed", "request", "invalid_response", "timeout", "cancelled", "shutdown"] as const;
 
 /** A diagnostic refusal, never an arbitrary transport or server message. */
 export type ParameterCheckStage = typeof parameterCheckStages[number];
