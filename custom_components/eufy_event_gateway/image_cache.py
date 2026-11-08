@@ -41,7 +41,7 @@ class CameraImageCache:
 
     async def async_image(self, serial: str, kind: str, fetch: Callable[[], Awaitable[bytes | None]]) -> bytes:
         """Return a current image, a last-good image, or the explicit waiting picture."""
-        if kind not in ("snapshot", "event-image"):
+        if kind not in ("snapshot", "event-image", "snapshot-fixed", "snapshot-movable"):
             raise ValueError("Unsupported image kind")
         key = (serial, kind)
         async with self._locks.setdefault(key, asyncio.Lock()):
@@ -62,6 +62,8 @@ class CameraImageCache:
                 return data
             if previous:
                 return previous
+            if kind in ("snapshot-fixed", "snapshot-movable"):
+                return self._placeholder
             alternate = "snapshot" if kind == "event-image" else "event-image"
             retained = await self._load((serial, alternate))
             return retained or self._placeholder

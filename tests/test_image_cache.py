@@ -50,6 +50,25 @@ class ImageCacheTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await restarted.async_image("synthetic", "snapshot", waiting), good)
             self.assertEqual(await restarted.async_image("synthetic", "event-image", waiting), good)
 
+    async def test_shared_panes_never_borrow_each_other_or_whole_camera_images(self) -> None:
+        """Durable fallbacks remain in the exact pane cache after a process restart."""
+        placeholder = (ROOT / "waiting-image.jpg").read_bytes()
+        whole = placeholder[:2] + b"\xff\xfe\x00\x06full" + placeholder[2:]
+        fixed = placeholder[:2] + b"\xff\xfe\x00\x06pane" + placeholder[2:]
+        with tempfile.TemporaryDirectory() as directory:
+            cache = MODULE.CameraImageCache(Path(directory), asyncio.to_thread)
+            async def full(): return whole
+            async def pane(): return fixed
+            async def waiting(): return placeholder
+            await cache.async_image("test", "snapshot", full)
+            await cache.async_image("test", "event-image", full)
+            self.assertEqual(await cache.async_image("test", "snapshot-fixed", waiting), placeholder)
+            await cache.async_image("test", "snapshot-fixed", pane)
+            self.assertEqual(await cache.async_image("test", "snapshot-movable", waiting), placeholder)
+            restarted = MODULE.CameraImageCache(Path(directory), asyncio.to_thread)
+            self.assertEqual(await restarted.async_image("test", "snapshot-fixed", waiting), fixed)
+            self.assertEqual(await restarted.async_image("test", "snapshot-movable", waiting), placeholder)
+
     async def test_empty_failed_and_truncated_responses_never_return_nothing(self) -> None:
         """Supply a labelled picture even before the first successful capture."""
         with tempfile.TemporaryDirectory() as directory:
