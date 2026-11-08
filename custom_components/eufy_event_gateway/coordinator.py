@@ -133,7 +133,14 @@ class EufyGatewayCoordinator(
             )
 
     async def _async_update_data(self) -> dict[str, dict[str, dict[str, Any]]]:
-        """Fetch all inventories concurrently for startup and poll recovery."""
+        """Recover inventory without replacing updates received during the fetch.
+
+        Event and confirmed-command rows are replaced rather than mutated.
+        Their identity therefore marks a newer observation, including additions
+        and removals, while unchanged rows can still recover from this poll.
+        """
+        before = {family: dict((self.data or {}).get(family, {}))
+                  for family in ("cameras", "stations", "sensors", "locks")}
 
         # Polling is recovery only. Normal updates arrive through the long-lived
         # SSE connection started after the first successful refresh.
@@ -149,6 +156,13 @@ class EufyGatewayCoordinator(
             "sensors": {sensor["serial"]: sensor for sensor in sensors},
             "locks": {lock["serial"]: lock for lock in locks},
         }
+        for family, previous in before.items():
+            current = (self.data or {}).get(family, {})
+            for serial in previous.keys() | current.keys():
+                if serial not in current:
+                    updated[family].pop(serial, None)
+                elif current[serial] is not previous.get(serial):
+                    updated[family][serial] = current[serial]
         self._sync_device_names(updated)
         return updated
 
