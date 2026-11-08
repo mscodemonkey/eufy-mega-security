@@ -13,6 +13,7 @@ export type DoorbellRtcStage = "admission" | "sign" | "join" | "call" | "busy" |
 /** Content-free reason categories for offer validation and support follow-up. */
 export type DoorbellRtcReason = "unspecified" | "region_or_authorization_rejected" | "offer_text" | "media_sections" | "media_kinds"
   | "media_shape" | "mid" | "video_count" | "video_shape" | "transport_field"
+  | "startup_join_timeout" | "startup_call_timeout" | "startup_offer_timeout" | "startup_peer_timeout" | "startup_video_timeout" | "call_timeout"
   | "payloads" | "codec" | "fmtp" | "candidate_limit" | "candidate" | "connection";
 
 /**
