@@ -13,6 +13,7 @@ export type NvrTrialStage = "admission" | "region_or_authorization_rejected" | "
   | "start" | "video" | "stop" | "cancelled" | "deadline" | "framing" | "timing" | "state";
 
 const nvrTrialReasons = [
+  "call_timeout", "call_unexpected_action",
   "unspecified", "signalling_queue_limit", "signalling_closed", "signalling_error", "session_mismatch",
   "station_mismatch", "channel_mismatch", "relay_count", "relay_shape", "relay_fields", "candidate_limit",
   "candidate_shape", "candidate_component", "candidate_transport", "candidate_priority", "candidate_host",
@@ -27,7 +28,11 @@ const nvrTrialReasons = [
   "video_progress_timeout", "start_receipt_timeout", "frame_sequence_gap", "frame_reorder_limit", "frame_reorder_timeout", "clock_reversed", "state_binding_changed", "state_inventory_expired", "switch_no_picture",
 ] as const;
 
-/** Fixed failure reasons distinguish setup failures without retaining received values. */
+/**
+ * Fixed failure reasons distinguish setup failures without retaining received values.
+ * A call_timeout means an explicit vendor 408, separate from the local deadline
+ * and from a response whose action does not belong to the authenticated call.
+ */
 export type NvrTrialReason = typeof nvrTrialReasons[number];
 
 /**

@@ -917,3 +917,64 @@ test('standalone state queries require the finite diagnostic lifetime', async ()
   await assert.rejects(session.readState(), { stage: 'admission' });
   assert.equal(session.remainingLifetimeMilliseconds, 0);
 });
+
+
+for (const scenario of ['timeout', 'unexpected-action', 'before-auth', 'busy'] as const) {
+  test(`call failure distinguishes ${scenario} without creating a media peer`, { timeout: 5000 }, async () => {
+    const server = new WebSocketServer({ port: 0 });
+    await once(server, 'listening');
+    const address = server.address() as { port: number };
+    let calls = 0, peers = 0;
+    const sockets: WebSocket[] = [];
+    server.on('connection', socket => {
+      sockets.push(socket);
+      const send = (value: Record<string, unknown>): void => {
+        socket.send(JSON.stringify({ data: JSON.stringify(value) }));
+      };
+      socket.on('message', raw => {
+        const message = JSON.parse(JSON.parse(raw.toString()).data);
+        if (message.action === 1) {
+          send(scenario === 'before-auth' ? { action: 3 } : { action: 1, code: 200 });
+        } else if (message.dataType === 'call') {
+          calls++;
+          send({ action: scenario === 'unexpected-action' ? 7 : 3,
+            sessionId: 'synthetic-sign', sn: 'synthetic-station', channelId: 0,
+            dataType: 'call', data: JSON.stringify({ status: scenario === 'busy' ? 486 : 408,
+              message: 'private-vendor-detail' }) });
+        }
+      });
+    });
+    const session = new NvrRtcSession({ station: 'synthetic-station', camera: 'synthetic-station', channel: 0,
+      cameraType: 314, administrator: 'synthetic-owner',
+      context: { host: 'security-smart-eu.eufylife.com', region: 'EU',
+        authToken: 'synthetic-token', gtoken: 'synthetic-gtoken', sign: 'synthetic-sign' },
+      signal: new AbortController().signal, current: () => true,
+      ready: () => assert.fail('A refused call cannot deliver media') }, {
+      socket: (_url, protocols, options) => new WebSocket(`ws://127.0.0.1:${address.port}`, protocols, options),
+      peer: () => { peers++; throw new Error('No peer should be created'); },
+    });
+    session.output.on('error', () => {});
+    try {
+      await assert.rejects(session.start(), error => {
+        assert.ok(error instanceof NvrTrialError);
+        assert.equal(error.stage, scenario === 'busy' ? 'busy' : 'call');
+        assert.equal(error.reason, scenario === 'timeout' ? 'call_timeout'
+          : scenario === 'busy' ? 'unspecified' : 'call_unexpected_action');
+        assert.equal(error.cause, undefined);
+        assert.equal(JSON.stringify(error).includes('private-vendor-detail'), false);
+        return true;
+      });
+      await session.close();
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.equal(calls, scenario === 'before-auth' ? 0 : 1);
+      assert.equal(peers, 0);
+      assert.equal(session.stats.packets, 0);
+      assert.equal(session.stats.video, 0);
+      assert.ok(sockets.every(socket => socket.readyState !== WebSocket.OPEN));
+    } finally {
+      await session.close();
+      for (const socket of sockets) socket.terminate();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+}
