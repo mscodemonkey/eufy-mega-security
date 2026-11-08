@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.249
+
+- Keep newer device events and confirmed switch results when an older Home Assistant recovery poll finishes late.
+- Close a yielding S1 camera view before opening a different camera, while preserving active-view and recording protection. Physical S1 switching remains awaiting reporter confirmation.
+- Forward validated clear AAC from exact direct S220 T8134 cameras through the existing Live audio option, off by default. Audible playback remains unconfirmed.
+- Add a restricted read-only T8910 cloud motion-time check and saved-connection helper support. This is an availability probe, not a polling motion receiver.
+- Run the E10 private video trial through the saved HA connection and distinguish an explicit call timeout from an unexpected signalling response. Normal E10 video and pictures remain unconfirmed.
+
 ## 0.1.248
 
 - Improve camera switching without interrupting Home Assistant recordings, and reduce compatible-video startup probing. Each camera keeps its own converter so queued output cannot cross between camera views.
