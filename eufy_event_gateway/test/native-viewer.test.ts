@@ -109,7 +109,7 @@ test("the last compatible viewer retires its converter while native remains", as
     await f.manager.addClient("fixture", compatible.sink);
     f.source.write(media("h265"));
     compatible.sink.emit("close");
-    assert.equal(f.kills, 0, "A stopped conversion waits briefly for the next camera");
+    assert.equal(f.kills, 1, "An unused converter cannot carry output into another camera");
     assert.equal(native.sink.destroyed, false);
     assert.equal(f.conversions, 1);
   } finally { await f.manager.close(); }
