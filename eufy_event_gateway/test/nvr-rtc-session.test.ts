@@ -631,6 +631,17 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'ful
       assert.ok(session.stats.video >= 3);
       assert.ok(scheduled.length >= 2);
       assert.ok(scheduled.every(timer => timer.delay === 45_000));
+      if (scenario === 'continuous-heartbeat') {
+        clearInterval(sendVideo);
+
+        // Drain already-sent video before checking that heartbeats do not renew
+        // the lease. A late real-peer frame must legitimately replace its timer.
+        const until = performance.now() + 2_000;
+        while (session.stats.video < videoSequence && performance.now() < until) {
+          await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        assert.equal(session.stats.video, videoSequence);
+      }
       const activeTimer = scheduled.at(-1)!;
       scheduled[0]!.fire();
       assert.equal(session.output.destroyed, false);

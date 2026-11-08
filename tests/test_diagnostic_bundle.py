@@ -44,6 +44,38 @@ def encoded(value: dict) -> bytes:
 class DiagnosticBundleTests(unittest.TestCase):
     """Exercise local transfers and private-file boundaries with isolated fixtures."""
 
+    def test_s220_settings_summary_reads_cached_state_without_commands(self):
+        """Expose only closed availability facts, never serials, settings or tokens."""
+        camera = {"serial": "private-camera", "model": "T8134", "streamingQualityControlSupported": False,
+                  "motionSensitivityControlSupported": False, "reportedSettings": {}, "streamingQualityModes": [],
+                  "name": "private-name", "private": "private-token"}
+        target = {"serial": "private-camera", "model": "T8134"}
+        for current in [None, 0, 1, 2, 3, True, 9]:
+            camera["reportedSettings"] = {"streamingQualityTier": current}
+            with patch.object(TOOL, "request", return_value=json.dumps({"cameras": [camera]}).encode()) as request:
+                summary = TOOL.s220_settings_check("http://private.invalid", "private-token", target)
+                self.assertEqual(summary["qualityCurrentKnown"], type(current) is int and 0 <= current <= 3)
+                self.assertFalse(summary["commandSent"])
+                self.assertFalse(summary["qualityControlAvailable"])
+                self.assertNotIn("private", json.dumps(summary))
+                request.assert_called_once_with("http://private.invalid/api/cameras", "private-token")
+        camera.update({"streamingQualityControlSupported": True, "motionSensitivityControlSupported": True,
+                       "reportedSettings": {"streamingQualityTier": 2, "motionSensitivityStep": 4},
+                       "streamingQualityModes": [{"value": 0, "name": "Auto"}, {"value": 2, "name": "Medium"}]})
+        with patch.object(TOOL, "request", return_value=json.dumps({"cameras": [camera]}).encode()):
+            self.assertEqual(TOOL.s220_settings_check("http://private.invalid", "private-token", target),
+                             {"model": "T8134", "qualityControlAvailable": True, "qualityCurrentKnown": True,
+                              "qualityChoiceCount": 2, "sensitivityControlAvailable": True,
+                              "sensitivityCurrentKnown": True, "commandSent": False})
+        for rows in [[], [camera, camera], [{**camera, "model": "T8134X"}], [{**camera, "streamingQualityModes": "private"}]]:
+            with patch.object(TOOL, "request", return_value=json.dumps({"cameras": rows}).encode()):
+                with self.assertRaisesRegex(TOOL.DiagnosticError, "No camera command was sent"):
+                    TOOL.s220_settings_check("http://private.invalid", "private-token", target)
+        with patch.object(TOOL, "request") as request:
+            with self.assertRaises(TOOL.DiagnosticError):
+                TOOL.s220_settings_check("http://private.invalid", "private-token", {**target, "model": "T8134X"})
+            request.assert_not_called()
+
     def test_spotlight_read_never_falls_back_to_a_write(self):
         """Use one exact read action and expose only a closed state observation."""
         target = {"model": "T8110", "serial": "private-camera"}

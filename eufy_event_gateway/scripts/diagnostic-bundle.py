@@ -202,6 +202,51 @@ def devices(endpoint: str, token: str) -> list[dict]:
     return rows
 
 
+
+def s220_settings_check(url: str, token: str, target: dict) -> dict:
+    """Summarize cached S220 settings admission without a camera query or write.
+
+    The gateway owns these observations. A missing current value can withhold
+    an entity, while a known value with unavailable control leaves other gates
+    unresolved. Neither result proves physical settings or authorizes a change.
+    """
+    if target.get("model") != "T8134" or not isinstance(target.get("serial"), str) or not target["serial"]:
+        raise DiagnosticError("Select the exact S220 model T8134 from the current list.")
+    try:
+        value = json.loads(request(url + "/api/cameras", token))
+        rows = value.get("cameras") if isinstance(value, dict) else None
+        if not isinstance(rows, list) or len(rows) > 1000 or any(not isinstance(row, dict) for row in rows):
+            raise ValueError()
+        matches = [row for row in rows if row.get("serial") == target["serial"]]
+        if len(matches) != 1 or matches[0].get("model") != "T8134":
+            raise ValueError()
+        camera = matches[0]
+        quality, sensitivity = camera.get("streamingQualityControlSupported"), camera.get("motionSensitivityControlSupported")
+        settings = camera.get("reportedSettings")
+        if settings is not None and not isinstance(settings, dict):
+            raise ValueError()
+        settings = settings or {}
+        modes = camera.get("streamingQualityModes")
+        if type(quality) is not bool or type(sensitivity) is not bool or not isinstance(modes, list) or len(modes) > 4:
+            raise ValueError()
+        choices = []
+        for mode in modes:
+            if not isinstance(mode, dict) or type(mode.get("value")) is not int or not 0 <= mode["value"] <= 3:
+                raise ValueError()
+            choices.append(mode["value"])
+        if len(set(choices)) != len(choices):
+            raise ValueError()
+        current = settings.get("streamingQualityTier")
+        step = settings.get("motionSensitivityStep")
+        return {"model": "T8134", "qualityControlAvailable": quality,
+                "qualityCurrentKnown": type(current) is int and 0 <= current <= 3,
+                "qualityChoiceCount": len(choices), "sensitivityControlAvailable": sensitivity,
+                "sensitivityCurrentKnown": type(step) is int and 1 <= step <= 7,
+                "commandSent": False}
+    except (ValueError, TypeError, DiagnosticError):
+        raise DiagnosticError("S220 settings summary unavailable. No camera command was sent.") from None
+
+
 def selected_device(rows: list[dict], index: int) -> dict:
     """Resolve a current one-based index while keeping serials out of output."""
     if not 1 <= index <= len(rows):
@@ -407,6 +452,8 @@ def run(options) -> dict:
         rows = devices(endpoint, token)
         return {"devices": [{"index": i + 1, "model": row["model"], "streamSupported": row["streamSupported"]}
                             for i, row in enumerate(rows)]}
+    if options.command == "s220-settings-check":
+        return s220_settings_check(url, token, selected_device(devices(endpoint, token), options.target_index))
     if options.command == "state-check":
         rows = devices(endpoint, token)
         return parameter_check(url, token, selected_device(rows, options.target_index))
@@ -466,6 +513,8 @@ def main(arguments=None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("list", "status", "clear"):
         sub.add_parser(name)
+    settings = sub.add_parser("s220-settings-check", help="Read cached S220 control availability without contacting the camera.")
+    settings.add_argument("--target-index", type=int, required=True)
     state = sub.add_parser("state-check", help="Run one consented read-only reported-parameter check.")
     state.add_argument("--target-index", type=int, required=True,
                        help="Current one-based device index from the list command.")
