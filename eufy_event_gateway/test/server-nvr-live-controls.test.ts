@@ -73,6 +73,8 @@ test("the live view hold route checks its input and holds only the named view", 
     await server.listen();
     const send = (path: string, body: string, authorised = true) => fetch(`http://127.0.0.1:${server.port}/api/cameras/${path}/live-view-hold`,
       { method: "POST", headers: authorised ? { authorization: "Bearer synthetic-secret", "content-type": "application/json" } : {}, body });
+    const inventory = await fetch(`http://127.0.0.1:${server.port}/api/cameras`, { headers: { authorization: "Bearer synthetic-secret" } });
+    assert.equal((await inventory.json()).liveViewHandoverSupported, true);
     const mark = "synthetic-view-0000000";
     assert.equal((await send("synthetic", JSON.stringify({ view: mark }), false)).status, 401);
     assert.equal((await send("missing", JSON.stringify({ view: mark }))).status, 404);

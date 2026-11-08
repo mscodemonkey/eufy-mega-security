@@ -12,7 +12,8 @@
  */
 import { createRecordedCipheriv as createCipheriv } from "../diagnostics/raw-crypto.js";
 import { createRecordedDecipheriv as createDecipheriv } from "../diagnostics/raw-crypto.js";
-import { observeRawSocket } from "../diagnostics/raw-network.js";
+import { observeRawSocket, rawSocketConnection } from "../diagnostics/raw-network.js";
+import { recordRaw } from "../diagnostics/raw-history.js";
 import { e21PreferenceContracts, validateE21Preference, type E21Preference } from "../provider/e21-profile.js";
 
 import { cameraSettingProfile, cameraSettingWireValue, type CameraSettingChange } from "../provider/camera-settings.js";
@@ -2913,6 +2914,7 @@ export class FirstPartyPpcsSession {
     this.#lookupCancel?.();
     this.#lookupCancel = null;
     this.stats.closeReason = reason;
+    this.#recordS340MediaStage("closed");
     this.#finishC31Index(new C31IndexError("cancelled"));
     this.#finishLockStatus(new T85V0StatusError("cancelled"));
     this.#recordings?.close();
@@ -3042,6 +3044,7 @@ export class FirstPartyPpcsSession {
       if (this.#lookupTimer) clearInterval(this.#lookupTimer);
       this.stats.camId++;
       this.#remote = { host: info.address, port: info.port };
+      this.#recordS340MediaStage("peer_selected");
       this.#send(REQ.ping, Buffer.alloc(0), this.#remote);
       const repairAttachedSetup = this.#options.homeBaseAttached
         && (this.#options.purpose !== "control" && this.#options.purpose !== "passive"
@@ -3322,6 +3325,7 @@ export class FirstPartyPpcsSession {
     }
     else if (command === 1300 && (!this.#options.homeBaseAttached || acceptsAttachedCameraMedia(command, frameChannel ?? -1, this.#options.channel))) {
       this.stats.videoFrames++;
+      this.#recordS340MediaStage("video_command");
       if (this.#writeVideo(payload, signCode)) {
         this.#mediaStart.mediaReceived();
         const decoderReady = hasDecoderReadyKeyframe(this.stats.videoCodec, this.stats.videoNalTypes);
@@ -3401,12 +3405,31 @@ export class FirstPartyPpcsSession {
       }
       this.output.write(normalized);
       this.stats.videoOutputFrames++;
+      this.#recordS340MediaStage("video_output");
       const framing = this.#videoNormalizer.framing;
       const result = decoded.protection === "clear" ? "written-clear" : `written-${decoded.protection}`;
       this.#recordVideoResult(`${result}-${framing}`);
       wrote = true;
     }
     return wrote;
+  }
+
+  /**
+   * Link selected-socket arrivals to accepted commands and normalized output.
+   * This exact-route probe is inert without the opt-in encrypted journal. It
+   * copies counters only, never media, and does not assert decoding or display.
+   */
+  #recordS340MediaStage(event: "peer_selected" | "video_command" | "video_output" | "closed"): void {
+    if (!usesT8171AttachedMediaProfile(this.#options.channel, this.#options)
+      || this.#options.purpose !== undefined && this.#options.purpose !== "media") return;
+    const connection = rawSocketConnection(this.#socket);
+    if (!connection) return;
+    recordRaw({ boundary: "ppcs_media_stage", connection, direction: "state", metadata: {
+      profile: "t8171-hb3-media-stages-v1", event,
+      model: "T8171", deviceType: 88, stationModel: "T8030", channel: 1,
+      videoCommands: this.stats.videoFrames, normalizedVideoUnits: this.stats.videoOutputFrames,
+      closeReason: this.stats.closeReason,
+    } });
   }
 
   /** Retain a bounded set of distinct pipeline outcomes for close diagnostics. */

@@ -6,8 +6,35 @@ import { qualifiedLiveFrameClock, qualifiedS340LiveSource } from "../src/stream/
 import assert from "node:assert/strict";
 import { createCipheriv, createDecipheriv, createECDH, createHmac } from "node:crypto";
 import { Socket } from "node:dgram";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { CameraControlAcknowledgementTimeoutError, decodePpcsControlRecord, FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
+import { RawHistory, decodeRawSegment, setRawHistory } from "../src/diagnostics/raw-history.js";
+
+/** Own an encrypted synthetic trace and retire its sink after the socket fixture. */
+async function stageHistory(context: TestContext) {
+  const directory = await mkdtemp(join(tmpdir(), "s340-media-stage-"));
+  const history = new RawHistory({ directory, reserveBytes: 1, buildFingerprint: "a".repeat(64) });
+  await history.initialize();
+  setRawHistory(history);
+  context.after(async () => {
+    context.mock.timers.reset(); setRawHistory(undefined); await history.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  return async () => {
+    await history.flush();
+    const key = await readFile(join(directory, "key"));
+    const rows: { boundary: string; connection: string; direction: string; bytes: string; metadata?: Record<string, unknown> }[] = [];
+    for (const file of await history.files()) {
+      const decoded = decodeRawSegment(await readFile(join(directory, file.name)), key);
+      assert.equal(decoded.incompleteTail, false);
+      rows.push(...decoded.records as typeof rows);
+    }
+    return rows;
+  };
+}
 
 /** Encode one synthetic encrypted gateway key using the session's public wire contract. */
 function gateway(): Buffer {
@@ -800,3 +827,32 @@ for (const variant of ["model", "type", "station", "channel", "purpose", "result
     } finally { f.session.close(); }
   });
 }
+
+test("qualified S340 stages link accepted video and normalized output to the selected socket", async context => {
+  const records = await stageHistory(context);
+  const f = await peer(context, true, "T8171", "media", "T8030", undefined, 1, 88);
+  try {
+    await f.negotiate();
+    f.video(1, { width: 640, height: 360, timestamp: 1 });
+    f.session.close();
+    const rows = await records();
+    const stages = rows.filter(row => row.boundary === "ppcs_media_stage");
+    assert.deepEqual(stages.map(row => row.metadata?.event), ["peer_selected", "video_command", "video_output", "closed"]);
+    const connections = new Set(stages.map(row => row.connection));
+    assert.equal(connections.size, 1);
+    assert.ok(rows.some(row => row.boundary === "ppcs" && row.connection === stages[0]!.connection && row.direction === "receive"));
+    assert.ok(stages.every(row => row.bytes === ""));
+    assert.equal(stages.at(-1)!.metadata?.normalizedVideoUnits, f.session.stats.videoOutputFrames);
+    assert.ok(f.session.stats.videoOutputFrames > 0);
+    assert.equal(stages.at(-1)!.metadata?.closeReason, "client_stop");
+  } finally { f.session.close(); }
+});
+
+test("S340 stage probe does not admit an unknown device type", async context => {
+  const records = await stageHistory(context);
+  const f = await peer(context, true, "T8171", "media", "T8030", undefined, 1, null);
+  try {
+    await f.negotiate(); f.video(); f.session.close();
+    assert.equal((await records()).filter(row => row.boundary === "ppcs_media_stage").length, 0);
+  } finally { f.session.close(); }
+});

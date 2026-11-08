@@ -7,6 +7,7 @@ makes the camera's next view open on the matching route.
 from __future__ import annotations
 
 import ast
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -67,9 +68,10 @@ class Coordinator:
         self.cameras = cameras
         self.live_audio: dict[str, bool] = {}
         self.live_audio_changed: dict = {}
+        self._live_audio_locks: dict = {}
 
 
-Coordinator.async_set_live_audio = load_method("coordinator.py", "EufyGatewayCoordinator", "async_set_live_audio", {})
+Coordinator.async_set_live_audio = load_method("coordinator.py", "EufyGatewayCoordinator", "async_set_live_audio", {"asyncio": asyncio})
 
 
 class LiveAudioSwitchTest(unittest.IsolatedAsyncioTestCase):
@@ -106,15 +108,48 @@ class LiveAudioSwitchTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(coordinator.live_audio, {"cam": True, "other": True})
 
     async def test_the_camera_drops_its_cached_stream_so_the_next_view_uses_the_new_route(self):
-        changed = load_method("camera.py", "EufyGatewayCamera", "_async_live_audio_changed", {})
-        stream = SimpleNamespace(stop=AsyncMock())
-        camera = SimpleNamespace(stream=stream, _hls_idle_stream=stream)
+        changed = load_method("camera.py", "EufyGatewayCamera", "_async_live_audio_changed", {"HomeAssistantError": RuntimeError})
+        stream = SimpleNamespace(stop=AsyncMock(), outputs=lambda: {})
+        camera = SimpleNamespace(stream=stream, _hls_idle_stream=stream, coordinator=SimpleNamespace(recording_holds=set()))
         await changed(camera)
         stream.stop.assert_awaited_once()
         self.assertIsNone(camera.stream)
         self.assertIsNone(camera._hls_idle_stream)
         await changed(camera)
         stream.stop.assert_awaited_once()
+
+    async def test_audio_change_cannot_stop_an_active_or_pending_recorder(self):
+        """A local playback preference must not cancel an HA recording."""
+        changed = load_method("camera.py", "EufyGatewayCamera", "_async_live_audio_changed", {"HomeAssistantError": RuntimeError})
+        for outputs, pending in (({"recorder": object()}, set()), ({"hls": object()}, {object()})):
+            stream = SimpleNamespace(stop=AsyncMock(), outputs=lambda: outputs)
+            coordinator = Coordinator({"cam": {}})
+            coordinator.recording_holds = pending
+            camera = SimpleNamespace(stream=stream, _hls_idle_stream=stream, coordinator=coordinator)
+            coordinator.live_audio_changed["cam"] = lambda: changed(camera)
+            with self.assertRaisesRegex(RuntimeError, "recording"):
+                await coordinator.async_set_live_audio("cam", True)
+            stream.stop.assert_not_awaited()
+            self.assertIs(camera.stream, stream)
+            self.assertFalse(coordinator.live_audio.get("cam", False))
+
+    async def test_overlapping_audio_choices_keep_the_last_request(self):
+        """A slow stream stop cannot overwrite a later preference change."""
+        coordinator = Coordinator({"cam": {}})
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def changed():
+            entered.set()
+            await release.wait()
+
+        coordinator.live_audio_changed["cam"] = changed
+        first = asyncio.create_task(coordinator.async_set_live_audio("cam", True))
+        await entered.wait()
+        second = asyncio.create_task(coordinator.async_set_live_audio("cam", False))
+        await asyncio.sleep(0)
+        release.set()
+        await asyncio.gather(first, second)
+        self.assertFalse(coordinator.live_audio["cam"])
 
     async def test_offered_once_only_where_live_audio_is_delivered(self):
         tree = ast.parse((ROOT / "switch.py").read_text())
