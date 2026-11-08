@@ -7,6 +7,8 @@ and the first inventory fetch; entity code only reads the coordinator's
 normalized camera dictionary and never makes a protocol request of its own.
 Camera, station, lock, and standalone-sensor inventories are replaced independently
 so a partial event cannot erase state owned by another device family.
+Device rows are replaced on observation. Recovery polls use that ownership
+boundary to preserve newer events and command confirmations received in flight.
 """
 
 from __future__ import annotations
