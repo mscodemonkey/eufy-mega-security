@@ -37,6 +37,11 @@ const XZYH = Buffer.from("XZYH");
 // The slowest measured camera, a doorbell, gave its first picture in 3.4 seconds.
 const SWITCH_PICTURE_MILLISECONDS = 8_000;
 
+// The signalling service drops a socket that has been quiet for 120 s (code 1006),
+// and a call can only hang up while its socket is open. It answers the general
+// route's action-2 ping, so this keeps the socket for calls of any length.
+const SIGNALLING_PING_MILLISECONDS = 30_000;
+
 /**
  * Identify supported coded-picture NAL units in already checked Annex-B output.
  * Parameter sets and metadata cannot renew live ownership. This distinguishes
@@ -341,6 +346,7 @@ export class NvrRtcSession {
   #readyResolve: (() => void) | null = null;
   #readyReject: ((error: Error) => void) | null = null;
   #heartbeat: NodeJS.Timeout | null = null;
+  #signallingPing: NodeJS.Timeout | null = null;
   #sweep: NodeJS.Timeout | null = null;
   #deadline: NodeJS.Timeout | null = null;
   #firstFrame: NodeJS.Timeout | null = null;
@@ -847,7 +853,7 @@ export class NvrRtcSession {
     if (this.#pending) {
       clearTimeout(this.#pending.timer); this.#pending.reject(new NvrTrialError("cancelled")); this.#pending = null;
     }
-    for (const timer of [this.#deadline, this.#firstFrame, this.#heartbeat, this.#sweep, this.#videoProgressTimer]) if (timer) clearTimeout(timer);
+    for (const timer of [this.#deadline, this.#firstFrame, this.#heartbeat, this.#signallingPing, this.#sweep, this.#videoProgressTimer]) if (timer) clearTimeout(timer);
     this.#videoProgressTimer = null; this.#videoProgressExpiresAt = null;
     this.#closing = (async () => {
       if (this.#startSent && this.#channels.get("WebrtcDataChannel")?.readyState === "open") {
@@ -938,8 +944,17 @@ export class NvrRtcSession {
     const outer = nvrJson(raw), inner = nvrJson(outer.data);
     if (inner.action === 1) {
       if (this.#authenticated || inner.code !== 200) throw new NvrTrialError("join");
-      this.#authenticated = true; this.#stage = "call"; this.#action("call", {}); return;
+      this.#authenticated = true; this.#stage = "call"; this.#action("call", {});
+      this.#signallingPing = setInterval(() => {
+        if (!this.#retired && this.#socket?.readyState === WebSocket.OPEN) {
+          try { this.#send({ action: 2, data: JSON.stringify({ source: "WEB" }), code: 200 }, true); } catch { /* The socket's close event reports a lost socket. */ }
+        }
+      }, SIGNALLING_PING_MILLISECONDS);
+      return;
     }
+
+    // The service's answer to the keep-alive ping.
+    if (inner.action === 2) return;
     if (!this.#authenticated || inner.action !== 3) throw new NvrTrialError("call", "call_unexpected_action");
     if (inner.sessionId !== this.options.context.sign) throw new NvrTrialError("negotiation", "session_mismatch");
     if (inner.sn !== this.options.station) throw new NvrTrialError("negotiation", "station_mismatch");
