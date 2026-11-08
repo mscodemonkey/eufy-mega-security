@@ -271,3 +271,17 @@ The notification-to-history join and real protected replies have been replayed
 through EMS, and the exact thumbnail read has been exercised on local hardware.
 Automatic recovery on a fresh naturally failing notification still needs that
 separate confirmation. This option does not add HomeBase 2 or doorbell support.
+
+## Read-only parameter check refusals
+
+`owner_binding_unavailable` means EMS could not establish the device and parent
+ownership from inventory. It stops locally before sending the parameter query.
+The gateway logs `reported_parameter_check` with that fixed outcome. This does
+not establish the role of the signed-in account or whether Eufy would allow the
+query. Keep the existing account and device settings.
+
+`owner_account_required` is reserved for the parameter endpoint's refusal under
+the current authenticated session. The diagnostics screen describes it as an
+Eufy refusal, without recommending an account switch. Earlier releases used the
+same screen message for both outcomes, so that message alone cannot identify
+where an old check stopped. Neither outcome establishes polling availability.

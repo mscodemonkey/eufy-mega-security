@@ -201,7 +201,8 @@ el('parameter-start').onclick = async () => {
     const result = await response.json();
     if(parameterJob !== job || job.signal.aborted || el('device').value !== selected) return;
     el('parameter-status').textContent = response.ok ? 'Cached candidates only, not physical state or control permission.\\n' + JSON.stringify(result)
-      : result.stage === 'owner_account_required' ? 'This read requires an owner account. Keep your current account. Do not switch accounts to force this check.'
+      : result.stage === 'owner_binding_unavailable' ? 'EMS could not verify the device and HomeBase ownership from inventory. No parameter request was sent. Keep your current account.'
+      : result.stage === 'owner_account_required' ? 'Eufy refused this read for the current account. Keep your current account. Do not switch accounts to force this check.'
       : 'State check unavailable: ' + result.stage;
   } catch {
     if(parameterJob === job && !job.signal.aborted) el('parameter-status').textContent = 'State check unavailable: request';

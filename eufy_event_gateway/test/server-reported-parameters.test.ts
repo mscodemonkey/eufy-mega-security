@@ -49,6 +49,8 @@ test("parameter HTTP authenticates loopback, closes consent and rejects private 
     value = { ...projectReportedParameters("T8410", { params: [] }), private: "SENTINEL" };
     assert.deepEqual(await (await fetch(url, options)).json(), { stage: "invalid_response" });
     fail = Error("SENTINEL"); assert.deepEqual(await (await fetch(url, options)).json(), { stage: "request" });
+    fail = new ParameterCheckError("owner_binding_unavailable");
+    assert.deepEqual(await (await fetch(url, options)).json(), { stage: "owner_binding_unavailable" });
     fail = new ParameterCheckError("owner_account_required");
     assert.deepEqual(await (await fetch(url, options)).json(), { stage: "owner_account_required" });
     fail = new ParameterCheckError("SENTINEL" as never);
