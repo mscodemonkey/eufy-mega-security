@@ -1,4 +1,8 @@
-"""Check the view mark that lets an ordinary view move an NVR's one call."""
+"""Exercise integration-owned view marks and recording admission with fake I/O.
+
+The real camera helpers own URL and recorder decisions. Test-owned stream and
+HTTP boundaries verify those decisions without HA, appliance traffic or media.
+"""
 
 from __future__ import annotations
 
@@ -28,9 +32,9 @@ def _load() -> tuple[dict, type]:
     base = type("CameraBase", (), {"async_create_stream": AsyncMock()})
     cls = ast.ClassDef(name="TestCamera", bases=[ast.Name(id="CameraBase", ctx=ast.Load())], keywords=[], body=hooks, decorator_list=[])
     module = ast.fix_missing_locations(ast.Module(body=[*helpers, cls], type_ignores=[]))
-    namespace = {"CameraBase": base, "Stream": object, "StreamOutput": object, "GatewayClientError": RuntimeError, "_LOGGER": Mock(),
+    namespace = {"CameraBase": base, "Stream": object, "StreamOutput": object, "GatewayClientError": RuntimeError, "HomeAssistantError": RuntimeError, "_LOGGER": Mock(),
                  "asyncio": asyncio, "STREAM_URL_RENEWAL_TIMEOUT": 0.02, "LIVE_VIEW_QUERY": "view", "secrets": secrets,
-                 "RECORDING_HOLD_MARGIN": 0, "CONF_USE_WALLCLOCK_AS_TIMESTAMPS": "wallclock",
+                 "CONF_USE_WALLCLOCK_AS_TIMESTAMPS": "wallclock",
                  "parse_qsl": parse_qsl, "urlencode": urlencode, "urlsplit": urlsplit, "urlunsplit": urlunsplit}
     exec(compile(module, str(SOURCE), "exec"), namespace)
     return namespace, base
@@ -51,7 +55,7 @@ class LiveViewMarkTest(unittest.IsolatedAsyncioTestCase):
         self.camera.hass = object()
         self.camera._async_stream_url = AsyncMock(return_value=URL)
         self.camera.serial = "demo"
-        self.coordinator = SimpleNamespace(client=SimpleNamespace(hold_live_view=AsyncMock(return_value=True)), recording_holds=set())
+        self.coordinator = SimpleNamespace(client=SimpleNamespace(hold_live_view=AsyncMock(return_value=True), live_view_handover_supported=True), recording_holds=set())
         self.camera.coordinator = self.coordinator
         self.stream = SimpleNamespace(source=URL, available=True, update_source=Mock(), outputs=Mock(return_value={}),
                                       add_provider=Mock(return_value=SimpleNamespace(idle_timer=Mock())),
@@ -178,30 +182,33 @@ class LiveViewMarkTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(self._view(await self._camera_b().stream_source()))
         self.camera.hass.async_create_task.assert_not_called()
 
-    async def test_a_rejected_or_failed_hold_records_and_keeps_new_views_unmarked(self) -> None:
-        for outcome in (False, RuntimeError("gateway"), ValueError("body")):
+    async def test_a_rejected_or_failed_hold_refuses_recording_and_preserves_retry_protection(self) -> None:
+        """No recorder may start after a negative, malformed or lost hold response."""
+        for outcome in (False, None, {"held": True}, RuntimeError("gateway"), ValueError("body")):
             order = self._recording_view()
             self.coordinator.client.hold_live_view = AsyncMock(**({"side_effect": outcome} if isinstance(outcome, Exception) else {"return_value": outcome}))
             await self.camera.async_create_stream()
-            await self.stream.async_record("/media/clip.mp4", duration=0.05, lookback=0)
-            self.assertEqual(order, ["recorder added"])
-            self.assertIsNone(self._view(await self._camera_b().stream_source()))
-            await asyncio.sleep(0.1)
+            for _ in range(2):
+                with self.assertRaisesRegex(RuntimeError, "Could not protect"):
+                    await self.stream.async_record("/media/clip.mp4")
+            self.assertEqual(order, [])
+            self.assertEqual(self._view(self.stream.source), "running-mark-000000")
             self.assertEqual(self.coordinator.recording_holds, set())
-            self.assertIsNotNone(self._view(await self._camera_b().stream_source()))
             self.camera._hls_idle_stream = None
 
-    async def test_a_recorder_added_directly_keeps_new_views_unmarked_until_the_hold_answers(self) -> None:
+    async def test_direct_recorder_attachment_cannot_bypass_the_awaited_hold(self) -> None:
+        """The synchronous HA output hook cannot wait, so it refuses an unprotected view."""
         self._recording_view()
-        tasks: list = []
-        self.camera.hass = SimpleNamespace(async_create_task=lambda coro: tasks.append(asyncio.ensure_future(coro)))
         await self.camera.async_create_stream()
-        self.stream.add_provider("recorder", 30)
-        self.assertIsNone(self._view(self.stream.source))
-        self.assertEqual(len(self.coordinator.recording_holds), 1)
-        await tasks[0]
-        self.coordinator.client.hold_live_view.assert_awaited_once_with("demo", "running-mark-000000")
-        self.assertEqual(self.coordinator.recording_holds, set())
+        with self.assertRaisesRegex(RuntimeError, "Recording protection"):
+            self.stream.add_provider("recorder", 30)
+        self.assertEqual(self._view(self.stream.source), "running-mark-000000")
+        self.coordinator.client.hold_live_view.assert_not_awaited()
+
+    async def test_older_gateway_without_handover_keeps_views_and_recordings_unmarked(self) -> None:
+        """An absent capability preserves the old gateway's non-preemptive behaviour."""
+        self.coordinator.client.live_view_handover_supported = False
+        self.assertIsNone(self._view(await self._camera_b().stream_source()))
 
     async def test_a_recording_that_starts_its_stream_sends_no_hold(self) -> None:
         self.camera.stream = None
@@ -221,6 +228,18 @@ class LiveViewMarkTest(unittest.IsolatedAsyncioTestCase):
         await self.camera.async_create_stream()
         self.stream.add_provider("recorder", 30)
         self.camera.hass.async_create_task.assert_not_called()
+
+    async def test_failed_hold_cannot_start_recorder_when_an_earlier_view_is_in_flight(self) -> None:
+        """Local suppression cannot revoke B's URL issued before A requests a recording."""
+        order = self._recording_view()
+        issued_before_recording = await self._camera_b().stream_source()
+        self.assertIsNotNone(self._view(issued_before_recording))
+        self.coordinator.client.hold_live_view = AsyncMock(return_value=False)
+        await self.camera.async_create_stream()
+        with self.assertRaises(RuntimeError):
+            await self.stream.async_record("/media/clip.mp4")
+        self.assertEqual(order, [])
+        self.assertEqual(self._view(self.stream.source), "running-mark-000000")
 
 
 if __name__ == "__main__":

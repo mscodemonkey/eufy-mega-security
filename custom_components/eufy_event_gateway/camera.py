@@ -59,7 +59,6 @@ STREAM_URL_RENEWAL_TIMEOUT = 10
 LIVE_VIEW_QUERY = "view"
 
 # Past a recording's own length, for HA to close its recorder output.
-RECORDING_HOLD_MARGIN = 10
 
 
 def _cloud_day_window(day: str, zone: Any) -> tuple[int, int, int]:
@@ -209,7 +208,8 @@ def _view_for(camera: Any, url: str) -> str:
     another camera has the call. Views and recordings start on HA's one event
     loop, so no view can be marked between a recording starting and its hold.
     """
-    return _with_view(url, None) if camera.coordinator.recording_holds else _new_view(url)
+    return (_new_view(url) if camera.coordinator.client.live_view_handover_supported
+            and not camera.coordinator.recording_holds else _with_view(url, None))
 
 
 class EufyGatewayCamera(EufyGatewayEntity, Camera):
@@ -358,14 +358,9 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         def add_output(fmt: str, timeout: int | None = None) -> StreamOutput:
             """Arm the startup deadline when a consumer requests ordinary HLS."""
             if fmt != "hls":
-                view = _view_of(stream.source)
+                if _view_of(stream.source) is not None and stream.outputs():
+                    raise HomeAssistantError("Recording protection is required before adding a recorder")
                 stream.source = _with_view(stream.source, None)
-
-                # A recorder added some other way than async_record below cannot
-                # wait for the hold here, so no new view takes a call meanwhile.
-                if view is not None and stream.outputs() and self.hass is not None:
-                    hold = self._begin_recording_hold()
-                    self.hass.async_create_task(self._async_hold_view(view, hold, timeout or 30))
             tune_first_output = (fast_native_hls and fmt == "hls" and timeout is None
                                  and not stream.outputs()
                                  and not stream.dynamic_stream_settings.preload_stream)
@@ -413,11 +408,9 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
             """
             view = _view_of(stream.source)
             if view is not None and stream.outputs():
-                stream.source = _with_view(stream.source, None)
                 hold = self._begin_recording_hold()
-                duration = kwargs.get("duration", args[1] if len(args) > 1 else 30)
-                lookback = kwargs.get("lookback", args[2] if len(args) > 2 else 5)
-                await self._async_hold_view(view, hold, duration + lookback)
+                await self._async_hold_view(view, hold)
+                stream.source = _with_view(stream.source, None)
             await async_record(*args, **kwargs)
 
         stream.add_provider = add_output
@@ -608,23 +601,22 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         self.coordinator.recording_holds.add(hold)
         return hold
 
-    async def _async_hold_view(self, view: str, hold: object, seconds: float) -> None:
-        """Ask the gateway to keep the NVR call with a view that is now recording.
+    async def _async_hold_view(self, view: str, hold: object) -> None:
+        """Confirm protection before sharing a view with a recorder.
 
-        If the gateway does not confirm it, the recording still goes ahead, and
-        no new view takes a call until it has had time to finish.
+        A local flag cannot revoke marked requests already in flight, or cover
+        another integration instance. A failed or ambiguous hold must leave
+        the source marked and reject recording so retries cannot bypass it.
         """
         try:
-            held = await self.coordinator.client.hold_live_view(self.serial, view) is True
-        except (GatewayClientError, ValueError):
-            held = False
-        if held:
+            try:
+                held = await self.coordinator.client.hold_live_view(self.serial, view) is True
+            except (GatewayClientError, ValueError):
+                held = False
+            if not held:
+                raise HomeAssistantError("Could not protect the live view for recording, please retry")
+        finally:
             self.coordinator.recording_holds.discard(hold)
-            return
-        _LOGGER.debug("Live view hold not confirmed, so new views will not take NVR calls until the recording ends")
-        asyncio.get_running_loop().call_later(
-            seconds + RECORDING_HOLD_MARGIN, self.coordinator.recording_holds.discard, hold,
-        )
 
     async def _async_stream_url(self) -> str:
         """Select the same source profile for initial open and both renewals."""

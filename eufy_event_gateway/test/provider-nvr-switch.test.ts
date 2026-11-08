@@ -208,6 +208,8 @@ test("a lease or a recording keeps the call", async context => {
     let release!: () => void;
     const held = value.manager.withActiveViewer(a, () => new Promise<void>(resolve => { release = resolve; }));
     await settled();
+    for (let index = 0; index < 1_025; index++) value.manager.holdView(a, view(`absent-${index}`));
+    assert.equal(value.manager.holdView(a, view("a")), true, "live protection survives bounded mark-cache eviction");
     assert.equal(value.manager.canYieldSource(a), false);
     const refused = await open(value, b, view("b"));
     assert.equal(refused.destroyed, true);
@@ -233,6 +235,7 @@ test("a Home Assistant recording added to a running marked view keeps the call",
 
     // HA records over the connection the view already has; only the hold tells the gateway.
     assert.equal(value.manager.holdView(a, view("a")), true);
+    assert.equal(value.manager.holdView(a, view("a")), true, "a lost hold response can be retried");
     assert.equal(value.manager.canYieldSource(a), false);
     const refused = await open(value, b, view("b"));
     assert.equal(refused.destroyed, true);
