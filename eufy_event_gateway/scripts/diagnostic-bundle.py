@@ -1,4 +1,4 @@
-"""Create and inspect universal diagnostic bundles using our saved gateway connection.
+"""Run consented private diagnostics through the saved gateway connection.
 
 This owner-run utility reads Home Assistant's existing local integration token
 without displaying it. The gateway owns selection, consent and capture limits.
@@ -59,12 +59,12 @@ class DiagnosticRequestError(DiagnosticError):
         super().__init__(message)
 
 
-def request(url: str, token: str, method: str = "GET", value=None, *, timeout: int = 15) -> bytes:
+def request(url: str, token: str, method: str = "GET", value=None, *, timeout: int = 15, transfer_seconds: int = 45) -> bytes:
     """Reject redirects and proxies, and limit response size and transfer time."""
     data = json.dumps(value).encode() if value is not None else None
     headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
     opener = build_opener(ProxyHandler({}), HELPERS.NoRedirect())
-    deadline = time.monotonic() + 45
+    deadline = time.monotonic() + transfer_seconds
     try:
         with opener.open(Request(url, data=data, headers=headers, method=method), timeout=timeout) as response:
             body = bytearray()
@@ -256,6 +256,7 @@ def parameter_check(url: str, token: str, target: dict) -> dict:
         "T8410": ("power_candidates", {"1035", "2001"}),
         "T8417": ("privacy_candidates", {"1035", "2001", "6250", "6271"}),
         "T8030": ("alarm_volume_candidate", {"1235"}),
+        "T8910": ("motion_time_candidate", {"1605"}),
     }
     model = target["model"]
     if model not in profiles:
@@ -263,7 +264,9 @@ def parameter_check(url: str, token: str, target: dict) -> dict:
     result = json.loads(request(url + "/api/diagnostics/parameter-check", token, "POST",
                                 {"serial": target["serial"], "consent": True}, timeout=35))
     profile, fields = profiles[model]
-    allowed = {"missing", "invalid", "conflicting", "valid"} if model == "T8030" else {"missing", "invalid", "conflicting", "zero", "one"}
+    allowed = ({"missing", "unset", "recent", "older", "future", "invalid", "conflicting"} if model == "T8910"
+               else {"missing", "invalid", "conflicting", "valid"} if model == "T8030"
+               else {"missing", "invalid", "conflicting", "zero", "one"})
     if (not isinstance(result, dict) or set(result) != {"model", "profile", "observations"}
             or result["model"] != model or result["profile"] != profile
             or not isinstance(result["observations"], dict) or set(result["observations"]) != fields
@@ -272,10 +275,52 @@ def parameter_check(url: str, token: str, target: dict) -> dict:
     return result
 
 
+def e10_video_test(url: str, token: str, target: dict, config: Path, output: Path) -> dict:
+    """Save one consented E10 clip using the existing server admission and lifetime.
+
+    The gateway independently checks type, topology and owner before any trial.
+    Reserve a private file before dispatch and never retry an uncertain request.
+    A received MP4 header is not a playback or selected-camera confirmation.
+    """
+    if target.get("model") != "T8404":
+        raise DiagnosticError("Choose the exact T8404 E10 from the current list. No trial was sent.")
+    destination = private_output_path(config, output)
+    descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    identity = os.fstat(descriptor)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            try:
+                clip = request(url + "/api/cameras/" + quote(target["serial"], safe="") + "/nvr-live-trial",
+                               token, "POST", {"consentPrivateMedia": True}, timeout=90, transfer_seconds=90)
+            except DiagnosticError as error:
+                status = error.status if isinstance(error, DiagnosticRequestError) else None
+                detail = f" Gateway replied HTTP {status}." if status else ""
+                raise DiagnosticError("E10 video test did not complete." + detail
+                                      + " Do not repeat it. Share only the nvr_live_trial_failed line if one was logged.") from None
+            if not 12 <= len(clip) <= MAX_MEDIA or clip[4:8] != b"ftyp":
+                raise DiagnosticError("E10 test returned an unsupported clip. Do not repeat it. Keep any failure details private.")
+            stream.write(clip)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except BaseException:
+        try:
+            current = destination.lstat()
+            if current.st_ino == identity.st_ino and current.st_dev == identity.st_dev:
+                destination.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+    return {"clipSaved": True, "bytes": len(clip), "playbackConfirmed": False,
+            "next": "Check the private clip for ten seconds of the selected camera. Keep it private and restore the experimental option."}
+
+
 def run(options) -> dict:
     """Perform the selected owner-requested workflow, retaining tokens only in memory."""
     if options.command == "inspect":
         return inspect_archive(read_archive(options.input))
+    if options.command == "e10-video-test" and not options.consent_private_media:
+        raise DiagnosticError("The E10 video test requires explicit private-media consent.")
     if options.command == "state-check" and not options.consent_read:
         raise DiagnosticError("The read-only state check requires explicit read consent.")
     url, token = HELPERS.gateway_connection(options.config, options.entry_id)
@@ -287,6 +332,8 @@ def run(options) -> dict:
     if options.command == "state-check":
         rows = devices(endpoint, token)
         return parameter_check(url, token, selected_device(rows, options.target_index))
+    if options.command == "e10-video-test":
+        return e10_video_test(url, token, selected_device(devices(endpoint, token), options.target_index), options.config, options.output)
     if options.command == "movement-check":
         rows = devices(endpoint, token)
         movement_admission(url, token, selected_device(rows, options.target_index))
@@ -341,6 +388,10 @@ def main(arguments=None) -> int:
                        help="Current one-based device index from the list command.")
     state.add_argument("--consent-read", action="store_true",
                        help="Allow one cloud parameter read using the existing configured account.")
+    video = sub.add_parser("e10-video-test", help="Save one private E10 clip using the saved connection.")
+    video.add_argument("--target-index", type=int, required=True)
+    video.add_argument("--output", type=Path, required=True)
+    video.add_argument("--consent-private-media", action="store_true")
     check = sub.add_parser("movement-check", help="Read movement admission without moving the camera.")
     check.add_argument("--target-index", type=int, required=True,
                        help="Current one-based device index from the list command.")
@@ -366,7 +417,9 @@ def main(arguments=None) -> int:
         print(json.dumps(run(options), sort_keys=True))
         return 0
     except KeyboardInterrupt:
-        print("Diagnostic capture cancelled. Stopped evidence may still be exported.", file=sys.stderr)
+        message = ("E10 video test cancelled. Do not repeat it until its outcome is known. Restore the experimental option."
+                   if options.command == "e10-video-test" else "Diagnostic capture cancelled. Stopped evidence may still be exported.")
+        print(message, file=sys.stderr)
         return 130
     except DiagnosticError as error:
         print(str(error), file=sys.stderr)

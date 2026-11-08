@@ -36,3 +36,14 @@ A recent candidate alone does not establish that it advances for each detection
 with phone alerts disabled. That hardware result is required before switching a
 polling receiver to this source or treating it as a reliable automation input.
 Normal motion, push handling and the existing polling clock remain unchanged.
+
+For Home Assistant app installs without a visible gateway token, the updated
+saved-connection utility also accepts the T8910 profile. Use the helper revision
+linked in the test request, select the sensor's current index from `list`, then run:
+
+```sh
+python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py state-check --target-index 1 --consent-read
+```
+
+Share only the displayed T8910 summary. The utility accepts only the closed age
+categories, never raw event timestamps. Keep the existing account and settings.
