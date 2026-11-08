@@ -758,7 +758,7 @@ export class LiveStreamManager extends EventEmitter {
       stopped, () => this.experimentalS340SmoothLive && qualifiedS340LiveSource(session.source),
       summary => this.emit("live-pacing-closed", summary));
     session.audioConsumers.add(consumeAudio);
-    await this.#addClient(serial, muxer.videoInput, "compatible", requestedAtMilliseconds);
+    await this.#addClient(serial, muxer.videoInput, "compatible", requestedAtMilliseconds, view);
   }
 
   /** Capture one fresh JPEG through the shared source and return its metadata. */
@@ -1842,13 +1842,6 @@ export class LiveStreamManager extends EventEmitter {
 }
 
 /**
- * Stop an FFmpeg media child and force termination if graceful shutdown stalls.
- *
- * The owner drops its process reference immediately after this call, so this
- * helper retains the close listener and escalation timer until the child is
- * reaped. The grace override exists for focused lifecycle tests.
- */
-/**
  * Longest hold of a transport viewer's video for its first AAC. A viewer whose
  * audio arrives sooner starts at once; one whose audio does not arrive starts muted.
  * HomeBase 3 can deliver SoloCam AAC about eight seconds after its first video.
@@ -1857,6 +1850,13 @@ export function liveAudioStartWaitMilliseconds(camera: Pick<CameraState, "model"
   return camera.model === "T8171" && camera.stationSerial !== camera.serial ? 12_000 : 2_000;
 }
 
+/**
+ * Stop an FFmpeg media child and force termination if graceful shutdown stalls.
+ *
+ * The owner drops its process reference immediately after this call, so this
+ * helper retains the close listener and escalation timer until the child is
+ * reaped. The grace override exists for focused lifecycle tests.
+ */
 export function terminateMediaProcess(
   process: Pick<ChildProcess, "kill" | "exitCode" | "signalCode" | "once"> & { stdin?: Pick<Writable, "writable" | "end"> | null },
   forceAfterMilliseconds = MEDIA_PROCESS_TERMINATION_GRACE_MILLISECONDS,

@@ -58,8 +58,6 @@ STREAM_SOURCE_REFRESH_INTERVAL = timedelta(minutes=5)
 STREAM_URL_RENEWAL_TIMEOUT = 10
 LIVE_VIEW_QUERY = "view"
 
-# Past a recording's own length, for HA to close its recorder output.
-
 
 def _cloud_day_window(day: str, zone: Any) -> tuple[int, int, int]:
     """Use true local midnights, resolving a gap's offset at its converted instant."""
@@ -635,11 +633,14 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
 
         Home Assistant fixes a stream's source clock when it creates the stream,
         so the cached stream is stopped and dropped. WebRTC registers the source
-        again on its next offer.
+        again on its next offer. Active and pending recordings reject the change
+        without dropping their stream.
         """
         stream = self.stream
         if stream is None:
             return
+        if "recorder" in stream.outputs() or self.coordinator.recording_holds:
+            raise HomeAssistantError("Wait for the recording to finish before changing live audio")
         self.stream = None
         self._hls_idle_stream = None
         await stream.stop()
