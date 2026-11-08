@@ -119,7 +119,7 @@ export class GatewayServer {
     });
   }
 
-  /** Stop accepting requests and wait for the HTTP server to close. */
+  /** Stop accepting requests, end open responses and wait for the HTTP server to close. */
   async close(): Promise<void> {
     this.#lensSnapshotCache.clear();
     for (const controller of this.#cloudCalendarJobs) controller.abort();
@@ -129,8 +129,16 @@ export class GatewayServer {
     for (const controller of this.#speakerJobs.values()) controller.abort();
     for (const job of this.#recordingJobs.values()) job.controller.abort();
     this.#recordings.clear();
-    if (!this.#server) return;
-    await new Promise<void>((resolve, reject) => this.#server?.close((error) => error ? reject(error) : resolve()));
+    const server = this.#server;
+    if (!server) return;
+    const closed = new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+
+    // Home Assistant holds the event stream open with no timeout, and a live view
+    // holds its video response. Waiting for them outlasted the Supervisor's stop
+    // timeout, so the process was killed before the provider could hang up its
+    // NVR calls, and the NVR kept them. Both clients reconnect to the next process.
+    server.closeAllConnections();
+    await closed;
     this.#server = null;
   }
 
