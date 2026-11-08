@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.250
+
+- Add an experimental live-quality selector for exact standalone S220 T8134 cameras through the existing owner account. It requires API authentication, a fresh known baseline and readback confirmation, sends once, and stays hidden unless Experimental model controls is enabled. Physical quality changes remain unconfirmed. Recorded-video quality and other controls are separate.
+- Reconcile camera support notes with current S1 live-view starts, standalone S4 picture failures and implemented T8425/T8426 experimental controls.
+
 ## 0.1.249
 
 - Keep newer device events and confirmed switch results when an older Home Assistant recovery poll finishes late.
