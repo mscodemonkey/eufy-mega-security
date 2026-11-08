@@ -71,10 +71,11 @@ export function nvrJson(value: unknown): Record<string, unknown> {
  * Additional cameras use their first lens, including the fixed T8P10 source,
  * the T8416 wide lens and the T8214 doorbell.
  * T8E00 retains the original trial's sensor selection. The provider separately
- * restricts each station pairing. This does not establish hardware playback.
+ * restricts each station pairing. T8404/type 314 is manual-clip-only on an
+ * owned standalone channel-zero route. This does not establish hardware playback.
  */
 export function nvrTrialSensor(model: string, deviceType: number | null): 0 | 1 | null {
-  const cameras = [["T8P10", 303], ["T8416", 104], ["T8214", 94], ["T8140", 14], ["T8140-Z", 14], ["T8113-V", 8], ["T8172", 89], ["T8215", 97],
+  const cameras = [["T8404", 314], ["T8P10", 303], ["T8416", 104], ["T8214", 94], ["T8140", 14], ["T8140-Z", 14], ["T8113-V", 8], ["T8172", 89], ["T8215", 97],
     ["T8162", 26], ["T8170", 48], ["T81A0", 10005], ["T8425", 47]] as const;
   if (model === "T8E00" && deviceType === 301) return 1;
   return cameras.some(([name, type]) => name === model && type === deviceType) ? 0 : null;
