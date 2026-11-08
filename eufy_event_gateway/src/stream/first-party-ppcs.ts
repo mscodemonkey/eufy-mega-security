@@ -19,6 +19,7 @@ import { e21PreferenceContracts, validateE21Preference, type E21Preference } fro
 import { cameraSettingProfile, cameraSettingWireValue, type CameraSettingChange } from "../provider/camera-settings.js";
 import { buildT85V0StatusQuery, decodeT85V0StatusReply, T85V0StatusError, type T85V0StatusIdentity, type T85V0StatusSummary } from "../provider/t85v0-status.js";
 import { C31IndexError, summarizeC31Index, validateC31IndexWindow, type C31IndexSummary } from "./c31-recording-index.js";
+import { CameraInfoReadError, cameraInfoTimeoutReason } from "./camera-info-failure.js";
 import { buildS100SirenCommand } from "./s100-siren-command.js";
 import { S100SirenTrialError, type S100SirenTrialTransport, type S100SirenFailureStage } from "../provider/s100-siren-trial.js";
 import { createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes } from "node:crypto";
@@ -2031,7 +2032,7 @@ export class FirstPartyPpcsSession {
     if (this.#options.purpose !== "control" && !this.#allowsViewerPanControl()) {
       return Promise.reject(new Error("Camera-info refresh requires a control session"));
     }
-    if (!this.#remote) return Promise.reject(new Error("Camera-info session is not connected"));
+    if (this.#closed || !this.#remote) return Promise.reject(new CameraInfoReadError("unavailable"));
     if (this.#options.homeBaseAttached) {
       return Promise.reject(new Error("Direct camera-info refresh does not support a HomeBase route"));
     }
@@ -2040,10 +2041,15 @@ export class FirstPartyPpcsSession {
     }
     if (this.#options.cameraModel === "T8171"
       || (this.#options.cameraModel === "T817L" && this.#options.channel === 0)) await this.#waitForLevel2Key();
+    if (this.#closed || !this.#remote) throw new CameraInfoReadError("unavailable");
+    if (this.#pendingCameraInfo) throw new Error("Camera-info refresh is already in progress");
+    const initialFrames = this.stats.cameraInfoFrames;
     return new Promise<readonly PpcsCameraInfoParam[]>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#pendingCameraInfo = null;
-        reject(new Error(`Camera-info refresh timed out: frames=${this.stats.cameraInfoFrames} sign=${this.stats.cameraInfoSign} decoded=${this.stats.cameraInfoDecoded} json_offset=${this.stats.cameraInfoJsonOffset} parse=${this.stats.cameraInfoParseStage}`));
+        reject(new CameraInfoReadError(cameraInfoTimeoutReason(
+          this.stats.cameraInfoFrames > initialFrames, this.stats.cameraInfoDecoded, this.stats.cameraInfoParseStage,
+        )));
       }, CONTROL_TIMEOUT_MILLISECONDS);
       this.#pendingCameraInfo = { resolve, reject, timer };
       if (this.#options.cameraModel === "T817L" && this.#options.channel === 0) {
@@ -2954,7 +2960,7 @@ export class FirstPartyPpcsSession {
     this.#finishAlarmRead("unavailable");
     if (this.#pendingCameraInfo) {
       clearTimeout(this.#pendingCameraInfo.timer);
-      this.#pendingCameraInfo.reject(new Error("Camera-info session closed before readback"));
+      this.#pendingCameraInfo.reject(new CameraInfoReadError("unavailable"));
       this.#pendingCameraInfo = null;
     }
     this.#videoAssembler.reset();
