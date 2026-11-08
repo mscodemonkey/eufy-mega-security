@@ -6,12 +6,12 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import test from "node:test";
-import { h265ViewerTranscoderArguments, remuxVideoToMp4 } from "../src/stream/live-stream-manager.js";
+import { h265ViewerTranscoderArguments, remuxVideoToMp4, snapshotExtractorArguments } from "../src/stream/live-stream-manager.js";
 
-function hevc(noisy = false): Buffer {
+function hevc(noisy = false, size = "640x360", frames = noisy ? 80 : 40): Buffer {
   return execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
-    "testsrc2=size=640x360:rate=20", ...(noisy ? ["-vf", "noise=alls=100:allf=u:all_seed=1"] : []),
-    "-frames:v", noisy ? "80" : "40", "-c:v", "libx265", "-preset", "ultrafast", "-crf", "14",
+    `testsrc2=size=${size}:rate=20`, ...(noisy ? ["-vf", "noise=alls=100:allf=u:all_seed=1"] : []),
+    "-frames:v", String(frames), "-c:v", "libx265", "-preset", "ultrafast", "-crf", "14",
     "-x265-params", "log-level=error:pools=1:bframes=0:keyint=20:aud=1", "-f", "hevc", "pipe:1"],
   { maxBuffer: 32 * 1024 * 1024, stdio: ["pipe", "pipe", "ignore"] });
 }
@@ -70,6 +70,54 @@ for (const fixed of [false, true]) test(`browser conversion decodes with bounded
   }
 });
 
+for (const fixed of [false, true]) test(`low-CPU conversion keeps every second picture with bounded bitrate, fixed resolution ${fixed}`, () => {
+  const output = execFileSync("ffmpeg", h265ViewerTranscoderArguments(fixed, true), { input: hevc(true), maxBuffer: 16 * 1024 * 1024 });
+  execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "h264", "-i", "pipe:0", "-f", "null", "-"], { input: output });
+  const decoded = probe(output), stream = decoded.streams.find(stream => stream.codec_type === "video")!;
+
+  // 640x360 is already under 720 lines, so only the fixed size changes it.
+  assert.deepEqual([stream.width, stream.height], fixed ? [1920, 1080] : [640, 360]);
+  const packets = decoded.packets.filter(packet => packet.codec_type === "video");
+
+  // Every second of the 80 pictures; the source keyframes (every 20th) fall on kept pictures.
+  assert.equal(packets.length, 40);
+  const keys = packets.flatMap((packet, index) => packet.flags.includes("K") ? [index] : []);
+  assert.equal(keys[0], 0);
+  assert.ok(keys.length >= 2);
+  for (let index = 1; index < keys.length; index++) assert.ok(keys[index]! - keys[index - 1]! <= 5);
+
+  // Twenty output pictures are two seconds of the 20 fps source.
+  for (let index = 0; index <= packets.length - 20; index += 5) {
+    const bits = packets.slice(index, index + 20).reduce((sum, packet) => sum + Number(packet.size) * 8, 0);
+    assert.ok(bits / 2 <= 3_000_000 * 1.25, `Two-second output exceeded VBV tolerance: ${bits / 2}`);
+  }
+});
+
+function keyframesEveryFive(size: string): Buffer {
+  return execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", `testsrc2=size=${size}:rate=20`,
+    "-frames:v", "12", "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=error:pools=1:bframes=0:keyint=5:min-keyint=5:scenecut=0",
+    "-f", "hevc", "pipe:1"], { maxBuffer: 32 * 1024 * 1024, stdio: ["pipe", "pipe", "ignore"] });
+}
+
+function convertedSizeAndPictures(source: Buffer, lowCpu: boolean): [number, number, number] {
+  const decoded = probe(execFileSync("ffmpeg", h265ViewerTranscoderArguments(false, lowCpu), { input: source, maxBuffer: 16 * 1024 * 1024 }));
+  const stream = decoded.streams.find(stream => stream.codec_type === "video")!;
+  return [stream.width!, stream.height!, decoded.packets.filter(packet => packet.codec_type === "video").length];
+}
+
+test("low-CPU conversion brings 1080p down to 720 lines and keeps a source keyframe that falls between kept pictures", () => {
+  // Keyframes on pictures 0, 5 and 10, so 5 is odd and kept only because it is a keyframe.
+  const source = keyframesEveryFive("1920x1080");
+  assert.deepEqual(convertedSizeAndPictures(source, false), [1920, 1080, 12]);
+  assert.deepEqual(convertedSizeAndPictures(source, true), [1280, 720, 7]);
+});
+
+test("low-CPU conversion halves an NVR Both view to 640x720, each lens 640x360, and the normal one keeps 1280x1440", () => {
+  // Both stacks two 1280x720 lenses, Fixed above Movable, into one 1280x1440 picture.
+  const source = keyframesEveryFive("1280x1440");
+  assert.deepEqual(convertedSizeAndPictures(source, false), [1280, 1440, 12]);
+  assert.deepEqual(convertedSizeAndPictures(source, true), [640, 720, 7]);
+});
 
 test("browser conversion emits a playable startup while the HEVC input remains open", { timeout: 15_000 }, async () => {
   const source = hevc();
@@ -97,6 +145,33 @@ test("browser conversion emits a playable startup while the HEVC input remains o
     assert.equal(decoded.packets.filter(packet => packet.codec_type === "video").length, 40);
   } finally {
     if (timer) clearTimeout(timer);
+    child.stdin.destroy();
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await exited.catch(() => {});
+  }
+});
+
+test("the H.265 snapshot extractor gives one JPEG per keyframe while its input stays open", { timeout: 15_000 }, async () => {
+  const source = hevc(false, "640x360", 60);
+  const delimiters = [...source.toString("latin1").matchAll(/\x00\x00\x00\x01|\x00\x00\x01/g)]
+    .filter(match => ((source[match.index! + match[0].length]! >> 1) & 63) === 35).map(match => match.index!);
+  assert.equal(delimiters.length, 60);
+  const child = spawn("ffmpeg", snapshotExtractorArguments("h265"));
+  const exited = new Promise<number | null>((resolve, reject) => { child.once("error", reject); child.once("exit", resolve); });
+  let jpegs = 0;
+  child.stderr.resume();
+  child.stdout.on("data", (bytes: Buffer) => { for (let index = 0; index + 1 < bytes.length; index++) if (bytes[index] === 0xff && bytes[index + 1] === 0xd9) jpegs++; });
+  try {
+    // Keyframes at pictures 0, 20 and 40. Up to the picture after the second, so both keyframes are complete.
+    child.stdin.write(source.subarray(0, delimiters[22]));
+    const deadline = Date.now() + 10_000;
+    while (jpegs < 2 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(jpegs, 2, "a keyframe's JPEG must not wait for the next keyframe or for more input");
+    assert.equal(child.stdin.writableEnded, false);
+    child.stdin.end(source.subarray(delimiters[22]));
+    assert.equal(await exited, 0);
+    assert.equal(jpegs, 3);
+  } finally {
     child.stdin.destroy();
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
     await exited.catch(() => {});

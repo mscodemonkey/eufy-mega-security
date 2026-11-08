@@ -119,7 +119,7 @@ const streams = new LiveStreamManager(
   provider,
   config.streamGraceMilliseconds,
   undefined,
-  () => spawnH265ViewerTranscoder(config.experimentalFixedH265Resolution),
+  () => spawnH265ViewerTranscoder(config.experimentalFixedH265Resolution, config.experimentalLowCpuH265Conversion),
   undefined,
   undefined,
   undefined,
@@ -169,6 +169,9 @@ streams.on("viewer-transcoder-stopped", (detail: ViewerTranscoderSummary) => {
       `output_gaps_2000ms=${output.gapsAtLeast2000Milliseconds}`,
       `client_backpressure_events=${detail.clientBackpressureEvents}`,
       `client_max_writable_bytes=${detail.maximumClientWritableBytes}`,
+      `input_skips=${detail.inputSkips}`,
+      `input_skipped_bytes=${detail.inputSkippedBytes}`,
+      `input_max_age_ms=${Math.round(detail.maximumInputAgeMilliseconds)}`,
     ].join(" "),
   );
 });
@@ -197,6 +200,8 @@ streams.on("viewer-delivery-stopped", (detail: ViewerDeliverySummary) => {
       `client_writes=${detail.clientWrites}`,
       `client_backpressure_events=${detail.clientBackpressureEvents}`,
       `client_max_writable_bytes=${detail.maximumClientWritableBytes}`,
+      `snapshot_input_skips=${detail.snapshotInputSkips}`,
+      `snapshot_input_max_age_ms=${Math.round(detail.maximumSnapshotInputAgeMilliseconds)}`,
     ].join(" "),
   );
 });

@@ -93,6 +93,19 @@ test("fixed H.265 viewer resolution defaults off and accepts only explicit boole
   }
 });
 
+test("low-CPU H.265 conversion defaults off and accepts only explicit booleans", () => {
+  assert.equal(loadConfig({}).experimentalLowCpuH265Conversion, false);
+  for (const value of ["true", " TRUE "]) {
+    assert.equal(loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_LOW_CPU_H265_CONVERSION: value }).experimentalLowCpuH265Conversion, true);
+  }
+  for (const value of ["", "false", " FALSE "]) {
+    assert.equal(loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_LOW_CPU_H265_CONVERSION: value }).experimentalLowCpuH265Conversion, false);
+  }
+  for (const value of ["1", "yes", "invalid"]) {
+    assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_LOW_CPU_H265_CONVERSION: value }), /must be true or false/);
+  }
+});
+
 test("general camera trials default off and require explicit authenticated opt-in", () => {
   assert.equal(loadConfig({}).experimentalGeneralRtc, false);
   assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_GENERAL_RTC: "true" }), /API_TOKEN/);

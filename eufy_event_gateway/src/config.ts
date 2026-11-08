@@ -56,6 +56,9 @@ export interface GatewayConfig {
   /** Default-off fixed 1080p output for diagnosing H.265 viewer reconfiguration drops. */
   readonly experimentalFixedH265Resolution: boolean;
 
+  /** Default-off half-rate H.265 conversion of at most 720 lines for hosts that cannot keep up. */
+  readonly experimentalLowCpuH265Conversion: boolean;
+
   /** Default-off six-second live-view jitter buffer for the qualified S340/HomeBase 3 route. */
   readonly experimentalS340SmoothLive: boolean;
 
@@ -105,6 +108,10 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
     environment.EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION,
     "EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION",
   );
+  const experimentalLowCpuH265Conversion = captureBoolean(
+    environment.EUFY_GATEWAY_EXPERIMENTAL_LOW_CPU_H265_CONVERSION,
+    "EUFY_GATEWAY_EXPERIMENTAL_LOW_CPU_H265_CONVERSION",
+  );
   const experimentalS340SmoothLive = captureBoolean(
     environment.EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE, "EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE",
   );
@@ -142,6 +149,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
     experimentalGeneralRtc,
     experimentalCloudRecordings,
     experimentalFixedH265Resolution,
+    experimentalLowCpuH265Conversion,
     experimentalS340SmoothLive,
     experimentalNvrRegion: experimentalNvrRegion as "auto" | "us" | "eu" | "ie",
     eufy: {

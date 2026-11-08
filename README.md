@@ -538,6 +538,31 @@ input and reduce detail from 4K input. Turn it off after testing to restore the
 existing behaviour. Standalone installs can set
 `EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION=true`.
 
+### Experimental low-CPU H.265 conversion
+
+The app option `experimental_low_cpu_h265_conversion` is off by default. It is
+for hosts that cannot convert H.265 live views to H.264 as fast as the camera
+sends them, so the view keeps skipping to the next keyframe. When enabled, the
+conversion keeps every second picture, and every keyframe, and brings anything
+taller than 720 lines down to 720, keeping its shape. It does not alter H.264
+camera streams, retained snapshots, or saved clips.
+
+The saving costs detail and smoothness in each pane:
+
+| Source | Normal conversion | Low-CPU conversion |
+| --- | --- | --- |
+| Single 1920 by 1080 view, 15 pictures a second | 1920 by 1080, 15 | 1280 by 720, 7.5 |
+| Single view 720 lines or fewer | unchanged size, every picture | unchanged size, every second picture |
+| NVR Both view, 1280 by 1440 stacked, as one camera | each lens 1280 by 720 | 640 by 720 stacked, so each lens 640 by 360 |
+
+With `experimental_fixed_h265_resolution` also on, the fixed 1920 by 1080 size
+applies and only the picture rate is halved. The shared 720p lens cameras have
+their own conversion, which this option does not change. The profile was measured only on a
+Home Assistant Green with a 1080p, 15 fps S350 behind an NVR S4, where it kept
+the converted view about 2.5 seconds behind live. Other cameras and hosts are
+unconfirmed. Standalone installs can set
+`EUFY_GATEWAY_EXPERIMENTAL_LOW_CPU_H265_CONVERSION=true`.
+
 
 ### Motion sensitivity and doorbell quiet hours
 
@@ -796,6 +821,11 @@ takes load off small hosts. A device that cannot play a camera's format shows no
 picture, and there is no automatic fallback. Then enable **H.264 compatibility
 mode (slower)** in **Settings → Devices & services → Eufy Mega Security →
 Configure**, which converts every camera. Saving reloads the integration.
+If H.265 conversion input stays queued in the gateway for more than two seconds,
+it skips ahead at the next keyframe. This threshold applies to gateway input
+queues. Home Assistant's playback pipeline adds its own delay. A host that keeps
+skipping can enable the experimental low-CPU H.265 conversion. H.264 snapshot
+delivery retains its existing path, including streams without recurring keyframes.
 Installations set up before this option keep the video they had: compatibility
 mode is on unless they had enabled **Try native camera video**, so native video
 stays opt-in for them.

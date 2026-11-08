@@ -17,6 +17,7 @@ import { GatewayState } from "../src/domain/gateway-state.js";
 import {
   LiveStreamManager,
   h265ViewerTranscoderArguments,
+  snapshotExtractorArguments,
   spawnH265ViewerTranscoder,
   SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS,
   StreamCadenceTracker,
@@ -119,15 +120,20 @@ test("H.265 conversion runs below the gateway so it cannot starve live video", (
 });
 
 test("H.265 viewer output keeps keyframes close and follows the source's", () => {
+  const keyint = (args: string[]): string => args[args.indexOf("-x264-params") + 1]!;
   const args = h265ViewerTranscoderArguments();
-  assert.match(args[args.indexOf("-x264-params") + 1]!, /keyint=10/);
+  assert.match(keyint(args), /keyint=10/);
   assert.equal(args[args.indexOf("-force_key_frames") + 1], "source");
   assert.equal(args[args.indexOf("-forced-idr") + 1], "1");
+
+  // Half a second at every second picture of a 20 fps source.
+  assert.match(keyint(h265ViewerTranscoderArguments(false, true)), /keyint=5/);
 });
 
 test("fixed H.265 viewer output adds a stable 1080p filter only when enabled", () => {
   const unchanged = h265ViewerTranscoderArguments();
   assert.equal(unchanged.includes("-vf"), false);
+  assert.equal(unchanged.includes("-fps_mode"), false);
 
   const fixed = h265ViewerTranscoderArguments(true);
   const filterIndex = fixed.indexOf("-vf");
@@ -136,6 +142,32 @@ test("fixed H.265 viewer output adds a stable 1080p filter only when enabled", (
     fixed[filterIndex + 1],
     "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
   );
+  assert.equal(fixed.includes("-fps_mode"), false);
+});
+
+test("low-CPU H.265 viewer output keeps every second picture and source keyframe, at most 720 lines unless fixed at 1080p", () => {
+  const filter = (args: string[]): string => args[args.indexOf("-vf") + 1]!;
+  const lowCpu = h265ViewerTranscoderArguments(false, true);
+  assert.equal(filter(lowCpu), "select='key+not(mod(n,2))',scale=-2:'min(720,ih)'");
+  assert.equal(lowCpu[lowCpu.indexOf("-fps_mode") + 1], "passthrough");
+
+  const fixed = h265ViewerTranscoderArguments(true, true);
+  assert.equal(
+    filter(fixed),
+    "select='key+not(mod(n,2))',scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+  );
+  assert.equal(fixed[fixed.indexOf("-fps_mode") + 1], "passthrough");
+});
+
+test("the H.265 snapshot extractor decodes keyframes only and H.264's is unchanged", () => {
+  const h265 = snapshotExtractorArguments("h265");
+  assert.equal(h265[h265.indexOf("-skip_frame") + 1], "nokey");
+  assert.equal(h265[h265.indexOf("-threads") + 1], "1");
+  assert.equal(h265[h265.indexOf("-fps_mode") + 1], "passthrough");
+  assert.equal(h265.includes("fps=1/2"), false);
+  assert.deepEqual(snapshotExtractorArguments("h264"), [
+    "-hide_banner", "-loglevel", "error", "-f", "h264", "-i", "pipe:0", "-vf", "fps=1/2", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1",
+  ]);
 });
 
 test("summarizes stream cadence without retaining timestamps", () => {
@@ -717,6 +749,9 @@ test("shares an H.264 fallback with viewers when a camera returns H.265", async 
     },
     clientBackpressureEvents: 0,
     maximumClientWritableBytes: 0,
+    inputSkips: 0,
+    inputSkippedBytes: 0,
+    maximumInputAgeMilliseconds: 0,
   }]);
   await manager.close();
   assert.equal(deliverySummaries.length, 1);
@@ -1030,6 +1065,70 @@ test("reports no pipeline warning for FFmpeg input left queued when a viewer lea
   await manager.close();
   await reaped(extractor);
   assert.deepEqual(warnings, []);
+});
+
+test("a conversion and snapshot extractor that fall behind skip to the next keyframe instead of queueing", async () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  let now = 0;
+
+  // Fake children whose pipes hold everything until the test lets them read.
+  class HeldInput extends EventEmitter {
+    writable = true;
+    writableLength = 0;
+    readonly writes: Buffer[] = [];
+    write(data: Buffer): boolean { this.writes.push(Buffer.from(data)); this.writableLength += data.length; return true; }
+    destroy(): void { this.writable = false; }
+  }
+  const child = (): ChildProcessWithoutNullStreams => Object.assign(new EventEmitter(), {
+    stdin: new HeldInput(), stdout: new PassThrough(), stderr: new PassThrough(), kill: () => true, exitCode: null, signalCode: null,
+  }) as unknown as ChildProcessWithoutNullStreams;
+  const transcoder = child(), extractor = child();
+  const conversionInput = transcoder.stdin as unknown as HeldInput, snapshotInput = extractor.stdin as unknown as HeldInput;
+  const source = new PassThrough();
+  let manager: LiveStreamManager;
+  manager = new LiveStreamManager(state, {} as never, {
+    async startStream() { manager.attachSource(camera.serial, source, () => "h265"); }, async stopStream() {},
+  }, 5, undefined, () => transcoder, () => extractor, 30_000, () => now);
+  const transcoderSummaries: ViewerTranscoderSummary[] = [];
+  const deliverySummaries: ViewerDeliverySummary[] = [];
+  manager.on("viewer-transcoder-stopped", (summary) => transcoderSummaries.push(summary));
+  manager.on("viewer-delivery-stopped", (summary) => deliverySummaries.push(summary));
+  const response = new PassThrough() as unknown as ServerResponse;
+  response.writeHead = (() => response) as ServerResponse["writeHead"];
+  await manager.addClient(camera.serial, response);
+
+  const keyframe = Buffer.concat([annexBNal(0x40, 0x01, 0x0c), annexBNal(0x42, 0x01, 0x01), annexBNal(0x44, 0x01, 0xc0), annexBNal(0x26, 0x01, 0x80)]);
+  const picture = Buffer.concat([annexBNal(0x02, 0x01, 0x80), Buffer.alloc(1_000, 0x55)]);
+  source.write(keyframe);
+  for (now = 100; now <= 2_000; now += 100) source.write(picture);
+  assert.equal(conversionInput.writes.length, 21);
+  assert.equal(snapshotInput.writes.length, 21);
+
+  // The keyframe written at 0 ms is now unread for more than two seconds.
+  source.write(picture);
+  source.write(keyframe);
+  assert.equal(conversionInput.writes.length, 21, "nothing more queues behind unread input");
+  assert.equal(snapshotInput.writes.length, 21);
+
+  // Once both have read what they held, they start again at the next keyframe, not at the picture before it.
+  conversionInput.writableLength = 0;
+  snapshotInput.writableLength = 0;
+  now += 100;
+  source.write(picture);
+  source.write(keyframe);
+  const endOfSequence = Buffer.from([0, 0, 0, 1, 0x48, 0x01]);
+  for (const input of [conversionInput, snapshotInput]) assert.deepEqual(input.writes.slice(21), [endOfSequence, keyframe]);
+
+  await manager.close();
+  assert.equal(transcoderSummaries.length, 1);
+  assert.deepEqual(
+    [transcoderSummaries[0]!.inputSkips, transcoderSummaries[0]!.inputSkippedBytes, transcoderSummaries[0]!.inputBytes],
+    [1, 2 * picture.length + keyframe.length, keyframe.length + 20 * picture.length + endOfSequence.length + keyframe.length],
+  );
+  assert.ok(transcoderSummaries[0]!.maximumInputAgeMilliseconds > 2_000);
+  assert.equal(deliverySummaries[0]!.snapshotInputSkips, 1);
+  assert.ok(deliverySummaries[0]!.maximumSnapshotInputAgeMilliseconds > 2_000);
 });
 
 test("ignores callbacks from a replaced source generation", async () => {
@@ -1588,4 +1687,33 @@ test("active-viewer lease never waits for a fresh image or captures a snapshot",
     assert.equal(await manager.withActiveViewer(camera.serial, async () => "accepted"), "accepted");
     assert.equal(snapshots, 0);
   } finally { await manager.close(); }
+});
+
+test("H.264 snapshot delivery keeps its existing path when backpressure is followed by no new keyframe", async () => {
+  const state = new GatewayState(); state.registerCamera(camera);
+  const source = new PassThrough();
+  const extractor = Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+    exitCode: null, signalCode: null, kill: () => true,
+  }) as unknown as ChildProcessWithoutNullStreams;
+  const written: Buffer[] = [];
+  extractor.stdin.on("data", (chunk: Buffer) => written.push(Buffer.from(chunk)));
+  Object.defineProperty(extractor.stdin, "writableLength", { get: () => 1024 });
+  let now = 0, manager: LiveStreamManager;
+  manager = new LiveStreamManager(state, {} as never, {
+    async startStream() { manager.attachSource(camera.serial, source, () => "h264"); },
+    async stopStream() { source.end(); },
+  }, 0, undefined, undefined, () => extractor, 30_000, () => now);
+  const response = new PassThrough() as unknown as ServerResponse;
+  response.writeHead = (() => response) as ServerResponse["writeHead"]; response.on("data", () => {});
+  try {
+    await manager.addClient(camera.serial, response);
+    source.write(Buffer.concat([annexBNal(0x67, 0x42, 0, 0x1f), annexBNal(0x68, 0xce),
+      annexBNal(0x65, 0xaa), annexBNal(0x41, 0xbb)]));
+    assert.ok(written.length > 0);
+    const before = written.length;
+    now = 3000; source.write(annexBNal(0x41, 0xcc));
+    now = 6000; source.write(annexBNal(0x41, 0xdd));
+    assert.equal(written.length, before + 2, "unchanged H.264 snapshots must not wait forever for another keyframe");
+  } finally { response.destroy(); await manager.close(); }
 });

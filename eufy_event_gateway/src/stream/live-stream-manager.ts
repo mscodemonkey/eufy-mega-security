@@ -24,6 +24,7 @@ import { ViewerStartupTimeline, type ViewerStartupMilestones } from "./viewer-st
 import { SharedLensViews, spawnSharedLensConverter, type SharedLens, type SharedLensConverterFactory } from "./shared-lens-views.js";
 import { JpegParser } from "./jpeg-parser.js";
 import { qualifiedS340LiveSource } from "./live-frame-clock.js";
+import { MediaInputBound } from "./media-input-bound.js";
 import { LiveTransportMuxer, type VideoViewerResponse } from "./live-transport-muxer.js";
 import { NativeTransportMuxer } from "./live-native-transport.js";
 
@@ -110,6 +111,11 @@ export interface ViewerTranscoderSummary {
   readonly outputCadence: StreamCadenceSummary;
   readonly clientBackpressureEvents: number;
   readonly maximumClientWritableBytes: number;
+
+  /** Times the conversion fell too far behind and skipped to the next keyframe, and the input it never received. */
+  readonly inputSkips: number;
+  readonly inputSkippedBytes: number;
+  readonly maximumInputAgeMilliseconds: number;
 }
 
 /** Codec-independent delivery evidence from camera source through HTTP viewers. */
@@ -129,6 +135,10 @@ export interface ViewerDeliverySummary {
   readonly clientWrites: number;
   readonly clientBackpressureEvents: number;
   readonly maximumClientWritableBytes: number;
+
+  /** The same skip evidence for the snapshot extractor. */
+  readonly snapshotInputSkips: number;
+  readonly maximumSnapshotInputAgeMilliseconds: number;
 }
 
 /** Selects existing H.264 compatibility conversion or unchanged source video for one viewer. */
@@ -226,6 +236,10 @@ interface Session {
   audioSource: Readable | null;
   ffmpeg: ChildProcessWithoutNullStreams | null;
   viewerFfmpeg: ChildProcessWithoutNullStreams | null;
+
+  /** Bound H.265 snapshot/conversion input. H.264 snapshots retain their existing delivery path. */
+  snapshotInput: MediaInputBound | null;
+  viewerInput: MediaInputBound | null;
   viewerParameterSets: VideoParameterSetCache;
   viewerInputBytes: number;
   viewerOutputBytes: number;
@@ -1044,6 +1058,8 @@ export class LiveStreamManager extends EventEmitter {
     for (const client of session.clients) session.pendingClients.add(client);
     session.ffmpeg = null;
     session.viewerFfmpeg = null;
+    session.snapshotInput = null;
+    session.viewerInput = null;
     session.viewerInputBytes = 0;
     session.viewerOutputBytes = 0;
     session.viewerOutputChunks = 0;
@@ -1090,6 +1106,7 @@ export class LiveStreamManager extends EventEmitter {
       session.sourceBytes += chunk.length;
       session.sourceChunks += 1;
       session.sourceCadence.record();
+      const randomAccessPictures = session.parameterSets.diagnostics.randomAccessPictures;
       session.parameterSets.push(chunk, codecHint());
       const bootstrap = session.parameterSets.bootstrap;
       const codec = session.parameterSets.codec;
@@ -1101,6 +1118,12 @@ export class LiveStreamManager extends EventEmitter {
         || (codec === "h265" && compatibleClients.length > 0 && (!session.viewerFfmpeg
           || this.#shouldRestartViewerTranscoder(session)));
       const startup = needsStartup ? session.parameterSets.startup : null;
+
+      // A media child that fell behind starts again from the decoder start of the next keyframe.
+      // That start is built only then, so ordinary chunks never copy the retained group.
+      const keyframeStarted = session.parameterSets.diagnostics.randomAccessPictures > randomAccessPictures;
+      const restart = keyframeStarted && (session.snapshotInput?.skipping || session.viewerInput?.skipping)
+        ? startup ?? session.parameterSets.startup : null;
       if (bootstrap && session.parameterSets.diagnostics.randomAccessPictures > 0) session.viewerStartup.sourceRandomAccess();
       if (bootstrap && codec) {
         for (const client of this.#profileClients(session, "native")) {
@@ -1110,8 +1133,11 @@ export class LiveStreamManager extends EventEmitter {
         let snapshotStarted = false;
         if (!session.suppressSnapshots && !session.ffmpeg && startup) {
           session.ffmpeg = this.#startSnapshotExtractor(serial, codec);
+          session.snapshotInput = codec === "h265"
+            ? new MediaInputBound(session.ffmpeg.stdin, codec, this.nowMilliseconds) : null;
           snapshotStarted = session.parameterSets.startupIncludesLatest;
-          if (session.ffmpeg.stdin.writable) session.ffmpeg.stdin.write(startup);
+          if (session.snapshotInput) session.snapshotInput.write(startup);
+          else if (session.ffmpeg.stdin.writable) session.ffmpeg.stdin.write(startup);
         }
         if (codec === "h265") {
           let transcoderSeeded = false;
@@ -1125,14 +1151,17 @@ export class LiveStreamManager extends EventEmitter {
 
           // The cached decoder start already ends with this chunk, so writing it
           // again would feed FFmpeg the same keyframe twice.
-          if (!transcoderSeeded) this.#writeViewerTranscoderInput(session, chunk);
+          if (!transcoderSeeded) this.#writeViewerTranscoderInput(session, chunk, restart);
           this.#writeViewerChunk(session, chunk, "native");
           if (startup) this.#startPendingClients(session, codec, startup, "native", true);
         } else {
           this.#writeViewerChunk(session, chunk);
           if (startup) this.#startPendingClients(session, codec, startup, undefined, true);
         }
-        if (!snapshotStarted && session.ffmpeg?.stdin.writable) session.ffmpeg.stdin.write(chunk);
+        if (!snapshotStarted) {
+          if (session.snapshotInput) session.snapshotInput.write(chunk, restart);
+          else if (session.ffmpeg?.stdin.writable) session.ffmpeg.stdin.write(chunk);
+        }
       }
       for (const recording of session.recordings) this.#appendRecordingChunk(session, recording, chunk);
     });
@@ -1524,6 +1553,9 @@ export class LiveStreamManager extends EventEmitter {
     session.viewerStartup.conversionStarted();
     const process = this.createViewerTranscoder();
     session.viewerFfmpeg = process;
+    session.viewerInput = preserveSummary && session.viewerInput
+      ? session.viewerInput.attach(process.stdin)
+      : new MediaInputBound(process.stdin, "h265", this.nowMilliseconds);
     session.viewerParameterSets = new VideoParameterSetCache();
     if (!preserveSummary) {
       session.viewerInputBytes = 0;
@@ -1598,11 +1630,12 @@ export class LiveStreamManager extends EventEmitter {
     this.#startViewerTranscoder(serial, session, startup, true);
   }
 
-  #writeViewerTranscoderInput(session: Session, chunk: Buffer): void {
-    if (!session.viewerFfmpeg?.stdin.writable) return;
-    session.viewerInputBytes += chunk.length;
+  #writeViewerTranscoderInput(session: Session, chunk: Buffer, restart: Buffer | null = null): void {
+    if (!session.viewerFfmpeg || !session.viewerInput) return;
+    const written = session.viewerInput.write(chunk, restart);
+    if (written === 0) return;
+    session.viewerInputBytes += written;
     session.viewerInputCadence.record();
-    session.viewerFfmpeg.stdin.write(chunk);
   }
 
   #emitViewerTranscoderSummary(session: Session): void {
@@ -1616,6 +1649,9 @@ export class LiveStreamManager extends EventEmitter {
       outputCadence: session.viewerOutputCadence.summary,
       clientBackpressureEvents: session.viewerClientBackpressureEvents,
       maximumClientWritableBytes: session.viewerMaximumClientWritableBytes,
+      inputSkips: session.viewerInput?.skips ?? 0,
+      inputSkippedBytes: session.viewerInput?.skippedBytes ?? 0,
+      maximumInputAgeMilliseconds: session.viewerInput?.maximumAgeMilliseconds ?? 0,
     };
     this.emit("viewer-transcoder-stopped", summary);
   }
@@ -1655,6 +1691,7 @@ export class LiveStreamManager extends EventEmitter {
       terminateMediaProcess(session.ffmpeg);
       session.ffmpeg = null;
     }
+    session.snapshotInput = null;
     this.#stopViewerTranscoder(session);
   }
 
@@ -1667,6 +1704,7 @@ export class LiveStreamManager extends EventEmitter {
       terminateMediaProcess(session.viewerFfmpeg);
       session.viewerFfmpeg = null;
     }
+    session.viewerInput = null;
     session.viewerParameterSets = new VideoParameterSetCache();
     session.viewerTranscoderSilentRestarts = 0;
     session.viewerTranscoderStartedAtMilliseconds = 0;
@@ -1690,6 +1728,8 @@ export class LiveStreamManager extends EventEmitter {
       clientWrites: session.viewerClientWrites,
       clientBackpressureEvents: session.viewerClientBackpressureEvents,
       maximumClientWritableBytes: session.viewerMaximumClientWritableBytes,
+      snapshotInputSkips: session.snapshotInput?.skips ?? 0,
+      maximumSnapshotInputAgeMilliseconds: session.snapshotInput?.maximumAgeMilliseconds ?? 0,
     };
     this.emit("viewer-delivery-stopped", summary);
   }
@@ -1801,6 +1841,8 @@ export class LiveStreamManager extends EventEmitter {
         audioSource: null,
         ffmpeg: null,
         viewerFfmpeg: null,
+        snapshotInput: null,
+        viewerInput: null,
         viewerParameterSets: new VideoParameterSetCache(),
         viewerInputBytes: 0,
         viewerOutputBytes: 0,
@@ -1880,8 +1922,29 @@ export function terminateMediaProcess(
   forceTimer.unref?.();
 }
 
-/** Bound H.265 browser conversion to 3 Mbit/s with a half-second encoder buffer. */
-export function h265ViewerTranscoderArguments(fixedResolution = false): string[] {
+/**
+ * Bound H.265 browser conversion to 3 Mbit/s with a half-second encoder buffer.
+ *
+ * The normal conversion keeps the source's size and every picture. The
+ * low-CPU profile is for hosts that cannot keep up with that. On a Home
+ * Assistant Green (four Cortex-A55 cores), a recorded 1080p, 15 fps S350 stream
+ * took about 1.2 cores to decode and 2.1 to encode at full size, so with the
+ * snapshot extractor and the gateway beside it the conversion fell behind.
+ * Encoding every second picture at no more than 720 lines took about 0.7.
+ * Decoding still takes every picture, because each one refers to the last.
+ */
+export function h265ViewerTranscoderArguments(fixedResolution = false, lowCpu = false): string[] {
+  const filters = [
+
+    // Every second picture by count, since raw input carries no timestamps, and every source keyframe
+    // so the forced keyframe below still has one to follow.
+    ...(lowCpu ? ["select='key+not(mod(n,2))'"] : []),
+
+    // The low-CPU profile does not enlarge a picture already 720 lines or fewer.
+    ...(fixedResolution
+      ? ["scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2"]
+      : lowCpu ? ["scale=-2:'min(720,ih)'"] : []),
+  ];
   return [
     "-hide_banner",
     "-loglevel",
@@ -1915,15 +1978,16 @@ export function h265ViewerTranscoderArguments(fixedResolution = false): string[]
     "3M",
     "-bufsize",
     "1.5M",
-    ...(fixedResolution ? [
-      "-vf",
-      "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
-    ] : []),
+    ...(filters.length > 0 ? ["-vf", filters.join(",")] : []),
+
+    // Keep the gaps the selection leaves rather than repeat pictures to fill them.
+    ...(lowCpu ? ["-fps_mode", "passthrough"] : []),
     "-x264-params",
 
     // A viewer starts on a keyframe, and a WebRTC viewer connects just after the
-    // first one has gone. Half-second spacing is the most it should have to wait.
-    "repeat-headers=1:keyint=10",
+    // first one has gone. Half-second spacing is the most it should have to wait,
+    // which is five pictures when only every second one is kept.
+    `repeat-headers=1:keyint=${lowCpu ? 5 : 10}`,
 
     // A conversion that carries on with another camera starts that camera on a keyframe too.
     "-force_key_frames",
@@ -1937,8 +2001,8 @@ export function h265ViewerTranscoderArguments(fixedResolution = false): string[]
 }
 
 /** Start the shared low-latency fallback used only when a camera returns H.265. */
-export function spawnH265ViewerTranscoder(fixedResolution = false): ChildProcessWithoutNullStreams {
-  return yieldToGateway(spawn("ffmpeg", h265ViewerTranscoderArguments(fixedResolution)));
+export function spawnH265ViewerTranscoder(fixedResolution = false, lowCpu = false): ChildProcessWithoutNullStreams {
+  return yieldToGateway(spawn("ffmpeg", h265ViewerTranscoderArguments(fixedResolution, lowCpu)));
 }
 
 /**
@@ -1951,24 +2015,49 @@ function yieldToGateway(child: ChildProcessWithoutNullStreams): ChildProcessWith
   return child;
 }
 
-/** Start the JPEG extractor that retains a fresh image from the shared camera source. */
-function spawnSnapshotExtractor(codec: VideoCodec): ChildProcessWithoutNullStreams {
-  return yieldToGateway(spawn("ffmpeg", [
+/**
+ * Arguments for the JPEG extractor that retains a fresh image from the shared camera source.
+ *
+ * H.265 decodes only keyframes, one JPEG each. Decoding every picture to keep
+ * one in two seconds took more than a core of a Green, beside the conversion.
+ * A viewer joining an H.265 source already waits for a keyframe, so these
+ * arrive often enough. One thread, so a keyframe is not held back behind
+ * later pictures, and the conversion's short probe, so the first one is not
+ * either. H.264 is unchanged: it decodes far more cheaply, and a camera using
+ * intra refresh would send no keyframes at all.
+ */
+export function snapshotExtractorArguments(codec: VideoCodec): string[] {
+  return [
     "-hide_banner",
     "-loglevel",
     "error",
+    ...(codec === "h265" ? [
+      "-probesize",
+      "2048",
+      "-analyzeduration",
+      "1",
+      "-fpsprobesize",
+      "0",
+      "-threads",
+      "1",
+      "-skip_frame",
+      "nokey",
+    ] : []),
     "-f",
     codec === "h265" ? "hevc" : "h264",
     "-i",
     "pipe:0",
-    "-vf",
-    "fps=1/2",
+    ...(codec === "h265" ? ["-fps_mode", "passthrough"] : ["-vf", "fps=1/2"]),
     "-f",
     "image2pipe",
     "-vcodec",
     "mjpeg",
     "pipe:1",
-  ]));
+  ];
+}
+
+function spawnSnapshotExtractor(codec: VideoCodec): ChildProcessWithoutNullStreams {
+  return yieldToGateway(spawn("ffmpeg", snapshotExtractorArguments(codec)));
 }
 
 /** Remux checked elementary streams, optionally retaining recorded frame timing. Aborting terminates the owned FFmpeg process. */
