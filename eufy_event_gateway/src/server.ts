@@ -619,7 +619,7 @@ export class GatewayServer {
         } catch (error) {
           const failure = error instanceof EventNameHistoryError ? error : new EventNameHistoryError(controller.signal.aborted ? "cancelled" : "unavailable");
           if (!response.destroyed) json(response, failure.code === "invalid_request" ? 400 : failure.code === "timeout" ? 504
-            : failure.code === "invalid_response" ? 502 : 409, { error: failure.message, code: failure.code });
+            : failure.code === "invalid_response" ? 502 : 409, { error: failure.message, code: failure.code, stage: failure.stage });
         } finally {
           clearTimeout(timeout); request.removeListener("aborted", abort); response.removeListener("close", abort);
         }

@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { EventNameHistoryReader, eventHistoryCursor, eventHistoryId, nextEventHistoryDate, projectEventNameHistorySummary, summarizeEventNameHistory } from "../src/stream/homebase-event-names.js";
+import { EventNameHistoryError, EventNameHistoryReader, eventHistoryCursor, eventHistoryId, nextEventHistoryDate, projectEventNameHistorySummary, summarizeEventNameHistory } from "../src/stream/homebase-event-names.js";
 import { supportsEventNameHistory, type MegaInventoryDevice } from "../src/provider/eufy-provider.js";
 
 const serial = "invented-child", station = "invented-parent", date = "2026-10-31";
@@ -13,8 +13,22 @@ const crop = { record_id: 123, crop_id: 456, person_id: 9, detection_type: 1 };
 const person = { person_id: 9, group_id: 0, name: "Invented Person" };
 const expected = { scope: "one_history_page", records: 1, personCrops: 1, recordsWithFamiliarNames: 1, unresolvedPersonCrops: 0 };
 
+test("a correlated rejection retains its fixed parser stage without retaining the reply", async () => {
+  let transaction = "";
+  const reader = new EventNameHistoryReader({ serial, stationSerial: station,
+    query: value => { transaction = value; }, decodeReply: payload => payload });
+  const operation = reader.read(date);
+  const rejected = assert.rejects(operation, error => error instanceof EventNameHistoryError
+    && error.code === "invalid_response" && error.stage === "envelope"
+    && !JSON.stringify(error).includes("PRIVATE-CANARY"));
+  const header = Buffer.alloc(16); header.writeUInt16LE(1306, 4); header[12] = 255;
+  reader.handleFrame(header, Buffer.from(JSON.stringify({ ...page(), transaction, mIntRet: 1, privateName: "PRIVATE-CANARY" })));
+  await rejected;
+  reader.close();
+});
+
 /** Build the observed table shape without any private source values. */
-function page(records = [history], crops = [crop], people = [person]) {
+function page(records = [history], crops: (typeof crop & { picture_id?: unknown })[] = [crop], people = [person]) {
   return { cmd: 10011, table: "history_record_info", transaction: "test", mIntRet: 0, data: [
     { table_name: "history_record_info", payload: records },
     { table_name: "record_crop_picture_info", payload: crops },
@@ -28,6 +42,21 @@ test("one exact camera record joins its person while sibling and adjacent-day ro
     { ...crop, crop_id: 457, record_id: 124 }, { ...crop, crop_id: 458, record_id: 125 }]);
   assert.deepEqual(summarizeEventNameHistory(value, serial, station, date), expected);
   assert.doesNotMatch(JSON.stringify(expected), /Invented Person|invented-child|123/);
+});
+
+test("crop indices can repeat across records and pictures without losing familiar names", () => {
+  const value = page([history, { ...history, record_id: 124 }], [
+    { ...crop, crop_id: 0, picture_id: 90 },
+    { ...crop, record_id: 124, crop_id: 0, picture_id: 91 },
+    { ...crop, record_id: 124, crop_id: 0, picture_id: 92 },
+  ]);
+  assert.deepEqual(summarizeEventNameHistory(value, serial, station, date), {
+    scope: "one_history_page", records: 2, personCrops: 3, recordsWithFamiliarNames: 2, unresolvedPersonCrops: 0,
+  });
+  assert.throws(() => summarizeEventNameHistory(page([history], [
+    { ...crop, crop_id: 0, picture_id: 90 }, { ...crop, crop_id: 0, picture_id: 90 },
+  ]), serial, station, date), /invalid_response/);
+  assert.throws(() => summarizeEventNameHistory(page([history], [{ ...crop, picture_id: "invalid" }]), serial, station, date), /invalid_response/);
 });
 
 test("conflicting ownership, duplicate record IDs and ambiguous roster entries reject the page", () => {
