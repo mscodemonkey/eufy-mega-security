@@ -66,6 +66,7 @@ If you are new to the project, read [`DEVELOPERS_START_HERE.md`](DEVELOPERS_STAR
 | `src/stream/homebase-ppcs.ts` | Short-lived local HomeBase 3 state, storage, acknowledgement, and readback command sessions. |
 | `src/stream/live-stream-manager.ts` | Shares a provider H.264 source, feeds FFmpeg for snapshots/clips, bounds recordings, and stops idle sessions. |
 | `src/stream/jpeg-parser.ts` | Reassembles complete JPEG frames from arbitrary FFmpeg stdout chunks. |
+| `src/stream/media-input-bound.ts` | Keeps each FFmpeg child's unread camera input under two seconds, skipping a child that falls behind to the next keyframe. |
 | `scripts/ppcs-probe.ts` | Safe standalone proof tool that enumerates cameras and records PPCS byte/frame results. |
 
 ## Home Assistant integration

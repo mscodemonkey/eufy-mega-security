@@ -717,6 +717,9 @@ test("shares an H.264 fallback with viewers when a camera returns H.265", async 
     },
     clientBackpressureEvents: 0,
     maximumClientWritableBytes: 0,
+    inputSkips: 0,
+    inputSkippedBytes: 0,
+    maximumInputAgeMilliseconds: 0,
   }]);
   await manager.close();
   assert.equal(deliverySummaries.length, 1);
@@ -1030,6 +1033,70 @@ test("reports no pipeline warning for FFmpeg input left queued when a viewer lea
   await manager.close();
   await reaped(extractor);
   assert.deepEqual(warnings, []);
+});
+
+test("a conversion and snapshot extractor that fall behind skip to the next keyframe instead of queueing", async () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  let now = 0;
+
+  // Fake children whose pipes hold everything until the test lets them read.
+  class HeldInput extends EventEmitter {
+    writable = true;
+    writableLength = 0;
+    readonly writes: Buffer[] = [];
+    write(data: Buffer): boolean { this.writes.push(Buffer.from(data)); this.writableLength += data.length; return true; }
+    destroy(): void { this.writable = false; }
+  }
+  const child = (): ChildProcessWithoutNullStreams => Object.assign(new EventEmitter(), {
+    stdin: new HeldInput(), stdout: new PassThrough(), stderr: new PassThrough(), kill: () => true, exitCode: null, signalCode: null,
+  }) as unknown as ChildProcessWithoutNullStreams;
+  const transcoder = child(), extractor = child();
+  const conversionInput = transcoder.stdin as unknown as HeldInput, snapshotInput = extractor.stdin as unknown as HeldInput;
+  const source = new PassThrough();
+  let manager: LiveStreamManager;
+  manager = new LiveStreamManager(state, {} as never, {
+    async startStream() { manager.attachSource(camera.serial, source, () => "h265"); }, async stopStream() {},
+  }, 5, undefined, () => transcoder, () => extractor, 30_000, () => now);
+  const transcoderSummaries: ViewerTranscoderSummary[] = [];
+  const deliverySummaries: ViewerDeliverySummary[] = [];
+  manager.on("viewer-transcoder-stopped", (summary) => transcoderSummaries.push(summary));
+  manager.on("viewer-delivery-stopped", (summary) => deliverySummaries.push(summary));
+  const response = new PassThrough() as unknown as ServerResponse;
+  response.writeHead = (() => response) as ServerResponse["writeHead"];
+  await manager.addClient(camera.serial, response);
+
+  const keyframe = Buffer.concat([annexBNal(0x40, 0x01, 0x0c), annexBNal(0x42, 0x01, 0x01), annexBNal(0x44, 0x01, 0xc0), annexBNal(0x26, 0x01, 0x80)]);
+  const picture = Buffer.concat([annexBNal(0x02, 0x01, 0x80), Buffer.alloc(1_000, 0x55)]);
+  source.write(keyframe);
+  for (now = 100; now <= 2_000; now += 100) source.write(picture);
+  assert.equal(conversionInput.writes.length, 21);
+  assert.equal(snapshotInput.writes.length, 21);
+
+  // The keyframe written at 0 ms is now unread for more than two seconds.
+  source.write(picture);
+  source.write(keyframe);
+  assert.equal(conversionInput.writes.length, 21, "nothing more queues behind unread input");
+  assert.equal(snapshotInput.writes.length, 21);
+
+  // Once both have read what they held, they start again at the next keyframe, not at the picture before it.
+  conversionInput.writableLength = 0;
+  snapshotInput.writableLength = 0;
+  now += 100;
+  source.write(picture);
+  source.write(keyframe);
+  const endOfSequence = Buffer.from([0, 0, 0, 1, 0x48, 0x01]);
+  for (const input of [conversionInput, snapshotInput]) assert.deepEqual(input.writes.slice(21), [endOfSequence, keyframe]);
+
+  await manager.close();
+  assert.equal(transcoderSummaries.length, 1);
+  assert.deepEqual(
+    [transcoderSummaries[0]!.inputSkips, transcoderSummaries[0]!.inputSkippedBytes, transcoderSummaries[0]!.inputBytes],
+    [1, 2 * picture.length + keyframe.length, keyframe.length + 20 * picture.length + endOfSequence.length + keyframe.length],
+  );
+  assert.ok(transcoderSummaries[0]!.maximumInputAgeMilliseconds > 2_000);
+  assert.equal(deliverySummaries[0]!.snapshotInputSkips, 1);
+  assert.ok(deliverySummaries[0]!.maximumSnapshotInputAgeMilliseconds > 2_000);
 });
 
 test("ignores callbacks from a replaced source generation", async () => {

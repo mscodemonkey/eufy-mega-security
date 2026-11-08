@@ -787,6 +787,8 @@ takes load off small hosts. A device that cannot play a camera's format shows no
 picture, and there is no automatic fallback. Then enable **H.264 compatibility
 mode (slower)** in **Settings → Devices & services → Eufy Mega Security →
 Configure**, which converts every camera. Saving reloads the integration.
+If an H.265 camera's converted view falls more than two seconds behind, it
+skips to the camera's next keyframe instead of falling further behind.
 Installations set up before this option keep the video they had: compatibility
 mode is on unless they had enabled **Try native camera video**, so native video
 stays opt-in for them.

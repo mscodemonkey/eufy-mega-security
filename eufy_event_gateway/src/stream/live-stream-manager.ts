@@ -23,6 +23,7 @@ import { SnapshotStore } from "../storage/snapshot-store.js";
 import { ViewerStartupTimeline, type ViewerStartupMilestones } from "./viewer-startup-timeline.js";
 import { JpegParser } from "./jpeg-parser.js";
 import { qualifiedS340LiveSource } from "./live-frame-clock.js";
+import { MediaInputBound } from "./media-input-bound.js";
 import { LiveTransportMuxer, type VideoViewerResponse } from "./live-transport-muxer.js";
 import { NativeTransportMuxer } from "./live-native-transport.js";
 
@@ -109,6 +110,11 @@ export interface ViewerTranscoderSummary {
   readonly outputCadence: StreamCadenceSummary;
   readonly clientBackpressureEvents: number;
   readonly maximumClientWritableBytes: number;
+
+  /** Times the conversion fell too far behind and skipped to the next keyframe, and the input it never received. */
+  readonly inputSkips: number;
+  readonly inputSkippedBytes: number;
+  readonly maximumInputAgeMilliseconds: number;
 }
 
 /** Codec-independent delivery evidence from camera source through HTTP viewers. */
@@ -128,6 +134,10 @@ export interface ViewerDeliverySummary {
   readonly clientWrites: number;
   readonly clientBackpressureEvents: number;
   readonly maximumClientWritableBytes: number;
+
+  /** The same skip evidence for the snapshot extractor. */
+  readonly snapshotInputSkips: number;
+  readonly maximumSnapshotInputAgeMilliseconds: number;
 }
 
 /** Selects existing H.264 compatibility conversion or unchanged source video for one viewer. */
@@ -225,6 +235,10 @@ interface Session {
   audioSource: Readable | null;
   ffmpeg: ChildProcessWithoutNullStreams | null;
   viewerFfmpeg: ChildProcessWithoutNullStreams | null;
+
+  /** Bound the unread input of the snapshot extractor and the conversion, one each per source session. */
+  snapshotInput: MediaInputBound | null;
+  viewerInput: MediaInputBound | null;
   viewerParameterSets: VideoParameterSetCache;
   viewerInputBytes: number;
   viewerOutputBytes: number;
@@ -1015,6 +1029,8 @@ export class LiveStreamManager extends EventEmitter {
     for (const client of session.clients) session.pendingClients.add(client);
     session.ffmpeg = null;
     session.viewerFfmpeg = null;
+    session.snapshotInput = null;
+    session.viewerInput = null;
     session.viewerInputBytes = 0;
     session.viewerOutputBytes = 0;
     session.viewerOutputChunks = 0;
@@ -1061,6 +1077,7 @@ export class LiveStreamManager extends EventEmitter {
       session.sourceBytes += chunk.length;
       session.sourceChunks += 1;
       session.sourceCadence.record();
+      const randomAccessPictures = session.parameterSets.diagnostics.randomAccessPictures;
       session.parameterSets.push(chunk, codecHint());
       const bootstrap = session.parameterSets.bootstrap;
       const codec = session.parameterSets.codec;
@@ -1072,6 +1089,12 @@ export class LiveStreamManager extends EventEmitter {
         || (codec === "h265" && compatibleClients.length > 0 && (!session.viewerFfmpeg
           || this.#shouldRestartViewerTranscoder(session)));
       const startup = needsStartup ? session.parameterSets.startup : null;
+
+      // A media child that fell behind starts again from the decoder start of the next keyframe.
+      // That start is built only then, so ordinary chunks never copy the retained group.
+      const keyframeStarted = session.parameterSets.diagnostics.randomAccessPictures > randomAccessPictures;
+      const restart = keyframeStarted && (session.snapshotInput?.skipping || session.viewerInput?.skipping)
+        ? startup ?? session.parameterSets.startup : null;
       if (bootstrap && session.parameterSets.diagnostics.randomAccessPictures > 0) session.viewerStartup.sourceRandomAccess();
       if (bootstrap && codec) {
         for (const client of this.#profileClients(session, "native")) {
@@ -1081,8 +1104,9 @@ export class LiveStreamManager extends EventEmitter {
         let snapshotStarted = false;
         if (!session.suppressSnapshots && !session.ffmpeg && startup) {
           session.ffmpeg = this.#startSnapshotExtractor(serial, codec);
+          session.snapshotInput = new MediaInputBound(session.ffmpeg.stdin, codec, this.nowMilliseconds);
           snapshotStarted = session.parameterSets.startupIncludesLatest;
-          if (session.ffmpeg.stdin.writable) session.ffmpeg.stdin.write(startup);
+          session.snapshotInput.write(startup);
         }
         if (codec === "h265") {
           let transcoderSeeded = false;
@@ -1096,14 +1120,14 @@ export class LiveStreamManager extends EventEmitter {
 
           // The cached decoder start already ends with this chunk, so writing it
           // again would feed FFmpeg the same keyframe twice.
-          if (!transcoderSeeded) this.#writeViewerTranscoderInput(session, chunk);
+          if (!transcoderSeeded) this.#writeViewerTranscoderInput(session, chunk, restart);
           this.#writeViewerChunk(session, chunk, "native");
           if (startup) this.#startPendingClients(session, codec, startup, "native", true);
         } else {
           this.#writeViewerChunk(session, chunk);
           if (startup) this.#startPendingClients(session, codec, startup, undefined, true);
         }
-        if (!snapshotStarted && session.ffmpeg?.stdin.writable) session.ffmpeg.stdin.write(chunk);
+        if (!snapshotStarted) session.snapshotInput?.write(chunk, restart);
       }
       for (const recording of session.recordings) this.#appendRecordingChunk(session, recording, chunk);
     });
@@ -1494,6 +1518,9 @@ export class LiveStreamManager extends EventEmitter {
     session.viewerStartup.conversionStarted();
     const process = this.createViewerTranscoder();
     session.viewerFfmpeg = process;
+    session.viewerInput = preserveSummary && session.viewerInput
+      ? session.viewerInput.attach(process.stdin)
+      : new MediaInputBound(process.stdin, "h265", this.nowMilliseconds);
     session.viewerParameterSets = new VideoParameterSetCache();
     if (!preserveSummary) {
       session.viewerInputBytes = 0;
@@ -1568,11 +1595,12 @@ export class LiveStreamManager extends EventEmitter {
     this.#startViewerTranscoder(serial, session, startup, true);
   }
 
-  #writeViewerTranscoderInput(session: Session, chunk: Buffer): void {
-    if (!session.viewerFfmpeg?.stdin.writable) return;
-    session.viewerInputBytes += chunk.length;
+  #writeViewerTranscoderInput(session: Session, chunk: Buffer, restart: Buffer | null = null): void {
+    if (!session.viewerFfmpeg || !session.viewerInput) return;
+    const written = session.viewerInput.write(chunk, restart);
+    if (written === 0) return;
+    session.viewerInputBytes += written;
     session.viewerInputCadence.record();
-    session.viewerFfmpeg.stdin.write(chunk);
   }
 
   #emitViewerTranscoderSummary(session: Session): void {
@@ -1586,6 +1614,9 @@ export class LiveStreamManager extends EventEmitter {
       outputCadence: session.viewerOutputCadence.summary,
       clientBackpressureEvents: session.viewerClientBackpressureEvents,
       maximumClientWritableBytes: session.viewerMaximumClientWritableBytes,
+      inputSkips: session.viewerInput?.skips ?? 0,
+      inputSkippedBytes: session.viewerInput?.skippedBytes ?? 0,
+      maximumInputAgeMilliseconds: session.viewerInput?.maximumAgeMilliseconds ?? 0,
     };
     this.emit("viewer-transcoder-stopped", summary);
   }
@@ -1625,6 +1656,7 @@ export class LiveStreamManager extends EventEmitter {
       terminateMediaProcess(session.ffmpeg);
       session.ffmpeg = null;
     }
+    session.snapshotInput = null;
     this.#stopViewerTranscoder(session);
   }
 
@@ -1637,6 +1669,7 @@ export class LiveStreamManager extends EventEmitter {
       terminateMediaProcess(session.viewerFfmpeg);
       session.viewerFfmpeg = null;
     }
+    session.viewerInput = null;
     session.viewerParameterSets = new VideoParameterSetCache();
     session.viewerTranscoderSilentRestarts = 0;
     session.viewerTranscoderStartedAtMilliseconds = 0;
@@ -1660,6 +1693,8 @@ export class LiveStreamManager extends EventEmitter {
       clientWrites: session.viewerClientWrites,
       clientBackpressureEvents: session.viewerClientBackpressureEvents,
       maximumClientWritableBytes: session.viewerMaximumClientWritableBytes,
+      snapshotInputSkips: session.snapshotInput?.skips ?? 0,
+      maximumSnapshotInputAgeMilliseconds: session.snapshotInput?.maximumAgeMilliseconds ?? 0,
     };
     this.emit("viewer-delivery-stopped", summary);
   }
@@ -1771,6 +1806,8 @@ export class LiveStreamManager extends EventEmitter {
         audioSource: null,
         ffmpeg: null,
         viewerFfmpeg: null,
+        snapshotInput: null,
+        viewerInput: null,
         viewerParameterSets: new VideoParameterSetCache(),
         viewerInputBytes: 0,
         viewerOutputBytes: 0,
