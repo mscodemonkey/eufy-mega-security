@@ -832,6 +832,19 @@ export class LiveStreamManager extends EventEmitter {
   }
 
   /**
+   * Retire only a fully started source whose consumers all permit takeover.
+   * The stop gate is installed synchronously before provider cleanup is awaited,
+   * so new viewers wait and late recording holds cannot promise this old source.
+   * Returns false without stopping a lease, recording or unmarked consumer.
+   */
+  async retireYieldableSource(serial: string): Promise<boolean> {
+    const session = this.#sessions.get(serial);
+    if (this.#closed || !session || !this.canYieldSource(serial)) return false;
+    this.#cancelStop(session);
+    return this.#stopOwnedSource(serial, session);
+  }
+
+  /**
    * Home Assistant is recording from a marked view, so it must keep its call.
    * It records over the connection the view already has, so the gateway sees no
    * new consumer. The mark stays held, and a reconnect with it keeps the call too.
@@ -839,9 +852,10 @@ export class LiveStreamManager extends EventEmitter {
    * connection, so retrying after a lost acknowledgment is safe.
    */
   holdView(serial: string, view: string): boolean {
+    const session = this.#sessions.get(serial);
+    if (session?.stop && !this.#heldViews.has(view)) return false;
     this.#heldViews.add(view);
     if (this.#heldViews.size > MAX_DELIVERED_VIEWS) this.#heldViews.delete(this.#heldViews.values().next().value!);
-    const session = this.#sessions.get(serial);
     if (!session) return false;
     const clients = [...session.yieldingClients].filter(([, mark]) => mark === view).map(([client]) => client);
     for (const client of clients) {
