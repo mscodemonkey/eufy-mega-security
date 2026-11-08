@@ -12,7 +12,7 @@ import { closedAlarmStateResult, modelControlTrialActions, parseModelControlTria
 import { buildModelControlTrialPayload, buildC31CameraInfoQueryPayload } from "../src/stream/first-party-ppcs.js";
 
 
-async function syntheticSession(context: TestContext, negotiated: boolean | "missing" | "short" | "resolver-throws" | "unwrap" | "bad-block" | "wrong-valid" | "sign" = true, outcome?: () => Promise<PpcsCipherKeyOutcome>) {
+async function syntheticSession(context: TestContext, negotiated: boolean | "missing" | "short" | "resolver-throws" | "unwrap" | "bad-block" | "wrong-valid" | "sign" = true, outcome?: () => Promise<PpcsCipherKeyOutcome>, cameraModel = "T8170") {
   let socket!: Socket, sequence = 0;
   const controls: { command: number; channel: number }[] = [];
   const outgoing: number[] = [];
@@ -45,7 +45,7 @@ async function syntheticSession(context: TestContext, negotiated: boolean | "mis
     queueMicrotask(() => callbacks.control(command, channel));
   });
   const session = new FirstPartyPpcsSession({ stationSerial: "test fixture 1234567", p2pDid: "TEST-12345678-TEST", appConnection: "", dskKey: "synthetic", channel: 0,
-    homeBaseAttached: false, cameraModel: "T8170", accountId: "synthetic-owner", purpose: "control", modelControlTrial: true, maxSeconds: 40,
+    homeBaseAttached: false, cameraModel, accountId: "synthetic-owner", purpose: "control", modelControlTrial: true, maxSeconds: 40,
     resolveCipherKey: async () => { if (negotiated === "resolver-throws") throw Error("private-resolver");
       if (negotiated === "wrong-valid") { const other = createECDH("prime256v1"); other.generateKeys(); return other.getPrivateKey().toString("hex"); }
       return negotiated === false ? undefined : recipient.getPrivateKey().toString("hex"); },
@@ -215,4 +215,23 @@ test("maximum session lifetime retires an outstanding dispatched read as unavail
     assert.deepEqual(await running, { outcome: "unavailable", frames: 0, parseStage: "none", keyReady: true });
     assert.deepEqual(h.outgoing, [1100, 1103]);
   } finally { h.session.close(); }
+});
+
+test("camera-info readers recheck ownership after awaiting the negotiated key", async context => {
+  const h = await syntheticSession(context, true, undefined, "T817L");
+  try {
+    const first = h.session.readCameraInfo();
+    await assert.rejects(h.session.readCameraInfo(), /in progress/);
+    h.incoming(1103, 0, Buffer.from('{"params":[{"param_type":1400,"param_value":"0"}]}'), 0, 0);
+    assert.deepEqual(await first, [{ param_type: 1400, param_value: "0" }]);
+    assert.equal(h.queries.length, 1);
+  } finally { h.session.close(); }
+});
+
+test("closing while a camera-info reader awaits its key prevents query dispatch", async context => {
+  const h = await syntheticSession(context, true, undefined, "T817L");
+  const rejected = assert.rejects(h.session.readCameraInfo(), /reason=unavailable/);
+  h.session.close();
+  await rejected;
+  assert.equal(h.queries.length, 0);
 });

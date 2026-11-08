@@ -62,6 +62,7 @@ import { CloudRecordingError } from "../stream/cloud-recordings.js";
 import { DoorbellRtcSession } from "../stream/doorbell-rtc-session.js";
 import { DoorbellRtcError } from "../stream/doorbell-rtc-offer.js";
 import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, type PpcsCipherKeyOutcome, PpcsLookupTimeoutError, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
+import { cameraInfoFailureReason } from "../stream/camera-info-failure.js";
 import { observeOwnedStartup } from "../stream/owned-startup-recovery.js";
 import { withCameraControlDeadline } from "./camera-control-deadline.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBaseChildParam, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
@@ -3575,7 +3576,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     } catch (error) {
       const s100 = request.action === "siren" || request.action === "sirenConnection";
       const stages = error instanceof S100SirenTrialError ? error.stages : [sirenSetupStage];
-      logger.warn("model_control_trial_failed", `Model control trial failed: model=${safeLogModel(device.model)} action=${request.action}${s100 ? ` stages=${stages.join(",")}` : ` stage=${failureStage}`}`);
+      const readReason = !s100 && ["initial_read", "confirmation_read"].includes(failureStage)
+        ? ` reason=${cameraInfoFailureReason(error)}` : "";
+      logger.warn("model_control_trial_failed", `Model control trial failed: model=${safeLogModel(device.model)} action=${request.action}${s100 ? ` stages=${stages.join(",")}` : ` stage=${failureStage}${readReason}`}`);
       if (s100) throw new S100SirenTrialError(stages, request.action === "sirenConnection");
       throw error;
     } finally {

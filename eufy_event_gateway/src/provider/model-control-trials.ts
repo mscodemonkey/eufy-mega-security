@@ -6,6 +6,7 @@
  */
 
 import { setTimeout as delay } from "node:timers/promises";
+import { CameraInfoReadError } from "../stream/camera-info-failure.js";
 
 /** Only these operations may cross the experimental control boundary. */
 export type ModelControlTrial =
@@ -216,7 +217,7 @@ export async function runModelControlTrial(
   stage("initial_read");
   const original = (await session.read())[field];
   checkOwnership();
-  if (original === undefined) throw new Error("Trial requires a fresh reported original setting");
+  if (original === undefined) throw new CameraInfoReadError("setting_missing");
   if (original === request.enabled) return { outcome: "unchanged", physicalConfirmationRequired: true };
   let acknowledgementReceived = true;
   stage("write");

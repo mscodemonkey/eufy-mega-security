@@ -14,6 +14,7 @@ import { MegaClient } from "../src/mega/client.js";
 import { MegaPushReceiver } from "../src/mega/push.js";
 import { FirstPartyPpcsSession, buildModelControlTrialPayload } from "../src/stream/first-party-ppcs.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
+import { CameraInfoReadError } from "../src/stream/camera-info-failure.js";
 const route: ModelControlRoute = { model: "T8110", deviceType: 10035, channel: 0,
   homeBaseAttached: false, selfPeer: true, peerModel: "T8110" };
 
@@ -34,10 +35,15 @@ test("C35 manual switch keeps its exact route and level-one frame separate from 
   assert.equal(safeInventoryReads([{ param_type: 1400, param_value: "1" }], 10035, "T8110", false).spotlightEnabled, undefined);
 });
 
-for (const mode of ["ready", "disabled", "guest", "unknown-state", "failed-confirmation"]) {
+for (const mode of ["ready", "disabled", "guest", "unknown-state", "failed-confirmation",
+  "read-no_reply", "read-not_decoded", "read-invalid_json", "read-invalid_schema", "read-private-error", "read-forged-reason"]) {
   test(`C35 provider light confirmation: ${mode}`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "c35-light-"));
     let light = false, writes = 0;
+    const warnings: string[] = [];
+    context.mock.method(process.stderr, "write", ((value: string | Uint8Array) => {
+      warnings.push(String(value)); return true;
+    }) as typeof process.stderr.write);
     context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
     context.mock.method(globalThis, "setInterval", (() => ({ unref() {} })) as unknown as typeof setInterval);
     context.mock.method(globalThis, "clearInterval", (() => {}) as typeof clearInterval);
@@ -50,7 +56,16 @@ for (const mode of ["ready", "disabled", "guest", "unknown-state", "failed-confi
     context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
     context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => {});
     context.mock.method(FirstPartyPpcsSession.prototype, "close", () => {});
-    context.mock.method(FirstPartyPpcsSession.prototype, "readCameraInfo", async () => mode === "unknown-state" ? [] : [{ param_type: 1400, param_value: light ? "1" : "0" }]);
+    context.mock.method(FirstPartyPpcsSession.prototype, "readCameraInfo", async () => {
+      if (mode === "read-private-error") throw Error("private-response-content");
+      if (mode === "read-forged-reason") {
+        const error = new CameraInfoReadError("no_reply");
+        Object.defineProperty(error, "reason", { value: "private-response-content" });
+        throw error;
+      }
+      if (mode.startsWith("read-")) throw new CameraInfoReadError(mode.slice(5) as "no_reply");
+      return mode === "unknown-state" ? [] : [{ param_type: 1400, param_value: light ? "1" : "0" }];
+    });
     context.mock.method(FirstPartyPpcsSession.prototype, "writeModelControlTrial", async (request: ModelControlTrial) => {
       assert.equal(request.action, "spotlight"); writes++;
       if (request.action === "spotlight" && mode !== "failed-confirmation") light = request.enabled;
@@ -61,6 +76,13 @@ for (const mode of ["ready", "disabled", "guest", "unknown-state", "failed-confi
       await provider.start(new Proxy({}, { get: () => () => {} }) as ProviderEvents);
       if (mode === "ready") { await provider.setCameraLight("test", true); assert.equal(light, true); assert.equal(writes, 1); }
       else { await assert.rejects(provider.setCameraLight("test", true)); assert.equal(writes, mode === "failed-confirmation" ? 1 : 0); }
+      if (mode.startsWith("read-") || mode === "unknown-state") {
+        const reason = mode === "unknown-state" ? "setting_missing"
+          : mode === "read-private-error" || mode === "read-forged-reason" ? "unavailable" : mode.slice(5);
+        assert.match(warnings.join(""), new RegExp(`model=T8110 action=spotlight stage=initial_read reason=${reason}`));
+        assert.doesNotMatch(warnings.join(""), /private-response-content/);
+        assert.equal(writes, 0);
+      }
     } finally { await provider.close(); await rm(directory, { recursive: true, force: true }); }
   });
 }

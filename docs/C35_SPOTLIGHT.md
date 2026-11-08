@@ -20,3 +20,16 @@ When testing, record the original manual switch value, try a single change,
 check the physical light and whether it stays on after the action finishes, then restore the original value. Keep any diagnostic
 files private. The existing experimental controls page also offers the C35
 spotlight trial if a baseline cannot yet be shown in HA.
+
+If the trial stops at `stage=initial_read`, no light command was sent. The
+`model_control_trial_failed` line now includes a fixed `reason`: `no_reply`,
+`not_decoded`, `invalid_json`, `invalid_schema`, `setting_missing`, or
+`unavailable`. These distinguish a missing response from an unusable response
+and a response lacking the manual switch value. They contain no response text.
+An earlier response in the same session cannot qualify the current read.
+
+Keep the normal light setting and avoid repeating a failed write attempt just
+to collect diagnostics. The reason identifies the read boundary that needs
+investigation. It does not establish a repair or authorize skipping the fresh
+baseline. A failure at `stage=confirmation_read` happens after the write may
+have reached the camera, so check the actual setting before any further action.
