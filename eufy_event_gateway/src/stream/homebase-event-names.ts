@@ -16,7 +16,7 @@ export interface EventNameHistorySummary {
 }
 
 /** Closed parser stages identify a rejected boundary without exposing rows or names. */
-export type EventNameHistoryStage = "unspecified" | "decode" | "json" | "envelope" | "tables" | "history_table" | "crop_table" | "people_table" | "history" | "people" | "crops";
+export type EventNameHistoryStage = "unspecified" | "decode" | "json" | "envelope" | "tables" | "history_table" | "crop_table" | "people_table" | "history" | "people" | "crops" | "crop_duplicate" | "crop_station" | "crop_device";
 
 /** Operation-local failure metadata owned by the reader, safe for the HTTP diagnostic boundary. */
 export class EventNameHistoryError extends Error {
@@ -133,10 +133,15 @@ export function summarizeEventNameHistory(value: unknown, serial: string, statio
   for (const crop of crops) {
     const record = id(crop.record_id);
     if (!records.has(record)) continue;
-    const cropId = id(crop.crop_id);
-    if (seen.has(cropId) || crop.station_sn !== undefined && crop.station_sn !== stationSerial
-      || crop.device_sn !== undefined && crop.device_sn !== serial) throw new EventNameHistoryError("invalid_response", "crops");
-    seen.add(cropId);
+    const cropId = id(crop.crop_id), pictureId = crop.picture_id === undefined ? "absent" : id(crop.picture_id);
+
+    // The app's crop index can be zero again in another picture or record.
+    // Keep duplicate rejection within that exact image, not across the whole page.
+    const identity = `${record}:${pictureId}:${cropId}`;
+    if (seen.has(identity)) throw new EventNameHistoryError("invalid_response", "crop_duplicate");
+    if (crop.station_sn !== undefined && crop.station_sn !== stationSerial) throw new EventNameHistoryError("invalid_response", "crop_station");
+    if (crop.device_sn !== undefined && crop.device_sn !== serial) throw new EventNameHistoryError("invalid_response", "crop_device");
+    seen.add(identity);
     if (crop.detection_type !== 1) continue;
     personCrops++;
     const person = typeof crop.person_id === "number" ? roster.get(crop.person_id) : undefined;
