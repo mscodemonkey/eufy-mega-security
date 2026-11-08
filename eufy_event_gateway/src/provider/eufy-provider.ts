@@ -118,11 +118,17 @@ export function stationConnectedAfterRefreshFailure(
   return wasConnected && consecutiveFailures < STATION_REFRESH_DISCONNECT_FAILURES;
 }
 
-/** One accepted camera visit owns cloud cancellation and its original inventory binding. */
+/** One accepted camera visit owns cancellable picture/name work and its original inventory binding. */
 interface PushPictureOwner {
 
   /** Station recovery remains limited to the previously qualified model and route. */
   readonly historyEligible: boolean;
+
+  /** One finite retry schedule is shared by duplicate deliveries of this visit. */
+  nameRecoveryStarted?: boolean;
+
+  /** A native/recovered name or conflicting record binding retires this lookup. */
+  nameRecoveryStopped?: boolean;
   readonly event: MegaPushEvent;
   readonly controller: AbortController;
   readonly generation: number;
@@ -174,6 +180,9 @@ export interface EufyProviderConfig {
 
   /** Opt-in exact-record thumbnail recovery after a terminal cloud HTTP404. */
   readonly experimentalHomeBaseEventImages?: boolean;
+
+  /** Admit only bounded, exact-visit late names on the observed T8210/HomeBase 3 route. */
+  readonly experimentalHomeBaseEventNames?: boolean;
   readonly experimentalNvrRegion?: "auto" | "us" | "eu" | "ie";
 
   /** Optional process-owned evidence collector, closed by the composition root. */
@@ -796,7 +805,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #rtcPreparation = new GeneralRtcPreparation(epoch => this.#failRtcPreparation(epoch, "deadline"));
   #rtcPreparationOwner: RtcPreparationOwner | null = null;
 
-  constructor(private readonly config: EufyProviderConfig) {
+  /**
+   * Borrow account configuration and own sessions until provider shutdown.
+   *
+   * @param nameRecoveryWait Supply a cancellable scheduling clock. The default does not keep a closing process alive.
+   */
+  constructor(private readonly config: EufyProviderConfig,
+    private readonly nameRecoveryWait: (milliseconds: number, signal: AbortSignal) => Promise<void> =
+      (milliseconds, signal) => cancellableDelay(milliseconds, undefined, { signal, ref: false })) {
     this.#client = new MegaClient({
       email: config.username,
       password: config.password,
@@ -5851,7 +5867,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       || careKind !== null && event.stationSerial === (device.parentSerial || device.serial);
     if (delivery.handleState && isSupportedMegaCamera(device) && pictureEventAccepted
       && (delivery.retainPicture || cameraDetectionKind(event.eventType) !== null
-        || event.eventType === 1 && genericSecurityDetectionKinds(event).length > 0)) {
+        || event.eventType === 1 && genericSecurityDetectionKinds(event).length > 0
+        || this.config.experimentalHomeBaseEventNames && isDoorbellDevice(device) && doorbellPushKind(event) === "press")) {
       const previous = this.#pictureOwners.get(device.serial);
       const olderVisit = previous && this.#pictureOwnerCurrent(previous) && previous.event.recording && event.recording
         && event.recording.triggerMilliseconds < previous.event.recording.triggerMilliseconds;
@@ -5881,14 +5898,25 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     // A delivered station remains part of ownership if a camera binding changes.
     const detectionEventIdentity = event.eventId
       ? JSON.stringify([this.#startupGeneration, event.eventId, event.eventType, event.stationSerial]) : null;
+    const personDelivery = cameraDetectionKind(event.eventType) === "person"
+      || event.eventType === 1 && genericSecurityDetectionKinds(event).includes("person")
+      || isDoorbellDevice(device) && doorbellPushKind(event) === "detection";
+    const pressDelivery = isDoorbellDevice(device) && doorbellPushKind(event) === "press";
+    const nameOwner = this.#pictureOwners.get(device.serial);
+    if (personName !== null && nameOwner && event.eventId !== null && nameOwner.event.eventId === event.eventId
+      && nameOwner.event.eventType === event.eventType && nameOwner.event.stationSerial === event.stationSerial) nameOwner.nameRecoveryStopped = true;
+    if (nameOwner && event.eventId !== null && nameOwner.event.eventId === event.eventId
+      && nameOwner.event.eventType === event.eventType && nameOwner.event.stationSerial === event.stationSerial
+      && nameOwner.event.recording && event.recording && (nameOwner.event.recording.id !== event.recording.id
+        || nameOwner.event.recording.storagePath !== event.recording.storagePath)) nameOwner.nameRecoveryStopped = true;
+    if (personName === null && detectionEventIdentity && (personDelivery || pressDelivery)) {
+      this.#queueHistoryName(events, event, detectionEventIdentity, pressDelivery ? "doorbell" : "person");
+    }
     if (!delivery.handleState) {
       if (isSupportedMegaCamera(device) && isDoorbellDevice(device) && doorbellPushKind(event) === "press"
         && detectionEventIdentity && personName !== null) {
         events.doorbellName?.(event.cameraSerial, detectionEventIdentity, personName);
       }
-      const personDelivery = cameraDetectionKind(event.eventType) === "person"
-        || event.eventType === 1 && genericSecurityDetectionKinds(event).includes("person")
-        || isDoorbellDevice(device) && doorbellPushKind(event) === "detection";
       if (isSupportedMegaCamera(device) && personDelivery && detectionEventIdentity && personName !== null) {
         events.personName?.(event.cameraSerial, detectionEventIdentity, personName);
       }
@@ -6148,7 +6176,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   /**
-   * Retire picture work at a provider lifetime boundary. The client still owns
+   * Retire picture and late-name work at a provider lifetime boundary. The client still owns
    * in-flight downloads, but their queues must not delay the replacement lifetime.
    * Generation checks discard any picture returned by those retired downloads.
    */
@@ -6165,6 +6193,44 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       && !!this.#devices.get(owner.device.serial) && !!this.#devices.get(owner.parent.serial)
       && !inventoryBindingChanged(owner.device, this.#devices.get(owner.device.serial)!)
       && !inventoryBindingChanged(owner.parent, this.#devices.get(owner.parent.serial)!);
+  }
+
+  /** Schedule finite metadata reads under the existing visit and inventory owner. */
+  #queueHistoryName(events: ProviderEvents, event: MegaPushEvent, identity: string, kind: "person" | "doorbell"): void {
+    const owner = this.#pictureOwners.get(event.cameraSerial), reference = event.recording;
+    const device = this.#devices.get(event.cameraSerial), route = device ? ppcsStreamRoute(device, this.#devices) : null;
+    if (!this.config.experimentalHomeBaseEventNames || !this.config.apiAuthenticationConfigured || !owner || !device
+      || !event.eventId || !reference || !supportsEventNameHistory(device, route, true)
+      || event.stationSerial !== route?.peer.serial || owner.nameRecoveryStarted || owner.nameRecoveryStopped
+      || owner.event.eventId !== event.eventId || owner.event.eventType !== event.eventType
+      || owner.event.recording?.id !== reference.id || owner.event.recording.storagePath !== reference.storagePath
+      || !this.#pictureOwnerCurrent(owner)) return;
+    const current = (): boolean => this.#pictureOwnerCurrent(owner) && !owner.nameRecoveryStopped
+      && Date.now() - reference.triggerMilliseconds >= -5_000 && Date.now() - reference.triggerMilliseconds <= 600_000;
+    if (!current()) return;
+    owner.nameRecoveryStarted = true;
+    void (async () => {
+      for (const wait of [10_000, 50_000, 300_000]) {
+        await this.nameRecoveryWait(wait, owner.controller.signal);
+        if (!current()) return;
+        const signal = AbortSignal.any([owner.controller.signal, AbortSignal.timeout(60_000)]);
+        let name: string | null;
+        try {
+          name = await this.#recordingOperation(event.cameraSerial, signal,
+            session => session.recoverEventName(reference, signal), "event_names");
+        } catch { continue; }
+        if (!current()) return;
+        const recognized = personNameFromPush({ eventType: event.eventType, personName: name, content: null });
+        if (recognized !== null) {
+          owner.nameRecoveryStopped = true;
+          if (kind === "doorbell") events.doorbellName?.(event.cameraSerial, identity, recognized);
+          else events.personName?.(event.cameraSerial, identity, recognized);
+          logger.info("homebase_name_recovered", "An exact notification-owned history record supplied a familiar name");
+          return;
+        }
+      }
+      if (current()) logger.info("homebase_name_recovery_unavailable", "No single familiar name was recovered for this visit");
+    })().catch(() => undefined);
   }
 
   /** Recover once on an idle peer, returning bytes only while the same visit still owns the picture. */

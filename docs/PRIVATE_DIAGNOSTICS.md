@@ -194,6 +194,27 @@ text-rendering path, or fix a missing late notification. It does not publish a
 new detection or update person sensors. Use it to distinguish a missing push
 from a name that is also absent in the corresponding history page.
 
+## Optional late familiar names
+
+`experimental_homebase_event_names` is separate from picture recovery and starts
+off. It requires gateway API authentication and the exact T8210/type 7 through
+HomeBase 3 T8030/type 18 history route. A notification must supply its own event
+identity, recording ID, storage path and recent trigger clock. The name is used
+only when that exact camera, parent, record and full path match one history row,
+and the matching crops identify a single familiar name. Ambiguous names stay
+unresolved. Names and identifiers never enter support logs or count diagnostics.
+
+At most three metadata reads are scheduled around 10 seconds, one minute and six
+minutes after the event. Active views and recording reservations are left alone.
+Each request has a finite lifetime. A new visit, native name, provider shutdown or
+changed inventory prevents a late result from replacing the current visit.
+Recovery updates the existing name only. It does not ring again, emit a fresh
+detection or extend its timer. Camera and security settings are unchanged.
+
+Exact notification-to-history IDs and paths were matched in a private owned
+capture. Automatic recovery of a missing familiar name is still unconfirmed on
+physical hardware. Keep this option off unless testing that specific gap.
+
 ## Check a recording thumbnail
 
 Use **Check a recording picture** for a T8113-Z/type 8 camera attached to

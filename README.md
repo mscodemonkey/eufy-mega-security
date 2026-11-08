@@ -643,6 +643,15 @@ Enabling this feature exposes unlock to Home Assistant dashboards, automations
 and any voice assistants to which you expose the entity. Review those before
 enabling it.
 
+### Experimental late familiar names
+
+The default-off `experimental_homebase_event_names` option can check a recent
+T8210/HomeBase 3 notification's exact recording for a late familiar name. It
+requires gateway API authentication, skips active views and recording retrieval,
+and updates the existing visit without ringing or firing another detection.
+It does not repair missing notifications or event pictures. Automatic hardware
+recovery remains unconfirmed. See [the diagnostic guide](docs/PRIVATE_DIAGNOSTICS.md#optional-late-familiar-names).
+
 ### Experimental model controls
 
 The standalone C35 T8110/type10035 has an opt-in [manual spotlight candidate](docs/C35_SPOTLIGHT.md). Hardware confirmation remains outstanding.

@@ -2759,6 +2759,15 @@ export class FirstPartyPpcsSession {
   /** Read one observed history page on the exact T8210/HomeBase 3 control route. */
   async readEventNameHistory(date: string, startId: string, signal?: AbortSignal): Promise<EventNameHistorySummary> {
     nextEventHistoryDate(date); eventHistoryCursor(startId);
+    return await (await this.#eventNameReader(signal)).read(date, startId, signal);
+  }
+
+  /** Read a name for one exact notification without starting camera media or publishing detection state. */
+  async recoverEventName(reference: PushRecordingReference, signal: AbortSignal): Promise<string | null> {
+    return await (await this.#eventNameReader(signal)).readName(reference, signal);
+  }
+
+  async #eventNameReader(signal?: AbortSignal): Promise<EventNameHistoryReader> {
     if (this.#closed || !this.#options.homeBaseAttached || this.#options.cameraModel !== "T8210"
       || this.#options.stationModel !== "T8030" || !this.#options.recordingCameraSerial
       || this.#options.purpose !== "control" || !this.#options.accountId || this.#recordings || this.#eventPicture
@@ -2793,7 +2802,7 @@ export class FirstPartyPpcsSession {
         return null;
       },
     });
-    return await this.#eventNames.read(date, startId, signal);
+    return this.#eventNames;
   }
 
   /** Read one history-bound thumbnail on the observed T8113-Z/HomeBase 3 control route. */

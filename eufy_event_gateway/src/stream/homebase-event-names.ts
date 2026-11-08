@@ -1,10 +1,11 @@
 /**
  * Checks familiar-name availability in one explicitly requested HomeBase history page.
  * The authenticated session owns transport and cancellation. This boundary owns
- * transaction correlation and record/crop/person joins. It returns counts only,
- * keeps names and identifiers private, and never publishes detection state.
+ * transaction correlation and record/crop/person joins. Diagnostics receive counts only. An opt-in provider can consume an exact
+ * visit name privately. This boundary never logs names or publishes detection state.
  */
 import { recordTime, validateRecordingDate } from "./stored-recordings.js";
+import { pushRecordingReference, recordingPathDate, type PushRecordingReference } from "../mega/push-recording-reference.js";
 
 /** Counts from a single history page, without inferring absence outside that page. */
 export interface EventNameHistorySummary {
@@ -154,12 +155,41 @@ export function summarizeEventNameHistory(value: unknown, serial: string, statio
 }
 
 /**
+ * Select a single familiar name only for the notification's exact record and
+ * storage path on the original camera and station. The caller owns freshness.
+ * Ambiguous people remain unresolved. This private result must not enter logs
+ * or the aggregate diagnostics response.
+ */
+export function selectEventNameHistory(value: unknown, serial: string, stationSerial: string, reference: PushRecordingReference): string | null {
+  if (!pushRecordingReference({ record_id: reference.id, file_path: reference.storagePath, trigger_time: reference.triggerMilliseconds })) {
+    throw new EventNameHistoryError("invalid_request");
+  }
+  const date = recordingPathDate(reference.storagePath)!;
+  summarizeEventNameHistory(value, serial, stationSerial, date);
+  const page = value as Record<string, unknown>;
+  const record = rows(page, "history_record_info").find(row => row.device_sn === serial
+    && id(row.record_id) === reference.id && row.storage_path === reference.storagePath && typeof row.start_time === "string"
+    && row.start_time.slice(0, 10) === date);
+  if (!record) return null;
+  const roster = new Map(rows(page, "person_basic_info").map(person => [person.person_id, person]));
+  const names = new Set<string>();
+  for (const crop of rows(page, "record_crop_picture_info")) {
+    if (id(crop.record_id) !== reference.id || crop.detection_type !== 1) continue;
+    const person = roster.get(crop.person_id);
+    if (person && person.person_id !== -1 && typeof person.group_id === "number" && Number.isInteger(person.group_id)
+      && person.group_id >= 0 && person.group_id < 255 && typeof person.name === "string"
+      && person.name.trim() && person.name.length <= 160 && !/[\u0000-\u001f\u007f]/.test(person.name)) names.add(person.name.trim());
+  }
+  return names.size === 1 ? [...names][0]! : null;
+}
+
+/**
  * Own one finite, explicitly requested history page until reply, abort or close.
  * The session supplies its authenticated reply decoder. The reader accepts only
  * its station-channel transaction and never retries or paginates automatically.
  */
 export class EventNameHistoryReader {
-  #pending: { transaction: string; date: string; resolve: (value: EventNameHistorySummary) => void; reject: (error: EventNameHistoryError) => void } | null = null;
+  #pending: { transaction: string; date: string; resolve: (value: unknown) => void; reject: (error: EventNameHistoryError) => void } | null = null;
   #closed = false;
   #used = false;
 
@@ -168,20 +198,33 @@ export class EventNameHistoryReader {
 
   /** Read one page at the supplied opaque cursor; an empty page has limited scope. */
   async read(date: string, startId = "0", signal?: AbortSignal): Promise<EventNameHistorySummary> {
+    return await this.#read(date, startId, signal, value => summarizeEventNameHistory(value, this.transport.serial, this.transport.stationSerial, date));
+  }
+
+  /** Read one page for a notification-owned name without exposing it through diagnostics. */
+  async readName(reference: PushRecordingReference, signal?: AbortSignal): Promise<string | null> {
+    const date = recordingPathDate(reference.storagePath);
+    if (!date || !pushRecordingReference({ record_id: reference.id, file_path: reference.storagePath, trigger_time: reference.triggerMilliseconds })) {
+      throw new EventNameHistoryError("invalid_request");
+    }
+    return await this.#read(date, "0", signal, value => selectEventNameHistory(value, this.transport.serial, this.transport.stationSerial, reference));
+  }
+
+  async #read<T>(date: string, startId: string, signal: AbortSignal | undefined, select: (value: unknown) => T): Promise<T> {
     validateRecordingDate(date); eventHistoryCursor(startId);
     if (this.#closed || signal?.aborted) throw new EventNameHistoryError("cancelled");
     if (this.#pending) throw new EventNameHistoryError("busy");
     if (this.#used) throw new EventNameHistoryError("unavailable");
     this.#used = true;
-    return await new Promise((resolve, reject) => {
-      const finish = (error?: EventNameHistoryError, value?: EventNameHistorySummary): void => {
+    return await new Promise<T>((resolve, reject) => {
+      const finish = (error?: EventNameHistoryError, value?: T): void => {
         this.#pending = null; clearTimeout(timer); signal?.removeEventListener("abort", abort);
         if (error) reject(error); else resolve(value!);
       };
       const abort = (): void => finish(new EventNameHistoryError("cancelled"));
       const timer = setTimeout(() => finish(new EventNameHistoryError("timeout")), 20_000);
       const transaction = `${Date.now()}`;
-      this.#pending = { transaction, date, resolve: value => finish(undefined, value), reject: error => finish(error) };
+      this.#pending = { transaction, date, resolve: value => finish(undefined, select(value)), reject: error => finish(error) };
       signal?.addEventListener("abort", abort, { once: true });
       if (signal?.aborted) { abort(); return; }
       try { this.transport.query(transaction, date, startId); }
@@ -198,7 +241,7 @@ export class EventNameHistoryReader {
     try {
       const value: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(clear).replace(/\0+$/, ""));
       if (!object(value) || value.cmd !== 10011 || value.table !== "history_record_info" || value.transaction !== pending.transaction) return false;
-      pending.resolve(summarizeEventNameHistory(value, this.transport.serial, this.transport.stationSerial, pending.date));
+      pending.resolve(value);
     } catch (error) { pending.reject(error instanceof EventNameHistoryError ? error : new EventNameHistoryError("invalid_response", "json")); }
     return true;
   }
