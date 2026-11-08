@@ -76,6 +76,19 @@ test("trial requests reject arbitrary commands, unknown fields and implicit valu
   assert.deepEqual(parseModelControlTrial({ action: "motion", enabled: false }), { action: "motion", enabled: false });
 });
 
+test("C35 state reads cannot enter any control command builder or writer", async () => {
+  const request = { action: "spotlightState", enabled: false } as const;
+  const route = { ...direct, model: "T8110", deviceType: 10035, peerModel: "T8110" };
+  assert.deepEqual(parseModelControlTrial(request), request);
+  for (const value of [true, 0, "false", null]) {
+    assert.throws(() => parseModelControlTrial({ ...request, enabled: value }), SyntaxError);
+  }
+  assert.throws(() => modelControlTrialCommand(request, route, "synthetic", transaction), /cannot dispatch/);
+  assert.throws(() => buildModelControlTrialPayload(request, route, "synthetic", Buffer.alloc(16), null, 1, transaction), /cannot dispatch/);
+  await assert.rejects(runModelControlTrial({ read: async () => { throw Error("unexpected read"); },
+    write: async () => { throw Error("unexpected write"); } }, request, () => {}), /cannot dispatch/);
+});
+
 test("E30 directional trials require its exact standalone peer without changing motion admission", () => {
   assert.deepEqual(modelControlTrialActions(e30), ["motion", "ptz"]);
   for (const patch of [{ model: "T8417X" }, { deviceType: 38 }, { channel: 1 }, { channel: null },

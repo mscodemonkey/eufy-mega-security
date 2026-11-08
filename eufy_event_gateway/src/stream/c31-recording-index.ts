@@ -7,9 +7,19 @@
 /** Fixed failures can cross the HTTP/log boundary without camera or account data. */
 export type C31IndexStage = "admission" | "busy" | "cancelled" | "timeout" | "malformed" | "session";
 
-/** A failed diagnostic never implies that the camera has no recordings. */
+/**
+ * Carries one retired index attempt's fixed failure across provider/HTTP boundaries.
+ * The trial owner controls cleanup. This error grants no retry or device-write
+ * authority and never implies that the camera has no recordings.
+ */
 export class C31IndexError extends Error {
   constructor(readonly stage: C31IndexStage) { super(`Recording index test ${stage}`); }
+}
+
+/** One explicitly selected historical interval, in UTC Unix seconds. */
+export interface C31IndexWindow {
+  readonly beginTime: number;
+  readonly endTime: number;
 }
 
 /** Closed structural result, independent of recording content or private identifiers. */
@@ -25,9 +35,26 @@ export interface C31IndexSummary {
 /** Reject wrong-unit, future or unbounded ranges before a device is contacted. */
 export function validateC31IndexWindow(begin: number, end: number, now: number): void {
   if (![begin, end, now].every(Number.isSafeInteger) || begin < 946684800
-    || end <= begin || end - begin > 1800 || end > now || begin < now - 3600) {
+    || end <= begin || end - begin > 1800 || end > now || begin < now - 86400) {
     throw new C31IndexError("admission");
   }
+}
+
+/**
+ * Admit the existing recent-window consent or one closed historical selection.
+ * Historical reads retain the same thirty-minute span and are limited to the
+ * previous day. Invalid consent, extra fields and partial windows fail before
+ * the provider can reserve or contact a camera.
+ */
+export function parseC31IndexRequest(value: unknown, now: number): C31IndexWindow | undefined {
+  const row = object(value);
+  if (!row || row.consentReadRecordingIndex !== true) throw new C31IndexError("admission");
+  const keys = Object.keys(row);
+  if (keys.length === 1) return undefined;
+  if (keys.length !== 3 || keys.some(key => !["consentReadRecordingIndex", "beginTime", "endTime"].includes(key))
+    || typeof row.beginTime !== "number" || typeof row.endTime !== "number") throw new C31IndexError("admission");
+  validateC31IndexWindow(row.beginTime, row.endTime, now);
+  return { beginTime: row.beginTime, endTime: row.endTime };
 }
 
 /** Reduce a matched reply to counts, rejecting ambiguous envelope ownership or units. */

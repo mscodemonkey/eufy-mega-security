@@ -149,7 +149,7 @@ let cloudJob = null, cloudLoadJob = null, cloudClip = null, cloudSelection = nul
 let cloudCalendarKey = null;
 let generalJob = null, generalClip = null, generalDisabled = null;
 let prepareBusy = false, preparePoll = null, prepareGeneration = 0;
-let trialAdmission = null, trialGeneration = 0, trialGeneralBusy = false, trialCloudBusy = false;
+let trialAdmission = null, trialGeneration = 0, trialGeneralBusy = false, trialCloudBusy = false, trialReadJob = null;
 function syncTrialControls() {
   const admitted = trialAdmission && trialAdmission.serial === el('device').value && trialAdmission.serial
     && trialAdmission.actions.includes(el('trial-action').value);
@@ -158,6 +158,7 @@ function syncTrialControls() {
   el('trial-load').disabled = busy;
 }
 function clearTrialAdmission(message = 'Choose a camera and check available controls.') {
+  if(trialReadJob) { trialReadJob.abort(); trialReadJob = null; }
   trialAdmission = null; trialGeneration++;
   el('trial-action').replaceChildren(); el('trial-consent').checked = false;
   el('trial-status').textContent = message; syncTrialControls();
@@ -226,14 +227,22 @@ action('load', async () => {
   clearTrialAdmission();
   await status();
 });
-async function trialApi(method, body, serial = el('device').value) {
+async function trialApi(method, body, serial = el('device').value, signal) {
   if(!serial) throw Error('Select one camera first.');
   const result = await fetch('api/cameras/' + encodeURIComponent(serial) + '/model-control-trial', {
     method, headers: { Authorization: 'Bearer ' + el('token').value, 'Content-Type': 'application/json' },
-    cache: 'no-store', ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    cache: 'no-store', ...(signal ? { signal } : {}), ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const value = await result.json();
   if(!result.ok) throw Error(value.error || 'Control trial failed. Check the camera before retrying.');
   return value;
+}
+function spotlightReadText(row) {
+  const unavailable = 'State read unavailable. No light command was sent. Share only the model_control_trial_failed line.';
+  if(!row || typeof row !== 'object' || Array.isArray(row) || row.readOnly !== true) return unavailable;
+  if(row.outcome !== 'reported' || typeof row.spotlightEnabled !== 'boolean' || Object.keys(row).length !== 3
+    || !Object.keys(row).every(key => ['outcome','readOnly','spotlightEnabled'].includes(key))) return unavailable;
+  return 'Camera reports the manual spotlight setting is ' + (row.spotlightEnabled ? 'on' : 'off')
+    + '. No light command was sent. This does not confirm physical illumination.';
 }
 function alarmReadText(row) {
   const invalid = 'Read unavailable. The attempt is inconclusive.';
@@ -255,12 +264,12 @@ function trialValues() {
   const action = el('trial-action').value;
   el('trial-value').replaceChildren();
   const values = action === 'ptz' ? [['left','Left'],['right','Right'],['up','Up'],['down','Down']]
-    : action === 'alarmState' ? [['false','Read only']] : action === 'sirenConnection' ? [['false','Connection check only']] : action === 'siren' ? [['true','Five-second sound test'],['false','Stop siren']] : [['true','On'],['false','Off']];
+    : (action === 'alarmState' || action === 'spotlightState') ? [['false','Read only']] : action === 'sirenConnection' ? [['false','Connection check only']] : action === 'siren' ? [['true','Five-second sound test'],['false','Stop siren']] : [['true','On'],['false','Off']];
   for(const pair of values) el('trial-value').add(new Option(pair[1], pair[0]));
   el('trial-siren-stop').hidden = action !== 'siren';
-  el('trial-consent-label').textContent = action === 'ptz' ? 'I have noted the original view and can observe movement and restore the view in the Eufy app.' : action === 'aiTracking' ? 'I have noted the starting tracking setting and am ready to test and restore it.' : action === 'alarmState' ? 'I am ready for one experimental read. The camera response is unconfirmed.' : action === 'sirenConnection' ? 'I am ready for one connection check. No siren command will be sent.' : action === 'manualLight' ? 'I have noted the light’s starting state and am ready to watch it and restore that state.' : 'I am ready to observe the camera, stop the siren if needed and restore changed settings.';
+  el('trial-consent-label').textContent = action === 'ptz' ? 'I have noted the original view and can observe movement and restore the view in the Eufy app.' : action === 'aiTracking' ? 'I have noted the starting tracking setting and am ready to test and restore it.' : action === 'spotlightState' ? 'I am ready to read the current spotlight setting without changing it.' : action === 'alarmState' ? 'I am ready for one experimental read. The camera response is unconfirmed.' : action === 'sirenConnection' ? 'I am ready for one connection check. No siren command will be sent.' : action === 'manualLight' ? 'I have noted the light’s starting state and am ready to watch it and restore that state.' : 'I am ready to observe the camera, stop the siren if needed and restore changed settings.';
   el('trial-consent').checked = false;
-  el('trial-help').textContent = action === 'ptz' ? 'One directional command, with no retry or automatic return. Hardware movement and stopping are unconfirmed. Close live view, try once while watching the camera, then restore the original view in the Eufy app.' : action === 'aiTracking' ? 'This is an experimental tracking control. Check the result in the Eufy app and restore the starting setting.' : action === 'alarmState' ? 'Sends one read query. A decoded result is uncorrelated and does not prove a reply to the query. Compare privately with the current app state without changing it.' : action === 'sirenConnection' ? 'Connects once without sending a siren command. Prepared does not confirm audible behaviour. Try once and share the result.' : action === 'manualLight' ? 'A reply acknowledges receipt only. Watch the light and restore its starting state after testing.' : action === 'siren' ? 'Listen and be ready to stop the siren. The start command requests a 30-second limit, but device enforcement is unverified. If it keeps sounding, stop it in the Eufy app.' : '';
+  el('trial-help').textContent = action === 'ptz' ? 'One directional command, with no retry or automatic return. Hardware movement and stopping are unconfirmed. Close live view, try once while watching the camera, then restore the original view in the Eufy app.' : action === 'aiTracking' ? 'This is an experimental tracking control. Check the result in the Eufy app and restore the starting setting.' : action === 'spotlightState' ? 'Reads the manual spotlight setting once. No light command is sent. Keep the light in its usual state.' : action === 'alarmState' ? 'Sends one read query. A decoded result is uncorrelated and does not prove a reply to the query. Compare privately with the current app state without changing it.' : action === 'sirenConnection' ? 'Connects once without sending a siren command. Prepared does not confirm audible behaviour. Try once and share the result.' : action === 'manualLight' ? 'A reply acknowledges receipt only. Watch the light and restore its starting state after testing.' : action === 'siren' ? 'Listen and be ready to stop the siren. The start command requests a 30-second limit, but device enforcement is unverified. If it keeps sounding, stop it in the Eufy app.' : '';
 }
 el('trial-action').onchange = () => { trialValues(); el('trial-consent').checked = false; syncTrialControls(); };
 el('device').addEventListener('change', () => clearTrialAdmission());
@@ -276,7 +285,7 @@ action('trial-load', async () => {
   try {
     const value = await trialApi('GET', undefined, serial);
     if(generation !== trialGeneration || serial !== el('device').value) return;
-    const names = ['motion','spotlight','siren','sirenConnection','ptz','manualLight','alarmState'];
+    const names = ['motion','spotlight','spotlightState','aiTracking','siren','sirenConnection','ptz','manualLight','alarmState'];
     if(!Array.isArray(value.actions) || value.actions.some(name => !names.includes(name))) throw Error('Invalid control list.');
     if(!value.actions.length) {
       const message = typeof value.unavailableReason === 'string' && Object.hasOwn(unavailableTrialMessages, value.unavailableReason)
@@ -284,7 +293,7 @@ action('trial-load', async () => {
       clearTrialAdmission(message); return;
     }
     trialAdmission = { serial, actions: [...value.actions] };
-    for(const name of value.actions) el('trial-action').add(new Option(name === 'alarmState' ? 'Read alarm state (experimental)' : name === 'sirenConnection' ? 'Check S100 connection (no sound)' : name === 'manualLight' ? 'Manual light (S120 through HomeBase 3)' : name === 'aiTracking' ? 'AI tracking' : name, name));
+    for(const name of value.actions) el('trial-action').add(new Option(name === 'spotlightState' ? 'Read spotlight state (no light command)' : name === 'alarmState' ? 'Read alarm state (experimental)' : name === 'sirenConnection' ? 'Check S100 connection (no sound)' : name === 'manualLight' ? 'Manual light (S120 through HomeBase 3)' : name === 'aiTracking' ? 'AI tracking' : name, name));
     trialValues(); syncTrialControls();
     el('trial-status').textContent = 'Choose one control and observe the camera.';
   } catch(error) {
@@ -305,12 +314,15 @@ action('trial-send', async () => {
   el('trial-load').disabled = true;
   el('trial-value').disabled = true;
   el('trial-status').textContent = 'Trying once. Do not retry until the result is known.';
+  const readJob = action === 'spotlightState' ? new AbortController() : null;
+  if(readJob) trialReadJob = readJob;
   try {
-    const result = await trialApi('POST', action === 'ptz' ? { action, direction: value } : { action, enabled: value === 'true' });
-    el('trial-status').textContent = action === 'alarmState' ? alarmReadText(result) : action === 'sirenConnection' ? (result.outcome === 'prepared' ? 'Connection prepared. No siren command was sent. Whether it will sound is still unconfirmed.' : 'Connection preparation was not confirmed.') : action === 'manualLight' ? 'Light command acknowledged. Did the light change? Check it and restore the starting state. This does not confirm its physical behaviour.' : action === 'siren' ? 'Commands acknowledged. Did the siren sound and stop? This result does not confirm audible behaviour.' : result.outcome === 'acknowledged' ? 'Command acknowledged. Check whether the camera moved, then restore the original view in the Eufy app.'
+    const result = await trialApi('POST', action === 'ptz' ? { action, direction: value } : { action, enabled: value === 'true' }, activeTrialSerial, readJob && readJob.signal);
+    if(readJob && readJob.signal.aborted) return;
+    el('trial-status').textContent = action === 'spotlightState' ? spotlightReadText(result) : action === 'alarmState' ? alarmReadText(result) : action === 'sirenConnection' ? (result.outcome === 'prepared' ? 'Connection prepared. No siren command was sent. Whether it will sound is still unconfirmed.' : 'Connection preparation was not confirmed.') : action === 'manualLight' ? 'Light command acknowledged. Did the light change? Check it and restore the starting state. This does not confirm its physical behaviour.' : action === 'siren' ? 'Commands acknowledged. Did the siren sound and stop? This result does not confirm audible behaviour.' : result.outcome === 'acknowledged' ? 'Command acknowledged. Check whether the camera moved, then restore the original view in the Eufy app.'
       : result.outcome === 'unchanged' ? 'Camera already reports this setting. No command sent.' : 'Camera reports the requested setting. Check its behaviour and restore the original setting when finished.';
-  } catch(error) { el('trial-status').textContent = action === 'alarmState' ? 'Read unavailable. The attempt is inconclusive. Compare the current state privately in the Eufy app.' : error.message + (action === 'ptz' ? ' Movement is unconfirmed. Check the camera and restore the original view in the Eufy app before retrying. Share only the model_control_trial_failed line.' : action === 'aiTracking' ? ' Tracking is unconfirmed. Check it in the Eufy app before retrying and restore the starting setting. Share only the model_control_trial_failed line.' : action === 'sirenConnection' ? ' No siren command was sent. Share only the model_control_trial_failed line.' : action === 'manualLight' ? ' The light state is unknown. Check the light and restore its starting state before trying again. Share only the model_control_trial_failed line.' : ' Check the camera before retrying. If it keeps sounding, stop it in the Eufy app. Send the model_control_trial_failed log line if the test failed.'); }
-  finally { if(action === 'ptz' || action === 'alarmState' || action === 'manualLight' || action === 'sirenConnection' || action === 'aiTracking') el('trial-consent').checked = false; el('device').disabled = false; activeTrialSerial = null; syncTrialControls(); }
+  } catch(error) { if(readJob && readJob.signal.aborted) return; el('trial-status').textContent = action === 'spotlightState' ? spotlightReadText(null) : action === 'alarmState' ? 'Read unavailable. The attempt is inconclusive. Compare the current state privately in the Eufy app.' : error.message + (action === 'ptz' ? ' Movement is unconfirmed. Check the camera and restore the original view in the Eufy app before retrying. Share only the model_control_trial_failed line.' : action === 'aiTracking' ? ' Tracking is unconfirmed. Check it in the Eufy app before retrying and restore the starting setting. Share only the model_control_trial_failed line.' : action === 'sirenConnection' ? ' No siren command was sent. Share only the model_control_trial_failed line.' : action === 'manualLight' ? ' The light state is unknown. Check the light and restore its starting state before trying again. Share only the model_control_trial_failed line.' : ' Check the camera before retrying. If it keeps sounding, stop it in the Eufy app. Send the model_control_trial_failed log line if the test failed.'); }
+  finally { if(readJob) { readJob.abort(); if(trialReadJob === readJob) trialReadJob = null; } if(action === 'spotlightState' || action === 'ptz' || action === 'alarmState' || action === 'manualLight' || action === 'sirenConnection' || action === 'aiTracking') el('trial-consent').checked = false; el('device').disabled = false; activeTrialSerial = null; syncTrialControls(); }
 });
 action('start', async () => {
   const target = el('device').value || null;

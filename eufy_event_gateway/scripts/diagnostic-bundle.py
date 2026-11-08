@@ -212,6 +212,78 @@ def selected_device(rows: list[dict], index: int) -> dict:
     return row
 
 
+def recording_index_window(begin: int | None, end: int | None) -> dict:
+    """Validate UTC seconds before credentials or a camera connection are used."""
+    now = int(time.time())
+    if begin is None and end is None:
+        return {}
+    if (type(begin) is not int or type(end) is not int or begin < 946684800
+            or end <= begin or end - begin > 1800 or end > now or begin < now - 86400):
+        raise DiagnosticError("Choose an interval of at most thirty minutes within the previous day, in UTC Unix seconds.")
+    return {"beginTime": begin, "endTime": end}
+
+
+def recording_index_check(url: str, token: str, target: dict, begin: int | None = None, end: int | None = None) -> dict:
+    """Read one exact C31 interval and return only matched structural counts.
+
+    Refusals are never retried with another window or interpreted as empty
+    recordings. The helper never starts playback or changes recording settings.
+    """
+    window = recording_index_window(begin, end)
+    serial = target.get("serial")
+    if target.get("model") != "T817L" or not isinstance(serial, str) or not serial:
+        raise DiagnosticError("Select the exact standalone C31 model T817L from the current list.")
+    endpoint = url + "/api/cameras/" + quote(serial, safe="") + "/recording-index-trial"
+    body = request(endpoint, token, "POST", {"consentReadRecordingIndex": True, **window},
+                   timeout=50, transfer_seconds=50)
+    try:
+        if len(body) > 16384:
+            raise ValueError()
+        value = json.loads(body)
+        if not isinstance(value, dict) or set(value) != {
+                "outcome", "windowMatches", "ownerMatches", "valid", "invalid", "overlapping"}:
+            raise ValueError()
+        if (value["windowMatches"] is not True or value["ownerMatches"] is not True
+                or any(type(value[key]) is not int or not 0 <= value[key] <= 512
+                       for key in ("valid", "invalid", "overlapping"))
+                or value["valid"] + value["invalid"] > 512 or value["overlapping"] > value["valid"]):
+            raise ValueError()
+        expected = "empty" if value["valid"] + value["invalid"] == 0 else "intervals" if value["valid"] else "unusable"
+        if value["outcome"] != expected:
+            raise ValueError()
+    except (ValueError, TypeError, UnicodeError):
+        raise DiagnosticError("Gateway returned an invalid recording-index summary.") from None
+    return {"model": "T817L", **value, "playbackConfirmed": False}
+
+
+def spotlight_read_check(url: str, token: str, target: dict) -> dict:
+    """Request only the C35 state-read action, never falling back to a light command."""
+    serial = target.get("serial")
+    if target.get("model") != "T8110" or not isinstance(serial, str) or not serial:
+        raise DiagnosticError("Select the C35 model T8110 from the current list.")
+    endpoint = url + "/api/cameras/" + quote(serial, safe="") + "/model-control-trial"
+    body = request(endpoint, token, "POST", {"action": "spotlightState", "enabled": False},
+                   timeout=50, transfer_seconds=50)
+    try:
+        if len(body) > 16384:
+            raise ValueError()
+        value = json.loads(body)
+        if not isinstance(value, dict) or value.get("readOnly") is not True or len(value) != 3:
+            raise ValueError()
+        if value.get("outcome") == "reported":
+            if set(value) != {"outcome", "readOnly", "spotlightEnabled"} or type(value["spotlightEnabled"]) is not bool:
+                raise ValueError()
+        elif value.get("outcome") == "unavailable":
+            if set(value) != {"outcome", "readOnly", "reason"} or value.get("reason") not in (
+                    "no_reply", "not_decoded", "invalid_json", "invalid_schema", "setting_missing", "unavailable"):
+                raise ValueError()
+        else:
+            raise ValueError()
+    except (ValueError, TypeError, UnicodeError):
+        raise DiagnosticError("Gateway returned an invalid spotlight state-read summary.") from None
+    return {"model": "T8110", **value, "lightCommandSent": False}
+
+
 def movement_admission(url: str, token: str, target: dict) -> str:
     """Read admission without any write and retain only fixed safe failure details."""
     endpoint = url + "/api/cameras/" + quote(target["serial"], safe="") + "/model-control-trial"
@@ -323,6 +395,12 @@ def run(options) -> dict:
         raise DiagnosticError("The E10 video test requires explicit private-media consent.")
     if options.command == "state-check" and not options.consent_read:
         raise DiagnosticError("The read-only state check requires explicit read consent.")
+    if options.command == "recording-index-check":
+        if not options.consent_read:
+            raise DiagnosticError("The recording-index check requires explicit read consent.")
+        recording_index_window(options.begin_time, options.end_time)
+    if options.command == "spotlight-read-check" and not options.consent_read:
+        raise DiagnosticError("The spotlight state check requires explicit read consent.")
     url, token = HELPERS.gateway_connection(options.config, options.entry_id)
     endpoint = url + "/api/diagnostics/bundle"
     if options.command == "list":
@@ -332,6 +410,11 @@ def run(options) -> dict:
     if options.command == "state-check":
         rows = devices(endpoint, token)
         return parameter_check(url, token, selected_device(rows, options.target_index))
+    if options.command == "recording-index-check":
+        target = selected_device(devices(endpoint, token), options.target_index)
+        return recording_index_check(url, token, target, options.begin_time, options.end_time)
+    if options.command == "spotlight-read-check":
+        return spotlight_read_check(url, token, selected_device(devices(endpoint, token), options.target_index))
     if options.command == "e10-video-test":
         return e10_video_test(url, token, selected_device(devices(endpoint, token), options.target_index), options.config, options.output)
     if options.command == "movement-check":
@@ -388,6 +471,14 @@ def main(arguments=None) -> int:
                        help="Current one-based device index from the list command.")
     state.add_argument("--consent-read", action="store_true",
                        help="Allow one cloud parameter read using the existing configured account.")
+    index = sub.add_parser("recording-index-check", help="Read one existing C31 recording interval without playback or settings changes.")
+    index.add_argument("--target-index", type=int, required=True)
+    index.add_argument("--begin-time", type=int, help="Interval start in UTC Unix seconds. Omit both times for the recent interval.")
+    index.add_argument("--end-time", type=int, help="Interval end in UTC Unix seconds. Supply both times or neither.")
+    index.add_argument("--consent-read", action="store_true")
+    spotlight = sub.add_parser("spotlight-read-check", help="Read the C35 spotlight setting without operating the light.")
+    spotlight.add_argument("--target-index", type=int, required=True)
+    spotlight.add_argument("--consent-read", action="store_true")
     video = sub.add_parser("e10-video-test", help="Save one private E10 clip using the saved connection.")
     video.add_argument("--target-index", type=int, required=True)
     video.add_argument("--output", type=Path, required=True)

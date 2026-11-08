@@ -33,3 +33,25 @@ to collect diagnostics. The reason identifies the read boundary that needs
 investigation. It does not establish a repair or authorize skipping the fresh
 baseline. A failure at `stage=confirmation_read` happens after the write may
 have reached the camera, so check the actual setting before any further action.
+
+For diagnosis, choose **Read spotlight state (no light command)** in Diagnostics
+instead of the Spotlight control. With Experimental model controls enabled,
+close live view, check available controls, select that read action and consent
+to one read. Leave the light in its usual state. This action has no On option,
+sends no light command and does not update the HA light entity. A reported
+switch value does not prove physical illumination or identify a matching reply
+by transaction. Changing device, leaving the page or cancelling the HTTP request
+closes the owned read session. The peer remains reserved until cleanup finishes.
+
+The saved-connection helper offers the same action without copying a token:
+
+```sh
+python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py spotlight-read-check --target-index 1 --consent-read
+```
+
+Use the current device list to select the C35's index. Keep the helper beside
+its saved-connection companion script as described in the diagnostics guide.
+An older gateway rejects this action. The helper never falls back to a light
+command. Share only its closed summary or the `model_control_trial_failed` line
+for `action=spotlightState`. Restore the gateway's Experimental model controls
+option if it was enabled only for this check.

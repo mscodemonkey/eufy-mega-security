@@ -44,6 +44,116 @@ def encoded(value: dict) -> bytes:
 class DiagnosticBundleTests(unittest.TestCase):
     """Exercise local transfers and private-file boundaries with isolated fixtures."""
 
+    def test_spotlight_read_never_falls_back_to_a_write(self):
+        """Use one exact read action and expose only a closed state observation."""
+        target = {"model": "T8110", "serial": "private-camera"}
+        for summary in ({"outcome": "reported", "readOnly": True, "spotlightEnabled": False},
+                        {"outcome": "reported", "readOnly": True, "spotlightEnabled": True},
+                        {"outcome": "unavailable", "readOnly": True, "reason": "no_reply"}):
+            with patch.object(TOOL, "request", return_value=json.dumps(summary).encode()) as request:
+                self.assertEqual(TOOL.spotlight_read_check("http://private.invalid", "private-token", target),
+                                 {"model": "T8110", **summary, "lightCommandSent": False})
+                request.assert_called_once_with("http://private.invalid/api/cameras/private-camera/model-control-trial",
+                    "private-token", "POST", {"action": "spotlightState", "enabled": False}, timeout=50, transfer_seconds=50)
+        for status in (400, 409, 503):
+            with patch.object(TOOL, "request", side_effect=TOOL.DiagnosticRequestError(status)) as request:
+                with self.assertRaises(TOOL.DiagnosticError):
+                    TOOL.spotlight_read_check("http://private.invalid", "private-token", target)
+                self.assertEqual(request.call_count, 1)
+
+    def test_spotlight_read_consent_selection_and_response_are_strict(self):
+        """Missing consent cannot load secrets and malformed observations stay private."""
+        with patch.object(TOOL.HELPERS, "gateway_connection") as connection, redirect_stderr(io.StringIO()):
+            self.assertEqual(TOOL.main(["spotlight-read-check", "--target-index", "1"]), 1)
+            connection.assert_not_called()
+        with patch.object(TOOL, "request") as request:
+            with self.assertRaises(TOOL.DiagnosticError):
+                TOOL.spotlight_read_check("http://private.invalid", "private-token", {"model": "T8110S", "serial": "private"})
+            request.assert_not_called()
+        for summary in [[], {"outcome": "confirmed"},
+                        {"outcome": "reported", "readOnly": True, "spotlightEnabled": 1},
+                        {"outcome": "reported", "readOnly": True, "spotlightEnabled": False, "token": "private"},
+                        {"outcome": "unavailable", "readOnly": True, "reason": "private"}]:
+            with patch.object(TOOL, "request", return_value=json.dumps(summary).encode()):
+                with self.assertRaisesRegex(TOOL.DiagnosticError, "invalid spotlight state-read summary"):
+                    TOOL.spotlight_read_check("http://private.invalid", "private-token", {"model": "T8110", "serial": "private"})
+
+    def test_recording_index_default_is_one_recent_read_and_partial_window_is_refused(self):
+        """The ordinary check needs no timestamp, while historical input stays explicit."""
+        summary = {"outcome": "empty", "windowMatches": True, "ownerMatches": True,
+                   "valid": 0, "invalid": 0, "overlapping": 0}
+        with patch.object(TOOL, "request", return_value=json.dumps(summary).encode()) as request:
+            TOOL.recording_index_check("http://private.invalid", "private-token", {"model": "T817L", "serial": "private"})
+            self.assertEqual(request.call_args.args[3], {"consentReadRecordingIndex": True})
+            self.assertEqual(request.call_count, 1)
+        with patch.object(TOOL.HELPERS, "gateway_connection") as connection, redirect_stderr(io.StringIO()):
+            self.assertEqual(TOOL.main(["recording-index-check", "--target-index", "1", "--consent-read", "--begin-time", "1800000000"]), 1)
+            connection.assert_not_called()
+
+    def test_recording_index_check_uses_one_selected_window_and_only_returns_counts(self):
+        """The helper keeps the selected historical interval out of terminal output."""
+        now = 1800000000
+        target = {"serial": "private-camera", "model": "T817L"}
+        summary = {"outcome": "intervals", "windowMatches": True, "ownerMatches": True,
+                   "valid": 1, "invalid": 0, "overlapping": 1}
+        output = io.StringIO()
+        with patch.object(TOOL.time, "time", return_value=now), \
+                patch.object(TOOL.HELPERS, "gateway_connection", return_value=("http://private.invalid", "private-token")), \
+                patch.object(TOOL, "devices", return_value=[target]), \
+                patch.object(TOOL, "request", return_value=json.dumps(summary).encode()) as request, redirect_stdout(output):
+            self.assertEqual(TOOL.main(["recording-index-check", "--target-index", "1", "--consent-read",
+                                       "--begin-time", str(now - 7500), "--end-time", str(now - 7200)]), 0)
+        self.assertEqual(json.loads(output.getvalue()), {"model": "T817L", **summary, "playbackConfirmed": False})
+        request.assert_called_once_with("http://private.invalid/api/cameras/private-camera/recording-index-trial",
+                                        "private-token", "POST", {"consentReadRecordingIndex": True,
+                                        "beginTime": now - 7500, "endTime": now - 7200}, timeout=50, transfer_seconds=50)
+        for value in ("private-camera", "private-token", "private.invalid", str(now - 7500)):
+            self.assertNotIn(value, output.getvalue())
+
+    def test_recording_index_consent_and_window_fail_before_credentials(self):
+        """No omitted consent or invalid time range can contact the gateway."""
+        now = 1800000000
+        for consent, begin, end in [(False, now - 60, now), (True, now - 86401, now - 86400),
+                                   (True, now - 1801, now), (True, now, now + 1)]:
+            arguments = ["recording-index-check", "--target-index", "1", "--begin-time", str(begin), "--end-time", str(end)]
+            if consent:
+                arguments.append("--consent-read")
+            with patch.object(TOOL.time, "time", return_value=now), \
+                    patch.object(TOOL.HELPERS, "gateway_connection") as connection, \
+                    patch.object(TOOL, "request") as request, redirect_stderr(io.StringIO()):
+                self.assertEqual(TOOL.main(arguments), 1)
+            connection.assert_not_called()
+            request.assert_not_called()
+
+    def test_recording_index_refusal_never_retries_or_changes_the_window(self):
+        """An old server or refused query must not become a recent-window fallback."""
+        now = 1800000000
+        for status in (400, 409, 503):
+            with patch.object(TOOL.time, "time", return_value=now), \
+                    patch.object(TOOL, "request", side_effect=TOOL.DiagnosticRequestError(status)) as request:
+                with self.assertRaisesRegex(TOOL.DiagnosticError, "HTTP " + str(status)):
+                    TOOL.recording_index_check("http://private.invalid", "private-token",
+                                               {"model": "T817L", "serial": "private-camera"}, now - 7500, now - 7200)
+                self.assertEqual(request.call_count, 1)
+
+    def test_recording_index_rejects_aliases_private_fields_and_inconsistent_counts(self):
+        """Only a matched, closed structural summary can be displayed."""
+        now = 1800000000
+        valid = {"outcome": "intervals", "windowMatches": True, "ownerMatches": True,
+                 "valid": 1, "invalid": 0, "overlapping": 1}
+        with patch.object(TOOL.time, "time", return_value=now), patch.object(TOOL, "request") as request:
+            with self.assertRaises(TOOL.DiagnosticError):
+                TOOL.recording_index_check("http://private.invalid", "private-token", {"model": "T8171"}, now - 7500, now - 7200)
+            request.assert_not_called()
+        for result in [dict(valid, token="private-token"), dict(valid, valid=True),
+                       dict(valid, outcome="empty"), dict(valid, overlapping=2), dict(valid, ownerMatches=False),
+                       dict(valid, valid=512, invalid=1), []]:
+            with patch.object(TOOL.time, "time", return_value=now), \
+                    patch.object(TOOL, "request", return_value=json.dumps(result).encode()):
+                with self.assertRaisesRegex(TOOL.DiagnosticError, "invalid recording-index summary"):
+                    TOOL.recording_index_check("http://private.invalid", "private-token",
+                                               {"model": "T817L", "serial": "private-camera"}, now - 7500, now - 7200)
+
 
     def test_e10_clip_uses_saved_token_once_and_keeps_media_private(self):
         """Persist only the explicit E10 clip and report no playback claim or identity."""

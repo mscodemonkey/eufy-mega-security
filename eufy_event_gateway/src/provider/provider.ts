@@ -17,7 +17,7 @@ import type { T85V0StatusSummary } from "./t85v0-status.js";
 import type { EventPictureSummary } from "../stream/homebase-event-picture.js";
 import type { EventNameHistorySummary } from "../stream/homebase-event-names.js";
 import type { LocalMotionSummary } from "../stream/local-motion-trial.js";
-import type { C31IndexSummary } from "../stream/c31-recording-index.js";
+import type { C31IndexSummary, C31IndexWindow } from "../stream/c31-recording-index.js";
 import type { CameraSettingChange } from "./camera-settings.js";
 import type { E30LockSettingChange } from "../domain/types.js";
 import type { NvrStateSummary } from "../stream/nvr-protocol.js";
@@ -130,8 +130,8 @@ export interface CameraProvider {
   /** Passively observe one consented T8910 channel without publishing motion events. */
   readLocalMotionTrial?(serial: string, signal: AbortSignal): Promise<LocalMotionSummary>;
 
-  /** Run one explicitly consented source-defined C31 index query, returning structural counts only. */
-  readRecordingIndexTrial?(serial: string, signal: AbortSignal): Promise<C31IndexSummary>;
+  /** Read one consented recent or selected historical C31 interval, returning structural counts only. */
+  readRecordingIndexTrial?(serial: string, signal: AbortSignal, window?: C31IndexWindow): Promise<C31IndexSummary>;
 
   /** Run one separately consented NVR camera-power test, retaining its lease through restoration. */
   testNvrCameraPower?(serial: string, request: NvrPowerRequest, signal: AbortSignal): Promise<NvrPowerSummary>;

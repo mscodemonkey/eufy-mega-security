@@ -28,7 +28,7 @@ import { nvrGuardTimeZone, type NvrGuardEffective } from "./nvr-guard-schedule.j
 import { eventPictureUrl } from "./event-picture-url.js";
 import { T85V0StatusError, validT85V0StatusIdentity, type T85V0AdmissionReason, type T85V0StatusSummary } from "./t85v0-status.js";
 import { LocalMotionCollector, LocalMotionError, type LocalMotionSummary } from "../stream/local-motion-trial.js";
-import { C31IndexError, type C31IndexSummary } from "../stream/c31-recording-index.js";
+import { C31IndexError, validateC31IndexWindow, type C31IndexSummary, type C31IndexWindow } from "../stream/c31-recording-index.js";
 import type { E30LockSettingChange, SmartLockState } from "../domain/types.js";
 import { runS100SirenTrial, S100SirenTrialError, type S100SirenFailureStage } from "./s100-siren-trial.js";
 import { E30LockProvider } from "./e30-lock-provider.js";
@@ -62,7 +62,7 @@ import { CloudRecordingError } from "../stream/cloud-recordings.js";
 import { DoorbellRtcSession } from "../stream/doorbell-rtc-session.js";
 import { DoorbellRtcError } from "../stream/doorbell-rtc-offer.js";
 import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, type PpcsCipherKeyOutcome, PpcsLookupTimeoutError, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
-import { cameraInfoFailureReason } from "../stream/camera-info-failure.js";
+import { CameraInfoReadError, cameraInfoFailureReason } from "../stream/camera-info-failure.js";
 import { observeOwnedStartup } from "../stream/owned-startup-recovery.js";
 import { withCameraControlDeadline } from "./camera-control-deadline.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBaseChildParam, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
@@ -984,7 +984,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
    * Fresh cloud bindings bracket the source-defined query. The result contains
    * no recording references, and its success does not establish playback.
    */
-  async readRecordingIndexTrial(serial: string, signal: AbortSignal): Promise<C31IndexSummary> {
+  async readRecordingIndexTrial(serial: string, signal: AbortSignal, window?: C31IndexWindow): Promise<C31IndexSummary> {
+    const selected = window ? { beginTime: window.beginTime, endTime: window.endTime } : undefined;
+    if (selected) validateC31IndexWindow(selected.beginTime, selected.endTime, Math.floor(Date.now() / 1000));
     this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     const device = this.#devices.get(serial), generation = this.#startupGeneration;
@@ -1027,7 +1029,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#recordingSessions.set(serial, session);
       await session.start(); current();
       const end = Math.floor(Date.now() / 1000);
-      const result = await session.readC31RecordingIndex(end - 1800, end, current);
+      const result = await session.readC31RecordingIndex(selected?.beginTime ?? end - 1800, selected?.endTime ?? end, current);
       current(); await freshBinding(); current();
       return result;
     } catch (error) {
@@ -3503,6 +3505,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     let finishSiren: (() => void) | undefined;
     let sirenSetupStage: S100SirenFailureStage = "session_key";
     let failureStage: ModelControlTrialFailureStage = "session_key";
+    const abortRead = (): void => { if (request.action === "spotlightState") session?.close(); };
+    if (request.action === "spotlightState") signal?.addEventListener("abort", abortRead, { once: true });
     const checkOwnership = () => {
       const current = this.#devices.get(serial);
       const currentPeer = this.#devices.get(peer.serial);
@@ -3538,7 +3542,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const owned = session;
       const profile = this.#modelTrialRoute(device, route);
       let result: ModelControlTrialResult;
-      if (request.action === "sirenConnection") {
+      if (request.action === "spotlightState") {
+        failureStage = "initial_read";
+        const params = await owned.readCameraInfo();
+        checkOwnership();
+        const value = safeInventoryReads(params, device.deviceType, device.model,
+          !route.homeBaseAttached && device.channel === 0).spotlightEnabled;
+        if (typeof value !== "boolean") throw new CameraInfoReadError("setting_missing");
+        result = { outcome: "reported", readOnly: true, spotlightEnabled: value };
+      } else if (request.action === "sirenConnection") {
 
         // HTTP cancellation cannot authorize a stop or sound command. Provider shutdown closes the session.
         await owned.prepareS100SirenTrial(profile, false);
@@ -3571,7 +3583,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         this.#devices.set(serial, refreshed);
         this.#events?.camera(this.#cameraIdentity(refreshed));
       }
-      logger.info("model_control_trial_result", `Model control trial: model=${safeLogModel(device.model)} action=${request.action} outcome=${result.outcome} physical_confirmation_required=true`);
+      if (request.action === "spotlightState") {
+        logger.info("model_control_read_result", `Model state read: model=${safeLogModel(device.model)} action=spotlightState outcome=reported read_only=true`);
+      } else logger.info("model_control_trial_result", `Model control trial: model=${safeLogModel(device.model)} action=${request.action} outcome=${result.outcome} physical_confirmation_required=true`);
       return result;
     } catch (error) {
       const s100 = request.action === "siren" || request.action === "sirenConnection";
@@ -3580,8 +3594,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         ? ` reason=${cameraInfoFailureReason(error)}` : "";
       logger.warn("model_control_trial_failed", `Model control trial failed: model=${safeLogModel(device.model)} action=${request.action}${s100 ? ` stages=${stages.join(",")}` : ` stage=${failureStage}${readReason}`}`);
       if (s100) throw new S100SirenTrialError(stages, request.action === "sirenConnection");
+      if (request.action === "spotlightState") return { outcome: "unavailable", readOnly: true, reason: cameraInfoFailureReason(error) };
       throw error;
     } finally {
+      if (request.action === "spotlightState") signal?.removeEventListener("abort", abortRead);
       session?.close();
       this.#trialSirenStops.delete(peer.serial);
       this.#trialSessions.delete(peer.serial);
