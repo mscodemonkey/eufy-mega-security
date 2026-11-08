@@ -42,6 +42,88 @@ def encoded(value: dict) -> bytes:
 
 
 class DiagnosticBundleTests(unittest.TestCase):
+    """Exercise local transfers and private-file boundaries with isolated fixtures."""
+
+
+    def test_e10_clip_uses_saved_token_once_and_keeps_media_private(self):
+        """Persist only the explicit E10 clip and report no playback claim or identity."""
+        clip = b"\x00\x00\x00\x18ftypisom" + b"private-synthetic-clip"
+        target = {"serial": "private-e10", "model": "T8404", "streamSupported": False}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            config, output = root / ".storage/core.config_entries", root / "e10.mp4"
+            def reply(url, token, method="GET", value=None, **kwargs):
+                self.assertEqual(token, "private-token")
+                if url.endswith("/targets"):
+                    return json.dumps({"devices": [target]}).encode()
+                self.assertEqual(url, "http://private.invalid/api/cameras/private-e10/nvr-live-trial")
+                self.assertEqual((method, value), ("POST", {"consentPrivateMedia": True}))
+                self.assertEqual(kwargs, {"timeout": 90, "transfer_seconds": 90})
+                self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+                return clip
+            printed = io.StringIO()
+            with patch.object(TOOL.HELPERS, "gateway_connection", return_value=("http://private.invalid", "private-token")), patch.object(TOOL, "request", side_effect=reply) as request, redirect_stdout(printed):
+                self.assertEqual(TOOL.main(["--config", str(config), "e10-video-test", "--target-index", "1", "--consent-private-media", "--output", str(output)]), 0)
+            self.assertEqual(request.call_count, 2)
+            self.assertEqual(output.read_bytes(), clip)
+            self.assertFalse(json.loads(printed.getvalue())["playbackConfirmed"])
+            for private in ["private-token", "private-e10", "private.invalid", "synthetic-clip", str(root)]:
+                self.assertNotIn(private, printed.getvalue())
+
+    def test_e10_missing_consent_does_not_load_credentials_or_contact_gateway(self):
+        """Keep a media trial impossible without an explicit consent flag."""
+        with patch.object(TOOL.HELPERS, "gateway_connection") as connection, patch.object(TOOL, "request") as request, redirect_stderr(io.StringIO()):
+            self.assertEqual(TOOL.main(["e10-video-test", "--target-index", "1", "--output", "/unused.mp4"]), 1)
+        connection.assert_not_called()
+        request.assert_not_called()
+
+    def test_e10_refusal_or_bad_clip_is_not_retried_and_removes_owned_file(self):
+        """Retain no partial file, upstream error text, private URL or media on failure."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            config, output = root / ".storage/core.config_entries", root / "e10.mp4"
+            target = {"model": "T8404", "serial": "private-e10"}
+            for result in [TOOL.DiagnosticRequestError(409), TOOL.DiagnosticError("private upstream body"), b'{"token":"private-token"}', KeyboardInterrupt()]:
+                with patch.object(TOOL, "request", side_effect=result if isinstance(result, BaseException) else None,
+                                  return_value=result) as request:
+                    with self.assertRaises((TOOL.DiagnosticError, KeyboardInterrupt)) as raised:
+                        TOOL.e10_video_test("http://private.invalid", "private-token", target, config, output)
+                    self.assertNotIn("private upstream", str(raised.exception))
+                    self.assertNotIn("private-token", str(raised.exception))
+                    self.assertEqual(request.call_count, 1)
+                self.assertFalse(output.exists())
+
+    def test_e10_bad_selection_or_unsafe_output_cannot_start_a_trial(self):
+        """Refuse wrong model, overwrite, symlinks and public output before POST."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            config, output = root / ".storage/core.config_entries", root / "e10.mp4"
+            with patch.object(TOOL, "request") as request:
+                with self.assertRaises(TOOL.DiagnosticError):
+                    TOOL.e10_video_test("http://private.invalid", "private-token", {"model": "T8404X"}, config, output)
+                output.write_bytes(b"keep")
+                for path in [output, root / "www/e10.mp4"]:
+                    with self.assertRaises(Exception):
+                        TOOL.e10_video_test("http://private.invalid", "private-token", {"model": "T8404", "serial": "private-e10"}, config, path)
+                link = root / "linked.mp4"
+                link.symlink_to(output)
+                with self.assertRaises(Exception):
+                    TOOL.e10_video_test("http://private.invalid", "private-token", {"model": "T8404", "serial": "private-e10"}, config, link)
+                request.assert_not_called()
+                self.assertEqual(output.read_bytes(), b"keep")
+
+    def test_motion_time_check_preserves_its_distinct_closed_vocabulary(self):
+        """Support the T8910 probe without printing timestamps or accepting binary profiles."""
+        target = {"model": "T8910", "serial": "private-motion"}
+        for value in ["missing", "unset", "recent", "older", "future", "invalid", "conflicting"]:
+            summary = {"model": "T8910", "profile": "motion_time_candidate", "observations": {"1605": value}}
+            with patch.object(TOOL, "request", return_value=json.dumps(summary).encode()):
+                self.assertEqual(TOOL.parameter_check("http://private.invalid", "private-token", target), summary)
+        for value in ["one", "zero", "valid", 1790000000]:
+            summary["observations"]["1605"] = value
+            with patch.object(TOOL, "request", return_value=json.dumps(summary).encode()):
+                with self.assertRaises(TOOL.DiagnosticError):
+                    TOOL.parameter_check("http://private.invalid", "private-token", target)
 
     def test_state_check_uses_saved_connection_without_exposing_credentials(self):
         """Send one consented read and print only the closed model summary."""

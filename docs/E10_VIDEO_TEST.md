@@ -18,6 +18,30 @@ select the E10, close other viewers and expand **Experimental NVR and E10 video
 test**. Confirm private-video consent and choose **Try NVR video once**. The
 existing option and button are shared with the RTC clip test.
 
+### Home Assistant app installs without a visible API token
+
+The app generates its gateway token automatically. The empty field on the
+Diagnostics page is not a missing Eufy password. Do not change accounts, paste
+credentials into GitHub or extract the token for a support reply.
+
+Use the saved-connection utility revision linked in the test request. Older
+utility releases do not contain `e10-video-test`. Download both support scripts
+from that same revision as described in [private diagnostics](PRIVATE_DIAGNOSTICS_REFERENCE.md#home-assistant-app-installs), then run `list` to obtain the current E10 index.
+With the experimental option enabled, close other viewers and run once in the
+Home Assistant Terminal & SSH app, replacing `1` with that current index:
+
+```sh
+python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py e10-video-test --target-index 1 --consent-private-media --output /config/e10-video-test.mp4
+```
+
+The command uses the integration's saved connection without displaying the
+token. It reserves a new private file before starting the trial and refuses
+existing files, symlinks and public folders. It makes one request with no retry.
+A saved clip is not a playback confirmation. Retrieve it through your usual
+private file transfer, check it in a compatible player and keep it out of
+`/config/www`. If the command fails or is cancelled, do not repeat it until its
+outcome has been checked. Restore the experimental option afterwards.
+
 Cancel if needed. A successful result downloads only to the browser and must be
 checked privately in a compatible player. Report whether it contains ten seconds
 of playable video. On failure, send only the complete `nvr_live_trial_failed`
