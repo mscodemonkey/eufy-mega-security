@@ -117,7 +117,11 @@ export class DoorbellRtcSession {
     const ready = new Promise<void>((resolve, reject) => { this.#resolve = resolve; this.#reject = reject; });
     void ready.catch(() => undefined);
     this.options.signal.addEventListener("abort", this.#abort, { once: true });
-    this.#deadline = setTimeout(() => this.#fail("deadline"), this.options.startupTimeoutMilliseconds ?? 35_000);
+    this.#deadline = setTimeout(() => {
+      const reason = !this.#authenticated ? "startup_join_timeout" : !this.#accepted ? "startup_call_timeout"
+        : !this.#peer ? "startup_offer_timeout" : !this.#answerSent ? "startup_peer_timeout" : "startup_video_timeout";
+      this.#fail("deadline", reason);
+    }, this.options.startupTimeoutMilliseconds ?? 35_000);
     try {
       const protocols = ["v1", Buffer.from(JSON.stringify({ region: this.options.context.region,
         type: "NVR", sn: this.options.station, token: this.options.context.authToken,
@@ -255,7 +259,7 @@ export class DoorbellRtcSession {
     if (inner.dataType === "hangup") throw new DoorbellRtcError("call");
     if (inner.dataType === "call") {
       if (data.status === 486) throw new DoorbellRtcError("busy");
-      if (data.status === 408) throw new DoorbellRtcError("call");
+      if (data.status === 408) throw new DoorbellRtcError("call", "call_timeout");
       if (data.status === 100) this.#relays(data.turn);
       else if (data.status === 200 && !this.#accepted) {
         this.#accepted = true; this.#action("ack", {});
