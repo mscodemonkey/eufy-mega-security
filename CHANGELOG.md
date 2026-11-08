@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.251
+
+- Bound slow H.265 conversion queues and reduce snapshot decoding work. Normal views retain their size and cadence, with a separate default-off lower-CPU conversion profile. Final Green playback still needs reporter confirmation.
+- Improve NVR shutdown, signalling keep-alive and bounded call startup retries without extending the existing deadline. The observer interaction and affected hardware confirmation remain open.
+- Add disabled-by-default Fixed and Movable 720p camera panes for the exact experimental T8E00/T8N00 Both source. They share one video-only connection and do not provide independent 1080p streams or simultaneous different NVR cameras.
+- Allow the direct S220 receive-audio route more time to discover AAC on the first view, with a finite startup window. Live audio remains off by default and the first-view hardware result remains unconfirmed.
+- Correct the C31 recording-index request and add a bounded historical helper, distinguish native state-read failures, add a non-actuating C35 spotlight read, and repair C37 Diagnostics control-list admission. These changes do not establish recording playback or physical control success.
+- Add separate default-off exact-visit familiar-name recovery for T8210 through HomeBase 3. It performs finite metadata reads and can enrich the existing visit without another detection or ring. Automatic hardware recovery remains unconfirmed.
+- Distinguish rejected E10 offer shapes and standalone doorbell startup boundaries using fixed failure reasons without private signalling. Normal E10 video and the returned doorbell failure remain unresolved.
+- Add a saved-connection S220 cached-settings availability check that opens no camera connection and changes no setting. Drain already-sent video before the real-peer heartbeat fixture checks that heartbeats do not renew its timer.
+
 ## 0.1.250
 
 - Add an experimental live-quality selector for exact standalone S220 T8134 cameras through the existing owner account. It requires API authentication, a fresh known baseline and readback confirmation, sends once, and stays hidden unless Experimental model controls is enabled. Physical quality changes remain unconfirmed. Recorded-video quality and other controls are separate.
