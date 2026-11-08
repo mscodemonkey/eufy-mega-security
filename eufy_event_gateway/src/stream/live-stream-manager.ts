@@ -1855,7 +1855,9 @@ export function liveAudioStartWaitMilliseconds(camera: Pick<CameraState, "model"
  *
  * The owner drops its process reference immediately after this call, so this
  * helper retains the close listener and escalation timer until the child is
- * reaped. The grace override exists for focused lifecycle tests.
+ * reaped. Unread input is discarded because this is an intentional stop or
+ * abort. Successful recording remuxes use their own normal EOF path. The grace
+ * override exists for focused lifecycle tests.
  */
 export function terminateMediaProcess(
   process: Pick<ChildProcess, "kill" | "exitCode" | "signalCode" | "once"> & { stdin?: Pick<Writable, "destroy"> | null },

@@ -925,8 +925,9 @@ async function reaped(child: ChildProcessWithoutNullStreams): Promise<void> {
   ]);
 }
 
-test("drops input a terminated media child has not read instead of failing it with EPIPE", async () => {
+test("drops input a terminated media child has not read instead of failing it with EPIPE", async context => {
   const child = nonReadingChild();
+  context.after(async () => { terminateMediaProcess(child); await reaped(child); });
   const errors: Error[] = [];
   child.stdin.on("error", (error) => errors.push(error));
   await once(child, "spawn");
@@ -940,7 +941,7 @@ test("drops input a terminated media child has not read instead of failing it wi
   assert.deepEqual(errors, []);
 });
 
-test("reports no pipeline warning for FFmpeg input left queued when a viewer leaves or the source closes", async () => {
+test("reports no pipeline warning for FFmpeg input left queued when a viewer leaves or the source closes", async context => {
   const state = new GatewayState();
   state.registerCamera(camera);
   const viewers: ChildProcessWithoutNullStreams[] = [];
@@ -963,6 +964,12 @@ test("reports no pipeline warning for FFmpeg input left queued when a viewer lea
   }, () => {
     extractors.push(nonReadingChild());
     return extractors.at(-1)!;
+  });
+  context.after(async () => {
+    await manager.close();
+    const children = [...viewers, ...extractors];
+    for (const child of children) terminateMediaProcess(child);
+    await Promise.all(children.map(reaped));
   });
   const warnings: Error[] = [];
   manager.on("warning", (error: Error) => warnings.push(error));
