@@ -34,6 +34,13 @@ class ViewerInput extends PassThrough implements VideoViewerResponse {
 const MAX_INPUT_BYTES = 4 * 1024 * 1024;
 const AUDIO_START_WAIT_MILLISECONDS = 2_000;
 
+/** Content-free startup timing for one compatible viewer, emitted only after retirement. */
+export interface LiveAudioStartupSummary {
+  readonly waitMilliseconds: number;
+  readonly firstAudioAfterVideoMilliseconds: number | null;
+  readonly audioSelected: boolean | null;
+}
+
 /**
  * Owns one live MPEG-TS viewer, its writer, buffered startup and disconnect cleanup.
  * Camera ownership remains with the manager through videoInput. Missing initial
@@ -56,12 +63,16 @@ export class LiveTransportMuxer {
   #pacingDecided = false;
   #clocked: ClockedTransportWriter | undefined;
   #clockedWithAudio = false;
+  #firstVideoAt: number | null = null;
+  #firstAudioAt: number | null = null;
+  #selectedAudio: boolean | null = null;
 
   /**
    * Bind a viewer and its finite process, buffer and audio-subscription lifetime.
    *
    * @param smoothS340Live Admit buffering only after the manager verifies the exact current source clock.
    * @param onPacingClosed Receive content-free final counters after queued media and timers are discarded.
+   * @param onAudioClosed Receive startup timing without media, identifiers or camera settings after retirement.
    */
   constructor(
     private readonly response: ServerResponse,
@@ -70,8 +81,10 @@ export class LiveTransportMuxer {
     private readonly onFailure: (reason: string) => void = () => undefined,
     smoothS340Live?: () => boolean,
     private readonly onPacingClosed: (summary: LivePacingSummary) => void = () => undefined,
+    private readonly onAudioClosed: (summary: LiveAudioStartupSummary) => void = () => undefined,
   ) {
     this.videoInput.on("data", (chunk: Buffer) => {
+      if (chunk.length) this.#firstVideoAt ??= performance.now();
       if (!this.#pacingDecided) {
         this.#pacingDecided = true;
         if (smoothS340Live?.() === true) {
@@ -96,6 +109,8 @@ export class LiveTransportMuxer {
 
   /** Consume only AAC already validated by the provider; retain bounded startup bytes. */
   acceptAudio(chunk: Buffer): void {
+    if (this.#closed) return;
+    if (chunk.length) this.#firstAudioAt ??= performance.now();
     if (this.#pacer) this.#pacer.acceptAudio(chunk);
     else this.#acceptAudio(chunk);
   }
@@ -110,6 +125,7 @@ export class LiveTransportMuxer {
       this.response.write(packet);
       this.#awaitOutput();
     }, this.#clockedWithAudio);
+    this.#selectedAudio ??= this.#clockedWithAudio;
     try {
       if (kind === "video") this.#clocked.video(data, time);
       else this.#clocked.audio(data, time);
@@ -157,6 +173,15 @@ export class LiveTransportMuxer {
         // Diagnostic listeners cannot retain an already stopped viewer.
       }
     }
+    try {
+      this.onAudioClosed({ waitMilliseconds: this.audioWaitMilliseconds,
+        firstAudioAfterVideoMilliseconds: this.#firstAudioAt === null || this.#firstVideoAt === null ? null
+          : Math.max(0, Math.round(this.#firstAudioAt - this.#firstVideoAt)),
+        audioSelected: this.#selectedAudio });
+    } catch {
+
+      // Diagnostic listeners cannot prevent media and camera ownership cleanup.
+    }
     if (reason) this.onFailure(reason);
   }
 
@@ -181,6 +206,7 @@ export class LiveTransportMuxer {
   #start(withAudio: boolean): void {
     if (this.#closed || this.#process || this.#starting || !this.#video.length) return;
     this.#starting = true;
+    this.#selectedAudio = withAudio;
     if (this.response.destroyed || this.response.writableEnded) return this.close();
     if (this.#timer) clearTimeout(this.#timer);
     this.#timer = null;

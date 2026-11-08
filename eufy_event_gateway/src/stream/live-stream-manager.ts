@@ -783,9 +783,9 @@ export class LiveStreamManager extends EventEmitter {
       this.#assertShareable(session);
     }
     const audioWait = liveAudioStartWaitMilliseconds(this.state.getCamera(serial));
+    const model = this.state.getCamera(serial).model;
     const stopped = (reason: string): void => { this.emit("warning", new Error(`Camera live transport stopped: reason=${reason}`)); };
     if (profile === "native") {
-      const model = this.state.getCamera(serial).model;
       const muxer = new NativeTransportMuxer(response, () => session.audioConsumers.delete(consumeNative), audioWait, stopped,
         summary => this.emit("native-transport-closed", { model, ...summary }));
       const consumeNative = (chunk: Buffer): void => muxer.acceptAudio(chunk);
@@ -796,7 +796,8 @@ export class LiveStreamManager extends EventEmitter {
     const consumeAudio = (chunk: Buffer): void => muxer.acceptAudio(chunk);
     const muxer = new LiveTransportMuxer(response, () => session.audioConsumers.delete(consumeAudio), audioWait,
       stopped, () => this.experimentalS340SmoothLive && qualifiedS340LiveSource(session.source),
-      summary => this.emit("live-pacing-closed", summary));
+      summary => this.emit("live-pacing-closed", summary),
+      summary => this.emit("live-audio-startup-closed", { model, ...summary }));
     session.audioConsumers.add(consumeAudio);
     await this.#addClient(serial, muxer.videoInput, "compatible", requestedAtMilliseconds, view);
   }
@@ -1886,10 +1887,14 @@ export class LiveStreamManager extends EventEmitter {
 /**
  * Longest hold of a transport viewer's video for its first AAC. A viewer whose
  * audio arrives sooner starts at once; one whose audio does not arrive starts muted.
+ * Direct S220 receive-audio viewers allow the same finite window as the delayed
+ * HomeBase route, avoiding an irreversible video-only choice on a cold source.
  * HomeBase 3 can deliver SoloCam AAC about eight seconds after its first video.
  */
 export function liveAudioStartWaitMilliseconds(camera: Pick<CameraState, "model" | "serial" | "stationSerial">): number {
-  return camera.model === "T8171" && camera.stationSerial !== camera.serial ? 12_000 : 2_000;
+  const delayedHomeBase = camera.model === "T8171" && camera.stationSerial !== camera.serial;
+  const directS220 = camera.model === "T8134" && camera.stationSerial === camera.serial;
+  return delayedHomeBase || directS220 ? 12_000 : 2_000;
 }
 
 /**

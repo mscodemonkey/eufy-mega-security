@@ -11,7 +11,8 @@ import { performance } from "node:perf_hooks";
 import { PassThrough } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
-import { LiveTransportMuxer } from "../src/stream/live-transport-muxer.js";
+import { LiveTransportMuxer, type LiveAudioStartupSummary } from "../src/stream/live-transport-muxer.js";
+import { liveAudioStartWaitMilliseconds } from "../src/stream/live-stream-manager.js";
 
 /** Collects one synthetic HTTP response while the test owns its disconnect. */
 class Response extends PassThrough {
@@ -102,6 +103,62 @@ for (const [audio, delayed] of [[true, false], [false, false], [true, true]] as 
     }
   });
 }
+
+test("a cold direct S220 viewer includes AAC arriving after the normal startup window", { timeout: 15_000 }, async () => {
+  const response = new Response(), chunks: Buffer[] = [];
+  response.on("data", (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+  const wait = liveAudioStartWaitMilliseconds({ model: "T8134", serial: "camera", stationSerial: "camera" });
+  const summaries: LiveAudioStartupSummary[] = [];
+  const muxer = new LiveTransportMuxer(response as unknown as ServerResponse, () => undefined, wait,
+    undefined, undefined, undefined, summary => summaries.push(summary));
+  try {
+    const video = media(false), audio = media(true);
+    muxer.videoInput.write(video);
+    await delay(2_100);
+    assert.equal(response.headersSent, false, "the first viewer must not commit to video-only before delayed AAC");
+    muxer.acceptAudio(audio);
+    for (let repeat = 0; repeat < 60; repeat++) {
+      await delay(50);
+      muxer.videoInput.write(video.subarray(Math.floor(repeat * video.length / 60), Math.floor((repeat + 1) * video.length / 60)));
+    }
+    await delay(500);
+    const probe = spawnSync("ffprobe", ["-v", "error", "-show_streams", "-show_packets", "-show_entries",
+      "stream=codec_type,codec_name:packet=codec_type", "-of", "json", "-i", "pipe:0"], { input: Buffer.concat(chunks) });
+    assert.equal(probe.status, 0, probe.stderr.toString());
+    const output = JSON.parse(probe.stdout.toString()) as { streams: { codec_type: string; codec_name: string }[]; packets: { codec_type: string }[] };
+    assert.ok(output.streams.some(stream => stream.codec_type === "audio" && stream.codec_name === "aac"));
+    assert.ok(output.packets.slice(0, 20).some(packet => packet.codec_type === "audio"), "HA must see AAC inside its opening detection window");
+    muxer.close();
+    muxer.close();
+    assert.equal(summaries.length, 1);
+    assert.equal(summaries[0]!.audioSelected, true);
+    assert.equal(summaries[0]!.waitMilliseconds, 12_000);
+    assert.ok(summaries[0]!.firstAudioAfterVideoMilliseconds! >= 2_000);
+  } finally {
+    muxer.close();
+  }
+});
+
+test("audio arriving after video-only selection is reported without reopening the source", async () => {
+  const response = new Response();
+  response.resume();
+  const summaries: LiveAudioStartupSummary[] = [];
+  const muxer = new LiveTransportMuxer(response as unknown as ServerResponse, () => undefined, 20,
+    undefined, undefined, undefined, summary => summaries.push(summary));
+  try {
+    const video = media(false), audio = media(true);
+    muxer.videoInput.write(video);
+    await delay(50);
+    assert.equal(response.headersSent, true);
+    muxer.acceptAudio(audio);
+    muxer.close();
+    assert.equal(summaries.length, 1);
+    assert.equal(summaries[0]!.audioSelected, false);
+    assert.ok(summaries[0]!.firstAudioAfterVideoMilliseconds! >= 20);
+  } finally {
+    muxer.close();
+  }
+});
 
 test("a disconnected viewer drops startup data before its audio wait expires", async () => {
   const response = new Response();
