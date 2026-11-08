@@ -27,6 +27,7 @@ test("pane tokens require explicit admission, stay on one camera, and never fall
   } } as unknown as LiveStreamManager;
   const provider = { nvrSharedLensViewsAdmitted: (serial: string) => admitted && serial === "test" } as unknown as CameraProvider;
   const snapshots = new SnapshotStore(directory);
+  await snapshots.initialize();
   const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "fixture" }, state, snapshots, streams, provider, null);
   try {
     await server.listen(); const base = `http://127.0.0.1:${server.port}/api/cameras`;
