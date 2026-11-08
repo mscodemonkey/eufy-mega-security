@@ -182,6 +182,12 @@ an opaque database cursor. It must never be calculated from a recording time.
 The default cursor is `"0"`. The reader does not retry or fetch subsequent pages
 automatically.
 
+Rejected responses include a fixed `stage` code identifying the parser boundary.
+The code contains no names, row values or device identifiers. Crop indices are
+checked within their record and picture, since the same index can recur in a
+different image. Duplicate entries for the same image and conflicting ownership
+still reject the response.
+
 A successful name check establishes availability in recording history. It does
 not show when recognition became available after the event, prove the app's
 text-rendering path, or fix a missing late notification. It does not publish a
