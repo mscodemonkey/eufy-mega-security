@@ -86,4 +86,6 @@ test("transport viewers hold video for audio only as long as the route needs", (
   assert.equal(liveAudioStartWaitMilliseconds({ model: "T8171", serial: "camera", stationSerial: "homebase" }), 12_000);
   assert.equal(liveAudioStartWaitMilliseconds({ model: "T8171", serial: "camera", stationSerial: "camera" }), 2_000);
   assert.equal(liveAudioStartWaitMilliseconds({ model: "T8416", serial: "camera", stationSerial: "nvr" }), 2_000);
+  assert.equal(liveAudioStartWaitMilliseconds({ model: "T8134", serial: "camera", stationSerial: "camera" }), 12_000);
+  assert.equal(liveAudioStartWaitMilliseconds({ model: "T8134", serial: "camera", stationSerial: "homebase" }), 2_000);
 });

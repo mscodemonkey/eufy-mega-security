@@ -33,6 +33,7 @@ import {
   type ViewerTranscoderSummary,
 } from "./stream/live-stream-manager.js";
 import type { LivePacingSummary } from "./stream/live-frame-pacer.js";
+import type { LiveAudioStartupSummary } from "./stream/live-transport-muxer.js";
 import type { NativeTransportSummary } from "./stream/live-native-transport.js";
 
 const logger = createLogger("gateway");
@@ -131,6 +132,10 @@ streams.on("native-transport-closed", (summary: NativeTransportSummary & { model
 });
 streams.on("live-pacing-closed", (summary: LivePacingSummary) => {
   logger.info("camera_live_pacing", `model=T8171 buffer_ms=${summary.bufferMilliseconds} late_packets=${summary.latePackets} peak_queued_bytes=${summary.maximumQueuedBytes} video_packets=${summary.videoPackets} audio_packets=${summary.audioPackets} clock_rebases=${summary.clockRebases}`);
+});
+streams.on("live-audio-startup-closed", (summary: LiveAudioStartupSummary & { model: string }) => {
+  const model = /^T[0-9A-Z]{3,15}$/.test(summary.model) ? summary.model : "unknown";
+  logger.info("camera_live_audio_startup", `model=${model} wait_ms=${summary.waitMilliseconds} first_audio_after_video_ms=${summary.firstAudioAfterVideoMilliseconds ?? "not-observed"} audio_selected=${summary.audioSelected ?? "not-started"}`);
 });
 provider.setNvrLiveMediaChecks?.({ viewer: serial => streams.hasActiveViewer(serial), active: serial => streams.hasActiveSession(serial), recording: serial => streams.hasActiveRecording(serial), yieldable: serial => streams.canYieldSource(serial), settling: serial => streams.isSourceSettling(serial), retireYieldable: serial => streams.retireYieldableSource(serial) });
 streams.on("ffmpeg-error", (detail: string) => {
