@@ -1050,10 +1050,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (this.#parameterCheck || this.#rtcPreparation.gated) throw new ParameterCheckError("busy");
     const device = this.#devices.get(serial), generation = this.#startupGeneration;
     if (!device || !((device.model === "T8410" && device.deviceType === 31)
-      || (device.model === "T8417" && device.deviceType === 105) || (device.model === "T8030" && device.deviceType === 18))) throw new ParameterCheckError("unsupported");
+      || (device.model === "T8417" && device.deviceType === 105) || (device.model === "T8030" && device.deviceType === 18)
+      || (device.model === "T8910" && device.deviceType === 10))) throw new ParameterCheckError("unsupported");
     const attached = !!device.parentSerial && device.parentSerial !== serial;
     const parent = attached ? this.#devices.get(device.parentSerial) : undefined;
-    if (attached && (device.model !== "T8417" || !parent
+    if (device.model === "T8910" && !attached) throw new ParameterCheckError("unsupported");
+    if (attached && ((device.model !== "T8417" && device.model !== "T8910") || !parent
       || !((parent.model === "T8010" && parent.deviceType === 0) || (parent.model === "T8030" && parent.deviceType === 18))
       || device.channel === null || device.channel < 0 || device.channel > 254 || !Number.isInteger(device.channel))) throw new ParameterCheckError("unsupported");
 

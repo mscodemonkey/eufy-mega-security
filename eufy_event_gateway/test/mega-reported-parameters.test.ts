@@ -13,7 +13,7 @@ import { MegaClient } from "../src/mega/client.js";
 import { credentialVerifier, decryptEnvelope, encryptEnvelope, sharedAesKey, MEGA_PRESET_KEY } from "../src/mega/crypto.js";
 import { ParameterCheckError } from "../src/provider/reported-parameter-check.js";
 
-for (const mode of ["cached", "absent", "owner", "identity-error", "other-error", "cancelled", "late", "expired", "malformed"] as const) {
+for (const mode of ["cached", "absent", "owner", "identity-error", "other-error", "cancelled", "late", "expired", "malformed", "pir"] as const) {
   test(`parameter HTTPS never logs in or replays: ${mode}`, async context => {
     context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
     const directory = await mkdtemp(join(tmpdir(), "parameter-mega-"));
@@ -47,14 +47,15 @@ for (const mode of ["cached", "absent", "owner", "identity-error", "other-error"
           if (mode === "expired") clock = 2_000_000_000_000;
           const code = mode === "owner" ? 20004 : mode === "identity-error" ? 4404 : mode === "other-error" ? 10019 : 0;
           return new Response(JSON.stringify({ code, msg: "SENTINEL_PRIVATE", data: encryptEnvelope(JSON.stringify(mode === "malformed" ? {} : {
-            params: [{ param_type: 1035, param_value: "1", update_time: "SENTINEL_PRIVATE" }], private: "SENTINEL_PRIVATE",
+            params: [{ param_type: mode === "pir" ? 1605 : 1035, param_value: mode === "pir" ? String(clock - 1_000) : "1", update_time: "SENTINEL_PRIVATE" }], private: "SENTINEL_PRIVATE",
           }), sharedAesKey(key)) }));
         } });
-      await assert.rejects(client.readReportedParameters("target", "T8410", controller.signal), /unauthorized/);
+      await assert.rejects(client.readReportedParameters("target", mode === "pir" ? "T8910" : "T8410", controller.signal), /unauthorized/);
       assert.equal(reads, 0);
       await client.connect();
-      const operation = client.readReportedParameters("target", "T8410", controller.signal);
-      if (["cached", "absent"].includes(mode)) assert.deepEqual((await operation).observations, { 1035: "one", 2001: "missing" });
+      const operation = client.readReportedParameters("target", mode === "pir" ? "T8910" : "T8410", controller.signal);
+      if (mode === "pir") assert.deepEqual((await operation).observations, { 1605: "recent" });
+      else if (["cached", "absent"].includes(mode)) assert.deepEqual((await operation).observations, { 1035: "one", 2001: "missing" });
       else {
         const stage = mode === "owner" ? "owner_account_required" : ["cancelled", "late"].includes(mode) ? "cancelled"
           : mode === "expired" ? "binding_changed" : mode === "malformed" ? "invalid_response" : "request";

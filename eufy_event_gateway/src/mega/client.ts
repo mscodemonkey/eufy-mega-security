@@ -259,7 +259,7 @@ export class MegaClient {
       if (!current()) throw new ParameterCheckError("binding_changed");
       if (result.code === 20004) throw new ParameterCheckError("owner_account_required");
       if (!isSuccess(result.code)) throw new ParameterCheckError("request");
-      return projectReportedParameters(model, this.#decodeResult(result));
+      return projectReportedParameters(model, this.#decodeResult(result), this.#now());
     } catch (error) {
       if (signal.aborted) throw new ParameterCheckError("cancelled");
       throw error instanceof ParameterCheckError ? error : new ParameterCheckError("request");

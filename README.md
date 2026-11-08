@@ -176,6 +176,8 @@ and the gateway refreshes the inventory-backed readings every 60 seconds. The
 T8900 contact path is confirmed on installed hardware. T8910 motion pushes are
 confirmed through HomeBase 2 when notifications are enabled for the sensor in
 the active Eufy mode. Its inventory-backed last-seen value remains unconfirmed.
+A default-off [read-only cloud motion-time check](docs/T8910_CLOUD_MOTION_TEST.md)
+compares a separate parameter source. It does not establish phone-independent motion.
 The exact T8354/type 86 E21 also gets care notification entities. They follow the push receiver and expire after 10 seconds. Off means no recent notification is retained. Its existing crying and sound entity IDs stay the same, and camera admission does not create duplicate detection entities.
 
 The integration also defines three Home Assistant actions for on-demand streaming:
