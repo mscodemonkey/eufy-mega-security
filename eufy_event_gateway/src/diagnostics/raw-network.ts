@@ -1,12 +1,25 @@
 /**
  * Copies application transport boundaries into the optional private history.
- * Socket owners retain lifecycle, callbacks and protocol decisions. These taps
- * do not open connections, consume streams or turn recording errors into errors
+ * Socket owners retain lifecycle, callbacks and protocol decisions.
+ * This module owns only weak socket-to-journal associations. These taps do not
+ * open connections, consume streams or turn recording errors into errors
  * on the observed transport. TLS and RTC taps see application-decrypted bytes.
  */
 import { randomUUID } from "node:crypto";
 import { errorMonitor } from "node:events";
 import { recordRaw, rawHistoryEnabled } from "./raw-history.js";
+
+const socketConnections = new WeakMap<object, string>();
+
+/**
+ * Return the private journal identity of an already observed socket.
+ * Owners use this weak association to describe parser stages on the actual
+ * selected socket, including a cloud-probe winner. It opens no observation and
+ * returns nothing while private recording is disabled.
+ */
+export function rawSocketConnection(socket: object): string | undefined {
+  return rawHistoryEnabled() ? socketConnections.get(socket) : undefined;
+}
 
 function binary(value: unknown): Buffer | undefined {
   if (typeof value === "string") return Buffer.from(value);
@@ -25,6 +38,7 @@ function binary(value: unknown): Buffer | undefined {
 export function observeRawSocket(socket: object, boundary: string, kind: "udp" | "tls" | "tcp" | "ws" | "mqtt"): string {
   const connection = randomUUID();
   if (!rawHistoryEnabled()) return connection;
+  socketConnections.set(socket, connection);
   const record = (direction: "send" | "receive" | "state", value: unknown, metadata?: unknown): void => {
     try {
       const bytes = binary(value);
