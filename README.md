@@ -18,7 +18,7 @@ If you use Eufy Mega Security and fancy buying me a beer, you can support the pr
 
 Motion, person, pet, vehicle, dog, crying, sound, stranger, and stranded-package detections arrive as distinct Home Assistant entities. Supported doorbells also expose a press sensor. HomeBase 3 familiar-person names appear when Eufy supplies one. Each camera keeps its last good still, while a separate **Last event image** entity retains the latest picture supplied with an event.
 
-Window Camera E10 T8404/type 314 has reporter-confirmed discovery and person detection on v0.1.246. The person event also activated the motion sensor for 10 seconds. Motion-only detection remains unconfirmed. Event pictures, fresh snapshots and live video are still unavailable for this model.
+Window Camera E10 T8404/type 314 has reporter-confirmed discovery and person detection on v0.1.246. The person event also activated the motion sensor for 10 seconds. Motion-only detection remains unconfirmed. Event pictures, fresh snapshots and normal live video are still unavailable for this model. An optional [private RTC clip test](docs/E10_VIDEO_TEST.md) is available for the exact owner-account standalone route, with playback unconfirmed.
 
 Changing motion detection through a HomeBase 2 temporarily interrupts live video while the gateway confirms the setting. Pending live-view requests wait for that operation to finish.
 

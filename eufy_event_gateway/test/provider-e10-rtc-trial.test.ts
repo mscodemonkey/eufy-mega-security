@@ -21,7 +21,7 @@ for (const mode of ["valid", "disabled", "guest", "missing-owner", "wrong-model"
     context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
     context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
     context.mock.getter(MegaClient.prototype, "isAuthenticated", () => true);
-    context.mock.method(MegaClient.prototype, "isAuthenticatedUser", owner => mode !== "guest" && owner === "synthetic-owner");
+    context.mock.method(MegaClient.prototype, "isAuthenticatedUser", (owner: string) => mode !== "guest" && owner === "synthetic-owner");
     context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [
       { device_sn: "synthetic-e10", device_model: mode === "wrong-model" ? "T8404X" : "T8404", device_type: mode === "wrong-type" ? 9 : 314,
         category: "eufy_security", parent_sn: mode === "attached" ? "synthetic-parent" : "synthetic-e10", device_channel: mode === "channel" ? 1 : 0,
@@ -29,7 +29,7 @@ for (const mode of ["valid", "disabled", "guest", "missing-owner", "wrong-model"
       ...(mode === "attached" ? [{ device_sn: "synthetic-parent", device_model: "T8N00", device_type: 300, category: "eufy_security", member: { admin_user_id: "synthetic-owner" } }] : [])] }));
     context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
     let signs = 0, starts = 0, closes = 0;
-    context.mock.method(MegaClient.prototype, "nvrSignallingContext", async serial => {
+    context.mock.method(MegaClient.prototype, "nvrSignallingContext", async (serial: string) => {
       signs++; assert.equal(serial, "synthetic-e10");
       return { host: "security-smart.eufylife.com", region: "US", authToken: "synthetic", gtoken: "synthetic", sign: "synthetic" };
     });
