@@ -1,3 +1,11 @@
+/**
+ * Bounds how far each FFmpeg media child may fall behind the camera.
+ * LiveStreamManager owns one bound per child, for the snapshot extractor and
+ * the H.265 viewer conversion, together with the child's process, lifetime and
+ * the stop summaries that report the skip counters. This boundary owns only
+ * what is written to that child's stdin. It keeps write positions, not media,
+ * and starts no process or timer.
+ */
 import type { Writable } from "node:stream";
 
 import type { VideoCodec } from "../domain/types.js";

@@ -59,6 +59,25 @@ for (const fixed of [false, true]) test(`browser conversion decodes with bounded
   assert.equal(stream.width, fixed ? 1920 : 640);
   assert.equal(stream.height, fixed ? 1080 : 360);
   const packets = decoded.packets.filter(packet => packet.codec_type === "video");
+  assert.equal(packets.length, 80);
+  const keys = packets.flatMap((packet, index) => packet.flags.includes("K") ? [index] : []);
+  assert.equal(keys[0], 0);
+  assert.ok(keys.length >= 2);
+  for (let index = 1; index < keys.length; index++) assert.ok(keys[index]! - keys[index - 1]! <= 50);
+  for (let index = 0; index <= packets.length - 40; index += 10) {
+    const bits = packets.slice(index, index + 40).reduce((sum, packet) => sum + Number(packet.size) * 8, 0);
+    assert.ok(bits / 2 <= 3_000_000 * 1.25, `Two-second output exceeded VBV tolerance: ${bits / 2}`);
+  }
+});
+
+for (const fixed of [false, true]) test(`low-CPU conversion keeps every second picture with bounded bitrate, fixed resolution ${fixed}`, () => {
+  const output = execFileSync("ffmpeg", h265ViewerTranscoderArguments(fixed, true), { input: hevc(true), maxBuffer: 16 * 1024 * 1024 });
+  execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "h264", "-i", "pipe:0", "-f", "null", "-"], { input: output });
+  const decoded = probe(output), stream = decoded.streams.find(stream => stream.codec_type === "video")!;
+
+  // 640x360 is already under 720 lines, so only the fixed size changes it.
+  assert.deepEqual([stream.width, stream.height], fixed ? [1920, 1080] : [640, 360]);
+  const packets = decoded.packets.filter(packet => packet.codec_type === "video");
 
   // Every second of the 80 pictures; the source keyframes (every 20th) fall on kept pictures.
   assert.equal(packets.length, 40);
@@ -74,15 +93,30 @@ for (const fixed of [false, true]) test(`browser conversion decodes with bounded
   }
 });
 
-test("browser conversion brings 1080p down to 720 lines and keeps a source keyframe that falls between kept pictures", () => {
-  // Keyframes on pictures 0, 5 and 10, so 5 is odd and kept only because it is a keyframe.
-  const source = execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=20",
+function keyframesEveryFive(size: string): Buffer {
+  return execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", `testsrc2=size=${size}:rate=20`,
     "-frames:v", "12", "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=error:pools=1:bframes=0:keyint=5:min-keyint=5:scenecut=0",
     "-f", "hevc", "pipe:1"], { maxBuffer: 32 * 1024 * 1024, stdio: ["pipe", "pipe", "ignore"] });
-  const decoded = probe(execFileSync("ffmpeg", h265ViewerTranscoderArguments(), { input: source, maxBuffer: 16 * 1024 * 1024 }));
+}
+
+function convertedSizeAndPictures(source: Buffer, lowCpu: boolean): [number, number, number] {
+  const decoded = probe(execFileSync("ffmpeg", h265ViewerTranscoderArguments(false, lowCpu), { input: source, maxBuffer: 16 * 1024 * 1024 }));
   const stream = decoded.streams.find(stream => stream.codec_type === "video")!;
-  assert.deepEqual([stream.width, stream.height], [1280, 720]);
-  assert.equal(decoded.packets.filter(packet => packet.codec_type === "video").length, 7);
+  return [stream.width!, stream.height!, decoded.packets.filter(packet => packet.codec_type === "video").length];
+}
+
+test("low-CPU conversion brings 1080p down to 720 lines and keeps a source keyframe that falls between kept pictures", () => {
+  // Keyframes on pictures 0, 5 and 10, so 5 is odd and kept only because it is a keyframe.
+  const source = keyframesEveryFive("1920x1080");
+  assert.deepEqual(convertedSizeAndPictures(source, false), [1920, 1080, 12]);
+  assert.deepEqual(convertedSizeAndPictures(source, true), [1280, 720, 7]);
+});
+
+test("low-CPU conversion halves an NVR Both view to 640x720, each lens 640x360, and the normal one keeps 1280x1440", () => {
+  // Both stacks two 1280x720 lenses, Fixed above Movable, into one 1280x1440 picture.
+  const source = keyframesEveryFive("1280x1440");
+  assert.deepEqual(convertedSizeAndPictures(source, false), [1280, 1440, 12]);
+  assert.deepEqual(convertedSizeAndPictures(source, true), [640, 720, 7]);
 });
 
 test("browser conversion emits a playable startup while the HEVC input remains open", { timeout: 15_000 }, async () => {
@@ -108,7 +142,7 @@ test("browser conversion emits a playable startup while the HEVC input remains o
     child.stdin.end(source.subarray(boundaries[15]));
     assert.equal(await exited, 0);
     const decoded = probe(Buffer.concat(output));
-    assert.equal(decoded.packets.filter(packet => packet.codec_type === "video").length, 20);
+    assert.equal(decoded.packets.filter(packet => packet.codec_type === "video").length, 40);
   } finally {
     if (timer) clearTimeout(timer);
     child.stdin.destroy();

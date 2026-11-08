@@ -119,7 +119,7 @@ const streams = new LiveStreamManager(
   provider,
   config.streamGraceMilliseconds,
   undefined,
-  () => spawnH265ViewerTranscoder(config.experimentalFixedH265Resolution),
+  () => spawnH265ViewerTranscoder(config.experimentalFixedH265Resolution, config.experimentalLowCpuH265Conversion),
   undefined,
   undefined,
   undefined,

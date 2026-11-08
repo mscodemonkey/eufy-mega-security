@@ -32,6 +32,7 @@ export EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS="$(jq -r '.experimental_cloud_
 export EUFY_GATEWAY_EXPERIMENTAL_NVR_REGION="$(jq -r '.experimental_nvr_region // "auto"' "$options")"
 export EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE="$(jq -r '.experimental_s340_smooth_live // false' "$options")"
 export EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION="$(jq -r '.experimental_fixed_h265_resolution // false' "$options")"
+export EUFY_GATEWAY_EXPERIMENTAL_LOW_CPU_H265_CONVERSION="$(jq -r '.experimental_low_cpu_h265_conversion // false' "$options")"
 if [ ! -s "$token_file" ]; then
   umask 077
   token_tmp="${token_file}.tmp"

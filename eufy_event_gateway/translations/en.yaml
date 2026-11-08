@@ -2,6 +2,9 @@ configuration:
   experimental_s340_smooth_live:
     name: Smooth S340 live view (experimental)
     description: Add six seconds of buffering for smoother SoloCam S340 live view through HomeBase 3. Keeps live audio. Off by default. Hardware behaviour needs confirmation.
+  experimental_low_cpu_h265_conversion:
+    name: Low-CPU H.265 live view conversion (experimental)
+    description: For hosts whose converted H.265 live views fall behind. Converts every second picture, at most 720 lines high. A 1080p view becomes 1280x720 at half the picture rate; an NVR Both view becomes 640x720, so each lens is 640x360. Off by default. Confirmed only on a Home Assistant Green with an S350.
   experimental_homebase_event_images:
     name: Experimental HomeBase picture recovery
     description: Try the matching recording thumbnail when a cloud event picture is missing. Limited to T8113-Z cameras on HomeBase 3. The recovered thumbnail may have lower resolution. Leaves the last good picture in place if no exact match is available. Off by default.

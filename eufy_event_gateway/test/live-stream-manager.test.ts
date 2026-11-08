@@ -120,23 +120,43 @@ test("H.265 conversion runs below the gateway so it cannot starve live video", (
 });
 
 test("H.265 viewer output keeps keyframes close and follows the source's", () => {
+  const keyint = (args: string[]): string => args[args.indexOf("-x264-params") + 1]!;
   const args = h265ViewerTranscoderArguments();
-  assert.match(args[args.indexOf("-x264-params") + 1]!, /keyint=5/);
+  assert.match(keyint(args), /keyint=10/);
   assert.equal(args[args.indexOf("-force_key_frames") + 1], "source");
   assert.equal(args[args.indexOf("-forced-idr") + 1], "1");
+
+  // Half a second at every second picture of a 20 fps source.
+  assert.match(keyint(h265ViewerTranscoderArguments(false, true)), /keyint=5/);
 });
 
-test("H.265 viewer output encodes every second picture and source keyframe, at most 720 lines unless fixed at 1080p", () => {
-  const filter = (args: string[]): string => args[args.indexOf("-vf") + 1]!;
-  const normal = h265ViewerTranscoderArguments();
-  assert.equal(filter(normal), "select='key+not(mod(n,2))',scale=-2:'min(720,ih)'");
-  assert.equal(normal[normal.indexOf("-fps_mode") + 1], "passthrough");
+test("fixed H.265 viewer output adds a stable 1080p filter only when enabled", () => {
+  const unchanged = h265ViewerTranscoderArguments();
+  assert.equal(unchanged.includes("-vf"), false);
+  assert.equal(unchanged.includes("-fps_mode"), false);
 
   const fixed = h265ViewerTranscoderArguments(true);
+  const filterIndex = fixed.indexOf("-vf");
+  assert.notEqual(filterIndex, -1);
+  assert.equal(
+    fixed[filterIndex + 1],
+    "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+  );
+  assert.equal(fixed.includes("-fps_mode"), false);
+});
+
+test("low-CPU H.265 viewer output keeps every second picture and source keyframe, at most 720 lines unless fixed at 1080p", () => {
+  const filter = (args: string[]): string => args[args.indexOf("-vf") + 1]!;
+  const lowCpu = h265ViewerTranscoderArguments(false, true);
+  assert.equal(filter(lowCpu), "select='key+not(mod(n,2))',scale=-2:'min(720,ih)'");
+  assert.equal(lowCpu[lowCpu.indexOf("-fps_mode") + 1], "passthrough");
+
+  const fixed = h265ViewerTranscoderArguments(true, true);
   assert.equal(
     filter(fixed),
     "select='key+not(mod(n,2))',scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
   );
+  assert.equal(fixed[fixed.indexOf("-fps_mode") + 1], "passthrough");
 });
 
 test("the H.265 snapshot extractor decodes keyframes only and H.264's is unchanged", () => {
