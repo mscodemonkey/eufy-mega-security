@@ -59,7 +59,8 @@ for (const mode of ["ready", "on", "disabled", "guest", "unknown-state", "failed
     context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
     context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => {});
     context.mock.method(FirstPartyPpcsSession.prototype, "close", () => { cancel?.(new CameraInfoReadError("unavailable")); });
-    context.mock.method(FirstPartyPpcsSession.prototype, "readCameraInfo", async () => {
+    context.mock.method(FirstPartyPpcsSession.prototype, "readCameraInfo", async (profile?: "c35-spotlight-state") => {
+      assert.equal(profile, action === "spotlightState" ? "c35-spotlight-state" : undefined);
       reads++;
       if (mode === "cancelled-read") { entered(); return await new Promise<never>((_resolve, reject) => { cancel = reject; }); }
       if (mode === "read-private-error") throw Error("private-response-content");

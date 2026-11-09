@@ -55,3 +55,18 @@ An older gateway rejects this action. The helper never falls back to a light
 command. Share only its closed summary or the `model_control_trial_failed` line
 for `action=spotlightState`. Restore the gateway's Experimental model controls
 option if it was enabled only for this check.
+
+The state-only check has a separate request candidate for the exact standalone
+C35 profile. It waits for the negotiated key and sends one protected camera-info
+query using the app-observed integer pair (255, 903) on channel zero. Only an
+authenticated, correctly routed parameter-table response can complete it. Key
+failure, cancellation or an unusable response stops the check without a light
+command, a fallback request or an HA state update. The normal Spotlight control
+retains its existing read and write path.
+
+The retained C35 app handler binds the camera-info request to the Android
+dispatcher that supplies those two integers. Independently authenticated native
+app captures confirm the protected serializer, including channel-zero queries.
+Those captures do not establish a C35 hardware response. The request candidate
+still needs one state-only check on a C35 after publication. A successful state
+read would not establish that the normal light control or physical light works.
