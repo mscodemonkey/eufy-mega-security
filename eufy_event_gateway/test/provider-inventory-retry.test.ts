@@ -23,7 +23,7 @@ for (const mode of ["recovers", "close", "replaced", "permanent", "partial"] as 
     const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
     const connect = context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
     context.mock.getter(MegaClient.prototype, "isAuthenticated", () => true);
-    context.mock.method(MegaClient.prototype, "isInventoryTemporarilyUnavailable", error => error === temporary);
+    context.mock.method(MegaClient.prototype, "isInventoryTemporarilyUnavailable", (error: unknown) => error === temporary);
     context.mock.method(MegaClient.prototype, "inventory", async () => {
       reads++;
       if (mode === "permanent") throw permanent;
@@ -47,7 +47,7 @@ for (const mode of ["recovers", "close", "replaced", "permanent", "partial"] as 
         await assert.rejects(provider.start(events), error => error === permanent);
         context.mock.timers.tick(120_000); await settled(); assert.equal(reads, 1);
       } else {
-        await provider.start(events); assert.equal(reads, 1); assert.equal(states.at(-1), "connecting");
+        await provider.start(events); assert.equal(reads, 1); assert.equal(states.at(-1), "disconnected");
         if (mode === "close") {
           await provider.close(); context.mock.timers.tick(120_000); await settled(); assert.equal(reads, 1);
         } else if (mode === "replaced") {

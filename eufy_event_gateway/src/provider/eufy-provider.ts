@@ -4583,7 +4583,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     catch (error) {
       if (generation !== this.#startupGeneration || this.#recordingClosing) return;
       if (!this.#client.isInventoryTemporarilyUnavailable(error)) throw error;
-      events.connection("connecting", "Eufy inventory is temporarily unavailable. The gateway will retry automatically.");
+      events.connection("disconnected", "Eufy inventory is temporarily unavailable. The gateway will retry automatically.");
       logger.warn("inventory_startup_retry", "Read-only startup inventory retry scheduled: delay_seconds=60");
       this.#startupInventoryRetry = setTimeout(() => {
         this.#startupInventoryRetry = null;
