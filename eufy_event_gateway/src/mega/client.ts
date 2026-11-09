@@ -576,10 +576,16 @@ export class MegaClient {
       signal.throwIfAborted();
       if (!bound?.()) throw new Error("Inventory fallback binding changed");
     };
+    const unavailable = Symbol("inventory application refusal");
     const read = async (path: string, body: Record<string, unknown>): Promise<unknown> => {
       current();
       const reply = await this.#call("house", path, body, false, undefined, signal, { onDispatch: current });
       current();
+      if (reply.code === -1) {
+        const stage = path.endsWith("get_house_list") ? "houses" : Object.hasOwn(body, "house_id") ? "house_page" : "default_page";
+        createLogger("mega").warn("inventory_house_read_unavailable", `stage=${stage} application_code=-1`);
+        return unavailable;
+      }
       return this.#decodeResult(reply);
     };
     const rows = new Map<string, Record<string, unknown>>();
@@ -597,7 +603,9 @@ export class MegaClient {
         if (rows.size > 2048) throw new Error("Inventory fallback device limit exceeded");
       }
     };
-    add(await read("/app/house/get_devs_list", {}));
+    const initial = await read("/app/house/get_devs_list", {});
+    let incomplete = initial === unavailable;
+    if (!incomplete) add(initial);
     const houses = await read("/app/house/get_house_list", {});
     if (!isRecord(houses) || !Array.isArray(houses.house_infos) || houses.house_infos.length > 16) throw new Error("Inventory fallback house list is invalid");
     const identifiers = new Set<string>();
@@ -605,9 +613,15 @@ export class MegaClient {
       if (!isRecord(house) || typeof house.house_id !== "string" || !house.house_id.trim() || house.house_id.length > 128
         || identifiers.has(house.house_id)) throw new Error("Inventory fallback house identity is invalid");
       identifiers.add(house.house_id);
-      add(await read("/app/house/get_devs_list", { house_id: house.house_id }));
+      const page = await read("/app/house/get_devs_list", { house_id: house.house_id });
+      if (page === unavailable) incomplete = true;
+      else add(page);
     }
     current();
+    if (incomplete) {
+      createLogger("mega").warn("inventory_house_fallback_partial", `houses=${identifiers.size} devices=${rows.size} complete=false`);
+      throw new Error("Complete inventory fallback is unavailable");
+    }
     createLogger("mega").info("inventory_house_fallback", `Complete account inventory recovered: houses=${identifiers.size} devices=${rows.size}`);
     return { devices: [...rows.values()] };
   }

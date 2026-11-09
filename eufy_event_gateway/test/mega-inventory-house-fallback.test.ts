@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { MegaClient } from "../src/mega/client.js";
 import { credentialVerifier, decryptEnvelope, encryptEnvelope, sharedAesKey } from "../src/mega/crypto.js";
 
-for (const mode of ["normal", "recover", "permission", "network", "page", "house-failure", "page-failure", "house-id", "house-limit", "conflict", "cancelled", "binding", "device"] as const) {
+for (const mode of ["normal", "recover", "root-failure", "permission", "network", "page", "house-failure", "page-failure", "house-id", "house-limit", "conflict", "cancelled", "binding", "device"] as const) {
   test(`inventory house recovery: ${mode}`, async context => {
     context.mock.method(globalThis, "fetch", async () => { throw Error("Unowned network forbidden"); });
     const directory = await mkdtemp(join(tmpdir(), "inventory-houses-"));
@@ -49,6 +49,7 @@ for (const mode of ["normal", "recover", "permission", "network", "page", "house
               : mode === "house-id" ? [{ house_id: "" }] : [{ house_id: "house-one" }, { house_id: "house-two" }] };
           } else if (!Object.hasOwn(body, "house_id")) {
             assert.deepEqual(body, {});
+            if (mode === "root-failure") code = -1;
             data = mode === "page" ? {} : { devices: [mode === "device" ? { invalid: "private" } : a] };
           } else if (body.house_id === "house-one") {
             data = { devices: [{ ...a, member: { admin_user_id: mode === "conflict" ? "changed-owner" : "synthetic-owner" } }, { ...a, device_sn: "synthetic-b", parent_sn: "synthetic-b" }] };
@@ -71,7 +72,7 @@ for (const mode of ["normal", "recover", "permission", "network", "page", "house
         if (["page", "device"].includes(mode)) assert.equal(calls.length, 2);
         if (["house-failure", "house-id", "house-limit", "cancelled", "binding"].includes(mode)) assert.equal(calls.length, 3);
         if (mode === "conflict") assert.equal(calls.length, 4);
-        if (mode === "page-failure") assert.equal(calls.length, 5);
+        if (["page-failure", "root-failure"].includes(mode)) assert.equal(calls.length, 5);
       }
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
