@@ -1,5 +1,5 @@
 /**
- * Carries fixed S120 manual-light failure metadata from the provider to HTTP
+ * Carries fixed S120 and E330 manual-light failure metadata from the provider to HTTP
  * logging. The trial owns device effects and cleanup. These observations never
  * establish illumination, reported switch state or permission to retry a write.
  */
@@ -19,7 +19,7 @@ export class S120LightTrialError extends Error {
 
   /**
    * @param writeAttempted The send boundary was reached, without proving bytes reached the camera.
-   * @param acknowledgementReceived The authenticated command receipt was accepted, without proving illumination.
+   * @param acknowledgementReceived The model's command receipt was accepted, without proving illumination.
    */
   constructor(readonly stage: S120LightFailureStage, readonly writeAttempted: boolean,
     readonly acknowledgementReceived: boolean, readonly cleanupFailed = false) {

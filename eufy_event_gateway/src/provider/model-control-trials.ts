@@ -145,9 +145,17 @@ export function parseModelControlTrial(value: unknown): ModelControlTrial {
   throw new SyntaxError("Unsupported model control trial");
 }
 
+/** Identify the E330's child-scoped manual switch without admitting other E330 or HomeBase variants. */
+export function isE330ManualLightTrialRoute(route: ModelControlRoute): boolean {
+  return route.model === "T8600" && route.deviceType === 24 && route.homeBaseAttached
+    && route.peerModel === "T8030" && route.peerDeviceType === 18 && !route.selfPeer
+    && route.channel !== null && Number.isInteger(route.channel) && route.channel >= 0 && route.channel <= 254;
+}
+
 /** Admit exact model/type/topology combinations without changing verified capabilities. */
 export function modelControlTrialActions(route: ModelControlRoute): readonly ModelControlTrial["action"][] {
   if (route.homeBaseAttached) {
+    if (isE330ManualLightTrialRoute(route)) return ["manualLight"];
     if (route.model === "T81A0" && route.deviceType === 10005 && route.peerModel === "T8030"
       && route.peerDeviceType === 18 && !route.selfPeer && route.channel !== null
       && Number.isInteger(route.channel) && route.channel >= 0 && route.channel <= 254) return ["manualLight"];

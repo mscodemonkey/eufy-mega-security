@@ -1061,6 +1061,7 @@ export class GatewayServer {
           return;
         }
         if (trial.action === "manualLight") {
+          const model = safeCameraModel(this.state.getCamera(segments[2]!).model);
           const controller = new AbortController();
           const abort = (): void => { if (!response.writableEnded) controller.abort(); };
           response.once("close", abort); request.once("aborted", abort);
@@ -1070,7 +1071,7 @@ export class GatewayServer {
             return json(response, 200, { outcome: "acknowledged", physicalConfirmationRequired: true });
           }
           catch (error) {
-            logger.warn("model_control_trial_failed", `Model control trial failed: model=T81A0 action=manualLight state=unknown ${s120LightFailureDiagnostic(error)}`);
+            logger.warn("model_control_trial_failed", `Model control trial failed: model=${model} action=manualLight state=unknown ${s120LightFailureDiagnostic(error)}`);
             if (!response.destroyed) return json(response, 409, { error: "Manual light test did not confirm the light state. Check the light and restore it before trying again." });
           }
           finally { controller.abort(); response.removeListener("close", abort); request.removeListener("aborted", abort); }
