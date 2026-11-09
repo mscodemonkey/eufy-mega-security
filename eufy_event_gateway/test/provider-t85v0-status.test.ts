@@ -21,7 +21,7 @@ for (const mode of ["valid", "hung", "shutdown", "disabled", "model", "type", "c
     const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
     let accountCurrent = true;
     context.mock.method(MegaClient.prototype, "authenticatedBinding", () => mode === "unauthenticated" ? null : () => accountCurrent);
-    context.mock.method(MegaClient.prototype, "isAuthenticatedUser", (id: string) => mode !== "shared" && id === "synthetic-owner");
+    context.mock.method(MegaClient.prototype, "isAuthenticatedUser", (id: string) => !["shared", "unauthenticated"].includes(mode) && id === "synthetic-owner");
     context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
     const sensor = { device_sn: mode === "serial" ? "short" : "SYNTHETICLOCK001", device_model: "T85V0", device_type: 203, device_channel: 3, parent_sn: "station",
       category: "eufy_security", member: { admin_user_id: "synthetic-owner" }, params: [],
