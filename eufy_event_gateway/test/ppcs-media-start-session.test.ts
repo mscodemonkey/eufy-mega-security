@@ -367,6 +367,34 @@ test("owned motion binds results to its channel", async context => {
   } finally { f.session.close(); }
 });
 
+for (const confirmation of [undefined, "fresh-inventory"] as const) {
+  test(`motion receipt wait is shorter only for independent inventory confirmation: ${confirmation}`, async context => {
+    const f = await peer(context, true, "T8113-Z", "control");
+    try {
+      await f.negotiate();
+      const pending = f.session.writeMotionDetection(false, undefined, confirmation);
+      let settled = false;
+      const result = assert.rejects(pending, CameraControlAcknowledgementTimeoutError).then(() => { settled = true; });
+      await new Promise(resolve => setImmediate(resolve));
+      for (let step = 0; step < 4; step += 1) {
+        context.mock.timers.tick(200);
+        await new Promise(resolve => setImmediate(resolve));
+      }
+      const commands = () => f.sent.filter(value => {
+        const at = value.indexOf(Buffer.from("XZYH"));
+        return at >= 0 && value.readUInt16LE(at + 4) === 1011;
+      }).length;
+      assert.equal(commands(), 3);
+      context.mock.timers.tick((confirmation ? 2_000 : 10_000) - 801);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(settled, false);
+      context.mock.timers.tick(1);
+      await result;
+      assert.equal(commands(), 3);
+    } finally { f.session.close(); }
+  });
+}
+
 for (const afterDispatch of [false, true]) {
   test(`owned closure ${afterDispatch ? "after" : "before"} dispatch has a precise outcome`, async context => {
     const f = await peer(context, true, "T8113-Z", "control");

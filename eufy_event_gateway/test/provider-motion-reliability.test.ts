@@ -95,7 +95,9 @@ for (const stationModel of ["T8010", "T8030"]) {
       try {
         await f.provider.refreshStation("synthetic-base");
         const reads = f.inventory.mock.callCount();
-        const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeMotionDetection", async (value: boolean, dispatched?: () => void) => {
+        const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeMotionDetection", async (value: boolean, dispatched?: () => void,
+          confirmation?: "fresh-inventory") => {
+          assert.equal(confirmation, "fresh-inventory");
           dispatched?.();
           f.setMotion(value);
           if (acknowledgementLost) throw new CameraControlAcknowledgementTimeoutError();

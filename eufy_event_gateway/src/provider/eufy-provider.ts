@@ -3996,7 +3996,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           await scope.wait(() => session.start());
           current();
           enterPhase("write");
-          await scope.wait(() => session.writeMotionDetection(enabled, scope.dispatched));
+          await scope.wait(() => session.writeMotionDetection(enabled, scope.dispatched, "fresh-inventory"));
         } catch (error) {
           current();
           if (error instanceof CameraControlAcknowledgementTimeoutError) acknowledgementTimedOut = true;
