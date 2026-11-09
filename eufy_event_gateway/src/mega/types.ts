@@ -68,6 +68,9 @@ export interface MegaDevice {
 
 /** Inventory response consumed by EufyProvider. */
 export interface MegaInventory {
+
+  /** Explicit false identifies fresh affirmative rows from incomplete startup discovery, never control readback. */
+  readonly complete?: boolean;
   readonly devices: readonly MegaDevice[];
   readonly groups: readonly unknown[];
 }
