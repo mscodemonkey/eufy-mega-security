@@ -11,7 +11,7 @@ to run an owner-account experiment.
 
 | Control | Where to test | What the software verifies |
 | --- | --- | --- |
-| AI tracking | HA tracking buttons or Diagnostics | Current setting before the write and fresh reported setting afterwards. HA also requires a matching command acknowledgement. |
+| AI tracking | HA tracking buttons or Diagnostics | Current setting before the write and fresh reported setting afterwards. A missing acknowledgement permits the fresh read, without repeating the write. An explicit rejection still fails. |
 | Saved positions | HA buttons for occupied slots | Fresh slot occupancy before selecting a position and a matching command acknowledgement. |
 | Directional movement | HA pan buttons or Diagnostics | One directional click and a matching acknowledgement. Observe actual movement. |
 | Spotlight | HA light buttons or Diagnostics | Fresh original manual-light setting and matching reported setting after the write. |
@@ -23,6 +23,12 @@ create or delete positions or change which position is the default.
 The spotlight reading describes its manual setting. It does not establish actual
 illumination or provide an automatic-off guarantee. An acknowledged position
 request does not establish that the camera reached that position.
+
+A T814X report on v0.1.253 confirmed physical tracking changes despite a failure
+response from EMS. The updated tracking path checks the fresh setting after a
+missing acknowledgement. That correction still needs a hardware retest. The
+reported spotlight read failure and movement returning to its default position
+when the connection closes remain separate, unresolved limitations.
 
 ## Before a physical test
 
