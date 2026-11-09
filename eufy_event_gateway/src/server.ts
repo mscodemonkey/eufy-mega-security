@@ -537,7 +537,7 @@ export class GatewayServer {
         });
       }
       if (request.method === "GET" && url.pathname === "/api/cameras") {
-        return json(response, 200, { cameras: this.state.listCameras(), liveViewHandoverSupported: true });
+        return json(response, 200, { cameras: this.state.listCameras(), liveViewHandoverSupported: true, hlsViewIdleSupported: true });
       }
       if (request.method === "GET" && url.pathname === "/api/locks") {
         return json(response, 200, { locks: this.#visibleLocks() });

@@ -46,6 +46,7 @@ from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity
 from .const import CONF_H264_COMPATIBILITY, CONF_SHORT_HLS_IDLE, CONF_FAST_NATIVE_HLS, DOMAIN
 from .playback_diagnostics import serialize_stream
+from .hls_activity import HlsViewActivity
 
 if TYPE_CHECKING:
     from homeassistant.components.stream import Stream
@@ -203,15 +204,15 @@ def _carries_audio(url: str) -> bool:
     return urlsplit(url).path.rsplit("/", 1)[-1] in ("live.ts", "live-native.ts")
 
 
-def _new_view(url: str) -> str:
+def _new_view(url: str, tracked: bool = False) -> str:
     """Mark a person's new view.
 
-    The gateway lets a marked view move an NVR's one call from another marked
-    view, once. Reconnects and renewals keep the same mark, so a camera that lost
-    the call cannot take it back. Preload and recording use unmarked URLs, which
-    neither take the call nor give it up.
+    The hls1_ protocol starts protected before the first HA request report.
+    An NVR call can move only after HA actually closes the old HTTP response.
+    Reconnects and renewals keep the mark so a camera that lost the call cannot
+    take it back. Preload and recording use unmarked URLs.
     """
-    return _with_view(url, secrets.token_urlsafe(16))
+    return _with_view(url, ("hls1_" if tracked else "") + secrets.token_urlsafe(16))
 
 
 def _view_for(camera: Any, url: str) -> str:
@@ -223,7 +224,8 @@ def _view_for(camera: Any, url: str) -> str:
     """
     if urlsplit(url).path.rsplit("/", 1)[-1] in ("live-fixed.h264", "live-movable.h264"):
         return _with_view(url, None)
-    return (_new_view(url) if camera.coordinator.client.live_view_handover_supported
+    return (_new_view(url, camera.camera.get("hlsIdleHandoverSupported") is True) if camera.coordinator.client.live_view_handover_supported
+            and getattr(camera.coordinator.client, "hls_view_idle_supported", False) is True
             and not camera.coordinator.recording_holds else _with_view(url, None))
 
 
@@ -253,6 +255,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         self._native_video = not h264_compatibility
         self._fast_native_hls = fast_native_hls
         self._hls_idle_stream: Stream | None = None
+        self._hls_activity: HlsViewActivity | None = None
         self._stream_source_refreshing = False
         self._cloud_metadata_busy = False
 
@@ -269,8 +272,17 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         try:
             model = self.camera.get("model")
             device_type = self.camera.get("deviceType")
+            activity = {"installed": False}
+            try:
+                observer = getattr(self, "_hls_activity", None)
+                outputs = self.stream.outputs() if self.stream is not None else {}
+                if observer is not None and outputs.get("hls") is observer.output:
+                    activity = observer.diagnostic()
+            except Exception:
+                pass
             return {
                 **serialize_stream(self.stream),
+                "hls_activity": activity,
                 "model": model if isinstance(model, str) and re.fullmatch(r"T[0-9A-Z]{3,15}", model) else None,
                 "device_type": device_type if type(device_type) is int and 0 <= device_type <= 65535 else None,
                 "native_video": bool(self._native_video),
@@ -336,7 +348,8 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         # if the source changes during a retry wait, so start a new stream instead.
         if (cached is not None and not cached.dynamic_stream_settings.preload_stream
                 and "recorder" not in cached.outputs()
-                and self.camera.get("stream", {}).get("state") in {"idle", "stopping", "error"}):
+                and (self.camera.get("stream", {}).get("state") in {"idle", "stopping", "error"}
+                     or getattr(getattr(self, "_hls_activity", None), "expiring", False))):
             await cached.stop()
             self.stream = cached = None
         stream = await super().async_create_stream()
@@ -406,6 +419,21 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
                     except (AttributeError, TypeError):
                         pass
             if fmt == "hls" and timeout is None:
+                mark = _view_of(stream.source)
+                observer = getattr(self, "_hls_activity", None)
+                if mark is not None and (observer is None or observer.output is not provider):
+                    if observer is not None:
+                        observer.close()
+
+                    def may_idle() -> bool:
+                        """Only an ordinary, unrecorded and non-preloaded output can retire early."""
+                        outputs = stream.outputs()
+                        return (not stream.dynamic_stream_settings.preload_stream
+                                and not self.coordinator.recording_holds
+                                and set(outputs) == {"hls"} and outputs["hls"] is provider
+                                and (_view_of(stream.source) or "").startswith("hls1_"))
+
+                    self._hls_activity = HlsViewActivity.install(provider, may_idle)
                 provider.idle_timer.start()
             return provider
 
@@ -420,6 +448,9 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
             only after the gateway answers. A stream with no output yet opens
             unmarked, so it needs no hold.
             """
+            observer = getattr(self, "_hls_activity", None)
+            if observer is not None and observer.expiring:
+                raise HomeAssistantError("The idle stream is closing, please reopen the view before recording")
             view = _view_of(stream.source)
             if view is not None and stream.outputs():
                 hold = self._begin_recording_hold()
@@ -436,6 +467,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
     async def async_added_to_hass(self) -> None:
         """Start updates and refresh credentials on Home Assistant's cached stream."""
         await super().async_added_to_hass()
+        self.async_on_remove(self._close_hls_activity)
         if self._track_live_audio:
             self.coordinator.live_audio_changed[self.serial] = self._async_live_audio_changed
             self.async_on_remove(lambda: self.coordinator.live_audio_changed.pop(self.serial, None))
@@ -446,6 +478,12 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
                 STREAM_SOURCE_REFRESH_INTERVAL,
             )
         )
+
+    def _close_hls_activity(self) -> None:
+        """Retire only this entity's observer while HA removes its streams."""
+        if self._hls_activity is not None:
+            self._hls_activity.close()
+            self._hls_activity = None
 
     async def _async_refresh_stream_source(self, now: datetime) -> None:
         """Renew reconnect credentials only while a stream has a consumer.

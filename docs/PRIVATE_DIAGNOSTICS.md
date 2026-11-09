@@ -306,3 +306,36 @@ was unchanged. The existing unknown-outcome handling still applies.
 If a maintainer asks for this event after a normal action, share only that line.
 It contains no camera label, serial, account, setting value or command payload.
 Do not repeat a failed security-setting change just to obtain timing data.
+
+## Protecting active HA HLS views during an NVR handoff
+
+After both components are updated, an admitted experimental NVR route uses the
+`hls1_` view protocol. The gateway keeps that upstream response protected until
+HA actually closes it. Another integration instance, a late request or a resumed
+worker cannot release an existing response through an activity message. There
+is no new activity-write endpoint.
+
+The integration observes each ordinary HLS output's public idle timer. Actual
+segment or low-latency part requests keep its local quiet deadline moving. After
+requests stop, a reviewed HA timer contract can invoke HA's normal idle cleanup.
+The deadline is at least four seconds, twice the current target segment duration,
+and two seconds longer than the configured part timeout. It can be up to sixty
+seconds. Handoff can therefore take a short quiet period plus HA retry time.
+A camera whose HLS output is still being fetched keeps the shared NVR call.
+
+Early cleanup is limited to the NVR route's explicit admission, with only its
+ordinary HLS output attached. Preload, recorders, pending recording holds,
+shared-lens views and explicit output timeouts retain their existing ownership.
+A recording requested after idle retirement begins is refused before adding a
+recorder. Reopen the view before recording in that case. Other camera routes
+can expose read-only HLS request counters but keep their existing idle timeout.
+
+Unsupported HA output/timer shapes retain HA's normal cleanup and the gateway's
+protection. An older gateway without the negotiated protocol receives unmarked
+URLs, so fast handoff waits for its existing cleanup rather than weakening
+recording or active-view protection. Update both components together.
+
+Integration playback diagnostics include `hls_activity` with installation status,
+request count, quiet seconds and expiry state. These counters contain no tokens,
+URLs or viewer identities and do not count people watching. Local/synthetic
+validation does not establish the reporter's physical HomeBase handoff.

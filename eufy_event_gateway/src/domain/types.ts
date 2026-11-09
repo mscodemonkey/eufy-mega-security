@@ -204,6 +204,9 @@ export interface CameraState {
   /** Exact-profile NVR controls are admitted, whether or not the profile offers a view choice. */
   readonly nvrLiveControlsSupported?: boolean;
 
+  /** An admitted one-call NVR route may close an unused HA HLS worker before handoff. */
+  readonly hlsIdleHandoverSupported?: boolean;
+
 
   /** Strictly validated camera-owned settings, with unknown values left absent. */
   readonly reportedSettings: CameraReportedSettings | null;
@@ -527,6 +530,9 @@ export interface CameraIdentity {
 
   /** Exact-profile NVR controls are admitted, whether or not the profile offers a view choice. */
   readonly nvrLiveControlsSupported?: boolean;
+
+  /** An admitted one-call NVR route may close an unused HA HLS worker before handoff. */
+  readonly hlsIdleHandoverSupported?: boolean;
 
 
   /** Optional read-only configuration projection from fresh device inventory. */

@@ -216,7 +216,7 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         self.stream.add_provider("hls")
         self.original.assert_called_once_with("hls", timeout=60)
         replacement_factory = Mock()
-        self.base.async_create_stream.return_value = SimpleNamespace(dynamic_stream_settings=SimpleNamespace(preload_stream=False), add_provider=replacement_factory)
+        self.base.async_create_stream.return_value = SimpleNamespace(source="replacement", dynamic_stream_settings=SimpleNamespace(preload_stream=False), add_provider=replacement_factory)
         replacement = await self.camera.async_create_stream()
         replacement.add_provider("hls")
         replacement_factory.assert_called_once_with("hls", timeout=60)
