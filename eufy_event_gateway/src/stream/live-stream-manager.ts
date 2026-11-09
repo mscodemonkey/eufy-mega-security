@@ -862,6 +862,17 @@ export class LiveStreamManager extends EventEmitter {
     return !!session && !session.privateTrial && session.state === "streaming" && !!session.source && session.clients.size > 0;
   }
 
+  /**
+   * Report a source already on its way out, without granting permission to stop it.
+   * An idle grace timer qualifies only while no viewer, lease or recording owns
+   * the source. A new consumer cancels that timer before this can return true.
+   */
+  isSourceRetiring(serial: string): boolean {
+    const session = this.#sessions.get(serial);
+    return !!session && !session.privateTrial && (!!session.stop
+      || !!session.stopTimer && session.clients.size === 0 && session.leases === 0 && session.recordings.size === 0);
+  }
+
   /** Allow bounded handoff waiting while startup, retirement or HA idle cleanup may release this call. */
   isSourceSettling(serial: string): boolean {
     const session = this.#sessions.get(serial);

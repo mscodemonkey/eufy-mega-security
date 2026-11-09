@@ -722,7 +722,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #nvrReadIntervals = new Map<string, number>();
   readonly #nvrViews = new Map<string, { binding: string; value: number }>();
   readonly #nvrSettings = new Map<string, { binding: string; values: NvrLiveSettings; nightAt: number; qualityAt: number; trackingAt: number; timer: NodeJS.Timeout | null }>();
-  #nvrMediaChecks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean; retireYieldable?: (serial: string) => Promise<boolean> } | null = null;
+  #nvrMediaChecks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean; retiring?: (serial: string) => boolean; retireYieldable?: (serial: string) => Promise<boolean> } | null = null;
   readonly #nvrTrials = new Map<string, NvrTrialEntry>();
 
   /** Private card references expire in memory and are never published as filesystem paths. */
@@ -1975,15 +1975,18 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
    * A person opening cameras in quick succession lands here, and refusing would
    * cost them Home Assistant's whole retry backoff. A call held by a recording
    * or a lease is not going anywhere, so that case is refused at once as before.
+   * An aged HA retry can wait only for a call already retiring or in unused idle
+   * cleanup. It never acquires permission to move or stop an active call.
    */
-  async #nvrCallOnceSettled(device: MegaInventoryDevice, station: MegaInventoryDevice, current: () => void, signal: AbortSignal): Promise<NvrTrialEntry | null> {
+  async #nvrCallOnceSettled(device: MegaInventoryDevice, station: MegaInventoryDevice, current: () => void, signal: AbortSignal, takeOver: boolean): Promise<NvrTrialEntry | null> {
     const deadline = performance.now() + NVR_SWITCH_WAIT_MILLISECONDS;
     for (;;) {
-      const call = this.#nvrCallToTake(device, station);
+      const call = takeOver ? this.#nvrCallToTake(device, station) : null;
       const rows = [...this.#nvrTrials];
       const settling = rows.length === 1 && rows[0]![0] !== device.serial && rows[0]![1].station.serial === station.serial
         && !rows[0]![1].diagnostic && !rows[0]![1].stateOnly
-        && (this.#nvrMediaChecks?.settling(rows[0]![0]) || !rows[0]![1].session?.switchable);
+        && (takeOver ? this.#nvrMediaChecks?.settling(rows[0]![0]) || !rows[0]![1].session?.switchable
+          : rows[0]![1].retiring || this.#nvrMediaChecks?.retiring?.(rows[0]![0]));
       if (call || !settling || performance.now() >= deadline) return call;
       await new Promise<void>(resolve => {
         const done = (): void => { clearTimeout(timer); signal.removeEventListener("abort", done); resolve(); };
@@ -2647,7 +2650,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const nvrStation = nvrDevice ? this.#devices.get(nvrDevice.parentSerial) : undefined;
       if (nvrStation && this.#nvrControlReserved(nvrStation.serial)) throw new NvrTrialError("admission");
       if (nvrDevice && this.#normalNvrLiveBinding(nvrDevice, nvrStation)) {
-        const handover = takeOver ? await this.#nvrCallOnceSettled(nvrDevice, nvrStation!, current, cancellation.signal) : null;
+        const handover = await this.#nvrCallOnceSettled(nvrDevice, nvrStation!, current, cancellation.signal, takeOver);
         current();
         if (takeOver && !handover) {
           await this.#retireS1CallForView(nvrDevice, nvrStation!);
@@ -2691,8 +2694,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
    * Install media checks and guarded retirement owned by the media manager.
    * The provider awaits retirement before a fresh S1 call. Recording and viewer
    * eligibility remain the manager's decision rather than provider policy.
+   * The optional retiring check reports existing cleanup only and never grants takeover.
    */
-  setNvrLiveMediaChecks(checks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean; retireYieldable?: (serial: string) => Promise<boolean> }): void {
+  setNvrLiveMediaChecks(checks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean; retiring?: (serial: string) => boolean; retireYieldable?: (serial: string) => Promise<boolean> }): void {
     this.#nvrMediaChecks = checks;
   }
 

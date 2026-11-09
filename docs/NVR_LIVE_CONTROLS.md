@@ -114,3 +114,22 @@ hardware remain unconfirmed. For one test, open both new entities, verify the
 pictures match the app's two lenses and keep moving, then close one and check the
 other continues. No movement or security-setting change is needed. If they close
 unexpectedly, share only `shared_lens_view_closed`, keeping images and video private.
+
+## Retry while an unused call is closing
+
+A retried Home Assistant URL must not take a call away from another active
+view. It can, however, wait for the previous camera's already-unused connection
+to finish its idle grace period and disconnect. Normal NVR and HomeBase S1
+routes now share that bounded wait even when the URL's takeover window has
+expired. The existing six-second handoff budget still applies.
+
+This does not stop the previous view, shorten its idle grace period or permit
+simultaneous calls. Recordings, leases, diagnostic calls and another station's
+connection retain their reservations. A returning consumer cancels unused idle
+cleanup, so the waiting retry is refused rather than taking that consumer's
+call. Cancelling the request prevents a late replacement call.
+
+Software regressions cover the immediate retry across both the idle grace and
+delayed disconnect. Actual HomeBase S1 reopening latency still requires hardware
+confirmation. The earlier confirmation that the active first view remains
+playing is separate from this remaining after-close case.

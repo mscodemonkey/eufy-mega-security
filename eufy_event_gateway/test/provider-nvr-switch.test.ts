@@ -31,7 +31,7 @@ function viewer() {
   return response;
 }
 
-async function fixture(context: TestContext, parent: "T8N00" | "T9000" = "T8N00") {
+async function fixture(context: TestContext, parent: "T8N00" | "T9000" = "T8N00", stopGrace = 5) {
   const directory = await mkdtemp(join(tmpdir(), "nvr-switch-"));
   context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
   context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
@@ -79,10 +79,10 @@ async function fixture(context: TestContext, parent: "T8N00" | "T9000" = "T8N00"
   const provider = new EufyProvider({ username: "fixture", password: "redacted", country: "AU", persistentDirectory: directory,
     maxStreamSeconds: 120, experimentalNvrLive: true, normalNvrLive: true });
   const fakeProcess = () => Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill: () => true }) as unknown as ChildProcessWithoutNullStreams;
-  manager = new LiveStreamManager(state, {} as never, provider, 5, undefined, fakeProcess, fakeProcess, 30_000, () => clock);
+  manager = new LiveStreamManager(state, {} as never, provider, stopGrace, undefined, fakeProcess, fakeProcess, 30_000, () => clock);
   manager.on("warning", () => {});
   provider.setNvrLiveMediaChecks({ viewer: serial => manager.hasActiveViewer(serial), active: serial => manager.hasActiveSession(serial),
-    recording: serial => manager.hasActiveRecording(serial), yieldable: serial => manager.canYieldSource(serial), settling: serial => manager.isSourceSettling(serial), retireYieldable: serial => manager.retireYieldableSource(serial) });
+    recording: serial => manager.hasActiveRecording(serial), yieldable: serial => manager.canYieldSource(serial), settling: serial => manager.isSourceSettling(serial), retiring: serial => manager.isSourceRetiring(serial), retireYieldable: serial => manager.retireYieldableSource(serial) });
   await provider.start(events);
   return { state, manager, provider, sessions, switches, joins: () => joins, failSwitch: () => { failSwitch = true; }, setSwitchable: (value: boolean) => { switchable = value; }, advance: (milliseconds: number) => { clock += milliseconds; },
     close: async () => { await manager.close(); await provider.close(); await tick(); await rm(directory, { recursive: true, force: true }); } };
@@ -395,5 +395,88 @@ test("reconnecting a tracked view starts protected again without an activity-mes
     assert.equal(value.manager.canYieldSource(a), true);
     await open(value, a, mark);
     assert.equal(value.manager.canYieldSource(a), false);
+  } finally { await value.close(); }
+});
+
+
+for (const parent of ["T9000", "T8N00"] as const) {
+  test(`an aged HA retry waits for an unused ${parent} call to finish closing`, async context => {
+    const value = await fixture(context, parent, 200);
+    let finish!: () => void;
+    const closing = new Promise<void>(resolve => { finish = resolve; });
+    const close = NvrRtcSession.prototype.close;
+    context.mock.method(NvrRtcSession.prototype, "close", async function(this: NvrRtcSession) {
+      const retired = close.call(this);
+      if (this === value.sessions[0]) await closing;
+      await retired;
+    });
+    try {
+      const first = await open(value, a, "hls1_synthetic-first");
+      let release!: () => void;
+      const hold = value.manager.withActiveViewer(a, () => new Promise<void>(resolve => { release = resolve; }));
+      await settled();
+      const refused = await open(value, b, "hls1_synthetic-retry");
+      assert.equal(refused.destroyed, true);
+      release(); await hold;
+      value.advance(9_000);
+      const stillProtected = await open(value, b, "hls1_synthetic-retry");
+      assert.equal(stillProtected.destroyed, true);
+      assert.equal(first.destroyed, false);
+      first.destroy(); await settled();
+      const retry = viewer();
+      let completed = false;
+      const opening = value.manager.addClient(b, retry as never, "native", "hls1_synthetic-retry").then(() => { completed = true; });
+      await settled();
+      assert.equal(completed, false, "the immediate retry must remain queued during idle cleanup");
+      assert.equal(retry.destroyed, false);
+      assert.equal(value.joins(), 1);
+      await new Promise(resolve => setTimeout(resolve, 250));
+      assert.equal(completed, false, "provider disconnect must finish before another call joins");
+      assert.equal(value.joins(), 1);
+      finish(); await opening; await settled();
+      assert.equal(retry.destroyed, false);
+      assert.equal(value.joins(), 2);
+      assert.equal(value.switches.length, 0, "an aged retry never receives takeover permission");
+    } finally { finish(); await value.close(); }
+  });
+}
+
+test("cancelling an aged retry during idle cleanup cannot open a late call", async context => {
+  const value = await fixture(context, "T9000", 200);
+  try {
+    const first = await open(value, a);
+    assert.equal((await open(value, b, view("cancelled-retry"))).destroyed, true);
+    value.advance(9_000);
+    first.destroy(); await settled();
+    const retry = viewer();
+    const opening = value.manager.addClient(b, retry as never, "native", view("cancelled-retry"));
+    await settled();
+    assert.equal(retry.destroyed, false);
+    await value.provider.stopStream(b);
+    await opening;
+    assert.equal(retry.destroyed, true);
+    await new Promise(resolve => setTimeout(resolve, 250));
+    assert.equal(value.joins(), 1);
+    assert.equal(value.switches.length, 0);
+  } finally { await value.close(); }
+});
+
+test("a returning consumer keeps its call while an aged retry waits for idle cleanup", async context => {
+  const value = await fixture(context, "T9000", 200);
+  try {
+    const first = await open(value, a);
+    assert.equal((await open(value, b, view("returning-consumer"))).destroyed, true);
+    value.advance(9_000);
+    first.destroy(); await settled();
+    const retry = viewer();
+    const opening = value.manager.addClient(b, retry as never, "native", view("returning-consumer"));
+    await settled();
+    assert.equal(retry.destroyed, false);
+    const returning = await open(value, a);
+    await opening;
+    assert.equal(retry.destroyed, true);
+    assert.equal(returning.destroyed, false);
+    assert.equal(value.joins(), 1);
+    assert.equal(value.switches.length, 0);
   } finally { await value.close(); }
 });
