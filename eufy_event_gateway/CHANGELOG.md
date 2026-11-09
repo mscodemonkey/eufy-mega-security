@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.253
+
+- Improve the optional E10 connection check with specific, privacy-safe failure reasons for rejected media offers. Video support remains unconfirmed.
+
 ## 0.1.252
 
 - Recover camera discovery after qualified cloud inventory failures with same-account fallbacks and paced retries, including valid empty-house responses.
