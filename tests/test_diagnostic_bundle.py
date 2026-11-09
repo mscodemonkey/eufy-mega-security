@@ -267,6 +267,23 @@ class DiagnosticBundleTests(unittest.TestCase):
                 with self.assertRaises(TOOL.DiagnosticError):
                     TOOL.parameter_check("http://private.invalid", "private-token", target)
 
+    def test_device_list_comparison_is_explicit_and_keeps_only_closed_fields(self):
+        """Select the shared-account list source without exposing either motion instant."""
+        target = {"model": "T8910", "serial": "private-motion"}
+        summary = {"model": "T8910", "profile": "motion_time_candidate", "observations": {"1605": "recent"},
+                   "source": "device_list", "change": "advanced"}
+        with patch.object(TOOL, "request", return_value=json.dumps(summary).encode()) as request:
+            self.assertEqual(TOOL.parameter_check("http://private.invalid", "private-token", target, True), summary)
+            self.assertEqual(request.call_args.args[3]["source"], "device_list")
+        for change in ["private", 1790000000, None]:
+            with patch.object(TOOL, "request", return_value=json.dumps({**summary, "change": change}).encode()):
+                with self.assertRaises(TOOL.DiagnosticError):
+                    TOOL.parameter_check("http://private.invalid", "private-token", target, True)
+        with patch.object(TOOL, "request") as request:
+            with self.assertRaises(TOOL.DiagnosticError):
+                TOOL.parameter_check("http://private.invalid", "private-token", {"model": "T8410"}, True)
+            request.assert_not_called()
+
     def test_state_check_uses_saved_connection_without_exposing_credentials(self):
         """Send one consented read and print only the closed model summary."""
         summary = {"model": "T8030", "profile": "alarm_volume_candidate", "observations": {"1235": "missing"}}

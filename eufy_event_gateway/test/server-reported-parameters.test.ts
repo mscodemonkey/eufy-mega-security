@@ -15,14 +15,14 @@ import type { CameraProvider } from "../src/provider/provider.js";
 import { GatewayServer } from "../src/server.js";
 import { SnapshotStore } from "../src/storage/snapshot-store.js";
 import type { LiveStreamManager } from "../src/stream/live-stream-manager.js";
-import { ParameterCheckError, projectReportedParameters } from "../src/provider/reported-parameter-check.js";
+import { ParameterCheckError, projectDeviceListMotion, projectReportedParameters } from "../src/provider/reported-parameter-check.js";
 
 test("parameter HTTP authenticates loopback, closes consent and rejects private provider data", async () => {
   const directory = await mkdtemp(join(tmpdir(), "parameter-http-"));
   let calls = 0, value: unknown = projectReportedParameters("T8410", { params: [] }), fail: unknown = null;
-  let receivedSignal: AbortSignal | undefined;
-  const provider = { readReportedParameters: async (_serial: string, signal: AbortSignal) => {
-    calls++; receivedSignal = signal; if (fail) throw fail; return value;
+  let receivedSignal: AbortSignal | undefined, receivedSource: "device_list" | undefined;
+  const provider = { readReportedParameters: async (_serial: string, signal: AbortSignal, source?: "device_list") => {
+    calls++; receivedSignal = signal; receivedSource = source; if (fail) throw fail; return value;
   } } as CameraProvider;
   const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "fixture", experimentalModelControls: true }, new GatewayState(),
     new SnapshotStore(directory), {} as LiveStreamManager, provider, null);
@@ -36,8 +36,16 @@ test("parameter HTTP authenticates loopback, closes consent and rejects private 
     const motion = await fetch(url, options);
     assert.equal(motion.status, 200);
     assert.deepEqual(await motion.json(), { model: "T8910", profile: "motion_time_candidate", observations: { 1605: "recent" } });
+    value = projectDeviceListMotion({ params: [] }, { params: [] });
+    const listOptions = { ...options, body: JSON.stringify({ serial: "target", consent: true, source: "device_list" }) };
+    const list = await fetch(url, listOptions);
+    assert.equal(list.status, 200); assert.equal(receivedSource, "device_list");
+    assert.deepEqual(await list.json(), value);
+    assert.deepEqual(await (await fetch(url, options)).json(), { stage: "invalid_response" });
+    value = projectReportedParameters("T8910", { params: [] });
+    assert.deepEqual(await (await fetch(url, listOptions)).json(), { stage: "invalid_response" });
     const before = calls;
-    for (const body of [{ serial: "target" }, { serial: "target", consent: false }, { serial: "target", consent: true, extra: "SENTINEL" },
+    for (const body of [{ serial: "target" }, { serial: "target", consent: true, source: "unknown" }, { serial: "target", consent: false, source: "device_list" }, { serial: "target", consent: false }, { serial: "target", consent: true, extra: "SENTINEL" },
       { serial: "x".repeat(129), consent: true }, { serial: {}, consent: true }, []]) {
       assert.deepEqual(await (await fetch(url, { ...options, body: JSON.stringify(body) })).json(), { stage: "invalid_request" });
     }

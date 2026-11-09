@@ -367,7 +367,7 @@ def movement_test(url: str, token: str, rows: list[dict], index: int, direction:
             "next": "Check whether the camera moved, then restore its original view in Eufy."}
 
 
-def parameter_check(url: str, token: str, target: dict) -> dict:
+def parameter_check(url: str, token: str, target: dict, device_list: bool = False) -> dict:
     """Read one supported profile and reject private or unrecognised response fields."""
     profiles = {
         "T8410": ("power_candidates", {"1035", "2001"}),
@@ -378,17 +378,25 @@ def parameter_check(url: str, token: str, target: dict) -> dict:
     model = target["model"]
     if model not in profiles:
         raise DiagnosticError("The selected model does not support this read-only state check.")
-    result = json.loads(request(url + "/api/diagnostics/parameter-check", token, "POST",
-                                {"serial": target["serial"], "consent": True}, timeout=35))
+    if device_list and model != "T8910":
+        raise DiagnosticError("The device-list comparison supports only T8910 sensors.")
+    body = {"serial": target["serial"], "consent": True}
+    if device_list:
+        body["source"] = "device_list"
+    result = json.loads(request(url + "/api/diagnostics/parameter-check", token, "POST", body, timeout=35))
     profile, fields = profiles[model]
     allowed = ({"missing", "unset", "recent", "older", "future", "invalid", "conflicting"} if model == "T8910"
                else {"missing", "invalid", "conflicting", "valid"} if model == "T8030"
                else {"missing", "invalid", "conflicting", "zero", "one"})
-    if (not isinstance(result, dict) or set(result) != {"model", "profile", "observations"}
+    if (not isinstance(result, dict) or set(result) != ({"model", "profile", "observations", "source", "change"} if device_list
+                                                       else {"model", "profile", "observations"})
             or result["model"] != model or result["profile"] != profile
             or not isinstance(result["observations"], dict) or set(result["observations"]) != fields
             or any(not isinstance(value, str) or value not in allowed for value in result["observations"].values())):
         raise DiagnosticError("The read-only state check returned an unsupported summary.")
+    if device_list and (result["source"] != "device_list" or not isinstance(result["change"], str)
+                        or result["change"] not in {"advanced", "unchanged", "regressed", "unavailable"}):
+        raise DiagnosticError("The device-list comparison returned an unsupported summary.")
     return result
 
 
@@ -456,7 +464,7 @@ def run(options) -> dict:
         return s220_settings_check(url, token, selected_device(devices(endpoint, token), options.target_index))
     if options.command == "state-check":
         rows = devices(endpoint, token)
-        return parameter_check(url, token, selected_device(rows, options.target_index))
+        return parameter_check(url, token, selected_device(rows, options.target_index), options.device_list)
     if options.command == "recording-index-check":
         target = selected_device(devices(endpoint, token), options.target_index)
         return recording_index_check(url, token, target, options.begin_time, options.end_time)
@@ -520,6 +528,8 @@ def main(arguments=None) -> int:
                        help="Current one-based device index from the list command.")
     state.add_argument("--consent-read", action="store_true",
                        help="Allow one cloud parameter read using the existing configured account.")
+    state.add_argument("--device-list", action="store_true",
+                       help="Compare two T8910 device lists ten seconds apart instead of the separate parameter API.")
     index = sub.add_parser("recording-index-check", help="Read one existing C31 recording interval without playback or settings changes.")
     index.add_argument("--target-index", type=int, required=True)
     index.add_argument("--begin-time", type=int, help="Interval start in UTC Unix seconds. Omit both times for the recent interval.")

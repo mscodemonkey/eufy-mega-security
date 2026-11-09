@@ -287,7 +287,7 @@ export class GatewayServer {
           try { value = bytes ? JSON.parse(bytes.toString("utf8")) : null; } catch { throw new ParameterCheckError("invalid_request"); }
           if (!value || typeof value !== "object" || Array.isArray(value)) throw new ParameterCheckError("invalid_request");
           const body = value as Record<string, unknown>;
-          if (Object.keys(body).sort().join() !== "consent,serial" || body.consent !== true || typeof body.serial !== "string"
+          if (Object.keys(body).sort().join() !== (body.source === "device_list" ? "consent,serial,source" : "consent,serial") || body.consent !== true || typeof body.serial !== "string"
             || !/^[A-Za-z0-9_-]{1,128}$/.test(body.serial)) throw new ParameterCheckError("invalid_request");
           controller.signal.throwIfAborted();
           let abort!: () => void;
@@ -298,9 +298,11 @@ export class GatewayServer {
           });
           try {
             dispatched = true;
-            const result = await Promise.race([this.provider.readReportedParameters(body.serial, controller.signal), cancelled]);
+            const result = await Promise.race([this.provider.readReportedParameters(body.serial, controller.signal, body.source === "device_list" ? "device_list" : undefined), cancelled]);
             controller.signal.throwIfAborted();
-            return json(response, 200, validateParameterSummary(result));
+            const summary = validateParameterSummary(result);
+            if ((body.source === "device_list") !== (summary.source === "device_list")) throw new ParameterCheckError("invalid_response");
+            return json(response, 200, summary);
           } finally { controller.signal.removeEventListener("abort", abort); }
         } catch (error) {
           const stage = controller.signal.aborted ? (timeout ? "timeout" : "cancelled")

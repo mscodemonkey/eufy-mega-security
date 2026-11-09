@@ -66,3 +66,13 @@ authentication even on loopback, JSON content type and exactly a selected serial
 plus `consent: true`. The body limit is 1 KiB. Only one provider flight runs at a
 time, with a 30-second deadline and no automatic replay. Unknown parameters,
 raw values, timestamps and identifiers never appear in its response.
+
+## T8910 device-list source
+
+For the separate, read-only T8910 comparison, select **T8910 device-list
+comparison** or add `--device-list` to the terminal command. The JSON request
+adds only `"source":"device_list"`. The response adds the fixed source and
+change classification. This exact T8910 profile compares two fresh lists ten
+seconds apart without querying the separate parameter endpoint. See the
+[T8910 guide](T8910_CLOUD_MOTION_TEST.md#shared-account-device-list-comparison)
+for interpretation and limits. Other models reject this source.
