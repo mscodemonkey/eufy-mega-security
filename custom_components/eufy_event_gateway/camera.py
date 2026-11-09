@@ -419,9 +419,8 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
                     except (AttributeError, TypeError):
                         pass
             if fmt == "hls" and timeout is None:
-                mark = _view_of(stream.source)
                 observer = getattr(self, "_hls_activity", None)
-                if mark is not None and (observer is None or observer.output is not provider):
+                if observer is None or observer.output is not provider:
                     if observer is not None:
                         observer.close()
 

@@ -241,6 +241,19 @@ class LiveViewMarkTest(unittest.IsolatedAsyncioTestCase):
         self.stream.source = self.namespace["_with_view"](URL, None)
         self.assertFalse(allowed())
 
+    async def test_old_gateway_observation_cannot_expire_its_unmarked_worker(self) -> None:
+        self.stream.source = URL
+        self.camera.stream = self.stream
+        provider = self.stream.add_provider.return_value
+        self.stream.outputs.return_value = {"hls": provider}
+        observer = SimpleNamespace(output=provider, close=Mock(), expiring=False)
+        install = self.namespace["HlsViewActivity"].install
+        install.return_value = observer
+        await self.camera.async_create_stream()
+        self.stream.add_provider("hls")
+        install.assert_called_once()
+        self.assertFalse(install.call_args.args[1]())
+
     async def test_idle_expiry_refuses_recording_until_a_fresh_stream_is_opened(self) -> None:
         order = self._recording_view()
         await self.camera.async_create_stream()
