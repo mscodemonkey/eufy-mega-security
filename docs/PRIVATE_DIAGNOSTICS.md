@@ -231,11 +231,19 @@ history page can omit the selected visit. Names and identifiers never enter
 support logs or count diagnostics.
 
 At most three metadata reads are scheduled around 10 seconds, one minute and nine
-minutes after the event. Active views and recording reservations are left alone.
+minutes after the event. Time spent reading does not move the later deadlines.
+Active views and recording reservations are left alone.
 Each request has a finite lifetime. A new visit, native name, provider shutdown or
 changed inventory prevents a late result from replacing the current visit.
 Recovery updates the existing name only. It does not ring again, emit a fresh
 detection or extend its timer. Camera and security settings are unchanged.
+
+If recovery cannot finish, `homebase_name_recovery_unavailable` reports a fixed
+reason and counts of checks and busy skips. Missing notification references,
+changed visit ownership, expiry, a busy peer and unsuccessful queries remain
+separate. A check count does not prove a command was sent. These categories
+contain no names, paths, event IDs or account/device identifiers. Normal shutdown
+and a name already delivered by Eufy do not create a failure report.
 
 Exact notification-to-history IDs and paths were matched in a private owned
 capture. Automatic recovery of a missing familiar name is still unconfirmed on
