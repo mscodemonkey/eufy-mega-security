@@ -96,8 +96,11 @@ export interface CameraProvider {
   nvrSharedLensViewsAdmitted?(serial: string): boolean;
 
 
-  /** Inject media checks and guarded retirement while the manager retains source and lease ownership. */
-  setNvrLiveMediaChecks?(checks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean; retireYieldable?: (serial: string) => Promise<boolean> }): void;
+  /**
+   * Inject media checks and guarded retirement while the manager retains source and lease ownership.
+   * The optional retiring check reports existing cleanup only and never grants takeover.
+   */
+  setNvrLiveMediaChecks?(checks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean; retiring?: (serial: string) => boolean; retireYieldable?: (serial: string, onlyIfUnused?: boolean) => Promise<boolean> }): void;
 
   /** Change the idle camera's next-stream view, with no device write. */
   setNvrView?(serial: string, view: number): Promise<CameraIdentity>;
