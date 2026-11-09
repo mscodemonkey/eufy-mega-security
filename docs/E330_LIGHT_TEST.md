@@ -9,10 +9,14 @@ Enable **Experimental model controls** only if you want to try it. Keep your
 existing account arrangement. The trial requires the configured account to own
 the camera and HomeBase, and a gateway API token. Shared accounts are excluded.
 
-Close all live views and let recording retrieval finish. In **Diagnostics**,
-select the E330 and choose **Manual light (experimental)**. Note whether
-the light is on or off, and make sure you can watch it and restore that state in
-the Eufy app. Choose the opposite state and use **Try once** once.
+In the E330's normal Home Assistant device page, enable **Turn camera light on
+(experimental)** and **Turn camera light off (experimental)**. Both buttons start
+disabled. Close all live views and let recording retrieval finish. Note the
+starting light state, make sure you can watch and restore it in Eufy, then press
+the opposite-state button once. No Diagnostics page or extra checkbox is needed.
+
+The equivalent manual-light action remains available in Diagnostics for an
+investigation, but it is not required for these device buttons.
 
 The trial sends one command and does not automatically retry it. It keeps other
 operations off the HomeBase until its connection finishes closing. A successful

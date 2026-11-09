@@ -100,7 +100,8 @@ class EufySpotlight(EufyGatewayEntity, LightEntity):
     This entity never infers illumination from a command being accepted.
     """
 
-    _attr_translation_key = "spotlight"
+    _attr_translation_key = "spotlight_experimental"
+    _attr_entity_registry_enabled_default = False
     _attr_color_mode = ColorMode.ONOFF
     _attr_supported_color_modes = {ColorMode.ONOFF}
 

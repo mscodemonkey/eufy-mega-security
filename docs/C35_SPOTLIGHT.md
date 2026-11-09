@@ -70,3 +70,12 @@ app captures confirm the protected serializer, including channel-zero queries.
 Those captures do not establish a C35 hardware response. The request candidate
 still needs one state-only check on a C35 after publication. A successful state
 read would not establish that the normal light control or physical light works.
+
+## Home Assistant device buttons
+
+The existing C35 light buttons are labelled **Experimental** and start disabled.
+They use the same guarded command path as the trial. They do not publish a
+guessed on/off state. The separate C35 spotlight entity is also labelled
+experimental and disabled by default. Its state still requires an independent
+reported value. If a state-only check is outstanding, finish that investigation
+before trying a light change.

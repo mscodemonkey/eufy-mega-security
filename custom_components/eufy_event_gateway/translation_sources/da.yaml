@@ -3,6 +3,8 @@ entity:
   light:
     spotlight:
       name: Spotlys
+    spotlight_experimental:
+      name: Spotlys (eksperimentel)
     manual_floodlight:
       name: Manuel projektør
   camera:
@@ -22,6 +24,10 @@ entity:
       name: Tænd kameralys
     camera_light_off:
       name: Sluk kameralys
+    camera_light_on_experimental:
+      name: Tænd kameralys (eksperimentel)
+    camera_light_off_experimental:
+      name: Sluk kameralys (eksperimentel)
     camera_preset:
       name: Gå til forudindstilling {number}
     camera_preset_default:

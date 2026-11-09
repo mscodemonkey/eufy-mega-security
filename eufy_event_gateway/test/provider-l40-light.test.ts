@@ -17,7 +17,7 @@ import type { ModelControlTrial, ModelControlRoute } from "../src/provider/model
 import type { ProviderEvents } from "../src/provider/provider.js";
 
 
-for (const mode of ["valid", "off", "hung", "shutdown", "account", "disabled", "model", "type", "channel", "owner", "changed", "cancelled", "closed", "cleanup", "generation", "baseline_failed", "session_failed", "write_prepare_failed", "receipt_timeout", "cleanup_failed", "receipt_cleanup_failed"]) {
+for (const mode of ["valid", "off", "button", "hung", "shutdown", "account", "disabled", "model", "type", "channel", "owner", "changed", "cancelled", "closed", "cleanup", "generation", "baseline_failed", "session_failed", "write_prepare_failed", "receipt_timeout", "cleanup_failed", "receipt_cleanup_failed"]) {
   test(`L40 manual light binding and cleanup: ${mode}`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "light-provider-"));
     const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
@@ -41,9 +41,12 @@ for (const mode of ["valid", "off", "hung", "shutdown", "account", "disabled", "
     context.mock.method(HomeBasePpcsSession.prototype, "close", () => undefined);
     const controller = new AbortController();
     const provider = new EufyProvider({ username: "synthetic", password: "synthetic", country: "AU", persistentDirectory: directory,
-      maxStreamSeconds: 120, experimentalModelControls: mode !== "disabled" });
-    let cameraEvents = 0;
-    const events = new Proxy({}, { get: (_target, key) => key === "camera" ? () => { cameraEvents++; } : () => undefined }) as ProviderEvents;
+      maxStreamSeconds: 120, apiAuthenticationConfigured: mode === "button", experimentalModelControls: mode !== "disabled" });
+    let cameraEvents = 0, experimentalOffered = false;
+    const events = new Proxy({}, { get: (_target, key) => key === "camera" ? (value: { serial: string; experimentalLightControlSupported?: boolean }) => {
+      cameraEvents++;
+      if (value.serial === "sensor") experimentalOffered = value.experimentalLightControlSupported === true;
+    } : () => undefined }) as ProviderEvents;
     const start = context.mock.method(FirstPartyPpcsSession.prototype, "start", async function(this: FirstPartyPpcsSession) {
       if (mode === "session_failed") throw Error("PRIVATE_SESSION");
       if (mode === "hung") await new Promise<void>(() => undefined);
@@ -70,9 +73,11 @@ for (const mode of ["valid", "off", "hung", "shutdown", "account", "disabled", "
       await provider.start(events); await new Promise(resolve => setImmediate(resolve));
       context.mock.timers.enable({ apis: ["setTimeout"] });
       const baseline = cameraEvents;
+      if (mode === "button") assert.equal(experimentalOffered, true);
       const request = { action: "manualLight" as const, enabled: mode !== "off" };
-      const operation = provider.performModelControlTrial("sensor", request, controller.signal);
-      const expected = ["valid", "off", "cleanup"].includes(mode) ? operation : assert.rejects(operation, /Manual light test did not confirm the light state/);
+      const operation = mode === "button" ? provider.setCameraLight("sensor", request.enabled)
+        : provider.performModelControlTrial("sensor", request, controller.signal);
+      const expected = ["valid", "off", "button", "cleanup"].includes(mode) ? operation : assert.rejects(operation, /Manual light test did not confirm the light state/);
       for (let index = 0; index < 10; index++) await new Promise(resolve => setImmediate(resolve));
       if (mode === "cleanup") {
         await assert.rejects(provider.performModelControlTrial("sensor", request), /Manual light test/);
@@ -80,8 +85,9 @@ for (const mode of ["valid", "off", "hung", "shutdown", "account", "disabled", "
         release();
       }
       if (mode === "hung") context.mock.timers.tick(60_000);
-      if (["valid", "off", "cleanup"].includes(mode)) {
-        assert.deepEqual(await expected, { outcome: "acknowledged", physicalConfirmationRequired: true });
+      if (["valid", "off", "button", "cleanup"].includes(mode)) {
+        if (mode === "button") assert.equal(await expected, undefined);
+        else assert.deepEqual(await expected, { outcome: "acknowledged", physicalConfirmationRequired: true });
         assert.equal(cameraEvents, baseline); assert.equal(write.mock.callCount(), 1);
         assert.equal(start.mock.callCount(), 1); assert.ok(close.mock.callCount() >= 1);
       } else {

@@ -54,3 +54,11 @@ For an HA movement, tracking or position failure, share only the complete
 `camera_c37_control_failed` line. HA light and Diagnostics failures use
 `model_control_trial_failed`. Keep account
 details, device identifiers, images and raw recordings private.
+
+## Experimental light buttons
+
+On the normal HA device page, the light on/off buttons are labelled
+**Experimental** and start disabled. Enabling an entity is the explicit opt-in.
+They use the existing guarded command path and do not guess the lamp's state.
+The reported initial-read failure remains open, so these labels do not imply
+that the spotlight has been repaired. No repeated light test is requested.

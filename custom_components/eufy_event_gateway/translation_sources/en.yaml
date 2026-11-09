@@ -3,6 +3,8 @@ entity:
   light:
     spotlight:
       name: Spotlight
+    spotlight_experimental:
+      name: Spotlight (experimental)
     manual_floodlight:
       name: Manual floodlight
   camera:
@@ -22,6 +24,10 @@ entity:
       name: Turn camera light on
     camera_light_off:
       name: Turn camera light off
+    camera_light_on_experimental:
+      name: Turn camera light on (experimental)
+    camera_light_off_experimental:
+      name: Turn camera light off (experimental)
     camera_preset:
       name: Go to preset {number}
     camera_preset_default:
