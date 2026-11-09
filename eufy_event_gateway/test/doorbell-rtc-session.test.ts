@@ -182,6 +182,12 @@ for (const scenario of ["video", "loss", "early-offer", "invalid-offer", "duplic
           && (scenario === "invalid-offer" ? error.reason === "offer_text"
             : scenario === "duplicate-offer" ? error.reason === "unspecified" : true));
         assert.equal(chunks.length, 0);
+        if (scenario === "wrong-owner") {
+          assert.equal(session.callProgress, "waiting"); assert.equal(session.offerReceived, false);
+        }
+        if (scenario === "abort-early") {
+          assert.equal(session.callProgress, "waiting"); assert.equal(session.offerReceived, true);
+        }
         if (scenario !== "no-video") assert.equal(peerCount, 0);
         assert.equal(answers, scenario === "no-video" ? 1 : 0);
         assert.equal(acknowledgements, scenario === "invalid-offer" || scenario === "no-video" ? 1 : 0);
@@ -216,7 +222,7 @@ for (const scenario of ["video", "loss", "early-offer", "invalid-offer", "duplic
 }
 
 
-for (const scenario of ["join", "call", "offer", "call-rejected"] as const) {
+for (const scenario of ["join", "call", "pending", "offer", "call-rejected"] as const) {
   test(`doorbell startup failure distinguishes ${scenario} without private signalling`, { timeout: 5000 }, async () => {
     const server = new WebSocketServer({ port: 0 });
     await once(server, "listening");
@@ -225,9 +231,10 @@ for (const scenario of ["join", "call", "offer", "call-rejected"] as const) {
       const inner = JSON.parse(JSON.parse(raw.toString()).data);
       const send = (data: Record<string, unknown>): void => { socket.send(JSON.stringify({ data: JSON.stringify(data) })); };
       if (inner.action === 1 && scenario !== "join") send({ action: 1, code: 200 });
-      if (inner.dataType === "call" && ["offer", "call-rejected"].includes(scenario)) {
+      if (inner.dataType === "call" && ["pending", "offer", "call-rejected"].includes(scenario)) {
         send({ action: 3, code: 200, sessionId: "synthetic-sign", sn: "synthetic-station", channelId: 0,
-          dataType: "call", data: JSON.stringify({ status: scenario === "offer" ? 200 : 408 }) });
+          dataType: "call", data: JSON.stringify({ status: scenario === "pending" ? 100 : scenario === "offer" ? 200 : 408,
+            ...(scenario === "pending" ? { turn: { turn_addr: "relay.example.test", turn_port: 3478, turn_user: "synthetic-user", turn_password: "synthetic-secret" } } : {}) }) });
       }
     }));
     const session = new DoorbellRtcSession({ station: "synthetic-station", administrator: "synthetic-owner",
@@ -242,10 +249,15 @@ for (const scenario of ["join", "call", "offer", "call-rejected"] as const) {
       await assert.rejects(session.start(), error => {
         assert.ok(error instanceof DoorbellRtcError);
         assert.equal(error.stage, scenario === "call-rejected" ? "call" : "deadline");
-        assert.equal(error.reason, scenario === "call-rejected" ? "call_timeout" : `startup_${scenario}_timeout`);
+        assert.equal(error.reason, scenario === "call-rejected" ? "call_timeout" : `startup_${scenario === "pending" ? "call" : scenario}_timeout`);
         assert.equal(error.message.includes("synthetic"), false);
         return true;
       });
+      assert.equal(session.callProgress, scenario === "join" ? "not_sent" : scenario === "call" ? "waiting"
+        : scenario === "pending" ? "pending" : scenario === "offer" ? "accepted" : "rejected");
+      await session.close();
+      assert.doesNotMatch(session.callProgress, /synthetic|token|secret/);
+      assert.equal(session.offerReceived, false);
     } finally {
       await session.close();
       for (const socket of server.clients) socket.terminate();

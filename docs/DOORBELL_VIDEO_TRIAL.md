@@ -29,3 +29,34 @@ links out of public issues. Disable the experimental option after the test.
 The video-service region setting is shared with the NVR diagnostic because both
 use the same regional service. Leave it on **auto** unless the connection needs
 a specifically established regional comparison.
+
+## Startup failure and cancellation
+
+For normal live view, closing the last waiting viewer now cancels an unfinished
+startup rather than leaving it alive until the startup deadline. A recording or
+source lease keeps its existing protection, and the reservation remains held
+until disconnect finishes. After media startup, normal idle grace is unchanged.
+The separately consented diagnostic clip keeps its existing lifetime and
+cancellation behaviour.
+
+One startup failure is logged once, even when both the output and the start
+promise report it. The existing failure line adds only fixed metadata:
+
+- `call_progress=not_sent`: no call request was queued locally.
+- `waiting`: a request was queued locally, with no recognised reply yet.
+- `pending`: a bound provisional reply arrived.
+- `accepted`: a bound acceptance arrived.
+- `rejected` or `invalid_response`: a bound call reply rejected the request or
+  did not match a supported reply form.
+- `offer_received=true` means a bound offer candidate arrived. It does not
+  establish valid SDP, call acceptance, a connected peer or playable video.
+
+These fields remain available after cleanup. They include no received payload,
+account, address, timestamp, token or media. A queued local request is not proof
+that the camera received it. Existing call messages, authentication, service
+region, response checks, retry policy and startup deadlines remain unchanged.
+
+The unresolved startup refusal still needs a real result on the affected
+account. If asked to check a containing release, use one ordinary live view and
+share only `doorbell_rtc_stream_failed` on failure. Do not repeat the regional
+matrix, change account or PIN settings, or run a broad capture for these fields.
