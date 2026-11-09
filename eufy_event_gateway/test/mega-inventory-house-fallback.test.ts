@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { MegaClient } from "../src/mega/client.js";
 import { credentialVerifier, decryptEnvelope, encryptEnvelope, sharedAesKey } from "../src/mega/crypto.js";
 
-for (const mode of ["normal", "request-unavailable", "unclassified-10003", "recover", "root-failure", "startup-partial", "permission", "network", "page", "house-failure", "page-failure", "house-id", "house-limit", "conflict", "cancelled", "binding", "device"] as const) {
+for (const mode of ["normal", "empty-house", "empty-refused-root", "malformed-empty-house", "request-unavailable", "unclassified-10003", "recover", "root-failure", "startup-partial", "permission", "network", "page", "house-failure", "page-failure", "house-id", "house-limit", "conflict", "cancelled", "binding", "device"] as const) {
   test(`inventory house recovery: ${mode}`, async context => {
     context.mock.method(globalThis, "fetch", async () => { throw Error("Unowned network forbidden"); });
     const directory = await mkdtemp(join(tmpdir(), "inventory-houses-"));
@@ -49,35 +49,38 @@ for (const mode of ["normal", "request-unavailable", "unclassified-10003", "reco
               : mode === "house-id" ? [{ house_id: "" }] : [{ house_id: "house-one" }, { house_id: "house-two" }] };
           } else if (!Object.hasOwn(body, "house_id")) {
             assert.deepEqual(body, {});
-            if (["root-failure", "startup-partial"].includes(mode)) code = -1;
+            if (["root-failure", "startup-partial", "empty-refused-root"].includes(mode)) code = -1;
             data = mode === "page" ? {} : { devices: [mode === "device" ? { invalid: "private" } : a] };
           } else if (body.house_id === "house-one") {
-            data = { devices: [{ ...a, member: { admin_user_id: mode === "conflict" ? "changed-owner" : "synthetic-owner" } }, { ...a, device_sn: "synthetic-b", parent_sn: "synthetic-b" }] };
+            data = mode === "malformed-empty-house" ? { devices: null, groups: {} }
+              : ["empty-house", "empty-refused-root"].includes(mode) ? { devices: null, groups: null }
+              : { devices: [{ ...a, member: { admin_user_id: mode === "conflict" ? "changed-owner" : "synthetic-owner" } }, { ...a, device_sn: "synthetic-b", parent_sn: "synthetic-b" }] };
           } else {
             assert.equal(body.house_id, "house-two");
             if (mode === "page-failure") code = -1;
-            data = { devices: [{ ...a, device_sn: "synthetic-c", parent_sn: "synthetic-c" }] };
+            data = mode === "empty-refused-root" ? { devices: null, groups: null }
+              : { devices: [{ ...a, device_sn: "synthetic-c", parent_sn: "synthetic-c" }] };
           }
           return new Response(JSON.stringify({ code, msg: mode === "request-unavailable" ? "Failed to request." : "PRIVATE_RESPONSE", data: encryptEnvelope(JSON.stringify(data), sharedAesKey(key)) }));
         } });
       await client.connect();
       assert.equal(client.isInventoryTemporarilyUnavailable(new Error("Inventory is temporarily unavailable")), false);
       const result = client.inventory(controller.signal, { includeChargingDays: false, allowPartial: mode === "startup-partial" });
-      if (["normal", "recover", "startup-partial"].includes(mode)) {
+      if (["normal", "empty-house", "recover", "startup-partial"].includes(mode)) {
         const inventory = await result;
-        assert.equal(inventory.devices.length, mode === "normal" ? 1 : 3);
+        assert.equal(inventory.devices.length, mode === "normal" ? 1 : mode === "empty-house" ? 2 : 3);
         assert.equal(calls.length, mode === "normal" ? 1 : 5);
         assert.equal(inventory.complete, mode === "startup-partial" ? false : undefined);
       } else {
         await assert.rejects(result, error => {
-          assert.equal(client.isInventoryTemporarilyUnavailable(error), ["request-unavailable", "root-failure", "house-failure", "page-failure"].includes(mode));
+          assert.equal(client.isInventoryTemporarilyUnavailable(error), ["request-unavailable", "root-failure", "empty-refused-root", "house-failure", "page-failure"].includes(mode));
           return true;
         });
         if (["permission", "network", "request-unavailable", "unclassified-10003"].includes(mode)) assert.equal(calls.length, 1, "other failures must not broaden reads");
         if (["page", "device"].includes(mode)) assert.equal(calls.length, 2);
         if (["house-failure", "house-id", "house-limit", "cancelled", "binding"].includes(mode)) assert.equal(calls.length, 3);
-        if (mode === "conflict") assert.equal(calls.length, 4);
-        if (["page-failure", "root-failure"].includes(mode)) assert.equal(calls.length, 5);
+        if (["conflict", "malformed-empty-house"].includes(mode)) assert.equal(calls.length, 4);
+        if (["page-failure", "root-failure", "empty-refused-root"].includes(mode)) assert.equal(calls.length, 5);
       }
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
