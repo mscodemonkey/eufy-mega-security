@@ -10,7 +10,7 @@ existing account arrangement. The trial requires the configured account to own
 the camera and HomeBase, and a gateway API token. Shared accounts are excluded.
 
 Close all live views and let recording retrieval finish. In **Diagnostics**,
-select the E330 and choose **Manual light (through HomeBase 3)**. Note whether
+select the E330 and choose **Manual light (experimental)**. Note whether
 the light is on or off, and make sure you can watch it and restore that state in
 the Eufy app. Choose the opposite state and use **Try once** once.
 

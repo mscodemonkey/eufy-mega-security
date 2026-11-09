@@ -152,8 +152,15 @@ export function isE330ManualLightTrialRoute(route: ModelControlRoute): boolean {
     && route.channel !== null && Number.isInteger(route.channel) && route.channel >= 0 && route.channel <= 254;
 }
 
+/** Identify only the L40's self-owned channel-zero timed-light route. */
+export function isL40ManualLightTrialRoute(route: ModelControlRoute): boolean {
+  return route.model === "T8123" && route.deviceType === 61 && !route.homeBaseAttached
+    && route.peerModel === "T8123" && route.selfPeer && route.channel === 0;
+}
+
 /** Admit exact model/type/topology combinations without changing verified capabilities. */
 export function modelControlTrialActions(route: ModelControlRoute): readonly ModelControlTrial["action"][] {
+  if (isL40ManualLightTrialRoute(route)) return ["manualLight"];
   if (route.homeBaseAttached) {
     if (isE330ManualLightTrialRoute(route)) return ["manualLight"];
     if (route.model === "T81A0" && route.deviceType === 10005 && route.peerModel === "T8030"
@@ -188,7 +195,11 @@ export function modelControlTrialCommand(
   if (request.action === "siren") throw new Error("S100 siren requires its dedicated encrypted trial session");
   if (!accountId || !modelControlTrialActions(route).includes(request.action)) throw new Error("Model control trial route unavailable");
   if (!Number.isSafeInteger(transaction) || transaction < 1_000_000_000_000) throw new Error("Invalid control transaction");
-  if (request.action === "manualLight") return { command: 1400, value: request.enabled };
+  if (request.action === "manualLight") {
+    if (isL40ManualLightTrialRoute(route)) return { command: 1700,
+      value: JSON.stringify({ commandType: 1400, data: { type: 2, time: 60, value: request.enabled ? 1 : 0 } }) };
+    return { command: 1400, value: request.enabled };
+  }
   if (request.action === "aiTracking") {
     return { command: 1700, value: JSON.stringify({ commandType: 6016,
       data: { value: request.enabled ? 1 : 0, transaction: `${transaction}` } }) };

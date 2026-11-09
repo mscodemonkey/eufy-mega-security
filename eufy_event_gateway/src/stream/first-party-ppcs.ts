@@ -24,7 +24,7 @@ import { buildS100SirenCommand } from "./s100-siren-command.js";
 import { S100SirenTrialError, type S100SirenTrialTransport, type S100SirenFailureStage } from "../provider/s100-siren-trial.js";
 import { createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes } from "node:crypto";
 import { unwrapAuthenticatedMediaKey } from "../crypto/media-key.js";
-import { isE330ManualLightTrialRoute, modelControlTrialCommand, type ModelControlRoute, type ModelControlTrial, type AlarmStateTrialResult } from "../provider/model-control-trials.js";
+import { isE330ManualLightTrialRoute, isL40ManualLightTrialRoute, modelControlTrialCommand, type ModelControlRoute, type ModelControlTrial, type AlarmStateTrialResult } from "../provider/model-control-trials.js";
 import { validateC31Preference, type C31Preference } from "../provider/c31-preferences.js";
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
@@ -2303,13 +2303,14 @@ export class FirstPartyPpcsSession {
     // The standalone C35 manual switch uses its pinned level-one JSON path.
     // Its master-enable setting remains outside this profile.
     const e330Light = request.action === "manualLight" && isE330ManualLightTrialRoute(route);
+    const legacyLight = e330Light || request.action === "manualLight" && isL40ManualLightTrialRoute(route);
     if (!e330Light && ((request.action === "spotlight" && !(route.model === "T8110" && route.deviceType === 10035))
       || request.action === "ptz" || route.homeBaseAttached)) await this.#waitForLevel2Key();
     current();
     const frame = buildModelControlTrialPayload(request, route, this.#options.accountId,
       commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key, this.#level2Seq++, Date.now());
     const acknowledgement = this.#waitForControlResult(frame.command, this.#options.channel, CONTROL_TIMEOUT_MILLISECONDS,
-      request.action === "manualLight" && !e330Light, e330Light);
+      request.action === "manualLight" && !legacyLight, legacyLight);
     try { onDispatch(); this.#sendCommand(frame.command, frame.payload); }
     catch (error) { void acknowledgement.catch(() => undefined); throw error; }
     await acknowledgement;

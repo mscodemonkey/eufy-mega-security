@@ -3506,7 +3506,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
     if (actions.includes("manualLight") && (route.peer.adminUserId !== device.adminUserId
       || !this.#client.isAuthenticatedUser(device.adminUserId)
-      || [...this.#devices.values()].filter(row => row.parentSerial === route.peer.serial && row.channel === device.channel).length !== 1)) {
+      || route.homeBaseAttached && [...this.#devices.values()].filter(row => row.parentSerial === route.peer.serial && row.channel === device.channel).length !== 1)) {
       return { actions: [], unavailableReason: "owner_account_required" };
     }
     if (actions.includes("alarmState")) {
@@ -3572,7 +3572,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#assertLegacyCamera(serial);
     const request = parseModelControlTrial(input);
     if (request.action === "alarmState") return await this.#performAlarmStateRead(serial);
-    if (request.action === "manualLight") return await this.#performAttachedManualLightTrial(serial, request, signal);
+    if (request.action === "manualLight") return await this.#performManualLightTrial(serial, request, signal);
     if (!this.modelControlTrials(serial).includes(request.action)) throw new Error("Experimental model control is unavailable");
     const device = this.#devices.get(serial)!;
     const route = ppcsStreamRoute(device, this.#devices)!;
@@ -3784,14 +3784,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
-  /** Own one opt-in attached-light write and its cleanup without claiming reported or physical light state. */
-  async #performAttachedManualLightTrial(serial: string, request: Extract<ModelControlTrial, { action: "manualLight" }>,
+  /** Own one opt-in manual-light write and its cleanup without claiming reported or physical light state. */
+  async #performManualLightTrial(serial: string, request: Extract<ModelControlTrial, { action: "manualLight" }>,
     signal?: AbortSignal): Promise<ModelControlTrialResult> {
     let stage: S120LightFailureStage = "admission", failedStage: S120LightFailureStage | undefined;
     let writeAttempted = false, acknowledgementReceived = false;
     const unknown = (): Error => new S120LightTrialError(stage, writeAttempted, acknowledgementReceived);
-    const device = this.#devices.get(serial), peer = device ? this.#devices.get(device.parentSerial) : undefined;
+    const device = this.#devices.get(serial);
     const route = device ? ppcsStreamRoute(device, this.#devices) : null;
+    const peer = route?.peer;
     if (!this.config.experimentalModelControls || !device || !peer || !route
       || !modelControlTrialActions(this.#modelTrialRoute(device, route)).includes("manualLight")
       || !device.adminUserId || device.adminUserId !== peer.adminUserId
@@ -3814,7 +3815,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const valid = (rows: readonly MegaInventoryDevice[]): boolean => {
       const child = rows.filter(row => row.serial === serial), parent = rows.filter(row => row.serial === peer.serial);
       return child.length === 1 && parent.length === 1
-        && rows.filter(row => row.parentSerial === peer.serial && row.channel === device.channel).length === 1
+        && (route.homeBaseAttached
+          ? rows.filter(row => row.parentSerial === peer.serial && row.channel === device.channel).length === 1
+          : child[0]!.serial === parent[0]!.serial)
         && !inventoryBindingChanged(device, child[0]!) && !inventoryBindingChanged(peer, parent[0]!)
         && parent[0]!.p2pDid === peer.p2pDid && parent[0]!.p2pConnection === peer.p2pConnection
         && child[0]!.adminUserId === device.adminUserId && parent[0]!.adminUserId === device.adminUserId;
@@ -3847,7 +3850,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (!dsk) throw unknown();
       session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!, appConnection: peer.p2pConnection!,
         localAddress: peer.localAddress, dskKey: dsk.key, channel: device.channel!, cameraModel: device.model,
-        stationModel: peer.model, accountId: device.adminUserId!, homeBaseAttached: true, purpose: "control",
+        stationModel: peer.model, accountId: device.adminUserId!, homeBaseAttached: route.homeBaseAttached, purpose: "control",
         modelControlTrial: true, maxSeconds: 40, resolveCipherKey: id => this.#resolveCipherKey(id, peer) });
       this.#trialSessions.set(peer.serial, session); session.output.once("end", abort); session.output.resume();
       stage = "session_connect";

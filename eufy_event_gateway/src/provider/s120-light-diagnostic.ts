@@ -1,5 +1,5 @@
 /**
- * Carries fixed S120 and E330 manual-light failure metadata from the provider to HTTP
+ * Carries fixed manual-light failure metadata from the provider to HTTP
  * logging. The trial owns device effects and cleanup. These observations never
  * establish illumination, reported switch state or permission to retry a write.
  */
