@@ -179,7 +179,9 @@ def save_archive(config: Path, output: Path, body: bytes) -> dict:
         if current.st_ino == identity.st_ino and current.st_dev == identity.st_dev:
             target.unlink()
         raise
-    return report
+    return {**report, "bundleSaved": True,
+            "next": "Send the .json.gz file named by --output privately with your issue number. "
+                    "The diagnostic-bundle.py helper is not the captured bundle."}
 
 
 def live_view(url: str, token: str) -> None:
