@@ -614,6 +614,11 @@ export class MegaClient {
     };
     const rows = new Map<string, Record<string, unknown>>();
     const add = (page: unknown): void => {
+
+      // The authenticated house API returns this exact successful empty-page
+      // shape. It contributes no device or ownership evidence. A refused root
+      // still makes the final inventory incomplete and retains paced recovery.
+      if (isRecord(page) && page.devices === null && page.groups === null) return;
       if (!isRecord(page) || !Array.isArray(page.devices) || page.devices.length > 2048) throw new Error("Inventory fallback page is invalid");
       for (const row of page.devices) {
         if (!isRecord(row) || typeof row.device_sn !== "string" || row.device_sn.length < 1 || row.device_sn.length > 128) throw new Error("Inventory fallback device is invalid");
