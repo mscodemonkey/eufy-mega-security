@@ -25,6 +25,12 @@ async function settle(): Promise<void> {
 
 /** Build an admitted synthetic doorbell and capture private name callbacks. */
 async function fixture(context: TestContext, mode = "valid") {
+  const logs: string[] = [];
+  const write = process.stdout.write;
+  context.mock.method(process.stdout, "write", ((value: unknown, ...args: unknown[]) => {
+    if (String(value).includes("component=")) { logs.push(String(value)); return true; }
+    return Reflect.apply(write, process.stdout, [value, ...args]);
+  }) as typeof process.stdout.write);
   const directory = await mkdtemp(join(tmpdir(), "name-recovery-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
   const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
@@ -51,7 +57,8 @@ async function fixture(context: TestContext, mode = "valid") {
   const recovery = context.mock.method(FirstPartyPpcsSession.prototype, "recoverEventName", async (reference: PushRecordingReference) => {
     assert.equal(reference.id, "42"); assert.equal(reference.storagePath, storagePath);
     if (mode === "superseded" || mode === "shutdown" || mode === "native-name" || mode === "conflicting-reference") await new Promise<void>(resolve => { release = resolve; });
-    return mode === "empty" ? null : mode === "generic" ? "Unknown person" : "Fixture Person";
+    if (mode === "slow-empty") await new Promise<void>(resolve => setTimeout(resolve, 50_000));
+    return mode === "empty" || mode === "slow-empty" ? null : mode === "generic" ? "Unknown person" : "Fixture Person";
   });
   const names: unknown[][] = [], people: unknown[][] = [], presses: unknown[][] = [];
   const events = new Proxy({ personName: (...values: unknown[]) => names.push(values),
@@ -66,11 +73,11 @@ async function fixture(context: TestContext, mode = "valid") {
       if (signal.aborted) abort();
     }));
   await provider.start(events); await settle();
-  context.mock.timers.enable({ apis: ["setTimeout"] });
+  context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: Date.now() });
   const event = (id = "visit", reference = true) => parsePushEvent({ device_sn: "child", station_sn: mode === "foreign-station" ? "foreign" : "parent",
     event_type: mode === "press" ? 3103 : 3102, msg_type: 18, unique_id: id,
     ...(reference ? { record_id: 42, file_path: storagePath, trigger_time: Date.now() + (mode === "future" ? 10_000 : mode === "stale" ? -600_001 : 0) } : {}) })!;
-  return { provider, events, network, recovery, drained, closed, names, people, presses, event,
+  return { provider, events, network, recovery, drained, closed, names, people, presses, event, logs,
     send: (value: MegaPushEvent) => deliver(value), release: () => release?.() };
 }
 
@@ -109,6 +116,8 @@ for (const mode of ["superseded", "shutdown", "native-name", "conflicting-refere
     await settle(); const prior = f.names.length; f.release(); await closing; await settle();
     assert.equal(f.names.length, prior);
     assert.ok(f.names.every(values => values[2] !== "Fixture Person"));
+    if (mode === "conflicting-reference") assert.ok(f.logs.some(line => /homebase_name_recovery_unavailable.*reason=reference_changed/.test(line)));
+    if (mode === "shutdown" || mode === "native-name") assert.equal(f.logs.some(line => line.includes("homebase_name_recovery_unavailable")), false);
   } finally { f.release(); await f.provider.close(); context.mock.timers.reset(); }
 });
 
@@ -158,5 +167,37 @@ test("missing notification references never cause a guessed history lookup", asy
   try {
     f.send(f.event("visit", false)); await settle(); context.mock.timers.tick(600_000); await settle();
     assert.equal(f.recovery.mock.callCount(), 0); assert.equal(f.names.length, 0);
+  } finally { await f.provider.close(); context.mock.timers.reset(); }
+});
+
+
+test("slow history reads cannot push the nine-minute check outside the visit window", async context => {
+  const f = await fixture(context, "slow-empty");
+  try {
+    f.send(f.event()); await settle();
+    context.mock.timers.tick(10_000); await settle();
+    assert.equal(f.recovery.mock.callCount(), 1);
+    context.mock.timers.tick(50_000); await settle();
+    context.mock.timers.tick(0); await settle();
+    assert.equal(f.recovery.mock.callCount(), 2);
+    context.mock.timers.tick(50_000); await settle();
+    context.mock.timers.tick(430_000); await settle();
+    assert.equal(f.recovery.mock.callCount(), 3);
+    context.mock.timers.tick(50_000); await settle();
+    assert.equal(f.names.length, 0);
+    assert.ok(f.logs.some(line => /homebase_name_recovery_unavailable.*reason=no_name.*checks=3/.test(line)));
+  } finally { await f.provider.close(); context.mock.timers.reset(); }
+});
+
+for (const mode of ["missing-reference", "superseded-before-read"] as const) test(`an unqueried late-name lookup reports ${mode}`, async context => {
+  const f = await fixture(context);
+  try {
+    f.send(f.event("visit", mode !== "missing-reference")); await settle();
+    if (mode === "superseded-before-read") { f.send(f.event("new-visit", false)); await settle(); }
+    assert.equal(f.recovery.mock.callCount(), 0);
+    const reason = mode === "missing-reference" ? "notification_reference_unavailable" : "visit_or_binding_changed";
+    const lines = f.logs.filter(line => line.includes("event=homebase_name_recovery_unavailable"));
+    assert.ok(lines.some(line => line.includes(`reason=${reason}`)));
+    assert.ok(lines.every(line => !/Fixture Person|Camera02|new-visit|record_id|file_path/.test(line)));
   } finally { await f.provider.close(); context.mock.timers.reset(); }
 });

@@ -130,6 +130,9 @@ interface PushPictureOwner {
 
   /** A native/recovered name or conflicting record binding retires this lookup. */
   nameRecoveryStopped?: boolean;
+
+  /** Distinguish conflicting recording evidence from a name that already arrived. */
+  nameRecoveryReferenceChanged?: boolean;
   readonly event: MegaPushEvent;
   readonly controller: AbortController;
   readonly generation: number;
@@ -6059,7 +6062,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (nameOwner && event.eventId !== null && nameOwner.event.eventId === event.eventId
       && nameOwner.event.eventType === event.eventType && nameOwner.event.stationSerial === event.stationSerial
       && nameOwner.event.recording && event.recording && (nameOwner.event.recording.id !== event.recording.id
-        || nameOwner.event.recording.storagePath !== event.recording.storagePath)) nameOwner.nameRecoveryStopped = true;
+        || nameOwner.event.recording.storagePath !== event.recording.storagePath)) {
+      nameOwner.nameRecoveryStopped = true; nameOwner.nameRecoveryReferenceChanged = true;
+    }
     if (personName === null && detectionEventIdentity && (personDelivery || pressDelivery)) {
       this.#queueHistoryName(events, event, detectionEventIdentity, pressDelivery ? "doorbell" : "person");
     }
@@ -6346,41 +6351,66 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       && !inventoryBindingChanged(owner.parent, this.#devices.get(owner.parent.serial)!);
   }
 
-  /** Schedule finite metadata reads under the existing visit and inventory owner. */
+  /**
+   * Read visit-owned metadata on fixed event-relative deadlines. Busy media is
+   * never displaced. Terminal categories explain skipped or retired work without
+   * publishing notification references, names or device/account identities.
+   */
   #queueHistoryName(events: ProviderEvents, event: MegaPushEvent, identity: string, kind: "person" | "doorbell"): void {
     const owner = this.#pictureOwners.get(event.cameraSerial), reference = event.recording;
     const device = this.#devices.get(event.cameraSerial), route = device ? ppcsStreamRoute(device, this.#devices) : null;
-    if (!this.config.experimentalHomeBaseEventNames || !this.config.apiAuthenticationConfigured || !owner || !device
-      || !event.eventId || !reference || !supportsEventNameHistory(device, route, true)
-      || event.stationSerial !== route?.peer.serial || owner.nameRecoveryStarted || owner.nameRecoveryStopped
+    if (!this.config.experimentalHomeBaseEventNames || !device || !supportsEventNameHistory(device, route, true)
+      || owner?.nameRecoveryStarted || owner?.nameRecoveryStopped) return;
+    const unavailable = (reason: "notification_reference_unavailable" | "api_authentication_required" | "visit_or_binding_changed"
+      | "expired" | "peer_busy" | "query_failed" | "no_name" | "reference_changed", checks = 0, busySkips = 0): void => {
+      logger.info("homebase_name_recovery_unavailable", `Late-name recovery ended reason=${reason} checks=${checks} busy_skips=${busySkips}`);
+    };
+    if (!this.config.apiAuthenticationConfigured) { unavailable("api_authentication_required"); return; }
+    if (!owner || !event.eventId || !reference) { unavailable("notification_reference_unavailable"); return; }
+    if (event.stationSerial !== route?.peer.serial
       || owner.event.eventId !== event.eventId || owner.event.eventType !== event.eventType
       || owner.event.recording?.id !== reference.id || owner.event.recording.storagePath !== reference.storagePath
-      || !this.#pictureOwnerCurrent(owner)) return;
+      || !this.#pictureOwnerCurrent(owner)) { unavailable("visit_or_binding_changed"); return; }
     const current = (): boolean => this.#pictureOwnerCurrent(owner) && !owner.nameRecoveryStopped
       && Date.now() - reference.triggerMilliseconds >= -5_000 && Date.now() - reference.triggerMilliseconds <= 600_000;
-    if (!current()) return;
+    if (!current()) { unavailable("expired"); return; }
     owner.nameRecoveryStarted = true;
     void (async () => {
-      for (const wait of [10_000, 50_000, 480_000]) {
-        await this.nameRecoveryWait(wait, owner.controller.signal);
-        if (!current()) return;
-        const signal = AbortSignal.any([owner.controller.signal, AbortSignal.timeout(60_000)]);
-        let name: string | null;
-        try {
-          name = await this.#recordingOperation(event.cameraSerial, signal,
-            session => session.recoverEventName(reference, signal), "event_names");
-        } catch { continue; }
-        if (!current()) return;
-        const recognized = personNameFromPush({ eventType: event.eventType, personName: name, content: null });
-        if (recognized !== null) {
-          owner.nameRecoveryStopped = true;
-          if (kind === "doorbell") events.doorbellName?.(event.cameraSerial, identity, recognized);
-          else events.personName?.(event.cameraSerial, identity, recognized);
-          logger.info("homebase_name_recovered", "An exact notification-owned history record supplied a familiar name");
-          return;
+      let checks = 0, busySkips = 0;
+      let reason: "no_name" | "peer_busy" | "query_failed" = "no_name";
+      try {
+        for (const offset of [10_000, 60_000, 540_000]) {
+          await this.nameRecoveryWait(Math.max(0, reference.triggerMilliseconds + offset - Date.now()), owner.controller.signal);
+          if (!current()) return;
+          if (this.#recordingPeerReserved(event.cameraSerial) || this.#stationHasActiveMedia(owner.parent.serial)) {
+            busySkips++; reason = "peer_busy"; continue;
+          }
+          const remaining = reference.triggerMilliseconds + 600_000 - Date.now();
+          if (remaining <= 0) return;
+          const signal = AbortSignal.any([owner.controller.signal, AbortSignal.timeout(Math.min(60_000, remaining))]);
+          let name: string | null;
+          checks++;
+          try {
+            name = await this.#recordingOperation(event.cameraSerial, signal,
+              session => session.recoverEventName(reference, signal), "event_names");
+          } catch { reason = "query_failed"; continue; }
+          if (!current()) return;
+          const recognized = personNameFromPush({ eventType: event.eventType, personName: name, content: null });
+          if (recognized !== null) {
+            owner.nameRecoveryStopped = true;
+            if (kind === "doorbell") events.doorbellName?.(event.cameraSerial, identity, recognized);
+            else events.personName?.(event.cameraSerial, identity, recognized);
+            logger.info("homebase_name_recovered", "An exact notification-owned history record supplied a familiar name");
+            return;
+          }
+          reason = "no_name";
+        }
+      } finally {
+        if (owner.generation === this.#startupGeneration && !this.#recordingClosing && (!owner.nameRecoveryStopped || owner.nameRecoveryReferenceChanged)) {
+          unavailable(owner.nameRecoveryReferenceChanged ? "reference_changed" : Date.now() - reference.triggerMilliseconds >= 600_000 ? "expired"
+            : !this.#pictureOwnerCurrent(owner) ? "visit_or_binding_changed" : reason, checks, busySkips);
         }
       }
-      if (current()) logger.info("homebase_name_recovery_unavailable", "No single familiar name was recovered for this visit");
     })().catch(() => undefined);
   }
 
