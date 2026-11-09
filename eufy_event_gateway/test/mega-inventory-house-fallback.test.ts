@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { MegaClient } from "../src/mega/client.js";
 import { credentialVerifier, decryptEnvelope, encryptEnvelope, sharedAesKey } from "../src/mega/crypto.js";
 
-for (const mode of ["normal", "recover", "root-failure", "permission", "network", "page", "house-failure", "page-failure", "house-id", "house-limit", "conflict", "cancelled", "binding", "device"] as const) {
+for (const mode of ["normal", "recover", "root-failure", "startup-partial", "permission", "network", "page", "house-failure", "page-failure", "house-id", "house-limit", "conflict", "cancelled", "binding", "device"] as const) {
   test(`inventory house recovery: ${mode}`, async context => {
     context.mock.method(globalThis, "fetch", async () => { throw Error("Unowned network forbidden"); });
     const directory = await mkdtemp(join(tmpdir(), "inventory-houses-"));
@@ -49,7 +49,7 @@ for (const mode of ["normal", "recover", "root-failure", "permission", "network"
               : mode === "house-id" ? [{ house_id: "" }] : [{ house_id: "house-one" }, { house_id: "house-two" }] };
           } else if (!Object.hasOwn(body, "house_id")) {
             assert.deepEqual(body, {});
-            if (mode === "root-failure") code = -1;
+            if (["root-failure", "startup-partial"].includes(mode)) code = -1;
             data = mode === "page" ? {} : { devices: [mode === "device" ? { invalid: "private" } : a] };
           } else if (body.house_id === "house-one") {
             data = { devices: [{ ...a, member: { admin_user_id: mode === "conflict" ? "changed-owner" : "synthetic-owner" } }, { ...a, device_sn: "synthetic-b", parent_sn: "synthetic-b" }] };
@@ -61,13 +61,18 @@ for (const mode of ["normal", "recover", "root-failure", "permission", "network"
           return new Response(JSON.stringify({ code, msg: "PRIVATE_RESPONSE", data: encryptEnvelope(JSON.stringify(data), sharedAesKey(key)) }));
         } });
       await client.connect();
-      const result = client.inventory(controller.signal, { includeChargingDays: false });
-      if (mode === "normal" || mode === "recover") {
+      assert.equal(client.isInventoryTemporarilyUnavailable(new Error("Inventory is temporarily unavailable")), false);
+      const result = client.inventory(controller.signal, { includeChargingDays: false, allowPartial: mode === "startup-partial" });
+      if (["normal", "recover", "startup-partial"].includes(mode)) {
         const inventory = await result;
         assert.equal(inventory.devices.length, mode === "normal" ? 1 : 3);
         assert.equal(calls.length, mode === "normal" ? 1 : 5);
+        assert.equal(inventory.complete, mode === "startup-partial" ? false : undefined);
       } else {
-        await assert.rejects(result);
+        await assert.rejects(result, error => {
+          assert.equal(client.isInventoryTemporarilyUnavailable(error), ["root-failure", "house-failure", "page-failure"].includes(mode));
+          return true;
+        });
         if (["permission", "network"].includes(mode)) assert.equal(calls.length, 1, "other failures must not broaden reads");
         if (["page", "device"].includes(mode)) assert.equal(calls.length, 2);
         if (["house-failure", "house-id", "house-limit", "cancelled", "binding"].includes(mode)) assert.equal(calls.length, 3);

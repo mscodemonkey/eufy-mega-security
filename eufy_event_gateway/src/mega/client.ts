@@ -63,6 +63,17 @@ const LOGIN_CREDENTIALS_REJECTED_LEGACY = 26006;
 const LOGIN_ATTEMPTS_REJECTED = 10019;
 
 /**
+ * Marks only an inventory application's temporary refusal, without response data.
+ * The client owns classification and the provider owns paced startup recovery.
+ * Permission, schema, cancellation and authentication errors never use this marker.
+ */
+class MegaInventoryUnavailableError extends Error {
+  constructor(stage: "houses" | "pages") {
+    super(`Inventory is temporarily unavailable: stage=${stage}`);
+  }
+}
+
+/**
  * Marks a terminal login-attempt rejection without retaining request or response data.
  * MegaClient creates this short-lived marker at response classification, and the
  * provider consumes its identity to retire only the current sign-in form.
@@ -550,26 +561,29 @@ export class MegaClient {
    * A control confirmation can omit unrelated charging history. That mode removes
    * the house API's placeholder values and leaves charging metadata unqueried.
    */
-  async inventory(cancellation?: AbortSignal, options: { includeChargingDays?: boolean } = {}): Promise<MegaInventory> {
+  async inventory(cancellation?: AbortSignal, options: { includeChargingDays?: boolean; allowPartial?: boolean } = {}): Promise<MegaInventory> {
     this.#requireAuthentication();
     const lifetime = cancellation ? AbortSignal.any([this.#requestLifetime.signal, cancellation]) : this.#requestLifetime.signal;
     const result = await this.#call("house", "/app/house/get_devs_list", { house_id: "", device_sns: {} }, true, undefined, cancellation);
-    const value = result.code === -1 ? await this.#inventoryByHouse(lifetime) : this.#decodeResult(result);
+    const value = result.code === -1 ? await this.#inventoryByHouse(lifetime, options.allowPartial === true) : this.#decodeResult(result);
     if (!isRecord(value) || !Array.isArray(value.devices)) throw new Error("Mega returned an invalid device inventory");
     lifetime.throwIfAborted();
     const chargingDays = options.includeChargingDays === false ? new Map<string, unknown>()
       : await this.#legacyChargingDays(cancellation).catch(() => new Map<string, unknown>());
     lifetime.throwIfAborted();
-    return projectMegaInventory(value, chargingDays);
+    const projected = projectMegaInventory(value, chargingDays);
+    return result.code === -1 && options.allowPartial === true && isRecord(value) && value.complete === false
+      ? { ...projected, complete: false } : projected;
   }
 
   /**
    * Recover only the primary inventory's application-error refusal through the
-   * SDK's default and per-house reads. Every page must succeed under the same
-   * account binding. Partial pages and conflicting device owners/routes never
-   * become a complete inventory, and no login or device command is replayed.
+   * SDK's default and per-house reads under the same account binding. Startup
+   * may explicitly retain fresh affirmative rows with complete=false. Normal
+   * reads and control confirmation require every page. Conflicting bindings
+   * are always rejected, and no login or device command is replayed.
    */
-  async #inventoryByHouse(parent: AbortSignal): Promise<{ devices: Record<string, unknown>[] }> {
+  async #inventoryByHouse(parent: AbortSignal, allowPartial: boolean): Promise<{ devices: Record<string, unknown>[]; complete?: boolean }> {
     const bound = this.authenticatedBinding();
     const signal = AbortSignal.any([parent, AbortSignal.timeout(60_000)]);
     const current = (): void => {
@@ -607,6 +621,13 @@ export class MegaClient {
     let incomplete = initial === unavailable;
     if (!incomplete) add(initial);
     const houses = await read("/app/house/get_house_list", {});
+    if (houses === unavailable) {
+      if (allowPartial && rows.size > 0) {
+        createLogger("mega").warn("inventory_house_fallback_partial", `houses=unknown devices=${rows.size} complete=false`);
+        return { devices: [...rows.values()], complete: false };
+      }
+      throw new MegaInventoryUnavailableError("houses");
+    }
     if (!isRecord(houses) || !Array.isArray(houses.house_infos) || houses.house_infos.length > 16) throw new Error("Inventory fallback house list is invalid");
     const identifiers = new Set<string>();
     for (const house of houses.house_infos) {
@@ -620,7 +641,8 @@ export class MegaClient {
     current();
     if (incomplete) {
       createLogger("mega").warn("inventory_house_fallback_partial", `houses=${identifiers.size} devices=${rows.size} complete=false`);
-      throw new Error("Complete inventory fallback is unavailable");
+      if (allowPartial && rows.size > 0) return { devices: [...rows.values()], complete: false };
+      throw new MegaInventoryUnavailableError("pages");
     }
     createLogger("mega").info("inventory_house_fallback", `Complete account inventory recovered: houses=${identifiers.size} devices=${rows.size}`);
     return { devices: [...rows.values()] };
@@ -756,6 +778,11 @@ export class MegaClient {
     if (error instanceof MegaHttpAuthenticationRejection) return error.sessionRejected;
     return error instanceof Error && (error.message === "Mega request failed (HTTP 401)" || [...AUTH_SESSION_INVALID_CODES].some((code) => error.message.includes(`Mega request failed (${code}:`)) ||
       /Mega request failed \(401:.*token not exist/i.test(error.message));
+  }
+
+  /** Permit paced startup reads only for this client's fixed inventory-refusal marker. */
+  isInventoryTemporarilyUnavailable(error: unknown): boolean {
+    return error instanceof MegaInventoryUnavailableError;
   }
 
   /** Classify only this client's terminal login marker, without changing state or retrying. */
