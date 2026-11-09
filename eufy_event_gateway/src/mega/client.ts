@@ -560,6 +560,9 @@ export class MegaClient {
    * Fetch current account inventory, cancelling only this read when its caller retires.
    * A control confirmation can omit unrelated charging history. That mode removes
    * the house API's placeholder values and leaves charging metadata unqueried.
+   * Only cold discovery may opt into fresh partial pages, identified by
+   * complete=false. Omitted devices then establish neither removal nor permission
+   * changes, so control confirmation and normal refresh must leave allowPartial off.
    */
   async inventory(cancellation?: AbortSignal, options: { includeChargingDays?: boolean; allowPartial?: boolean } = {}): Promise<MegaInventory> {
     this.#requireAuthentication();
