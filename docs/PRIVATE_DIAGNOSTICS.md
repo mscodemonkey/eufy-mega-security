@@ -110,6 +110,11 @@ python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py capture --target-ind
 Open the camera's live view in Home Assistant while capture runs. Add
 `--seconds 60` only if we've asked for a longer capture.
 
+A successful capture prints `"bundleSaved": true`. The file to send is
+`/config/eufy-diagnostics.json.gz` for the normal command above, or the filename
+you chose with `--output`. `diagnostic-bundle.py` is the tool you ran, not the
+captured bundle. If capture failed, send only its final error in your issue.
+
 Retrieve the saved file from `/config` using your usual private file access,
 such as Samba. Don't move it into `/config/www`. Then go to step 4.
 If you don't have terminal or file access, tell us in the issue and we'll help.

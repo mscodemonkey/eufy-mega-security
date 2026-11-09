@@ -376,7 +376,10 @@ class DiagnosticBundleTests(unittest.TestCase):
             config = root / ".storage/core.config_entries"
             target = root / "bundle.json.gz"
             body = encoded(evidence())
-            TOOL.save_archive(config, target, body)
+            result = TOOL.save_archive(config, target, body)
+            self.assertTrue(result["bundleSaved"])
+            self.assertIn("--output", result["next"])
+            self.assertNotIn(str(target), json.dumps(result))
             self.assertEqual(target.stat().st_mode & 0o777, 0o600)
             self.assertEqual(TOOL.read_archive(target), body)
             with self.assertRaises(Exception):
