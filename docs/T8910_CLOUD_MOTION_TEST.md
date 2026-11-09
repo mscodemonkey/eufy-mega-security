@@ -47,3 +47,41 @@ python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py state-check --target
 
 Share only the displayed T8910 summary. The utility accepts only the closed age
 categories, never raw event timestamps. Keep the existing account and settings.
+
+## Shared-account device-list comparison
+
+The separate **T8910 device-list comparison** source reads the cloud list that
+shared accounts already use for discovery. It does not call the owner-only
+parameter endpoint or borrow an owner identity. Exact T8910/type 10 through
+HomeBase 2/type 0 or HomeBase 3/type 18 is required. Device, parent, unique
+channel and current-account bindings must remain unchanged across both lists.
+
+Select that source in **Read-only state check**, consent and choose **Run once**.
+The check takes two fresh inventory snapshots ten seconds apart, then discards
+them. Cancelling, changing source/device or leaving the page cancels the check.
+The existing separate parameter-API source remains available and keeps its
+original admission checks.
+
+The terminal helper selects the new source explicitly:
+
+```sh
+python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py state-check --target-index 1 --consent-read --device-list
+```
+
+The summary adds `source=device_list` and one change classification:
+
+- `advanced`: both values were interpretable, and the later instant increased.
+- `unchanged`: both values represented the same instant.
+- `regressed`: the later instant was earlier. Do not treat it as new motion.
+- `unavailable`: either value was absent, unset, future, invalid or conflicting.
+
+It also reports the second value's existing coarse age category. Neither raw
+instant is returned or logged. A short unchanged or missing window does not
+prove the backend never updates that field. An advance does not establish that
+every detection is represented, how quickly it arrives or whether it works with
+different phone-alert settings. Keep the current account, notifications and
+security mode. Use ordinary activity only, without manufacturing a trigger.
+
+This diagnostic does not ingest either snapshot into normal state, change the
+existing inventory polling clock, publish a motion event or send a peer command.
+Real shared-account availability and motion coverage remain unconfirmed.

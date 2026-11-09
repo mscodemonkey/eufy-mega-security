@@ -9,7 +9,7 @@ import { diagnosticsPage } from "../src/diagnostics/page.js";
 
 test("state-check browser requires consent and drops cancelled or stale replies", async () => {
   const elements = new Map<string, { value: string; checked: boolean; textContent: string; disabled: boolean; hidden: boolean;
-    onclick?: () => Promise<void>; listeners: Map<string, () => void>; addEventListener: (event: string, action: () => void) => void;
+    onchange?: () => void; onclick?: () => Promise<void>; listeners: Map<string, () => void>; addEventListener: (event: string, action: () => void) => void;
     replaceChildren: () => void; removeAttribute: () => void }>();
   const element = (id: string) => {
     if (!elements.has(id)) {
@@ -23,7 +23,8 @@ test("state-check browser requires consent and drops cancelled or stale replies"
   let calls = 0, finish!: (value: unknown) => void, signal: AbortSignal | undefined;
   const fetch = async (path: string, options: { signal: AbortSignal; body: string }) => {
     calls++; assert.equal(path, "api/diagnostics/parameter-check");
-    assert.deepEqual(JSON.parse(options.body), { serial: "selected", consent: true });
+    assert.deepEqual(JSON.parse(options.body), { serial: "selected", consent: true,
+      ...(element("parameter-source").value === "device_list" ? { source: "device_list" } : {}) });
     signal = options.signal;
     return { ok, json: () => new Promise(resolve => { finish = resolve; }) };
   };
@@ -61,5 +62,15 @@ test("state-check browser requires consent and drops cancelled or stale replies"
     assert.doesNotMatch(element("parameter-status").textContent, /SENTINEL/);
     assert.match(element("parameter-status").textContent, /Keep your current account/);
   }
+  element("parameter-source").value = "device_list";
+  element("parameter-consent").checked = true;
+  const listJob = element("parameter-start").onclick!();
+  await new Promise(resolve => setImmediate(resolve));
+  element("parameter-source").value = "";
+  element("parameter-source").onchange!();
+  assert.equal(signal?.aborted, true);
+  finish({ model: "T8910", source: "device_list", change: "advanced" });
+  await listJob;
+  assert.equal(element("parameter-status").textContent, "No state check running.");
   assert.match(diagnosticsPage(), /6250 candidate is not a lens-position readback/);
 });

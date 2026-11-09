@@ -26,9 +26,16 @@ export type ParameterCheckModel = "T8410" | "T8417" | "T8030" | "T8910";
 /** Cached value classes only. Time bands use the gateway receipt clock, never live-device freshness. */
 export type ParameterObservation = "missing" | "zero" | "one" | "valid" | "invalid" | "conflicting" | "unset" | "recent" | "older" | "future";
 
+/** Direction of a valid timestamp comparison, without exposing either instant. */
+export type MotionTimeChange = "advanced" | "unchanged" | "regressed" | "unavailable";
+
 /** Identifier-free result owned by one manual read, never merged into gateway state. */
 export interface ParameterCheckSummary {
   readonly model: ParameterCheckModel;
+
+  /** Present only for the separate, bounded T8910 device-list comparison. */
+  readonly source?: "device_list";
+  readonly change?: MotionTimeChange;
   readonly profile: "power_candidates" | "privacy_candidates" | "alarm_volume_candidate" | "motion_time_candidate";
 
   /** Selected parameter IDs and fixed classes, without raw values or event timestamps. */
@@ -86,11 +93,34 @@ export function projectReportedParameters(model: ParameterCheckModel, value: unk
   return { model, profile: selected.profile, observations };
 }
 
+/**
+ * Compare two selected-device parameter tables without retaining either value.
+ * Only valid, non-future timestamps qualify. An unchanged or absent value over
+ * this short window does not establish that the backend never updates it.
+ */
+export function projectDeviceListMotion(before: unknown, after: unknown, receivedAtMilliseconds = Date.now()): ParameterCheckSummary {
+  const first = projectReportedParameters("T8910", before, receivedAtMilliseconds);
+  const second = projectReportedParameters("T8910", after, receivedAtMilliseconds);
+  const instant = (table: unknown, summary: ParameterCheckSummary): number | null => {
+    if (!["recent", "older"].includes(summary.observations["1605"]!)) return null;
+    const rows = (table as { params: Record<string, unknown>[] }).params;
+    const raw = scalar(rows.find(row => record(row) && scalar(row.param_type) === 1605)?.param_value);
+    return raw === null ? null : raw >= 946_684_800_000 ? raw : raw * 1_000;
+  };
+  const initial = instant(before, first), latest = instant(after, second);
+  const change: MotionTimeChange = initial === null || latest === null ? "unavailable"
+    : latest > initial ? "advanced" : latest < initial ? "regressed" : "unchanged";
+  return { ...second, source: "device_list", change };
+}
+
 /** Validate the provider DTO again before returning it to a browser or logger. */
 export function validateParameterSummary(value: unknown): ParameterCheckSummary {
-  if (!record(value) || Object.keys(value).sort().join() !== "model,observations,profile"
+  if (!record(value) || Object.keys(value).sort().join() !== (value.source === "device_list"
+    ? "change,model,observations,profile,source" : "model,observations,profile")
     || typeof value.model !== "string" || !Object.hasOwn(profiles, value.model)) throw new ParameterCheckError("invalid_response");
   const model = value.model as ParameterCheckModel, selected = profiles[model];
+  if (value.source === "device_list" && (model !== "T8910"
+    || typeof value.change !== "string" || !["advanced", "unchanged", "regressed", "unavailable"].includes(value.change))) throw new ParameterCheckError("invalid_response");
   if (value.profile !== selected.profile || !record(value.observations)
     || Object.keys(value.observations).sort().join() !== selected.fields.map(String).sort().join()) throw new ParameterCheckError("invalid_response");
   const observations: Record<string, ParameterObservation> = {};
@@ -100,11 +130,12 @@ export function validateParameterSummary(value: unknown): ParameterCheckSummary 
     if (typeof observation !== "string" || !allowed.includes(observation)) throw new ParameterCheckError("invalid_response");
     observations[id] = observation as ParameterObservation;
   }
-  return { model, profile: selected.profile, observations };
+  return { model, profile: selected.profile, observations,
+    ...(value.source === "device_list" ? { source: "device_list" as const, change: value.change as MotionTimeChange } : {}) };
 }
 
 /** Format only fixed metadata, masking binary candidates so logs cannot disclose privacy state. */
 export function parameterCheckLog(value: unknown): string {
   const result = validateParameterSummary(value);
-  return `model=${result.model} outcome=read ${Object.entries(result.observations).map(([id, shape]) => `${id}=${shape === "zero" || shape === "one" ? "valid" : shape}`).join(" ")}`;
+  return `model=${result.model} outcome=read${result.source ? ` source=${result.source} change=${result.change}` : ""} ${Object.entries(result.observations).map(([id, shape]) => `${id}=${shape === "zero" || shape === "one" ? "valid" : shape}`).join(" ")}`;
 }

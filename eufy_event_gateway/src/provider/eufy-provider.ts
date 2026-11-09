@@ -15,7 +15,7 @@
 import { ppcsSourceDiagnostic } from "../diagnostics/ppcs-source-diagnostic.js";
 import { GENERATED_CATALOGUE_DEVICES } from "./devices/generated-catalogue.js";
 import { classicLockInventory } from "./classic-lock-inventory.js";
-import { ParameterCheckError, parameterCheckLog, type ParameterCheckModel, type ParameterCheckSummary } from "./reported-parameter-check.js";
+import { ParameterCheckError, parameterCheckLog, projectDeviceListMotion, type ParameterCheckModel, type ParameterCheckSummary } from "./reported-parameter-check.js";
 import { nvrLiveProfile, NvrLiveControlError, type NvrLiveControl, type NvrLiveControlResult } from "./nvr-live-controls.js";
 import { NvrModeObserver } from "./nvr-mode-observer.js";
 import { S120LightTrialError, type S120LightFailureStage } from "./s120-light-diagnostic.js";
@@ -1071,7 +1071,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
    * This flight owns cancellation only. It never ingests those snapshots into
    * normal state, opens a peer, or treats cached candidates as control readback.
    */
-  async readReportedParameters(serial: string, signal: AbortSignal): Promise<ParameterCheckSummary> {
+  async readReportedParameters(serial: string, signal: AbortSignal, source?: "device_list"): Promise<ParameterCheckSummary> {
     if (this.#rtcPreparation.gated) throw new ParameterCheckError("busy");
     if (this.#recordingClosing) throw new ParameterCheckError("shutdown");
     if (!this.config.experimentalModelControls) throw new ParameterCheckError("disabled");
@@ -1081,6 +1081,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (!device || !((device.model === "T8410" && device.deviceType === 31)
       || (device.model === "T8417" && device.deviceType === 105) || (device.model === "T8030" && device.deviceType === 18)
       || (device.model === "T8910" && device.deviceType === 10))) throw new ParameterCheckError("unsupported");
+    if (source !== undefined && (source !== "device_list" || device.model !== "T8910")) throw new ParameterCheckError("unsupported");
     const attached = !!device.parentSerial && device.parentSerial !== serial;
     const parent = attached ? this.#devices.get(device.parentSerial) : undefined;
     if (device.model === "T8910" && !attached) throw new ParameterCheckError("unsupported");
@@ -1090,7 +1091,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
     // Cloud reads use the current session token. Eufy authorizes that token,
     // rather than treating an inventory administrator ID as an account-role proof.
-    if (!device.adminUserId || (parent && parent.adminUserId !== device.adminUserId)) {
+    if (!source && (!device.adminUserId || (parent && parent.adminUserId !== device.adminUserId))) {
       logger.warn("reported_parameter_check", `model=${device.model} outcome=owner_binding_unavailable`);
       throw new ParameterCheckError("owner_binding_unavailable");
     }
@@ -1121,9 +1122,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       try { const result = await Promise.race([Promise.resolve().then(() => { current(); return operation(); }), cancelled]); current(); return result; }
       finally { controller.signal.removeEventListener("abort", cancel); }
     };
-    const fresh = async (): Promise<void> => {
+    const fresh = async () => {
       let inventory;
-      try { inventory = await owned(() => this.#client.inventory(controller.signal)); }
+      try { inventory = await owned(() => source === "device_list"
+        ? this.#client.inventory(controller.signal, { includeChargingDays: false })
+        : this.#client.inventory(controller.signal)); }
       catch (error) { throw error instanceof ParameterCheckError ? error : new ParameterCheckError("inventory"); }
       const rows = parseMegaInventory(inventory);
       for (const selected of parent ? [device, parent] : [device]) {
@@ -1132,11 +1135,21 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         if (raw.length !== 1 || raw[0]!.device_type !== selected.deviceType || !parsed || inventoryBindingChanged(selected, parsed)) throw new ParameterCheckError("binding_changed");
       }
       if (parent && rows.filter(row => row.parentSerial === parent.serial && row.channel === device.channel).length !== 1) throw new ParameterCheckError("binding_changed");
+      const params = inventory.devices.find(row => row.device_sn === serial)!.params;
+      return { params: params === undefined ? [] : params };
     };
     try {
-      await fresh();
-      const summary = await owned(() => this.#client.readReportedParameters(serial, device.model as ParameterCheckModel, controller.signal));
-      await fresh(); current();
+      const before = await fresh();
+      let summary: ParameterCheckSummary;
+      if (source === "device_list") {
+        await owned(() => waitForMotionListComparison(controller.signal));
+        const after = await fresh();
+        summary = projectDeviceListMotion(before, after);
+      } else {
+        summary = await owned(() => this.#client.readReportedParameters(serial, device.model as ParameterCheckModel, controller.signal));
+        await fresh();
+      }
+      current();
       logger.info("reported_parameter_check", parameterCheckLog(summary));
       return summary;
     } catch (error) {
@@ -7607,6 +7620,22 @@ async function guardDelay(milliseconds: number, signal: AbortSignal): Promise<vo
     const done = (): void => { signal.removeEventListener("abort", abort); resolve(); };
     const timer = setTimeout(done, milliseconds);
     const abort = (): void => { clearTimeout(timer); signal.removeEventListener("abort", abort); reject(new NvrGuardError("inventory")); };
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+  });
+}
+
+
+/** Own the bounded diagnostic interval and retire its timer on cancellation. */
+function waitForMotionListComparison(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const finish = (): void => { signal.removeEventListener("abort", abort); resolve(); };
+    const timer = setTimeout(finish, 10_000);
+    const abort = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+      reject(new ParameterCheckError("cancelled"));
+    };
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) abort();
   });

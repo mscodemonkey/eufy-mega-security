@@ -86,8 +86,8 @@ export interface ProviderEvents {
 /** Lifecycle and stream operations required by the gateway server. */
 export interface CameraProvider {
 
-  /** Read cached candidate field shapes once without updating state or enabling controls. */
-  readReportedParameters?(serial: string, signal: AbortSignal): Promise<ParameterCheckSummary>;
+  /** Read cached candidate shapes without updating state. The T8910 list source compares two fresh lists. */
+  readReportedParameters?(serial: string, signal: AbortSignal, source?: "device_list"): Promise<ParameterCheckSummary>;
 
   /** Read current NVR admission without opening media. Optional quality checks the exact profile. */
   nvrLiveSettingAdmitted?(serial: string, quality?: number): boolean;

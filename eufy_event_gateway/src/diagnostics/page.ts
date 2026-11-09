@@ -21,7 +21,9 @@ export function diagnosticsPage(): string {
 <details><summary>Read-only state check</summary>
 <p>For T8410, T8417, HomeBase 3 (T8030) and T8910 sensors through HomeBase 2 or 3 only. Enable Experimental model controls first. This asks Eufy to authorise one cloud read using your existing account. It leaves settings unchanged and does not enable controls. Cloud readings may lag. The 6250 candidate is not a lens-position readback.</p>
 <p>For a T8910, this checks whether a separate cloud read reports a cached motion time. Recent means within one minute of the gateway clock. It does not confirm motion delivery or enable a polling receiver. Keep your current notification and security settings.</p>
-<label><input id="parameter-consent" type="checkbox"> I agree to one read of cached candidate field shapes for the selected device.</label>
+<label>Read source <select id="parameter-source"><option value="">Separate parameter API</option><option value="device_list">T8910 device-list comparison</option></select></label>
+<p>The T8910 device-list check uses your current account and compares two cloud lists ten seconds apart. It reports only a time band and whether the timestamp advances. An unchanged value in this short window does not rule out later updates. It does not change settings or feed its results into HA.</p>
+<label><input id="parameter-consent" type="checkbox"> I agree to the selected read-only check of cached candidate fields.</label>
 <button id="parameter-start">Run once</button><button id="parameter-cancel">Cancel state check</button>
 <pre id="parameter-status" role="status">No state check started.</pre></details>
 <details id="trials"><summary>Experimental model controls</summary>
@@ -189,15 +191,17 @@ function cancelParameterCheck() {
   parameterJob = null; el('parameter-consent').checked = false;
   el('parameter-status').textContent = 'No state check running.';
 }
+el('parameter-source').onchange = cancelParameterCheck;
 el('parameter-start').onclick = async () => {
   const selected = el('device').value;
   if(parameterJob || !selected || !el('parameter-consent').checked) return;
+  const source = el('parameter-source').value;
   const job = new AbortController(); parameterJob = job; el('parameter-consent').checked = false;
   el('parameter-status').textContent = 'Reading cached candidate fields...';
   try {
     const response = await fetch('api/diagnostics/parameter-check', { method: 'POST', signal: job.signal, cache: 'no-store',
       headers: { Authorization: 'Bearer ' + el('token').value, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ serial: selected, consent: true }) });
+      body: JSON.stringify({ serial: selected, consent: true, ...(source === 'device_list' ? { source } : {}) }) });
     const result = await response.json();
     if(parameterJob !== job || job.signal.aborted || el('device').value !== selected) return;
     el('parameter-status').textContent = response.ok ? 'Cached candidates only, not physical state or control permission.\\n' + JSON.stringify(result)

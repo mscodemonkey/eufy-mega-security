@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ParameterCheckError, parameterCheckLog, projectReportedParameters, validateParameterSummary } from "../src/provider/reported-parameter-check.js";
+import { projectDeviceListMotion, ParameterCheckError, parameterCheckLog, projectReportedParameters, validateParameterSummary } from "../src/provider/reported-parameter-check.js";
 
 for (const model of ["T8410", "T8417", "T8030"] as const) {
   test(`${model} drops private fields and projects only fixed candidates`, () => {
@@ -88,4 +88,23 @@ test("T8910 distinguishes absent, unset, old and future cache values without inf
     assert.throws(() => validateParameterSummary({ ...good, observations: { 1605: value } }), ParameterCheckError);
   }
   for (const clock of [NaN, Infinity, -1]) assert.throws(() => projectReportedParameters("T8910", { params: [] }, clock), ParameterCheckError);
+});
+
+
+test("device-list comparison normalizes instants and rejects private metadata", () => {
+  const now = 1_800_000_000_000;
+  const table = (value: unknown) => ({ params: [{ param_type: 1605, param_value: value }] });
+  for (const [before, after, expected] of [
+    [now - 1_000, now, "advanced"], [now / 1_000, now, "unchanged"], [now, now - 1_000, "regressed"],
+    [0, now, "unavailable"], ["private", now, "unavailable"], [now, now + 60_000, "unavailable"],
+  ]) {
+    const result = projectDeviceListMotion(table(before), table(after), now);
+    assert.equal(result.change, expected);
+    assert.equal(result.source, "device_list");
+    assert.deepEqual(validateParameterSummary(result), result);
+    assert.doesNotMatch(parameterCheckLog(result), /180000000|private/);
+  }
+  const summary = projectDeviceListMotion(table(now), table(now), now);
+  for (const value of [{ ...summary, change: "private" }, { ...summary, extra: now },
+    { ...summary, model: "T8410" }, { ...summary, source: "unknown" }]) assert.throws(() => validateParameterSummary(value));
 });
