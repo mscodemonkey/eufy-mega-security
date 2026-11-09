@@ -18,6 +18,7 @@ import { classicLockInventory } from "./classic-lock-inventory.js";
 import { ParameterCheckError, parameterCheckLog, type ParameterCheckModel, type ParameterCheckSummary } from "./reported-parameter-check.js";
 import { nvrLiveProfile, NvrLiveControlError, type NvrLiveControl, type NvrLiveControlResult } from "./nvr-live-controls.js";
 import { NvrModeObserver } from "./nvr-mode-observer.js";
+import { S120LightTrialError, type S120LightFailureStage } from "./s120-light-diagnostic.js";
 import type { NvrEffectiveMode, NvrEffectiveModeObservation } from "../stream/nvr-effective-mode.js";
 import type { NvrLiveSettings } from "../stream/nvr-live-control-protocol.js";
 import { InventoryMotionClock, type InventoryMotionOutcome } from "./inventory-motion.js";
@@ -3731,7 +3732,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   async #performS120LightTrial(serial: string, request: Extract<ModelControlTrial, { action: "manualLight" }>,
     signal?: AbortSignal): Promise<ModelControlTrialResult> {
-    const unknown = (): Error => new Error("Manual light test did not confirm the light state. Check the light and restore it before trying again.");
+    let stage: S120LightFailureStage = "admission", failedStage: S120LightFailureStage | undefined;
+    let writeAttempted = false, acknowledgementReceived = false;
+    const unknown = (): Error => new S120LightTrialError(stage, writeAttempted, acknowledgementReceived);
     const device = this.#devices.get(serial), peer = device ? this.#devices.get(device.parentSerial) : undefined;
     const route = device ? ppcsStreamRoute(device, this.#devices) : null;
     if (!this.config.experimentalModelControls || !device || !peer || !route
@@ -3739,6 +3742,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       || !device.adminUserId || device.adminUserId !== peer.adminUserId
       || !this.#client.isAuthenticatedUser(device.adminUserId) || signal?.aborted || this.#recordingClosing
       || !isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys()))) throw unknown();
+    stage = "busy";
     const controls = [this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations,
       this.#audioRecordingOperations, this.#motionOperations, this.#nightVisionOperations, this.#guardModeOperations,
       this.#lightOperations, this.#panControlOperations, this.#cameraSirenOperations];
@@ -3781,7 +3785,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         || !valid(parseMegaInventory(inventory))) throw unknown();
     };
     try {
+      stage = "initial_inventory";
       await fresh();
+      stage = "session_key";
       const dsk = await owned(() => this.#dskKey(peer.serial));
       if (!dsk) throw unknown();
       session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!, appConnection: peer.p2pConnection!,
@@ -3789,19 +3795,30 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         stationModel: peer.model, accountId: device.adminUserId!, homeBaseAttached: true, purpose: "control",
         modelControlTrial: true, maxSeconds: 40, resolveCipherKey: id => this.#resolveCipherKey(id, peer) });
       this.#trialSessions.set(peer.serial, session); session.output.once("end", abort); session.output.resume();
-      await owned(() => session!.start()); await fresh();
-      await owned(() => session!.writeModelControlTrial(request, this.#modelTrialRoute(device, route), current));
+      stage = "session_connect";
+      await owned(() => session!.start());
+      stage = "session_inventory";
+      await fresh();
+      stage = "write_prepare";
+      await owned(async () => {
+        await session!.writeModelControlTrial(request, this.#modelTrialRoute(device, route), current, () => {
+          writeAttempted = true; stage = "write_receipt";
+        });
+        acknowledgementReceived = true;
+      });
       current();
       logger.info("model_control_trial_result", "Model control trial: model=T81A0 action=manualLight outcome=acknowledged physical_confirmation_required=true");
       return { outcome: "acknowledged", physicalConfirmationRequired: true };
     } catch {
+      failedStage = stage;
       throw unknown();
     } finally {
       clearTimeout(deadline); signal?.removeEventListener("abort", abort);
-      session?.output.removeListener("end", abort); controller.abort(); session?.close();
+      session?.output.removeListener("end", abort); controller.abort();
 
       // A peer remains busy while its local disconnect is still retiring.
-      try { await session?.waitUntilClosed(); }
+      try { session?.close(); await session?.waitUntilClosed(); }
+      catch { throw new S120LightTrialError(failedStage ?? "cleanup", writeAttempted, acknowledgementReceived, true); }
       finally {
         if (this.#trialSessions.get(peer.serial) === session) this.#trialSessions.delete(peer.serial);
         this.#manualControlAborters.delete(peer.serial); releaseTrialPeer();

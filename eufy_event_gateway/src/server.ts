@@ -45,6 +45,7 @@ import type { GatewayEvent } from "./domain/types.js";
 import { createLogger, observeLogEvents } from "./logging.js";
 import { S100SirenTrialError, type S100SirenFailureStage } from "./provider/s100-siren-trial.js";
 import { parseModelControlTrial, closedAlarmStateResult, closedSpotlightStateResult } from "./provider/model-control-trials.js";
+import { s120LightFailureDiagnostic } from "./provider/s120-light-diagnostic.js";
 import { E30LockError } from "./provider/e30-lock-protocol.js";
 import { CameraSettingError, parseCameraSettingChange } from "./provider/camera-settings.js";
 import { validateC31Preference } from "./provider/c31-preferences.js";
@@ -1066,8 +1067,8 @@ export class GatewayServer {
             if (controller.signal.aborted || result.outcome !== "acknowledged") throw new Error("Manual light state unknown");
             return json(response, 200, { outcome: "acknowledged", physicalConfirmationRequired: true });
           }
-          catch {
-            logger.warn("model_control_trial_failed", "Model control trial failed: model=T81A0 action=manualLight state=unknown");
+          catch (error) {
+            logger.warn("model_control_trial_failed", `Model control trial failed: model=T81A0 action=manualLight state=unknown ${s120LightFailureDiagnostic(error)}`);
             if (!response.destroyed) return json(response, 409, { error: "Manual light test did not confirm the light state. Check the light and restore it before trying again." });
           }
           finally { controller.abort(); response.removeListener("close", abort); request.removeListener("aborted", abort); }
