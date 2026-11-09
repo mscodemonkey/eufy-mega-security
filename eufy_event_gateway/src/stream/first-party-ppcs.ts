@@ -1487,6 +1487,7 @@ interface AlarmReadOwner {
 }
 
 interface PendingCameraInfo {
+  readonly protectedReply?: boolean;
   readonly resolve: (params: readonly PpcsCameraInfoParam[]) => void;
   readonly reject: (error: Error) => void;
   readonly timer: ReturnType<typeof setTimeout>;
@@ -2027,8 +2028,15 @@ export class FirstPartyPpcsSession {
    * Exact standalone C31 sessions use the SDK integer query on station channel
    * 255. Other routes retain their direct camera-channel query. Decoded replies
    * must satisfy the parameter-table schema and belong to this owned session.
+   * The optional C35 state-only profile uses the app-observed protected integer
+   * query, requires an authenticated reply, and never authorizes a control write.
    */
-  async readCameraInfo(): Promise<readonly PpcsCameraInfoParam[]> {
+  async readCameraInfo(profile?: "c35-spotlight-state"): Promise<readonly PpcsCameraInfoParam[]> {
+    const c35 = profile === "c35-spotlight-state";
+    if (profile !== undefined && (!c35 || this.#options.cameraModel !== "T8110"
+      || this.#options.cameraDeviceType !== 10035 || this.#options.channel !== 0
+      || this.#options.homeBaseAttached !== false || this.#options.purpose !== "control"
+      || !this.#options.modelControlTrial)) throw new CameraInfoReadError("unavailable");
     if (this.#options.purpose !== "control" && !this.#allowsViewerPanControl()) {
       return Promise.reject(new Error("Camera-info refresh requires a control session"));
     }
@@ -2039,10 +2047,18 @@ export class FirstPartyPpcsSession {
     if (this.#pendingCameraInfo) {
       return Promise.reject(new Error("Camera-info refresh is already in progress"));
     }
-    if (this.#options.cameraModel === "T8171"
-      || (this.#options.cameraModel === "T817L" && this.#options.channel === 0)) await this.#waitForLevel2Key();
+    if (c35 || this.#options.cameraModel === "T8171"
+      || (this.#options.cameraModel === "T817L" && this.#options.channel === 0)) {
+      try { await this.#waitForLevel2Key(); } catch (error) {
+        if (c35) throw new CameraInfoReadError("unavailable");
+        throw error;
+      }
+    }
     if (this.#closed || !this.#remote) throw new CameraInfoReadError("unavailable");
     if (this.#pendingCameraInfo) throw new Error("Camera-info refresh is already in progress");
+    const query = c35 ? buildC35CameraInfoQueryPayload(this.#level2Key!, this.#level2Seq++)
+      : this.#options.cameraModel === "T817L" && this.#options.channel === 0
+        ? buildC31CameraInfoQueryPayload() : voidPayload(this.#options.channel);
     const initialFrames = this.stats.cameraInfoFrames;
     return new Promise<readonly PpcsCameraInfoParam[]>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -2051,10 +2067,12 @@ export class FirstPartyPpcsSession {
           this.stats.cameraInfoFrames > initialFrames, this.stats.cameraInfoDecoded, this.stats.cameraInfoParseStage,
         )));
       }, CONTROL_TIMEOUT_MILLISECONDS);
-      this.#pendingCameraInfo = { resolve, reject, timer };
-      if (this.#options.cameraModel === "T817L" && this.#options.channel === 0) {
-        this.#sendCommand(1103, buildC31CameraInfoQueryPayload());
-      } else this.#sendCommand(1103, voidPayload(this.#options.channel));
+      this.#pendingCameraInfo = { resolve, reject, timer, protectedReply: c35 };
+      try { this.#sendCommand(1103, query); } catch {
+        clearTimeout(timer);
+        this.#pendingCameraInfo = null;
+        reject(new CameraInfoReadError("unavailable"));
+      }
     });
   }
 
@@ -3499,6 +3517,7 @@ export class FirstPartyPpcsSession {
     this.stats.cameraInfoDecoded = false;
     this.stats.cameraInfoJsonOffset = -1;
     let clear = payload;
+    if (this.#pendingCameraInfo?.protectedReply && signCode !== 8) return;
     if (signCode === 2 || signCode === 8) {
       if (!this.#level2Key) return;
       const authenticated = decryptLevel2(payload, this.#level2Key, signCode);
@@ -3976,6 +3995,20 @@ export function buildC31CameraInfoQueryPayload(): Buffer {
   const value = Buffer.alloc(4);
   value.writeUInt32LE(255);
   return rawPayload(value, 255, 0, [1, 0], 0);
+}
+
+/**
+ * Encode the app-observed two-integer read query for the standalone C35 trial.
+ * This qualifies request encoding only. A C35 hardware reply is still required.
+ */
+function buildC35CameraInfoQueryPayload(key: Buffer, sequence: number): Buffer {
+  if (key.length !== 32 || !Number.isInteger(sequence) || sequence < 0 || sequence > 255) {
+    throw new CameraInfoReadError("unavailable");
+  }
+  const value = Buffer.alloc(8);
+  value.writeUInt32LE(255);
+  value.writeUInt32LE(903, 4);
+  return rawPayload(encryptLevel2(value, key, sequence), 0, 8, [8, 0], 0);
 }
 
 /** Build the minimal unencrypted body used by commands without a value payload. */

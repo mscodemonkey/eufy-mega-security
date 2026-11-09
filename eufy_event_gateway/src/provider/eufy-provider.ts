@@ -3572,7 +3572,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       failureStage = "session_connect";
       session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid,
         appConnection: peer.p2pConnection, localAddress: peer.localAddress, dskKey: dsk.key,
-        channel: device.channel, cameraModel: device.model, accountId: device.adminUserId,
+        channel: device.channel, cameraModel: device.model, cameraDeviceType: device.deviceType, accountId: device.adminUserId,
         homeBaseAttached: route.homeBaseAttached, purpose: "control", modelControlTrial: true, maxSeconds: 40,
         resolveCipherKey: cipherId => this.#resolveCipherKey(cipherId, peer),
         ...(["siren", "sirenConnection"].includes(request.action)
@@ -3587,7 +3587,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       let result: ModelControlTrialResult;
       if (request.action === "spotlightState") {
         failureStage = "initial_read";
-        const params = await owned.readCameraInfo();
+        const params = await owned.readCameraInfo("c35-spotlight-state");
         checkOwnership();
         const value = safeInventoryReads(params, device.deviceType, device.model,
           !route.homeBaseAttached && device.channel === 0).spotlightEnabled;
