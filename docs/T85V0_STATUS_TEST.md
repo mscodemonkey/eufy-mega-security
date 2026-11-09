@@ -28,17 +28,17 @@ connection may briefly compete with viewing in the Eufy app. A completed
 connection attempt has a ten-second cooldown. No reply or an unknown state
 does not establish that the lock is unsupported.
 
-The check accepts only the authenticated owner account and a unique current
-child channel. Shared accounts, changed bindings and a busy HomeBase are
-refused. It checks cloud inventory around the request and may contact Eufy to
+The check accepts an existing authenticated owner or shared account and a unique
+current child channel. It follows the app by selecting the device administrator
+identity for this read, while retaining the signed-in account for cloud access.
+Account changes, changed device bindings and a busy HomeBase are refused. It checks cloud inventory around the request and may contact Eufy to
 find the HomeBase. The reply must match the encrypted connection, selected
 channel and this query. There is no command replay or alternative write path.
 
 
 Admission failures can now include a fixed reason in the displayed summary and the
-`lock_status_trial_failed` line. This distinguishes an owner-account requirement,
-an unavailable HomeBase route or key, an unsupported model, and missing or changed
-inventory binding. No account or device values appear in these reasons. Please do
+`lock_status_trial_failed` line. This distinguishes missing authentication, an unavailable HomeBase route or key,
+an unsupported model, and missing or changed account/inventory binding. No account or device values appear in these reasons. Please do
 not change accounts or operate the lock to get past a refusal.
 
 Fresh ownership checks also run around the read. An admission failure can therefore
