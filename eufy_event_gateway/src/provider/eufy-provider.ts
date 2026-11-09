@@ -3301,12 +3301,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       && before.p2pConnection === after.p2pConnection && before.cipherId === after.cipherId;
   }
 
-  /** Retain only complete raw E21 routes; missing metadata never borrows an older owner or transport. */
+  /** Retain complete E21 media routes for the current account; preference writes check ownership separately. */
   #observeE21Inventory(devices: readonly MegaInventoryDevice[], generation: number, sequence: number): void {
     this.#e21Inventory.clear();
     for (const device of devices) {
       if (!isE21(device) || device.parentSerial !== device.serial || device.channel !== 0
-        || !device.p2pDid || !device.p2pConnection || !device.adminUserId || !this.#client.isAuthenticatedUser(device.adminUserId)) continue;
+        || !device.p2pDid || !device.p2pConnection || !device.adminUserId) continue;
       this.#e21Inventory.set(device.serial, { device, generation, sequence });
     }
   }
