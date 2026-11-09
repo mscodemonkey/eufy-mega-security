@@ -784,6 +784,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #cameraSirenAborters = new Map<string, AbortController>();
   readonly #panControlOperations = new Map<string, Promise<void>>();
   readonly #pendingSensorMotionCloudConfirmations = new Map<string, { receivedAt: number }>();
+  /** One paced inventory retry belongs to the current startup generation. */
+  #startupInventoryRetry: NodeJS.Timeout | null = null;
+
+  /** Fresh partial discovery may restore media, while confirmation reads remain complete-only. */
+  #inventoryIncomplete = false;
+
   readonly #sensorMotionClocks = new Map<string, { device: MegaInventoryDevice; clock: InventoryMotionClock }>();
   readonly #liveDeviceReads = new Map<string, MegaInventoryReads>();
   readonly #liveDeviceParamTypes = new Map<string, readonly number[]>();
@@ -4566,8 +4572,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
-  /** Replace generation-owned read polling before startup or sign-in recovery. */
-  async #completeStartup(events: ProviderEvents, generation = ++this.#startupGeneration, allowLoginRecovery = true): Promise<void> {
+  /**
+   * Replace generation-owned polling before startup or sign-in recovery.
+   * Repeated inventory refusals back off from one to five minutes without
+   * replaying authentication. A replacement startup begins a fresh retry lifetime.
+   */
+  async #completeStartup(events: ProviderEvents, generation = ++this.#startupGeneration, allowLoginRecovery = true, inventoryRetryAttempt = 0): Promise<void> {
     this.#retirePictureOwners();
     if (this.#stationRefreshTimer) clearInterval(this.#stationRefreshTimer);
     this.#stationRefreshTimer = null;
@@ -4575,13 +4585,29 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#inventoryRefreshTimer = null;
     this.#retireInventoryRefresh();
     try { await this.#runStartup(events, generation, allowLoginRecovery); }
-    catch (error) { if (generation !== this.#startupGeneration) return; throw error; }
+    catch (error) {
+      if (generation !== this.#startupGeneration || this.#recordingClosing) return;
+      if (!this.#client.isInventoryTemporarilyUnavailable(error)) throw error;
+      events.connection("disconnected", "Eufy inventory is temporarily unavailable. The gateway will retry automatically.");
+      const delay = Math.min(300_000, 60_000 * 2 ** inventoryRetryAttempt);
+      logger.warn("inventory_startup_retry", `Read-only startup inventory retry scheduled: delay_seconds=${delay / 1_000}`);
+      this.#startupInventoryRetry = setTimeout(() => {
+        this.#startupInventoryRetry = null;
+        if (generation !== this.#startupGeneration || this.#recordingClosing) return;
+        void this.#completeStartup(events, generation, false, Math.min(inventoryRetryAttempt + 1, 3)).catch((failure: unknown) => {
+          if (generation !== this.#startupGeneration || this.#recordingClosing) return;
+          events.connection("error", "Eufy inventory startup could not complete.");
+          logger.warn("inventory_startup_failed", `Inventory startup failed: error=${safeError(failure)}`);
+        });
+      }, delay);
+      this.#startupInventoryRetry.unref?.();
+    }
   }
 
   async #runStartup(events: ProviderEvents, generation: number, allowLoginRecovery = true): Promise<void> {
     let inventory;
     try {
-      inventory = await this.#client.inventory();
+      inventory = await this.#client.inventory(undefined, { allowPartial: !this.#rtcPreparationOwner });
       if (generation !== this.#startupGeneration) return;
     } catch (error) {
       if (generation !== this.#startupGeneration) return;
@@ -4600,7 +4626,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         events.connection("authentication-required", detail);
         return;
       }
-      inventory = await this.#client.inventory();
+      inventory = await this.#client.inventory(undefined, { allowPartial: !this.#rtcPreparationOwner });
       if (generation !== this.#startupGeneration) return;
     }
     this.#nvrObserveOwners(inventory);
@@ -4611,6 +4637,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         preparation.binding.child.administrator, parseMegaInventory);
       if (JSON.stringify(binding) !== JSON.stringify(preparation.binding)) throw new GeneralRtcPreparationError("admission");
     }
+    this.#inventoryIncomplete = inventory.complete === false;
     const devices = parseMegaInventory(inventory);
     this.#observeE21Inventory(devices, generation, ++this.#e21FetchSequence);
     this.#observeLockInventory(inventory.devices, true);
@@ -4752,7 +4779,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       logger.warn("push_start_unavailable", "Push startup unavailable. Camera startup remains independent.");
     });
     if (generation !== this.#startupGeneration) return;
-    if (!this.#rtcPreparation.gated) events.connection("connected", "Cameras and snapshots are ready. Push event delivery is reported separately.");
+    if (!this.#rtcPreparation.gated) events.connection("connected", this.#inventoryIncomplete
+      ? "Fresh cameras are available from partial inventory. Complete cloud discovery is still unavailable."
+      : "Cameras and snapshots are ready. Push event delivery is reported separately.");
     if (!this.#rtcPreparation.gated) await Promise.allSettled(
       [...this.#stations.values()]
         .filter(({ serial }) => {
@@ -4815,6 +4844,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Detach generation-owned flights so replacement startup cannot join retired work. */
   #retireInventoryRefresh(): void {
+    if (this.#startupInventoryRetry) clearTimeout(this.#startupInventoryRetry);
+    this.#startupInventoryRetry = null;
     this.#t8417ReadShapes.reset();
     this.#inventoryReadyGeneration = null;
     this.#e21Inventory.clear();
@@ -4868,6 +4899,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const pushesAtReceipt = new Map(this.#pendingSensorMotionCloudConfirmations);
     const refreshed = parseMegaInventory(inventory);
     if (generation !== this.#startupGeneration) throw new Error("Inventory refresh cancelled");
+    if (this.#inventoryIncomplete && inventory.complete !== false) {
+      this.#inventoryIncomplete = false;
+      events.connection("connected", "Cameras and snapshots are ready. Push event delivery is reported separately.");
+    }
     this.#observeE21Inventory(refreshed, generation, sequence);
     this.#nvrObserveOwners(inventory);
     this.#observeLockInventory(inventory.devices);

@@ -63,6 +63,17 @@ const LOGIN_CREDENTIALS_REJECTED_LEGACY = 26006;
 const LOGIN_ATTEMPTS_REJECTED = 10019;
 
 /**
+ * Marks only an inventory application's temporary refusal, without response data.
+ * The client owns classification and the provider owns paced startup recovery.
+ * Permission, schema, cancellation and authentication errors never use this marker.
+ */
+class MegaInventoryUnavailableError extends Error {
+  constructor(stage: "request" | "houses" | "pages") {
+    super(`Inventory is temporarily unavailable: stage=${stage}`);
+  }
+}
+
+/**
  * Marks a terminal login-attempt rejection without retaining request or response data.
  * MegaClient creates this short-lived marker at response classification, and the
  * provider consumes its identity to retire only the current sign-in form.
@@ -97,6 +108,7 @@ type MegaOperation = "login" | "account_check" | "inventory" | "lock_credentials
 export function megaOperation(path: string): MegaOperation {
   const operations: Readonly<Record<string, MegaOperation>> = {
     "/app/house/get_devs_list": "inventory",
+    "/app/house/get_house_list": "inventory",
     "/passport/login": "login",
     "/passport/validate_email": "account_check",
     "/app/devicemanage/get_user_mqtt_info": "lock_credentials",
@@ -548,18 +560,107 @@ export class MegaClient {
    * Fetch current account inventory, cancelling only this read when its caller retires.
    * A control confirmation can omit unrelated charging history. That mode removes
    * the house API's placeholder values and leaves charging metadata unqueried.
+   * Only cold discovery may opt into fresh partial pages, identified by
+   * complete=false. Omitted devices then establish neither removal nor permission
+   * changes, so control confirmation and normal refresh must leave allowPartial off.
    */
-  async inventory(cancellation?: AbortSignal, options: { includeChargingDays?: boolean } = {}): Promise<MegaInventory> {
+  async inventory(cancellation?: AbortSignal, options: { includeChargingDays?: boolean; allowPartial?: boolean } = {}): Promise<MegaInventory> {
     this.#requireAuthentication();
     const lifetime = cancellation ? AbortSignal.any([this.#requestLifetime.signal, cancellation]) : this.#requestLifetime.signal;
     const result = await this.#call("house", "/app/house/get_devs_list", { house_id: "", device_sns: {} }, true, undefined, cancellation);
-    const value = this.#decodeResult(result);
+    if (result.code === 10003 && result.msg === "Failed to request.") {
+
+      // This exact inventory refusal was observed after generic application
+      // errors. Retry the same read later without another page, login or write.
+      createLogger("mega").warn("inventory_request_unavailable", "application_code=10003");
+      throw new MegaInventoryUnavailableError("request");
+    }
+    const value = result.code === -1 ? await this.#inventoryByHouse(lifetime, options.allowPartial === true) : this.#decodeResult(result);
     if (!isRecord(value) || !Array.isArray(value.devices)) throw new Error("Mega returned an invalid device inventory");
     lifetime.throwIfAborted();
     const chargingDays = options.includeChargingDays === false ? new Map<string, unknown>()
       : await this.#legacyChargingDays(cancellation).catch(() => new Map<string, unknown>());
     lifetime.throwIfAborted();
-    return projectMegaInventory(value, chargingDays);
+    const projected = projectMegaInventory(value, chargingDays);
+    return result.code === -1 && options.allowPartial === true && isRecord(value) && value.complete === false
+      ? { ...projected, complete: false } : projected;
+  }
+
+  /**
+   * Recover only the primary inventory's application-error refusal through the
+   * SDK's default and per-house reads under the same account binding. Startup
+   * may explicitly retain fresh affirmative rows with complete=false. Normal
+   * reads and control confirmation require every page. Conflicting bindings
+   * are always rejected, and no login or device command is replayed.
+   */
+  async #inventoryByHouse(parent: AbortSignal, allowPartial: boolean): Promise<{ devices: Record<string, unknown>[]; complete?: boolean }> {
+    const bound = this.authenticatedBinding();
+    const signal = AbortSignal.any([parent, AbortSignal.timeout(60_000)]);
+    const current = (): void => {
+      signal.throwIfAborted();
+      if (!bound?.()) throw new Error("Inventory fallback binding changed");
+    };
+    const unavailable = Symbol("inventory application refusal");
+    const read = async (path: string, body: Record<string, unknown>): Promise<unknown> => {
+      current();
+      const reply = await this.#call("house", path, body, false, undefined, signal, { onDispatch: current });
+      current();
+      if (reply.code === -1) {
+        const stage = path.endsWith("get_house_list") ? "houses" : Object.hasOwn(body, "house_id") ? "house_page" : "default_page";
+        createLogger("mega").warn("inventory_house_read_unavailable", `stage=${stage} application_code=-1`);
+        return unavailable;
+      }
+      return this.#decodeResult(reply);
+    };
+    const rows = new Map<string, Record<string, unknown>>();
+    const add = (page: unknown): void => {
+
+      // The authenticated house API returns this exact successful empty-page
+      // shape. It contributes no device or ownership evidence. A refused root
+      // still makes the final inventory incomplete and retains paced recovery.
+      if (isRecord(page) && page.devices === null && page.groups === null) return;
+      if (!isRecord(page) || !Array.isArray(page.devices) || page.devices.length > 2048) throw new Error("Inventory fallback page is invalid");
+      for (const row of page.devices) {
+        if (!isRecord(row) || typeof row.device_sn !== "string" || row.device_sn.length < 1 || row.device_sn.length > 128) throw new Error("Inventory fallback device is invalid");
+        const old = rows.get(row.device_sn);
+        const binding = (value: Record<string, unknown>): string => JSON.stringify([
+          value.device_model, value.device_type, value.parent_sn, value.device_channel, value.category,
+          isRecord(value.member) ? value.member.admin_user_id : null, value.p2p_did,
+        ]);
+        if (old && binding(old) !== binding(row)) throw new Error("Inventory fallback device binding conflicts");
+        rows.set(row.device_sn, row);
+        if (rows.size > 2048) throw new Error("Inventory fallback device limit exceeded");
+      }
+    };
+    const initial = await read("/app/house/get_devs_list", {});
+    let incomplete = initial === unavailable;
+    if (!incomplete) add(initial);
+    const houses = await read("/app/house/get_house_list", {});
+    if (houses === unavailable) {
+      if (allowPartial && rows.size > 0) {
+        createLogger("mega").warn("inventory_house_fallback_partial", `houses=unknown devices=${rows.size} complete=false`);
+        return { devices: [...rows.values()], complete: false };
+      }
+      throw new MegaInventoryUnavailableError("houses");
+    }
+    if (!isRecord(houses) || !Array.isArray(houses.house_infos) || houses.house_infos.length > 16) throw new Error("Inventory fallback house list is invalid");
+    const identifiers = new Set<string>();
+    for (const house of houses.house_infos) {
+      if (!isRecord(house) || typeof house.house_id !== "string" || !house.house_id.trim() || house.house_id.length > 128
+        || identifiers.has(house.house_id)) throw new Error("Inventory fallback house identity is invalid");
+      identifiers.add(house.house_id);
+      const page = await read("/app/house/get_devs_list", { house_id: house.house_id });
+      if (page === unavailable) incomplete = true;
+      else add(page);
+    }
+    current();
+    if (incomplete) {
+      createLogger("mega").warn("inventory_house_fallback_partial", `houses=${identifiers.size} devices=${rows.size} complete=false`);
+      if (allowPartial && rows.size > 0) return { devices: [...rows.values()], complete: false };
+      throw new MegaInventoryUnavailableError("pages");
+    }
+    createLogger("mega").info("inventory_house_fallback", `Complete account inventory recovered: houses=${identifiers.size} devices=${rows.size}`);
+    return { devices: [...rows.values()] };
   }
 
   /**
@@ -692,6 +793,11 @@ export class MegaClient {
     if (error instanceof MegaHttpAuthenticationRejection) return error.sessionRejected;
     return error instanceof Error && (error.message === "Mega request failed (HTTP 401)" || [...AUTH_SESSION_INVALID_CODES].some((code) => error.message.includes(`Mega request failed (${code}:`)) ||
       /Mega request failed \(401:.*token not exist/i.test(error.message));
+  }
+
+  /** Permit paced startup reads only for this client's fixed inventory-refusal marker. */
+  isInventoryTemporarilyUnavailable(error: unknown): boolean {
+    return error instanceof MegaInventoryUnavailableError;
   }
 
   /** Classify only this client's terminal login marker, without changing state or retrying. */
