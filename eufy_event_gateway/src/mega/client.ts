@@ -68,7 +68,7 @@ const LOGIN_ATTEMPTS_REJECTED = 10019;
  * Permission, schema, cancellation and authentication errors never use this marker.
  */
 class MegaInventoryUnavailableError extends Error {
-  constructor(stage: "houses" | "pages") {
+  constructor(stage: "request" | "houses" | "pages") {
     super(`Inventory is temporarily unavailable: stage=${stage}`);
   }
 }
@@ -565,6 +565,13 @@ export class MegaClient {
     this.#requireAuthentication();
     const lifetime = cancellation ? AbortSignal.any([this.#requestLifetime.signal, cancellation]) : this.#requestLifetime.signal;
     const result = await this.#call("house", "/app/house/get_devs_list", { house_id: "", device_sns: {} }, true, undefined, cancellation);
+    if (result.code === 10003 && result.msg === "Failed to request.") {
+
+      // This exact inventory refusal was observed after generic application
+      // errors. Retry the same read later without another page, login or write.
+      createLogger("mega").warn("inventory_request_unavailable", "application_code=10003");
+      throw new MegaInventoryUnavailableError("request");
+    }
     const value = result.code === -1 ? await this.#inventoryByHouse(lifetime, options.allowPartial === true) : this.#decodeResult(result);
     if (!isRecord(value) || !Array.isArray(value.devices)) throw new Error("Mega returned an invalid device inventory");
     lifetime.throwIfAborted();

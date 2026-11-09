@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { MegaClient } from "../src/mega/client.js";
 import { credentialVerifier, decryptEnvelope, encryptEnvelope, sharedAesKey } from "../src/mega/crypto.js";
 
-for (const mode of ["normal", "recover", "root-failure", "startup-partial", "permission", "network", "page", "house-failure", "page-failure", "house-id", "house-limit", "conflict", "cancelled", "binding", "device"] as const) {
+for (const mode of ["normal", "request-unavailable", "unclassified-10003", "recover", "root-failure", "startup-partial", "permission", "network", "page", "house-failure", "page-failure", "house-id", "house-limit", "conflict", "cancelled", "binding", "device"] as const) {
   test(`inventory house recovery: ${mode}`, async context => {
     context.mock.method(globalThis, "fetch", async () => { throw Error("Unowned network forbidden"); });
     const directory = await mkdtemp(join(tmpdir(), "inventory-houses-"));
@@ -38,7 +38,7 @@ for (const mode of ["normal", "recover", "root-failure", "startup-partial", "per
           if (calls.length === 1) {
             assert.deepEqual(body, { house_id: "", device_sns: {} });
             if (mode === "network") throw Error("synthetic network refusal");
-            code = mode === "normal" ? 0 : mode === "permission" ? 20004 : -1;
+            code = mode === "normal" ? 0 : mode === "permission" ? 20004 : ["request-unavailable", "unclassified-10003"].includes(mode) ? 10003 : -1;
             data = { devices: [a] };
           } else if (url.pathname.endsWith("get_house_list")) {
             assert.deepEqual(body, {});
@@ -58,7 +58,7 @@ for (const mode of ["normal", "recover", "root-failure", "startup-partial", "per
             if (mode === "page-failure") code = -1;
             data = { devices: [{ ...a, device_sn: "synthetic-c", parent_sn: "synthetic-c" }] };
           }
-          return new Response(JSON.stringify({ code, msg: "PRIVATE_RESPONSE", data: encryptEnvelope(JSON.stringify(data), sharedAesKey(key)) }));
+          return new Response(JSON.stringify({ code, msg: mode === "request-unavailable" ? "Failed to request." : "PRIVATE_RESPONSE", data: encryptEnvelope(JSON.stringify(data), sharedAesKey(key)) }));
         } });
       await client.connect();
       assert.equal(client.isInventoryTemporarilyUnavailable(new Error("Inventory is temporarily unavailable")), false);
@@ -70,10 +70,10 @@ for (const mode of ["normal", "recover", "root-failure", "startup-partial", "per
         assert.equal(inventory.complete, mode === "startup-partial" ? false : undefined);
       } else {
         await assert.rejects(result, error => {
-          assert.equal(client.isInventoryTemporarilyUnavailable(error), ["root-failure", "house-failure", "page-failure"].includes(mode));
+          assert.equal(client.isInventoryTemporarilyUnavailable(error), ["request-unavailable", "root-failure", "house-failure", "page-failure"].includes(mode));
           return true;
         });
-        if (["permission", "network"].includes(mode)) assert.equal(calls.length, 1, "other failures must not broaden reads");
+        if (["permission", "network", "request-unavailable", "unclassified-10003"].includes(mode)) assert.equal(calls.length, 1, "other failures must not broaden reads");
         if (["page", "device"].includes(mode)) assert.equal(calls.length, 2);
         if (["house-failure", "house-id", "house-limit", "cancelled", "binding"].includes(mode)) assert.equal(calls.length, 3);
         if (mode === "conflict") assert.equal(calls.length, 4);
