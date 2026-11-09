@@ -67,6 +67,9 @@ export function directCameraDetectionKinds(
   if (device.category !== "eufy_security" || homeBaseAttached !== false) return undefined;
   const model = device.model.toUpperCase();
   if (model === "T8420" && device.deviceType === 3) return ["motion"];
+  if ((model === "T8410C" || model === "T8410C21") && device.deviceType === 31) {
+    return ["motion", "person", "pet", "crying", "sound"];
+  }
   if (model === "T86P2" && device.deviceType === 111) return ["motion", "person", "pet", "vehicle", "sound"];
   if ((model === "T8224" && device.deviceType === 96)
     || (model === "T8422" && device.deviceType === 37)

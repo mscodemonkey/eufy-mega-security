@@ -27,6 +27,8 @@ const profiles = [
   { serial: "e2k", model: "T8422", deviceType: 37, kinds: ["motion", "person"] },
   { serial: "c220", model: "T8W11C", deviceType: 10008, kinds: ["motion", "person"] },
   { serial: "lte", model: "T86P2", deviceType: 111, kinds: ["motion", "person", "pet", "vehicle", "sound"] },
+  { serial: "indoor", model: "T8410C", deviceType: 31, kinds: ["motion", "person", "pet", "crying", "sound"] },
+  { serial: "indoor-alias", model: "T8410C21", deviceType: 31, kinds: ["motion", "person", "pet", "crying", "sound"] },
 ] as const;
 
 test("exact direct profiles agree with declared events without sharing mutable lists", () => {
@@ -45,9 +47,14 @@ test("exact direct profiles agree with declared events without sharing mutable l
       T8422: "t8422-floodlight-cam-e-2k.yaml",
       T8W11C: "t8w11c-indoor-cam-c220-original.yaml",
       T86P2: "t86p2-4g-lte-cam-s330.yaml",
+      T8410C: "t8410c-indoor-cam-pan-and-tilt-2k.yaml",
+      T8410C21: "t8410c-indoor-cam-pan-and-tilt-2k.yaml",
     };
-    const catalogue = parse(readFileSync(new URL(`../device_catalogue/devices/${files[model]}`, import.meta.url), "utf8")) as { capabilities: { events: Record<string, unknown> } };
-    const events = Object.keys(catalogue.capabilities.events);
+    const catalogue = parse(readFileSync(new URL(`../device_catalogue/devices/${files[model]}`, import.meta.url), "utf8")) as {
+      capabilities: { events: Record<string, { connections?: Record<string, unknown> }> };
+    };
+    const events = Object.entries(catalogue.capabilities.events)
+      .filter(([, value]) => value.connections?.direct !== undefined).map(([kind]) => kind);
     assert.deepEqual(events.filter(kind => kind !== "doorbell_press").sort(), [...kinds].sort());
     for (const attached of [true, null, undefined]) assert.equal(directCameraDetectionKinds(device, attached), undefined);
     for (const patch of [{ category: "other" }, { model: model + "S" }, { deviceType: 999 }]) {
