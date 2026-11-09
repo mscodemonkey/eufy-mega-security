@@ -33,7 +33,7 @@ def _load() -> tuple[dict, type]:
     cls = ast.ClassDef(name="TestCamera", bases=[ast.Name(id="CameraBase", ctx=ast.Load())], keywords=[], body=hooks, decorator_list=[])
     module = ast.fix_missing_locations(ast.Module(body=[*helpers, cls], type_ignores=[]))
     namespace = {"CameraBase": base, "Stream": object, "StreamOutput": object, "GatewayClientError": RuntimeError, "HomeAssistantError": RuntimeError, "_LOGGER": Mock(),
-                 "asyncio": asyncio, "STREAM_URL_RENEWAL_TIMEOUT": 0.02, "LIVE_VIEW_QUERY": "view", "secrets": secrets,
+                 "HlsViewActivity": SimpleNamespace(install=Mock(return_value=None)), "asyncio": asyncio, "STREAM_URL_RENEWAL_TIMEOUT": 0.02, "LIVE_VIEW_QUERY": "view", "secrets": secrets,
                  "CONF_USE_WALLCLOCK_AS_TIMESTAMPS": "wallclock",
                  "parse_qsl": parse_qsl, "urlencode": urlencode, "urlsplit": urlsplit, "urlunsplit": urlunsplit}
     exec(compile(module, str(SOURCE), "exec"), namespace)
@@ -51,11 +51,11 @@ class LiveViewMarkTest(unittest.IsolatedAsyncioTestCase):
         self.camera._fast_native_hls = False
         self.camera._hls_idle_stream = None
         self.camera._stream_source_refreshing = False
-        self.camera.camera = {"stream": {"state": "streaming"}}
+        self.camera.camera = {"stream": {"state": "streaming"}, "hlsIdleHandoverSupported": True}
         self.camera.hass = object()
         self.camera._async_stream_url = AsyncMock(return_value=URL)
         self.camera.serial = "demo"
-        self.coordinator = SimpleNamespace(client=SimpleNamespace(hold_live_view=AsyncMock(return_value=True), live_view_handover_supported=True), recording_holds=set())
+        self.coordinator = SimpleNamespace(client=SimpleNamespace(hold_live_view=AsyncMock(return_value=True), live_view_handover_supported=True, hls_view_idle_supported=True), recording_holds=set())
         self.camera.coordinator = self.coordinator
         self.stream = SimpleNamespace(source=URL, available=True, update_source=Mock(), outputs=Mock(return_value={}),
                                       add_provider=Mock(return_value=SimpleNamespace(idle_timer=Mock())),
@@ -136,7 +136,7 @@ class LiveViewMarkTest(unittest.IsolatedAsyncioTestCase):
     def _camera_b(self):
         """A second camera on the same gateway, opened by a person."""
         other = self.namespace["TestCamera"]()
-        other.camera = {"streamSupported": True, "liveAudioSupported": False}
+        other.camera = {"streamSupported": True, "liveAudioSupported": False, "hlsIdleHandoverSupported": True}
         other.stream_options = {}
         other._native_video = True
         other._async_stream_url = AsyncMock(return_value=URL.replace("demo", "other"))
@@ -209,6 +209,59 @@ class LiveViewMarkTest(unittest.IsolatedAsyncioTestCase):
         """An absent capability preserves the old gateway's non-preemptive behaviour."""
         self.coordinator.client.live_view_handover_supported = False
         self.assertIsNone(self._view(await self._camera_b().stream_source()))
+
+    async def test_handover_without_activity_support_keeps_the_source_unmarked(self) -> None:
+        self.coordinator.client.hls_view_idle_supported = False
+        self.assertIsNone(self._view(await self._camera_b().stream_source()))
+
+    async def test_output_observer_is_installed_once_and_checks_all_ha_owners(self) -> None:
+        self.stream.source = self.namespace["_new_view"](URL, True)
+        self.camera.stream = self.stream
+        provider = self.stream.add_provider.return_value
+        self.stream.outputs.return_value = {"hls": provider}
+        observer = SimpleNamespace(output=provider, close=Mock(), expiring=False)
+        install = self.namespace["HlsViewActivity"].install
+        install.return_value = observer
+        await self.camera.async_create_stream()
+        self.stream.add_provider("hls")
+        self.stream.add_provider("hls")
+        install.assert_called_once()
+        installed, allowed = install.call_args.args
+        self.assertIs(installed, provider)
+        self.assertTrue(allowed())
+        self.stream.dynamic_stream_settings.preload_stream = True
+        self.assertFalse(allowed())
+        self.stream.dynamic_stream_settings.preload_stream = False
+        self.coordinator.recording_holds.add(object())
+        self.assertFalse(allowed())
+        self.coordinator.recording_holds.clear()
+        self.stream.outputs.return_value = {"hls": provider, "recorder": object()}
+        self.assertFalse(allowed())
+        self.stream.outputs.return_value = {"hls": provider}
+        self.stream.source = self.namespace["_with_view"](URL, None)
+        self.assertFalse(allowed())
+
+    async def test_old_gateway_observation_cannot_expire_its_unmarked_worker(self) -> None:
+        self.stream.source = URL
+        self.camera.stream = self.stream
+        provider = self.stream.add_provider.return_value
+        self.stream.outputs.return_value = {"hls": provider}
+        observer = SimpleNamespace(output=provider, close=Mock(), expiring=False)
+        install = self.namespace["HlsViewActivity"].install
+        install.return_value = observer
+        await self.camera.async_create_stream()
+        self.stream.add_provider("hls")
+        install.assert_called_once()
+        self.assertFalse(install.call_args.args[1]())
+
+    async def test_idle_expiry_refuses_recording_until_a_fresh_stream_is_opened(self) -> None:
+        order = self._recording_view()
+        await self.camera.async_create_stream()
+        self.camera._hls_activity = SimpleNamespace(expiring=True)
+        with self.assertRaisesRegex(RuntimeError, "idle stream is closing"):
+            await self.stream.async_record("/media/clip.mp4")
+        self.assertEqual(order, [])
+        self.coordinator.client.hold_live_view.assert_not_awaited()
 
     async def test_a_recording_that_starts_its_stream_sends_no_hold(self) -> None:
         self.camera.stream = None

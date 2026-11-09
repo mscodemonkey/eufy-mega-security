@@ -39,7 +39,7 @@ def namespace():
     env = {"EufyGatewayCamera": BaseCamera, "CameraEntityFeature": lambda value: value,
            "GatewayClientError": GatewayError, "HomeAssistantError": GatewayError,
            "urlsplit": urlsplit, "urlunsplit": urlunsplit, "parse_qsl": parse_qsl, "urlencode": urlencode,
-           "LIVE_VIEW_QUERY": "view", "_new_view": lambda url: url + "&view=new"}
+           "LIVE_VIEW_QUERY": "view", "_new_view": lambda url, tracked=False: url + "&view=new"}
     env["CameraEntityFeature"] = SimpleNamespace(STREAM=2)
     exec(compile(ast.Module(body=[n for n in tree.body if getattr(n, "name", None) in names], type_ignores=[]),
                  str(ROOT / "camera.py"), "exec"), env)
@@ -91,7 +91,7 @@ class SharedLensCameraTests(unittest.IsolatedAsyncioTestCase):
     async def test_pane_urls_never_take_or_yield_the_nvr_call(self):
         """A recorder sharing either pane retains the unmarked physical source."""
         env = namespace()
-        camera = SimpleNamespace(coordinator=SimpleNamespace(client=SimpleNamespace(live_view_handover_supported=True), recording_holds=set()))
+        camera = SimpleNamespace(camera={}, coordinator=SimpleNamespace(client=SimpleNamespace(live_view_handover_supported=True, hls_view_idle_supported=True), recording_holds=set()))
         for lens in ("fixed", "movable"):
             url = f"http://gateway/api/cameras/test/live-{lens}.h264?access_token=token&view=old"
             self.assertEqual(dict(parse_qsl(urlsplit(env["_view_for"](camera, url)).query)), {"access_token": "token"})
@@ -103,7 +103,7 @@ class SharedLensCameraTests(unittest.IsolatedAsyncioTestCase):
         base = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "EufyGatewayCamera")
         method = next(n for n in base.body if getattr(n, "name", None) == "async_added_to_hass")
         thin = ast.ClassDef(name="Lifecycle", bases=[ast.Name(id="Parent", ctx=ast.Load())], keywords=[],
-                            body=[method], decorator_list=[])
+                            body=[method, next(n for n in base.body if getattr(n, "name", None) == "_close_hls_activity")], decorator_list=[])
         class Parent:
             async def async_added_to_hass(self):
                 """Stand in for HA's coordinator lifecycle only."""
@@ -115,12 +115,16 @@ class SharedLensCameraTests(unittest.IsolatedAsyncioTestCase):
         for entity, tracks in [(normal, True), (env["Lifecycle"](), False), (env["Lifecycle"](), False)]:
             entity.coordinator, entity.serial, entity.hass = coordinator, "test", None
             entity._track_live_audio = tracks
+            entity._hls_activity = None
             entity._async_live_audio_changed = AsyncMock()
             entity._async_refresh_stream_source = AsyncMock()
-            entity.async_on_remove = callbacks.append
+            owned_callbacks = []
+            entity.async_on_remove = owned_callbacks.append
             await entity.async_added_to_hass()
+            if not tracks:
+                callbacks.extend(owned_callbacks)
         self.assertIs(coordinator.live_audio_changed["test"], normal._async_live_audio_changed)
-        for callback in callbacks[2:]:
+        for callback in callbacks:
             callback()
         self.assertIs(coordinator.live_audio_changed["test"], normal._async_live_audio_changed)
 

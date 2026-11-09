@@ -84,7 +84,7 @@ async function fixture(context: TestContext, parent: "T8N00" | "T9000" = "T8N00"
   provider.setNvrLiveMediaChecks({ viewer: serial => manager.hasActiveViewer(serial), active: serial => manager.hasActiveSession(serial),
     recording: serial => manager.hasActiveRecording(serial), yieldable: serial => manager.canYieldSource(serial), settling: serial => manager.isSourceSettling(serial), retireYieldable: serial => manager.retireYieldableSource(serial) });
   await provider.start(events);
-  return { manager, provider, sessions, switches, joins: () => joins, failSwitch: () => { failSwitch = true; }, setSwitchable: (value: boolean) => { switchable = value; }, advance: (milliseconds: number) => { clock += milliseconds; },
+  return { state, manager, provider, sessions, switches, joins: () => joins, failSwitch: () => { failSwitch = true; }, setSwitchable: (value: boolean) => { switchable = value; }, advance: (milliseconds: number) => { clock += milliseconds; },
     close: async () => { await manager.close(); await provider.close(); await tick(); await rm(directory, { recursive: true, force: true }); } };
 }
 
@@ -347,5 +347,53 @@ test("a failed move closes the call and opens a fresh one for the new viewer", a
     assert.equal(value.joins(), 2);
     assert.equal(value.sessions.length, 2);
     assert.equal(value.manager.hasActiveViewer(b), true);
+  } finally { await value.close(); }
+});
+
+for (const parent of ["T9000", "T8N00"] as const) {
+  test(`a watched HA upstream cannot yield before HA actually closes it (${parent})`, async context => {
+    const value = await fixture(context, parent);
+    try {
+      const first = await open(value, a, "hls1_synthetic-watched-view");
+      assert.equal(value.state.getCamera(a).hlsIdleHandoverSupported, true);
+      assert.equal(value.manager.canYieldSource(a), false);
+      const second = viewer();
+      const opening = value.manager.addClient(b, second as never, "native", "hls1_synthetic-blocked-view");
+      await settled(); value.advance(6_001); await opening; await settled();
+      assert.equal(second.destroyed, true);
+      assert.equal(first.ended, false);
+      assert.equal(value.manager.hasActiveViewer(a), true);
+      first.destroy(); await settled();
+      assert.equal(value.manager.canYieldSource(a), true);
+      const third = await open(value, b, "hls1_synthetic-next-view");
+      assert.equal(third.destroyed, false);
+      assert.equal(value.manager.canYieldSource(b), false);
+    } finally { await value.close(); }
+  });
+}
+
+test("another HA response or recorder keeps its call when one worker becomes quiet", async context => {
+  const value = await fixture(context);
+  try {
+    const first = await open(value, a, "hls1_synthetic-first-instance");
+    const second = await open(value, a, "hls1_synthetic-second-instance");
+    first.destroy(); await settled();
+    assert.equal(value.manager.canYieldSource(a), false);
+    assert.equal(value.manager.holdView(a, "hls1_synthetic-second-instance"), true);
+    assert.equal(value.manager.canYieldSource(a), false);
+    second.destroy(); await settled();
+    assert.equal(value.manager.canYieldSource(a), true);
+  } finally { await value.close(); }
+});
+
+test("reconnecting a tracked view starts protected again without an activity-message race", async context => {
+  const value = await fixture(context);
+  try {
+    const mark = "hls1_synthetic-reconnected-view";
+    const first = await open(value, a, mark);
+    first.destroy(); await settled();
+    assert.equal(value.manager.canYieldSource(a), true);
+    await open(value, a, mark);
+    assert.equal(value.manager.canYieldSource(a), false);
   } finally { await value.close(); }
 });

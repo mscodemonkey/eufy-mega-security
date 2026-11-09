@@ -225,6 +225,9 @@ interface Session {
 
   /** Recording protection remains attached to each live response even after the bounded mark cache expires. */
   readonly heldClients: Map<VideoViewerResponse, string>;
+
+  /** Activity-aware HA workers keep their call until HA actually closes the response. */
+  readonly hlsClients: Set<VideoViewerResponse>;
   readonly audioConsumers: Set<(chunk: Buffer) => void>;
   parameterSets: VideoParameterSetCache;
   state: "idle" | "starting" | "streaming" | "stopping" | "error";
@@ -680,6 +683,7 @@ export class LiveStreamManager extends EventEmitter {
     this.#cancelStop(session);
     session.clients.add(response);
     if (view) (this.#heldViews.has(view) ? session.heldClients : session.yieldingClients).set(response, view);
+    if (view?.startsWith("hls1_")) session.hlsClients.add(response);
     session.clientDeliveries.set(response, {
       closeReason: null,
       sourceAttached: session.source !== null,
@@ -858,21 +862,24 @@ export class LiveStreamManager extends EventEmitter {
     return !!session && !session.privateTrial && session.state === "streaming" && !!session.source && session.clients.size > 0;
   }
 
-  /** True while this source is starting or stopping, so whether it can yield is about to be known. */
+  /** Allow bounded handoff waiting while startup, retirement or HA idle cleanup may release this call. */
   isSourceSettling(serial: string): boolean {
     const session = this.#sessions.get(serial);
-    return !!session && !session.privateTrial && (!!session.start || !!session.stop);
+    return !!session && !session.privateTrial && (!!session.start || !!session.stop
+      || session.hlsClients.size > 0 && session.leases === 0 && session.recordings.size === 0 && session.heldClients.size === 0
+        && [...session.clients].every(client => session.yieldingClients.has(client)));
   }
 
   /**
    * True when only marked views use this source, so its NVR call may move to
    * another camera. Leases, clips, unmarked consumers and starting or stopping
-   * sources always keep the call. Whether a marked view is still watched is unknown.
+   * sources always keep the call. Activity-aware HA workers keep it until their response closes.
    */
   canYieldSource(serial: string): boolean {
     const session = this.#sessions.get(serial);
     return !!session && !session.privateTrial && session.state === "streaming" && !!session.source && !session.start && !session.stop
-      && session.leases === 0 && session.recordings.size === 0 && [...session.clients].every(client => session.yieldingClients.has(client));
+      && session.leases === 0 && session.recordings.size === 0
+      && [...session.clients].every(client => session.yieldingClients.has(client) && !session.hlsClients.has(client));
   }
 
   /**
@@ -1185,6 +1192,7 @@ export class LiveStreamManager extends EventEmitter {
     session.clients.clear();
     session.yieldingClients.clear();
     session.heldClients.clear();
+    session.hlsClients.clear();
     session.pendingClients.clear();
     this.#updateState(serial, session);
   }
@@ -1214,6 +1222,7 @@ export class LiveStreamManager extends EventEmitter {
     session.pendingClients.delete(response);
     session.yieldingClients.delete(response);
     session.heldClients.delete(response);
+    session.hlsClients.delete(response);
     this.#emitViewerClientSummary(session, response);
     if (this.#profileClients(session, "compatible").length === 0) this.#stopViewerTranscoder(session);
     this.#updateState(serial, session);
@@ -1476,6 +1485,7 @@ export class LiveStreamManager extends EventEmitter {
     session.clients.clear();
     session.yieldingClients.clear();
     session.heldClients.clear();
+    session.hlsClients.clear();
     session.pendingClients.clear();
     this.#updateState(serial, session, error?.message ?? null);
   }
@@ -1833,6 +1843,7 @@ export class LiveStreamManager extends EventEmitter {
         recordings: new Set(),
         yieldingClients: new Map(),
         heldClients: new Map(),
+        hlsClients: new Set(),
         audioConsumers: new Set(),
         parameterSets: new VideoParameterSetCache(),
         state: "idle",

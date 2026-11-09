@@ -60,6 +60,7 @@ class GatewayClient:
     ) -> None:
         """Create a client from HA's shared HTTP session and gateway settings."""
         self.live_view_handover_supported = False
+        self.hls_view_idle_supported = False
         self._session = session
         self.base_url = base_url.rstrip("/")
         self._headers = {"Authorization": f"Bearer {api_token}"} if api_token else {}
@@ -135,6 +136,7 @@ class GatewayClient:
         if not isinstance(cameras, list):
             raise GatewayClientError("Gateway returned an invalid camera list")
         self.live_view_handover_supported = payload.get("liveViewHandoverSupported") is True
+        self.hls_view_idle_supported = payload.get("hlsViewIdleSupported") is True
         return [
             camera
             for camera in cameras

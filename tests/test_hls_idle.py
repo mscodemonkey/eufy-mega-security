@@ -31,7 +31,7 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         cls = ast.ClassDef(name="TestCamera", bases=[ast.Name(id="CameraBase", ctx=ast.Load())],
                            keywords=[], body=[method, next(n for n in camera.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "_async_stream_url")], decorator_list=[])
         module = ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[]))
-        namespace = {"CameraBase": base, "Stream": object, "StreamOutput": object, "GatewayClientError": RuntimeError, "_LOGGER": Mock(), "asyncio": asyncio, "STREAM_URL_RENEWAL_TIMEOUT": 0.02,
+        namespace = {"HlsViewActivity": SimpleNamespace(install=Mock(return_value=None)), "CameraBase": base, "Stream": object, "StreamOutput": object, "GatewayClientError": RuntimeError, "_LOGGER": Mock(), "asyncio": asyncio, "STREAM_URL_RENEWAL_TIMEOUT": 0.02,
                      "_new_view": lambda url: url, "_view_for": lambda _camera, url: url, "_with_view": lambda url, _view: url, "_view_of": lambda _url: None}
         exec(compile(module, str(SOURCE), "exec"), namespace)
         self.base = base
@@ -216,7 +216,7 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         self.stream.add_provider("hls")
         self.original.assert_called_once_with("hls", timeout=60)
         replacement_factory = Mock()
-        self.base.async_create_stream.return_value = SimpleNamespace(dynamic_stream_settings=SimpleNamespace(preload_stream=False), add_provider=replacement_factory)
+        self.base.async_create_stream.return_value = SimpleNamespace(source="replacement", dynamic_stream_settings=SimpleNamespace(preload_stream=False), add_provider=replacement_factory)
         replacement = await self.camera.async_create_stream()
         replacement.add_provider("hls")
         replacement_factory.assert_called_once_with("hls", timeout=60)
