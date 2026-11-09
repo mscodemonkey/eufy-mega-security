@@ -4571,8 +4571,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
-  /** Replace generation-owned read polling before startup or sign-in recovery. */
-  async #completeStartup(events: ProviderEvents, generation = ++this.#startupGeneration, allowLoginRecovery = true): Promise<void> {
+  /**
+   * Replace generation-owned polling before startup or sign-in recovery.
+   * Repeated inventory refusals back off from one to five minutes without
+   * replaying authentication. A replacement startup begins a fresh retry lifetime.
+   */
+  async #completeStartup(events: ProviderEvents, generation = ++this.#startupGeneration, allowLoginRecovery = true, inventoryRetryAttempt = 0): Promise<void> {
     this.#retirePictureOwners();
     if (this.#stationRefreshTimer) clearInterval(this.#stationRefreshTimer);
     this.#stationRefreshTimer = null;
@@ -4584,16 +4588,17 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (generation !== this.#startupGeneration || this.#recordingClosing) return;
       if (!this.#client.isInventoryTemporarilyUnavailable(error)) throw error;
       events.connection("disconnected", "Eufy inventory is temporarily unavailable. The gateway will retry automatically.");
-      logger.warn("inventory_startup_retry", "Read-only startup inventory retry scheduled: delay_seconds=60");
+      const delay = Math.min(300_000, 60_000 * 2 ** inventoryRetryAttempt);
+      logger.warn("inventory_startup_retry", `Read-only startup inventory retry scheduled: delay_seconds=${delay / 1_000}`);
       this.#startupInventoryRetry = setTimeout(() => {
         this.#startupInventoryRetry = null;
         if (generation !== this.#startupGeneration || this.#recordingClosing) return;
-        void this.#completeStartup(events, generation, false).catch((failure: unknown) => {
+        void this.#completeStartup(events, generation, false, Math.min(inventoryRetryAttempt + 1, 3)).catch((failure: unknown) => {
           if (generation !== this.#startupGeneration || this.#recordingClosing) return;
           events.connection("error", "Eufy inventory startup could not complete.");
           logger.warn("inventory_startup_failed", `Inventory startup failed: error=${safeError(failure)}`);
         });
-      }, 60_000);
+      }, delay);
       this.#startupInventoryRetry.unref?.();
     }
   }
