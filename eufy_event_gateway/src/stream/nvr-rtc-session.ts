@@ -5,6 +5,8 @@
  * The provider owns the station lease and supplies private Mega credentials.
  * Checked video reaches the media boundary. Normal opt-in controls and separately
  * consented guard/power trials retain distinct admission and request ownership.
+ * A separately admitted finite E10 clip receives a checked H.264 RTP track and
+ * declines unused media, with no data-channel inventory or control requests.
  * Vendor assets and captures are not dependencies, and hardware needs testing.
  */
 import { observeRawPeer, observeRawDataChannel } from "../diagnostics/raw-rtc.js";
@@ -13,9 +15,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { PassThrough } from "node:stream";
 import WebSocket from "ws";
 import type { Socket } from "node:dgram";
-import { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, type RTCDataChannel, type RTCIceServer } from "werift";
+import { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, RTCRtpCodecParameters, type RTCDataChannel, type RTCIceServer } from "werift";
 import type { VideoCodec } from "../domain/types.js";
 import { NvrPtcsReassembler, type NvrPtcsReassemblyStats } from "./nvr-ptcs-reassembly.js";
+import { recordRaw } from "../diagnostics/raw-history.js";
+import { DoorbellH264Assembler } from "./doorbell-rtp.js";
+import { doorbellRtcOffer, doorbellRtcAnswer, type DoorbellRtcOffer } from "./doorbell-rtc-offer.js";
 import { refineE10OfferFailure } from "./e10-offer-diagnostic.js";
 import { VideoParameterSetCache } from "./live-stream-manager.js";
 import { markSourceTime } from "./media-source-clock.js";
@@ -83,7 +88,9 @@ export interface NvrSignallingContext {
 /** Injectable transports let offline tests exercise real peers without a cloud session. */
 export interface NvrRtcDependencies {
   readonly socket: (url: string, protocols: string[], options: WebSocket.ClientOptions) => WebSocket;
-  readonly peer: (servers: RTCIceServer[]) => RTCPeerConnection;
+
+  /** A validated H.264 offer selects codecs only for the separately admitted finite E10 clip. */
+  readonly peer: (servers: RTCIceServer[], videoOffer?: DoorbellRtcOffer) => RTCPeerConnection;
 }
 
 /** Relative monotonic startup milestones. Missing stages remain null on failure. */
@@ -144,6 +151,9 @@ export interface NvrRtcOptions {
    * start request and deliver checked AAC beside its video. Off by default.
    */
   readonly audio?: boolean;
+
+  /** Provider admission for one finite standalone E10 H.264 clip, never normal views or controls. */
+  readonly e10RtpTrial?: boolean;
 
   /**
    * Total owned lifetime, including signalling and media. Omission keeps the
@@ -289,6 +299,12 @@ export class NvrRtcSession {
     return this.#reassembler.stats.rejected;
   }
   #cache = new VideoParameterSetCache();
+  #e10Offer: DoorbellRtcOffer | null = null;
+  #e10Ssrc: number | null = null;
+  #e10NeedRandomAccess = true;
+  readonly #e10Assembler = new DoorbellH264Assembler(() => {
+    this.#e10NeedRandomAccess = true; this.stats.videoSequenceRecoveries++;
+  });
   readonly #channels = new Map<string, RTCDataChannel>();
   readonly #pendingCandidates: string[] = [];
   readonly #localCandidates = new Set<string>();
@@ -369,7 +385,9 @@ export class NvrRtcSession {
 
   constructor(private options: NvrRtcOptions, private readonly dependencies: NvrRtcDependencies = {
     socket: (url, protocols, settings) => new WebSocket(url, protocols, settings),
-    peer: servers => new RTCPeerConnection({ iceServers: servers }),
+    peer: (servers, offer) => new RTCPeerConnection({ iceServers: servers, ...(offer ? { codecs: { audio: [], video: [
+      new RTCRtpCodecParameters({ mimeType: "video/H264", clockRate: 90000, payloadType: offer.payloadType, parameters: offer.parameters }),
+    ] } } : {}) }),
   }) {
     if (!["security-smart.eufylife.com", "security-smart-eu.eufylife.com", "security-smart-ie.eufylife.com"].includes(options.context.host)) throw new NvrTrialError("admission");
     this.#maximumLifetimeMilliseconds = options.maximumLifetimeMilliseconds === null ? null
@@ -379,6 +397,9 @@ export class NvrRtcSession {
     if (this.#maximumLifetimeMilliseconds === null ? options.powerTrial || options.guardTrial
       : !Number.isSafeInteger(this.#maximumLifetimeMilliseconds) || this.#maximumLifetimeMilliseconds < 1_000
         || this.#maximumLifetimeMilliseconds > 2_147_483_647) throw new NvrTrialError("admission");
+    if (options.e10RtpTrial && (options.cameraType !== 314 || options.station !== options.camera || options.channel !== 0
+      || (options.sensor ?? 0) !== 0 || options.audio || options.modeObserver || options.powerTrial || options.guardTrial
+      || options.liveControls || this.#maximumLifetimeMilliseconds === null)) throw new NvrTrialError("admission");
     this.#externalAbort = () => this.#fail("cancelled");
     options.signal.addEventListener("abort", this.#externalAbort, { once: true });
   }
@@ -434,6 +455,11 @@ export class NvrRtcSession {
       ? new NvrGuardError("admission") : new NvrPowerError("admission");
     this.#startInvoked = true;
     await this.#connectAndDiscover();
+    this.#guard();
+    if (this.#e10Offer) {
+      this.options.ready(this.output, () => this.#codec);
+      return;
+    }
     this.options.ready(this.output, () => this.#codec, this.options.audio ? this.#audioOutput : undefined);
     this.#stage = "start";
     const pictureDeadline = this.options.s1FirstPictureGrace && this.options.cameraType === 89 && this.options.sensor === 0
@@ -520,6 +546,7 @@ export class NvrRtcSession {
    * unsolicited or uncorrelated state push cannot become fresh readback.
    */
   async readState(): Promise<NvrStateSummary> {
+    if (this.options.e10RtpTrial) throw new NvrTrialError("admission");
     if (this.options.modeObserver) throw new NvrTrialError("admission");
     try {
       if (this.#maximumLifetimeMilliseconds === null) throw new NvrTrialError("admission");
@@ -833,6 +860,7 @@ export class NvrRtcSession {
       await this.close();
       throw error instanceof NvrTrialError ? error : new NvrTrialError(this.#stage);
     } finally { clearTimeout(timer); }
+    if (this.#e10Offer) { this.#guard(); return; }
     this.#stage = "inventory";
     let discovery: Record<string, unknown>;
     try { discovery = await this.#request(9100, 5000); }
@@ -902,6 +930,7 @@ export class NvrRtcSession {
         try { await Promise.race([peer.close().catch(() => {}), new Promise<void>(resolve => { timer = setTimeout(resolve, 2500); })]); }
         finally { if (timer) clearTimeout(timer); }
       }
+      this.#e10Assembler.clear(); this.#e10Offer = null;
       this.#reassembler.clear(); this.#reorder.clear(); this.#reorderBytes = 0; this.#audioSequences.clear();
       this.#pendingCandidates.length = 0; this.#localCandidates.clear(); this.#turn.length = 0;
       this.output.end();
@@ -1026,12 +1055,19 @@ export class NvrRtcSession {
     } else if (data.format === "SDP") {
       if (!this.#accepted || this.#peer) throw new NvrTrialError("negotiation", "offer_order");
       let offer: ReturnType<typeof nvrOffer>;
-      try { offer = nvrOffer(data.value); }
-      catch (error) { throw refineE10OfferFailure(error, data.value, this.options); }
+      if (this.options.e10RtpTrial) {
+        try { offer = this.#e10Offer = doorbellRtcOffer(data.value); }
+        catch {
+          throw refineE10OfferFailure(new NvrTrialError("negotiation", "offer_media_tracks"), data.value, this.options);
+        }
+      } else {
+        try { offer = nvrOffer(data.value); }
+        catch (error) { throw refineE10OfferFailure(error, data.value, this.options); }
+      }
       this.#mid = offer.mid; this.#stage = "negotiation";
       this.#markTiming("offer");
       let peer: RTCPeerConnection;
-      try { peer = this.#peer = this.dependencies.peer(this.#turn);
+      try { peer = this.#peer = this.dependencies.peer(this.#turn, this.#e10Offer ?? undefined);
         observeRawPeer(peer, { station: this.options.station, camera: this.options.camera }); }
       catch { throw new NvrTrialError("negotiation", "peer_setup"); }
       peer.connectionStateChange.subscribe(state => { if (state === "failed" || state === "disconnected") this.#fail("negotiation", state === "failed" ? "peer_failed" : "peer_disconnected"); });
@@ -1044,11 +1080,19 @@ export class NvrRtcSession {
         this.#localCandidates.add(candidate.candidate);
         if (this.#answerSent) this.#flushLocal();
       });
-      peer.onDataChannel.subscribe(channel => this.#attach(channel));
+      peer.onDataChannel.subscribe(channel => {
+        if (this.#e10Offer) { channel.close(); this.#fail("channel"); }
+        else this.#attach(channel);
+      });
+      if (this.#e10Offer) this.#receiveE10Video(peer, this.#e10Offer);
       await this.#step("peer_setup", () => {
-        for (const label of ["WebrtcDataChannel", "audio", "idr", "video", "notify", "download"]) this.#attach(peer.createDataChannel(label));
-        installNvrIceTiming(peer, this.#negotiation.signal);
-        installNvrIceGathering(peer, this.#negotiation.signal);
+        if (!this.#e10Offer) for (const label of ["WebrtcDataChannel", "audio", "idr", "video", "notify", "download"]) this.#attach(peer.createDataChannel(label));
+        // The RTP-only peer has no SCTP-created ICE transport at this point.
+        // Retain the existing RTP receiver's stock peer timing and bounded owner.
+        if (!this.#e10Offer) {
+          installNvrIceTiming(peer, this.#negotiation.signal);
+          installNvrIceGathering(peer, this.#negotiation.signal);
+        }
       });
       await this.#step("remote_description", () => peer.setRemoteDescription(new RTCSessionDescription(offer.sdp, "offer"))); this.#guard();
       this.#offerApplied = true;
@@ -1056,8 +1100,49 @@ export class NvrRtcSession {
       const answer = await this.#step("create_answer", () => peer.createAnswer()); this.#guard();
       await this.#step("local_description", () => peer.setLocalDescription(answer)); this.#guard();
       widenNvrReceiveBuffers(peer);
-      await this.#step("send_answer", () => { this.#action("info", { sdp: peer.localDescription!.sdp }); this.#markTiming("answerSent"); this.#answerSent = true; this.#flushLocal(); });
+      await this.#step("send_answer", () => { this.#action("info", { sdp: this.#e10Offer ? doorbellRtcAnswer(this.#e10Offer, peer.localDescription!.sdp) : peer.localDescription!.sdp }); this.#markTiming("answerSent"); this.#answerSent = true; this.#flushLocal(); });
     }
+  }
+
+  /** Receive only the selected H.264 track under this finite E10 call's existing owner. */
+  #receiveE10Video(peer: RTCPeerConnection, offer: DoorbellRtcOffer): void {
+    peer.onTrack.subscribe(track => {
+      if (this.#retired) return;
+      if (track.kind !== "video" || this.#e10Ssrc !== null || track.codec?.payloadType !== offer.payloadType) {
+        this.#fail("video"); return;
+      }
+      this.#e10Ssrc = track.ssrc ?? -1;
+      track.onReceiveRtp.subscribe(packet => {
+        if (this.#retired) return;
+        try {
+          this.#guard();
+          if (packet.header.payloadType !== offer.payloadType) throw new NvrTrialError("video");
+          if (this.#e10Ssrc === -1) this.#e10Ssrc = packet.header.ssrc;
+          if (packet.header.ssrc !== this.#e10Ssrc) throw new NvrTrialError("video");
+          recordRaw({ boundary: "e10_rtc_rtp", connection: String(packet.header.ssrc), direction: "receive",
+            metadata: { header: packet.header, decrypted: true } }, packet.payload);
+          this.stats.packets++;
+          const unit = this.#e10Assembler.push({ sequenceNumber: packet.header.sequenceNumber,
+            timestamp: packet.header.timestamp, marker: packet.header.marker, payload: packet.payload });
+          if (!unit) return;
+          this.stats.frames++; this.stats.video++;
+          const previous = this.#cache.diagnostics.randomAccessPictures;
+          this.#cache.push(unit, "h264");
+          let output = unit;
+          if (this.#e10NeedRandomAccess) {
+            if (this.#cache.diagnostics.randomAccessPictures === previous || !this.#cache.startup) return;
+            output = this.#cache.startup;
+            this.#e10NeedRandomAccess = false; this.#bootstrapped = true; this.#codec = "h264";
+            this.#markTiming("firstVideo");
+          }
+          if (!this.output.write(output)) throw new NvrTrialError("video");
+          this.#startVideoObserved = true;
+          this.#readyResolve?.(); this.#readyResolve = null; this.#readyReject = null;
+        } catch (error) {
+          this.#fail(error instanceof NvrTrialError ? error.stage : "video");
+        }
+      });
+    });
   }
 
   async #step<T>(reason: NvrTrialReason, operation: () => T | Promise<T>): Promise<T> {

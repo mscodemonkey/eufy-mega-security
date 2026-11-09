@@ -35,6 +35,7 @@ for (const mode of ["valid", "disabled", "guest", "missing-owner", "wrong-model"
     });
     context.mock.method(NvrRtcSession.prototype, "start", async function(this: NvrRtcSession) {
       const options = Reflect.get(this, "options") as NvrRtcOptions;
+      assert.equal(options.e10RtpTrial, true);
       assert.equal(options.cameraType, 314); assert.equal(options.sensor, 0); assert.equal(options.liveControls, false);
       assert.equal(options.maximumLifetimeMilliseconds, 75_000); assert.equal(options.current(), true); starts++;
     });

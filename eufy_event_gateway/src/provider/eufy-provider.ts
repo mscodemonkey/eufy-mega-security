@@ -2141,6 +2141,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       ]);
       if (!binding.current()) throw new NvrTrialError("cancelled");
       const session = new NvrRtcSession({ ...binding, station: entry.station.serial,
+        e10RtpTrial: entry.diagnostic && !entry.stateOnly && this.#e10RtcTrialBinding(entry.device, entry.station),
         ...(!entry.diagnostic && !entry.stateOnly && entry.sensor === 0 && entry.device.model === "T8172" && entry.device.deviceType === 89
           && entry.station.model === "T9000" && entry.station.deviceType === 27 ? { s1FirstPictureGrace: true } : {}),
         administrator: entry.station.adminUserId!, context,
