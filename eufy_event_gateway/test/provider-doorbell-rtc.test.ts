@@ -4,6 +4,8 @@
  * account, camera or household setting is contacted or changed by these tests.
  */
 import assert from "node:assert/strict";
+import { PassThrough } from "node:stream";
+import { LiveStreamManager } from "../src/stream/live-stream-manager.js";
 import test, { type TestContext } from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -21,7 +23,7 @@ const contextValue = { host: "security-smart-eu.eufylife.com", region: "EU" as c
   authToken: "synthetic-token", gtoken: "synthetic-gtoken", sign: "synthetic-sign" };
 
 /** Own one provider whose only doorbell has the documented missing-PPCS topology. */
-async function fixture(context: TestContext, mode = "valid") {
+async function fixture(context: TestContext, mode = "valid", withManager = false) {
   const directory = await mkdtemp(join(tmpdir(), "doorbell-provider-"));
   const network = context.mock.method(globalThis, "fetch", async () => { throw new Error("Network forbidden"); });
   context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
@@ -36,13 +38,24 @@ async function fixture(context: TestContext, mode = "valid") {
   context.mock.method(MegaClient.prototype, "dskKeys", async () => ({}));
   context.mock.method(MegaPushReceiver.prototype, "start", async () => undefined);
   const state = new GatewayState();
-  const events = new Proxy({ camera: (camera: Parameters<ProviderEvents["camera"]>[0]) => state.registerCamera(camera) },
+  let manager: LiveStreamManager | undefined;
+  const events = new Proxy({
+    streamStarted: (serial: string, output: PassThrough, codec: () => "h264") => manager?.attachSource(serial, output, codec),
+    streamStopped: (serial: string) => manager?.markStopped(serial),
+    camera: (camera: Parameters<ProviderEvents["camera"]>[0]) => state.registerCamera(camera) },
     { get: (target, key) => Reflect.get(target, key) ?? (() => undefined) }) as unknown as ProviderEvents;
   const provider = new EufyProvider({ username: "synthetic", password: "synthetic", country: "AU",
     persistentDirectory: directory, maxStreamSeconds: 120, experimentalDoorbellRtc: mode !== "disabled" });
+  if (withManager) {
+    manager = new LiveStreamManager(state, {} as never, provider, 10_000);
+    manager.on("warning", () => {});
+    provider.setNvrLiveMediaChecks({ viewer: serial => manager!.hasActiveViewer(serial), active: serial => manager!.hasActiveSession(serial),
+      recording: serial => manager!.hasActiveRecording(serial), yieldable: serial => manager!.canYieldSource(serial),
+      settling: serial => manager!.isSourceSettling(serial), retiring: serial => manager!.isSourceRetiring(serial) });
+  }
   await provider.start(events);
-  return { provider, state, network, close: async () => {
-    await provider.close(); assert.equal(network.mock.callCount(), 0); await rm(directory, { recursive: true, force: true });
+  return { provider, state, network, manager, close: async () => {
+    await manager?.close(); await provider.close(); assert.equal(network.mock.callCount(), 0); await rm(directory, { recursive: true, force: true });
   } };
 }
 
@@ -132,3 +145,94 @@ for (const mode of ["unauthorized", "forbidden", "cancelled", "network"] as cons
     } finally { await f.close(); }
   });
 }
+
+
+test("one doorbell startup failure is logged once across output and rejected start", async context => {
+  const f = await fixture(context), logs: string[] = [];
+  context.mock.method(process.stderr, "write", ((value: string | Uint8Array) => { logs.push(String(value)); return true; }) as typeof process.stderr.write);
+  context.mock.method(MegaClient.prototype, "nvrSignallingContext", async () => contextValue);
+  context.mock.method(DoorbellRtcSession.prototype, "start", async function(this: DoorbellRtcSession) {
+    context.mock.getter(this, "callProgress", () => "pending");
+    const failure = new DoorbellRtcError("deadline", "startup_call_timeout");
+    this.output.destroy(failure);
+    await new Promise(resolve => setImmediate(resolve));
+    throw failure;
+  });
+  context.mock.method(DoorbellRtcSession.prototype, "close", async () => undefined);
+  try {
+    await assert.rejects(f.provider.startStream("synthetic-doorbell"), DoorbellRtcError);
+    await new Promise(resolve => setImmediate(resolve));
+    const failures = logs.filter(line => line.includes("event=doorbell_rtc_stream_failed"));
+    assert.equal(failures.length, 1);
+    assert.match(failures[0]!, /stage=deadline reason=startup_call_timeout call_progress=pending/);
+    assert.doesNotMatch(failures[0]!, /synthetic|token|secret/);
+  } finally { await f.close(); }
+});
+
+test("closing the actual pending doorbell viewer cancels startup and keeps cleanup exclusive", { timeout: 5000 }, async context => {
+  const f = await fixture(context, "valid", true);
+  let entered!: () => void, finishClose!: () => void;
+  const starting = new Promise<void>(resolve => { entered = resolve; });
+  const closing = new Promise<void>(resolve => { finishClose = resolve; });
+  let signal!: AbortSignal;
+  const sign = context.mock.method(MegaClient.prototype, "nvrSignallingContext", async () => contextValue);
+  context.mock.method(DoorbellRtcSession.prototype, "start", async function(this: DoorbellRtcSession) {
+    signal = (Reflect.get(this, "options") as { signal: AbortSignal }).signal;
+    entered();
+    await new Promise<void>((_resolve, reject) => signal.addEventListener("abort", () => reject(new DoorbellRtcError("cancelled")), { once: true }));
+  });
+  const close = context.mock.method(DoorbellRtcSession.prototype, "close", () => closing);
+  const response = new PassThrough() as PassThrough & { writeHead: () => void };
+  response.writeHead = () => {}; response.resume();
+  const opening = f.manager!.addClient("synthetic-doorbell", response as never, "native");
+  try {
+    await starting;
+    response.destroy();
+    await new Promise(resolve => setTimeout(resolve, 200));
+    assert.equal(signal.aborted, true, "viewer closure must not wait for the 35-second startup deadline");
+    assert.equal(close.mock.callCount(), 1);
+    assert.throws(() => f.provider.reserveDoorbellRtcTrial("synthetic-doorbell", new AbortController().signal));
+    finishClose(); await opening;
+    const release = f.provider.reserveDoorbellRtcTrial("synthetic-doorbell", new AbortController().signal); await release();
+    assert.equal(sign.mock.callCount(), 1);
+  } finally { finishClose(); await f.close(); await opening; }
+});
+
+test("doorbell media readiness retires the startup watcher and keeps normal idle grace", async context => {
+  const f = await fixture(context, "valid", true);
+  let signal!: AbortSignal;
+  context.mock.method(MegaClient.prototype, "nvrSignallingContext", async () => contextValue);
+  context.mock.method(DoorbellRtcSession.prototype, "start", async function(this: DoorbellRtcSession) {
+    const options = Reflect.get(this, "options") as { signal: AbortSignal; ready: (output: PassThrough) => void };
+    signal = options.signal; options.ready(this.output);
+  });
+  const close = context.mock.method(DoorbellRtcSession.prototype, "close", async () => undefined);
+  const response = new PassThrough() as PassThrough & { writeHead: () => void };
+  response.writeHead = () => {}; response.resume();
+  try {
+    await f.manager!.addClient("synthetic-doorbell", response as never, "native");
+    response.destroy();
+    await new Promise(resolve => setTimeout(resolve, 200));
+    assert.equal(signal.aborted, false);
+    assert.equal(close.mock.callCount(), 0);
+  } finally { await f.close(); }
+});
+
+test("explicit doorbell diagnostics keep their consented lease without a normal viewer", async context => {
+  const f = await fixture(context);
+  f.provider.setNvrLiveMediaChecks({ viewer: () => false, active: () => false, recording: () => false,
+    yieldable: () => false, settling: () => false, retiring: () => true });
+  context.mock.method(MegaClient.prototype, "nvrSignallingContext", async () => contextValue);
+  context.mock.method(DoorbellRtcSession.prototype, "start", async function(this: DoorbellRtcSession) {
+    const options = Reflect.get(this, "options") as { signal: AbortSignal; current: () => boolean };
+    await new Promise(resolve => setTimeout(resolve, 200));
+    assert.equal(options.signal.aborted, false);
+    assert.equal(options.current(), true);
+  });
+  context.mock.method(DoorbellRtcSession.prototype, "close", async () => undefined);
+  try {
+    const release = f.provider.reserveDoorbellRtcTrial("synthetic-doorbell", new AbortController().signal);
+    await f.provider.startStream("synthetic-doorbell");
+    await release();
+  } finally { await f.close(); }
+});

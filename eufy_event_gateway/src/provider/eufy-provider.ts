@@ -1830,15 +1830,27 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const entry = this.#doorbellTrials.get(serial)!;
     if (entry.connecting || entry.session || entry.controller.signal.aborted) throw new DoorbellRtcError("cancelled");
     entry.connecting = true;
+    let startupPending = true, failureLogged = false;
     const generation = entry.generation;
     const current = (): boolean => {
       const device = this.#devices.get(serial);
       return generation === this.#startupGeneration && this.#doorbellTrials.get(serial) === entry
         && !this.#recordingClosing && !entry.controller.signal.aborted && !!device
         && this.#doorbellRtcBinding(device) && !inventoryBindingChanged(entry.device, device)
-        && device.adminUserId === entry.device.adminUserId;
+        && device.adminUserId === entry.device.adminUserId
+        && (!startupPending || entry.diagnostic || !this.#nvrMediaChecks?.retiring?.(serial));
     };
+    const reportFailure = (failure: DoorbellRtcError): void => {
+      if (failureLogged) return;
+      failureLogged = true;
+      logger.warn(entry.diagnostic ? "doorbell_rtc_trial_failed" : "doorbell_rtc_stream_failed",
+        `stage=${failure.stage} reason=${failure.reason}${failure.httpStatus === undefined ? "" : ` http_status=${failure.httpStatus}`} call_progress=${entry.session?.callProgress ?? "not_sent"} offer_received=${entry.session?.offerReceived ?? false}`);
+    };
+    const viewerWatch = !entry.diagnostic && this.#nvrMediaChecks?.retiring ? setInterval(() => {
+      if (!entry.controller.signal.aborted && !current()) entry.controller.abort();
+    }, 100) : null;
     try {
+      if (!current()) throw new DoorbellRtcError("cancelled");
       const context = await this.#client.nvrSignallingContext(serial, this.config.experimentalNvrRegion ?? "auto", entry.controller.signal);
       if (!current()) throw new DoorbellRtcError("cancelled");
       const session = entry.session = new DoorbellRtcSession({ station: serial,
@@ -1857,8 +1869,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       };
       session.output.once("end", retire); session.output.once("close", retire);
       session.output.once("error", error => {
-        logger.warn(entry.diagnostic ? "doorbell_rtc_trial_failed" : "doorbell_rtc_stream_failed",
-          `stage=${error instanceof DoorbellRtcError ? error.stage : "video"} reason=${error instanceof DoorbellRtcError ? error.reason : "unspecified"}`);
+        reportFailure(error instanceof DoorbellRtcError ? error : new DoorbellRtcError("video"));
         retire();
       });
       await session.start();
@@ -1867,9 +1878,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         entry.controller.signal.aborted || error instanceof NvrTrialError && error.stage === "cancelled" ? "cancelled" : "sign",
         error instanceof NvrTrialError && error.stage === "region_or_authorization_rejected" ? "region_or_authorization_rejected" : "unspecified",
         error instanceof NvrTrialError ? error.httpStatus : undefined);
-      logger.warn(entry.diagnostic ? "doorbell_rtc_trial_failed" : "doorbell_rtc_stream_failed",
-        `stage=${failure.stage} reason=${failure.reason}${failure.httpStatus === undefined ? "" : ` http_status=${failure.httpStatus}`}`);
+      reportFailure(failure);
       await entry.release(); throw failure;
+    } finally {
+      startupPending = false;
+      if (viewerWatch) clearInterval(viewerWatch);
     }
   }
 

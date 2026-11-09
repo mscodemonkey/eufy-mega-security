@@ -2,7 +2,7 @@
  * Owns one default-off native doorbell video call and its RTP receiver.
  * The provider supplies current inventory ownership, a cloud sign and an
  * exclusive media lease. This session never issues settings or binary commands,
- * and sends only checked H.264 access units to the diagnostic clip recorder.
+ * and sends only checked H.264 access units to the provider-owned media consumer.
  */
 import { observeRawPeer } from "../diagnostics/raw-rtc.js";
 import { recordRaw } from "../diagnostics/raw-history.js";
@@ -35,6 +35,9 @@ export interface DoorbellRtcOptions {
   /** Attach the owned source before its first complete decoder startup is written. */
   readonly ready: (output: PassThrough) => void;
 }
+
+/** Bound call progress retained after cleanup, without signaling content or identifiers. */
+export type DoorbellRtcCallProgress = "not_sent" | "waiting" | "pending" | "accepted" | "rejected" | "invalid_response";
 
 /** Local tests inject sockets and peers without contacting an Eufy account. */
 export interface DoorbellRtcDependencies {
@@ -71,12 +74,14 @@ export class DoorbellRtcSession {
   #peer: RTCPeerConnection | null = null;
   #offer: DoorbellRtcOffer | null = null;
   #earlyOffer: DoorbellRtcOffer | null = null;
+  #offerReceived = false;
   #chain: Promise<void> = Promise.resolve();
   #queued = 0;
   #candidateCount = 0;
   #candidateBytes = 0;
   #authenticated = false;
   #accepted = false;
+  #callProgress: DoorbellRtcCallProgress = "not_sent";
   #answerSent = false;
   #started = false;
   #retired = false;
@@ -106,6 +111,16 @@ export class DoorbellRtcSession {
     if (!Number.isSafeInteger(lifetime) || lifetime < 1 || lifetime > 2_147_000_000) throw new DoorbellRtcError("admission");
     this.output.on("error", () => undefined);
   }
+
+  /**
+   * Describe only the owned call exchange, including after close.
+   * Waiting means the request was queued locally, not that Eufy received it.
+   * Reply states require the existing authenticated session and route checks.
+   */
+  get callProgress(): DoorbellRtcCallProgress { return this.#callProgress; }
+
+  /** A bound offer candidate was observed, not necessarily valid or accepted. Retained after close. */
+  get offerReceived(): boolean { return this.#offerReceived; }
 
   /** Connect one user-consented call, stopping if ownership changes or no video arrives. */
   async start(): Promise<void> {
@@ -239,6 +254,7 @@ export class DoorbellRtcSession {
       if (this.#authenticated || inner.code !== 200) throw new DoorbellRtcError("join");
       this.#authenticated = true; this.#lastPingAck = Date.now(); this.#stage = "call";
       this.#action("call", {});
+      this.#callProgress = "waiting";
       this.#heartbeat = setInterval(() => {
         try {
           this.#guard();
@@ -258,6 +274,8 @@ export class DoorbellRtcSession {
     const data = record(inner.data, "call");
     if (inner.dataType === "hangup") throw new DoorbellRtcError("call");
     if (inner.dataType === "call") {
+      this.#callProgress = data.status === 100 ? "pending" : data.status === 200 ? "accepted"
+        : data.status === 408 || data.status === 486 ? "rejected" : "invalid_response";
       if (data.status === 486) throw new DoorbellRtcError("busy");
       if (data.status === 408) throw new DoorbellRtcError("call", "call_timeout");
       if (data.status === 100) this.#relays(data.turn);
@@ -278,6 +296,7 @@ export class DoorbellRtcSession {
       if (!this.#offer || !this.#answerSent) this.#remoteCandidates.push(candidate);
       else await this.#candidate(candidate);
     } else if (data.format === "SDP" || data.sdp !== undefined) {
+      this.#offerReceived = true;
       if (this.#peer || this.#earlyOffer) throw new DoorbellRtcError("offer");
       const offer = doorbellRtcOffer(data.value ?? data.sdp);
       if (!this.#accepted) { this.#earlyOffer = offer; return; }
