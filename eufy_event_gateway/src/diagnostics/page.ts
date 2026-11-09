@@ -27,7 +27,7 @@ export function diagnosticsPage(): string {
 <button id="parameter-start">Run once</button><button id="parameter-cancel">Cancel state check</button>
 <pre id="parameter-status" role="status">No state check started.</pre></details>
 <details id="trials"><summary>Experimental model controls</summary>
-<p>Enable experimental model controls in the app settings, then select a camera. These controls need testing on your hardware. Stop live view first. Remember the original setting and restore it after testing. For the S120 manual light test, note whether the light is on or off first, watch it during the test and restore that starting state afterward. A success reply acknowledges receipt only.</p>
+<p>Enable experimental model controls in the app settings, then select a camera. These controls need testing on your hardware. Stop live view first. Remember the original setting and restore it after testing. For an attached manual light test, note whether the light is on or off first, watch it during the test and restore that starting state afterward. A success reply acknowledges receipt only.</p>
 <button id="trial-load">Check available controls</button>
 <label>Control <select id="trial-action"></select></label>
 <label>Value <select id="trial-value"><option value="true">On</option><option value="false">Off</option><option value="left">Left</option><option value="right">Right</option><option value="up">Up</option><option value="down">Down</option></select></label>
@@ -303,7 +303,7 @@ action('trial-load', async () => {
       clearTrialAdmission(message); return;
     }
     trialAdmission = { serial, actions: [...value.actions] };
-    for(const name of value.actions) el('trial-action').add(new Option(name === 'spotlightState' ? 'Read spotlight state (no light command)' : name === 'alarmState' ? 'Read alarm state (experimental)' : name === 'sirenConnection' ? 'Check S100 connection (no sound)' : name === 'manualLight' ? 'Manual light (S120 through HomeBase 3)' : name === 'aiTracking' ? 'AI tracking' : name, name));
+    for(const name of value.actions) el('trial-action').add(new Option(name === 'spotlightState' ? 'Read spotlight state (no light command)' : name === 'alarmState' ? 'Read alarm state (experimental)' : name === 'sirenConnection' ? 'Check S100 connection (no sound)' : name === 'manualLight' ? 'Manual light (through HomeBase 3)' : name === 'aiTracking' ? 'AI tracking' : name, name));
     trialValues(); syncTrialControls();
     el('trial-status').textContent = 'Choose one control and observe the camera.';
   } catch(error) {

@@ -163,9 +163,9 @@ test("S100 HTTP client disconnect leaves provider-owned stop cleanup running", a
 });
 
 
-test("manual light HTTP returns only an acknowledgement and masks unknown failure details", async () => {
+for (const model of ["T81A0", "T8600"]) test(`${model} manual light HTTP returns only an acknowledgement and masks unknown failure details`, async () => {
   const directory = await mkdtemp(join(tmpdir(), "light-http-"));
-  const state = new GatewayState(); state.registerCamera({ serial: "synthetic", name: "Synthetic", model: "T81A0", stationSerial: "station", streamSupported: false, doorbellSupported: false });
+  const state = new GatewayState(); state.registerCamera({ serial: "synthetic", name: "Synthetic", model, stationSerial: "station", streamSupported: false, doorbellSupported: false });
   let fail = false;
   const provider = { modelControlTrials: () => ["manualLight"], performModelControlTrial: async (_id: string, _request: unknown, signal: AbortSignal) => {
     assert.equal(signal.aborted, false);

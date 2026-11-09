@@ -24,7 +24,7 @@ import { buildS100SirenCommand } from "./s100-siren-command.js";
 import { S100SirenTrialError, type S100SirenTrialTransport, type S100SirenFailureStage } from "../provider/s100-siren-trial.js";
 import { createECDH, createHmac, generateKeyPairSync, privateDecrypt, randomBytes } from "node:crypto";
 import { unwrapAuthenticatedMediaKey } from "../crypto/media-key.js";
-import { modelControlTrialCommand, type ModelControlRoute, type ModelControlTrial, type AlarmStateTrialResult } from "../provider/model-control-trials.js";
+import { isE330ManualLightTrialRoute, modelControlTrialCommand, type ModelControlRoute, type ModelControlTrial, type AlarmStateTrialResult } from "../provider/model-control-trials.js";
 import { validateC31Preference, type C31Preference } from "../provider/c31-preferences.js";
 import { createSocket, type RemoteInfo, type Socket } from "node:dgram";
 import { PassThrough } from "node:stream";
@@ -781,6 +781,9 @@ export function buildModelControlTrialPayload(
   level2Key: Buffer | null, sequence: number, transaction: number,
 ): { readonly command: number; readonly payload: Buffer } {
   const frame = modelControlTrialCommand(request, route, accountId, transaction);
+  if (request.action === "manualLight" && isE330ManualLightTrialRoute(route)) {
+    return { command: frame.command, payload: buildStandaloneCameraLightBody(route.channel!, request.enabled, accountId, legacyKey) };
+  }
   if (frame.command === 1403 || frame.command === 1350 || route.homeBaseAttached) {
     if (!level2Key || level2Key.length !== 32) throw new Error("Model control trial requires negotiated level-two encryption");
     const plain = typeof frame.value === "boolean" ? buildCameraEnableBody(route.channel!, frame.value ? 1 : 0, accountId) : Buffer.from(frame.value);
@@ -1459,6 +1462,9 @@ interface PendingControl {
 
   /** Require an authenticated level-two reply for new momentary light trials. */
   readonly authenticatedOnly?: boolean;
+
+  /** Exclude clear replies when the exact trial uses the encrypted legacy envelope. */
+  readonly encryptedOnly?: boolean;
   readonly resolve: () => void;
   readonly reject: (error: Error) => void;
   readonly timer: ReturnType<typeof setTimeout>;
@@ -2296,12 +2302,14 @@ export class FirstPartyPpcsSession {
 
     // The standalone C35 manual switch uses its pinned level-one JSON path.
     // Its master-enable setting remains outside this profile.
-    if ((request.action === "spotlight" && !(route.model === "T8110" && route.deviceType === 10035))
-      || request.action === "ptz" || route.homeBaseAttached) await this.#waitForLevel2Key();
+    const e330Light = request.action === "manualLight" && isE330ManualLightTrialRoute(route);
+    if (!e330Light && ((request.action === "spotlight" && !(route.model === "T8110" && route.deviceType === 10035))
+      || request.action === "ptz" || route.homeBaseAttached)) await this.#waitForLevel2Key();
     current();
     const frame = buildModelControlTrialPayload(request, route, this.#options.accountId,
       commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key, this.#level2Seq++, Date.now());
-    const acknowledgement = this.#waitForControlResult(frame.command, this.#options.channel, CONTROL_TIMEOUT_MILLISECONDS, request.action === "manualLight");
+    const acknowledgement = this.#waitForControlResult(frame.command, this.#options.channel, CONTROL_TIMEOUT_MILLISECONDS,
+      request.action === "manualLight" && !e330Light, e330Light);
     try { onDispatch(); this.#sendCommand(frame.command, frame.payload); }
     catch (error) { void acknowledgement.catch(() => undefined); throw error; }
     await acknowledgement;
@@ -3272,6 +3280,7 @@ export class FirstPartyPpcsSession {
 
     if (header[14] === 1 && this.#pendingControl?.command === command) {
       if (this.#pendingControl.authenticatedOnly && signCode !== 8) return;
+      if (this.#pendingControl.encryptedOnly && ![1, 2, 8].includes(signCode)) return;
       if (this.#pendingControl.strictChannel !== undefined) {
         const result = decodeModelControlTrialAcknowledgement(header, payload, this.#pendingControl.command, this.#pendingControl.strictChannel,
           commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key);
@@ -3660,7 +3669,8 @@ export class FirstPartyPpcsSession {
    * error lets the provider choose a readback rather than blindly retrying a
    * potentially non-idempotent operation.
    */
-  #waitForControlResult(command: number, strictChannel?: number, timeoutMilliseconds = CONTROL_TIMEOUT_MILLISECONDS, authenticatedOnly = false): Promise<void> {
+  #waitForControlResult(command: number, strictChannel?: number, timeoutMilliseconds = CONTROL_TIMEOUT_MILLISECONDS,
+    authenticatedOnly = false, encryptedOnly = false): Promise<void> {
     if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#pendingControl) return Promise.reject(new Error("Camera already has a control command in flight"));
     return new Promise<void>((resolve, reject) => {
@@ -3668,7 +3678,8 @@ export class FirstPartyPpcsSession {
         this.#pendingControl = null;
         reject(new CameraControlAcknowledgementTimeoutError());
       }, timeoutMilliseconds);
-      this.#pendingControl = { command, resolve, reject, timer, authenticatedOnly, ...(strictChannel === undefined ? {} : { strictChannel }) };
+      this.#pendingControl = { command, resolve, reject, timer, authenticatedOnly, encryptedOnly,
+        ...(strictChannel === undefined ? {} : { strictChannel }) };
     });
   }
 
@@ -4083,7 +4094,7 @@ export function buildAutoNightVisionCommandBody(channel: number, enabled: boolea
   return buildIntStringCommandBody(enabled ? 1 : 0, channel, accountId, key);
 }
 
-/** Build the command-1400 body used by direct SoloCam spotlight controls. */
+/** Build the integer/account light envelope. Callers enforce each model's direct or attached route. */
 export function buildStandaloneCameraLightBody(
   channel: number,
   enabled: boolean,

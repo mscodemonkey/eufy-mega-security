@@ -3572,7 +3572,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#assertLegacyCamera(serial);
     const request = parseModelControlTrial(input);
     if (request.action === "alarmState") return await this.#performAlarmStateRead(serial);
-    if (request.action === "manualLight") return await this.#performS120LightTrial(serial, request, signal);
+    if (request.action === "manualLight") return await this.#performAttachedManualLightTrial(serial, request, signal);
     if (!this.modelControlTrials(serial).includes(request.action)) throw new Error("Experimental model control is unavailable");
     const device = this.#devices.get(serial)!;
     const route = ppcsStreamRoute(device, this.#devices)!;
@@ -3784,7 +3784,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
-  async #performS120LightTrial(serial: string, request: Extract<ModelControlTrial, { action: "manualLight" }>,
+  /** Own one opt-in attached-light write and its cleanup without claiming reported or physical light state. */
+  async #performAttachedManualLightTrial(serial: string, request: Extract<ModelControlTrial, { action: "manualLight" }>,
     signal?: AbortSignal): Promise<ModelControlTrialResult> {
     let stage: S120LightFailureStage = "admission", failedStage: S120LightFailureStage | undefined;
     let writeAttempted = false, acknowledgementReceived = false;
@@ -3861,7 +3862,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         acknowledgementReceived = true;
       });
       current();
-      logger.info("model_control_trial_result", "Model control trial: model=T81A0 action=manualLight outcome=acknowledged physical_confirmation_required=true");
+      logger.info("model_control_trial_result", `Model control trial: model=${safeLogModel(device.model)} action=manualLight outcome=acknowledged physical_confirmation_required=true`);
       return { outcome: "acknowledged", physicalConfirmationRequired: true };
     } catch {
       failedStage = stage;

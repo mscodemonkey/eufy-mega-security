@@ -17,13 +17,13 @@ import type { ModelControlTrial, ModelControlRoute } from "../src/provider/model
 import type { ProviderEvents } from "../src/provider/provider.js";
 
 
-for (const mode of ["valid", "off", "hung", "shutdown", "account", "disabled", "model", "type", "channel", "owner", "parent", "duplicate", "changed", "cancelled", "closed", "busy", "cleanup", "generation", "baseline_failed", "session_failed", "write_prepare_failed", "receipt_timeout", "cleanup_failed", "receipt_cleanup_failed"]) {
-  test(`manual light binding and cleanup: ${mode}`, async context => {
+for (const family of ["s120", "e330"] as const) for (const mode of ["valid", "off", "hung", "shutdown", "account", "disabled", "model", "type", "channel", "owner", "parent", "duplicate", "changed", "cancelled", "closed", "busy", "cleanup", "generation", "baseline_failed", "session_failed", "write_prepare_failed", "receipt_timeout", "cleanup_failed", "receipt_cleanup_failed"]) {
+  test(`${family} manual light binding and cleanup: ${mode}`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "light-provider-"));
     const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
     context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
     context.mock.method(MegaClient.prototype, "isAuthenticatedUser", (value: string) => mode !== "account" && value === "synthetic-owner");
-    const sensor = { device_sn: "sensor", device_model: "T81A0", device_type: 10005, device_channel: 3, parent_sn: "station",
+    const sensor = { device_sn: "sensor", device_model: family === "e330" ? "T8600" : "T81A0", device_type: family === "e330" ? 24 : 10005, device_channel: 3, parent_sn: "station",
       category: "eufy_security", member: { admin_user_id: "synthetic-owner" }, params: [],
       ...(mode === "model" ? { device_model: "T84A0" } : {}), ...(mode === "type" ? { device_type: 127 } : {}),
       ...(mode === "channel" ? { device_channel: 255 } : {}), ...(mode === "owner" ? { member: { admin_user_id: "other" } } : {}) };
