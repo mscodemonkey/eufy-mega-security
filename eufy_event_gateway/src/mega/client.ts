@@ -97,6 +97,7 @@ type MegaOperation = "login" | "account_check" | "inventory" | "lock_credentials
 export function megaOperation(path: string): MegaOperation {
   const operations: Readonly<Record<string, MegaOperation>> = {
     "/app/house/get_devs_list": "inventory",
+    "/app/house/get_house_list": "inventory",
     "/passport/login": "login",
     "/passport/validate_email": "account_check",
     "/app/devicemanage/get_user_mqtt_info": "lock_credentials",
@@ -553,13 +554,62 @@ export class MegaClient {
     this.#requireAuthentication();
     const lifetime = cancellation ? AbortSignal.any([this.#requestLifetime.signal, cancellation]) : this.#requestLifetime.signal;
     const result = await this.#call("house", "/app/house/get_devs_list", { house_id: "", device_sns: {} }, true, undefined, cancellation);
-    const value = this.#decodeResult(result);
+    const value = result.code === -1 ? await this.#inventoryByHouse(lifetime) : this.#decodeResult(result);
     if (!isRecord(value) || !Array.isArray(value.devices)) throw new Error("Mega returned an invalid device inventory");
     lifetime.throwIfAborted();
     const chargingDays = options.includeChargingDays === false ? new Map<string, unknown>()
       : await this.#legacyChargingDays(cancellation).catch(() => new Map<string, unknown>());
     lifetime.throwIfAborted();
     return projectMegaInventory(value, chargingDays);
+  }
+
+  /**
+   * Recover only the primary inventory's application-error refusal through the
+   * SDK's default and per-house reads. Every page must succeed under the same
+   * account binding. Partial pages and conflicting device owners/routes never
+   * become a complete inventory, and no login or device command is replayed.
+   */
+  async #inventoryByHouse(parent: AbortSignal): Promise<{ devices: Record<string, unknown>[] }> {
+    const bound = this.authenticatedBinding();
+    const signal = AbortSignal.any([parent, AbortSignal.timeout(60_000)]);
+    const current = (): void => {
+      signal.throwIfAborted();
+      if (!bound?.()) throw new Error("Inventory fallback binding changed");
+    };
+    const read = async (path: string, body: Record<string, unknown>): Promise<unknown> => {
+      current();
+      const reply = await this.#call("house", path, body, false, undefined, signal, { onDispatch: current });
+      current();
+      return this.#decodeResult(reply);
+    };
+    const rows = new Map<string, Record<string, unknown>>();
+    const add = (page: unknown): void => {
+      if (!isRecord(page) || !Array.isArray(page.devices) || page.devices.length > 2048) throw new Error("Inventory fallback page is invalid");
+      for (const row of page.devices) {
+        if (!isRecord(row) || typeof row.device_sn !== "string" || row.device_sn.length < 1 || row.device_sn.length > 128) throw new Error("Inventory fallback device is invalid");
+        const old = rows.get(row.device_sn);
+        const binding = (value: Record<string, unknown>): string => JSON.stringify([
+          value.device_model, value.device_type, value.parent_sn, value.device_channel, value.category,
+          isRecord(value.member) ? value.member.admin_user_id : null, value.p2p_did,
+        ]);
+        if (old && binding(old) !== binding(row)) throw new Error("Inventory fallback device binding conflicts");
+        rows.set(row.device_sn, row);
+        if (rows.size > 2048) throw new Error("Inventory fallback device limit exceeded");
+      }
+    };
+    add(await read("/app/house/get_devs_list", {}));
+    const houses = await read("/app/house/get_house_list", {});
+    if (!isRecord(houses) || !Array.isArray(houses.house_infos) || houses.house_infos.length > 16) throw new Error("Inventory fallback house list is invalid");
+    const identifiers = new Set<string>();
+    for (const house of houses.house_infos) {
+      if (!isRecord(house) || typeof house.house_id !== "string" || !house.house_id.trim() || house.house_id.length > 128
+        || identifiers.has(house.house_id)) throw new Error("Inventory fallback house identity is invalid");
+      identifiers.add(house.house_id);
+      add(await read("/app/house/get_devs_list", { house_id: house.house_id }));
+    }
+    current();
+    createLogger("mega").info("inventory_house_fallback", `Complete account inventory recovered: houses=${identifiers.size} devices=${rows.size}`);
+    return { devices: [...rows.values()] };
   }
 
   /**
