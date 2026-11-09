@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.252
+
+- Recover camera discovery after qualified cloud inventory failures with same-account fallbacks and paced retries, including valid empty-house responses.
+- Protect active Home Assistant NVR views using actual video requests, replace expired views on reopening, and retire the background NVR mode observer before foreground calls. Physical S1 and NVR timing still need reporter confirmation.
+- Add motion-control phase timings, distinguish local state-check admission from cloud refusals, and offer a separate read-only T8910 device-list motion-time comparison.
+- Try an app-derived protected request for the separate C35 spotlight state check. Light operation and a C35 reply remain unconfirmed.
+- Distinguish S120 light-test send, receipt and cleanup failures without changing the command or adding retries.
+- Correct diagnostic helper downloads and Python setup, and identify the saved capture file without exposing its private path. E10 video, missing pictures and the remaining model controls are not confirmed fixed.
+
 ## 0.1.251
 
 - Bound slow H.265 conversion queues and reduce snapshot decoding work. Normal views retain their size and cadence, with a separate default-off lower-CPU conversion profile. Final Green playback still needs reporter confirmation.
