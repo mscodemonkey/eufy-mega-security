@@ -80,6 +80,23 @@ separate opt-in tool documented in [issue diagnostics](ISSUE_EVIDENCE_DIAGNOSTIC
 The support utility reads the integration's saved gateway connection locally.
 Do not send your `.storage` directory, app options or credentials to anyone.
 
+The official **Terminal & SSH** app may not include Python. Before using the
+helper, run `python3 --version`. If it says the command is missing, open that
+app's **Configuration**, add `python3` to its `apks` list and keep any existing
+entries:
+
+```yaml
+apks:
+  - python3
+```
+
+Save and restart **Terminal & SSH** only, then reopen its terminal and check
+`python3 --version` again. This installs Python inside that app. Keep the
+existing authentication and network configuration. Home Assistant and the Eufy
+gateway do not need restarting for this setup. The app's [official `apks`
+documentation](https://github.com/home-assistant/app-ssh/blob/main/DOCS.md#option-apks)
+explains its additional-package option.
+
 Run these commands in the Home Assistant Terminal & SSH app. They download
 our two support scripts from the same published release. The scripts use Python's
 standard library. Keep them outside `/config/www`.

@@ -64,7 +64,26 @@ below instead. It uses your saved connection automatically.
 <details>
 <summary>Home Assistant terminal method</summary>
 
-Open the **Terminal & SSH** app in Home Assistant. Copy and run this block once:
+Open the **Terminal & SSH** app in Home Assistant.
+
+The official **Terminal & SSH** app may not include Python. Before using the
+helper, run `python3 --version`. If it says the command is missing, open that
+app's **Configuration**, add `python3` to its `apks` list and keep any existing
+entries:
+
+```yaml
+apks:
+  - python3
+```
+
+Save and restart **Terminal & SSH** only, then reopen its terminal and check
+`python3 --version` again. This installs Python inside that app. Keep the
+existing authentication and network configuration. Home Assistant and the Eufy
+gateway do not need restarting for this setup. The app's [official `apks`
+documentation](https://github.com/home-assistant/app-ssh/blob/main/DOCS.md#option-apks)
+explains its additional-package option.
+
+After Python is available, copy and run this block once:
 
 ```sh
 mkdir -p /config/eufy-diagnostics-tools
