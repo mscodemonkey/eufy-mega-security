@@ -80,7 +80,7 @@ Save and restart **Terminal & SSH** only, then reopen its terminal and check
 `python3 --version` again. This installs Python inside that app. Keep the
 existing authentication and network configuration. Home Assistant and the Eufy
 gateway do not need restarting for this setup. The app's [official `apks`
-documentation](https://github.com/home-assistant/app-ssh/blob/main/DOCS.md#option-apks)
+documentation](https://github.com/home-assistant/apps/blob/master/ssh/DOCS.md#option-apks)
 explains its additional-package option.
 
 After Python is available, copy and run this block once:
