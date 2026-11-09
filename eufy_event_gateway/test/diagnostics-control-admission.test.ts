@@ -182,3 +182,22 @@ test("Diagnostics declares its own readable canvas", () => {
   assert.match(page, /html\{color-scheme:light;background:#fff\}/);
   assert.match(page, /body\{background:#fff/);
 });
+
+
+for (const reason of ["no_reply", "not_decoded", "invalid_json", "invalid_schema", "setting_missing", "unavailable", "PRIVATE-CANARY", "constructor"]) {
+  test(`C35 Diagnostics exposes only the fixed read failure: ${reason}`, async () => {
+    const h = harness();
+    h.respond(async () => ({ actions: ["spotlightState"] }));
+    await h.el("trial-load").onclick!();
+    h.respond(async () => ({ outcome: "unavailable", readOnly: true, reason }));
+    h.el("trial-consent").checked = true;
+    await h.el("trial-send").onclick!();
+    const text = h.el("trial-status").textContent;
+    assert.match(text, /No light command was sent/);
+    if (["PRIVATE-CANARY", "constructor"].includes(reason)) assert.doesNotMatch(text, /PRIVATE|constructor|Reason:/);
+    else assert.ok(text.includes(`Reason: ${reason}.`));
+    const posts = h.calls.filter(call => call.method === "POST");
+    assert.equal(posts.length, 1);
+    assert.deepEqual(JSON.parse(posts[0]!.body!), { action: "spotlightState", enabled: false });
+  });
+}

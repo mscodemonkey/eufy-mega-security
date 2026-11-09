@@ -240,6 +240,11 @@ async function trialApi(method, body, serial = el('device').value, signal) {
 function spotlightReadText(row) {
   const unavailable = 'State read unavailable. No light command was sent. Share only the model_control_trial_failed line.';
   if(!row || typeof row !== 'object' || Array.isArray(row) || row.readOnly !== true) return unavailable;
+  if(row.outcome === 'unavailable' && Object.keys(row).length === 3
+    && Object.keys(row).every(key => ['outcome','readOnly','reason'].includes(key))
+    && ['no_reply','not_decoded','invalid_json','invalid_schema','setting_missing','unavailable'].includes(row.reason)) {
+    return 'State read unavailable. Reason: ' + row.reason + '. No light command was sent. Share this summary.';
+  }
   if(row.outcome !== 'reported' || typeof row.spotlightEnabled !== 'boolean' || Object.keys(row).length !== 3
     || !Object.keys(row).every(key => ['outcome','readOnly','spotlightEnabled'].includes(key))) return unavailable;
   return 'Camera reports the manual spotlight setting is ' + (row.spotlightEnabled ? 'on' : 'off')
