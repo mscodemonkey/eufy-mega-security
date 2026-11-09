@@ -898,10 +898,13 @@ export class LiveStreamManager extends EventEmitter {
    * The stop gate is installed synchronously before provider cleanup is awaited,
    * so new viewers wait and late recording holds cannot promise this old source.
    * Returns false without stopping a lease, recording or unmarked consumer.
+   * The unused-only form also requires the existing idle grace timer and zero
+   * consumers, checked synchronously before that timer is cancelled.
    */
-  async retireYieldableSource(serial: string): Promise<boolean> {
+  async retireYieldableSource(serial: string, onlyIfUnused = false): Promise<boolean> {
     const session = this.#sessions.get(serial);
-    if (this.#closed || !session || !this.canYieldSource(serial)) return false;
+    if (this.#closed || !session || !this.canYieldSource(serial)
+      || onlyIfUnused && (!session.stopTimer || session.clients.size !== 0)) return false;
     this.#cancelStop(session);
     return this.#stopOwnedSource(serial, session);
   }

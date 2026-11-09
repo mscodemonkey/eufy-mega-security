@@ -82,7 +82,7 @@ async function fixture(context: TestContext, parent: "T8N00" | "T9000" = "T8N00"
   manager = new LiveStreamManager(state, {} as never, provider, stopGrace, undefined, fakeProcess, fakeProcess, 30_000, () => clock);
   manager.on("warning", () => {});
   provider.setNvrLiveMediaChecks({ viewer: serial => manager.hasActiveViewer(serial), active: serial => manager.hasActiveSession(serial),
-    recording: serial => manager.hasActiveRecording(serial), yieldable: serial => manager.canYieldSource(serial), settling: serial => manager.isSourceSettling(serial), retiring: serial => manager.isSourceRetiring(serial), retireYieldable: serial => manager.retireYieldableSource(serial) });
+    recording: serial => manager.hasActiveRecording(serial), yieldable: serial => manager.canYieldSource(serial), settling: serial => manager.isSourceSettling(serial), retiring: serial => manager.isSourceRetiring(serial), retireYieldable: (serial, onlyIfUnused) => manager.retireYieldableSource(serial, onlyIfUnused) });
   await provider.start(events);
   return { state, manager, provider, sessions, switches, joins: () => joins, failSwitch: () => { failSwitch = true; }, setSwitchable: (value: boolean) => { switchable = value; }, advance: (milliseconds: number) => { clock += milliseconds; },
     close: async () => { await manager.close(); await provider.close(); await tick(); await rm(directory, { recursive: true, force: true }); } };
@@ -401,7 +401,7 @@ test("reconnecting a tracked view starts protected again without an activity-mes
 
 for (const parent of ["T9000", "T8N00"] as const) {
   test(`an aged HA retry waits for an unused ${parent} call to finish closing`, async context => {
-    const value = await fixture(context, parent, 200);
+    const value = await fixture(context, parent, 10_000);
     let finish!: () => void;
     const closing = new Promise<void>(resolve => { finish = resolve; });
     const close = NvrRtcSession.prototype.close;
@@ -442,7 +442,15 @@ for (const parent of ["T9000", "T8N00"] as const) {
 }
 
 test("cancelling an aged retry during idle cleanup cannot open a late call", async context => {
-  const value = await fixture(context, "T9000", 200);
+  const value = await fixture(context, "T9000", 10_000);
+  let finish!: () => void;
+  const closing = new Promise<void>(resolve => { finish = resolve; });
+  const close = NvrRtcSession.prototype.close;
+  context.mock.method(NvrRtcSession.prototype, "close", async function(this: NvrRtcSession) {
+    const retired = close.call(this);
+    if (this === value.sessions[0]) await closing;
+    await retired;
+  });
   try {
     const first = await open(value, a);
     assert.equal((await open(value, b, view("cancelled-retry"))).destroyed, true);
@@ -455,14 +463,22 @@ test("cancelling an aged retry during idle cleanup cannot open a late call", asy
     await value.provider.stopStream(b);
     await opening;
     assert.equal(retry.destroyed, true);
+    finish();
     await new Promise(resolve => setTimeout(resolve, 250));
     assert.equal(value.joins(), 1);
     assert.equal(value.switches.length, 0);
-  } finally { await value.close(); }
+  } finally { finish(); await value.close(); }
 });
 
 test("a returning consumer keeps its call while an aged retry waits for idle cleanup", async context => {
-  const value = await fixture(context, "T9000", 200);
+  const value = await fixture(context, "T9000", 10_000);
+  let releaseRetire!: () => void;
+  const retirement = new Promise<void>(resolve => { releaseRetire = resolve; });
+  const retire = value.manager.retireYieldableSource.bind(value.manager);
+  context.mock.method(value.manager, "retireYieldableSource", async (serial: string, onlyIfUnused = false) => {
+    if (onlyIfUnused) await retirement;
+    return retire(serial, onlyIfUnused);
+  });
   try {
     const first = await open(value, a);
     assert.equal((await open(value, b, view("returning-consumer"))).destroyed, true);
@@ -473,10 +489,11 @@ test("a returning consumer keeps its call while an aged retry waits for idle cle
     await settled();
     assert.equal(retry.destroyed, false);
     const returning = await open(value, a);
+    releaseRetire();
     await opening;
     assert.equal(retry.destroyed, true);
     assert.equal(returning.destroyed, false);
     assert.equal(value.joins(), 1);
     assert.equal(value.switches.length, 0);
-  } finally { await value.close(); }
+  } finally { releaseRetire(); await value.close(); }
 });

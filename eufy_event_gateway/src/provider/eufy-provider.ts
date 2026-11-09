@@ -722,7 +722,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #nvrReadIntervals = new Map<string, number>();
   readonly #nvrViews = new Map<string, { binding: string; value: number }>();
   readonly #nvrSettings = new Map<string, { binding: string; values: NvrLiveSettings; nightAt: number; qualityAt: number; trackingAt: number; timer: NodeJS.Timeout | null }>();
-  #nvrMediaChecks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean; retiring?: (serial: string) => boolean; retireYieldable?: (serial: string) => Promise<boolean> } | null = null;
+  #nvrMediaChecks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean; retiring?: (serial: string) => boolean; retireYieldable?: (serial: string, onlyIfUnused?: boolean) => Promise<boolean> } | null = null;
   readonly #nvrTrials = new Map<string, NvrTrialEntry>();
 
   /** Private card references expire in memory and are never published as filesystem paths. */
@@ -1980,6 +1980,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
    */
   async #nvrCallOnceSettled(device: MegaInventoryDevice, station: MegaInventoryDevice, current: () => void, signal: AbortSignal, takeOver: boolean): Promise<NvrTrialEntry | null> {
     const deadline = performance.now() + NVR_SWITCH_WAIT_MILLISECONDS;
+    let requestedRetirement: NvrTrialEntry | null = null;
     for (;;) {
       const call = takeOver ? this.#nvrCallToTake(device, station) : null;
       const rows = [...this.#nvrTrials];
@@ -1988,6 +1989,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && (takeOver ? this.#nvrMediaChecks?.settling(rows[0]![0]) || !rows[0]![1].session?.switchable
           : rows[0]![1].retiring || this.#nvrMediaChecks?.retiring?.(rows[0]![0]));
       if (call || !settling || performance.now() >= deadline) return call;
+      if (!takeOver && requestedRetirement !== rows[0]![1]) {
+        requestedRetirement = rows[0]![1];
+
+        // Only the media owner can atomically waive idle grace for a wholly unused call.
+        const retirement = this.#nvrMediaChecks?.retireYieldable?.(rows[0]![0], true);
+        void retirement?.catch(() => {});
+      }
       await new Promise<void>(resolve => {
         const done = (): void => { clearTimeout(timer); signal.removeEventListener("abort", done); resolve(); };
         const timer = setTimeout(done, 100);
@@ -2696,7 +2704,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
    * eligibility remain the manager's decision rather than provider policy.
    * The optional retiring check reports existing cleanup only and never grants takeover.
    */
-  setNvrLiveMediaChecks(checks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean; retiring?: (serial: string) => boolean; retireYieldable?: (serial: string) => Promise<boolean> }): void {
+  setNvrLiveMediaChecks(checks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean; retiring?: (serial: string) => boolean; retireYieldable?: (serial: string, onlyIfUnused?: boolean) => Promise<boolean> }): void {
     this.#nvrMediaChecks = checks;
   }
 

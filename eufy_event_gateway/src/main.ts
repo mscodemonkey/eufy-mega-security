@@ -138,7 +138,7 @@ streams.on("live-audio-startup-closed", (summary: LiveAudioStartupSummary & { mo
   const model = /^T[0-9A-Z]{3,15}$/.test(summary.model) ? summary.model : "unknown";
   logger.info("camera_live_audio_startup", `model=${model} wait_ms=${summary.waitMilliseconds} first_audio_after_video_ms=${summary.firstAudioAfterVideoMilliseconds ?? "not-observed"} audio_selected=${summary.audioSelected ?? "not-started"}`);
 });
-provider.setNvrLiveMediaChecks?.({ viewer: serial => streams.hasActiveViewer(serial), active: serial => streams.hasActiveSession(serial), recording: serial => streams.hasActiveRecording(serial), yieldable: serial => streams.canYieldSource(serial), settling: serial => streams.isSourceSettling(serial), retiring: serial => streams.isSourceRetiring(serial), retireYieldable: serial => streams.retireYieldableSource(serial) });
+provider.setNvrLiveMediaChecks?.({ viewer: serial => streams.hasActiveViewer(serial), active: serial => streams.hasActiveSession(serial), recording: serial => streams.hasActiveRecording(serial), yieldable: serial => streams.canYieldSource(serial), settling: serial => streams.isSourceSettling(serial), retiring: serial => streams.isSourceRetiring(serial), retireYieldable: (serial, onlyIfUnused) => streams.retireYieldableSource(serial, onlyIfUnused) });
 streams.on("ffmpeg-error", (detail: string) => {
   logger.warn("ffmpeg_error", `Camera media conversion reported an error: ${detail}`);
 });

@@ -119,12 +119,12 @@ unexpectedly, share only `shared_lens_view_closed`, keeping images and video pri
 
 A retried Home Assistant URL must not take a call away from another active
 view. It can, however, wait for the previous camera's already-unused connection
-to finish its idle grace period and disconnect. Normal NVR and HomeBase S1
+to disconnect. The media owner can waive idle grace only while that source has
+zero viewers, leases and recordings. Normal NVR and HomeBase S1
 routes now share that bounded wait even when the URL's takeover window has
 expired. The existing six-second handoff budget still applies.
 
-This does not stop the previous view, shorten its idle grace period or permit
-simultaneous calls. Recordings, leases, diagnostic calls and another station's
+This does not stop an active view or permit simultaneous calls. Recordings, leases, diagnostic calls and another station's
 connection retain their reservations. A returning consumer cancels unused idle
 cleanup, so the waiting retry is refused rather than taking that consumer's
 call. Cancelling the request prevents a late replacement call.
