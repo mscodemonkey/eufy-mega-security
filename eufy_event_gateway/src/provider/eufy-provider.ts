@@ -1950,7 +1950,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       liveAudioSupported: this.#normalNvrLiveBinding(device, station) && nvrLiveAudioAdmitted(device, station),
       talkbackSupported: false, enableControlSupported: false, motionDetectionControlSupported: false,
       guardModeControlSupported: false, guardModeRefreshSupported: false, nightVisionControlSupported: !!profile && values.night !== null,
-      autoNightVisionControlSupported: false, cameraLightControlSupported: false, timedLightControlSupported: false,
+      autoNightVisionControlSupported: false, cameraLightControlSupported: false, experimentalLightControlSupported: false,
+      timedLightControlSupported: false,
       cameraSirenControlSupported: false, presetPositionControlSupported: false, aiTrackingControlSupported: !!profile?.aiTracking && values.tracking !== null,
       autoCruiseControlSupported: false, motionSensitivityControlSupported: false, motionSensitivitySteps: null, homebaseChimeControlSupported: false, lightBrightnessControlSupported: false, manualFloodlightControlSupported: false, preferenceControls: [], streamingQualityModes: profile?.quality ?? [], nightVisionModes: profile?.night ?? [],
     };
@@ -5384,6 +5385,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === true
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       directionalPanControlSupported: this.#c37ControlRouteReady(device),
+      experimentalLightControlSupported: this.#c35LightRouteReady(device) || this.#c37ControlRouteReady(device)
+        || Boolean(this.config.apiAuthenticationConfigured && this.modelControlTrials(device.serial).includes("manualLight")
+          && isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
       cameraLightControlSupported: this.#c35LightRouteReady(device) || this.#c37ControlRouteReady(device) || cameraLightControlProtocol(device, route) !== null
         && (cameraLightControlProtocol(device, route) !== "c31-json"
           || supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)))
@@ -5439,6 +5443,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
     const selected = this.#devices.get(serial);
+    if (this.modelControlTrials(serial).includes("manualLight")) {
+      if (!this.config.apiAuthenticationConfigured) return Promise.reject(new Error("Experimental light controls require API authentication"));
+      return this.performModelControlTrial(serial, { action: "manualLight", enabled }).then(() => undefined);
+    }
     if ((selected?.model === "T814X" && selected.deviceType === 10_037)
       || (selected?.model === "T8110" && selected.deviceType === 10035)) {
       return this.performModelControlTrial(serial, { action: "spotlight", enabled }).then(() => undefined);

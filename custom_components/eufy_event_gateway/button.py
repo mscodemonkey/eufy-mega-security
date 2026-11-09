@@ -92,6 +92,7 @@ async def async_setup_entry(
             if (
                 camera.get("cameraLightControlSupported") is True
                 or camera.get("timedLightControlSupported") is True
+                or camera.get("experimentalLightControlSupported") is True
             ):
                 for enabled in (True, False):
                     action = "light_on" if enabled else "light_off"
@@ -193,13 +194,17 @@ class EufyCameraLightButton(EufyGatewayEntity, ButtonEntity):
         serial: str,
         enabled: bool,
     ) -> None:
-        """Bind a stable on or off action to one capability-backed camera."""
+        """Bind one stable action, labelling opt-in trials and disabling them by default."""
         EufyGatewayEntity.__init__(self, coordinator, serial)
         ButtonEntity.__init__(self)
         self._enabled = enabled
         action = "on" if enabled else "off"
         self._attr_unique_id = f"{serial}_camera_light_{action}"
-        self._attr_translation_key = f"camera_light_{action}"
+        experimental = self.camera.get("experimentalLightControlSupported") is True
+        self._attr_translation_key = (
+            f"camera_light_{action}_experimental" if experimental else f"camera_light_{action}"
+        )
+        self._attr_entity_registry_enabled_default = not experimental
         self._attr_icon = (
             "mdi:lightbulb-on-outline" if enabled else "mdi:lightbulb-off-outline"
         )
@@ -210,11 +215,15 @@ class EufyCameraLightButton(EufyGatewayEntity, ButtonEntity):
         return super().available and (
             self.camera.get("cameraLightControlSupported") is True
             or self.camera.get("timedLightControlSupported") is True
+            or self.camera.get("experimentalLightControlSupported") is True
         )
 
     async def async_press(self) -> None:
         """Ask the gateway to send the capability-backed momentary light command."""
-        await self.coordinator.client.set_camera_light(self.serial, self._enabled)
+        try:
+            await self.coordinator.client.set_camera_light(self.serial, self._enabled)
+        except GatewayClientError as error:
+            raise HomeAssistantError(str(error)) from error
 
 
 class EufyCameraPresetButton(EufyGatewayEntity, ButtonEntity):

@@ -7,12 +7,14 @@ HomeBase-attached camera or add a normal HA light entity.
 Enable **Experimental model controls** only if you want to test it. Keep your
 existing account arrangement. The configured account must own this camera, and
 the gateway must have an API token. Close live views and wait for other camera
-operations to finish before opening **Diagnostics**.
+operations to finish.
 
-Select the L40, check the available controls, then choose **Manual light
-(experimental)**. Note the starting light state and make sure you can watch it
-and restore that state in Eufy. Select the opposite state and use **Try once**
-once. If the result is uncertain, check the light independently and do not retry.
+On the L40's normal Home Assistant device page, enable **Turn camera light on
+(experimental)** and **Turn camera light off (experimental)**. Both buttons start
+disabled. Note the starting light state and make sure you can watch it and
+restore it in Eufy, then press the opposite-state button once. No separate
+Diagnostics page or observation checkbox is required. If the result is uncertain,
+check the light independently and do not retry.
 
 The command requests a 60-second manual-light period. Device enforcement,
 physical illumination and the light's behaviour after the connection closes

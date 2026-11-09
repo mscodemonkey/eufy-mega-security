@@ -239,6 +239,9 @@ export interface CameraState {
   readonly autoNightVisionEnabled: boolean | null;
   readonly autoNightVisionControlSupported: boolean;
   readonly cameraLightControlSupported: boolean;
+
+  /** Offer disabled-by-default light trial buttons without claiming readable lamp state. */
+  readonly experimentalLightControlSupported: boolean;
   readonly timedLightControlSupported: boolean;
   readonly cameraSirenControlSupported: boolean;
   readonly presetPositionControlSupported: boolean;
@@ -569,6 +572,9 @@ export interface CameraIdentity {
   readonly autoNightVisionEnabled?: boolean | null;
   readonly autoNightVisionControlSupported?: boolean;
   readonly cameraLightControlSupported?: boolean;
+
+  /** Exact owned opt-in route for experimental stateless light buttons. */
+  readonly experimentalLightControlSupported?: boolean;
   readonly timedLightControlSupported?: boolean;
   readonly cameraSirenControlSupported?: boolean;
   readonly presetPositionControlSupported?: boolean;
