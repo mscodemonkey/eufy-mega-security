@@ -18,6 +18,7 @@ const nvrTrialReasons = [
   "station_mismatch", "channel_mismatch", "relay_count", "relay_shape", "relay_fields", "candidate_limit",
   "candidate_shape", "candidate_component", "candidate_transport", "candidate_priority", "candidate_host",
   "candidate_port", "candidate_type", "candidate_extension", "candidate_related_address", "candidate_related_port",
+  "offer_e10_h264_data_section", "offer_e10_h264_no_data_section", "offer_e10_h265_declared", "offer_e10_tracks_unqualified",
   "offer_order", "offer_media", "offer_size", "offer_media_count", "offer_media_tracks", "offer_fingerprint", "offer_mid", "offer_ice",
   "offer_setup", "offer_sctp", "offer_message_size", "offer_duplicate", "peer_setup", "peer_failed",
   "peer_disconnected", "local_candidate_limit", "remote_description", "remote_candidate", "create_answer",

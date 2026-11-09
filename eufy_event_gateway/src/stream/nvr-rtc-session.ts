@@ -16,6 +16,7 @@ import type { Socket } from "node:dgram";
 import { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, type RTCDataChannel, type RTCIceServer } from "werift";
 import type { VideoCodec } from "../domain/types.js";
 import { NvrPtcsReassembler, type NvrPtcsReassemblyStats } from "./nvr-ptcs-reassembly.js";
+import { refineE10OfferFailure } from "./e10-offer-diagnostic.js";
 import { VideoParameterSetCache } from "./live-stream-manager.js";
 import { markSourceTime } from "./media-source-clock.js";
 import { installNvrIceTiming } from "./nvr-ice-timing.js";
@@ -1024,7 +1025,10 @@ export class NvrRtcSession {
       else await this.#candidate(candidate);
     } else if (data.format === "SDP") {
       if (!this.#accepted || this.#peer) throw new NvrTrialError("negotiation", "offer_order");
-      const offer = nvrOffer(data.value); this.#mid = offer.mid; this.#stage = "negotiation";
+      let offer: ReturnType<typeof nvrOffer>;
+      try { offer = nvrOffer(data.value); }
+      catch (error) { throw refineE10OfferFailure(error, data.value, this.options); }
+      this.#mid = offer.mid; this.#stage = "negotiation";
       this.#markTiming("offer");
       let peer: RTCPeerConnection;
       try { peer = this.#peer = this.dependencies.peer(this.#turn);
