@@ -83,7 +83,7 @@ for (const variant of ["disabled", "api", "wrong-station", "wrong-type", "owner"
   });
 }
 
-test("the opted-in watcher receives without a viewer and coexists with an explicit live view", async context => {
+test("the opted-in watcher yields its reading to a foreground view and resumes on fresh inventory", async context => {
   const f = await fixture(context);
   assert.equal(f.sessions.length, 1); assert.equal(f.video(), 0);
   const options = Reflect.get(f.sessions[0]!, "options") as NvrRtcOptions;
@@ -94,8 +94,15 @@ test("the opted-in watcher receives without a viewer and coexists with an explic
   await f.refresh(); assert.equal(f.sessions.length, 1);
   await f.provider.startStream("synthetic-camera"); await tick();
   assert.equal(f.video(), 1); assert.equal(f.sessions.length, 1);
+  assert.equal(f.stations.at(-1)!.effectiveMode, null);
+  const viewer = Reflect.get(f.viewers[0]!, "options") as NvrRtcOptions;
+  viewer.onEffectiveMode!({ mode: 1 });
+  options.onEffectiveMode!({ mode: 3 });
+  assert.equal(f.stations.at(-1)!.effectiveMode, 1);
   await f.provider.stopStream("synthetic-camera");
-  assert.equal(f.stations.at(-1)!.effectiveMode, 3);
+  assert.equal(f.stations.at(-1)!.effectiveMode, null);
+  await f.refresh();
+  assert.equal(f.sessions.length, 2);
   await assert.rejects(f.provider.testNvrCameraPower("synthetic-camera", { originalPower: "on", target: "off" }, new AbortController().signal), { stage: "busy" });
   await assert.rejects(f.provider.testNvrGuardMode("synthetic-camera", { target: "home", timeZone: "Europe/London" }, new AbortController().signal), { stage: "busy" });
   assert.equal(f.writes(), 0);
@@ -119,59 +126,24 @@ test("a connected RTC reading survives a configured-mode refresh and clears when
   assert.equal(f.stations.at(-1)!.guardMode, 2); assert.equal(f.stations.at(-1)!.effectiveMode, null);
 });
 
-for (const first of ["observer", "viewer"] as const) {
-  test(`a live view and the observer share a reading the ${first} reported first`, async context => {
-    const f = await fixture(context);
-    await f.provider.startStream("synthetic-camera"); await tick();
-    const observer = Reflect.get(f.sessions[0]!, "options") as NvrRtcOptions;
-    const viewer = Reflect.get(f.viewers[0]!, "options") as NvrRtcOptions;
-    const [owner, joiner] = first === "observer" ? [observer, viewer] : [viewer, observer];
-    owner.onEffectiveMode!({ mode: 3 });
-    const published = f.stations.length;
-    joiner.onEffectiveMode!({ mode: 3 });
-    assert.equal(f.stations.length, published);
-    owner.onEffectiveMode!(null);
-    assert.equal(f.stations.at(-1)!.effectiveMode, 3);
-    joiner.onEffectiveMode!(null);
-    assert.equal(f.stations.at(-1)!.effectiveMode, null);
-    await f.provider.stopStream("synthetic-camera");
-  });
-}
-
-for (const repeating of ["observer", "viewer"] as const) {
-  test(`a repeated reading from the ${repeating} keeps the other source alive`, async context => {
-    const f = await fixture(context);
-    await f.provider.startStream("synthetic-camera"); await tick();
-    const observer = Reflect.get(f.sessions[0]!, "options") as NvrRtcOptions;
-    const viewer = Reflect.get(f.viewers[0]!, "options") as NvrRtcOptions;
-    observer.onEffectiveMode!({ mode: 3 }); viewer.onEffectiveMode!({ mode: 3 });
-    const [source, remaining] = repeating === "observer" ? [observer, viewer] : [viewer, observer];
-    const published = f.stations.length;
-    source.onEffectiveMode!({ mode: 3 });
-    assert.equal(f.stations.length, published + 1);
-    source.onEffectiveMode!(null);
-    assert.equal(f.stations.at(-1)!.effectiveMode, 3);
-    assert.equal(f.stations.at(-1)!.effectiveModeSource, "nvr_rtc");
-    remaining.onEffectiveMode!(null);
-    assert.equal(f.stations.at(-1)!.effectiveMode, null);
-    await f.provider.stopStream("synthetic-camera");
-    assert.equal(f.writes(), 0);
-  });
-}
-
-test("a new mode from one source replaces the shared reading", async context => {
+test("retired observer callbacks cannot clear or replace the foreground reading", async context => {
   const f = await fixture(context);
-  await f.provider.startStream("synthetic-camera"); await tick();
   const observer = Reflect.get(f.sessions[0]!, "options") as NvrRtcOptions;
+  observer.onEffectiveMode!({ mode: 3 });
+  await f.provider.startStream("synthetic-camera");
   const viewer = Reflect.get(f.viewers[0]!, "options") as NvrRtcOptions;
-  observer.onEffectiveMode!({ mode: 3 }); viewer.onEffectiveMode!({ mode: 3 });
   viewer.onEffectiveMode!({ mode: 1 });
+  observer.onEffectiveMode!({ mode: 3 }); observer.onEffectiveMode!(null);
   assert.equal(f.stations.at(-1)!.effectiveMode, 1);
-  viewer.onEffectiveMode!(null);
-  assert.equal(f.stations.at(-1)!.effectiveMode, null);
-  observer.onEffectiveMode!({ mode: 1 });
+  assert.equal(f.stations.at(-1)!.effectiveModeSource, "nvr_rtc");
   await f.provider.stopStream("synthetic-camera");
-  assert.equal(f.stations.at(-1)!.effectiveMode, 1);
+  assert.equal(f.stations.at(-1)!.effectiveMode, null);
+  await f.refresh();
+  const replacement = Reflect.get(f.sessions[1]!, "options") as NvrRtcOptions;
+  replacement.onEffectiveMode!({ mode: 3 });
+  viewer.onEffectiveMode!({ mode: 1 }); viewer.onEffectiveMode!(null);
+  assert.equal(f.stations.at(-1)!.effectiveMode, 3);
+  assert.equal(f.writes(), 0);
 });
 
 test("watching modes does not require enabling video or model controls", async context => {
@@ -216,3 +188,64 @@ test("uncertain observer cleanup keeps manual security trials blocked after shut
   await assert.rejects(f.provider.testNvrGuardMode("synthetic-camera", { target: "home", timeZone: "Europe/London" }, new AbortController().signal), { stage: "busy" });
   assert.equal(f.writes(), 0);
 });
+
+
+test("an NVR viewer waits for observer cleanup and inventory cannot reopen the observer over it", async context => {
+  const f = await fixture(context);
+  let finish!: () => void;
+  const held = new Promise<void>(resolve => { finish = resolve; });
+  context.mock.method(NvrRtcSession.prototype, "close", async function(this: NvrRtcSession) {
+    const options = Reflect.get(this, "options") as NvrRtcOptions;
+    if (options.modeObserver) await held;
+    options.onEffectiveMode?.(null); this.output.end();
+  });
+  const opening = f.provider.startStream("synthetic-camera");
+  await tick();
+  const beforeCleanup = f.video();
+  await f.refresh();
+  const observersWhileReserved = f.sessions.length;
+  finish(); await opening; await tick();
+  assert.equal(beforeCleanup, 0);
+  assert.equal(observersWhileReserved, 1);
+  assert.equal(f.video(), 1);
+  await f.refresh();
+  assert.equal(f.sessions.length, 1);
+  await f.provider.stopStream("synthetic-camera");
+  assert.equal(f.sessions.length, 1);
+  await f.refresh();
+  assert.equal(f.sessions.length, 2);
+  assert.equal(f.writes(), 0);
+});
+
+test("failed observer cleanup prevents a new NVR viewer from opening", async context => {
+  const f = await fixture(context);
+  context.mock.method(NvrRtcSession.prototype, "close", async () => { throw new Error("PRIVATE_CLEANUP_FAILURE"); });
+  await assert.rejects(f.provider.startStream("synthetic-camera"));
+  assert.equal(f.video(), 0);
+  assert.equal(f.signs(), 1);
+  assert.equal(f.writes(), 0);
+});
+
+for (const cancellation of ["view", "provider", "inventory"] as const) {
+  test(`observer retirement cannot open a late viewer after ${cancellation} cancellation`, async context => {
+    const f = await fixture(context);
+    let finish!: () => void;
+    const held = new Promise<void>(resolve => { finish = resolve; });
+    context.mock.method(NvrRtcSession.prototype, "close", async function(this: NvrRtcSession) {
+      const options = Reflect.get(this, "options") as NvrRtcOptions;
+      if (options.modeObserver) await held;
+      options.onEffectiveMode?.(null); this.output.end();
+    });
+    const opening = f.provider.startStream("synthetic-camera");
+    const rejected = assert.rejects(opening, { stage: "cancelled" });
+    await tick();
+    let closing: Promise<void> | undefined;
+    if (cancellation === "view") closing = f.provider.stopStream("synthetic-camera");
+    if (cancellation === "provider") closing = f.provider.close();
+    if (cancellation === "inventory") { Reflect.set(f.raw.devices[1]!, "device_channel", 4); await f.refresh(); }
+    finish(); await rejected; await closing;
+    assert.equal(f.video(), 0);
+    assert.equal(f.signs(), 1);
+    assert.equal(f.writes(), 0);
+  });
+}

@@ -2081,6 +2081,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const binding = this.#nvrSessionBinding(serial, entry);
     let phaseAbort: (() => void) | undefined;
     try {
+
+      // A hang-up on the background call can end a later live call on this
+      // NVR. Finish its cleanup before obtaining credentials for the new call.
+      // Inventory refreshes keep the observer retired while this entry exists.
+      if (entry.station.model === "T8N00" && entry.station.deviceType === 300) {
+        await this.#nvrModeObserver.close();
+        if (!binding.current()) throw new NvrTrialError("cancelled");
+      }
       const context = await Promise.race([
         this.#client.nvrSignallingContext(entry.station.serial, this.config.experimentalNvrRegion ?? "auto", entry.controller.signal),
         new Promise<never>((_, reject) => { phaseAbort = () => reject(new NvrTrialError("cancelled"));
@@ -5830,8 +5838,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
     const eligible = [...this.#devices.values()].filter(device => this.#modeObserverBinding(device, this.#devices.get(device.parentSerial)));
     if (new Set(eligible.map(device => device.parentSerial)).size !== 1) { admission("unavailable"); this.#nvrModeObserver.setTarget(null); return; }
-    admission("eligible");
     const device = eligible.sort((a, b) => a.channel! - b.channel!)[0]!, parent = this.#devices.get(device.parentSerial)!;
+
+    // The foreground call can report modes itself. Resume the separate
+    // observer only on a fresh inventory pass after the foreground lease ends.
+    if ([...this.#nvrTrials.values()].some(entry => entry.station.serial === parent.serial)) {
+      admission("unavailable"); this.#nvrModeObserver.setTarget(null); return;
+    }
+    admission("eligible");
     const generation = this.#startupGeneration;
     const current = (): boolean => {
       const child = this.#devices.get(device.serial), station = this.#devices.get(parent.serial), now = performance.now();
