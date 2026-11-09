@@ -2265,8 +2265,11 @@ export class FirstPartyPpcsSession {
   /**
    * Submit one exact-model experimental command, with no application-level replay.
    * The caller can recheck ownership after key negotiation and before dispatch.
+   * The optional dispatch observer runs immediately before the send attempt,
+   * after frame construction. It does not establish delivery or acknowledgement.
    */
-  async writeModelControlTrial(request: ModelControlTrial, route: ModelControlRoute, current: () => void = () => undefined): Promise<void> {
+  async writeModelControlTrial(request: ModelControlTrial, route: ModelControlRoute, current: () => void = () => undefined,
+    onDispatch: () => void = () => undefined): Promise<void> {
     if (request.action === "spotlightState") throw new Error("Spotlight state read cannot dispatch controls");
     if (request.action === "alarmState" || this.#alarmRead) throw new Error("Alarm state read cannot dispatch controls");
     if (this.#closed || this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
@@ -2281,7 +2284,7 @@ export class FirstPartyPpcsSession {
     const frame = buildModelControlTrialPayload(request, route, this.#options.accountId,
       commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key, this.#level2Seq++, Date.now());
     const acknowledgement = this.#waitForControlResult(frame.command, this.#options.channel, CONTROL_TIMEOUT_MILLISECONDS, request.action === "manualLight");
-    try { this.#sendCommand(frame.command, frame.payload); }
+    try { onDispatch(); this.#sendCommand(frame.command, frame.payload); }
     catch (error) { void acknowledgement.catch(() => undefined); throw error; }
     await acknowledgement;
   }

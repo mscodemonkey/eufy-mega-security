@@ -44,13 +44,14 @@ for (const mode of ["on", "off", "negative", "timeout", "closed", "guard"]) test
   const { session, socket, sent } = await peer(context);
   const route = { model:"T81A0",deviceType:10005,peerModel:"T8030",peerDeviceType:18,channel:3,homeBaseAttached:true,selfPeer:false };
   context.mock.timers.enable({apis:["setTimeout"]});
-  let settled = false;
-  const operation = session.writeModelControlTrial({action:"manualLight",enabled:mode!=="off"},route,()=>{if(mode==="guard")throw Error("binding changed");});
+  let settled = false, dispatches = 0;
+  const operation = session.writeModelControlTrial({action:"manualLight",enabled:mode!=="off"},route,()=>{if(mode==="guard")throw Error("binding changed");},()=>{dispatches++;});
   const result = ["on","off"].includes(mode) ? operation.then(()=>{settled=true;}) : assert.rejects(operation);
   try {
     await new Promise(resolve=>setImmediate(resolve));
     const commands=sent.filter(value=>{const at=value.indexOf(Buffer.from("XZYH"));return at>=0&&value.readUInt16LE(at+4)===1400;});
     assert.equal(commands.length,mode==="guard"?0:1);
+    assert.equal(dispatches, mode === "guard" ? 0 : 1);
     const scalar=Buffer.alloc(4);scalar.writeInt32LE(mode==="negative"?-1:0);
     const iv=Buffer.alloc(12,7),cipher=createCipheriv("aes-256-gcm",Buffer.alloc(32,9),iv);cipher.setAAD(Buffer.from("eufy security"));
     const encrypted=Buffer.concat([cipher.update(scalar),cipher.final()]),payload=Buffer.concat([cipher.getAuthTag(),iv,Buffer.alloc(4),encrypted]);
