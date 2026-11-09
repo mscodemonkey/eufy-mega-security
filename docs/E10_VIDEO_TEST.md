@@ -4,7 +4,14 @@ The exact T8404 Android handler selects an RTC live-start request. EMS offers a
 manual, default-off ten-second clip trial for standalone T8404/type 314, channel
 0, using an already configured owner account. It uses the existing bounded RTC
 adapter to establish whether that camera supplies a compatible offer and video.
-It has no fallback to another model, transport, account or service region.
+It has no fallback to another model, account or service region.
+
+The H.264 candidate uses the checked RTP video track returned by the E10 offer.
+Unused audio and data sections are explicitly declined. It does not create data
+channels or send NVR inventory, live-start or setting commands on this route.
+A complete keyframe and parameter sets are required before the video consumer
+starts. Packet loss waits for another keyframe, and cancellation retires the call.
+This candidate still needs a physical E10 clip result.
 
 This does not enable normal HA video or establish E10 hardware playback.
 Event pictures and camera settings remain separate. No setting is written, and

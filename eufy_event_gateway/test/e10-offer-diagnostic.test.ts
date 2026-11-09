@@ -57,8 +57,9 @@ test("other identities and failure classes retain their original closed error", 
 
 
 test("the real session rejects E10 offers before creating a peer and preserves other models", { timeout: 10000 }, async () => {
-  for (const [cameraType, data, expected] of [[314, false, "offer_e10_h264_no_data_section"],
-    [314, true, "offer_e10_h264_data_section"], [301, true, "offer_media_tracks"]] as const) {
+  for (const [cameraType, data, expected, rtpTrial] of [[314, false, "offer_e10_h264_no_data_section", false],
+    [314, true, "offer_e10_h264_data_section", false], [301, true, "offer_media_tracks", false],
+    [314, null, "offer_e10_tracks_unqualified", true]] as const) {
     const server = new WebSocketServer({ port: 0 });
     await once(server, "listening");
     const address = server.address() as { port: number };
@@ -71,11 +72,11 @@ test("the real session rejects E10 offers before creating a peer and preserves o
         else if (value.dataType === "call") {
           const base = { action: 3, sessionId: "synthetic-sign", sn: binding.station, channelId: 0 };
           send({ ...base, dataType: "call", data: JSON.stringify({ status: 200 }) });
-          send({ ...base, dataType: "info", data: JSON.stringify({ format: "SDP", value: offer(data) }) });
+          send({ ...base, dataType: "info", data: JSON.stringify({ format: "SDP", value: data === null ? offer(true).replace(/m=video[\s\S]*?(?=m=application)/, "").replace("a=group:BUNDLE 1 2", "a=group:BUNDLE 2") : offer(data) }) });
         }
       });
     });
-    const session = new NvrRtcSession({ ...binding, cameraType, administrator: "synthetic-account",
+    const session = new NvrRtcSession({ ...binding, cameraType, e10RtpTrial: rtpTrial, administrator: "synthetic-account",
       context: { host: "security-smart-eu.eufylife.com", region: "EU", authToken: "synthetic-token", gtoken: "synthetic", sign: "synthetic-sign" },
       signal: new AbortController().signal, current: () => true,
       ready: () => assert.fail("No rejected offer may expose media"),
