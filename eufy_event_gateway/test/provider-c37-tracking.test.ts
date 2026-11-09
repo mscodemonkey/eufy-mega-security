@@ -11,7 +11,7 @@ import test, { type TestContext } from "node:test";
 import { EufyProvider, safeInventoryReads } from "../src/provider/eufy-provider.js";
 import { MegaClient } from "../src/mega/client.js";
 import { MegaPushReceiver } from "../src/mega/push.js";
-import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
+import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 import { HomeBasePpcsSession } from "../src/stream/homebase-ppcs.js";
 import type { ModelControlTrial, ModelControlRoute } from "../src/provider/model-control-trials.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
@@ -59,6 +59,7 @@ async function fixture(context: TestContext, mode = "ready") {
   context.mock.method(FirstPartyPpcsSession.prototype, "writeModelControlTrial", async (request: ModelControlTrial, _route: ModelControlRoute, current?: () => void) => {
     current?.(); assert.equal(request.action, "aiTracking");
     if (request.action === "aiTracking") { writes.push(request.enabled); tracking = request.enabled; }
+    if (mode === "ack-timeout") throw new CameraControlAcknowledgementTimeoutError();
   });
   const query = context.mock.method(FirstPartyPpcsSession.prototype, "queryPresetPositions", async (current?: () => void) => {
     current?.(); return [{ index: 0, enabled: true, isDefault: true }, { index: 1, enabled: false, isDefault: false }];
@@ -211,6 +212,64 @@ test("C37 tracking is opt-in and confirms a write through fresh inventory", asyn
     assert.equal(f.close.mock.callCount(), 1);
     await assert.rejects(f.provider.setCameraAutoCruise("synthetic-camera", true));
     assert.equal(f.start.mock.callCount(), 1);
+  } finally { await f.dispose(); }
+});
+
+test("C37 tracking confirms fresh inventory after a lost receipt without repeating the write", async context => {
+  const f = await fixture(context, "ack-timeout");
+  try {
+    const reads = f.inventory.mock.callCount();
+    await f.provider.setCameraAiTracking("synthetic-camera", false);
+    assert.deepEqual(f.writes, [false]);
+    assert.ok(f.inventory.mock.callCount() >= reads + 2);
+    assert.equal(f.cameras.get("synthetic-camera")?.aiTrackingEnabled, false);
+    assert.equal(f.close.mock.callCount(), 1);
+  } finally { await f.dispose(); }
+});
+
+test("C37 lost-receipt recovery still rejects a changed owner before confirmation", async context => {
+  const f = await fixture(context);
+  const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeModelControlTrial", async () => {
+    await f.rebind();
+    throw new CameraControlAcknowledgementTimeoutError();
+  });
+  try {
+    await assert.rejects(f.provider.setCameraAiTracking("synthetic-camera", false), /changed|retired/);
+    assert.equal(write.mock.callCount(), 1);
+    assert.equal(f.close.mock.callCount(), 1);
+  } finally { await f.dispose(); }
+});
+
+test("C37 lost-receipt recovery cannot claim success when the fresh read fails", async context => {
+  const f = await fixture(context);
+  const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeModelControlTrial", async () => {
+    context.mock.method(MegaClient.prototype, "inventory", async () => { throw Error("read unavailable"); });
+    throw new CameraControlAcknowledgementTimeoutError();
+  });
+  try {
+    await assert.rejects(f.provider.setCameraAiTracking("synthetic-camera", false));
+    assert.equal(write.mock.callCount(), 1);
+    assert.equal(f.cameras.get("synthetic-camera")?.aiTrackingEnabled, true);
+    assert.equal(f.close.mock.callCount(), 1);
+  } finally { await f.dispose(); }
+});
+
+test("C37 lost receipt with unchanged inventory remains a failure and never resends", async context => {
+  const f = await fixture(context);
+  context.mock.timers.enable({ apis: ["Date", "setTimeout"] });
+  const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeModelControlTrial", async () => {
+    throw new CameraControlAcknowledgementTimeoutError();
+  });
+  try {
+    const result = assert.rejects(f.provider.setCameraAiTracking("synthetic-camera", false), /not confirmed by readback/);
+    for (let step = 0; step < 20; step += 1) {
+      await tick();
+      context.mock.timers.tick(5_000);
+    }
+    await result;
+    assert.equal(write.mock.callCount(), 1);
+    assert.equal(f.cameras.get("synthetic-camera")?.aiTrackingEnabled, true);
+    assert.equal(f.close.mock.callCount(), 1);
   } finally { await f.dispose(); }
 });
 

@@ -5647,7 +5647,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       observe("write");
       if (device && this.#c37TrackingReady(device)) {
         const route = ppcsStreamRoute(device, this.#devices)!;
-        await session.writeModelControlTrial({ action: "aiTracking", enabled }, this.#modelTrialRoute(device, route), current);
+        try {
+          await session.writeModelControlTrial({ action: "aiTracking", enabled }, this.#modelTrialRoute(device, route), current);
+        } catch (error) {
+
+          // A lost receipt does not establish whether tracking changed. Keep
+          // the single dispatch and let fresh inventory decide below.
+          if (!(error instanceof CameraControlAcknowledgementTimeoutError)) throw error;
+          current();
+        }
       } else await session.writeAiTracking(enabled);
       current();
       if (!confirmPreference) return;
