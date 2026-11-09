@@ -1268,12 +1268,20 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
 
-  /** Read source-derived attached FamiLock status under a fresh, exclusive parent lease. */
+  /**
+   * Read attached FamiLock status under the existing account and an exclusive
+   * parent lease. The app selects the device administrator for the query identity
+   * even on shared access. Fresh inventory and the authenticated session must
+   * remain unchanged throughout this read. No lock operation is admitted here.
+   */
   async readT85V0StatusTrial(serial: string, signal: AbortSignal): Promise<T85V0StatusSummary> {
     this.#assertRtcPreparationIdle();
     const device = this.#devices.get(serial), generation = this.#startupGeneration;
+    const accountBinding = this.#client.authenticatedBinding();
     const peer = device ? this.#devices.get(device.parentSerial) : undefined;
     const admissionReason = (rows: readonly MegaInventoryDevice[]): T85V0AdmissionReason | null => {
+      if (!accountBinding) return "api_authentication_required";
+      if (!accountBinding()) return "inventory_changed";
       if (!device) return "device_unavailable";
       if (device.model !== "T85V0" || device.deviceType !== 203) return "unsupported_model";
       if (device.channel === null || !Number.isInteger(device.channel) || device.channel < 0 || device.channel > 254) return "channel_unavailable";
@@ -1281,7 +1289,6 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         || !peer.p2pDid || !peer.p2pConnection) return "station_route_unavailable";
       if (!device.adminUserId || device.adminUserId !== peer.adminUserId) return "owner_binding_unavailable";
       if (!validT85V0StatusIdentity({ serial, accountId: device.adminUserId, channel: device.channel })) return "identity_unavailable";
-      if (!this.#client.isAuthenticatedUser(device.adminUserId)) return "owner_account_required";
       if (!this.#dskKeys.has(peer.serial)) return "connection_key_unavailable";
       const children = rows.filter(row => row.serial === serial);
       const parents = rows.filter(row => row.serial === peer.serial);
