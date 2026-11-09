@@ -200,13 +200,14 @@ test("T8171 media-stall recovery remains active after the first real output", as
 for (const [model, station, channel] of [
   ["T8210", "T8030", 4], ["T8113-Z", "T8030", 3], ["T8113-Z", "T8030", 2],
   ["T8113-Z", "T8010", 0], ["T8171", "T8010", 1], ["T8171", "T8030", 2],
+  ["T8600", "T8030", 0], ["T8600", "T8030", 1], ["T8600", "T8030", 2],
 ] as const) {
   test(`acknowledged attached startup waits for the first picture on ${model}/${station}/channel${channel}`, async context => {
     const f = await peer(context, true, model, "media", station, undefined, channel);
     try {
       await f.negotiate();
       f.ack(f.sent.at(-1)!.readUInt16BE(6));
-      context.mock.timers.tick(7500);
+      context.mock.timers.tick(model === "T8600" ? 9600 : 7500);
       assert.equal(f.session.stats.mediaStopAttempts, 0);
       assert.equal(f.session.stats.mediaStartAttempts, 1);
       f.video(channel);
@@ -216,7 +217,7 @@ for (const [model, station, channel] of [
   });
 }
 
-for (const [model, channel] of [["T8210", 4], ["T8113-Z", 3]] as const) {
+for (const [model, channel] of [["T8210", 4], ["T8113-Z", 3], ["T8600", 0], ["T8600", 1], ["T8600", 2]] as const) {
   test(`acknowledged attached ${model} without video still reaches the existing deadline`, async context => {
     const f = await peer(context, true, model, "media", "T8030", undefined, channel);
     try {
