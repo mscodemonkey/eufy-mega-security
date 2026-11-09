@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.254
+
+- Shared E21 accounts can use the existing experimental video and live audio route. Preference controls and writes still require the owner account.
+- Home Assistant retries can wait for an unused previous HomeBase call to disconnect, while active viewers and recordings stay protected.
+- Closing a waiting standalone doorbell view cancels its unfinished startup. Failures are reported once with clearer call progress.
+- The manual FamiLock status check accepts the existing shared account without enabling lock operations.
+- Late familiar-name checks keep their original visit timing and explain skipped recovery.
+- The manual E10 private-video test includes a restricted video-only H.264 receiver. Normal E10 HA video, event pictures and controls remain unavailable, and hardware playback is unconfirmed.
+- Add attached T8600 startup regressions for acknowledged first starts and the original media deadline.
+
 ## 0.1.253
 
 - Improve the optional E10 connection check with specific, privacy-safe failure reasons for rejected media offers. Video support remains unconfirmed.
