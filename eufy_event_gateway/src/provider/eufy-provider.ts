@@ -2658,11 +2658,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const nvrStation = nvrDevice ? this.#devices.get(nvrDevice.parentSerial) : undefined;
       if (nvrStation && this.#nvrControlReserved(nvrStation.serial)) throw new NvrTrialError("admission");
       if (nvrDevice && this.#normalNvrLiveBinding(nvrDevice, nvrStation)) {
-        const handover = await this.#nvrCallOnceSettled(nvrDevice, nvrStation!, current, cancellation.signal, takeOver);
-        current();
+        const currentView = (): void => {
+          current();
+          if (this.#nvrMediaChecks?.retiring?.(serial)) throw new NvrTrialError("cancelled");
+        };
+        currentView();
+        const handover = await this.#nvrCallOnceSettled(nvrDevice, nvrStation!, currentView, cancellation.signal, takeOver);
+        currentView();
         if (takeOver && !handover) {
           await this.#retireS1CallForView(nvrDevice, nvrStation!);
-          current();
+          currentView();
         }
         this.#reserveNvrTrial(serial, new AbortController().signal, false, false, handover);
         return this.#startNvrTrial(serial, handover);

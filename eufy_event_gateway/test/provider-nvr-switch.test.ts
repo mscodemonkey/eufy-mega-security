@@ -460,10 +460,11 @@ test("cancelling an aged retry during idle cleanup cannot open a late call", asy
     const opening = value.manager.addClient(b, retry as never, "native", view("cancelled-retry"));
     await settled();
     assert.equal(retry.destroyed, false);
-    await value.provider.stopStream(b);
+    retry.destroy();
+    await settled();
+    finish();
     await opening;
     assert.equal(retry.destroyed, true);
-    finish();
     await new Promise(resolve => setTimeout(resolve, 250));
     assert.equal(value.joins(), 1);
     assert.equal(value.switches.length, 0);
