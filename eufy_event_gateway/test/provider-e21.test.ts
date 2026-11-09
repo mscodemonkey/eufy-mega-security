@@ -69,6 +69,18 @@ test("E21 creates independent camera and sensor adapters without duplicate detec
   assert.equal(f.opens.mock.callCount(),0);
 });
 
+test("an E21 shared account retains media readiness without gaining preference writes", async context => {
+  const f = await fixture(context, "guest");
+  const camera = f.state.getCamera("synthetic-e21");
+  assert.equal(camera.streamSupported, true);
+  assert.equal(camera.liveAudioSupported, true);
+  assert.deepEqual(camera.preferenceControls, []);
+  await assert.rejects(f.provider.setE21Preference("synthetic-e21", "microphone", 1), E21ControlError);
+  assert.equal(f.opens.mock.callCount(), 0);
+  assert.equal(f.writes.mock.callCount(), 0);
+  assert.equal(f.inventory.mock.callCount(), 0);
+});
+
 for (const mode of ["disabled","no-api","guest","no-dsk","attached","channel","wrong-model","wrong-type","wrong-category"]) {
   test(`E21 preference refuses ${mode} before transport`,async context => {
     const f = await fixture(context,mode);
