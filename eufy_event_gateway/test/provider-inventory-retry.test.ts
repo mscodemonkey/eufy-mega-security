@@ -13,7 +13,7 @@ import { MegaClient } from "../src/mega/client.js";
 import { MegaPushReceiver } from "../src/mega/push.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
 
-for (const mode of ["recovers", "close", "replaced", "permanent", "partial"] as const) {
+for (const mode of ["recovers", "backoff", "close", "replaced", "permanent", "partial"] as const) {
   test(`inventory startup retry ${mode}`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "inventory-startup-retry-"));
     const temporary = new Error("synthetic temporary inventory failure");
@@ -27,7 +27,7 @@ for (const mode of ["recovers", "close", "replaced", "permanent", "partial"] as 
     context.mock.method(MegaClient.prototype, "inventory", async () => {
       reads++;
       if (mode === "permanent") throw permanent;
-      if (mode !== "partial" && (mode === "close" || reads <= (mode === "recovers" ? 2 : 1))) throw temporary;
+      if (mode !== "partial" && (mode === "close" || reads <= (mode === "recovers" ? 2 : mode === "backoff" ? 4 : 1))) throw temporary;
       return { ...(mode === "partial" ? { complete: false } : {}), devices: [{ device_sn: "synthetic", device_model: "T8171", device_type: 88, category: "eufy_security",
         parent_sn: "synthetic", device_channel: 0, params: [], member: { admin_user_id: "synthetic-owner" } }] };
     });
@@ -57,7 +57,14 @@ for (const mode of ["recovers", "close", "replaced", "permanent", "partial"] as 
         } else {
           context.mock.timers.tick(59_999); await settled(); assert.equal(reads, 1);
           context.mock.timers.tick(1); await settled(); assert.equal(reads, 2);
-          context.mock.timers.tick(60_000); await settled(); assert.equal(reads, 3);
+          context.mock.timers.tick(119_999); await settled(); assert.equal(reads, 2);
+          context.mock.timers.tick(1); await settled(); assert.equal(reads, 3);
+          if (mode === "backoff") {
+            context.mock.timers.tick(239_999); await settled(); assert.equal(reads, 3);
+            context.mock.timers.tick(1); await settled(); assert.equal(reads, 4);
+            context.mock.timers.tick(299_999); await settled(); assert.equal(reads, 4);
+            context.mock.timers.tick(1); await settled(); assert.equal(reads, 5);
+          }
           assert.equal(states.at(-1), "connected"); assert.equal(discoveries, 1);
           assert.equal(connect.mock.callCount(), 1, "retry only inventory, never repeat authentication");
         }
