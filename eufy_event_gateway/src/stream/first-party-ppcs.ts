@@ -2175,8 +2175,8 @@ export class FirstPartyPpcsSession {
    * retire this connection and independently confirm fresh inventory afterwards.
    */
   async writeMotionDetection(enabled: boolean, onDispatched?: () => void, confirmation?: "fresh-inventory"): Promise<void> {
-    if (confirmation !== undefined && confirmation !== "fresh-inventory") throw new Error("Invalid motion confirmation profile");
     if (this.#alarmRead) throw new Error("Alarm state read owns this session");
+    if (confirmation !== undefined && confirmation !== "fresh-inventory") throw new Error("Invalid motion confirmation profile");
     if (this.#options.purpose !== "control") throw new Error("Motion control requires a control session");
     if (this.#closed) throw new Error("Camera motion session closed before dispatch");
     if (this.#pendingControl) throw new Error("Camera already has a control command in flight");
