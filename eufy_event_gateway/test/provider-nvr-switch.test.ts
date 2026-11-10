@@ -31,7 +31,8 @@ function viewer() {
   return response;
 }
 
-async function fixture(context: TestContext, parent: "T8N00" | "T9000" = "T8N00", stopGrace = 5) {
+async function fixture(context: TestContext, parent: "T8N00" | "T9000" = "T8N00", stopGrace = 5,
+  cameraModels?: readonly { device_model: string; device_type: number }[]) {
   const directory = await mkdtemp(join(tmpdir(), "nvr-switch-"));
   context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
   context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
@@ -39,7 +40,7 @@ async function fixture(context: TestContext, parent: "T8N00" | "T9000" = "T8N00"
   const model = parent === "T8N00" ? { device_model: "T8E00", device_type: 301 } : { device_model: "T8140-Z", device_type: 14 };
   context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [
     { device_sn: "synthetic-station", device_model: parent, device_type: parent === "T8N00" ? 300 : 27, category: "eufy_security", member: { admin_user_id: "synthetic-owner" } },
-    ...[a, b].map((device_sn, device_channel) => ({ device_sn, ...model, category: "eufy_security", parent_sn: "synthetic-station", device_channel, member: { admin_user_id: "synthetic-owner" } })),
+    ...[a, b].map((device_sn, device_channel) => ({ device_sn, ...(cameraModels?.[device_channel] ?? model), category: "eufy_security", parent_sn: "synthetic-station", device_channel, member: { admin_user_id: "synthetic-owner" } })),
   ] }));
   context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
   context.mock.method(process.stderr, "write", (() => true) as typeof process.stderr.write);
@@ -439,6 +440,46 @@ for (const parent of ["T9000", "T8N00"] as const) {
       assert.equal(value.switches.length, 0, "an aged retry never receives takeover permission");
     } finally { finish(); await value.close(); }
   });
+}
+
+for (const outcome of ["first-closes", "retry-cancelled"] as const) {
+test(`the last S1 retry waits without takeover when ${outcome}`, async context => {
+  const value = await fixture(context, "T9000", 10_000,
+    [{ device_model: "T8172", device_type: 89 }, { device_model: "T8140", device_type: 14 }]);
+  try {
+    const first = await open(value, a, "hls1_synthetic-active-first");
+    let release!: () => void;
+    const hold = value.manager.withActiveViewer(a, () => new Promise<void>(resolve => { release = resolve; }));
+    await settled();
+    const mark = "hls1_synthetic-final-retry";
+    assert.equal((await open(value, b, mark)).destroyed, true);
+    release(); await hold;
+    value.advance(9_000);
+    const retry = viewer();
+    let completed = false;
+    const opening = value.manager.addClient(b, retry as never, "native", mark).then(() => { completed = true; });
+    await settled();
+    assert.equal(completed, false, "a request just before closure must remain pending");
+    assert.equal(first.destroyed, false, "waiting cannot stop the active HA response");
+    assert.equal(value.joins(), 1);
+    await new Promise(resolve => setTimeout(resolve, 300));
+    assert.equal(completed, false);
+    if (outcome === "retry-cancelled") {
+      retry.destroy(); await opening;
+      assert.equal(first.destroyed, false);
+      first.destroy();
+      await new Promise(resolve => setTimeout(resolve, 150));
+      assert.equal(value.joins(), 1, "a cancelled pending view must not open a late call");
+      assert.equal(value.switches.length, 0);
+      return;
+    }
+    first.destroy();
+    await opening; await settled();
+    assert.equal(retry.destroyed, false, "the same final request must start without another HA retry");
+    assert.equal(value.joins(), 2);
+    assert.equal(value.switches.length, 0, "the aged request never gains takeover permission");
+  } finally { await value.close(); }
+});
 }
 
 test("cancelling an aged retry during idle cleanup cannot open a late call", async context => {
