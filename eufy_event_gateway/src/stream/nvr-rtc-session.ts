@@ -5,7 +5,7 @@
  * The provider owns the station lease and supplies private Mega credentials.
  * Checked video reaches the media boundary. Normal opt-in controls and separately
  * consented guard/power trials retain distinct admission and request ownership.
- * A separately admitted finite E10 clip receives a checked H.264 RTP track and
+ * Separately admitted finite E10 video receives a checked H.264 RTP track and
  * declines unused media, with no data-channel inventory or control requests.
  * Vendor assets and captures are not dependencies, and hardware needs testing.
  */
@@ -89,7 +89,7 @@ export interface NvrSignallingContext {
 export interface NvrRtcDependencies {
   readonly socket: (url: string, protocols: string[], options: WebSocket.ClientOptions) => WebSocket;
 
-  /** A validated H.264 offer selects codecs only for the separately admitted finite E10 clip. */
+  /** A validated H.264 offer selects codecs only for separately admitted finite E10 video. */
   readonly peer: (servers: RTCIceServer[], videoOffer?: DoorbellRtcOffer) => RTCPeerConnection;
 }
 
@@ -152,7 +152,7 @@ export interface NvrRtcOptions {
    */
   readonly audio?: boolean;
 
-  /** Provider admission for one finite standalone E10 H.264 clip, never normal views or controls. */
+  /** Provider admission for finite standalone E10 video. Normal views retain a duration cap and no controls. */
   readonly e10RtpTrial?: boolean;
 
   /**
