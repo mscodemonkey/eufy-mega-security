@@ -206,7 +206,7 @@ export class MegaPushReceiver {
             if (!this.#active(lifetime)) return;
             this.#state = { ...this.#state, credentials: renewed };
             this.#persistState();
-            try { logger.info("push_token_checked", "Firebase notification token checked without replacing the receiver identity"); } catch {}
+            try { logger.info("push_token_checked", `Firebase notification token checked. changed=${renewed.fcmToken !== previous.fcmToken}`); } catch {}
           } catch {
             if (!this.#active(lifetime)) return;
             try { logger.warn("push_token_refresh_unavailable", "Firebase token check unavailable. Retaining the existing receiver identity and token"); } catch {}
