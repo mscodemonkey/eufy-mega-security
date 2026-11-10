@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.255
+
+- Recheck older saved notification tokens on startup and cancel unfinished fresh notification setup when the receiver stops, with finite request and response limits.
+- Keep standalone indoor-camera detection entities limited to their supported profile and confirm motion-setting changes sooner when a reply is missing.
+- Confirm C37 tracking against fresh state after a lost reply, without sending the change again.
+- Add disabled-by-default Experimental manual-light buttons for the exact L40, E330 and existing S120 trial routes. Physical light behaviour remains unconfirmed.
+- Connect the reporter-confirmed E10 video receiver to the normal HA camera view behind the existing experimental option. Normal HA playback and close/reopen still need confirmation.
+- Let the final S1 HA retry wait briefly for the previous viewer to close without stopping an active viewer, lease or recording.
+- Distinguish unexpected protection from failed authentication in the C35 state-only result and preserve those reasons in its saved-connection helper. This does not repair spotlight control.
+- Align support notes with confirmed doorbell reopening, E10 clip playback and the still-intermittent S220 first audio.
+
 ## 0.1.254
 
 - Shared E21 accounts can use the existing experimental video and live audio route. Preference controls and writes still require the owner account.
