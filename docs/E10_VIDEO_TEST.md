@@ -11,9 +11,32 @@ Unused audio and data sections are explicitly declined. It does not create data
 channels or send NVR inventory, live-start or setting commands on this route.
 A complete keyframe and parameter sets are required before the video consumer
 starts. Packet loss waits for another keyframe, and cancellation retires the call.
-This candidate still needs a physical E10 clip result.
+One reporter confirmed a cleanly decoded, approximately ten-second 1080p clip
+on v0.1.254. That confirms the manual video path for that E10, with a reported
+magenta tint still unresolved.
 
-This does not enable normal HA video or establish E10 hardware playback.
+## Normal Home Assistant video candidate
+
+The next candidate uses that same video receiver from the normal HA camera
+entity. In a release containing this change, enable **Experimental NVR live
+video** using the already configured owner account, then open the E10 camera
+in HA. The route is
+limited to standalone T8404/type 314 on channel zero. It stays off without the
+experimental option and does not admit shared accounts or attached variants.
+
+This is video-only and each view respects the configured maximum stream
+duration. Closing the view releases the call through the existing media owner.
+Normal HA playback, close/reopen and longer operation still need an E10 retest.
+The manual clip success alone does not confirm those behaviours. The reported
+magenta tint is also still open.
+
+For that retest, open the normal E10 camera view once, close it and reopen it.
+Report whether it plays both times. If it fails, send only the complete
+`camera_viewer_start_timings` line. There is no need to repeat the private clip
+test. Restore the experimental option to its starting value afterwards.
+
+## Existing manual clip test
+
 Event pictures and camera settings remain separate. No setting is written, and
 the trial sends no power, privacy, siren or movement command. Connection cleanup
 is awaited on success, failure and cancellation.

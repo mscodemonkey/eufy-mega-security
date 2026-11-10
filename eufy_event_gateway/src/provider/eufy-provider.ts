@@ -1896,7 +1896,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
-  /** Admit only the owned standalone E10 to the manual RTC clip, never normal video or settings. */
+  /** Admit only the owned standalone E10 to finite video, without granting camera settings. */
   #e10RtcTrialBinding(device: MegaInventoryDevice | undefined, station: MegaInventoryDevice | undefined): boolean {
     return !!device && !!station && device.model === "T8404" && device.deviceType === 314
       && station.model === "T8404" && station.deviceType === 314
@@ -2145,11 +2145,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       ]);
       if (!binding.current()) throw new NvrTrialError("cancelled");
       const session = new NvrRtcSession({ ...binding, station: entry.station.serial,
-        e10RtpTrial: entry.diagnostic && !entry.stateOnly && this.#e10RtcTrialBinding(entry.device, entry.station),
+        e10RtpTrial: !entry.stateOnly && this.#e10RtcTrialBinding(entry.device, entry.station),
         ...(!entry.diagnostic && !entry.stateOnly && entry.sensor === 0 && entry.device.model === "T8172" && entry.device.deviceType === 89
           && entry.station.model === "T9000" && entry.station.deviceType === 27 ? { s1FirstPictureGrace: true } : {}),
         administrator: entry.station.adminUserId!, context,
-        maximumLifetimeMilliseconds: entry.diagnostic ? 75_000 : entry.stateOnly ? this.config.maxStreamSeconds * 1_000 : null });
+        maximumLifetimeMilliseconds: entry.diagnostic ? 75_000
+          : entry.stateOnly || this.#e10RtcTrialBinding(entry.device, entry.station) ? this.config.maxStreamSeconds * 1_000 : null });
       entry.session = session;
       return session;
     } finally { if (phaseAbort) entry.controller.signal.removeEventListener("abort", phaseAbort); }
@@ -2717,6 +2718,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   /** Keep HA live trials behind opt-in and exact approved camera/station model-type pairs. */
   #normalNvrLiveBinding(device: MegaInventoryDevice, station: MegaInventoryDevice | undefined): boolean {
     if (!this.config.normalNvrLive || !this.#nvrBinding(device, station) || !station) return false;
+    if (this.#e10RtcTrialBinding(device, station)) return true;
     return station.model === "T8N00" && station.deviceType === 300
       && (device.model === "T8E00" && device.deviceType === 301 || device.model === "T8P10" && device.deviceType === 303
         || device.model === "T8416" && device.deviceType === 104 || device.model === "T8214" && device.deviceType === 94)
