@@ -7,10 +7,11 @@
 /** Distinguish an absent reply, unusable reply and absent required setting. */
 export type CameraInfoFailureReason =
   | "no_reply" | "not_decoded" | "invalid_json" | "invalid_schema"
-  | "setting_missing" | "unavailable";
+  | "setting_missing" | "unavailable"
+  | "protection_mismatch" | "authentication_failed";
 
 const reasons = new Set<string>([
-  "no_reply", "not_decoded", "invalid_json", "invalid_schema", "setting_missing", "unavailable",
+  "no_reply", "not_decoded", "invalid_json", "invalid_schema", "setting_missing", "unavailable", "protection_mismatch", "authentication_failed",
 ]);
 
 /**

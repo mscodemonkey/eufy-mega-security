@@ -1494,6 +1494,9 @@ interface AlarmReadOwner {
 
 interface PendingCameraInfo {
   readonly protectedReply?: boolean;
+
+  /** Latest protection failure observed during this exact protected read, never reply bytes. */
+  protectionFailure?: "protection_mismatch" | "authentication_failed";
   readonly resolve: (params: readonly PpcsCameraInfoParam[]) => void;
   readonly reject: (error: Error) => void;
   readonly timer: ReturnType<typeof setTimeout>;
@@ -2068,8 +2071,9 @@ export class FirstPartyPpcsSession {
     const initialFrames = this.stats.cameraInfoFrames;
     return new Promise<readonly PpcsCameraInfoParam[]>((resolve, reject) => {
       const timer = setTimeout(() => {
+        const protectionFailure = this.#pendingCameraInfo?.protectionFailure;
         this.#pendingCameraInfo = null;
-        reject(new CameraInfoReadError(cameraInfoTimeoutReason(
+        reject(new CameraInfoReadError(protectionFailure ?? cameraInfoTimeoutReason(
           this.stats.cameraInfoFrames > initialFrames, this.stats.cameraInfoDecoded, this.stats.cameraInfoParseStage,
         )));
       }, CONTROL_TIMEOUT_MILLISECONDS);
@@ -3532,11 +3536,17 @@ export class FirstPartyPpcsSession {
     this.stats.cameraInfoDecoded = false;
     this.stats.cameraInfoJsonOffset = -1;
     let clear = payload;
-    if (this.#pendingCameraInfo?.protectedReply && signCode !== 8) return;
+    if (this.#pendingCameraInfo?.protectedReply && signCode !== 8) {
+      this.#pendingCameraInfo.protectionFailure = "protection_mismatch";
+      return;
+    }
     if (signCode === 2 || signCode === 8) {
       if (!this.#level2Key) return;
       const authenticated = decryptLevel2(payload, this.#level2Key, signCode);
-      if (!authenticated) return;
+      if (!authenticated) {
+        if (this.#pendingCameraInfo?.protectedReply) this.#pendingCameraInfo.protectionFailure = "authentication_failed";
+        return;
+      }
       clear = authenticated;
     } else if (signCode === 1 && payload.length > 0 && payload.length % 16 === 0) {
       try { clear = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); } catch { return; }
