@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.256
+
+- Let normal standalone E10 live views continue while video keeps arriving, retaining viewer cleanup and the video-stall timeout.
+- Show which request failed when checking an older saved notification token, without exposing credentials or response contents.
+- Remove unsupported package-detection sensors from the exact attached S120 profile while preserving existing entity identities and user choices.
+- Distinguish missing and unsupported visit-reference fields when late familiar-name recovery cannot start. Exact visit matching remains required.
+
 ## 0.1.255
 
 - Recheck older saved notification tokens on startup and cancel unfinished fresh notification setup when the receiver stops, with finite request and response limits.
