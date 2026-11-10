@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.257
+
+- Log retired experimental manual-light failures through normal Home Assistant controls.
+- Clarify implemented E10 snapshots and attached S120 light trials without claiming hardware confirmation.
+
 ## 0.1.256
 
 - Let normal standalone E10 live views continue while video keeps arriving, retaining viewer cleanup and the video-stall timeout.
