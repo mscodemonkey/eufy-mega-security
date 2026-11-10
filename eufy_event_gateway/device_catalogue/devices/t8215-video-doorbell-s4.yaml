@@ -10,7 +10,7 @@ integration:
 models:
   - T8215
 device_type: 97
-notes: "Exact T8215/type 97 discovery, battery reads, motion, person and button-press events are reported through HomeBase Professional S1. Live view, snapshots and controls remain unconfirmed."
+notes: "Exact T8215/type 97 discovery, battery reads, motion, person and button-press events are reported through HomeBase Professional S1. Snapshots and normal live view with close/reopen are reporter-confirmed. The 10 November follow-up confirms reopening no longer needs an extra Play press after v0.1.252. Controls and separate Chime 2 support remain unconfirmed."
 capabilities:
   readable:
     battery_level:

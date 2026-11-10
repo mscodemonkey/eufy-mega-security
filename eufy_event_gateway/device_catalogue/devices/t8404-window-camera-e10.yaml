@@ -10,7 +10,7 @@ integration:
 models:
   - T8404
 device_type: 314
-notes: Issue 627 reports discovery and a physically triggered person event on v0.1.246. Both motion and person sensors activated for 10 seconds. Motion-only detection remains unconfirmed. Event pictures are missing, and fresh snapshots and live video remain unavailable. No usable media route was reported. Controls and model aliases are not admitted.
+notes: Issue 627 reports discovery and a physically triggered person event on v0.1.246. Both motion and person sensors activated for 10 seconds. Motion-only detection remains unconfirmed. Two ten-second H.264 1920x1080 private clips on v0.1.254 decoded cleanly, with normal daylight colour. Normal HA video has an exact owner-account standalone opt-in candidate awaiting playback and close/reopen confirmation. Event pictures, fresh snapshots and audio remain unavailable. Controls and model aliases are not admitted.
 capabilities:
   events:
     motion:
