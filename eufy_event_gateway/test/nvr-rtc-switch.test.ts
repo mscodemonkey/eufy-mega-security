@@ -9,7 +9,7 @@ import type { PassThrough } from 'node:stream';
 import test from 'node:test';
 import WebSocket, { WebSocketServer } from 'ws';
 import { RTCPeerConnection, RTCSessionDescription } from 'werift';
-import { NvrRtcSession, type NvrSwitchTarget } from '../src/stream/nvr-rtc-session.js';
+import { NvrRtcSession, type NvrRtcOptions, type NvrSwitchTarget } from '../src/stream/nvr-rtc-session.js';
 import { nvrApplication, nvrPackets } from '../src/stream/nvr-protocol.js';
 import { NvrPtcsReassembler } from '../src/stream/nvr-ptcs-reassembly.js';
 
@@ -22,7 +22,7 @@ function application(command: number, segment: number, body: Buffer): Buffer {
 
 type Mode = 'video' | 'silent-second-camera' | 'wrong-second-camera';
 
-async function fixture(mode: Mode) {
+async function fixture(mode: Mode, observer = false) {
   const server = new WebSocketServer({ port: 0 });
   await once(server, 'listening');
   const port = (server.address() as { port: number }).port;
@@ -61,7 +61,9 @@ async function fixture(mode: Mode) {
       }, 50);
     };
   });
+  let signalling: WebSocket | undefined;
   server.on('connection', connection => {
+    signalling = connection;
     const send = (value: Record<string, unknown>): void => { connection.send(JSON.stringify({ data: JSON.stringify(value) })); };
     connection.on('message', async raw => {
       const message = JSON.parse(JSON.parse(raw.toString()).data);
@@ -78,10 +80,11 @@ async function fixture(mode: Mode) {
   });
   const first = new AbortController(), second = new AbortController();
   let firstCurrent = true;
-  const firstOutputs: PassThrough[] = [];
-  const session = new NvrRtcSession({ station: 'synthetic-station', camera: 'synthetic-camera', channel: 3, cameraType: 301, sensor: 1,
+  const firstOutputs: PassThrough[] = [], observed: unknown[] = [];
+  const session = new NvrRtcSession({ station: 'synthetic-station', camera: 'synthetic-camera', channel: 3, cameraType: 301, ...observer ? {} : { sensor: 1 },
     administrator: 'synthetic-administrator', context: { host: 'security-smart-ie.eufylife.com', region: 'IE', authToken: 'synthetic-token', gtoken: 'synthetic-gtoken', sign: 'synthetic-sign' },
-    signal: first.signal, current: () => firstCurrent, maximumLifetimeMilliseconds: null, ready: output => { firstOutputs.push(output); output.resume(); } }, {
+    signal: first.signal, current: () => firstCurrent, maximumLifetimeMilliseconds: null, ready: output => { firstOutputs.push(output); output.resume(); },
+    ...observer ? { modeObserver: true, onEffectiveMode: (value: unknown) => { observed.push(value); } } : {} }, {
     socket: (_url, protocols, options) => new WebSocket(`ws://127.0.0.1:${port}`, protocols, options),
     peer: servers => new RTCPeerConnection({ iceServers: servers, iceUseIpv6: false }),
   });
@@ -91,7 +94,12 @@ async function fixture(mode: Mode) {
   };
   const target = (ready: NvrSwitchTarget['ready']): NvrSwitchTarget => ({ camera: 'synthetic-next', channel: 8, cameraType: 303, sensor: 0,
     signal: second.signal, current: () => true, ready });
-  return { session, requests, firstOutputs, started, target, first, second, stale: () => { firstCurrent = false; },
+  const listening = async (): Promise<void> => {
+    await session.observeEffectiveMode();
+    while (!session.canTakeOver('synthetic-station')) await new Promise(resolve => setTimeout(resolve, 20));
+  };
+  return { session, requests, firstOutputs, observed, started, listening, target, first, second, stale: () => { firstCurrent = false; },
+    dropSignalling: () => signalling?.close(),
     close: async () => { clearInterval(sender); await session.close(); await peer.close(); await new Promise<void>(resolve => server.close(() => resolve())); } };
 }
 
@@ -153,4 +161,56 @@ test('a call that has not delivered video cannot switch', async () => {
   assert.equal(session.switchable, false);
   await assert.rejects(session.switchCamera({ camera: 'next', channel: 8, signal: new AbortController().signal, current: () => true, ready: () => {} }), { stage: 'admission' });
   await session.close();
+});
+
+test('an idle mode observer call becomes a view without a stop or a new call', { timeout: 30000 }, async () => {
+  const value = await fixture('video', true);
+  try {
+    await value.listening();
+    assert.equal(value.session.canTakeOver('synthetic-other-station'), false);
+    assert.equal(value.session.switchable, false);
+    const reported: PassThrough[] = [];
+    const moved = value.session.switchCamera(value.target(output => { reported.push(output); output.resume(); }));
+
+    // Ownership moved at once, so retiring the observer cannot touch this call.
+    assert.equal(value.session.canTakeOver('synthetic-station'), false);
+    value.stale(); value.first.abort();
+    assert.ok(await moved >= 0);
+    assert.deepEqual(reported, [value.session.output]);
+    assert.deepEqual(value.requests.map(row => row.command), [9100, 1003]);
+    assert.deepEqual([value.requests.at(-1)!.channel, value.requests.at(-1)!.sensor], [8, 0]);
+    assert.equal(value.session.codec, 'h264');
+    await new Promise(resolve => setTimeout(resolve, 200));
+    assert.equal(value.session.switchable, true);
+
+    // The view's options replace the observer's, including its mode callback.
+    const options = Reflect.get(value.session, 'options') as NvrRtcOptions;
+    assert.equal(options.modeObserver, false); assert.equal(options.onEffectiveMode, undefined);
+    await value.session.close();
+    assert.deepEqual(value.observed, []);
+  } finally { await value.close(); }
+});
+
+test('a mode observer call that is not connected cannot be taken over', async () => {
+  const session = new NvrRtcSession({ station: 'synthetic-station', camera: 'synthetic-camera', channel: 3, administrator: 'synthetic-administrator',
+    context: { host: 'security-smart-ie.eufylife.com', region: 'IE', authToken: 'synthetic-token', gtoken: 'synthetic-gtoken', sign: 'synthetic-sign' },
+    signal: new AbortController().signal, current: () => true, maximumLifetimeMilliseconds: null, modeObserver: true, onEffectiveMode: () => {}, ready: () => {} });
+  assert.equal(session.canTakeOver('synthetic-station'), false);
+  await assert.rejects(session.switchCamera({ camera: 'next', channel: 8, signal: new AbortController().signal, current: () => true, ready: () => {} }), { stage: 'admission' });
+  await session.close();
+});
+
+test('an observer call whose signalling socket has gone is not taken over, because it could not hang up', { timeout: 30000 }, async () => {
+  const value = await fixture('video', true);
+  try {
+    await value.listening();
+    value.dropSignalling();
+    for (let waited = 0; value.session.canTakeOver('synthetic-station') && waited < 2000; waited += 20) await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(value.session.canTakeOver('synthetic-station'), false);
+
+    // The observer keeps listening on its channel, as before.
+    assert.equal(value.session.output.destroyed, false);
+    await assert.rejects(value.session.switchCamera(value.target(() => assert.fail('No takeover'))), { stage: 'admission' });
+    assert.deepEqual(value.requests.map(row => row.command), [9100]);
+  } finally { await value.close(); }
 });

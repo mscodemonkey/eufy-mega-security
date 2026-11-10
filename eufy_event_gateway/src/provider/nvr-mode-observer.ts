@@ -32,6 +32,9 @@ interface Attempt {
   retiring: boolean;
   listeningAt: number | null;
   error: unknown;
+
+  /** Removes this owner's output listeners from a connection it hands over. */
+  detach: () => void;
 }
 
 /**
@@ -80,6 +83,31 @@ export class NvrModeObserver {
     });
   }
 
+  /**
+   * Give a listening connection to a foreground call instead of hanging it up.
+   * A T8N00 ignores or half-handles a new call for several seconds after a
+   * hang-up, so a view called straight after one often fails. `take` must move
+   * ownership synchronously and return true, or return false to refuse. A
+   * refused or non-listening connection closes as close() does.
+   */
+  async handOver(take: (session: NvrRtcSession) => boolean): Promise<void> {
+    const attempt = this.#attempt;
+    if (attempt?.session && attempt.listeningAt !== null && !attempt.retiring
+      && this.#target === attempt.target && attempt.target.current()) {
+
+      // Late loss and mode callbacks from this owner must not touch the new one.
+      attempt.retiring = true;
+      attempt.detach();
+      let taken = false;
+      try { taken = take(attempt.session); } catch { /* Refused: close below. */ }
+
+      // Its controller stays unaborted: the new owner may still hold its signal.
+      if (taken) this.#attempt = null;
+      else attempt.retiring = false;
+    }
+    await this.close();
+  }
+
   /** Cancel retry and setup, then wait for this owner's session to finish closing. */
   async close(): Promise<void> {
     this.setTarget(null);
@@ -102,7 +130,7 @@ export class NvrModeObserver {
     if (this.#attempt || this.#cleanupFailed || this.#blocked || this.#target !== target) return;
     if (!target.current()) { this.#emit("idle"); return; }
     const attempt: Attempt = { target, controller: new AbortController(), session: null,
-      flight: Promise.resolve(), retiring: false, listeningAt: null, error: null };
+      flight: Promise.resolve(), retiring: false, listeningAt: null, error: null, detach: () => {} };
     this.#attempt = attempt;
     this.#emit("connecting");
     attempt.flight = this.#run(attempt).catch(error => { attempt.error = error; this.#lost(attempt); });
@@ -114,7 +142,9 @@ export class NvrModeObserver {
       && !attempt.retiring && !signal.aborted && attempt.target.current();
     let created: NvrRtcSession | null = null;
     const report = (value: NvrEffectiveModeObservation | null): void => {
-      if (created && (value === null || current())) attempt.target.report(created, value);
+
+      // A retiring connection still clears its own reading, but not after it was handed over.
+      if (created && (value === null ? this.#attempt === attempt : current())) attempt.target.report(created, value);
     };
     const creation = attempt.target.create(signal, current, report);
     void creation.then(session => {
@@ -130,10 +160,14 @@ export class NvrModeObserver {
     } finally { if (abort) signal.removeEventListener("abort", abort); }
     attempt.session = created;
     if (!current()) { this.#lost(attempt); return; }
-    created.output.on("error", error => { attempt.error = error; this.#lost(attempt); });
-    created.output.once("end", () => this.#lost(attempt));
-    created.output.once("close", () => this.#lost(attempt));
-    created.output.resume();
+    const output = created.output;
+    const failed = (error: unknown): void => { attempt.error = error; this.#lost(attempt); };
+    const lost = (): void => this.#lost(attempt);
+    output.on("error", failed);
+    output.once("end", lost);
+    output.once("close", lost);
+    attempt.detach = () => { output.off("error", failed); output.off("end", lost); output.off("close", lost); };
+    output.resume();
     await created.observeEffectiveMode();
     if (!current()) { this.#lost(attempt); return; }
     attempt.listeningAt = this.now();
