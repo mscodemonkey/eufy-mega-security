@@ -12,8 +12,8 @@ channels or send NVR inventory, live-start or setting commands on this route.
 A complete keyframe and parameter sets are required before the video consumer
 starts. Packet loss waits for another keyframe, and cancellation retires the call.
 One reporter confirmed a cleanly decoded, approximately ten-second 1080p clip
-on v0.1.254. That confirms the manual video path for that E10, with a reported
-magenta tint still unresolved.
+on v0.1.254. On v0.1.255 the same reporter confirmed two clean 90-second
+normal HA views, including close/reopen and normal daylight colour.
 
 ## Normal Home Assistant video candidate
 
@@ -24,16 +24,17 @@ in HA. The route is
 limited to standalone T8404/type 314 on channel zero. It stays off without the
 experimental option and does not admit shared accounts or attached variants.
 
-This is video-only and each view respects the configured maximum stream
-duration. Closing the view releases the call through the existing media owner.
-Normal HA playback, close/reopen and longer operation still need an E10 retest.
-The manual clip success alone does not confirm those behaviours. The reported
-magenta tint is also still open.
+This is video-only. Normal views remain open while checked video is arriving,
+until the existing media owner closes the source. A 45-second video stall ends
+the call. Signalling and keepalive traffic cannot renew that deadline. The
+manual clip trial retains its finite lifetime and grants no additional controls.
 
-For that retest, open the normal E10 camera view once, close it and reopen it.
-Report whether it plays both times. If it fails, send only the complete
-`camera_viewer_start_timings` line. There is no need to repeat the private clip
-test. Restore the experimental option to its starting value afterwards.
+The v0.1.255 report confirmed playback, clean decoding and close/reopen, but
+also exposed the previous fixed duration limit. A release containing the
+viewer-owned lifetime change still needs one continuous HA view lasting over
+two minutes on the E10. Report whether it continues, then close the view.
+If it stops early, send only `nvr_live_stream_failed`. There is no need to
+repeat the private clip test. Restore the experimental option afterwards.
 
 ## Existing manual clip test
 

@@ -1896,7 +1896,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
-  /** Admit only the owned standalone E10 to finite video, without granting camera settings. */
+  /** Admit only the owned standalone E10 to video, without granting camera settings. */
   #e10RtcTrialBinding(device: MegaInventoryDevice | undefined, station: MegaInventoryDevice | undefined): boolean {
     return !!device && !!station && device.model === "T8404" && device.deviceType === 314
       && station.model === "T8404" && station.deviceType === 314
@@ -2158,7 +2158,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           && entry.station.model === "T9000" && entry.station.deviceType === 27 ? { s1FirstPictureGrace: true } : {}),
         administrator: entry.station.adminUserId!, context,
         maximumLifetimeMilliseconds: entry.diagnostic ? 75_000
-          : entry.stateOnly || this.#e10RtcTrialBinding(entry.device, entry.station) ? this.config.maxStreamSeconds * 1_000 : null });
+          : entry.stateOnly ? this.config.maxStreamSeconds * 1_000 : null });
       entry.session = session;
       return session;
     } finally { if (phaseAbort) entry.controller.signal.removeEventListener("abort", phaseAbort); }
