@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { FcmRegistrar } from "../src/mega/android-push/fcm.js";
+import { FcmRegistrar, FcmRequestError } from "../src/mega/android-push/fcm.js";
 import type { FcmCredentials } from "../src/mega/android-push/types.js";
 import { MegaPushReceiver } from "../src/mega/push.js";
 
@@ -46,7 +46,8 @@ test("renews the notification token through the existing installation without ch
 test("rejects expired installation authorization without creating a new identity or exposing the response", async context => {
   const fetch = context.mock.method(globalThis, "fetch", async () => new Response("PRIVATE_ERROR_FIXTURE", { status: 401 }));
   await assert.rejects(new FcmRegistrar().refresh(credentials, new AbortController().signal),
-    error => error instanceof Error && error.message === "Firebase token renewal unavailable");
+    error => error instanceof FcmRequestError && error.message === "Firebase token renewal unavailable"
+      && error.stage === "installation_auth" && error.reason === "http" && error.httpStatus === 401);
   assert.equal(fetch.mock.callCount(), 1);
   assert.equal(credentials.fcmToken, "old-token-fixture");
 });
@@ -65,7 +66,8 @@ test("a rejected register3 response cannot publish a token from its error body",
   let calls = 0;
   context.mock.method(globalThis, "fetch", async () => ++calls === 1
     ? Response.json({ token: "auth-fixture" }) : new Response("token=must-not-be-used", { status: 403 }));
-  await assert.rejects(new FcmRegistrar().refresh(credentials, new AbortController().signal));
+  await assert.rejects(new FcmRegistrar().refresh(credentials, new AbortController().signal),
+    error => error instanceof FcmRequestError && error.stage === "registration" && error.reason === "http" && error.httpStatus === 403);
   assert.equal(calls, 2);
   assert.equal(credentials.fcmToken, "old-token-fixture");
 });
@@ -78,8 +80,10 @@ test("refuses malformed or oversized Firebase credentials and response bodies", 
   assert.equal(fetch.mock.callCount(), 1);
 });
 
-for (const outcome of ["renewed", "unavailable", "recent", "cancelled"] as const) {
+for (const outcome of ["renewed", "unavailable", "unknown", "recent", "cancelled"] as const) {
   test(`saved-token startup handles ${outcome} without replacing the MCS identity`, async context => {
+    const logs: string[] = [];
+    context.mock.method(process.stderr, "write", (chunk: unknown) => { logs.push(String(chunk)); return true; });
     const directory = await mkdtemp(join(tmpdir(), "eufy-token-renewal-"));
     context.after(() => rm(directory, { recursive: true, force: true }));
     const path = join(directory, "state.json");
@@ -91,7 +95,8 @@ for (const outcome of ["renewed", "unavailable", "recent", "cancelled"] as const
     const refreshing = new Promise<void>(resolve => { entered = resolve; });
     const refresh = context.mock.method(FcmRegistrar.prototype, "refresh", async () => {
       entered();
-      if (outcome === "unavailable") throw new Error("PRIVATE_REFRESH_ERROR");
+      if (outcome === "unavailable") throw new FcmRequestError("installation_auth", "http", 401);
+      if (outcome === "unknown") throw new Error("PRIVATE_REFRESH_ERROR");
       return outcome === "cancelled" ? await pending : { ...initial, fcmToken: "renewed-token-fixture", tokenCheckedAt: Date.now() };
     });
     const create = context.mock.method(FcmRegistrar.prototype, "register", async () => { throw new Error("Must not replace identity"); });
@@ -120,6 +125,11 @@ for (const outcome of ["renewed", "unavailable", "recent", "cancelled"] as const
         await new Promise<void>(resolve => setImmediate(resolve));
       }
       await receiver.close();
+      const failures = logs.filter(line => line.includes("event=push_token_refresh_unavailable"));
+      assert.equal(failures.length, outcome === "unavailable" || outcome === "unknown" ? 1 : 0);
+      if (outcome === "unavailable") assert.match(failures[0]!, /stage=installation_auth reason=http http_status=401/);
+      if (outcome === "unknown") assert.match(failures[0]!, /stage=unknown reason=unknown http_status=none/);
+      assert.equal(/PRIVATE_REFRESH_ERROR|private-refresh-fixture|old-token-fixture|renewed-token-fixture/.test(logs.join("")), false);
       assert.equal(create.mock.callCount(), 0);
       assert.equal(refresh.mock.callCount(), outcome === "recent" ? 0 : 1);
       assert.deepEqual(received, outcome === "cancelled" ? [] : Array(2).fill(outcome === "renewed" ? "renewed-token-fixture" : initial.fcmToken));
@@ -129,4 +139,34 @@ for (const outcome of ["renewed", "unavailable", "recent", "cancelled"] as const
       assert.deepEqual(saved.persistentIds, ["previous-delivery"]);
     } finally { await receiver.close(); }
   });
+}
+
+for (const stage of ["installation_auth", "registration"] as const) {
+  for (const failure of ["transport", "response", "timeout", "cancelled"] as const) {
+    test(`token lookup identifies ${stage} ${failure} without retaining private failure text`, async context => {
+      const controller = new AbortController();
+      const deadline = new AbortController();
+      context.mock.method(AbortSignal, "timeout", () => deadline.signal);
+      let requests = 0;
+      context.mock.method(globalThis, "fetch", async () => {
+        requests++;
+        if (stage === "registration" && requests === 1) return Response.json({ token: "auth-fixture" });
+        if (failure === "response") return new Response("PRIVATE_MALFORMED_RESPONSE");
+        if (failure === "timeout") deadline.abort(new Error("PRIVATE_TIMEOUT_REASON"));
+        if (failure === "cancelled") controller.abort(new Error("PRIVATE_CANCEL_REASON"));
+        throw new Error("PRIVATE_TRANSPORT_DETAIL");
+      });
+      await assert.rejects(new FcmRegistrar().refresh(credentials, controller.signal), error => {
+        assert.ok(error instanceof FcmRequestError);
+        assert.equal(error.stage, stage);
+        assert.equal(error.reason, failure);
+        assert.equal(error.httpStatus, null);
+        assert.equal(error.cause, undefined);
+        assert.equal(/PRIVATE_/.test(JSON.stringify(error) + error.stack), false);
+        return true;
+      });
+      assert.equal(requests, stage === "registration" ? 2 : 1);
+      assert.equal(credentials.fcmToken, "old-token-fixture");
+    });
+  }
 }
