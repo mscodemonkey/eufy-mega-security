@@ -2170,9 +2170,13 @@ export class FirstPartyPpcsSession {
    * first send is a hard no-dispatch failure; retirement after a send is
    * ambiguous and requires provider readback. The optional dispatch callback
    * marks that boundary for the provider's total deadline.
+   *
+   * @param confirmation Use the shorter receipt wait only when the caller will
+   * retire this connection and independently confirm fresh inventory afterwards.
    */
-  async writeMotionDetection(enabled: boolean, onDispatched?: () => void): Promise<void> {
+  async writeMotionDetection(enabled: boolean, onDispatched?: () => void, confirmation?: "fresh-inventory"): Promise<void> {
     if (this.#alarmRead) throw new Error("Alarm state read owns this session");
+    if (confirmation !== undefined && confirmation !== "fresh-inventory") throw new Error("Invalid motion confirmation profile");
     if (this.#options.purpose !== "control") throw new Error("Motion control requires a control session");
     if (this.#closed) throw new Error("Camera motion session closed before dispatch");
     if (this.#pendingControl) throw new Error("Camera already has a control command in flight");
@@ -2205,7 +2209,8 @@ export class FirstPartyPpcsSession {
         return;
       }
       const body = buildCameraEnableBody(this.#options.channel, enabled ? 1 : 0, accountId);
-      const acknowledgement = this.#waitForControlResult(1011, this.#options.homeBaseAttached ? this.#options.channel : undefined);
+      const acknowledgement = this.#waitForControlResult(1011, this.#options.homeBaseAttached ? this.#options.channel : undefined,
+        confirmation === "fresh-inventory" ? 2_000 : CONTROL_TIMEOUT_MILLISECONDS);
 
       // Observe closure rejection even while a redundant transmission is waiting.
       void acknowledgement.catch(() => undefined);
