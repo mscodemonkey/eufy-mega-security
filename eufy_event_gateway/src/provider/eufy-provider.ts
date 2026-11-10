@@ -18,7 +18,7 @@ import { classicLockInventory } from "./classic-lock-inventory.js";
 import { ParameterCheckError, parameterCheckLog, projectDeviceListMotion, type ParameterCheckModel, type ParameterCheckSummary } from "./reported-parameter-check.js";
 import { nvrLiveProfile, NvrLiveControlError, type NvrLiveControl, type NvrLiveControlResult } from "./nvr-live-controls.js";
 import { NvrModeObserver } from "./nvr-mode-observer.js";
-import { S120LightTrialError, type S120LightFailureStage } from "./s120-light-diagnostic.js";
+import { S120LightTrialError, s120LightFailureDiagnostic, type S120LightFailureStage } from "./s120-light-diagnostic.js";
 import type { NvrEffectiveMode, NvrEffectiveModeObservation } from "../stream/nvr-effective-mode.js";
 import type { NvrLiveSettings } from "../stream/nvr-live-control-protocol.js";
 import { InventoryMotionClock, type InventoryMotionOutcome } from "./inventory-motion.js";
@@ -5447,7 +5447,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     };
   }
 
-  /** Send an admitted manual-light action, requiring fresh C37 native readback. */
+  /**
+   * Send an admitted light action, requiring fresh C37 native readback.
+   * Experimental manual-light failures retain unknown state and emit the same
+   * fixed diagnostic as the separate trial endpoint after trial cleanup.
+   */
   setCameraLight(serial: string, enabled: boolean): Promise<void> {
     this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
@@ -5455,7 +5459,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const selected = this.#devices.get(serial);
     if (this.modelControlTrials(serial).includes("manualLight")) {
       if (!this.config.apiAuthenticationConfigured) return Promise.reject(new Error("Experimental light controls require API authentication"));
-      return this.performModelControlTrial(serial, { action: "manualLight", enabled }).then(() => undefined);
+      return this.performModelControlTrial(serial, { action: "manualLight", enabled }).then(() => undefined, error => {
+        logger.warn("model_control_trial_failed", `Model control trial failed: model=${safeLogModel(selected?.model ?? "unknown")} action=manualLight state=unknown ${s120LightFailureDiagnostic(error)}`);
+        throw error;
+      });
     }
     if ((selected?.model === "T814X" && selected.deviceType === 10_037)
       || (selected?.model === "T8110" && selected.deviceType === 10035)) {

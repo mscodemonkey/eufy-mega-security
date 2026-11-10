@@ -17,8 +17,16 @@ import type { ModelControlTrial, ModelControlRoute } from "../src/provider/model
 import type { ProviderEvents } from "../src/provider/provider.js";
 
 
-for (const family of ["s120", "e330"] as const) for (const mode of ["valid", "off", "button", "hung", "shutdown", "account", "disabled", "model", "type", "channel", "owner", "parent", "duplicate", "changed", "cancelled", "closed", "busy", "cleanup", "generation", "baseline_failed", "session_failed", "write_prepare_failed", "receipt_timeout", "cleanup_failed", "receipt_cleanup_failed"]) {
-  test(`${family} manual light binding and cleanup: ${mode}`, async context => {
+for (const family of ["s120", "e330"] as const) for (const entry of ["valid", "off", "button", "hung", "shutdown", "account", "disabled", "model", "type", "channel", "owner", "parent", "duplicate", "changed", "cancelled", "closed", "busy", "cleanup", "generation", "baseline_failed", "session_failed", "write_prepare_failed", "receipt_timeout", "cleanup_failed", "receipt_cleanup_failed", "button_receipt_timeout", "button_cleanup_failed"]) {
+  const button = entry === "button" || entry.startsWith("button_");
+  const mode = entry.replace(/^button_/, "");
+  test(`${family} manual light binding and cleanup: ${entry}`, async context => {
+    const logs: string[] = [];
+    const stderr = process.stderr.write;
+    context.mock.method(process.stderr, "write", ((value: unknown, ...args: unknown[]) => {
+      if (String(value).includes("component=")) { logs.push(String(value)); return true; }
+      return Reflect.apply(stderr, process.stderr, [value, ...args]);
+    }) as typeof process.stderr.write);
     const directory = await mkdtemp(join(tmpdir(), "light-provider-"));
     const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
     context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
@@ -44,7 +52,7 @@ for (const family of ["s120", "e330"] as const) for (const mode of ["valid", "of
     context.mock.method(HomeBasePpcsSession.prototype, "close", () => undefined);
     const controller = new AbortController();
     const provider = new EufyProvider({ username: "synthetic", password: "synthetic", country: "AU", persistentDirectory: directory,
-      maxStreamSeconds: 120, apiAuthenticationConfigured: mode === "button", experimentalModelControls: mode !== "disabled" });
+      maxStreamSeconds: 120, apiAuthenticationConfigured: button, experimentalModelControls: mode !== "disabled" });
     let cameraEvents = 0, experimentalOffered = false;
     const events = new Proxy({}, { get: (_target, key) => key === "camera" ? (value: { serial: string; experimentalLightControlSupported?: boolean }) => {
       cameraEvents++;
@@ -78,7 +86,7 @@ for (const family of ["s120", "e330"] as const) for (const mode of ["valid", "of
       const baseline = cameraEvents;
       if (mode === "button") assert.equal(experimentalOffered, true);
       const request = { action: "manualLight" as const, enabled: mode !== "off" };
-      const operation = mode === "button" ? provider.setCameraLight("sensor", request.enabled)
+      const operation = button ? provider.setCameraLight("sensor", request.enabled)
         : provider.performModelControlTrial("sensor", request, controller.signal);
       const expected = ["valid", "off", "button", "busy", "cleanup"].includes(mode) ? operation : assert.rejects(operation, /Manual light test did not confirm the light state/);
       for (let index = 0; index < 10; index++) await new Promise(resolve => setImmediate(resolve));
@@ -123,6 +131,15 @@ for (const family of ["s120", "e330"] as const) for (const mode of ["valid", "of
         }
         assert.equal(write.mock.callCount(), ["write_prepare_failed", "receipt_timeout", "cleanup_failed", "receipt_cleanup_failed"].includes(mode) ? 1 : 0);
       }
+      const failures = logs.filter(line => line.includes("event=model_control_trial_failed"));
+      if (button && ["receipt_timeout", "cleanup_failed"].includes(mode)) {
+        assert.equal(failures.length, 1);
+        assert.match(failures[0]!, new RegExp(`model=${family === "e330" ? "T8600" : "T81A0"} action=manualLight state=unknown`));
+        assert.match(failures[0]!, mode === "receipt_timeout"
+          ? /stage=write_receipt write_attempted=true acknowledgement_received=false cleanup_failed=false/
+          : /stage=cleanup write_attempted=true acknowledgement_received=true cleanup_failed=true/);
+        assert.doesNotMatch(failures[0]!, /PRIVATE_|synthetic|sensor|station/);
+      } else assert.equal(failures.length, 0);
       assert.equal(network.mock.callCount(), 0);
     } finally { release(); context.mock.timers.reset(); await provider.close(); await rm(directory, { recursive: true, force: true }); }
   });
