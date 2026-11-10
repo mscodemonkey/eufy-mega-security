@@ -184,14 +184,14 @@ export class MegaPushReceiver {
         this.#loaded = true;
       }
       if (!this.#state.credentials) {
-        const request = this.#credentialRequest ??= new FcmRegistrar().register();
+        const request = this.#credentialRequest ??= new FcmRegistrar().register(lifetime.signal);
         try {
           const credentials = await abortable(request, lifetime.signal);
           if (!this.#active(lifetime)) return;
           this.#state = { ...this.#state, credentials };
           this.#persistState();
         } finally {
-          if (this.#active(lifetime)) this.#credentialRequest = null;
+          if (this.#credentialRequest === request) this.#credentialRequest = null;
         }
       }
       if (!this.#active(lifetime)) return;
