@@ -60,7 +60,8 @@ for (const mode of ["valid", "invalid-tag", "clear", "wrong-channel", "invalid-s
     const { session, socket, sent } = await peer(context);
     const operation = session.readCameraInfo("c35-spotlight-state");
     const result = mode === "valid" ? operation
-      : assert.rejects(operation);
+      : assert.rejects(operation, mode === "clear" ? { reason: "protection_mismatch" }
+        : mode === "invalid-tag" ? { reason: "authentication_failed" } : undefined);
     try {
       await new Promise(resolve => setImmediate(resolve));
       const queries = commands(sent).filter(packet => packet.readUInt16LE(12) === 1103);
