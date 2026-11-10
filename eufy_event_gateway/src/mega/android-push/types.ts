@@ -175,7 +175,7 @@ export interface PushEvent {
   raw: RawPushMessage;
 }
 
-/** Persisted FCM credentials so we register once and reconnect across runs. */
+/** Persisted installation and transport identity, with a separately renewable notification token. */
 export interface FcmCredentials {
   fid: string;
   androidId: string;
@@ -185,4 +185,7 @@ export interface FcmCredentials {
   /** Firebase installation refresh token (for auth-token renewal). */
   refreshToken?: string;
   createdAt: number;
+
+  /** Last successful notification-token lookup, without replacing the installation creation clock. */
+  tokenCheckedAt?: number;
 }

@@ -3,8 +3,8 @@
  *
  * Flow: generate a Firebase Installation ID (FID) → register it with Firebase
  * installations → GServices check-in (→ androidId + securityToken) → GCM
- * register3 (→ FCM token). The androidId/securityToken/token are persisted so we
- * register once and just reconnect afterwards.
+ * register3 (→ FCM token). Persisted Android and installation credentials survive
+ * reconnects. An older notification token can be rechecked on that identity.
  *
  * The Firebase project constants below were read from the v6 APK
  * (com.oceanwing.battery.cam): project batterycam-3250a, sender 348804314802 —
@@ -18,6 +18,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { checkinRoot } from "./proto.js";
 import type { FcmCredentials } from "./types.js";
 import { createLogger } from "../../logging.js";
+import { readBoundedResponse } from "../bounded-response.js";
 
 const logger = createLogger("android-push");
 
@@ -48,12 +49,48 @@ interface FidInstallation {
 /**
  * Registers one fresh Firebase installation as the Android Eufy application.
  *
- * MegaPushReceiver calls this only when no persisted Android identity exists.
+ * MegaPushReceiver creates an installation only when no Android identity exists.
+ * It can renew an older notification token using the same installation and MCS
+ * credentials. Renewal never deletes an installation or creates a replacement.
  * The registrar owns the short-lived Firebase and GServices requests, returns
  * private credentials to its caller, and does not maintain a socket or save
  * credentials itself.
  */
 export class FcmRegistrar {
+
+  /**
+   * Recheck one existing installation's notification token within fifteen seconds.
+   * The receiver owns persistence and fallback. A failure leaves the supplied
+   * credentials untouched, and cancellation cannot publish a late replacement.
+   */
+  async refresh(credentials: FcmCredentials, signal: AbortSignal): Promise<FcmCredentials> {
+    const scoped = AbortSignal.any([signal, AbortSignal.timeout(15_000)]);
+    scoped.throwIfAborted();
+    if (!/^[A-Za-z0-9_-]{22}$/.test(credentials.fid) || !credentials.refreshToken
+      || credentials.refreshToken.length > 4096 || /[\s\x00-\x1f\x7f]/u.test(credentials.refreshToken)) {
+      throw new Error("Firebase token renewal unavailable");
+    }
+    const response = await fetch(`https://firebaseinstallations.googleapis.com/v1/projects/${FCM.PROJECT_ID}/installations/${credentials.fid}/authTokens:generate`, {
+      method: "POST", signal: scoped, redirect: "error",
+      headers: { "Content-Type": "application/json", "X-Android-Package": FCM.PACKAGE,
+        "X-Android-Cert": FCM.CERT_SHA1, "x-goog-api-key": FCM.API_KEY,
+        Authorization: `${FCM.AUTH_VERSION} ${credentials.refreshToken}` },
+      body: JSON.stringify({ installation: { sdkVersion: FCM.SDK_VERSION } }),
+    });
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error("Firebase token renewal unavailable");
+    }
+    const value: unknown = JSON.parse((await readBoundedResponse(response, 16_384, scoped)).toString("utf8"));
+    const token = typeof value === "object" && value !== null && "token" in value ? value.token : null;
+    if (typeof token !== "string" || token.length < 1 || token.length > 8192 || /[\s\x00-\x1f\x7f]/u.test(token)) {
+      throw new Error("Firebase token renewal unavailable");
+    }
+    const fcmToken = await this.gcmRegister(credentials.fid, credentials.androidId, credentials.securityToken, token, scoped, 1);
+    scoped.throwIfAborted();
+    return { ...credentials, fcmToken, tokenCheckedAt: Date.now() };
+  }
+
   /** Full registration → FcmCredentials. */
   async register(): Promise<FcmCredentials> {
     const fid = generateFid();
@@ -121,6 +158,8 @@ export class FcmRegistrar {
     androidId: string,
     securityToken: string,
     fidAuthToken: string,
+    signal?: AbortSignal,
+    maximumAttempts = 5,
   ): Promise<string> {
     const params = new URLSearchParams({
       "X-subtype": FCM.SENDER_ID,
@@ -145,9 +184,11 @@ export class FcmRegistrar {
     });
     // The gateway is occasionally flaky; retry a few times.
     let last = "";
-    for (let attempt = 0; attempt < 5; attempt++) {
+    for (let attempt = 0; attempt < maximumAttempts; attempt++) {
       const res = await fetch("https://android.clients.google.com/c2dm/register3", {
         method: "POST",
+        ...(signal ? { signal } : {}),
+        redirect: "error",
         headers: {
           Authorization: `AidLogin ${androidId}:${securityToken}`,
           app: FCM.PACKAGE,
@@ -157,11 +198,16 @@ export class FcmRegistrar {
         },
         body: params.toString(),
       });
-      last = await res.text();
-      const m = last.match(/token=(.+)/);
+      if (signal && !res.ok) {
+        await res.body?.cancel();
+        throw new Error("Firebase token renewal unavailable");
+      }
+      last = signal ? (await readBoundedResponse(res, 16_384, signal)).toString("utf8") : await res.text();
+      const m = last.match(/^token=([^\s\x00-\x1f\x7f]+)\s*$/u);
       if (m?.[1]) return m[1].trim();
+      if (attempt + 1 === maximumAttempts) break;
       logger.warn("fcm_registration_retry", `Android FCM registration attempt ${attempt + 1} failed`);
-      await sleep(1000 * (attempt + 1));
+      await sleep(1000 * (attempt + 1), undefined, { signal });
     }
     throw new Error("GCM register failed");
   }

@@ -106,6 +106,9 @@ interface StoredPushState {
  * identity and delivered IDs. Camera policy remains with EufyProvider and
  * GatewayState; raw notification fields never reach those neighbours.
  * Registration failures retain the transport and use a finite retry budget.
+ * Startup rechecks tokens older than seven days when installation renewal is
+ * available. One bounded failure retains the saved identity and token, so it
+ * cannot turn a Firebase renewal outage into a lost working receiver.
  * An established transport reconnect repeats token registration before the
  * receiver becomes ready again because Eufy can discard the prior binding.
  * Closing or restarting retires all owned waits before transport shutdown.
@@ -124,6 +127,7 @@ export class MegaPushReceiver {
   #attempt = 0;
   #failed = false;
   #loaded = false;
+  #tokenRefreshAttempted = false;
   #credentialRequest: Promise<FcmCredentials> | null = null;
   #startedAtMilliseconds = 0;
 
@@ -155,6 +159,7 @@ export class MegaPushReceiver {
     this.#attempt = 0;
     this.#failed = false;
     this.#loaded = false;
+    this.#tokenRefreshAttempted = false;
     this.#credentialRequest = null;
     this.#registered = false;
     this.#reregisterAfterReconnect = false;
@@ -187,6 +192,25 @@ export class MegaPushReceiver {
           this.#persistState();
         } finally {
           if (this.#active(lifetime)) this.#credentialRequest = null;
+        }
+      }
+      if (!this.#active(lifetime)) return;
+      if (!this.#tokenRefreshAttempted) {
+        this.#tokenRefreshAttempted = true;
+        const previous = this.#state.credentials!;
+        const checkedAt = previous.tokenCheckedAt ?? previous.createdAt;
+        if (previous.refreshToken && (!Number.isSafeInteger(checkedAt) || checkedAt > this.now()
+          || this.now() - checkedAt >= 7 * 24 * 60 * 60 * 1000)) {
+          try {
+            const renewed = await abortable(new FcmRegistrar().refresh(previous, lifetime.signal), lifetime.signal);
+            if (!this.#active(lifetime)) return;
+            this.#state = { ...this.#state, credentials: renewed };
+            this.#persistState();
+            try { logger.info("push_token_checked", `Firebase notification token checked. changed=${renewed.fcmToken !== previous.fcmToken}`); } catch {}
+          } catch {
+            if (!this.#active(lifetime)) return;
+            try { logger.warn("push_token_refresh_unavailable", "Firebase token check unavailable. Retaining the existing receiver identity and token"); } catch {}
+          }
         }
       }
       if (!this.#active(lifetime)) return;
