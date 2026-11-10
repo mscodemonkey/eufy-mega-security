@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { MegaClient } from "../src/mega/client.js";
 import { MegaPushReceiver } from "../src/mega/push.js";
 import { EufyProvider, isPpcsStreamSupported, parseMegaInventory } from "../src/provider/eufy-provider.js";
-import { describeCameraCapabilities, directCameraDetectionKinds, isSupportedCameraType } from "../src/provider/device-capabilities-core.js";
+import { describeCameraCapabilities, cameraDetectionKinds, isSupportedCameraType } from "../src/provider/device-capabilities-core.js";
 import { GENERATED_CATALOGUE_DEVICES } from "../src/provider/devices/generated-catalogue.js";
 import type { CameraIdentity } from "../src/domain/types.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
@@ -34,10 +34,10 @@ const profiles = [
 test("exact direct profiles agree with declared events without sharing mutable lists", () => {
   for (const { model, deviceType, kinds } of profiles) {
     const device = { model, deviceType, category: "eufy_security" };
-    const actual = directCameraDetectionKinds(device, false)!;
+    const actual = cameraDetectionKinds(device, false)!;
     assert.deepEqual(actual, kinds);
-    assert.deepEqual(directCameraDetectionKinds({ ...device, model: model.toLowerCase() }, false), kinds);
-    assert.notEqual(directCameraDetectionKinds(device, false), actual);
+    assert.deepEqual(cameraDetectionKinds({ ...device, model: model.toLowerCase() }, false), kinds);
+    assert.notEqual(cameraDetectionKinds(device, false), actual);
     const entry = GENERATED_CATALOGUE_DEVICES.find(row => row.models.includes(model) && row.deviceType === deviceType)!;
     assert.equal(entry.handler, "camera");
     const files: Record<string, string> = {
@@ -56,12 +56,23 @@ test("exact direct profiles agree with declared events without sharing mutable l
     const events = Object.entries(catalogue.capabilities.events)
       .filter(([, value]) => value.connections?.direct !== undefined).map(([kind]) => kind);
     assert.deepEqual(events.filter(kind => kind !== "doorbell_press").sort(), [...kinds].sort());
-    for (const attached of [true, null, undefined]) assert.equal(directCameraDetectionKinds(device, attached), undefined);
+    for (const attached of [true, null, undefined]) assert.equal(cameraDetectionKinds(device, attached), undefined);
     for (const patch of [{ category: "other" }, { model: model + "S" }, { deviceType: 999 }]) {
-      assert.equal(directCameraDetectionKinds({ ...device, ...patch }, false), undefined);
+      assert.equal(cameraDetectionKinds({ ...device, ...patch }, false), undefined);
     }
   }
-  assert.equal(directCameraDetectionKinds({ model: "T8224", deviceType: 95, category: "eufy_security" }, false), undefined);
+  assert.equal(cameraDetectionKinds({ model: "T8224", deviceType: 95, category: "eufy_security" }, false), undefined);
+});
+
+test("attached S120 removes package sensors without changing other model or route profiles", () => {
+  const device = { model: "T81A0", deviceType: 10005, category: "eufy_security" };
+  assert.deepEqual(cameraDetectionKinds(device, true),
+    ["motion", "person", "stranger", "pet", "vehicle", "dog", "crying", "sound"]);
+  for (const patch of [{ model: "T81A0S" }, { model: "T8214", deviceType: 94 },
+    { deviceType: 5 }, { category: "other" }]) {
+    assert.equal(cameraDetectionKinds({ ...device, ...patch }, true), undefined);
+  }
+  for (const attached of [false, null, undefined]) assert.equal(cameraDetectionKinds(device, attached), undefined);
 });
 
 test("T8422 admission retains category, exact-model and live route guards", () => {
@@ -126,6 +137,12 @@ test("provider publishes exact profiles and refuses aliases or incomplete live r
     p2p_conn: "p2p_conn" in row ? row.p2p_conn : "connection",
     parent_sn: "parent_sn" in row ? row.parent_sn : "", member: { admin_user_id: "owner" }, params: [],
   }));
+  devices.push(
+    { device_sn: "s120-parent", device_model: "T8030", device_type: 18, category: "eufy_security",
+      device_channel: 255, p2p_did: "did", p2p_conn: "connection", parent_sn: "", member: { admin_user_id: "owner" }, params: [] },
+    { device_sn: "s120", device_model: "T81A0", device_type: 10005, category: "eufy_security",
+      device_channel: 3, p2p_did: "", p2p_conn: "", parent_sn: "s120-parent", member: { admin_user_id: "owner" }, params: [] },
+  );
   context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices }));
   context.mock.method(MegaClient.prototype, "dskKeys", async () => Object.fromEntries(devices.filter(row => row.device_sn !== "no-key").map(row => [row.device_sn, { key: "fixture", expiresAt: null }])));
   const events = new Proxy({}, { get: (_target, key) => key === "camera"
@@ -133,6 +150,8 @@ test("provider publishes exact profiles and refuses aliases or incomplete live r
   const provider = new EufyProvider({ username: "fixture", password: "fixture", country: "AU", persistentDirectory: directory, maxStreamSeconds: 120 });
   try {
     await provider.start(events);
+    assert.deepEqual(identities.get("s120")?.supportedDetections,
+      ["motion", "person", "stranger", "pet", "vehicle", "dog", "crying", "sound"]);
     for (const row of profiles) {
       assert.deepEqual(identities.get(row.serial)?.supportedDetections, row.kinds);
       assert.equal(identities.get(row.serial)?.streamSupported, true);

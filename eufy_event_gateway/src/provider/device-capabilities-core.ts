@@ -55,17 +55,23 @@ export function isSupportedCameraType(device: { readonly category: string | null
 }
 
 /**
- * Limit direct-camera detection entities to the reviewed exact-model profiles.
+ * Limit detection entities to the reviewed model and route profiles.
  *
- * Unknown identities and unresolved or attached routes retain the legacy list.
+ * Unknown identities and unresolved routes retain the legacy list. The attached
+ * S120 only removes its unsupported package sensors. Other detection kinds keep
+ * their existing exposure and are not newly qualified by this profile.
  * These declarations describe available event kinds, not successful detections.
  */
-export function directCameraDetectionKinds(
+export function cameraDetectionKinds(
   device: Pick<CapabilityInventoryRow, "category" | "model" | "deviceType">,
   homeBaseAttached: boolean | null | undefined,
 ): DetectionKind[] | undefined {
-  if (device.category !== "eufy_security" || homeBaseAttached !== false) return undefined;
+  if (device.category !== "eufy_security") return undefined;
   const model = device.model.toUpperCase();
+  if (model === "T81A0" && device.deviceType === 10005 && homeBaseAttached === true) {
+    return ["motion", "person", "stranger", "pet", "vehicle", "dog", "crying", "sound"];
+  }
+  if (homeBaseAttached !== false) return undefined;
   if (model === "T8420" && device.deviceType === 3) return ["motion"];
   if ((model === "T8410C" || model === "T8410C21") && device.deviceType === 31) {
     return ["motion", "person", "pet", "crying", "sound"];
