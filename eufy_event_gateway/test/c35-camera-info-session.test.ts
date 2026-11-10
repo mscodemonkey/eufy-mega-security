@@ -61,7 +61,7 @@ for (const mode of ["valid", "invalid-tag", "clear", "wrong-channel", "invalid-s
     const operation = session.readCameraInfo("c35-spotlight-state");
     const result = mode === "valid" ? operation
       : assert.rejects(operation, mode === "clear" ? { reason: "protection_mismatch" }
-        : mode === "invalid-tag" ? { reason: "authentication_failed" } : undefined);
+        : mode === "invalid-tag" ? { reason: "authentication_failed" } : { name: "CameraInfoReadError" });
     try {
       await new Promise(resolve => setImmediate(resolve));
       const queries = commands(sent).filter(packet => packet.readUInt16LE(12) === 1103);
