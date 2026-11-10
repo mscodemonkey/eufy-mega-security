@@ -15,7 +15,7 @@ import { dirname } from "node:path";
 import type { EventReceiverState } from "../domain/types.js";
 import { createLogger } from "../logging.js";
 import { pushRecordingReference, type PushRecordingReference } from "./push-recording-reference.js";
-import { FcmRegistrar } from "./android-push/fcm.js";
+import { FcmRegistrar, FcmRequestError } from "./android-push/fcm.js";
 import { PushClient } from "./android-push/push-client.js";
 import type { FcmCredentials, RawPushMessage } from "./android-push/types.js";
 import type { MegaClient, PushRegistrationResult } from "./client.js";
@@ -207,9 +207,12 @@ export class MegaPushReceiver {
             this.#state = { ...this.#state, credentials: renewed };
             this.#persistState();
             try { logger.info("push_token_checked", `Firebase notification token checked. changed=${renewed.fcmToken !== previous.fcmToken}`); } catch {}
-          } catch {
+          } catch (error) {
             if (!this.#active(lifetime)) return;
-            try { logger.warn("push_token_refresh_unavailable", "Firebase token check unavailable. Retaining the existing receiver identity and token"); } catch {}
+            const details = error instanceof FcmRequestError
+              ? `stage=${error.stage} reason=${error.reason} http_status=${error.httpStatus ?? "none"}`
+              : "stage=unknown reason=unknown http_status=none";
+            try { logger.warn("push_token_refresh_unavailable", `Firebase token check unavailable. ${details} Retaining the existing receiver identity and token`); } catch {}
           }
         }
       }

@@ -46,6 +46,31 @@ interface FidInstallation {
   authToken: { token: string };
 }
 
+type FcmFailureStage = "credentials" | "installation_auth" | "registration";
+type FcmFailureReason = "invalid" | "http" | "response" | "transport" | "timeout" | "cancelled";
+
+/**
+ * Carries only fixed failure categories from a registrar request to the receiver.
+ * Instances retain no response, URL, credentials or original exception. The
+ * receiver may log these fields while preserving its saved notification identity.
+ */
+export class FcmRequestError extends Error {
+
+  /** HTTP status when the server rejected the request, otherwise null. */
+  readonly httpStatus: number | null;
+
+  /**
+   * Describe the first failing request boundary without retaining private data.
+   * @param stage The credential or remote-service boundary that failed.
+   * @param reason Whether that boundary rejected, timed out or returned invalid data.
+   */
+  constructor(readonly stage: FcmFailureStage, readonly reason: FcmFailureReason, httpStatus?: number) {
+    super("Firebase token renewal unavailable");
+    this.name = "FcmRequestError";
+    this.httpStatus = Number.isInteger(httpStatus) && httpStatus! >= 100 && httpStatus! <= 599 ? httpStatus! : null;
+  }
+}
+
 /**
  * Registers one fresh Firebase installation as the Android Eufy application.
  *
@@ -65,30 +90,44 @@ export class FcmRegistrar {
    */
   async refresh(credentials: FcmCredentials, signal: AbortSignal): Promise<FcmCredentials> {
     const scoped = AbortSignal.any([signal, AbortSignal.timeout(15_000)]);
-    scoped.throwIfAborted();
-    if (!/^[A-Za-z0-9_-]{22}$/.test(credentials.fid) || !credentials.refreshToken
-      || credentials.refreshToken.length > 4096 || /[\s\x00-\x1f\x7f]/u.test(credentials.refreshToken)) {
-      throw new Error("Firebase token renewal unavailable");
+    let stage: FcmFailureStage = "credentials";
+    let reason: FcmFailureReason = "invalid";
+    try {
+      scoped.throwIfAborted();
+      if (!/^[A-Za-z0-9_-]{22}$/.test(credentials.fid) || !credentials.refreshToken
+        || credentials.refreshToken.length > 4096 || /[\s\x00-\x1f\x7f]/u.test(credentials.refreshToken)) {
+        throw new FcmRequestError(stage, reason);
+      }
+      stage = "installation_auth";
+      reason = "transport";
+      const response = await fetch(`https://firebaseinstallations.googleapis.com/v1/projects/${FCM.PROJECT_ID}/installations/${credentials.fid}/authTokens:generate`, {
+        method: "POST", signal: scoped, redirect: "error",
+        headers: { "Content-Type": "application/json", "X-Android-Package": FCM.PACKAGE,
+          "X-Android-Cert": FCM.CERT_SHA1, "x-goog-api-key": FCM.API_KEY,
+          Authorization: `${FCM.AUTH_VERSION} ${credentials.refreshToken}` },
+        body: JSON.stringify({ installation: { sdkVersion: FCM.SDK_VERSION } }),
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new FcmRequestError(stage, "http", response.status);
+      }
+      reason = "response";
+      const value: unknown = JSON.parse((await readBoundedResponse(response, 16_384, scoped)).toString("utf8"));
+      const token = typeof value === "object" && value !== null && "token" in value ? value.token : null;
+      if (typeof token !== "string" || token.length < 1 || token.length > 8192 || /[\s\x00-\x1f\x7f]/u.test(token)) {
+        throw new FcmRequestError(stage, reason);
+      }
+      stage = "registration";
+      reason = "transport";
+      const fcmToken = await this.gcmRegister(credentials.fid, credentials.androidId, credentials.securityToken, token, scoped, 1);
+      scoped.throwIfAborted();
+      return { ...credentials, fcmToken, tokenCheckedAt: Date.now() };
+    } catch (error) {
+      if (signal.aborted) throw new FcmRequestError(stage, "cancelled");
+      if (scoped.aborted) throw new FcmRequestError(stage, "timeout");
+      if (error instanceof FcmRequestError) throw error;
+      throw new FcmRequestError(stage, reason);
     }
-    const response = await fetch(`https://firebaseinstallations.googleapis.com/v1/projects/${FCM.PROJECT_ID}/installations/${credentials.fid}/authTokens:generate`, {
-      method: "POST", signal: scoped, redirect: "error",
-      headers: { "Content-Type": "application/json", "X-Android-Package": FCM.PACKAGE,
-        "X-Android-Cert": FCM.CERT_SHA1, "x-goog-api-key": FCM.API_KEY,
-        Authorization: `${FCM.AUTH_VERSION} ${credentials.refreshToken}` },
-      body: JSON.stringify({ installation: { sdkVersion: FCM.SDK_VERSION } }),
-    });
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw new Error("Firebase token renewal unavailable");
-    }
-    const value: unknown = JSON.parse((await readBoundedResponse(response, 16_384, scoped)).toString("utf8"));
-    const token = typeof value === "object" && value !== null && "token" in value ? value.token : null;
-    if (typeof token !== "string" || token.length < 1 || token.length > 8192 || /[\s\x00-\x1f\x7f]/u.test(token)) {
-      throw new Error("Firebase token renewal unavailable");
-    }
-    const fcmToken = await this.gcmRegister(credentials.fid, credentials.androidId, credentials.securityToken, token, scoped, 1);
-    scoped.throwIfAborted();
-    return { ...credentials, fcmToken, tokenCheckedAt: Date.now() };
   }
 
   /**
@@ -220,15 +259,19 @@ export class FcmRegistrar {
       });
       if (signal && !res.ok) {
         await res.body?.cancel();
-        throw new Error("Firebase token renewal unavailable");
+        throw new FcmRequestError("registration", "http", res.status);
       }
-      last = signal ? (await readBoundedResponse(res, 16_384, signal)).toString("utf8") : await res.text();
+      try {
+        last = signal ? (await readBoundedResponse(res, 16_384, signal)).toString("utf8") : await res.text();
+      } catch {
+        throw new FcmRequestError("registration", "response");
+      }
       const m = last.match(/^token=([^\s\x00-\x1f\x7f]+)\s*$/u);
       if (m?.[1]) return m[1].trim();
       if (attempt + 1 === maximumAttempts) break;
       logger.warn("fcm_registration_retry", `Android FCM registration attempt ${attempt + 1} failed`);
       await sleep(1000 * (attempt + 1), undefined, { signal });
     }
-    throw new Error("GCM register failed");
+    throw new FcmRequestError("registration", "response");
   }
 }
