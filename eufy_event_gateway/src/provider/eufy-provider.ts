@@ -68,7 +68,7 @@ import { observeOwnedStartup } from "../stream/owned-startup-recovery.js";
 import { withCameraControlDeadline } from "./camera-control-deadline.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBaseChildParam, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
 import type { SensorContactObservation } from "../stream/sensor-status-notification.js";
-import { cameraCapabilityLogSummaries, describeCameraCapabilities, directCameraDetectionKinds, isSupportedCameraType, describeDeviceCapabilities, deviceCapabilityLogSummaries } from "./device-capabilities-core.js";
+import { cameraCapabilityLogSummaries, describeCameraCapabilities, cameraDetectionKinds, isSupportedCameraType, describeDeviceCapabilities, deviceCapabilityLogSummaries } from "./device-capabilities-core.js";
 import { generalRtcBinding, GeneralRtcTrial, GeneralRtcPinLimiter, type GeneralRtcTrialLease, type GeneralRtcBinding } from "./general-rtc-trial.js";
 import { GeneralRtcError } from "../stream/general-rtc-protocol.js";
 import { catalogueIntegrationStatus, hasMainsBatterySentinel } from "./camera-capability-core.js";
@@ -5255,7 +5255,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const nvrLive = this.#normalNvrLiveBinding(device, this.#devices.get(device.parentSerial));
     const experimentalSettingsReady = this.config.experimentalModelControls === true && !!device.adminUserId
       && this.#client.isAuthenticatedUser(device.adminUserId);
-    const supportedDetections = directCameraDetectionKinds(device, route?.homeBaseAttached);
+    const supportedDetections = cameraDetectionKinds(device, route?.homeBaseAttached);
     const s220Quality = experimentalSettingsReady && settingRouteReady && this.config.apiAuthenticationConfigured === true
       && this.#client.authenticatedBinding() !== null && settingRoute !== null
       && cameraSettingProfile(settingRoute, "streamingQuality") !== null
