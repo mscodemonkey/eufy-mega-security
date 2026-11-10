@@ -91,20 +91,27 @@ export class FcmRegistrar {
     return { ...credentials, fcmToken, tokenCheckedAt: Date.now() };
   }
 
-  /** Full registration → FcmCredentials. */
-  async register(): Promise<FcmCredentials> {
+  /**
+   * Create one installation within thirty seconds, including retry delays and
+   * response bodies. Receiver shutdown cancels outstanding requests. No partial
+   * credentials are published, and failed setup does not log response contents.
+   */
+  async register(signal?: AbortSignal): Promise<FcmCredentials> {
+    const scoped = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(30_000)]);
+    scoped.throwIfAborted();
     const fid = generateFid();
-    const install = await this.installFid(fid);
-    const { androidId, securityToken } = await this.checkin();
-    const fcmToken = await this.gcmRegister(fid, androidId, securityToken, install.authToken.token);
+    const install = await this.installFid(fid, scoped);
+    const { androidId, securityToken } = await this.checkin(scoped);
+    const fcmToken = await this.gcmRegister(fid, androidId, securityToken, install.authToken.token, scoped);
+    scoped.throwIfAborted();
     logger.info("fcm_registered", "Android FCM registration completed");
     return { fid, androidId, securityToken, fcmToken, refreshToken: install.refreshToken, createdAt: Date.now() };
   }
 
-  private async installFid(fid: string): Promise<FidInstallation> {
+  private async installFid(fid: string, signal: AbortSignal): Promise<FidInstallation> {
     const url = `https://firebaseinstallations.googleapis.com/v1/projects/${FCM.PROJECT_ID}/installations`;
     const res = await fetch(url, {
-      method: "POST",
+      method: "POST", signal, redirect: "error",
       headers: {
         "Content-Type": "application/json",
         "X-Android-Package": FCM.PACKAGE,
@@ -113,11 +120,20 @@ export class FcmRegistrar {
       },
       body: JSON.stringify({ fid, appId: FCM.APP_ID, authVersion: FCM.AUTH_VERSION, sdkVersion: FCM.SDK_VERSION }),
     });
-    if (res.status !== 200) throw new Error(`FID install failed (${res.status})`);
-    return (await res.json()) as FidInstallation;
+    if (!res.ok) {
+      await res.body?.cancel();
+      throw new Error("Firebase installation unavailable");
+    }
+    const value = JSON.parse((await readBoundedResponse(res, 16_384, signal)).toString("utf8")) as Partial<FidInstallation>;
+    if (typeof value?.refreshToken !== "string" || !value.refreshToken || value.refreshToken.length > 4096
+      || typeof value.authToken?.token !== "string" || !value.authToken.token || value.authToken.token.length > 8192
+      || /[\s\x00-\x1f\x7f]/u.test(value.refreshToken + value.authToken.token)) {
+      throw new Error("Firebase installation unavailable");
+    }
+    return { refreshToken: value.refreshToken, authToken: { token: value.authToken.token } };
   }
 
-  private async checkin(): Promise<{ androidId: string; securityToken: string }> {
+  private async checkin(signal: AbortSignal): Promise<{ androidId: string; securityToken: string }> {
     const CheckinRequest = checkinRoot().lookupType("CheckinRequest");
     const CheckinResponse = checkinRoot().lookupType("CheckinResponse");
     const payload = {
@@ -141,12 +157,15 @@ export class FcmRegistrar {
     };
     const body = CheckinRequest.encode(CheckinRequest.create(payload)).finish();
     const res = await fetch("https://android.clients.google.com/checkin", {
-      method: "POST",
+      method: "POST", signal, redirect: "error",
       headers: { "Content-Type": "application/x-protobuf" },
       body: Buffer.from(body),
     });
-    if (res.status !== 200) throw new Error(`checkin failed (${res.status})`);
-    const obj = CheckinResponse.toObject(CheckinResponse.decode(new Uint8Array(await res.arrayBuffer())), {
+    if (!res.ok) {
+      await res.body?.cancel();
+      throw new Error("Android check-in unavailable");
+    }
+    const obj = CheckinResponse.toObject(CheckinResponse.decode(await readBoundedResponse(res, 65_536, signal)), {
       longs: String,
     });
     if (!obj.androidId || !obj.securityToken) throw new Error("checkin returned no androidId/securityToken");
@@ -182,7 +201,8 @@ export class FcmRegistrar {
       cert: FCM.CERT_SHA1,
       target_ver: "28",
     });
-    // The gateway is occasionally flaky; retry a few times.
+
+    // Retain the existing finite retries inside the caller's overall deadline.
     let last = "";
     for (let attempt = 0; attempt < maximumAttempts; attempt++) {
       const res = await fetch("https://android.clients.google.com/c2dm/register3", {
