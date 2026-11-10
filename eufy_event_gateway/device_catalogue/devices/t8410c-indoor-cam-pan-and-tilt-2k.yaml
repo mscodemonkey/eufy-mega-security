@@ -64,9 +64,11 @@ capabilities:
           status: declared
     vehicle:
       connections:
-        direct:
-          status: declared
         T8030:
+          status: declared
+    crying:
+      connections:
+        direct:
           status: declared
     sound:
       connections:
