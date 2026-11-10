@@ -198,6 +198,7 @@ for (const mode of ["missing-reference", "superseded-before-read"] as const) tes
     const reason = mode === "missing-reference" ? "notification_reference_unavailable" : "visit_or_binding_changed";
     const lines = f.logs.filter(line => line.includes("event=homebase_name_recovery_unavailable"));
     assert.ok(lines.some(line => line.includes(`reason=${reason}`)));
+    if (mode === "missing-reference") assert.ok(lines.some(line => /reference=id_absent visit_identity_present=true/.test(line)));
     assert.ok(lines.every(line => !/Fixture Person|Camera02|new-visit|record_id|file_path/.test(line)));
   } finally { await f.provider.close(); context.mock.timers.reset(); }
 });
