@@ -16,16 +16,32 @@ export interface PushRecordingReference {
   readonly triggerMilliseconds: number;
 }
 
+/** Closed shape failures, with no reference values or device identities. */
+export type PushRecordingReferenceProblem = "id_absent" | "id_invalid" | "path_absent" | "path_unsupported" | "time_absent" | "time_invalid";
+
+/**
+ * Explain the first rejected innermost reference field without relaxing admission.
+ * Missing fields remain separate from unsupported shapes so the provider can
+ * select the next source comparison without requesting a raw notification.
+ */
+export function pushRecordingReferenceProblem(payload: Record<string, unknown>): PushRecordingReferenceProblem | null {
+  const raw = payload.record_id;
+  if (raw === undefined || raw === null) return "id_absent";
+  const id = typeof raw === "number" && Number.isSafeInteger(raw) ? String(raw) : raw;
+  if (typeof id !== "string" || !/^[1-9][0-9]{0,18}$/.test(id) || BigInt(id) > 9_223_372_036_854_775_807n) return "id_invalid";
+  if (payload.file_path === undefined || payload.file_path === null) return "path_absent";
+  if (recordingPathDate(payload.file_path) === null) return "path_unsupported";
+  if (payload.trigger_time === undefined || payload.trigger_time === null) return "time_absent";
+  if (typeof payload.trigger_time !== "number" || !Number.isSafeInteger(payload.trigger_time)
+    || payload.trigger_time < 1_000_000_000_000 || payload.trigger_time > 9_999_999_999_999) return "time_invalid";
+  return null;
+}
+
 /** Preserve only exact, supported scalar shapes without rounding numeric IDs. */
 export function pushRecordingReference(payload: Record<string, unknown>): PushRecordingReference | null {
-  const raw = payload.record_id;
-  const id = typeof raw === "number" && Number.isSafeInteger(raw) ? String(raw) : raw;
-  if (typeof id !== "string" || !/^[1-9][0-9]{0,18}$/.test(id) || BigInt(id) > 9_223_372_036_854_775_807n
-    || typeof payload.file_path !== "string" || payload.file_path.length > 1024
-    || typeof payload.trigger_time !== "number" || !Number.isSafeInteger(payload.trigger_time)
-    || payload.trigger_time < 1_000_000_000_000 || payload.trigger_time > 9_999_999_999_999) return null;
-  if (recordingPathDate(payload.file_path) === null) return null;
-  return Object.freeze({ id, storagePath: payload.file_path, triggerMilliseconds: payload.trigger_time });
+  if (pushRecordingReferenceProblem(payload) !== null) return null;
+  return Object.freeze({ id: String(payload.record_id), storagePath: payload.file_path as string,
+    triggerMilliseconds: payload.trigger_time as number });
 }
 
 /**

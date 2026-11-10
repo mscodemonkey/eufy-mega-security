@@ -6397,7 +6397,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       logger.info("homebase_name_recovery_unavailable", `Late-name recovery ended reason=${reason} checks=${checks} busy_skips=${busySkips}`);
     };
     if (!this.config.apiAuthenticationConfigured) { unavailable("api_authentication_required"); return; }
-    if (!owner || !event.eventId || !reference) { unavailable("notification_reference_unavailable"); return; }
+    if (!owner || !event.eventId || !reference) {
+      logger.info("homebase_name_recovery_unavailable", "Late-name recovery ended reason=notification_reference_unavailable checks=0 busy_skips=0"
+        + ` reference=${event.recordingReferenceProblem ?? "unknown"} visit_identity_present=${Boolean(event.eventId)}`);
+      return;
+    }
     if (event.stationSerial !== route?.peer.serial
       || owner.event.eventId !== event.eventId || owner.event.eventType !== event.eventType
       || owner.event.recording?.id !== reference.id || owner.event.recording.storagePath !== reference.storagePath
