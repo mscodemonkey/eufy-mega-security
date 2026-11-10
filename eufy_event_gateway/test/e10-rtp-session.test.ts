@@ -1,5 +1,5 @@
 /**
- * Exercises a finite E10 H.264 candidate with local signalling and real RTP peers.
+ * Exercises viewer-owned and finite E10 H.264 sessions with local signalling and real RTP peers.
  * Tests own synthetic media and cleanup. The unused data section is rejected,
  * and no Eufy account, device or setting is accessed. Hardware playback stays unconfirmed.
  */
@@ -43,8 +43,19 @@ function payloads(unit: readonly Buffer[]): Buffer[] {
   return result;
 }
 
-for (const scenario of ["video", "loss", "unused-data", "cancel-offer"]) {
-  test(`finite E10 RTP ${scenario} has bounded media and cleanup`, { timeout: 20_000 }, async context => {
+for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-deadline", "continuous-video", "continuous-stall", "continuous-cancel"]) {
+  test(`E10 RTP ${scenario} preserves its media lifetime and cleanup`, { timeout: 20_000 }, async context => {
+    const continuous = scenario.startsWith("continuous-");
+    let videoNow = 0;
+    const scheduled: { delay: number; fire: () => void }[] = [];
+    const schedule = globalThis.setTimeout;
+    context.mock.method(globalThis, "setTimeout", ((callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+      const handle = schedule(callback, delay, ...args);
+      if (delay === 45_000 || delay === 10_000) {
+        scheduled.push({ delay, fire: () => { clearTimeout(handle); callback(...args); } });
+      }
+      return handle;
+    }) as typeof setTimeout);
     const generated = spawnSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=10",
       "-t", "1", "-c:v", "libx264", "-preset", "ultrafast", "-x264-params", "aud=1:repeat-headers=1:keyint=5",
       "-f", "h264", "pipe:1"], { maxBuffer: 4 * 1024 * 1024 });
@@ -126,7 +137,7 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer"]) {
         })().catch(error => { serverErrors.push(error); connection.terminate(); });
       });
     });
-    const session = new NvrRtcSession({ station: "synthetic-station", camera: "synthetic-station", cameraType: 314, channel: 0, e10RtpTrial: true, maximumLifetimeMilliseconds: 10000, administrator: "synthetic-owner",
+    const session = new NvrRtcSession({ station: "synthetic-station", camera: "synthetic-station", cameraType: 314, channel: 0, e10RtpTrial: true, maximumLifetimeMilliseconds: continuous ? null : 10000, videoProgressNow: () => videoNow, administrator: "synthetic-owner",
       context: { host: "security-smart-eu.eufylife.com", region: "EU", authToken: "synthetic-token", gtoken: "synthetic-gtoken", sign: "synthetic-sign" },
       signal: controller.signal, current: () => true, 
       ready: output => { output.on("data", (chunk: Buffer) => chunks.push(Buffer.from(chunk))); },
@@ -150,6 +161,8 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer"]) {
         return peer;
       },
     });
+    const errors: NvrTrialError[] = [];
+    session.output.on("error", error => { errors.push(error as NvrTrialError); });
     try {
       if (scenario === "cancel-offer") {
         const stopped = assert.rejects(session.start(), error => error instanceof NvrTrialError && error.stage === "cancelled");
@@ -159,7 +172,37 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer"]) {
       } else {
         await session.start().catch(error => { assert.deepEqual(serverErrors, []); throw error; });
         await new Promise(resolve => setTimeout(resolve, 1400));
+        if (continuous) {
+          assert.ok(scheduled.some(timer => timer.delay === 45_000));
+          assert.equal(scheduled.some(timer => timer.delay === 10_000), false);
+          scheduled.find(timer => timer.delay === 45_000)!.fire();
+          assert.equal(session.output.destroyed, false);
+          for (let step = 0; step < 6; step++) {
+            videoNow += 30_000;
+            const before = session.stats.video;
+            await new Promise(resolve => setTimeout(resolve, 250));
+            assert.ok(session.stats.video > before);
+            assert.equal(session.remainingLifetimeMilliseconds, 45_000);
+            assert.equal(session.output.destroyed, false);
+          }
+          assert.equal(videoNow, 180_000);
+          if (scenario === "continuous-stall") {
+            if (timer) clearInterval(timer);
+            await new Promise(resolve => setTimeout(resolve, 150));
+            scheduled.filter(timer => timer.delay === 45_000).at(-1)!.fire();
+          } else if (scenario === "continuous-cancel") controller.abort();
+        } else if (scenario === "finite-deadline") {
+          assert.equal(scheduled.some(timer => timer.delay === 45_000), false);
+          scheduled.find(timer => timer.delay === 10_000)!.fire();
+        }
         await session.close(); await session.close();
+        const closedChunks = chunks.length;
+        await new Promise(resolve => setTimeout(resolve, 150));
+        assert.equal(chunks.length, closedChunks);
+        if (scenario === "continuous-stall") assert.deepEqual(errors.map(error => [error.stage, error.reason]), [["video", "video_progress_timeout"]]);
+        else if (scenario === "finite-deadline") assert.equal(errors[0]?.stage, "deadline");
+        else if (scenario === "continuous-cancel") assert.equal(errors[0]?.stage, "cancelled");
+        else assert.deepEqual(errors, []);
         const decoded = spawnSync("ffmpeg", ["-v", "error", "-xerror", "-err_detect", "explode", "-f", "h264", "-i", "pipe:0",
           "-progress", "pipe:1", "-f", "null", "-"], { input: Buffer.concat(chunks), timeout: 5000 });
         assert.equal(decoded.status, 0, decoded.stderr?.toString());
@@ -184,10 +227,10 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer"]) {
 
 
 for (const changes of [{ cameraType: 301 }, { channel: 1 }, { station: "other-parent" }, { sensor: 1 },
-  { maximumLifetimeMilliseconds: null }, { audio: true }, { liveControls: true }, { powerTrial: true }, { guardTrial: true }] as const) {
-  test(`the E10 RTP candidate refuses incompatible ownership ${JSON.stringify(changes)}`, () => {
+  { audio: true }, { liveControls: true }, { powerTrial: true }, { guardTrial: true }] as const) {
+  for (const lifetime of [75_000, null]) test(`the E10 RTP candidate refuses incompatible ownership ${JSON.stringify(changes)} lifetime=${lifetime}`, () => {
     assert.throws(() => new NvrRtcSession({ station: "synthetic-camera", camera: "synthetic-camera", cameraType: 314,
-      channel: 0, e10RtpTrial: true, administrator: "synthetic-account", signal: new AbortController().signal,
+      channel: 0, e10RtpTrial: true, maximumLifetimeMilliseconds: lifetime, administrator: "synthetic-account", signal: new AbortController().signal,
       current: () => true, ready: () => undefined,
       context: { host: "security-smart-eu.eufylife.com", region: "EU", authToken: "synthetic-token", gtoken: "synthetic", sign: "synthetic-sign" },
       ...changes }), NvrTrialError);

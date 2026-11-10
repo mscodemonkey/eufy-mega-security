@@ -5,7 +5,7 @@
  * The provider owns the station lease and supplies private Mega credentials.
  * Checked video reaches the media boundary. Normal opt-in controls and separately
  * consented guard/power trials retain distinct admission and request ownership.
- * Separately admitted finite E10 video receives a checked H.264 RTP track and
+ * Separately admitted E10 video receives a checked H.264 RTP track and
  * declines unused media, with no data-channel inventory or control requests.
  * Vendor assets and captures are not dependencies, and hardware needs testing.
  */
@@ -89,7 +89,7 @@ export interface NvrSignallingContext {
 export interface NvrRtcDependencies {
   readonly socket: (url: string, protocols: string[], options: WebSocket.ClientOptions) => WebSocket;
 
-  /** A validated H.264 offer selects codecs only for separately admitted finite E10 video. */
+  /** A validated H.264 offer selects codecs only for separately admitted E10 video. */
   readonly peer: (servers: RTCIceServer[], videoOffer?: DoorbellRtcOffer) => RTCPeerConnection;
 }
 
@@ -152,7 +152,7 @@ export interface NvrRtcOptions {
    */
   readonly audio?: boolean;
 
-  /** Provider admission for finite standalone E10 video. Normal views retain a duration cap and no controls. */
+  /** Provider admission for standalone E10 video. Caller-owned views and finite trials grant no controls. */
   readonly e10RtpTrial?: boolean;
 
   /**
@@ -399,7 +399,7 @@ export class NvrRtcSession {
         || this.#maximumLifetimeMilliseconds > 2_147_483_647) throw new NvrTrialError("admission");
     if (options.e10RtpTrial && (options.cameraType !== 314 || options.station !== options.camera || options.channel !== 0
       || (options.sensor ?? 0) !== 0 || options.audio || options.modeObserver || options.powerTrial || options.guardTrial
-      || options.liveControls || this.#maximumLifetimeMilliseconds === null)) throw new NvrTrialError("admission");
+      || options.liveControls)) throw new NvrTrialError("admission");
     this.#externalAbort = () => this.#fail("cancelled");
     options.signal.addEventListener("abort", this.#externalAbort, { once: true });
   }
@@ -1104,7 +1104,7 @@ export class NvrRtcSession {
     }
   }
 
-  /** Receive only the selected H.264 track under this finite E10 call's existing owner. */
+  /** Receive only the selected H.264 track under this E10 call's existing owner. */
   #receiveE10Video(peer: RTCPeerConnection, offer: DoorbellRtcOffer): void {
     peer.onTrack.subscribe(track => {
       if (this.#retired) return;
@@ -1137,6 +1137,7 @@ export class NvrRtcSession {
           }
           if (!this.output.write(output)) throw new NvrTrialError("video");
           this.#startVideoObserved = true;
+          this.#renewVideoProgress();
           this.#readyResolve?.(); this.#readyResolve = null; this.#readyReject = null;
         } catch (error) {
           this.#fail(error instanceof NvrTrialError ? error.stage : "video");
