@@ -20,7 +20,7 @@ magenta tint still unresolved.
 The next candidate uses that same video receiver from the normal HA camera
 entity. In a release containing this change, enable **Experimental NVR live
 video** using the already configured owner account, then open the E10 camera
-in HA. The existing normal-video option must also remain enabled. The route is
+in HA. The route is
 limited to standalone T8404/type 314 on channel zero. It stays off without the
 experimental option and does not admit shared accounts or attached variants.
 
