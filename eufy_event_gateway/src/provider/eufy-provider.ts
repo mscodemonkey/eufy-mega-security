@@ -2016,7 +2016,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
             || station.model === "T9000" && station.deviceType === 27 && this.#nvrMediaChecks?.settling(rows[0]![0]));
       if (call || !settling || performance.now() >= deadline) return call;
       if (!takeOver && requestedRetirement !== rows[0]![1]) {
-        const retiring = rows[0]![1];
+        const retiring: NvrTrialEntry = rows[0]![1];
         requestedRetirement = retiring;
 
         // Only the media owner can atomically waive idle grace for a wholly unused call.
