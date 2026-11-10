@@ -1999,8 +1999,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
    * A person opening cameras in quick succession lands here, and refusing would
    * cost them Home Assistant's whole retry backoff. A call held by a recording
    * or a lease is not going anywhere, so that case is refused at once as before.
-   * An aged HA retry can wait only for a call already retiring or in unused idle
-   * cleanup. It never acquires permission to move or stop an active call.
+   * An aged HA retry can also wait for an S1 HA worker within this same budget.
+   * It never gains takeover permission. Only the media owner's unused-source
+   * gate may retire the call after its final consumer has actually closed.
    */
   async #nvrCallOnceSettled(device: MegaInventoryDevice, station: MegaInventoryDevice, current: () => void, signal: AbortSignal, takeOver: boolean): Promise<NvrTrialEntry | null> {
     const deadline = performance.now() + NVR_SWITCH_WAIT_MILLISECONDS;
@@ -2011,14 +2012,21 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const settling = rows.length === 1 && rows[0]![0] !== device.serial && rows[0]![1].station.serial === station.serial
         && !rows[0]![1].diagnostic && !rows[0]![1].stateOnly
         && (takeOver ? this.#nvrMediaChecks?.settling(rows[0]![0]) || !rows[0]![1].session?.switchable
-          : rows[0]![1].retiring || this.#nvrMediaChecks?.retiring?.(rows[0]![0]));
+          : rows[0]![1].retiring || this.#nvrMediaChecks?.retiring?.(rows[0]![0])
+            || station.model === "T9000" && station.deviceType === 27 && this.#nvrMediaChecks?.settling(rows[0]![0]));
       if (call || !settling || performance.now() >= deadline) return call;
       if (!takeOver && requestedRetirement !== rows[0]![1]) {
-        requestedRetirement = rows[0]![1];
+        const retiring = rows[0]![1];
+        requestedRetirement = retiring;
 
         // Only the media owner can atomically waive idle grace for a wholly unused call.
         const retirement = this.#nvrMediaChecks?.retireYieldable?.(rows[0]![0], true);
-        void retirement?.catch(() => {});
+        void retirement?.then(retired => {
+
+          // A still-active consumer can close during this wait. Recheck the
+          // unused-only gate, without repeating a retirement already accepted.
+          if (!retired && requestedRetirement === retiring) requestedRetirement = null;
+        }).catch(() => {});
       }
       await new Promise<void>(resolve => {
         const done = (): void => { clearTimeout(timer); signal.removeEventListener("abort", done); resolve(); };
