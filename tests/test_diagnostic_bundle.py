@@ -81,7 +81,9 @@ class DiagnosticBundleTests(unittest.TestCase):
         target = {"model": "T8110", "serial": "private-camera"}
         for summary in ({"outcome": "reported", "readOnly": True, "spotlightEnabled": False},
                         {"outcome": "reported", "readOnly": True, "spotlightEnabled": True},
-                        {"outcome": "unavailable", "readOnly": True, "reason": "no_reply"}):
+                        {"outcome": "unavailable", "readOnly": True, "reason": "no_reply"},
+                        {"outcome": "unavailable", "readOnly": True, "reason": "protection_mismatch"},
+                        {"outcome": "unavailable", "readOnly": True, "reason": "authentication_failed"}):
             with patch.object(TOOL, "request", return_value=json.dumps(summary).encode()) as request:
                 self.assertEqual(TOOL.spotlight_read_check("http://private.invalid", "private-token", target),
                                  {"model": "T8110", **summary, "lightCommandSent": False})

@@ -322,7 +322,8 @@ def spotlight_read_check(url: str, token: str, target: dict) -> dict:
                 raise ValueError()
         elif value.get("outcome") == "unavailable":
             if set(value) != {"outcome", "readOnly", "reason"} or value.get("reason") not in (
-                    "no_reply", "not_decoded", "invalid_json", "invalid_schema", "setting_missing", "unavailable"):
+                    "no_reply", "not_decoded", "invalid_json", "invalid_schema", "setting_missing", "unavailable",
+                    "protection_mismatch", "authentication_failed"):
                 raise ValueError()
         else:
             raise ValueError()
