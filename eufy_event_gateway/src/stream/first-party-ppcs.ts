@@ -10,6 +10,7 @@
  * stream plus safe counters, so the rest of the gateway never handles PPCS
  * packet layout or camera encryption directly.
  */
+import { t8420ClearLiveRoute, t8420ClearLiveStart } from "./t8420-live.js";
 import { createRecordedCipheriv as createCipheriv } from "../diagnostics/raw-crypto.js";
 import { createRecordedDecipheriv as createDecipheriv } from "../diagnostics/raw-crypto.js";
 import { observeRawSocket, rawSocketConnection } from "../diagnostics/raw-network.js";
@@ -1371,7 +1372,12 @@ interface PendingPpcsFrame {
 
 /** Closed private lookup facts shared with the provider, excluding raw errors and key identifiers. */
 export type PpcsCipherKeyOutcome = { readonly kind: "key"; readonly value: string }
-  | { readonly kind: "lookup_failed" | "missing_key" | "retired" };
+  | { readonly kind: "lookup_failed" | "retired" }
+  | { readonly kind: "missing_key";
+
+    /** True only for a successful empty key collection, excluding malformed or ambiguous entries. */
+    readonly confirmedAbsent?: boolean;
+  };
 
 /**
  * Peer, camera, and lifetime values required by one media or control session.
@@ -1409,6 +1415,9 @@ export interface PpcsCameraOptions {
   /** Reported numeric identity. Missing types retain the generic media shape. */
   readonly cameraDeviceType?: number | null;
 
+  /** Explicit default-off media trial, selected only after a fresh missing-key gateway response. */
+  readonly experimentalT8420Live?: boolean;
+
   /** Parent peer model used only where HomeBase generations have different media lifecycle commands. */
   readonly stationModel?: string;
 
@@ -1433,7 +1442,7 @@ export interface PpcsCameraOptions {
   /** Resolve the private ECC key selected by a HomeBase gateway-info frame. */
   readonly resolveCipherKey?: (cipherId: number) => Promise<string | undefined>;
 
-  /** Supply closed lookup outcomes for S100 preparation only; ordinary media keeps its string adapter. */
+  /** Supply classified lookup outcomes for exact trials; ordinary media retains its string adapter. */
   readonly resolveCipherKeyOutcome?: (cipherId: number) => Promise<PpcsCipherKeyOutcome>;
 
   /** Monotonic performance.now() deadline shared by replacement lookup and first-frame waits. */
@@ -1711,9 +1720,9 @@ export class FirstPartyPpcsSession {
     mediaStartLowPower: 0,
     mediaStartRetransmitted: 0,
     mediaStartExpired: 0,
-    mediaStartProtocols: [] as ("level1" | "level2" | "t8200-clear")[],
+    mediaStartProtocols: [] as ("level1" | "level2" | "t8200-clear" | "t8420-clear")[],
     mediaStopAttempts: 0,
-    mediaStopProtocol: "none" as "none" | "level1-direct" | "level2-direct" | "level2-payload",
+    mediaStopProtocol: "none" as "none" | "level1-direct" | "level2-direct" | "level2-payload" | "clear-direct",
     closeReason: "open" as PpcsStreamCloseReason | "open",
   };
   readonly #options: PpcsCameraOptions;
@@ -1741,6 +1750,8 @@ export class FirstPartyPpcsSession {
   #lookupCancel: (() => void) | null = null;
   #closedSequenceChannels: string | null = null;
   #t8200MediaStartSent = false;
+  #t8420ClearEligible = false;
+  #t8420ClearSent = false;
   #maximumDurationTimer: ReturnType<typeof setTimeout> | null = null;
   #firstFrameTimer: ReturnType<typeof setTimeout> | null = null;
   #pendingByType = new Map<number, PendingPpcsFrame>();
@@ -3026,6 +3037,13 @@ export class FirstPartyPpcsSession {
     if (this.#options.purpose !== "control" && this.#options.purpose !== "passive" && this.#options.homeBaseAttached) {
       this.#stopAttachedMedia();
     }
+    if (this.#t8420ClearSent && !this.#level2Key) {
+
+      // The captured stop is a channel-zero uint32, sent before the owned END drain.
+      this.stats.mediaStopAttempts++;
+      this.stats.mediaStopProtocol = "clear-direct";
+      this.#sendCommand(1004, rawPayload(Buffer.alloc(4), 0, 0, [1, 0], 0));
+    }
     this.#closeCompletion = new Promise<void>((resolve) => {
       let finished = false;
       let deadline: ReturnType<typeof setTimeout> | undefined;
@@ -3612,6 +3630,25 @@ export class FirstPartyPpcsSession {
   }
 
   /**
+   * Latch fixed failure facts for key waiters. Only an explicitly confirmed
+   * empty key lookup can select the opted-in exact T8420 media alternative.
+   */
+  #failLevel2(phase: "gateway_decrypt" | "cipher_lookup_error" | "cipher_missing_key" | "cipher_unwrap_failed" | "retired",
+    confirmedAbsent = false): void {
+    if (this.#closed) return;
+    this.#level2Failure = phase;
+    this.stats.level2Error = `Key negotiation unavailable: ${phase}`;
+    if (phase === "cipher_missing_key" && confirmedAbsent && this.stats.cipherId === 65433 && !this.#level2Key
+      && t8420ClearLiveRoute({ enabled: this.#options.experimentalT8420Live, model: this.#options.cameraModel,
+        deviceType: this.#options.cameraDeviceType, stationModel: this.#options.stationModel,
+        channel: this.#options.channel, attached: this.#options.homeBaseAttached,
+        purpose: this.#options.purpose, accountId: this.#options.accountId })) {
+      this.#t8420ClearEligible = true;
+      this.#startOwnMedia(true);
+    }
+  }
+
+  /**
    * Derive the peer's level-two control key from command 1100.
    *
    * The outer envelope uses the deterministic level-one command key. Its
@@ -3621,13 +3658,6 @@ export class FirstPartyPpcsSession {
    * standalone media session starts with its level-one fallback, then reissues
    * START_LIVE at level two as soon as the negotiated key becomes available.
    */
-  /** Latch only fixed failure facts in the same turn as the error observed by key waiters. */
-  #failLevel2(phase: "gateway_decrypt" | "cipher_lookup_error" | "cipher_missing_key" | "cipher_unwrap_failed" | "retired"): void {
-    if (this.#closed) return;
-    this.#level2Failure = phase;
-    this.stats.level2Error = `Key negotiation unavailable: ${phase}`;
-  }
-
   async #deriveLevel2(payload: Buffer): Promise<void> {
     if (this.#closed) return;
     let plainPayload: Buffer;
@@ -3643,7 +3673,7 @@ export class FirstPartyPpcsSession {
         if (!outcome || typeof outcome !== "object") { this.#failLevel2("cipher_lookup_error"); return; }
         if (outcome.kind === "retired") { this.#failLevel2("retired"); return; }
         if (outcome.kind === "lookup_failed") { this.#failLevel2("cipher_lookup_error"); return; }
-        if (outcome.kind === "missing_key") { this.#failLevel2("cipher_missing_key"); return; }
+        if (outcome.kind === "missing_key") { this.#failLevel2("cipher_missing_key", outcome.confirmedAbsent === true); return; }
         if (outcome.kind !== "key") { this.#failLevel2("cipher_lookup_error"); return; }
         key = outcome.value;
       } else key = await this.#options.resolveCipherKey!(cipherId);
@@ -3929,6 +3959,15 @@ export class FirstPartyPpcsSession {
   #startOwnMedia(upgrade = false): void {
     if (this.#closed || !this.#remote) return;
     if (!upgrade && this.#mediaStart.pending) return;
+    if (this.#t8420ClearEligible && !this.#level2Key) {
+      if (this.#t8420ClearSent) return;
+      const value = t8420ClearLiveStart(this.#options.accountId!, publicModulus(this.#rsa.publicKey), Date.now());
+      this.#t8420ClearSent = true;
+      this.stats.mediaStartAttempts++;
+      this.stats.mediaStartProtocols.push("t8420-clear");
+      this.#sendCommand(1350, rawPayload(Buffer.from(value), 0, 0, [1, 0], 11), true);
+      return;
+    }
     if (this.#options.cameraModel === "T8200") {
       if (this.#t8200MediaStartSent) return;
       const accountId = this.#options.accountId ?? "";

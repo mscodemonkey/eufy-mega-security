@@ -158,6 +158,9 @@ export interface EufyProviderConfig {
   /** Default-off NVR transport admission for private Diagnostics tests. */
   readonly experimentalNvrLive?: boolean;
 
+  /** Default-off exact standalone T8420 media trial, separate from controls and RTC routes. */
+  readonly experimentalT8420Live?: boolean;
+
   /** Independent default-off station mode observer, with no media or security writes. */
   readonly experimentalNvrModeObserver?: boolean;
 
@@ -892,7 +895,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           });
           const key = matches.length === 1 && typeof matches[0]!.ecc_private_key === "string" ? matches[0]!.ecc_private_key : undefined;
           if (key) { this.#cipherKeys.set(cacheKey, key); return { kind: "key", value: key }; }
-          return { kind: "missing_key" };
+          return { kind: "missing_key", confirmedAbsent: ciphers.length === 0 };
         } catch (error) {
           if (!current()) return { kind: "retired" };
           let reason = "unknown";
@@ -3060,6 +3063,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           accountId: device.adminUserId,
           homeBaseAttached: route.homeBaseAttached,
           cipherId: device.cipherId,
+          experimentalT8420Live: this.config.experimentalT8420Live === true && this.config.apiAuthenticationConfigured === true,
+          ...(this.config.experimentalT8420Live && this.config.apiAuthenticationConfigured
+            ? { resolveCipherKeyOutcome: (cipherId: number) => this.#resolveCipherKeyOutcome(cipherId, peer) } : {}),
           ...(initialEccPrivateKey ? { initialEccPrivateKey } : {}),
           resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
           ...(startupDeadline === undefined ? {} : { startupDeadlineMilliseconds: startupDeadline }),
@@ -5350,7 +5356,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       doorbellSupported: isDoorbellDevice(device),
       streamSupported: nvrLive || isPpcsStreamSupported(device, this.#devices, dskPeerSerials) || this.#doorbellRtcBinding(device),
       hlsIdleHandoverSupported: nvrLive,
-      ...(nvrLive ? { startupSnapshotSupported: false } : {}),
+      ...(nvrLive || this.config.experimentalT8420Live && device.model === "T8420" && device.deviceType === 3
+        && route?.homeBaseAttached === false ? { startupSnapshotSupported: false } : {}),
       liveAudioSupported: nvrLive ? nvrLiveAudioAdmitted(device, this.#devices.get(device.parentSerial))
         : supportsCameraLiveAudio(device, route, isPpcsStreamSupported(device, this.#devices, dskPeerSerials)),
       enabled: device.reads.enabled ?? null,
