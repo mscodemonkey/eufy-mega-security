@@ -44,7 +44,9 @@ function payloads(unit: readonly Buffer[]): Buffer[] {
 }
 
 for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-deadline", "continuous-video", "continuous-stall", "continuous-cancel",
-  "continuous-malformed-outer", "continuous-malformed-inner", "continuous-malformed-payload"]) {
+  "continuous-malformed-outer", "continuous-malformed-inner", "continuous-malformed-payload",
+  "continuous-hangup-empty", "continuous-hangup-missing", "continuous-hangup-null",
+  "continuous-hangup-foreign-session", "continuous-hangup-foreign-station", "continuous-hangup-foreign-channel"]) {
   test(`E10 RTP ${scenario} preserves its media lifetime and cleanup`, { timeout: 20_000 }, async context => {
     const continuous = scenario.startsWith("continuous-");
     let videoNow = 0;
@@ -194,6 +196,18 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
             await new Promise(resolve => setTimeout(resolve, 150));
             scheduled.filter(timer => timer.delay === 45_000).at(-1)!.fire();
           } else if (scenario === "continuous-cancel") controller.abort();
+          else if (scenario.startsWith("continuous-hangup-")) {
+            assert.ok(signallingConnection);
+            const message: Record<string, unknown> = { action: 3, code: 200, sessionId: "synthetic-sign",
+              sn: "synthetic-station", channelId: 0, dataType: "hangup" };
+            if (scenario.endsWith("empty")) message.data = "{}";
+            if (scenario.endsWith("null")) message.data = null;
+            if (scenario.endsWith("foreign-session")) message.sessionId = "synthetic-other";
+            if (scenario.endsWith("foreign-station")) message.sn = "synthetic-other";
+            if (scenario.endsWith("foreign-channel")) message.channelId = 1;
+            signallingConnection.send(JSON.stringify({ data: JSON.stringify(message) }));
+            await new Promise<void>(resolve => session.output.destroyed ? resolve() : session.output.once("close", resolve));
+          }
           else if (scenario.startsWith("continuous-malformed-")) {
             assert.ok(signallingConnection);
             const message = scenario.endsWith("outer") ? "synthetic-not-json"
@@ -214,6 +228,14 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
         if (scenario === "continuous-stall") assert.deepEqual(errors.map(error => [error.stage, error.reason]), [["video", "video_progress_timeout"]]);
         else if (scenario === "finite-deadline") assert.equal(errors[0]?.stage, "deadline");
         else if (scenario === "continuous-cancel") assert.equal(errors[0]?.stage, "cancelled");
+        else if (scenario.startsWith("continuous-hangup-")) {
+          const reason = scenario.endsWith("foreign-session") ? "session_mismatch"
+            : scenario.endsWith("foreign-station") ? "station_mismatch"
+              : scenario.endsWith("foreign-channel") ? "channel_mismatch" : "signalling_hangup";
+          assert.equal(errors.length, 1);
+          assert.equal(errors[0]?.reason, reason);
+          assert.equal(errors[0]?.message.includes("synthetic"), false);
+        }
         else if (scenario.startsWith("continuous-malformed-")) {
           const expected = scenario.endsWith("outer") ? "e10_signal_outer_json"
             : scenario.endsWith("inner") ? "e10_signal_inner_shape" : "e10_signal_payload_json";
