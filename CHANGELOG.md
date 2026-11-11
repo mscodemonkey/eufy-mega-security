@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.259
+
+- Identify which E10 signalling message was rejected, using fixed reasons without logging its contents or changing accepted messages. The reported closure near five minutes remains unresolved.
+- Record the later E10 long-view failure and retire the obsolete two-minute retest request. Ordinary future failures need only the complete failure line.
+
 ## 0.1.258
 
 - Add a disabled-by-default live-video trial for the original standalone T8420 floodlight. It requires the exact model and a fresh empty-key response, preserves authenticated access and existing encrypted routes, and stops the trial call when the viewer closes. Hardware playback remains unconfirmed.
