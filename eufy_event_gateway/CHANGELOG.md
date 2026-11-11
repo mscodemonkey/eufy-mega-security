@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.260
+
+- Fix Native-view startup selecting an audio track whose opening audio is discarded before the first picture. Usable later audio can still arrive within the existing wait. S220 first-view reliability still needs its physical retest.
+- Retire a bound RTC call when the remote camera hangs up, including messages without an object body. Keep session, station and channel checks and report the fixed `signalling_hangup` reason. The E10 five-minute closure remains unresolved.
+- Add value-free recording-reference format details for late familiar-name recovery and temporary source-ownership diagnostics for extra live viewers. These identify the remaining failures without relaxing admission or sharing guards.
+- Preserve exact C31 session ownership in the existing optional encrypted history so startup frames the live parser did not reach can be replayed privately. This does not recover old missing keys or fix the observed intermittent C31 video gap.
+
 ## 0.1.259
 
 - Identify which E10 signalling message was rejected, using fixed reasons without logging its contents or changing accepted messages. The reported closure near five minutes remains unresolved.
