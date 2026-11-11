@@ -158,22 +158,97 @@ test("a muted camera starts after the bound without an audio track, and later au
   assert.equal(h.summaries[0]?.audioBatches, 0);
 });
 
-test("audio arriving before video starts the program with the first picture", async () => {
-  const h = harness("h265");
-  const sound = audio(1);
+for (const codec of ["h264", "h265"] as const) {
+  test(`pre-picture AAC cannot open an empty ${codec} audio track`, async () => {
+    const h = harness(codec);
+    const sound = audio(2), frames = video(codec);
+    h.muxer.acceptAudio(sound[0]!);
+    h.clock.now += 20;
+    h.muxer.videoInput.write(frames[0]!);
+    await delay(0);
+    assert.equal(h.response.headersSent, false);
+    h.clock.now += 44;
+    h.muxer.acceptAudio(sound[1]!);
+    await delay(0);
+    assert.equal(h.response.headersSent, true);
+    for (let i = 1; i < frames.length; i++) {
+      h.clock.now += 67;
+      h.muxer.videoInput.write(frames[i]!);
+      h.muxer.acceptAudio(sound[i + 1]!);
+      await delay(0);
+    }
+    h.muxer.close();
+    assert.equal(h.summaries[0]?.audio, true);
+    assert.ok(h.summaries[0]!.audioBatches > 0);
+    assert.equal(h.summaries[0]?.audioDropped, 1);
+    const result = probe(h.output());
+    assert.ok(result.packets.some(packet => packet.codec_type === "audio"));
+    const firstAudio = Number(result.packets.find(packet => packet.codec_type === "audio")?.pts_time);
+    const firstVideo = Number(result.packets.find(packet => packet.codec_type === "video")?.pts_time);
+    assert.ok(firstAudio >= firstVideo);
+    decodes(h.output());
+  });
+
+  test(`only pre-picture AAC leaves ${codec} video-only after its existing wait`, async () => {
+    const h = harness(codec, 30);
+    const sound = audio(1), frames = video(codec);
+    h.muxer.acceptAudio(sound[0]!);
+    h.clock.now += 20;
+    h.muxer.videoInput.write(frames[0]!);
+    await delay(60);
+    assert.equal(h.response.headersSent, true);
+    for (const frame of frames.slice(1)) { h.clock.now += 67; h.muxer.videoInput.write(frame); await delay(0); }
+    h.muxer.close();
+    assert.equal(h.summaries[0]?.audio, false);
+    assert.equal(h.summaries[0]?.audioBatches, 0);
+    assert.deepEqual(probe(h.output()).streams.map(stream => stream.codec_name), [codec === "h265" ? "hevc" : "h264"]);
+    decodes(h.output());
+  });
+
+  test(`capture-marked ${codec} audio can precede video arrival while belonging after its first picture`, async () => {
+    const h = harness(codec);
+    const sound = audio(1)[0]!, frames = video(codec);
+    const base = 1_790_000_000_000;
+    markSourceTime(sound, base + 20);
+    h.muxer.acceptAudio(sound);
+    h.clock.now += 500;
+    markSourceTime(frames[0]!, base);
+    h.muxer.videoInput.write(frames[0]!);
+    await delay(0);
+    assert.equal(h.response.headersSent, true);
+    for (const frame of frames.slice(1)) { h.clock.now += 67; h.muxer.videoInput.write(frame); await delay(0); }
+    h.muxer.close();
+    const packets = probe(h.output()).packets;
+    const audioTime = Number(packets.find(packet => packet.codec_type === "audio")?.pts_time);
+    const videoTime = Number(packets.find(packet => packet.codec_type === "video")?.pts_time);
+    assert.ok(Math.abs(audioTime - videoTime - 0.020) < 0.002);
+    assert.equal(h.summaries[0]?.audioBatches, 1);
+    decodes(h.output());
+  });
+}
+
+test("a late-arriving AAC batch with an older capture time cannot choose the startup track", async () => {
+  const h = harness("h264");
+  const frames = video("h264"), sound = audio(1);
+  const base = 1_790_000_000_000;
+  markSourceTime(frames[0]!, base);
+  h.muxer.videoInput.write(frames[0]!);
+  h.clock.now += 20;
+  markSourceTime(sound[0]!, base - 64);
   h.muxer.acceptAudio(sound[0]!);
+  await delay(0);
   assert.equal(h.response.headersSent, false);
   h.clock.now += 20;
-  h.muxer.videoInput.write(video("h265", 1)[0]!);
+  markSourceTime(sound[1]!, base + 32);
+  h.muxer.acceptAudio(sound[1]!);
   await delay(0);
   assert.equal(h.response.headersSent, true);
-  assert.equal(h.summaries.length, 0);
+  for (const frame of frames.slice(1)) { h.clock.now += 67; h.muxer.videoInput.write(frame); await delay(0); }
   h.muxer.close();
-  assert.equal(h.summaries[0]?.startWaitMilliseconds, 0);
-  assert.deepEqual(probe(h.output()).streams.map(stream => stream.codec_name).sort(), ["aac", "hevc"]);
-  go2rtcAccepts(h.output());
-  const firstMedia = probe(h.output()).packets[0];
-  assert.equal(firstMedia?.codec_type, "video");
+  assert.equal(h.summaries[0]?.audioDropped, 1);
+  assert.equal(h.summaries[0]?.audioBatches, 1);
+  assert.ok(probe(h.output()).packets.some(packet => packet.codec_type === "audio"));
+  decodes(h.output());
 });
 
 test("late audio moves its clock up to arrival and early audio is dropped, keeping audio monotonic", async () => {
