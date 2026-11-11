@@ -2,6 +2,7 @@
 
 ## 0.1.258
 
+- Add a disabled-by-default live-video trial for the original standalone T8420 floodlight. It requires the exact model and a fresh empty-key response, preserves authenticated access and existing encrypted routes, and stops the trial call when the viewer closes. Hardware playback remains unconfirmed.
 - Let an opted-in T8N00 live view reuse a listening mode-watcher connection, avoiding a hang-up immediately before the new call. Thanks to Oliver Nixon (@OliNix) for the fix and exact hardware comparison. Other firmware and Compatible-view confirmation remain separate.
 - Record reporter-confirmed E10 playback beyond two minutes and standalone C37 tracking on/off with restoration. Keep the remaining picture, night-colour, movement and spotlight limitations explicit.
 
