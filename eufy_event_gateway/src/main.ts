@@ -28,6 +28,7 @@ import {
   LiveStreamManager,
   spawnH265ViewerTranscoder,
   type ViewerClientSummary,
+  type ViewerSourceRequestSummary,
   type ViewerStartupSummary,
   type ViewerDeliverySummary,
   type ViewerTranscoderSummary,
@@ -212,10 +213,17 @@ streams.on("viewer-delivery-stopped", (detail: ViewerDeliverySummary) => {
     ].join(" "),
   );
 });
+streams.on("viewer-source-request", (detail: ViewerSourceRequestSummary) => {
+  logger.info("camera_viewer_source_request", [
+    `camera_slot=${detail.cameraSlot} model=${detail.model} profile=${detail.profile} outcome=${detail.outcome}`,
+    `state=${detail.state} source_attached=${detail.sourceAttached} start_pending=${detail.startPending} stop_pending=${detail.stopPending}`,
+    `clients=${detail.clients} other_active_slots=${detail.otherActiveCameraSlots.join(",") || "none"}`,
+  ].join(" "));
+});
 streams.on("viewer-startup-timings", (detail: ViewerStartupSummary) => {
   logger.info("camera_viewer_start_timings", [
     `model=${detail.model} profile=${detail.profile} codec=${detail.sourceCodec ?? "unknown"}`,
-    `source_attempt=${detail.sourceAttempt} conversion_attempt=${detail.conversionAttempt} outcome=${detail.outcome}`,
+    `camera_slot=${detail.cameraSlot} source_attempt=${detail.sourceAttempt} conversion_attempt=${detail.conversionAttempt} outcome=${detail.outcome}`,
     `source_first_byte_ms=${detail.sourceFirstByteMilliseconds ?? "none"}`,
     `source_random_access_ms=${detail.sourceRandomAccessMilliseconds ?? "none"}`,
     `conversion_start_ms=${detail.conversionStartMilliseconds ?? "none"}`,
@@ -229,7 +237,7 @@ streams.on("viewer-client-stopped", (detail: ViewerClientSummary) => {
   logger.info(
     "viewer_client_stopped",
     [
-      `Viewer client stopped: model=${detail.model}`,
+      `Viewer client stopped: model=${detail.model} camera_slot=${detail.cameraSlot}`,
       `codec=${detail.sourceCodec ?? "unknown"}`,
       `profile=${detail.profile}`,
       `source_active=${detail.sourceActive}`,

@@ -2045,8 +2045,25 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   #reserveNvrTrial(serial: string, signal: AbortSignal, stateOnly: boolean, diagnostic: boolean, handover: NvrTrialEntry | null = null): () => Promise<void> {
     const device = this.#devices.get(serial), station = device ? this.#devices.get(device.parentSerial) : undefined;
-    if (!this.config.experimentalNvrLive || this.#recordingClosing || signal.aborted || !this.#client.isAuthenticated
-      || this.#localMotionAborters.size || !handover && this.#nvrTrials.size || !device || !station || this.#nvrControlReserved(station.serial) || !(diagnostic ? this.#nvrBinding(device, station) : this.#normalNvrLiveBinding(device, station)) || !handover && (this.#recordingPeerReserved(serial) || this.#stationHasActiveMedia(station.serial))) throw new NvrTrialError("admission");
+    const refusal = !this.config.experimentalNvrLive ? "disabled" : this.#recordingClosing ? "closing"
+      : signal.aborted ? "cancelled" : !this.#client.isAuthenticated ? "unauthenticated"
+        : this.#localMotionAborters.size ? "motion_reserved" : !handover && this.#nvrTrials.size ? "call_reserved"
+          : !device ? "missing_device" : !station ? "missing_station" : this.#nvrControlReserved(station.serial) ? "controls_reserved"
+            : !(diagnostic ? this.#nvrBinding(device, station) : this.#normalNvrLiveBinding(device, station)) ? "binding"
+              : !handover && this.#recordingPeerReserved(serial) ? "recording_reserved"
+                : !handover && this.#stationHasActiveMedia(station.serial) ? "media_active" : null;
+    if (refusal || !device || !station) {
+      const active = this.#nvrTrials.values().next().value as NvrTrialEntry | undefined;
+      try {
+        logger.warn("nvr_live_start_refused", [
+          `reason=${refusal ?? "binding"} model=${device ? safeLogModel(device.model) : "unknown"}`,
+          `active_model=${active ? safeLogModel(active.device.model) : "none"}`,
+          `same_camera=${active?.device.serial === serial} same_station=${!!station && active?.station.serial === station.serial}`,
+          `call_retiring=${active?.retiring ?? false} call_diagnostic=${active?.diagnostic ?? false} call_state_only=${active?.stateOnly ?? false}`,
+        ].join(" "));
+      } catch {}
+      throw new NvrTrialError("admission");
+    }
     if (stateOnly && this.#e10RtcTrialBinding(device, station)) throw new NvrTrialError("admission");
     const controller = new AbortController();
     let closed: Promise<void> | null = null;
