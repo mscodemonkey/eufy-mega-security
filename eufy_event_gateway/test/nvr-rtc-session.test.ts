@@ -55,7 +55,7 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'ful
   const cameraType = s1Grace && scenario !== 'start-s1-wrong-type' ? 89 : scenario === 'legacy-first-lens' ? 14 : 301;
   let mediaRequested = false;
   const codec = scenario === 'h265' || scenario === 'sequence-gap' || scenario === 'continuous-h265' || scenario === 'start-no-ack-h265' ? 'h265' : 'h264';
-  const server = new WebSocketServer({ port: 0 });
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await once(server, 'listening');
   const address = server.address(); assert.equal(typeof address, 'object');
   const peer = new RTCPeerConnection({ iceServers: [], iceUseIpv6: false });
@@ -853,7 +853,7 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'ful
 
 for (const reason of ['session_mismatch', 'station_mismatch', 'channel_mismatch', 'relay_shape', 'relay_fields', 'offer_order', 'peer_setup', 'remote_description'] as const) {
   test(`early NVR negotiation preserves ${reason} and retires the socket`, { timeout: 5000 }, async context => {
-    const server = new WebSocketServer({ port: 0 });
+    const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
     await once(server, 'listening');
     const address = server.address() as { port: number };
     let socket: WebSocket | undefined, peer: RTCPeerConnection | undefined;
@@ -936,7 +936,7 @@ test('standalone state queries require the finite diagnostic lifetime', async ()
 
 for (const scenario of ['timeout', 'unexpected-action', 'before-auth', 'busy'] as const) {
   test(`call failure distinguishes ${scenario} without creating a media peer`, { timeout: 5000 }, async () => {
-    const server = new WebSocketServer({ port: 0 });
+    const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
     await once(server, 'listening');
     const address = server.address() as { port: number };
     let calls = 0, peers = 0;

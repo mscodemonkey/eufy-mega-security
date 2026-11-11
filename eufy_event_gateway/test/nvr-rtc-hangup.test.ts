@@ -12,7 +12,7 @@ import { NvrRtcSession } from '../src/stream/nvr-rtc-session.js';
 type Reply = 'accepted' | 'unanswered' | 'busy' | 'not-joined';
 
 async function signalling(reply: Reply): Promise<Record<string, unknown>[]> {
-  const server = new WebSocketServer({ port: 0 });
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await once(server, 'listening');
   const port = (server.address() as { port: number }).port;
   const controller = new AbortController();
@@ -69,7 +69,7 @@ test('a call keeps its signalling socket open with pings, so a long call can sti
   // Fail rather than wait, so the local server still closes when a ping never comes.
   const within = <T>(promise: Promise<T>, label: string): Promise<T> => Promise.race([promise,
     new Promise<never>((_, reject) => { setTimeout(() => reject(new Error(label)), 2000).unref(); })]);
-  const server = new WebSocketServer({ port: 0 });
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await once(server, 'listening');
   const port = (server.address() as { port: number }).port;
   const controller = new AbortController();
@@ -120,7 +120,7 @@ test('a call keeps its signalling socket open with pings, so a long call can sti
 });
 
 test('a call the NVR ignores is sent again until the NVR answers it', { timeout: 15000 }, async () => {
-  const server = new WebSocketServer({ port: 0 });
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await once(server, 'listening');
   const port = (server.address() as { port: number }).port;
   const controller = new AbortController();
