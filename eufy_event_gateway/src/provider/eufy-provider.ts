@@ -158,6 +158,9 @@ export interface EufyProviderConfig {
   /** Default-off NVR transport admission for private Diagnostics tests. */
   readonly experimentalNvrLive?: boolean;
 
+  /** Default-off exact standalone T8420 media trial, separate from controls and RTC routes. */
+  readonly experimentalT8420Live?: boolean;
+
   /** Independent default-off station mode observer, with no media or security writes. */
   readonly experimentalNvrModeObserver?: boolean;
 
@@ -3060,6 +3063,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           accountId: device.adminUserId,
           homeBaseAttached: route.homeBaseAttached,
           cipherId: device.cipherId,
+          experimentalT8420Live: this.config.experimentalT8420Live === true && this.config.apiAuthenticationConfigured === true,
+          ...(this.config.experimentalT8420Live && this.config.apiAuthenticationConfigured
+            ? { resolveCipherKeyOutcome: (cipherId: number) => this.#resolveCipherKeyOutcome(cipherId, peer) } : {}),
           ...(initialEccPrivateKey ? { initialEccPrivateKey } : {}),
           resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
           ...(startupDeadline === undefined ? {} : { startupDeadlineMilliseconds: startupDeadline }),

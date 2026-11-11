@@ -10,7 +10,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { CameraControlAcknowledgementTimeoutError, decodePpcsControlRecord, FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
+import { CameraControlAcknowledgementTimeoutError, decodePpcsControlRecord, FirstPartyPpcsSession, type PpcsCameraOptions } from "../src/stream/first-party-ppcs.js";
 import { RawHistory, decodeRawSegment, setRawHistory } from "../src/diagnostics/raw-history.js";
 
 /** Own an encrypted synthetic trace and retire its sink after the socket fixture. */
@@ -37,7 +37,7 @@ async function stageHistory(context: TestContext) {
 }
 
 /** Encode one synthetic encrypted gateway key using the session's public wire contract. */
-function gateway(): Buffer {
+function gateway(cipherId = 1): Buffer {
   const recipient = createECDH("prime256v1"); recipient.setPrivateKey(Buffer.alloc(32, 1));
   const ephemeral = createECDH("prime256v1"); ephemeral.setPrivateKey(Buffer.alloc(32, 2));
   const shared = ephemeral.computeSecret(recipient.getPublicKey());
@@ -49,7 +49,7 @@ function gateway(): Buffer {
     previous = hmac(previous);
     derived = Buffer.concat([derived, hmac(Buffer.concat([previous, label]))]);
   }
-  const plain = Buffer.alloc(144); plain.writeUInt16LE(1);
+  const plain = Buffer.alloc(144); plain.writeUInt16LE(cipherId);
   ephemeral.getPublicKey(undefined, "compressed").copy(plain, 4);
   const iv = Buffer.alloc(16, 3); iv.copy(plain, 37);
   const wrap = createCipheriv("aes-128-cbc", derived.subarray(0, 16), iv);
@@ -60,7 +60,7 @@ function gateway(): Buffer {
 }
 
 /** Own a synthetic CAM_ID handshake, inbound frames, packet loss and fake time. */
-async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" | "passive" = "media", stationModel = "T8010", startupDeadlineMilliseconds?: number, channelOverride?: number, deviceTypeOverride?: number | null) {
+async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" | "passive" = "media", stationModel = "T8010", startupDeadlineMilliseconds?: number, channelOverride?: number, deviceTypeOverride?: number | null, options: Partial<PpcsCameraOptions> = {}) {
   let socket!: Socket;
   let inbound = 0;
   const sent: Buffer[] = [];
@@ -80,7 +80,7 @@ async function peer(context: TestContext, attached = true, model = "T8113-Z", pu
       ? { cameraDeviceType: deviceTypeOverride }
       : model === "T8171" ? { cameraDeviceType: 88 } : {}),
     accountId: "synthetic-owner", maxSeconds: 120,
-    resolveCipherKey: async () => Buffer.alloc(32, 1).toString("hex") });
+    resolveCipherKey: async () => Buffer.alloc(32, 1).toString("hex"), ...options });
   const receive = (packet: Buffer, port = 12345, address = "127.0.0.1") => socket.emit("message", packet, { address, port });
   const frame = (command: number, payload: Buffer, channel = 1, result = false, sign = 0) => {
     const packet = Buffer.alloc(24 + payload.length);
@@ -98,7 +98,7 @@ async function peer(context: TestContext, attached = true, model = "T8113-Z", pu
     if (variant === "count") packet[7] = 0;
     receive(packet, variant === "peer" ? 12346 : 12345);
   };
-  const negotiate = async () => { frame(1100, gateway(), 0, false, 1); await new Promise(resolve => setImmediate(resolve)); };
+  const negotiate = async (cipherId = 1) => { frame(1100, gateway(cipherId), 0, false, 1); await new Promise(resolve => setImmediate(resolve)); };
   const video = (channel = 1, format?: { width: number; height: number; timestamp: number; keyframe?: boolean }) => {
     const data = Buffer.from("000000016742001e898b600000000168ce3c8000000001658884000000010940", "hex");
     const header = Buffer.alloc(22); header.writeUInt32LE(data.length); header[4] = 1; header[5] = 1;
@@ -884,4 +884,62 @@ test("S340 stage probe does not admit an unknown device type", async context => 
     await f.negotiate(); f.video(); f.session.close();
     assert.equal((await records()).filter(row => row.boundary === "ppcs_media_stage").length, 0);
   } finally { f.session.close(); }
+});
+
+
+test("the opted-in T8420 uses one freshly qualified clear start and drains its stop before END", async context => {
+  const f = await peer(context, false, "T8420", "media", "T8420", undefined, 0, 3,
+    { experimentalT8420Live: true, resolveCipherKeyOutcome: async () => ({ kind: "missing_key" }) });
+  try {
+    assert.equal(f.sent.some(packet => packet.length >= 24 && packet.readUInt16LE(12) === 1350), false);
+    await f.negotiate(65433);
+    const starts = () => f.sent.filter(packet => packet.length >= 24 && packet.readUInt16LE(12) === 1350);
+    assert.equal(starts().length, 1);
+    const start = starts()[0]!;
+    assert.deepEqual([...start.subarray(18, 24)], [1, 0, 0, 0, 11, 0]);
+    const body = JSON.parse(start.subarray(24).toString());
+    assert.equal(body.cmd, 1003); assert.equal(body.payload.streamtype, 2);
+    assert.equal(body.payload.key.length, 256); assert.equal(body.account_id, "synthetic-owner");
+    context.mock.timers.tick(150);
+    assert.ok(starts().length >= 2);
+    assert.equal(new Set(starts().map(packet => packet.toString("hex"))).size, 1);
+    f.ack(start.readUInt16BE(6));
+    const count = starts().length;
+    await f.negotiate(65433);
+    assert.equal(starts().length, count);
+    f.video(0);
+    assert.ok(f.session.stats.videoOutputFrames > 0);
+    assert.ok(f.session.stats.mediaStartProtocols.includes("t8420-clear"));
+  } finally { f.session.close(); }
+  const stop = f.sent.findIndex(packet => packet.length >= 24 && packet.readUInt16LE(12) === 1004);
+  const end = f.sent.findIndex(packet => packet.subarray(0, 2).equals(Buffer.from([0xf1, 0xf0])));
+  assert.ok(stop >= 0 && end > stop);
+  assert.deepEqual([...f.sent[stop]!.subarray(18)], [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+});
+
+for (const variant of ["disabled", "cached-only", "wrong-cipher", "lookup-error", "key-present", "attached", "wrong-model", "wrong-type"] as const) {
+  test(`the T8420 clear start is refused for ${variant}`, async context => {
+    const f = await peer(context, variant === "attached", variant === "wrong-model" ? "T8420X" : "T8420", "media", "T8420", undefined, 0,
+      variant === "wrong-type" ? 37 : 3, { experimentalT8420Live: variant !== "disabled", cipherId: 65433,
+        resolveCipherKeyOutcome: async () => {
+          if (variant === "lookup-error") return { kind: "lookup_failed" };
+          return variant === "key-present" ? { kind: "key", value: Buffer.alloc(32, 1).toString("hex") } : { kind: "missing_key" };
+        } });
+    try {
+      if (variant !== "cached-only") await f.negotiate(variant === "wrong-cipher" ? 1 : 65433);
+      assert.equal(f.session.stats.mediaStartProtocols.includes("t8420-clear"), false);
+    } finally { f.session.close(); }
+  });
+}
+
+test("retiring a T8420 during cipher resolution cannot dispatch the alternative", async context => {
+  let finish!: (key: import("../src/stream/first-party-ppcs.js").PpcsCipherKeyOutcome) => void;
+  const f = await peer(context, false, "T8420", "media", "T8420", undefined, 0, 3,
+    { experimentalT8420Live: true, resolveCipherKeyOutcome: () => new Promise(resolve => { finish = resolve; }) });
+  const pending = f.negotiate(65433);
+  await new Promise(resolve => setImmediate(resolve));
+  f.session.close(); const sent = f.sent.length;
+  finish({ kind: "missing_key" }); await pending;
+  assert.equal(f.sent.length, sent);
+  assert.equal(f.session.stats.mediaStartProtocols.includes("t8420-clear"), false);
 });

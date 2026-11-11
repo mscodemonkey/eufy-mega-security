@@ -41,6 +41,9 @@ export interface GatewayConfig {
   /** Default-off, consented NVR video trials. Normal capabilities remain unchanged. */
   readonly experimentalNvrLive: boolean;
 
+  /** Default-off exact T8420 keyless live-start trial, requiring bearer authentication. */
+  readonly experimentalT8420Live: boolean;
+
   /** Explicit opt-in for one background read-only NVR mode connection. */
   readonly experimentalNvrModeObserver: boolean;
 
@@ -106,6 +109,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
   if (experimentalCloudRecordings && !apiToken) throw new Error("Experimental cloud recordings require EUFY_GATEWAY_API_TOKEN");
   const experimentalNvrControls = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_NVR_CONTROLS, "EUFY_GATEWAY_EXPERIMENTAL_NVR_CONTROLS");
   if (experimentalNvrControls && !apiToken) throw new Error("Experimental NVR controls require EUFY_GATEWAY_API_TOKEN");
+  const experimentalT8420Live = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_T8420_LIVE, "EUFY_GATEWAY_EXPERIMENTAL_T8420_LIVE");
+  if (experimentalT8420Live && !apiToken) throw new Error("Experimental T8420 live video requires EUFY_GATEWAY_API_TOKEN");
   const experimentalNvrLive = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_NVR_LIVE, "EUFY_GATEWAY_EXPERIMENTAL_NVR_LIVE");
   const experimentalNvrModeObserver = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_NVR_MODE_OBSERVER, "EUFY_GATEWAY_EXPERIMENTAL_NVR_MODE_OBSERVER");
   if (experimentalNvrModeObserver && !apiToken) throw new Error("Experimental NVR mode observation requires EUFY_GATEWAY_API_TOKEN");
@@ -149,6 +154,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
     experimentalModelControls,
     experimentalE30Locks,
     experimentalNvrLive,
+    experimentalT8420Live,
     experimentalNvrModeObserver,
     experimentalNvrControls,
     experimentalDoorbellRtc,

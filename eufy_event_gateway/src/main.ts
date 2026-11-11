@@ -97,6 +97,7 @@ if (config.provider === "simulated") {
     experimentalModelControls: config.experimentalModelControls,
     experimentalE30Locks: config.experimentalE30Locks,
     experimentalNvrLive: config.experimentalNvrLive,
+    experimentalT8420Live: config.experimentalT8420Live,
     experimentalNvrModeObserver: config.experimentalNvrModeObserver,
     experimentalNvrControls: config.experimentalNvrControls,
     normalNvrLive: config.experimentalNvrLive,
