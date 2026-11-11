@@ -181,6 +181,8 @@ for (const codec of ["h264", "h265"] as const) {
     assert.equal(h.summaries[0]?.audio, true);
     assert.ok(h.summaries[0]!.audioBatches > 0);
     assert.equal(h.summaries[0]?.audioDropped, 1);
+    assert.equal(h.summaries[0]?.firstAudioAfterVideoMilliseconds, -20);
+    assert.equal(h.summaries[0]?.audioAfterVideoOnly, 0);
     const result = probe(h.output());
     assert.ok(result.packets.some(packet => packet.codec_type === "audio"));
     const firstAudio = Number(result.packets.find(packet => packet.codec_type === "audio")?.pts_time);
@@ -201,6 +203,8 @@ for (const codec of ["h264", "h265"] as const) {
     h.muxer.close();
     assert.equal(h.summaries[0]?.audio, false);
     assert.equal(h.summaries[0]?.audioBatches, 0);
+    assert.equal(h.summaries[0]?.firstAudioAfterVideoMilliseconds, -20);
+    assert.equal(h.summaries[0]?.audioAfterVideoOnly, 0);
     assert.deepEqual(probe(h.output()).streams.map(stream => stream.codec_name), [codec === "h265" ? "hevc" : "h264"]);
     decodes(h.output());
   });
@@ -249,6 +253,25 @@ test("a late-arriving AAC batch with an older capture time cannot choose the sta
   assert.equal(h.summaries[0]?.audioBatches, 1);
   assert.ok(probe(h.output()).packets.some(packet => packet.codec_type === "audio"));
   decodes(h.output());
+});
+
+test("video-only startup reports valid late AAC on the same clock without changing its selected track", async () => {
+  const h = harness("h264", 30);
+  const frames = video("h264"), sound = audio(1);
+  h.muxer.videoInput.write(frames[0]!);
+  await delay(60);
+  h.clock.now += 12_500;
+  h.muxer.acceptAudio(Buffer.from("invalid-audio"));
+  h.muxer.acceptAudio(sound[0]!);
+  h.clock.now += 64;
+  h.muxer.acceptAudio(sound[1]!);
+  for (const frame of frames.slice(1)) { h.clock.now += 67; h.muxer.videoInput.write(frame); await delay(0); }
+  h.muxer.close();
+  assert.equal(h.summaries[0]?.audio, false);
+  assert.equal(h.summaries[0]?.firstAudioAfterVideoMilliseconds, 12_500);
+  assert.equal(h.summaries[0]?.audioAfterVideoOnly, 2);
+  assert.equal(h.summaries[0]?.audioBatches, 0);
+  assert.deepEqual(probe(h.output()).streams.map(stream => stream.codec_name), ["h264"]);
 });
 
 test("late audio moves its clock up to arrival and early audio is dropped, keeping audio monotonic", async () => {

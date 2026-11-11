@@ -65,6 +65,12 @@ export interface NativeTransportSummary {
   readonly audioBatches: number;
   readonly audioResyncs: number;
   readonly audioDropped: number;
+
+  /** First valid AAC arrival relative to the first picture, negative when it arrived earlier. */
+  readonly firstAudioAfterVideoMilliseconds: number | null;
+
+  /** Valid AAC batches ignored after this program committed to video-only output. */
+  readonly audioAfterVideoOnly: number;
 }
 
 /**
@@ -89,6 +95,8 @@ export class NativeTransportMuxer {
   #closed = false;
   #epoch: number | null = null;
   #firstVideoAt: number | null = null;
+  #firstAudioAt: number | null = null;
+  #audioAfterVideoOnly = 0;
   #startWait: number | null = null;
   #videoTicks = -1;
   #firstVideoTicks = -1;
@@ -132,9 +140,14 @@ export class NativeTransportMuxer {
     const stamp = sourceTime(chunk);
     if (this.#writer) {
       if (this.#withAudio) this.#writeAudio(chunk, this.now(), stamp);
+      else if (parseAdtsAccessUnits(chunk)) {
+        this.#firstAudioAt ??= this.now();
+        this.#audioAfterVideoOnly++;
+      }
       return;
     }
     if (!parseAdtsAccessUnits(chunk)) return;
+    this.#firstAudioAt ??= this.now();
     const item: PendingMedia = { kind: "audio", data: Buffer.from(chunk), at: this.now(), continuesPrevious: false, stamp };
     const opening = this.#pending.find(part => part.kind === "video");
     if (opening && !this.#startupAudioBelongs(item, opening)) {
@@ -160,7 +173,9 @@ export class NativeTransportMuxer {
     this.onClose();
     try {
       this.onSummary({ codec: this.videoInput.codec, audio: this.#withAudio, startWaitMilliseconds: this.#startWait,
-        videoUnits: this.#videoUnits, audioBatches: this.#audioBatches, audioResyncs: this.#audioResyncs, audioDropped: this.#audioDropped });
+        videoUnits: this.#videoUnits, audioBatches: this.#audioBatches, audioResyncs: this.#audioResyncs, audioDropped: this.#audioDropped,
+        firstAudioAfterVideoMilliseconds: this.#firstAudioAt === null || this.#firstVideoAt === null ? null
+          : Math.round(this.#firstAudioAt - this.#firstVideoAt), audioAfterVideoOnly: this.#audioAfterVideoOnly });
     } catch {
 
       // Diagnostic listeners cannot retain an already stopped viewer.
@@ -269,6 +284,7 @@ export class NativeTransportMuxer {
   #writeAudio(chunk: Buffer, at: number, stamp: number | undefined): void {
     const units = parseAdtsAccessUnits(chunk);
     if (!units) return;
+    this.#firstAudioAt ??= at;
     const marked = stamp !== undefined && this.#sourceOffsets.length > 0;
     const place = marked ? stamp + Math.min(...this.#sourceOffsets.map(sample => sample.offset)) : this.#ticks(at) / 90;
     const tolerance = marked ? NATIVE_MARKED_AUDIO_TOLERANCE_MILLISECONDS : NATIVE_AUDIO_SLEW_MILLISECONDS;
