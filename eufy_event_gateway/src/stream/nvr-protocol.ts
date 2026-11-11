@@ -19,6 +19,9 @@ const nvrTrialReasons = [
   "candidate_shape", "candidate_component", "candidate_transport", "candidate_priority", "candidate_host",
   "candidate_port", "candidate_type", "candidate_extension", "candidate_related_address", "candidate_related_port",
   "offer_e10_h264_data_section", "offer_e10_h264_no_data_section", "offer_e10_h265_declared", "offer_e10_tracks_unqualified",
+  "e10_signal_outer_size", "e10_signal_outer_json", "e10_signal_outer_shape",
+  "e10_signal_inner_size", "e10_signal_inner_json", "e10_signal_inner_shape",
+  "e10_signal_payload_size", "e10_signal_payload_json", "e10_signal_payload_shape",
   "offer_order", "offer_media", "offer_size", "offer_media_count", "offer_media_tracks", "offer_fingerprint", "offer_mid", "offer_ice",
   "offer_setup", "offer_sctp", "offer_message_size", "offer_duplicate", "peer_setup", "peer_failed",
   "peer_disconnected", "local_candidate_limit", "remote_description", "remote_candidate", "create_answer",
@@ -62,13 +65,22 @@ export function nvrRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-/** Parse one bounded object, allowing the portal's nested JSON-string envelope. */
-export function nvrJson(value: unknown): Record<string, unknown> {
+/** E10 signalling layer whose rejected shape may be reported without received values. */
+export type E10SignallingJsonBoundary = "outer" | "inner" | "payload";
+
+/**
+ * Parse one bounded object, allowing the portal's nested JSON-string envelope.
+ * The optional boundary refines an E10 RTP call's existing rejection only.
+ * Accepted values, size limits and other callers' failure reasons stay unchanged.
+ */
+export function nvrJson(value: unknown, e10Boundary?: E10SignallingJsonBoundary): Record<string, unknown> {
+  const failure = (kind: "size" | "json" | "shape"): NvrTrialError => new NvrTrialError("framing",
+    e10Boundary === undefined ? "unspecified" : `e10_signal_${e10Boundary}_${kind}`);
   if (typeof value === "string") {
-    if (Buffer.byteLength(value) > 65536) throw new NvrTrialError("framing");
-    try { value = JSON.parse(value.replace(/\0+$/, "")); } catch { throw new NvrTrialError("framing"); }
+    if (Buffer.byteLength(value) > 65536) throw failure("size");
+    try { value = JSON.parse(value.replace(/\0+$/, "")); } catch { throw failure("json"); }
   }
-  if (!nvrRecord(value)) throw new NvrTrialError("framing");
+  if (!nvrRecord(value)) throw failure("shape");
   return value;
 }
 
