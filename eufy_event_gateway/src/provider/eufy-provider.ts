@@ -6447,7 +6447,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (!this.config.apiAuthenticationConfigured) { unavailable("api_authentication_required"); return; }
     if (!owner || !event.eventId || !reference) {
       logger.info("homebase_name_recovery_unavailable", "Late-name recovery ended reason=notification_reference_unavailable checks=0 busy_skips=0"
-        + ` reference=${event.recordingReferenceProblem ?? "unknown"} visit_identity_present=${Boolean(event.eventId)}`);
+        + ` reference=${event.recordingReferenceProblem ?? "unknown"} visit_identity_present=${Boolean(event.eventId)}`
+        + (event.recordingReferenceShape ? ` path_shape=${event.recordingReferenceShape.pathShape} path_calendar=${event.recordingReferenceShape.calendar} trigger_clock=${event.recordingReferenceShape.clock}` : ""));
       return;
     }
     if (event.stationSerial !== route?.peer.serial

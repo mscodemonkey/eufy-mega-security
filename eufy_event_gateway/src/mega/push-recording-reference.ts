@@ -20,6 +20,51 @@ export interface PushRecordingReference {
 export type PushRecordingReferenceProblem = "id_absent" | "id_invalid" | "path_absent" | "path_unsupported" | "time_absent" | "time_invalid";
 
 /**
+ * Closed, value-free reference diagnostics retained by the notification normalizer.
+ * Layout tokens describe field types only. The provider may log them when exact
+ * name recovery is refused, without retaining a path, ID, clock or person name.
+ */
+export interface PushRecordingReferenceShape {
+  readonly pathShape: string;
+  readonly calendar: "supported" | "unsupported";
+  readonly clock: "absent" | "milliseconds" | "seconds" | "invalid";
+}
+
+/** Describe the same innermost payload without changing reference admission. */
+export function pushRecordingReferenceShape(payload: Record<string, unknown>): PushRecordingReferenceShape {
+  const path = payload.file_path;
+  let pathShape = "absent";
+  if (path !== undefined && path !== null) {
+    if (typeof path !== "string") pathShape = "not_string";
+    else if (path.length === 0) pathShape = "empty";
+    else if (path.length > 1024) pathShape = "too_long";
+    else if (/[\s\x00-\x1f\x7f]/u.test(path)) pathShape = "invalid_characters";
+    else {
+      const parts = path.split("/");
+      if (parts.length > 12) pathShape = "too_many_segments";
+      else pathShape = parts.map((part, index) => {
+        if (index === 0 && part === "") return "absolute";
+        if (part === "zx") return "zx";
+        if (/^hdd_data[0-9]+$/.test(part)) return "storage";
+        if (/^Camera[0-9]+$/.test(part)) return part.length === 7 ? "camera1" : part.length === 8 ? "camera2" : "camera_other";
+        if (/^[0-9]{6}$/.test(part)) return "digits6";
+        if (/^[0-9]{8}$/.test(part)) return "digits8";
+        if (/^[0-9]{14}$/.test(part)) return "digits14";
+        if (/^[0-9]{14}\.zxvideo$/.test(part)) return "video14";
+        if (part.endsWith(".zxvideo")) return "video_other";
+        return "other";
+      }).join(".");
+    }
+  }
+  const trigger = payload.trigger_time;
+  const clock = trigger === undefined || trigger === null ? "absent"
+    : typeof trigger !== "number" || !Number.isSafeInteger(trigger) ? "invalid"
+      : trigger >= 1_000_000_000_000 && trigger <= 9_999_999_999_999 ? "milliseconds"
+        : trigger >= 1_000_000_000 && trigger <= 9_999_999_999 ? "seconds" : "invalid";
+  return Object.freeze({ pathShape, calendar: recordingPathDate(path) === null ? "unsupported" : "supported", clock });
+}
+
+/**
  * Explain the first rejected innermost reference field without relaxing admission.
  * Missing fields remain separate from unsupported shapes so the provider can
  * select the next source comparison without requesting a raw notification.

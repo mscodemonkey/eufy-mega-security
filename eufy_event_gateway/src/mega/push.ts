@@ -14,7 +14,7 @@ import { dirname } from "node:path";
 
 import type { EventReceiverState } from "../domain/types.js";
 import { createLogger } from "../logging.js";
-import { pushRecordingReference, pushRecordingReferenceProblem, type PushRecordingReference, type PushRecordingReferenceProblem } from "./push-recording-reference.js";
+import { pushRecordingReference, pushRecordingReferenceProblem, pushRecordingReferenceShape, type PushRecordingReferenceShape, type PushRecordingReference, type PushRecordingReferenceProblem } from "./push-recording-reference.js";
 import { FcmRegistrar, FcmRequestError } from "./android-push/fcm.js";
 import { PushClient } from "./android-push/push-client.js";
 import type { FcmCredentials, RawPushMessage } from "./android-push/types.js";
@@ -77,6 +77,9 @@ export interface MegaPushEvent {
 
   /** First rejected reference shape, never containing the rejected value. */
   readonly recordingReferenceProblem?: PushRecordingReferenceProblem;
+
+  /** Value-free layout and clock categories for a rejected innermost reference. */
+  readonly recordingReferenceShape?: PushRecordingReferenceShape;
   readonly fetchId: number | null;
   readonly senseId: string | null;
   readonly guardMode: number | null;
@@ -510,7 +513,7 @@ export function parsePushEvent(data: unknown): MegaPushEvent | null {
     content: field("content"),
     pictureUrl: text(payload.pic_url),
     filePath: text(payload.file_path) ?? text(payload.p),
-    ...(recording ? { recording } : { recordingReferenceProblem: pushRecordingReferenceProblem(payload)! }),
+    ...(recording ? { recording } : { recordingReferenceProblem: pushRecordingReferenceProblem(payload)!, recordingReferenceShape: pushRecordingReferenceShape(payload) }),
     fetchId: integer(payload.fetch_id) ?? integer(payload.i),
     senseId: text(payload.sense_id) ?? text(payload.j),
     guardMode: integer(payload.station_guard_mode),
