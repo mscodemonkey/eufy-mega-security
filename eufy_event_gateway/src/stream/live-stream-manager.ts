@@ -17,6 +17,7 @@ import { type Readable, type Writable } from "node:stream";
 
 import type { DiagnosticMedia } from "../diagnostics/bundle-capture.js";
 
+import { safeCameraModel } from "../domain/safe-camera-model.js";
 import { GatewayState } from "../domain/gateway-state.js";
 import type { CameraState, GatewayEvent, SnapshotInfo, VideoCodec } from "../domain/types.js";
 import { SnapshotStore } from "../storage/snapshot-store.js";
@@ -151,8 +152,31 @@ export type ViewerProfile = "compatible" | "native";
 export type ViewerCloseReason = "consumer_closed" | "consumer_error" | "start_failed" | "provider_stopped"
   | "source_ended" | "source_error" | "gateway_closed" | "codec_changed" | "conversion_failed" | "backpressure";
 
+/**
+ * Correlates a viewer request with one manager-owned camera session. Slots are
+ * allocated locally, are not derived from device identifiers, and are meaningful
+ * only within this manager and process run. The gateway log consumes the summary.
+ */
+export interface ViewerSourceRequestSummary {
+  readonly cameraSlot: number;
+  readonly model: string;
+  readonly profile: ViewerProfile;
+  readonly outcome: "requested" | "start_failed";
+  readonly state: "idle" | "starting" | "streaming" | "stopping" | "error";
+  readonly sourceAttached: boolean;
+  readonly startPending: boolean;
+  readonly stopPending: boolean;
+  readonly clients: number;
+
+  /** At most eight other currently attached sessions, with no persistent identity. */
+  readonly otherActiveCameraSlots: readonly number[];
+}
+
 /** Privacy-safe delivery evidence captured when one HTTP viewer disconnects. */
 export interface ViewerClientSummary {
+
+  /** Process-local session number shared with viewer-source-request diagnostics. */
+  readonly cameraSlot: number;
 
   /** First observed closure cause, preserved through later error and close events. */
   readonly closeReason: ViewerCloseReason;
@@ -177,6 +201,9 @@ export interface ViewerClientSummary {
 
 /** HTTP-write milestones for one viewer/source attempt. They do not prove HA rendering. */
 export interface ViewerStartupSummary extends ViewerStartupMilestones {
+
+  /** Process-local session number shared with viewer-source-request diagnostics. */
+  readonly cameraSlot: number;
   readonly model: string;
   readonly profile: ViewerProfile;
   readonly sourceCodec: VideoCodec | null;
@@ -213,6 +240,9 @@ interface PendingSourceStart {
 }
 
 interface Session {
+
+  /** Non-persistent ordinal owned by this manager, never a hash of a serial. */
+  readonly diagnosticSlot: number;
   readonly clients: Set<VideoViewerResponse>;
   readonly pendingClients: Set<VideoViewerResponse>;
   readonly clientDeliveries: Map<VideoViewerResponse, ViewerClientDelivery>;
@@ -675,6 +705,7 @@ export class LiveStreamManager extends EventEmitter {
     if (response.destroyed || response.writableEnded) return;
     const session = this.#session(serial);
     const mayTakeCall = !!view && this.#viewMayTakeCall(view);
+    this.#emitSourceRequest(serial, session, profile, "requested");
     this.#assertShareable(session);
     if (session.stop) {
       if (!await this.#waitForStop(session, response)) return;
@@ -740,6 +771,7 @@ export class LiveStreamManager extends EventEmitter {
       await this.#ensureStarted(serial, session, mayTakeCall);
       if (view) this.#rememberDeliveredView(view);
     } catch (error) {
+      this.#emitSourceRequest(serial, session, profile, "start_failed");
       this.#markViewerClose(session, response, "start_failed");
       response.destroy(error instanceof Error ? error : undefined);
     }
@@ -1788,6 +1820,7 @@ export class LiveStreamManager extends EventEmitter {
     delivery.startupReported = true;
     const milestones = session.viewerStartup.snapshot(delivery.requestedAtMilliseconds, converted);
     const summary: ViewerStartupSummary = {
+      cameraSlot: session.diagnosticSlot,
       ...milestones,
       model: session.model, profile: delivery.profile,
       sourceCodec: milestones.sourceFirstByteMilliseconds === null
@@ -1817,6 +1850,7 @@ export class LiveStreamManager extends EventEmitter {
     session.clientDeliveries.delete(response);
     const now = performance.now();
     const summary: ViewerClientSummary = {
+      cameraSlot: session.diagnosticSlot,
       closeReason: delivery.closeReason ?? "consumer_closed",
       sourceAttached: delivery.sourceAttached,
       profile: delivery.profile,
@@ -1841,6 +1875,25 @@ export class LiveStreamManager extends EventEmitter {
     this.emit("viewer-client-stopped", summary);
   }
 
+  /** Report ownership before admission and on provider failure without changing it. */
+  #emitSourceRequest(serial: string, session: Session, profile: ViewerProfile, outcome: ViewerSourceRequestSummary["outcome"]): void {
+    try {
+      const otherActiveCameraSlots: number[] = [];
+      for (const other of this.#sessions.values()) {
+        if (other !== session && other.source !== null && otherActiveCameraSlots.length < 8) otherActiveCameraSlots.push(other.diagnosticSlot);
+      }
+      const summary: ViewerSourceRequestSummary = {
+        cameraSlot: session.diagnosticSlot, model: safeCameraModel(this.state.getCamera(serial).model), profile, outcome,
+        state: session.state, sourceAttached: session.source !== null, startPending: session.start !== null,
+        stopPending: session.stop !== null, clients: session.clients.size, otherActiveCameraSlots,
+      };
+      this.emit("viewer-source-request", summary);
+    } catch {
+
+      // A diagnostic observer must not prevent a viewer from joining its source.
+    }
+  }
+
   #assertShareable(session: Session): void {
     if (session.privateTrial || session.suppressSnapshots && session.source !== null) throw new Error("Wait for the private video test to finish");
   }
@@ -1849,6 +1902,7 @@ export class LiveStreamManager extends EventEmitter {
     let session = this.#sessions.get(serial);
     if (!session) {
       session = {
+        diagnosticSlot: this.#sessions.size + 1,
         clients: new Set(),
         pendingClients: new Set(),
         clientDeliveries: new Map(),
