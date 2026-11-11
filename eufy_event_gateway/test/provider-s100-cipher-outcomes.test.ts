@@ -15,6 +15,7 @@ import { S100SirenTrialError } from "../src/provider/s100-siren-trial.js";
 
 
 
+/** Own an exact synthetic provider route and its classified key lookup without network access. */
 async function syntheticProvider(context: TestContext, mode: string) {
   let socket!: Socket, sequence = 0;
   const controls: { command: number; channel: number }[] = [];

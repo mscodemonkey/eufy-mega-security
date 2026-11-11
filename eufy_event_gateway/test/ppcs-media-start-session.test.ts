@@ -889,7 +889,7 @@ test("S340 stage probe does not admit an unknown device type", async context => 
 
 test("the opted-in T8420 uses one freshly qualified clear start and drains its stop before END", async context => {
   const f = await peer(context, false, "T8420", "media", "T8420", undefined, 0, 3,
-    { experimentalT8420Live: true, resolveCipherKeyOutcome: async () => ({ kind: "missing_key" }) });
+    { experimentalT8420Live: true, resolveCipherKeyOutcome: async () => ({ kind: "missing_key", confirmedAbsent: true }) });
   try {
     assert.equal(f.sent.some(packet => packet.length >= 24 && packet.readUInt16LE(12) === 1350), false);
     await f.negotiate(65433);
@@ -917,13 +917,13 @@ test("the opted-in T8420 uses one freshly qualified clear start and drains its s
   assert.deepEqual([...f.sent[stop]!.subarray(18)], [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 });
 
-for (const variant of ["disabled", "cached-only", "wrong-cipher", "lookup-error", "key-present", "attached", "wrong-model", "wrong-type"] as const) {
+for (const variant of ["disabled", "cached-only", "wrong-cipher", "lookup-error", "ambiguous-key", "key-present", "attached", "wrong-model", "wrong-type"] as const) {
   test(`the T8420 clear start is refused for ${variant}`, async context => {
     const f = await peer(context, variant === "attached", variant === "wrong-model" ? "T8420X" : "T8420", "media", "T8420", undefined, 0,
       variant === "wrong-type" ? 37 : 3, { experimentalT8420Live: variant !== "disabled", cipherId: 65433,
         resolveCipherKeyOutcome: async () => {
           if (variant === "lookup-error") return { kind: "lookup_failed" };
-          return variant === "key-present" ? { kind: "key", value: Buffer.alloc(32, 1).toString("hex") } : { kind: "missing_key" };
+          return variant === "key-present" ? { kind: "key", value: Buffer.alloc(32, 1).toString("hex") } : { kind: "missing_key", confirmedAbsent: variant !== "ambiguous-key" };
         } });
     try {
       if (variant !== "cached-only") await f.negotiate(variant === "wrong-cipher" ? 1 : 65433);
@@ -939,7 +939,7 @@ test("retiring a T8420 during cipher resolution cannot dispatch the alternative"
   const pending = f.negotiate(65433);
   await new Promise(resolve => setImmediate(resolve));
   f.session.close(); const sent = f.sent.length;
-  finish({ kind: "missing_key" }); await pending;
+  finish({ kind: "missing_key", confirmedAbsent: true }); await pending;
   assert.equal(f.sent.length, sent);
   assert.equal(f.session.stats.mediaStartProtocols.includes("t8420-clear"), false);
 });

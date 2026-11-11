@@ -1372,7 +1372,12 @@ interface PendingPpcsFrame {
 
 /** Closed private lookup facts shared with the provider, excluding raw errors and key identifiers. */
 export type PpcsCipherKeyOutcome = { readonly kind: "key"; readonly value: string }
-  | { readonly kind: "lookup_failed" | "missing_key" | "retired" };
+  | { readonly kind: "lookup_failed" | "retired" }
+  | { readonly kind: "missing_key";
+
+    /** True only for a successful empty key collection, excluding malformed or ambiguous entries. */
+    readonly confirmedAbsent?: boolean;
+  };
 
 /**
  * Peer, camera, and lifetime values required by one media or control session.
@@ -1437,7 +1442,7 @@ export interface PpcsCameraOptions {
   /** Resolve the private ECC key selected by a HomeBase gateway-info frame. */
   readonly resolveCipherKey?: (cipherId: number) => Promise<string | undefined>;
 
-  /** Supply closed lookup outcomes for S100 preparation only; ordinary media keeps its string adapter. */
+  /** Supply classified lookup outcomes for exact trials; ordinary media retains its string adapter. */
   readonly resolveCipherKeyOutcome?: (cipherId: number) => Promise<PpcsCipherKeyOutcome>;
 
   /** Monotonic performance.now() deadline shared by replacement lookup and first-frame waits. */
@@ -3634,12 +3639,16 @@ export class FirstPartyPpcsSession {
    * standalone media session starts with its level-one fallback, then reissues
    * START_LIVE at level two as soon as the negotiated key becomes available.
    */
-  /** Latch only fixed failure facts in the same turn as the error observed by key waiters. */
-  #failLevel2(phase: "gateway_decrypt" | "cipher_lookup_error" | "cipher_missing_key" | "cipher_unwrap_failed" | "retired"): void {
+  /**
+   * Latch fixed failure facts for key waiters. Only an explicitly confirmed
+   * empty key lookup can select the opted-in exact T8420 media alternative.
+   */
+  #failLevel2(phase: "gateway_decrypt" | "cipher_lookup_error" | "cipher_missing_key" | "cipher_unwrap_failed" | "retired",
+    confirmedAbsent = false): void {
     if (this.#closed) return;
     this.#level2Failure = phase;
     this.stats.level2Error = `Key negotiation unavailable: ${phase}`;
-    if (phase === "cipher_missing_key" && this.#options.resolveCipherKeyOutcome && this.stats.cipherId === 65433 && !this.#level2Key
+    if (phase === "cipher_missing_key" && confirmedAbsent && this.stats.cipherId === 65433 && !this.#level2Key
       && t8420ClearLiveRoute({ enabled: this.#options.experimentalT8420Live, model: this.#options.cameraModel,
         deviceType: this.#options.cameraDeviceType, stationModel: this.#options.stationModel,
         channel: this.#options.channel, attached: this.#options.homeBaseAttached,
@@ -3664,7 +3673,7 @@ export class FirstPartyPpcsSession {
         if (!outcome || typeof outcome !== "object") { this.#failLevel2("cipher_lookup_error"); return; }
         if (outcome.kind === "retired") { this.#failLevel2("retired"); return; }
         if (outcome.kind === "lookup_failed") { this.#failLevel2("cipher_lookup_error"); return; }
-        if (outcome.kind === "missing_key") { this.#failLevel2("cipher_missing_key"); return; }
+        if (outcome.kind === "missing_key") { this.#failLevel2("cipher_missing_key", outcome.confirmedAbsent === true); return; }
         if (outcome.kind !== "key") { this.#failLevel2("cipher_lookup_error"); return; }
         key = outcome.value;
       } else key = await this.#options.resolveCipherKey!(cipherId);

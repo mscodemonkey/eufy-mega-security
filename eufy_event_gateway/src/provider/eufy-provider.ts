@@ -895,7 +895,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           });
           const key = matches.length === 1 && typeof matches[0]!.ecc_private_key === "string" ? matches[0]!.ecc_private_key : undefined;
           if (key) { this.#cipherKeys.set(cacheKey, key); return { kind: "key", value: key }; }
-          return { kind: "missing_key" };
+          return { kind: "missing_key", confirmedAbsent: ciphers.length === 0 };
         } catch (error) {
           if (!current()) return { kind: "retired" };
           let reason = "unknown";
