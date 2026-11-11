@@ -202,3 +202,20 @@ for (const mode of ["missing-reference", "superseded-before-read"] as const) tes
     assert.ok(lines.every(line => !/Fixture Person|Camera02|new-visit|record_id|file_path/.test(line)));
   } finally { await f.provider.close(); context.mock.timers.reset(); }
 });
+
+
+test("the rejected path warning describes the format without querying history or logging private fields", async context => {
+  const f = await fixture(context);
+  try {
+    const event = parsePushEvent({ device_sn: "child", station_sn: "parent", event_type: 3102, msg_type: 18,
+      unique_id: "PRIVATE_VISIT", record_id: 42, file_path: "/PRIVATE_ROOM/PRIVATE_CAMERA/202611/20261108092300.zxvideo",
+      trigger_time: Date.now() })!;
+    f.send(event); await settle(); context.mock.timers.tick(600_000); await settle();
+    assert.equal(f.recovery.mock.callCount(), 0);
+    assert.equal(f.names.length, 0);
+    const line = f.logs.find(value => value.includes("homebase_name_recovery_unavailable"))!;
+    assert.match(line, /reference=path_unsupported visit_identity_present=true/);
+    assert.match(line, /path_shape=absolute.other.other.digits6.video14 path_calendar=unsupported trigger_clock=milliseconds/);
+    assert.equal(/PRIVATE_|202611|record_id|file_path/.test(line), false);
+  } finally { await f.provider.close(); context.mock.timers.reset(); }
+});

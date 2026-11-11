@@ -56,3 +56,31 @@ test("shape failures distinguish absent fields from unsupported values without b
     assert.equal(event?.recordingReferenceProblem, reason);
   }
 });
+
+
+test("rejected references retain only bounded layout and independent clock categories", () => {
+  const examples = [
+    { path: "/zx/hdd_data0/Camera2/202611/20261102090000/20261102092000.zxvideo", clock: payload.trigger_time,
+      shape: "absolute.zx.storage.camera1.digits6.digits14.video14", clockShape: "milliseconds" },
+    { path: "/PRIVATE_ROOM/PRIVATE_CAMERA/PRIVATE_PERSON.zxvideo", clock: 1793568000,
+      shape: "absolute.other.other.video_other", clockShape: "seconds" },
+    { path: path.replace("202611/", "202610/"), clock: "PRIVATE_CLOCK",
+      shape: "absolute.zx.storage.camera2.digits6.digits14.video14", clockShape: "invalid" },
+    { path: "PRIVATE_PATH".repeat(200), clock: undefined, shape: "too_long", clockShape: "absent" },
+    { path: "/other".repeat(20), clock: NaN, shape: "too_many_segments", clockShape: "invalid" },
+    { path: { private: "PRIVATE_PATH" }, clock: payload.trigger_time, shape: "not_string", clockShape: "milliseconds" },
+    { path: "PRIVATE_PATH\u0000", clock: payload.trigger_time, shape: "invalid_characters", clockShape: "milliseconds" },
+  ];
+  for (const example of examples) {
+    const event = parsePushEvent({ ...payload, device_sn: "invented", payload: {
+      ...payload, file_path: example.path, trigger_time: example.clock,
+    } })!;
+    assert.equal(event.recording, undefined);
+    assert.equal(event.recordingReferenceProblem, "path_unsupported");
+    assert.deepEqual(event.recordingReferenceShape, { pathShape: example.shape, calendar: "unsupported", clock: example.clockShape });
+    assert.equal(/PRIVATE_|1793568000|202611/.test(JSON.stringify(event.recordingReferenceShape)), false);
+    assert.equal(Object.isFrozen(event.recordingReferenceShape), true);
+  }
+  const nested = parsePushEvent({ ...payload, device_sn: "invented", payload: { file_path: "PRIVATE_PATH" } });
+  assert.equal(nested?.recordingReferenceShape?.clock, "absent");
+});
