@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.258
+
+- Let an opted-in T8N00 live view reuse a listening mode-watcher connection, avoiding a hang-up immediately before the new call. Thanks to Oliver Nixon (@OliNix) for the fix and exact hardware comparison. Other firmware and Compatible-view confirmation remain separate.
+- Record reporter-confirmed E10 playback beyond two minutes and standalone C37 tracking on/off with restoration. Keep the remaining picture, night-colour, movement and spotlight limitations explicit.
+
 ## 0.1.257
 
 - Log retired experimental manual-light failures through normal Home Assistant controls.
