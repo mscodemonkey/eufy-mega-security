@@ -4,7 +4,7 @@
  */
 import { qualifiedLiveFrameClock, qualifiedS340LiveSource } from "../src/stream/live-frame-clock.js";
 import assert from "node:assert/strict";
-import { createCipheriv, createDecipheriv, createECDH, createHmac } from "node:crypto";
+import { createCipheriv, createDecipheriv, createECDH, createHmac, createPrivateKey, createPublicKey, privateDecrypt, publicEncrypt } from "node:crypto";
 import { Socket } from "node:dgram";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -885,6 +885,46 @@ test("S340 stage probe does not admit an unknown device type", async context => 
     assert.equal((await records()).filter(row => row.boundary === "ppcs_media_stage").length, 0);
   } finally { f.session.close(); }
 });
+
+for (const purpose of [undefined, "media"] as const) test(`C31 replay key binds unprocessed encrypted media for ${purpose ?? "default media"}`, async context => {
+  const records = await stageHistory(context);
+  const f = await peer(context, false, "T817L", "media", "T817L", undefined, 0, 10031, { purpose });
+  try {
+    await f.negotiate();
+    const start = f.sent.find(packet => packet.length >= 24 && packet.readUInt16LE(12) === 1700 && packet[21] === 8)!;
+    const value = decodePpcsControlRecord(start.subarray(24), 8, Buffer.alloc(16), Buffer.alloc(32, 9));
+    const rows = await records();
+    const keys = rows.filter(row => row.boundary === "ppcs_media_replay_key");
+    assert.equal(keys.length, 1);
+    const retained = keys[0]!;
+    const key = createPrivateKey({ key: Buffer.from(retained.bytes, "base64"), type: "pkcs8", format: "der" });
+    const publicKey = createPublicKey(key);
+    const jwk = publicKey.export({ format: "jwk" });
+    const modulus = Buffer.from(jwk.n!, "base64url").toString("hex").replace(/^00/, "");
+    assert.equal(retained.metadata?.publicModulus, modulus);
+    assert.equal((value?.data as Record<string, unknown> | undefined)?.encryptkey, modulus);
+    assert.ok(rows.some(row => row.boundary === "ppcs" && row.connection === retained.connection && row.direction === "receive"));
+    const mediaKey = Buffer.alloc(16, 7);
+    const wrapped = publicEncrypt({ key: publicKey, padding: 1 }, mediaKey);
+    assert.deepEqual(privateDecrypt({ key, padding: 1 }, wrapped), mediaKey);
+    assert.equal(f.session.stats.videoFrames, 0);
+    f.receive(Buffer.from([0xf1, 0x42, 0, 0]));
+    assert.equal((await records()).filter(row => row.boundary === "ppcs_media_replay_key").length, 1);
+  } finally { f.session.close(); }
+});
+
+for (const variant of ["model", "type", "attached", "channel", "control", "passive", "disabled"] as const) {
+  test(`C31 replay key excludes ${variant}`, async context => {
+    const records = await stageHistory(context);
+    if (variant === "disabled") setRawHistory(undefined);
+    const f = await peer(context, variant === "attached", variant === "model" ? "T8171" : "T817L",
+      variant === "control" || variant === "passive" ? variant : "media", "T817L", undefined,
+      variant === "channel" ? 1 : 0, variant === "type" ? null : 10031);
+    try {
+      assert.equal((await records()).filter(row => row.boundary === "ppcs_media_replay_key").length, 0);
+    } finally { f.session.close(); }
+  });
+}
 
 
 test("the opted-in T8420 uses one freshly qualified clear start and drains its stop before END", async context => {
