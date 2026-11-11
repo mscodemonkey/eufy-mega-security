@@ -43,7 +43,8 @@ function payloads(unit: readonly Buffer[]): Buffer[] {
   return result;
 }
 
-for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-deadline", "continuous-video", "continuous-stall", "continuous-cancel"]) {
+for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-deadline", "continuous-video", "continuous-stall", "continuous-cancel",
+  "continuous-malformed-outer", "continuous-malformed-inner", "continuous-malformed-payload"]) {
   test(`E10 RTP ${scenario} preserves its media lifetime and cleanup`, { timeout: 20_000 }, async context => {
     const continuous = scenario.startsWith("continuous-");
     let videoNow = 0;
@@ -83,6 +84,7 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
     let timer: NodeJS.Timeout | null = null;
     let counter = 0, sequence = 65500, hangups = 0, answers = 0, acknowledgements = 0, peerCount = 0;
     let peer: RTCPeerConnection | null = null;
+    let signallingConnection: WebSocket | undefined;
     let entered!: () => void, finish!: () => void;
     const entering = new Promise<void>(resolve => { entered = resolve; });
     const pending = new Promise<void>(resolve => { finish = resolve; });
@@ -101,6 +103,7 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
       }, 100);
     });
     server.on("connection", (connection, request) => {
+      signallingConnection = connection;
       const protocols = request.headers["sec-websocket-protocol"]!.split(/,\s*/);
       assert.equal(protocols.length, 2);
       assert.equal(protocols[0], "v1");
@@ -177,7 +180,7 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
           assert.equal(scheduled.some(timer => timer.delay === 10_000), false);
           scheduled.find(timer => timer.delay === 45_000)!.fire();
           assert.equal(session.output.destroyed, false);
-          for (let step = 0; step < 6; step++) {
+          for (let step = 0; step < 11; step++) {
             videoNow += 30_000;
             const before = session.stats.video;
             await new Promise(resolve => setTimeout(resolve, 250));
@@ -185,12 +188,21 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
             assert.equal(session.remainingLifetimeMilliseconds, 45_000);
             assert.equal(session.output.destroyed, false);
           }
-          assert.equal(videoNow, 180_000);
+          assert.equal(videoNow, 330_000);
           if (scenario === "continuous-stall") {
             if (timer) clearInterval(timer);
             await new Promise(resolve => setTimeout(resolve, 150));
             scheduled.filter(timer => timer.delay === 45_000).at(-1)!.fire();
           } else if (scenario === "continuous-cancel") controller.abort();
+          else if (scenario.startsWith("continuous-malformed-")) {
+            assert.ok(signallingConnection);
+            const message = scenario.endsWith("outer") ? "synthetic-not-json"
+              : scenario.endsWith("inner") ? JSON.stringify({ data: null })
+                : JSON.stringify({ data: JSON.stringify({ action: 3, code: 200, sessionId: "synthetic-sign",
+                  sn: "synthetic-station", channelId: 0, dataType: "info", data: "[" }) });
+            signallingConnection.send(message);
+            await new Promise<void>(resolve => session.output.destroyed ? resolve() : session.output.once("close", resolve));
+          }
         } else if (scenario === "finite-deadline") {
           assert.equal(scheduled.some(timer => timer.delay === 45_000), false);
           scheduled.find(timer => timer.delay === 10_000)!.fire();
@@ -202,6 +214,11 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
         if (scenario === "continuous-stall") assert.deepEqual(errors.map(error => [error.stage, error.reason]), [["video", "video_progress_timeout"]]);
         else if (scenario === "finite-deadline") assert.equal(errors[0]?.stage, "deadline");
         else if (scenario === "continuous-cancel") assert.equal(errors[0]?.stage, "cancelled");
+        else if (scenario.startsWith("continuous-malformed-")) {
+          const expected = scenario.endsWith("outer") ? "e10_signal_outer_json"
+            : scenario.endsWith("inner") ? "e10_signal_inner_shape" : "e10_signal_payload_json";
+          assert.deepEqual(errors.map(error => [error.stage, error.reason]), [["framing", expected]]);
+        }
         else assert.deepEqual(errors, []);
         const decoded = spawnSync("ffmpeg", ["-v", "error", "-xerror", "-err_detect", "explode", "-f", "h264", "-i", "pipe:0",
           "-progress", "pipe:1", "-f", "null", "-"], { input: Buffer.concat(chunks), timeout: 5000 });

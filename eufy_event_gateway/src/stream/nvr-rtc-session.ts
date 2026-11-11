@@ -1018,7 +1018,8 @@ export class NvrRtcSession {
 
   async #message(raw: string): Promise<void> {
     this.#guard();
-    const outer = nvrJson(raw), inner = nvrJson(outer.data);
+    const outer = nvrJson(raw, this.options.e10RtpTrial ? "outer" : undefined);
+    const inner = nvrJson(outer.data, this.options.e10RtpTrial ? "inner" : undefined);
     if (inner.action === 1) {
       if (this.#authenticated || inner.code !== 200) throw new NvrTrialError("join");
       this.#authenticated = true; this.#stage = "call"; this.#action("call", {});
@@ -1037,7 +1038,7 @@ export class NvrRtcSession {
     if (inner.sessionId !== this.options.context.sign) throw new NvrTrialError("negotiation", "session_mismatch");
     if (inner.sn !== this.options.station) throw new NvrTrialError("negotiation", "station_mismatch");
     if (inner.channelId !== 0) throw new NvrTrialError("negotiation", "channel_mismatch");
-    const data = nvrJson(inner.data);
+    const data = nvrJson(inner.data, this.options.e10RtpTrial ? "payload" : undefined);
     if (inner.dataType === "call") {
       if (data.status === 486) throw new NvrTrialError("busy");
       if (data.status === 408) throw new NvrTrialError("call", "call_timeout");

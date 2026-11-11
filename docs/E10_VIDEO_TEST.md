@@ -29,12 +29,17 @@ until the existing media owner closes the source. A 45-second video stall ends
 the call. Signalling and keepalive traffic cannot renew that deadline. The
 manual clip trial retains its finite lifetime and grants no additional controls.
 
-The v0.1.255 report confirmed playback, clean decoding and close/reopen, but
-also exposed the previous fixed duration limit. A release containing the
-viewer-owned lifetime change still needs one continuous HA view lasting over
-two minutes on the E10. Report whether it continues, then close the view.
-If it stops early, send only `nvr_live_stream_failed`. There is no need to
-repeat the private clip test. Restore the experimental option afterwards.
+The v0.1.257 report confirmed 150 seconds of clean HA HLS playback and closure
+when the viewer closed. Later plain HA and Frigate-via-HA views both ended near
+297 seconds with a framing failure. Its cause remains unresolved. The E10
+signalling diagnostic distinguishes the rejected message layer and shape
+without logging its contents or accepting additional messages. This diagnostic
+does not repair the five-minute closure.
+
+No extra long view or private clip test is requested. If a view stops during
+ordinary use of a release containing this diagnostic, send only the complete
+`nvr_live_stream_failed` line. Keep footage and raw messages private, and restore
+the experimental option when finished.
 
 ## Existing manual clip test
 
