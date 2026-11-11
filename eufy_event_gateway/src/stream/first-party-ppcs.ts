@@ -3630,16 +3630,6 @@ export class FirstPartyPpcsSession {
   }
 
   /**
-   * Derive the peer's level-two control key from command 1100.
-   *
-   * The outer envelope uses the deterministic level-one command key. Its
-   * cipher identifier selects an ECC private key supplied by the provider,
-   * which unwraps the per-session AES key. Attached-camera media startup waits
-   * for this chain because its lifecycle commands require level two. A
-   * standalone media session starts with its level-one fallback, then reissues
-   * START_LIVE at level two as soon as the negotiated key becomes available.
-   */
-  /**
    * Latch fixed failure facts for key waiters. Only an explicitly confirmed
    * empty key lookup can select the opted-in exact T8420 media alternative.
    */
@@ -3658,6 +3648,16 @@ export class FirstPartyPpcsSession {
     }
   }
 
+  /**
+   * Derive the peer's level-two control key from command 1100.
+   *
+   * The outer envelope uses the deterministic level-one command key. Its
+   * cipher identifier selects an ECC private key supplied by the provider,
+   * which unwraps the per-session AES key. Attached-camera media startup waits
+   * for this chain because its lifecycle commands require level two. A
+   * standalone media session starts with its level-one fallback, then reissues
+   * START_LIVE at level two as soon as the negotiated key becomes available.
+   */
   async #deriveLevel2(payload: Buffer): Promise<void> {
     if (this.#closed) return;
     let plainPayload: Buffer;

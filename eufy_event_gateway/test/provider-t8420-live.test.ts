@@ -17,6 +17,7 @@ async function fixture(context: TestContext, mode: string) {
   let socket!: Socket;
   let sequence = 0;
   const packets: Buffer[] = [];
+  const cameras: import("../src/domain/types.js").CameraIdentity[] = [];
   const remote = { address: "127.0.0.1", port: 12345 };
   const gateway = Buffer.alloc(144); gateway.writeUInt16LE(65433);
   const cipher = createCipheriv("aes-128-ecb", Buffer.from("1234567-12345678"), null); cipher.setAutoPadding(false);
@@ -56,17 +57,19 @@ async function fixture(context: TestContext, mode: string) {
     experimentalT8420Live: mode !== "disabled", apiAuthenticationConfigured: mode !== "no-auth" });
   context.after(async () => { await provider.close(); });
   const events = new Proxy({}, { get: (_target, key) => key === "streamStarted"
-    ? (_serial: string, output: NodeJS.ReadableStream) => output.resume() : () => {} }) as ProviderEvents;
+    ? (_serial: string, output: NodeJS.ReadableStream) => output.resume()
+    : key === "camera" ? (identity: import("../src/domain/types.js").CameraIdentity) => cameras.push(identity) : () => {} }) as ProviderEvents;
   await provider.start(events);
   await provider.startStream("fixture 1234567");
   await new Promise(resolve => setImmediate(resolve));
   await new Promise(resolve => setImmediate(resolve));
-  return { provider, packets };
+  return { provider, packets, cameras };
 }
 
 for (const mode of ["empty", "duplicate", "nonstring", "empty-entry", "error", "disabled", "no-auth", "cached-only"]) {
   test(`the provider qualifies the T8420 alternate only for a successful empty lookup: ${mode}`, async context => {
     const f = await fixture(context, mode);
+    assert.equal(f.cameras.at(-1)!.startupSnapshotSupported, mode === "disabled" ? undefined : false);
     const starts = f.packets.filter(packet => packet.length >= 24 && packet.readUInt16LE(12) === 1350);
     assert.equal(starts.length, mode === "empty" ? 1 : 0);
     await f.provider.stopStream("fixture 1234567");

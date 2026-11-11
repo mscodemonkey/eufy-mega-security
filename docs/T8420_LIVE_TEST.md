@@ -8,7 +8,9 @@ The alternate start applies only when the current peer connection reports
 cipher 65433 and the authenticated key lookup explicitly returns no key. A
 cached cipher number, failed lookup or failed key unwrap cannot select it.
 A negotiated encrypted session keeps its existing start. Media still requires
-the normal decoded-video checks. Hardware playback through EMS is unconfirmed.
+the normal decoded-video checks. Hardware playback through EMS is unconfirmed. Automatic startup snapshots are
+disabled while this trial is enabled, so the first attempt stays under your
+normal viewer or manual snapshot request.
 
 After installing the containing app and integration release, enable
 **Experimental T8420 live video** in the app configuration. Keep the existing

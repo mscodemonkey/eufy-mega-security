@@ -5356,7 +5356,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       doorbellSupported: isDoorbellDevice(device),
       streamSupported: nvrLive || isPpcsStreamSupported(device, this.#devices, dskPeerSerials) || this.#doorbellRtcBinding(device),
       hlsIdleHandoverSupported: nvrLive,
-      ...(nvrLive ? { startupSnapshotSupported: false } : {}),
+      ...(nvrLive || this.config.experimentalT8420Live && device.model === "T8420" && device.deviceType === 3
+        && route?.homeBaseAttached === false ? { startupSnapshotSupported: false } : {}),
       liveAudioSupported: nvrLive ? nvrLiveAudioAdmitted(device, this.#devices.get(device.parentSerial))
         : supportsCameraLiveAudio(device, route, isPpcsStreamSupported(device, this.#devices, dskPeerSerials)),
       enabled: device.reads.enabled ?? null,
