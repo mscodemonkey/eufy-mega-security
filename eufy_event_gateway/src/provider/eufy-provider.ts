@@ -672,6 +672,9 @@ interface NvrTrialEntry {
   controller: AbortController; device: MegaInventoryDevice; station: MegaInventoryDevice; stateOnly: boolean; diagnostic: boolean;
   generation: number; sensor: number; connecting: boolean; retiring: boolean; terminalRetirement: boolean; sourceReported: boolean;
   startOwner: { promise: Promise<void>; cancelled: boolean } | undefined; session: NvrRtcSession | null;
+
+  /** The first picture of a mode observer call this view took over, instead of placing its own. */
+  takenOver: Promise<number> | null;
   retireStart: () => void; releasePeer: () => void; release: () => Promise<void>;
 }
 
@@ -2049,7 +2052,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       : null;
     const entry: NvrTrialEntry = { controller, device, station, stateOnly, diagnostic, generation: this.#startupGeneration,
       sensor: diagnostic ? nvrTrialSensor(device.model, device.deviceType)! : this.#nvrView(device), connecting: false, retiring: false, terminalRetirement: false,
-      sourceReported: false, startOwner: this.#streamStarts.get(serial), retireStart: (): void => {
+      sourceReported: false, startOwner: this.#streamStarts.get(serial), takenOver: null, retireStart: (): void => {
         entry.terminalRetirement = true;
 
         // An attached source can end before its failed startup finishes closing.
@@ -2142,9 +2145,20 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       // A hang-up on the background call can end a later live call on this
       // NVR. Finish its cleanup before obtaining credentials for the new call.
       // Inventory refreshes keep the observer retired while this entry exists.
+      // A T8N00 also ignores or half-handles a call placed just after a
+      // hang-up, so a view takes over a listening observer call instead.
       if (entry.station.model === "T8N00" && entry.station.deviceType === 300) {
-        await this.#nvrModeObserver.close();
+        await this.#nvrModeObserver.handOver(session => {
+          if (entry.diagnostic || entry.stateOnly || !binding.current() || !session.canTakeOver(entry.station.serial)) return false;
+          entry.session = session;
+          entry.takenOver = session.switchCamera(binding);
+
+          // A view cancelled before it awaits the picture still closes this call.
+          void entry.takenOver.catch(() => {});
+          return true;
+        });
         if (!binding.current()) throw new NvrTrialError("cancelled");
+        if (entry.session) return entry.session;
       }
       const context = await Promise.race([
         this.#client.nvrSignallingContext(entry.station.serial, this.config.experimentalNvrRegion ?? "auto", entry.controller.signal),
@@ -2178,7 +2192,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         session = entry.session = handover.session!;
         handover.session = null;
         moved = session.switchCamera(this.#nvrSessionBinding(serial, entry));
-      } else session = await this.#nvrTrialSession(serial);
+      } else {
+        session = await this.#nvrTrialSession(serial);
+        moved = entry.takenOver;
+      }
       let terminalHandled = false;
       const retire = (): void => {
         if (terminalHandled || entry.retiring) return;
@@ -2204,7 +2221,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         // PassThrough finishes even when no reader consumes its readable side.
         session.output.once("finish", retire);
       }
-      if (moved) logger.info("nvr_live_camera_switched", `model=${safeLogModel(entry.device.model)} first_video_ms=${await moved}`);
+      if (moved) logger.info(handover ? "nvr_live_camera_switched" : "nvr_live_observer_call_used", `model=${safeLogModel(entry.device.model)} first_video_ms=${await moved}`);
       else await session.start();
       if (!entry.diagnostic && this.#nvrLiveAdmitted(entry.device, entry.station)) {
         void session.initialLiveSettings().then(values => {
@@ -2215,7 +2232,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     catch (error) {
       const failure = error instanceof NvrTrialError ? error : new NvrTrialError("sign");
       if (moved && failure.stage !== "cancelled" && !entry.controller.signal.aborted) {
-        logger.warn("nvr_live_switch_failed", `stage=${failure.stage} reason=${failure.reason} ${nvrTrialCounters(entry.session!)}`);
+        logger.warn(handover ? "nvr_live_switch_failed" : "nvr_live_observer_call_failed", `stage=${failure.stage} reason=${failure.reason} ${nvrTrialCounters(entry.session!)}`);
         entry.retireStart();
         await entry.release();
         this.#reserveNvrTrial(serial, new AbortController().signal, false, false);

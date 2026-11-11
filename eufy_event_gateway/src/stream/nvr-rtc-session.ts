@@ -483,18 +483,33 @@ export class NvrRtcSession {
   }
 
   /**
+   * True while this read-only mode observer call to `station` is connected and
+   * idle. A view on that NVR can then take the call over with switchCamera.
+   * The signalling socket must still be open, so the view can hang up later.
+   */
+  canTakeOver(station: string): boolean {
+    return this.options.modeObserver === true && this.options.station === station && this.#modeObserverReady
+      && !this.#retired && !this.#switching && !this.#pending && this.#socket?.readyState === WebSocket.OPEN
+      && this.#channels.get("WebrtcDataChannel")?.readyState === "open";
+  }
+
+  /**
    * Move this call to another camera on the same NVR, without a new call.
    * The previous camera's output ends cleanly and ownership moves synchronously,
    * so the caller may release the previous owner as soon as this returns its
    * promise. The new output is reported only after a checked picture, which
    * leaves a failed switch free to close this call and open a fresh one.
    * Resolves with the milliseconds from the start request to that picture.
+   * An idle mode observer call becomes a normal view the same way.
    */
   async switchCamera(target: NvrSwitchTarget): Promise<number> {
-    if (!this.switchable) throw new NvrTrialError("admission");
+    const observer = this.canTakeOver(this.options.station);
+    if (!observer && !this.switchable) throw new NvrTrialError("admission");
     this.#switching = true;
     this.options.signal.removeEventListener("abort", this.#externalAbort);
-    this.options = { ...this.options, ...target };
+
+    // The observer's own mode callback must not survive into the view.
+    this.options = { ...this.options, ...target, ...observer ? { modeObserver: false, onEffectiveMode: target.onEffectiveMode } : {} };
     this.options.signal.addEventListener("abort", this.#externalAbort, { once: true });
     const previous = this.#output, previousAudio = this.#audioOutput;
     this.#output = this.#createOutput();
@@ -503,8 +518,12 @@ export class NvrRtcSession {
     previousAudio.end();
     this.#resetVideo();
     this.#renewVideoProgress();
-    this.#stage = "stop";
-    await this.#request(1004, 1500);
+
+    // An observer call never started a camera, so there is nothing to stop.
+    if (!observer) {
+      this.#stage = "stop";
+      await this.#request(1004, 1500);
+    }
     this.#stage = "inventory";
     nvrMatchCamera(this.#inventory!, target.camera, target.channel, target.cameraType ?? 301);
     this.#guard();

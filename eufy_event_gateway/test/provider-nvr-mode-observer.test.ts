@@ -12,7 +12,7 @@ import { MegaClient } from "../src/mega/client.js";
 import { MegaPushReceiver } from "../src/mega/push.js";
 import { EufyProvider } from "../src/provider/eufy-provider.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
-import { NvrRtcSession, type NvrRtcOptions, type NvrSignallingContext } from "../src/stream/nvr-rtc-session.js";
+import { NvrRtcSession, type NvrRtcOptions, type NvrSignallingContext, type NvrSwitchTarget } from "../src/stream/nvr-rtc-session.js";
 import { NvrTrialError } from "../src/stream/nvr-protocol.js";
 
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -57,10 +57,27 @@ async function fixture(context: TestContext, enabled = true, authentication = tr
   context.mock.method(NvrRtcSession.prototype, "start", async function(this: NvrRtcSession) { video++; viewers.push(this); });
   context.mock.method(NvrRtcSession.prototype, "writeGuardTrial", async () => { writes++; });
   context.mock.method(NvrRtcSession.prototype, "writePowerTrial", async () => { writes++; });
+  const closes: NvrRtcSession[] = [], takeovers: NvrSwitchTarget[] = [];
   context.mock.method(NvrRtcSession.prototype, "close", async function(this: NvrRtcSession) {
     const options = Reflect.get(this, "options") as NvrRtcOptions;
-    options.onEffectiveMode?.(null); this.output.end();
+    closes.push(this); options.onEffectiveMode?.(null); this.output.end();
   });
+  if (variant.startsWith("takeover")) {
+    context.mock.method(NvrRtcSession.prototype, "canTakeOver", function(this: NvrRtcSession, station: string) {
+      const options = Reflect.get(this, "options") as NvrRtcOptions;
+      return options.modeObserver === true && options.station === station;
+    });
+
+    // Taking over rebinds the call to the view at once, as the real session does.
+    context.mock.method(NvrRtcSession.prototype, "switchCamera", async function(this: NvrRtcSession, target: NvrSwitchTarget) {
+      takeovers.push(target);
+      Reflect.set(this, "options", { ...Reflect.get(this, "options") as NvrRtcOptions, ...target, modeObserver: false, onEffectiveMode: target.onEffectiveMode });
+      await tick();
+      if (variant === "takeover-no-picture") throw new NvrTrialError("video", "switch_no_picture");
+      target.ready(this.output, () => "h264");
+      return 120;
+    });
+  }
   const stations: Parameters<ProviderEvents["station"]>[0][] = [];
   const events = new Proxy({ station: (value: Parameters<ProviderEvents["station"]>[0]) => stations.push(value) },
     { get: (target, key) => Reflect.get(target, key) ?? (() => {}) }) as unknown as ProviderEvents;
@@ -70,7 +87,7 @@ async function fixture(context: TestContext, enabled = true, authentication = tr
     experimentalModelControls: variant !== "observer-only", experimentalNvrControls: variant !== "observer-only" });
   await provider.start(events); await tick();
   context.after(async () => { await provider.close(); await rm(directory, { recursive: true, force: true }); assert.equal(network.mock.callCount(), 0); });
-  return { provider, events, raw, sessions, viewers, stations,
+  return { provider, events, raw, sessions, viewers, stations, closes, takeovers,
     setGuardMode: (value: string) => { guard.param_value = value; }, signs: () => signs, video: () => video, writes: () => writes, connections: () => connections,
     finishContext: () => finishContext?.(contextValue),
     clock: (value: number) => { now = value; }, refresh: async () => { intervals.at(-1)!(); await tick(); await tick(); } };
@@ -249,3 +266,45 @@ for (const cancellation of ["view", "provider", "inventory"] as const) {
     assert.equal(f.writes(), 0);
   });
 }
+
+test("a view takes over the listening watcher's call instead of hanging it up and calling again", async context => {
+  const f = await fixture(context, true, true, "takeover");
+  const observer = Reflect.get(f.sessions[0]!, "options") as NvrRtcOptions;
+  observer.onEffectiveMode!({ mode: 3 });
+  await f.provider.startStream("synthetic-camera"); await tick();
+  assert.deepEqual(f.takeovers.map(row => row.camera), ["synthetic-camera"]);
+  assert.equal(f.closes.length, 0); assert.equal(f.video(), 0); assert.equal(f.signs(), 1);
+
+  // The reading carries on through the view's call, and only the view can change it now.
+  assert.equal(f.stations.at(-1)!.effectiveMode, 3);
+  observer.onEffectiveMode!(null); observer.onEffectiveMode!({ mode: 1 });
+  assert.equal(f.stations.at(-1)!.effectiveMode, 3);
+  const view = Reflect.get(f.sessions[0]!, "options") as NvrRtcOptions;
+  view.onEffectiveMode!({ mode: 1 });
+  assert.equal(f.stations.at(-1)!.effectiveMode, 1);
+  await f.provider.stopStream("synthetic-camera");
+  assert.deepEqual(f.closes, [f.sessions[0]]);
+  assert.equal(f.stations.at(-1)!.effectiveMode, null);
+  await f.refresh();
+  assert.equal(f.sessions.length, 2);
+  assert.equal(f.writes(), 0);
+});
+
+test("a taken-over call that shows no picture is closed and the view places its own call", async context => {
+  const f = await fixture(context, true, true, "takeover-no-picture");
+  await f.provider.startStream("synthetic-camera"); await tick();
+  assert.equal(f.takeovers.length, 1);
+  assert.deepEqual(f.closes, [f.sessions[0]]);
+  assert.equal(f.video(), 1); assert.equal(f.signs(), 2);
+  assert.notEqual(f.viewers[0], f.sessions[0]);
+  await f.provider.stopStream("synthetic-camera");
+});
+
+test("a state read still closes the watcher instead of taking its call", async context => {
+  const f = await fixture(context, true, true, "takeover");
+  const reads = context.mock.method(NvrRtcSession.prototype, "readState", async () => { throw new NvrTrialError("state"); });
+  await assert.rejects(f.provider.readNvrStateTrial("synthetic-camera", new AbortController().signal), { stage: "state" });
+  assert.equal(reads.mock.callCount(), 1);
+  assert.equal(f.takeovers.length, 0);
+  assert.deepEqual(f.closes.slice(0, 1), [f.sessions[0]]);
+});

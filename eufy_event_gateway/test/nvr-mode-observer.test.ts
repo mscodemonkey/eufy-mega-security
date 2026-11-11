@@ -132,3 +132,40 @@ test("an ineligible binding waits for an eligible refresh without a reconnect lo
   f.eligible(false); f.sessions[0]!.output.end(); await tick();
   assert.equal(f.states.at(-1)!.state, "idle"); await f.owner.close();
 });
+
+test("a listening connection is handed over without a hang-up and its late callbacks are ignored", async () => {
+  const f = fixture();
+  f.owner.setTarget(f.target()); await tick();
+  f.sessions[0]!.report({ mode: 3 });
+  const taken: NvrRtcSession[] = [];
+  await f.owner.handOver(session => { taken.push(session); return true; });
+  assert.deepEqual(taken, [f.sessions[0]]);
+  assert.equal(f.sessions[0]!.closes, 0);
+  assert.equal(f.owner.active, false); assert.equal(f.owner.settled, true);
+  assert.equal(f.states.at(-1)!.state, "idle");
+
+  // The new owner's reading and the connection's end are no longer this owner's.
+  f.sessions[0]!.report(null); f.sessions[0]!.report({ mode: 1 });
+  f.sessions[0]!.output.end(); await tick();
+  assert.deepEqual(f.reports, [{ mode: 3 }]);
+  assert.equal(f.states.some(row => row.state === "retrying"), false);
+  assert.equal(f.sessions.length, 1);
+});
+
+test("a refused hand-over closes the connection as before", async () => {
+  const f = fixture();
+  f.owner.setTarget(f.target()); await tick();
+  f.sessions[0]!.report({ mode: 3 });
+  await f.owner.handOver(() => false);
+  assert.equal(f.sessions[0]!.closes, 1);
+  assert.deepEqual(f.reports, [{ mode: 3 }, null]);
+  assert.equal(f.owner.active, false);
+});
+
+test("a connection still being set up is closed, never handed over", async () => {
+  const f = fixture(); let calls = 0;
+  const target = { ...f.target(), create: () => new Promise<NvrRtcSession>(() => {}) };
+  f.owner.setTarget(target); await tick();
+  await f.owner.handOver(() => { calls++; return true; });
+  assert.equal(calls, 0); assert.equal(f.owner.active, false);
+});
