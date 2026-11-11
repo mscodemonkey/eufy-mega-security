@@ -60,7 +60,7 @@ function gateway(cipherId = 1): Buffer {
 }
 
 /** Own a synthetic CAM_ID handshake, inbound frames, packet loss and fake time. */
-async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" | "passive" = "media", stationModel = "T8010", startupDeadlineMilliseconds?: number, channelOverride?: number, deviceTypeOverride?: number | null, options: Partial<PpcsCameraOptions> = {}) {
+async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" | "passive" | "default" = "media", stationModel = "T8010", startupDeadlineMilliseconds?: number, channelOverride?: number, deviceTypeOverride?: number | null, options: Partial<PpcsCameraOptions> = {}) {
   let socket!: Socket;
   let inbound = 0;
   const sent: Buffer[] = [];
@@ -75,7 +75,7 @@ async function peer(context: TestContext, attached = true, model = "T8113-Z", pu
   const session = new FirstPartyPpcsSession({ stationSerial: "SYNTHETIC1234567", p2pDid: "TEST-12345678-TEST",
     appConnection: "", dskKey: "synthetic", channel: channelOverride ?? (attached ? 1 : 0), homeBaseAttached: attached, stationModel,
     ...(startupDeadlineMilliseconds === undefined ? {} : { startupDeadlineMilliseconds }),
-    purpose, cameraModel: model,
+    ...(purpose === "default" ? {} : { purpose }), cameraModel: model,
     ...(deviceTypeOverride !== undefined
       ? { cameraDeviceType: deviceTypeOverride }
       : model === "T8171" ? { cameraDeviceType: 88 } : {}),
@@ -886,9 +886,9 @@ test("S340 stage probe does not admit an unknown device type", async context => 
   } finally { f.session.close(); }
 });
 
-for (const purpose of [undefined, "media"] as const) test(`C31 replay key binds unprocessed encrypted media for ${purpose ?? "default media"}`, async context => {
+for (const purpose of ["default", "media"] as const) test(`C31 replay key binds unprocessed encrypted media for ${purpose}`, async context => {
   const records = await stageHistory(context);
-  const f = await peer(context, false, "T817L", "media", "T817L", undefined, 0, 10031, { purpose });
+  const f = await peer(context, false, "T817L", purpose, "T817L", undefined, 0, 10031);
   try {
     await f.negotiate();
     const start = f.sent.find(packet => packet.length >= 24 && packet.readUInt16LE(12) === 1700 && packet[21] === 8)!;
