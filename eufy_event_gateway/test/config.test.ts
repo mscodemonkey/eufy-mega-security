@@ -155,3 +155,14 @@ test("HomeBase name recovery is a separate authenticated opt-in", () => {
   assert.equal(loadConfig({ EUFY_GATEWAY_API_TOKEN: "x".repeat(32), EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_NAMES: "true" }).experimentalHomeBaseEventNames, true);
   assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_NAMES: "maybe" }), /HOMEBASE_EVENT_NAMES/);
 });
+
+
+test("the separate T8420 live trial defaults off and requires explicit authenticated opt-in", () => {
+  assert.equal(loadConfig({}).experimentalT8420Live, false);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_T8420_LIVE: "true" }), /requires EUFY_GATEWAY_API_TOKEN/);
+  const value = loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_T8420_LIVE: "true", EUFY_GATEWAY_API_TOKEN: "x".repeat(32) });
+  assert.equal(value.experimentalT8420Live, true);
+  assert.equal(value.experimentalNvrLive, false);
+  assert.equal(value.experimentalModelControls, false);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_T8420_LIVE: "yes" }), /must be true or false/);
+});
