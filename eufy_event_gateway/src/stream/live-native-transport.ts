@@ -65,13 +65,20 @@ export interface NativeTransportSummary {
   readonly audioBatches: number;
   readonly audioResyncs: number;
   readonly audioDropped: number;
+
+  /** First valid AAC arrival relative to the first picture, negative when it arrived earlier. */
+  readonly firstAudioAfterVideoMilliseconds: number | null;
+
+  /** Valid AAC batches ignored after this program committed to video-only output. */
+  readonly audioAfterVideoOnly: number;
 }
 
 /**
  * Owns one native MPEG-TS viewer, its writer, buffered startup and disconnect cleanup.
  * Video waits for the first AAC at most `audioWaitMilliseconds`, then the program
  * starts with or without an audio track; a track is never declared before audio
- * has arrived, so neither HA's stream worker nor go2rtc waits on a silent one.
+ * can play at or after the first picture, so neither HA's stream worker nor
+ * go2rtc waits on a track whose opening audio was discarded.
  * Video is timed by arrival. When the source marks both with capture times,
  * audio is placed on the video's timeline by them; otherwise by its own arrival.
  */
@@ -88,6 +95,8 @@ export class NativeTransportMuxer {
   #closed = false;
   #epoch: number | null = null;
   #firstVideoAt: number | null = null;
+  #firstAudioAt: number | null = null;
+  #audioAfterVideoOnly = 0;
   #startWait: number | null = null;
   #videoTicks = -1;
   #firstVideoTicks = -1;
@@ -121,16 +130,31 @@ export class NativeTransportMuxer {
     response.once("error", () => this.close());
   }
 
-  /** Consume only AAC already validated by the provider. Late audio after a muted start is ignored. */
+  /**
+   * Consume provider-validated AAC whose clock belongs with the opening picture.
+   * Older startup batches cannot select an empty track. Late audio after a
+   * video-only start remains ignored for that program.
+   */
   acceptAudio(chunk: Buffer): void {
     if (this.#closed || chunk.length === 0) return;
     const stamp = sourceTime(chunk);
     if (this.#writer) {
       if (this.#withAudio) this.#writeAudio(chunk, this.now(), stamp);
+      else if (parseAdtsAccessUnits(chunk)) {
+        this.#firstAudioAt ??= this.now();
+        this.#audioAfterVideoOnly++;
+      }
       return;
     }
     if (!parseAdtsAccessUnits(chunk)) return;
-    this.#hold({ kind: "audio", data: Buffer.from(chunk), at: this.now(), continuesPrevious: false, stamp });
+    this.#firstAudioAt ??= this.now();
+    const item: PendingMedia = { kind: "audio", data: Buffer.from(chunk), at: this.now(), continuesPrevious: false, stamp };
+    const opening = this.#pending.find(part => part.kind === "video");
+    if (opening && !this.#startupAudioBelongs(item, opening)) {
+      this.#audioDropped++;
+      return;
+    }
+    this.#hold(item);
     if (this.#firstVideoAt !== null) this.#start(true);
   }
 
@@ -149,7 +173,9 @@ export class NativeTransportMuxer {
     this.onClose();
     try {
       this.onSummary({ codec: this.videoInput.codec, audio: this.#withAudio, startWaitMilliseconds: this.#startWait,
-        videoUnits: this.#videoUnits, audioBatches: this.#audioBatches, audioResyncs: this.#audioResyncs, audioDropped: this.#audioDropped });
+        videoUnits: this.#videoUnits, audioBatches: this.#audioBatches, audioResyncs: this.#audioResyncs, audioDropped: this.#audioDropped,
+        firstAudioAfterVideoMilliseconds: this.#firstAudioAt === null || this.#firstVideoAt === null ? null
+          : Math.round(this.#firstAudioAt - this.#firstVideoAt), audioAfterVideoOnly: this.#audioAfterVideoOnly });
     } catch {
 
       // Diagnostic listeners cannot retain an already stopped viewer.
@@ -174,10 +200,23 @@ export class NativeTransportMuxer {
     if (this.#closed) return;
     if (this.#firstVideoAt === null) {
       this.#firstVideoAt = at;
+      const opening = this.#pending.find(item => item.kind === "video")!;
+      this.#pending = this.#pending.filter(item => {
+        if (item.kind === "video" || this.#startupAudioBelongs(item, opening)) return true;
+        this.#pendingBytes -= item.data.length;
+        this.#audioDropped++;
+        return false;
+      });
       if (this.#pending.some(item => item.kind === "audio")) return this.#start(true);
       if (this.audioWaitMilliseconds <= 0) return this.#start(false);
       this.#timer = setTimeout(() => this.#start(false), this.audioWaitMilliseconds);
     }
+  }
+
+  /** Select audio that the opening picture's clock can actually place in this program. */
+  #startupAudioBelongs(audio: PendingMedia, opening: PendingMedia): boolean {
+    return audio.stamp !== undefined && opening.stamp !== undefined
+      ? audio.stamp >= opening.stamp : audio.at >= opening.at;
   }
 
   #hold(item: PendingMedia): void {
@@ -206,7 +245,7 @@ export class NativeTransportMuxer {
     const firstVideo = pending.findIndex(item => item.kind === "video");
     const opening = pending[firstVideo]!;
     const rest = pending.filter((item, index) => index !== firstVideo
-      && (item.kind === "video" ? index > firstVideo : withAudio && item.at >= opening.at - NATIVE_AUDIO_SLEW_MILLISECONDS))
+      && (item.kind === "video" ? index > firstVideo : withAudio && this.#startupAudioBelongs(item, opening)))
       .sort((left, right) => left.at - right.at);
     for (const item of [opening, ...rest]) {
       if (this.#closed) return;
@@ -245,6 +284,7 @@ export class NativeTransportMuxer {
   #writeAudio(chunk: Buffer, at: number, stamp: number | undefined): void {
     const units = parseAdtsAccessUnits(chunk);
     if (!units) return;
+    this.#firstAudioAt ??= at;
     const marked = stamp !== undefined && this.#sourceOffsets.length > 0;
     const place = marked ? stamp + Math.min(...this.#sourceOffsets.map(sample => sample.offset)) : this.#ticks(at) / 90;
     const tolerance = marked ? NATIVE_MARKED_AUDIO_TOLERANCE_MILLISECONDS : NATIVE_AUDIO_SLEW_MILLISECONDS;

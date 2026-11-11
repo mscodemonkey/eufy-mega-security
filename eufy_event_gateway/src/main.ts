@@ -131,7 +131,7 @@ const streams = new LiveStreamManager(
 );
 streams.on("native-transport-closed", (summary: NativeTransportSummary & { model: string }) => {
   const model = /^T[0-9A-Z]{3,15}$/.test(summary.model) ? summary.model : "unknown";
-  logger.info("camera_native_transport", `model=${model} codec=${summary.codec ?? "unknown"} audio=${summary.audio} start_wait_ms=${summary.startWaitMilliseconds ?? "none"} video_units=${summary.videoUnits} audio_batches=${summary.audioBatches} audio_resyncs=${summary.audioResyncs} audio_dropped=${summary.audioDropped}`);
+  logger.info("camera_native_transport", `model=${model} codec=${summary.codec ?? "unknown"} audio=${summary.audio} start_wait_ms=${summary.startWaitMilliseconds ?? "none"} video_units=${summary.videoUnits} audio_batches=${summary.audioBatches} audio_resyncs=${summary.audioResyncs} audio_dropped=${summary.audioDropped} first_audio_after_video_ms=${summary.firstAudioAfterVideoMilliseconds ?? "none"} audio_after_video_only=${summary.audioAfterVideoOnly}`);
 });
 streams.on("live-pacing-closed", (summary: LivePacingSummary) => {
   logger.info("camera_live_pacing", `model=T8171 buffer_ms=${summary.bufferMilliseconds} late_packets=${summary.latePackets} peak_queued_bytes=${summary.maximumQueuedBytes} video_packets=${summary.videoPackets} audio_packets=${summary.audioPackets} clock_rebases=${summary.clockRebases}`);
