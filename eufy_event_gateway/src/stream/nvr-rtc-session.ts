@@ -1038,6 +1038,10 @@ export class NvrRtcSession {
     if (inner.sessionId !== this.options.context.sign) throw new NvrTrialError("negotiation", "session_mismatch");
     if (inner.sn !== this.options.station) throw new NvrTrialError("negotiation", "station_mismatch");
     if (inner.channelId !== 0) throw new NvrTrialError("negotiation", "channel_mismatch");
+
+    // A bound remote hang-up ends the call even when it carries no payload.
+    // Parsing its optional body first mislabels it or silently ignores it.
+    if (inner.dataType === "hangup") throw new NvrTrialError(this.#stage, "signalling_hangup");
     const data = nvrJson(inner.data, this.options.e10RtpTrial ? "payload" : undefined);
     if (inner.dataType === "call") {
       if (data.status === 486) throw new NvrTrialError("busy");
