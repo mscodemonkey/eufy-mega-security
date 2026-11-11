@@ -44,7 +44,7 @@ const aac = (() => {
 })();
 
 async function fixture(audio: boolean, slowKeyframe = false) {
-  const server = new WebSocketServer({ port: 0 });
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await once(server, 'listening');
   const port = (server.address() as { port: number }).port;
   const peer = new RTCPeerConnection({ iceServers: [], iceUseIpv6: false });

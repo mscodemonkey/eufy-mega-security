@@ -7,26 +7,36 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { once } from "node:events";
+import { createServer } from "node:http";
 import test from "node:test";
 import WebSocket, { WebSocketServer } from "ws";
 import { RTCPeerConnection, RTCSessionDescription, MediaStreamTrack, RtpPacket, RtpHeader, useH264 } from "werift";
 import { DoorbellRtcSession } from "../src/stream/doorbell-rtc-session.js";
 import { DoorbellRtcError } from "../src/stream/doorbell-rtc-offer.js";
 
-test("RTC service protocol selection rejects a bare account token", { timeout: 5000 }, async () => {
-  const server = new WebSocketServer({ port: 0, handleProtocols: protocols => protocols.has("v1") ? "v1" : false });
+test("RTC service protocol selection rejects a bare account token", { timeout: 5000 }, async context => {
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0, handleProtocols: protocols => protocols.has("v1") ? "v1" : false });
   await once(server, "listening");
   const address = server.address() as { port: number };
-  const client = new WebSocket(`ws://127.0.0.1:${address.port}`, ["synthetic-token"]);
-  const rejected = once(client, "error");
-  try {
-    const [error] = await rejected;
-    assert.match(error.message, /subprotocol/);
-  } finally {
-    client.terminate();
+  const decoy = createServer((_request, response) => { response.writeHead(401); response.end(); });
+  let client: WebSocket | undefined;
+  context.after(async () => {
+    client?.terminate();
     for (const socket of server.clients) socket.terminate();
     await new Promise<void>(resolve => server.close(() => resolve()));
-  }
+    if (decoy.listening) await new Promise<void>(resolve => decoy.close(() => resolve()));
+  });
+
+  // Some hosts let an IPv4 listener reuse a default IPv6 listener's port.
+  // A client must reach this fixture even when another IPv4 service tries it.
+  await new Promise<void>((resolve, reject) => {
+    decoy.once("error", error => (error as NodeJS.ErrnoException).code === "EADDRINUSE" ? resolve() : reject(error));
+    decoy.listen({ host: "127.0.0.1", port: address.port }, resolve);
+  });
+  client = new WebSocket(`ws://127.0.0.1:${address.port}`, ["synthetic-token"]);
+  const rejected = once(client, "error");
+  const [error] = await rejected;
+  assert.match(error.message, /subprotocol/);
 });
 
 /** Split generated Annex-B video into complete AUD-delimited frames. */
@@ -68,7 +78,7 @@ for (const scenario of ["video", "loss", "early-offer", "invalid-offer", "duplic
       "-f", "h264", "pipe:1"], { maxBuffer: 4 * 1024 * 1024 });
     assert.equal(generated.status, 0);
     const units = frames(generated.stdout); assert.equal(units.length, 10);
-    const server = new WebSocketServer({ port: 0, handleProtocols: protocols => protocols.has("v1") ? "v1" : false });
+    const server = new WebSocketServer({ host: "127.0.0.1", port: 0, handleProtocols: protocols => protocols.has("v1") ? "v1" : false });
     await once(server, "listening");
     const address = server.address() as { port: number };
     const camera = new RTCPeerConnection({ iceServers: [], iceUseIpv6: false,
@@ -224,7 +234,7 @@ for (const scenario of ["video", "loss", "early-offer", "invalid-offer", "duplic
 
 for (const scenario of ["join", "call", "pending", "offer", "call-rejected"] as const) {
   test(`doorbell startup failure distinguishes ${scenario} without private signalling`, { timeout: 5000 }, async () => {
-    const server = new WebSocketServer({ port: 0 });
+    const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
     await once(server, "listening");
     const address = server.address() as { port: number };
     server.on("connection", socket => socket.on("message", raw => {

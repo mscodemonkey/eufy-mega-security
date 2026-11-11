@@ -23,7 +23,7 @@ function application(command: number, segment: number, body: Buffer): Buffer {
 type Mode = 'video' | 'silent-second-camera' | 'wrong-second-camera';
 
 async function fixture(mode: Mode, observer = false) {
-  const server = new WebSocketServer({ port: 0 });
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await once(server, 'listening');
   const port = (server.address() as { port: number }).port;
   const peer = new RTCPeerConnection({ iceServers: [], iceUseIpv6: false });

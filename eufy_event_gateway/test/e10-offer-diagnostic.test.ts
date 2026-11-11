@@ -60,7 +60,7 @@ test("the real session rejects E10 offers before creating a peer and preserves o
   for (const [cameraType, data, expected, rtpTrial] of [[314, false, "offer_e10_h264_no_data_section", false],
     [314, true, "offer_e10_h264_data_section", false], [301, true, "offer_media_tracks", false],
     [314, null, "offer_e10_tracks_unqualified", true]] as const) {
-    const server = new WebSocketServer({ port: 0 });
+    const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
     await once(server, "listening");
     const address = server.address() as { port: number };
     let peers = 0;

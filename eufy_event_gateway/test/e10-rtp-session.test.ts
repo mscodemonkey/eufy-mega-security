@@ -61,7 +61,7 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
       "-f", "h264", "pipe:1"], { maxBuffer: 4 * 1024 * 1024 });
     assert.equal(generated.status, 0);
     const units = frames(generated.stdout); assert.equal(units.length, 10);
-    const server = new WebSocketServer({ port: 0, handleProtocols: protocols => protocols.has("v1") ? "v1" : false });
+    const server = new WebSocketServer({ host: "127.0.0.1", port: 0, handleProtocols: protocols => protocols.has("v1") ? "v1" : false });
     await once(server, "listening");
     const address = server.address() as { port: number };
     const camera = new RTCPeerConnection({ iceServers: [], iceUseIpv6: false,
