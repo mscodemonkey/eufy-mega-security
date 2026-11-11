@@ -1,8 +1,10 @@
 # Standalone C37 control trials
 
 These trials cover exact **T814X, device type 10037, standalone channel 0**.
-Physical behaviour remains unconfirmed. T814XS, type 10039 and HomeBase-attached
-cameras are excluded from these controls.
+Tracking on and off is reporter-confirmed on v0.1.257, including independent
+app readback and restoration of the original off setting. Movement, saved
+positions and spotlight behaviour remain unconfirmed. T814XS, type 10039 and
+HomeBase-attached cameras are excluded from these controls.
 
 Enable **Experimental model controls** only if you want to test them. The option
 is off by default and requires a gateway API token. The configured Eufy account
@@ -26,7 +28,8 @@ request does not establish that the camera reached that position.
 
 A T814X report on v0.1.253 confirmed physical tracking changes despite a failure
 response from EMS. The updated tracking path checks the fresh setting after a
-missing acknowledgement. That correction still needs a hardware retest. The
+missing acknowledgement. The reporter confirmed that correction on v0.1.257,
+with both tracking changes succeeding and the original setting restored. The
 reported spotlight read failure and movement returning to its default position
 when the connection closes remain separate, unresolved limitations.
 

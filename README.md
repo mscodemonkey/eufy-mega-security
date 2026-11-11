@@ -18,7 +18,7 @@ If you use Eufy Mega Security and fancy buying me a beer, you can support the pr
 
 Motion, person, pet, vehicle, dog, crying, sound, stranger, and stranded-package detections arrive as distinct Home Assistant entities. Supported doorbells also expose a press sensor. HomeBase 3 familiar-person names appear when Eufy supplies one. Each camera keeps its last good still, while a separate **Last event image** entity retains the latest picture supplied with an event.
 
-Window Camera E10 T8404/type 314 has reporter-confirmed discovery and person detection on v0.1.246. The person event also activated the motion sensor for 10 seconds. Motion-only detection remains unconfirmed. The reporter confirmed clean ten-second H.264 clips at 1920 by 1080 on v0.1.254, including normal daylight colour. Normal HA video and close/reopen were confirmed on v0.1.255 behind Experimental NVR live video for the owner-account standalone route. The next candidate removes the fixed live duration limit while retaining viewer cleanup and a video-stall timeout. Playback beyond two minutes still needs confirmation. Fresh snapshot capture uses that same experimental video source and the shared JPEG extractor, but an E10 snapshot result is still hardware-unconfirmed. Automatic startup snapshots stay disabled. Event pictures, audio and camera controls remain unavailable. There is no need to repeat the confirmed [private RTC clip test](docs/E10_VIDEO_TEST.md).
+Window Camera E10 T8404/type 314 has reporter-confirmed discovery and person detection on v0.1.246. The person event also activated the motion sensor for 10 seconds. Motion-only detection remains unconfirmed. The reporter confirmed clean ten-second H.264 clips at 1920 by 1080 on v0.1.254, including normal daylight colour. Normal HA video and close/reopen were confirmed on v0.1.255 behind Experimental NVR live video for the owner-account standalone route. The fixed live duration limit was removed in v0.1.256 while retaining viewer cleanup and a video-stall timeout. The reporter confirmed 150 seconds of normal HA HLS playback on v0.1.257, with clean decoding and closure when the viewer closed. Night-time magenta tint remains observed and unresolved. Fresh snapshot capture uses that same experimental video source and the shared JPEG extractor, but an E10 snapshot result is still hardware-unconfirmed. Automatic startup snapshots stay disabled. Event pictures, audio and camera controls remain unavailable. There is no need to repeat the confirmed [private RTC clip test](docs/E10_VIDEO_TEST.md).
 
 Changing motion detection through a HomeBase 2 temporarily interrupts live video while the gateway confirms the setting. Pending live-view requests wait for that operation to finish.
 
@@ -671,7 +671,9 @@ Stop live views first. Record the original setting and restore it after testing.
 Exact standalone C37 T814X/type 10037 has opt-in HA tracking and saved-position
 controls, plus directional movement and spotlight trials in Diagnostics. These
 require the current owner account, API authentication and a ready direct route.
-Physical behaviour remains unconfirmed. See [the C37 trial guide](docs/C37_TEST.md)
+The reporter confirmed tracking on and off on v0.1.257, with independent app
+readback and the original setting restored. Movement, saved positions and
+spotlight behaviour remain unconfirmed. See [the C37 trial guide](docs/C37_TEST.md)
 for the separate confirmation and restoration requirements.
 
 The separate [FamiLock S3 / S3 Max status check](docs/T85V0_STATUS_TEST.md) is a
