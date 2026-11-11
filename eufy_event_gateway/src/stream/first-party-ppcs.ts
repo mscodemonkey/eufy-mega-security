@@ -3140,6 +3140,7 @@ export class FirstPartyPpcsSession {
       this.stats.camId++;
       this.#remote = { host: info.address, port: info.port };
       this.#recordS340MediaStage("peer_selected");
+      this.#recordC31ReplayKey();
       this.#send(REQ.ping, Buffer.alloc(0), this.#remote);
       const repairAttachedSetup = this.#options.homeBaseAttached
         && (this.#options.purpose !== "control" && this.#options.purpose !== "passive"
@@ -3526,6 +3527,31 @@ export class FirstPartyPpcsSession {
       videoCommands: this.stats.videoFrames, normalizedVideoUnits: this.stats.videoOutputFrames,
       closeReason: this.stats.closeReason,
     } });
+  }
+
+  /**
+   * Retain the selected C31 media session's ephemeral key in its encrypted journal.
+   * Offline replay can then unwrap frames the live parser never reached. The
+   * socket association and advertised public modulus bind this to one session.
+   * Other routes and control sessions never export a key, even with recording on.
+   */
+  #recordC31ReplayKey(): void {
+    if (this.#options.cameraModel !== "T817L" || this.#options.cameraDeviceType !== 10031
+      || this.#options.homeBaseAttached !== false || this.#options.channel !== 0
+      || this.#options.purpose !== undefined && this.#options.purpose !== "media") return;
+    const connection = rawSocketConnection(this.#socket);
+    if (!connection) return;
+    let key: Buffer | undefined;
+    try {
+      key = this.#rsa.privateKey.export({ type: "pkcs8", format: "der" });
+      recordRaw({ boundary: "ppcs_media_replay_key", connection, direction: "state", metadata: {
+        profile: "c31-session-rsa-v1", model: "T817L", deviceType: 10031, channel: 0,
+        format: "pkcs8-der", publicModulus: publicModulus(this.#rsa.publicKey),
+      } }, key);
+    } catch {
+
+      // Optional evidence must never prevent the selected media session starting.
+    } finally { key?.fill(0); }
   }
 
   /** Retain a bounded set of distinct pipeline outcomes for close diagnostics. */
