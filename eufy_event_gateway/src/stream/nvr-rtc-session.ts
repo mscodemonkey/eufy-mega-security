@@ -1035,8 +1035,11 @@ export class NvrRtcSession {
       this.#repeatCall();
       this.#signallingPing = setInterval(() => {
         if (!this.#retired && this.#socket?.readyState === WebSocket.OPEN) {
+
+          // General-camera pings use SMART even though call and hang-up use WEB.
+          const source = this.options.e10RtpTrial ? "SMART" : "WEB";
           try {
-            this.#send({ action: 2, data: JSON.stringify({ source: "WEB" }), code: 200 }, true);
+            this.#send({ action: 2, data: JSON.stringify({ source }), code: 200 }, true);
             if (this.options.e10RtpTrial) this.stats.signallingPingsQueued++;
           } catch {
             if (this.options.e10RtpTrial) this.stats.signallingPingQueueFailures++;
