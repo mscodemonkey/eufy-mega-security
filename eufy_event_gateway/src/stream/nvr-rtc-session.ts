@@ -1168,7 +1168,7 @@ export class NvrRtcSession {
 
   /** Copy only selected-route categories and counters before the peer is retired. */
   #retainE10PeerEvidence(): void {
-    if (!this.options.e10RtpTrial || !this.#peer) return;
+    if (this.#retired || !this.options.e10RtpTrial || !this.#peer) return;
     const ice = this.#peer.iceTransports[0]?.connection;
     const dtls = this.#peer.dtlsTransports[0];
     if (ice) this.stats.e10IceFailed = ice.state === "failed" ? 1 : 0;

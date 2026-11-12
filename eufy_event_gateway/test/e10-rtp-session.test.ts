@@ -228,7 +228,9 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
           else if (scenario === "continuous-peer-failed") {
             const failedPeer = ((): RTCPeerConnection | null => peer)();
             assert.ok(failedPeer);
-            failedPeer.connectionStateChange.execute("failed");
+            const connection = failedPeer.iceTransports[0]!.connection;
+            const failIce = Reflect.get(connection, "setState") as (state: string) => void;
+            failIce.call(connection, "failed");
             await new Promise<void>(resolve => session.output.destroyed ? resolve() : session.output.once("close", resolve));
           }
           else if (scenario.startsWith("continuous-hangup-")) {
@@ -271,6 +273,7 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
           assert.equal(session.stats.e10LocalRelaySelected, 0);
           assert.equal(session.stats.e10RemoteRelaySelected, 0);
           assert.ok(session.stats.e10IceResponses > 0);
+          assert.equal(session.stats.e10IceFailed, 1, "retirement preserves the ICE failure snapshot");
         }
         else if (scenario === "finite-deadline") assert.equal(errors[0]?.stage, "deadline");
         else if (scenario === "continuous-cancel") assert.equal(errors[0]?.stage, "cancelled");
