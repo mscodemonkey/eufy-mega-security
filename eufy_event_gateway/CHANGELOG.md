@@ -5,7 +5,7 @@
 - Add disabled-by-default saved quick-response buttons for reviewed HomeBase 3 doorbell routes. Current saved slots and media occupancy are checked before playback. T8210 playback is locally confirmed, while the reporter's T8214 remains unconfirmed.
 - Let late familiar-name recovery read a notification date without assuming one storage-directory name. Full recording, path, camera, station and calendar checks remain required. A matching affected-camera result is still needed.
 - Reject a Compatible stream source for a different camera or profile before Home Assistant registers it. The separately reported untouched-viewer camera switch remains under investigation.
-- Add E10-only counts for keepalive queue acceptance, queue failure and observed service responses. These distinguish future remote hang-ups without changing timing or claiming a five-minute playback repair.
+- Correct the E10 signalling keepalive to use the general-camera profile, and add counts for local queue acceptance, queue failure and observed service responses. Timing is unchanged and longer real-camera playback remains unconfirmed.
 - Correct the device-support notes for confirmed S1 final-retry and extra-viewer results, and keep the separate wrong-camera fault and E10 remote hang-up explicit.
 
 ## 0.1.260

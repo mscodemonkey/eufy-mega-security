@@ -34,8 +34,8 @@ when the viewer closed. Later plain HA and Frigate-via-HA views both ended after
 about five minutes. A v0.1.260 result identifies a remote hang-up after 301 seconds. Its cause remains unresolved. The E10
 signalling diagnostic distinguishes the rejected message layer and shape,
 and counts queued keepalives and observed service responses without logging
-message contents or accepting additional messages. This diagnostic
-does not repair the five-minute closure.
+message contents or accepting additional messages. v0.1.261 also corrects the E10 keepalive profile.
+Longer real-camera playback remains unconfirmed.
 
 No extra long view or private clip test is requested. If a view stops during
 ordinary use of a release containing this diagnostic, send only the complete
