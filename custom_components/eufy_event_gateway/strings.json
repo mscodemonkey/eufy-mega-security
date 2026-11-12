@@ -29,6 +29,9 @@
       }
     },
     "button": {
+      "quick_response_experimental": {
+        "name": "Play reply {reply} (experimental)"
+      },
       "compatibility_report": {
         "name": "Help test this device"
       },

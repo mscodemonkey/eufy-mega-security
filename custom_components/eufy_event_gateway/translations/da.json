@@ -29,6 +29,9 @@
       }
     },
     "button": {
+      "quick_response_experimental": {
+        "name": "Afspil hurtigt svar {reply} (eksperimentel)"
+      },
       "compatibility_report": {
         "name": "Hjælp med at teste denne enhed"
       },

@@ -18,6 +18,8 @@ entity:
     event_image:
       name: Last event image
   button:
+    quick_response_experimental:
+      name: "Play reply {reply} (experimental)"
     compatibility_report:
       name: Help test this device
     camera_light_on:

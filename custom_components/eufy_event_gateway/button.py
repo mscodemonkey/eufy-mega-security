@@ -160,6 +160,7 @@ class EufyQuickResponseButton(EufyGatewayEntity, ButtonEntity):
     """
 
     _attr_entity_registry_enabled_default = False
+    _attr_translation_key = "quick_response_experimental"
     _attr_icon = "mdi:message-text-play-outline"
 
     def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, reply_id: int, name: str) -> None:
@@ -168,7 +169,7 @@ class EufyQuickResponseButton(EufyGatewayEntity, ButtonEntity):
         ButtonEntity.__init__(self)
         self._reply_id = reply_id
         self._attr_unique_id = f"{serial}_quick_response_{reply_id}"
-        self._attr_name = f"Experimental quick response: {name}"
+        self._attr_translation_placeholders = {"reply": name}
 
     @property
     def available(self) -> bool:
