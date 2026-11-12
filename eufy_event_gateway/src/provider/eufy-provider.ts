@@ -3843,6 +3843,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Recheck current saved slots and play once, never retrying an uncertain result. */
   async playQuickResponse(serial: string, id: number): Promise<void> {
+    this.#assertRtcPreparationIdle();
     if (!validQuickResponseId(id)) throw new Error("Saved reply is unavailable");
     await this.#quickResponseOperation(serial, id);
   }
