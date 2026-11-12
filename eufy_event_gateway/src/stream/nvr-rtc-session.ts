@@ -24,6 +24,7 @@ import { doorbellRtcOffer, doorbellRtcAnswer, type DoorbellRtcOffer } from "./do
 import { refineE10OfferFailure } from "./e10-offer-diagnostic.js";
 import { VideoParameterSetCache } from "./live-stream-manager.js";
 import { markSourceTime } from "./media-source-clock.js";
+import { installE10RelayLifetime } from "./e10-relay-lifetime.js";
 import { installNvrIceTiming } from "./nvr-ice-timing.js";
 import { installNvrIceGathering } from "./nvr-ice-gathering.js";
 import { NvrPowerError, type NvrCameraPower } from "../provider/nvr-power-trial.js";
@@ -250,6 +251,19 @@ export interface NvrRtcStats {
   /** E10 keepalive queue attempts that threw before any delivery could be established. */
   signallingPingQueueFailures: number;
 
+  /** E10 selected ICE route categories, or -1 before a pair is selected. No addresses are retained. */
+  e10LocalRelaySelected: number;
+  e10RemoteRelaySelected: number;
+
+  /** E10 selected-pair request and response counts, including consent requests in the request total. */
+  e10IceRequests: number;
+  e10IceResponses: number;
+  e10ConsentRequests: number;
+
+  /** Terminal transport failure categories, or -1 before that transport exists. */
+  e10IceFailed: number;
+  e10DtlsFailed: number;
+
   /** Signalling sockets retired after read-only discovery, while the RTC observer remains active. */
   signallingClosuresAfterModeObservation: number;
   stopUnconfirmed: number;
@@ -294,7 +308,7 @@ export class NvrRtcSession {
   #audioOutput = this.#createOutput();
   readonly stats: NvrRtcStats = { packets: 0, frames: 0, video: 0, controlPackets: 0, rejected: 0,
     segmentNotEchoed: 0, staleReplies: 0, ignoredAudio: 0, audio: 0, rejectedAudio: 0, ignoredUnknownMedia: 0,
-    applicationSequenceRecoveries: 0, videoSequenceRecoveries: 0, callsRepeated: 0, inventoryRepeated: 0, signallingClosuresAfterVideo: 0, signallingPingsQueued: 0, signallingPingResponses: 0, signallingPingQueueFailures: 0, signallingClosuresAfterModeObservation: 0, stopUnconfirmed: 0,
+    applicationSequenceRecoveries: 0, videoSequenceRecoveries: 0, callsRepeated: 0, inventoryRepeated: 0, signallingClosuresAfterVideo: 0, signallingPingsQueued: 0, signallingPingResponses: 0, signallingPingQueueFailures: 0, e10LocalRelaySelected: -1, e10RemoteRelaySelected: -1, e10IceRequests: 0, e10IceResponses: 0, e10ConsentRequests: 0, e10IceFailed: -1, e10DtlsFailed: -1, signallingClosuresAfterModeObservation: 0, stopUnconfirmed: 0,
     reorderTimeoutChannel: -1, reorderTimeoutExpected: -1, reorderTimeoutWaiting: -1,
     reorderTimeoutAgeMs: 0, reorderTimeoutQueued: 0,
     channel0Frames: 0, channel1Frames: 0, channel2Frames: 0, channel3Frames: 0, channel4Frames: 0, channel5Frames: 0 };
@@ -906,6 +920,7 @@ export class NvrRtcSession {
 
   /** Attempt stream stop and deterministically retire the original connection. */
   close(): Promise<void> {
+    this.#retainE10PeerEvidence();
     if (!this.#timingsEmitted && this.#startInvoked) {
       this.#timingsEmitted = true;
       try { this.options.onTimings?.(this.timings); } catch { /* Diagnostics must never prevent retirement. */ }
@@ -1116,7 +1131,7 @@ export class NvrRtcSession {
       try { peer = this.#peer = this.dependencies.peer(this.#turn, this.#e10Offer ?? undefined);
         observeRawPeer(peer, { station: this.options.station, camera: this.options.camera }); }
       catch { throw new NvrTrialError("negotiation", "peer_setup"); }
-      peer.connectionStateChange.subscribe(state => { if (state === "failed" || state === "disconnected") this.#fail("negotiation", state === "failed" ? "peer_failed" : "peer_disconnected"); });
+      peer.connectionStateChange.subscribe(state => { this.#retainE10PeerEvidence(); if (state === "failed" || state === "disconnected") this.#fail("negotiation", state === "failed" ? "peer_failed" : "peer_disconnected"); });
       peer.onIceCandidate.subscribe(candidate => {
         if (!candidate?.candidate || this.#retired) return;
         this.#markTiming("firstLocalCandidate");
@@ -1141,6 +1156,7 @@ export class NvrRtcSession {
         }
       });
       await this.#step("remote_description", () => peer.setRemoteDescription(new RTCSessionDescription(offer.sdp, "offer"))); this.#guard();
+      if (this.#e10Offer) await this.#step("peer_setup", () => installE10RelayLifetime(peer, this.#negotiation.signal));
       this.#offerApplied = true;
       for (const candidate of this.#pendingCandidates.splice(0)) await this.#candidate(candidate);
       const answer = await this.#step("create_answer", () => peer.createAnswer()); this.#guard();
@@ -1148,6 +1164,22 @@ export class NvrRtcSession {
       widenNvrReceiveBuffers(peer);
       await this.#step("send_answer", () => { this.#action("info", { sdp: this.#e10Offer ? doorbellRtcAnswer(this.#e10Offer, peer.localDescription!.sdp) : peer.localDescription!.sdp }); this.#markTiming("answerSent"); this.#answerSent = true; this.#flushLocal(); });
     }
+  }
+
+  /** Copy only selected-route categories and counters before the peer is retired. */
+  #retainE10PeerEvidence(): void {
+    if (!this.options.e10RtpTrial || !this.#peer) return;
+    const ice = this.#peer.iceTransports[0]?.connection;
+    const dtls = this.#peer.dtlsTransports[0];
+    if (ice) this.stats.e10IceFailed = ice.state === "failed" ? 1 : 0;
+    if (dtls) this.stats.e10DtlsFailed = dtls.state === "failed" ? 1 : 0;
+    const pair = ice?.nominated;
+    if (!pair) return;
+    this.stats.e10LocalRelaySelected = pair.localCandidate.type === "relay" ? 1 : 0;
+    this.stats.e10RemoteRelaySelected = pair.remoteCandidate.type === "relay" ? 1 : 0;
+    this.stats.e10IceRequests = pair.requestsSent;
+    this.stats.e10IceResponses = pair.responsesReceived;
+    this.stats.e10ConsentRequests = pair.consentRequestsSent;
   }
 
   /** Receive only the selected H.264 track under this E10 call's existing owner. */
