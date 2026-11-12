@@ -26,6 +26,7 @@ options:
   password: ""
   country: AU
   verification_code: ""
+  homebase_local_addresses: []
   experimental_event_image_request: false
   experimental_homebase_event_images: false
   experimental_homebase_event_names: false
@@ -49,6 +50,9 @@ schema:
   password: password
   country: str
   verification_code: str
+  homebase_local_addresses:
+    - serial: str
+      address: str
   experimental_event_image_request: bool?
   experimental_homebase_event_images: bool?
   experimental_homebase_event_names: bool?

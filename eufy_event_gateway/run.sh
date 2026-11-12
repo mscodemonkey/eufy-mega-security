@@ -16,6 +16,7 @@ option() {
 export EUFY_USERNAME="$(option username)"
 export EUFY_PASSWORD="$(option password)"
 export EUFY_COUNTRY="$(option country)"
+export EUFY_GATEWAY_HOMEBASE_LOCAL_ADDRESSES="$(jq -c '.homebase_local_addresses // []' "$options")"
 export EUFY_VERIFY_CODE="$(jq -r '.verification_code // empty' "$options")"
 export EUFY_GATEWAY_EXPERIMENTAL_EVENT_IMAGE_REQUEST="$(jq -r '.experimental_event_image_request // false' "$options")"
 export EUFY_GATEWAY_EXPERIMENTAL_HOMEBASE_EVENT_IMAGES="$(jq -r '.experimental_homebase_event_images // false' "$options")"

@@ -9,6 +9,7 @@
  * prevents the HTTP and Eufy layers from drifting apart.
  */
 import { resolve } from "node:path";
+import { parseHomeBaseAddresses, type HomeBaseAddress } from "./provider/homebase-address.js";
 
 /** Fully validated settings used by the running gateway process. */
 export interface GatewayConfig {
@@ -19,6 +20,9 @@ export interface GatewayConfig {
   readonly streamGraceMilliseconds: number;
   readonly maxStreamSeconds: number;
   readonly apiToken: string | null;
+
+  /** Optional per-station LAN destinations, with existing peer authentication retained. */
+  readonly homeBaseLocalAddresses?: readonly HomeBaseAddress[];
 
   /** Opt-in private evidence session; requires bearer authentication even on loopback. */
   readonly captureFailedEventImages: boolean;
@@ -142,6 +146,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
   return {
     host,
     port: positiveInteger(environment.EUFY_GATEWAY_PORT, 3218),
+    homeBaseLocalAddresses: parseHomeBaseAddresses(environment.EUFY_GATEWAY_HOMEBASE_LOCAL_ADDRESSES),
     dataDirectory: resolve(environment.EUFY_GATEWAY_DATA_DIR ?? "./data"),
     provider,
     streamGraceMilliseconds: positiveInteger(environment.EUFY_GATEWAY_STREAM_GRACE_SECONDS, 10) * 1_000,

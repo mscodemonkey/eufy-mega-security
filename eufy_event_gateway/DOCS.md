@@ -25,3 +25,29 @@ HomeBase commands are not optimistic. The app sends each command once, waits for
 Mega events and native camera transport use the gateway's Mega session. If Eufy requests a CAPTCHA or sends an email code, open the app's **Web UI** and complete the prompt. The authenticated session persists in the app's private data volume, so routine upgrades and restarts do not repeat the challenge.
 
 The gateway-only PPCS probe has produced real H.264 and JPEG bytes for the test account's wired T8210 and USB-C-powered T817L. In v0.1.14, the companion integration exposes that transport through live camera views plus `capture_snapshot` and `record_clip`. A battery camera that is asleep or out of charge can complete the handshake without sending video; record its power state before treating that result as a software failure.
+
+## HomeBase address across VLANs
+
+If Home Assistant and a HomeBase are on different routed networks, add a row
+to **HomeBase local addresses** in the app configuration. Enter the HomeBase's
+serial and its private IPv4 address, then save and restart the app. For example,
+in the configuration YAML editor:
+
+```yaml
+homebase_local_addresses:
+  - serial: YOUR_HOMEBASE_SERIAL
+    address: 192.168.50.20
+```
+
+This directs the existing local lookup to that address for the matching HomeBase
+2, HomeBase 3 or HomeBase S1. The HomeBase must still be discovered in your account
+and pass the existing route and authentication checks. Your networks must permit
+the normal Eufy UDP traffic in both directions. It does not add cloud-only controls
+or bypass VLAN isolation. Cross-VLAN hardware operation still needs confirmation.
+Remove the row to return to the automatically reported address. Don't post your
+serial, address or full configuration in a public issue.
+
+With the provided Compose setup, add the same list to `docker/options.json`.
+When launching the gateway directly, set `EUFY_GATEWAY_HOMEBASE_LOCAL_ADDRESSES` to the list
+encoded as JSON. The default is `[]`. Malformed entries, duplicate serials, public
+addresses, hostnames and URLs are refused without printing their values.

@@ -95,6 +95,7 @@ if (config.provider === "simulated") {
     country: config.eufy.country,
     persistentDirectory: join(config.dataDirectory, "eufy-client"),
     maxStreamSeconds: config.maxStreamSeconds,
+    homeBaseLocalAddresses: config.homeBaseLocalAddresses ?? [],
     experimentalModelControls: config.experimentalModelControls,
     experimentalE30Locks: config.experimentalE30Locks,
     experimentalNvrLive: config.experimentalNvrLive,
