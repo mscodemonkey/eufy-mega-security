@@ -178,3 +178,112 @@ test("replays received persistent IDs on the next socket login", async (context)
   assert.deepEqual((login as unknown as { receivedPersistentId: string[] }).receivedPersistentId, ["synthetic-delivery"]);
   push.close();
 });
+
+/** Encode synthetic incoming data with only protocol-test identities. */
+function delivery(persistentId: string, immediateAck = false): Buffer {
+  const Data = mcsRoot().lookupType("mcs_proto.DataMessageStanza");
+  return Buffer.concat([Buffer.from([MessageTag.DataMessageStanza]), Data.encodeDelimited({
+    from: "synthetic-sender", category: "synthetic-app", persistentId, immediateAck,
+  }).finish()]);
+}
+
+/** Decode stream acknowledgements actually written by the transport. */
+function streamAcks(socket: FakeSocket): Array<{ type: number; id: string; extension: { id: number; data: Uint8Array }; lastStreamIdReceived: number }> {
+  const Iq = mcsRoot().lookupType("mcs_proto.IqStanza");
+  return socket.writes.filter(chunk => chunk[0] === MessageTag.IqStanza)
+    .map(chunk => Iq.decodeDelimited(chunk.subarray(1)) as unknown as ReturnType<typeof streamAcks>[number]);
+}
+
+test("acknowledges each ten reliable deliveries so a waiting server can continue", async context => {
+  context.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const sockets: FakeSocket[] = [];
+  const push = client(sockets);
+  context.after(() => push.close());
+  push.on("error", () => undefined);
+  let deliveries = 0;
+  push.on("message", () => deliveries++);
+  push.connect();
+  const socket = sockets[0]!;
+  socket.emit("data", loginResponse());
+  for (let index = 0; index < 10; index++) socket.emit("data", delivery(`first-${index}`));
+  const first = streamAcks(socket);
+  assert.equal(first.length, 1, "server holds its next batch until this stream acknowledgement");
+  assert.equal(first[0]!.lastStreamIdReceived, 11);
+  assert.equal(first[0]!.type, 1);
+  assert.equal(first[0]!.id, "");
+  assert.equal(first[0]!.extension.id, 13);
+  assert.equal(first[0]!.extension.data.length, 0);
+  for (let index = 0; index < 10; index++) socket.emit("data", delivery(`second-${index}`));
+  assert.deepEqual(streamAcks(socket).map(ack => ack.lastStreamIdReceived), [11, 21]);
+  assert.equal(deliveries, 20);
+});
+
+test("honours immediate acknowledgement before suppressing a duplicate delivery", context => {
+  context.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const sockets: FakeSocket[] = [];
+  const push = client(sockets);
+  context.after(() => push.close());
+  push.on("error", () => undefined);
+  let deliveries = 0;
+  push.on("message", () => deliveries++);
+  push.connect();
+  const socket = sockets[0]!;
+  socket.emit("data", loginResponse());
+  socket.emit("data", delivery("duplicate", true));
+  socket.emit("data", delivery("duplicate", true));
+  assert.deepEqual(streamAcks(socket).map(ack => ack.lastStreamIdReceived), [2, 3]);
+  assert.equal(deliveries, 1);
+  push.close();
+  socket.emit("data", delivery("late", true));
+  assert.equal(streamAcks(socket).length, 2);
+});
+
+test("heartbeats acknowledge our incoming position rather than echoing the peer's position", context => {
+  context.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const sockets: FakeSocket[] = [];
+  const push = client(sockets);
+  context.after(() => push.close());
+  push.on("error", () => undefined);
+  push.connect();
+  const socket = sockets[0]!;
+  socket.emit("data", loginResponse());
+  socket.emit("data", delivery("before-ping"));
+  const Ping = mcsRoot().lookupType("mcs_proto.HeartbeatPing");
+  socket.emit("data", Buffer.concat([Buffer.from([MessageTag.HeartbeatPing]),
+    Ping.encodeDelimited({ lastStreamIdReceived: 9999, streamId: 8888 }).finish()]));
+  const reply = socket.writes.find(chunk => chunk[0] === MessageTag.HeartbeatAck)!;
+  const Ack = mcsRoot().lookupType("mcs_proto.HeartbeatAck");
+  assert.equal((Ack.decodeDelimited(reply.subarray(1)) as unknown as { lastStreamIdReceived: number }).lastStreamIdReceived, 3);
+  for (let index = 0; index < 9; index++) socket.emit("data", delivery(`after-ping-${index}`));
+  assert.equal(streamAcks(socket).length, 0, "heartbeat already acknowledged the earlier reliable delivery");
+  context.mock.timers.tick(20);
+  const ping = socket.writes.find(chunk => chunk[0] === MessageTag.HeartbeatPing)!;
+  assert.equal((Ping.decodeDelimited(ping.subarray(1)) as unknown as { lastStreamIdReceived: number }).lastStreamIdReceived, 12);
+  socket.emit("data", delivery("after-outgoing-ping"));
+  assert.equal(streamAcks(socket).length, 0);
+});
+
+test("a fresh socket resets stream position but retains delivered-ID deduplication", async context => {
+  context.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const sockets: FakeSocket[] = [];
+  const push = client(sockets);
+  context.after(() => push.close());
+  push.on("error", () => undefined);
+  let deliveries = 0;
+  push.on("message", () => deliveries++);
+  push.connect();
+  const old = sockets[0]!;
+  old.emit("data", loginResponse());
+  old.emit("data", delivery("retained", true));
+  old.emit("data", delivery("retained", true));
+  old.destroy();
+  await Promise.resolve();
+  context.mock.timers.tick(5000);
+  const current = sockets[1]!;
+  current.emit("data", loginResponse());
+  current.emit("data", delivery("retained", true));
+  old.emit("data", delivery("stale", true));
+  assert.deepEqual(streamAcks(current).map(ack => ack.lastStreamIdReceived), [2]);
+  assert.deepEqual(streamAcks(old).map(ack => ack.lastStreamIdReceived), [2, 3]);
+  assert.equal(deliveries, 1);
+});
