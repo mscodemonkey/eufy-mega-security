@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.263
+
+- Add optional per-HomeBase private IPv4 destinations for routed local networks while retaining existing device authentication. Cross-VLAN hardware operation remains unconfirmed.
+- Reduce repeated failed saved-reply list connections and add privacy-safe failure reasons. T8214 reply discovery and playback remain unconfirmed.
+- Add the exact T8442 Outdoor Cam E210 HomeBase 3 candidate for camera entities, motion/person/pet events, event pictures and restricted live media. Camera controls and live audio remain unavailable, and hardware behaviour needs confirmation.
+- Renew E10 relay permissions before their receive lifetime expires and retain selected-route failure observations. The reported five-minute remote hangup and post-hangup refusal remain unresolved.
+
 ## 0.1.262
 
 - Correct incoming Android push receipt acknowledgements. Reliable batches and explicit immediate requests now receive socket-local confirmation, including repeated messages, without publishing duplicate camera events.
