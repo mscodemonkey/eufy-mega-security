@@ -63,7 +63,7 @@ test('a connection that never joined sends no hangup', { timeout: 10000 }, async
   assert.deepEqual(received.map(message => message.action), [1]);
 });
 
-test('a call keeps its signalling socket open with pings, so a long call can still hang up', { timeout: 10000 }, async context => {
+for (const e10 of [false, true]) test(`${e10 ? 'E10' : 'NVR'} keeps its own signalling ping contract through twelve intervals and retires it on close`, { timeout: 10000 }, async context => {
   context.mock.timers.enable({ apis: ['setInterval'] });
 
   // Fail rather than wait, so the local server still closes when a ping never comes.
@@ -91,7 +91,8 @@ test('a call keeps its signalling socket open with pings, so a long call can sti
       else if (message.dataType === 'ack') accepted();
     });
   }));
-  const session = new NvrRtcSession({ station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
+  const session = new NvrRtcSession({ station: 'synthetic-station', camera: e10 ? 'synthetic-station' : 'synthetic-camera', channel: e10 ? 0 : 3,
+    ...(e10 ? { e10RtpTrial: true, cameraType: 314, maximumLifetimeMilliseconds: null } : {}),
     administrator: 'synthetic-administrator', context: { host: 'security-smart-ie.eufylife.com', region: 'IE',
       authToken: 'synthetic-token', gtoken: 'synthetic-gtoken', sign: 'synthetic-sign' },
     signal: controller.signal, current: () => true, ready: () => { throw new Error('No offer was sent'); } }, {
@@ -101,7 +102,7 @@ test('a call keeps its signalling socket open with pings, so a long call can sti
   try {
     const starting = session.start();
     await within(answered, 'call not answered');
-    for (let ping = 0; ping < 2; ping++) {
+    for (let ping = 0; ping < 12; ping++) {
       const replied = new Promise<void>(resolve => pinged.push(resolve));
       context.mock.timers.tick(30_000);
       await within(replied, 'no ping');
@@ -113,9 +114,19 @@ test('a call keeps its signalling socket open with pings, so a long call can sti
     await assert.rejects(starting, { stage: 'cancelled' });
     await session.close();
     await closed;
-    assert.deepEqual(received.map(message => message.dataType ?? `action${message.action}`), ['action1', 'call', 'ack', 'action2', 'action2', 'hangup']);
-    const ping = received[3]!;
-    assert.equal(ping.msgid, '0'); assert.equal(ping.code, 200); assert.deepEqual(JSON.parse(ping.data as string), { source: 'WEB' });
+    assert.deepEqual(received.map(message => message.dataType ?? `action${message.action}`), ['action1', 'call', 'ack', ...Array(12).fill('action2'), 'hangup']);
+    for (const ping of received.filter(message => message.action === 2)) {
+      assert.equal(ping.msgid, '0'); assert.equal(ping.code, 200);
+      assert.deepEqual(JSON.parse(ping.data as string), { source: e10 ? 'SMART' : 'WEB' });
+    }
+    assert.equal(session.stats.signallingPingsQueued, e10 ? 12 : 0);
+    assert.equal(session.stats.signallingPingResponses, e10 ? 12 : 0);
+    assert.equal(session.stats.signallingPingQueueFailures, 0);
+    assert.equal(received.at(-1)!.source, 'WEB');
+    const retiredCount = received.length;
+    context.mock.timers.tick(90_000);
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.equal(received.length, retiredCount);
   } finally { controller.abort(); await session.close(); server.close(); }
 });
 
