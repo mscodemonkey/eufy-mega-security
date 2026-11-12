@@ -241,6 +241,9 @@ export interface CameraState {
   readonly cameraLightControlSupported: boolean;
 
   /** Offer disabled-by-default light trial buttons without claiming readable lamp state. */
+  /** Advertise disabled-by-default saved-reply controls on the reviewed opt-in route. */
+  readonly experimentalQuickResponseSupported?: boolean;
+
   readonly experimentalLightControlSupported: boolean;
   readonly timedLightControlSupported: boolean;
   readonly cameraSirenControlSupported: boolean;
@@ -574,6 +577,9 @@ export interface CameraIdentity {
   readonly cameraLightControlSupported?: boolean;
 
   /** Exact owned opt-in route for experimental stateless light buttons. */
+  /** Offer saved-reply trial buttons only for an authenticated opt-in route. */
+  readonly experimentalQuickResponseSupported?: boolean;
+
   readonly experimentalLightControlSupported?: boolean;
   readonly timedLightControlSupported?: boolean;
   readonly cameraSirenControlSupported?: boolean;
