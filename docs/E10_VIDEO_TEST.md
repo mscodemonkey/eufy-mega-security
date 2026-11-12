@@ -30,10 +30,11 @@ the call. Signalling and keepalive traffic cannot renew that deadline. The
 manual clip trial retains its finite lifetime and grants no additional controls.
 
 The v0.1.257 report confirmed 150 seconds of clean HA HLS playback and closure
-when the viewer closed. Later plain HA and Frigate-via-HA views both ended near
+when the viewer closed. Later plain HA and Frigate-via-HA views both ended after
 about five minutes. A v0.1.260 result identifies a remote hang-up after 301 seconds. Its cause remains unresolved. The E10
-signalling diagnostic distinguishes the rejected message layer and shape
-without logging its contents or accepting additional messages. This diagnostic
+signalling diagnostic distinguishes the rejected message layer and shape,
+and counts queued keepalives and observed service responses without logging
+message contents or accepting additional messages. This diagnostic
 does not repair the five-minute closure.
 
 No extra long view or private clip test is requested. If a view stops during
