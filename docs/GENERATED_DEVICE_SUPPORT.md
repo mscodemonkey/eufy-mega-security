@@ -55,6 +55,7 @@ hardware evidence and topology-specific results remain in
 | T8425, T8425121 | Floodlight Cam E340 | 47 | camera | supported |
 | T8426, T8426121 | Floodlight Camera E30 | 87 | camera | supported |
 | T8441 | Outdoor Cam Pro / E220 (Solo OutdoorCam C24) | 45 | camera | supported |
+| T8442 | Outdoor Cam 1080p (Solo OutdoorCam C22) | 46 | camera | ready_to_test |
 | T84A0, T81A0, T81A0111 | Solar Wall Light Cam S120 | 10005 | camera | supported |
 | T84A1, T84A1311 | Wired Wall Light Cam S100 | 151 | camera | supported |
 | T85V0, T85V01Y1, T85V0C, E85V0, E85V0JY1, T85V0JY1 | FamiLock S3 / S3 Max | 203 | camera | supported |
