@@ -10,6 +10,8 @@ export interface PushRecordingReference {
 
   /** Opaque station database identity, never interpreted as a time or sequence. */
   readonly id: string;
+
+  /** Exact opaque path used only for matching the station history row, never fetched. */
   readonly storagePath: string;
 
   /** Camera trigger clock used for freshness and rejecting an explicitly older visit. */
@@ -90,14 +92,15 @@ export function pushRecordingReference(payload: Record<string, unknown>): PushRe
 }
 
 /**
- * Read the wall-calendar day from the observed HomeBase recording path layout.
+ * Read the wall-calendar day from the notification-owned HomeBase path layout.
  * Folder and filename timestamps must agree on the day and month. This is a
- * conservative route-specific layout, not a general filename/date heuristic.
+ * route-specific calendar layout, not a general filename/date heuristic. The
+ * single storage-directory component is opaque and cannot select a local file.
  * The later history join still requires the entire path and exact record ID.
  */
 export function recordingPathDate(path: unknown): string | null {
   if (typeof path !== "string" || path.length > 1024) return null;
-  const match = /^\/zx\/hdd_data[0-9]+\/Camera[0-9]{2}\/([0-9]{6})\/([0-9]{14})\/([0-9]{14})\.zxvideo$/.exec(path);
+  const match = /^\/zx\/[A-Za-z0-9_-]{1,64}\/Camera[0-9]{2}\/([0-9]{6})\/([0-9]{14})\/([0-9]{14})\.zxvideo$/.exec(path);
   if (!match || match[1] !== match[2]!.slice(0, 6) || match[2]!.slice(0, 8) !== match[3]!.slice(0, 8)) return null;
   for (const stamp of [match[2]!, match[3]!]) {
     const iso = `${stamp.slice(0, 4)}-${stamp.slice(4, 6)}-${stamp.slice(6, 8)}T${stamp.slice(8, 10)}:${stamp.slice(10, 12)}:${stamp.slice(12, 14)}Z`;
