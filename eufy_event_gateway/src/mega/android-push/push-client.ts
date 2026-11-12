@@ -168,6 +168,8 @@ export function normalizePushEvent(raw: RawPushMessage): PushEvent {
  * MegaPushReceiver owns this client and closes it on shutdown. This class owns
  * TLS reconnect, login, heartbeat, stanza decoding, and in-memory delivered
  * IDs; the caller persists the IDs and decides how camera events are routed.
+ * Socket-local stream acknowledgements precede duplicate filtering and retire
+ * with that connection. They establish receipt, never camera-event publication.
  */
 export class PushClient extends EventEmitter {
 
@@ -184,6 +186,12 @@ export class PushClient extends EventEmitter {
   private persistentIds: string[] = [];
   private loggedIn = false;
   private closing = false;
+
+  /** Incoming stanza position on this socket, including its login response. */
+  private receivedStreamId = 0;
+
+  /** Reliable stanzas received since the last outgoing acknowledgement. */
+  private unacknowledgedMessages = 0;
 
   /** Consecutive MCS login rejections — transient ones self-heal via reconnect (see {@link onMessage}). */
   private loginFailures = 0;
@@ -224,6 +232,8 @@ export class PushClient extends EventEmitter {
     this.closing = false;
     this.parser.reset();
     this.loggedIn = false;
+    this.receivedStreamId = 0;
+    this.unacknowledgedMessages = 0;
     const socket = this.transport.connect();
     this.rawConnection = observeRawSocket(socket, "android_push", "tls");
     this.socket = socket;
@@ -286,25 +296,35 @@ export class PushClient extends EventEmitter {
 
   private buildHeartbeatPing(): Buffer {
     const Ping = mcsRoot().lookupType("mcs_proto.HeartbeatPing");
-    const buf = Ping.encodeDelimited({}).finish();
+    const buf = Ping.encodeDelimited({ lastStreamIdReceived: this.receivedStreamId }).finish();
     return Buffer.concat([Buffer.from([MessageTag.HeartbeatPing]), buf]);
   }
 
-  private buildHeartbeatAck(lastStreamId?: number): Buffer {
+  private buildHeartbeatAck(): Buffer {
     const Ack = mcsRoot().lookupType("mcs_proto.HeartbeatAck");
-    const obj = lastStreamId ? { lastStreamIdReceived: lastStreamId } : {};
+    const obj = { lastStreamIdReceived: this.receivedStreamId };
     const buf = Ack.encodeDelimited(obj).finish();
     return Buffer.concat([Buffer.from([MessageTag.HeartbeatAck]), buf]);
   }
 
   private onMessage(m: McsMessage): void {
     recordRaw({ boundary: "android_push_decode", connection: this.rawConnection, direction: "decode", metadata: { event: "frame_parsed", frame: m } });
+    if (this.loggedIn) {
+      this.receivedStreamId++;
+      if (typeof m.object?.persistentId === "string" && m.object.persistentId.length > 0) this.unacknowledgedMessages++;
+      if (this.unacknowledgedMessages >= 10
+        || m.tag === MessageTag.DataMessageStanza && m.object?.immediateAck === true) {
+        this.sendStreamAcknowledgement();
+      }
+    }
     switch (m.tag) {
       case MessageTag.LoginResponse:
         if (m.object?.error) {
           this.onLoginError(m.object.error);
         } else {
           this.loggedIn = true;
+          this.receivedStreamId = 1;
+          this.unacknowledgedMessages = 0;
           this.clearLoginTimer();
           this.currentDelay = 0;
           this.loginFailures = 0;
@@ -317,7 +337,10 @@ export class PushClient extends EventEmitter {
         this.handleDataMessage(m.object);
         break;
       case MessageTag.HeartbeatPing:
-        if (this.socket) this.socket.write(this.buildHeartbeatAck(m.object?.lastStreamIdReceived));
+        if (this.socket && this.loggedIn) {
+          this.socket.write(this.buildHeartbeatAck());
+          this.unacknowledgedMessages = 0;
+        }
         break;
       case MessageTag.HeartbeatAck:
         break;
@@ -326,6 +349,21 @@ export class PushClient extends EventEmitter {
         this.socket?.destroy();
         break;
     }
+  }
+
+  /**
+   * Acknowledge the incoming socket position before application deduplication.
+   * Google's stream-ack extension is an empty SET IQ with extension 13. The
+   * position counts received stanzas, never the peer's acknowledgement of our
+   * outgoing stream. Replayed deliveries still need transport acknowledgement.
+   */
+  private sendStreamAcknowledgement(): void {
+    if (!this.socket || !this.loggedIn) return;
+    const Iq = mcsRoot().lookupType("mcs_proto.IqStanza");
+    const body = Iq.encodeDelimited({ type: 1, id: "", extension: { id: 13, data: Buffer.alloc(0) },
+      lastStreamIdReceived: this.receivedStreamId }).finish();
+    this.socket.write(Buffer.concat([Buffer.from([MessageTag.IqStanza]), body]));
+    this.unacknowledgedMessages = 0;
   }
 
   /**
@@ -388,6 +426,7 @@ export class PushClient extends EventEmitter {
       const socket = this.socket;
       if (!socket || !this.loggedIn) return;
       socket.write(this.buildHeartbeatPing());
+      this.unacknowledgedMessages = 0;
       if (this.heartbeatReplyTimer) return;
       this.heartbeatReplyTimer = setTimeout(() => {
         this.heartbeatReplyTimer = undefined;
