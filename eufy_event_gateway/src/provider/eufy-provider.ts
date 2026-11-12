@@ -12,6 +12,7 @@
  * forwarding private event fields into the logger. Periodic cloud refreshes admit
  * newly added devices without replacing push receivers or active media sessions.
  */
+import { isQuickResponseRoute, validQuickResponseId, type DoorbellQuickResponse } from "./quick-responses.js";
 import { ppcsSourceDiagnostic } from "../diagnostics/ppcs-source-diagnostic.js";
 import { GENERATED_CATALOGUE_DEVICES } from "./devices/generated-catalogue.js";
 import { classicLockInventory } from "./classic-lock-inventory.js";
@@ -1956,7 +1957,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       liveAudioSupported: this.#normalNvrLiveBinding(device, station) && nvrLiveAudioAdmitted(device, station),
       talkbackSupported: false, enableControlSupported: false, motionDetectionControlSupported: false,
       guardModeControlSupported: false, guardModeRefreshSupported: false, nightVisionControlSupported: !!profile && values.night !== null,
-      autoNightVisionControlSupported: false, cameraLightControlSupported: false, experimentalLightControlSupported: false,
+      autoNightVisionControlSupported: false, cameraLightControlSupported: false, experimentalLightControlSupported: false, experimentalQuickResponseSupported: false,
       timedLightControlSupported: false,
       cameraSirenControlSupported: false, presetPositionControlSupported: false, aiTrackingControlSupported: !!profile?.aiTracking && values.tracking !== null,
       autoCruiseControlSupported: false, motionSensitivityControlSupported: false, motionSensitivitySteps: null, homebaseChimeControlSupported: false, lightBrightnessControlSupported: false, manualFloodlightControlSupported: false, preferenceControls: [], streamingQualityModes: profile?.quality ?? [], nightVisionModes: profile?.night ?? [],
@@ -3835,6 +3836,103 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
+  /** Read only reply IDs and labels, retaining no private audio paths. */
+  getQuickResponses(serial: string): Promise<readonly DoorbellQuickResponse[]> {
+    return this.#quickResponseOperation(serial);
+  }
+
+  /** Recheck current saved slots and play once, never retrying an uncertain result. */
+  async playQuickResponse(serial: string, id: number): Promise<void> {
+    this.#assertRtcPreparationIdle();
+    if (!validQuickResponseId(id)) throw new Error("Saved reply is unavailable");
+    await this.#quickResponseOperation(serial, id);
+  }
+
+  /** Own one finite peer reservation through fresh admission, dispatch and awaited disconnect. */
+  async #quickResponseOperation(serial: string, id?: number): Promise<readonly DoorbellQuickResponse[]> {
+    this.#assertRtcPreparationIdle();
+    const device = this.#devices.get(serial), generation = this.#startupGeneration;
+    const route = device ? ppcsStreamRoute(device, this.#devices) : null, peer = route?.peer;
+    const binding = this.#client.authenticatedBinding();
+    let stage = "admission";
+    const failure = (): Error => new Error(`Quick response unavailable: stage=${stage}. Playback outcome may be unknown. Do not retry automatically.`);
+    if (!this.config.experimentalModelControls || !this.config.apiAuthenticationConfigured || !device || !route || !peer
+      || !isQuickResponseRoute(this.#modelTrialRoute(device, route)) || !binding || !binding()
+      || !device.adminUserId || peer.adminUserId !== device.adminUserId || this.#recordingClosing
+      || !isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys()))) throw failure();
+    stage = "busy";
+    const controls = [this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations,
+      this.#audioRecordingOperations, this.#motionOperations, this.#nightVisionOperations, this.#guardModeOperations,
+      this.#lightOperations, this.#panControlOperations, this.#cameraSirenOperations];
+    const related = [...this.#devices.values()].filter(row => row.serial === peer.serial || row.parentSerial === peer.serial);
+    if (this.#localMotionAborters.size || this.#trialPeers.has(peer.serial) || this.#recordingPeerReserved(serial)
+      || this.#stationOperations.has(peer.serial) || related.some(row => this.#ppcsStreams.has(row.serial)
+        || this.#streamStarts.has(row.serial) || controls.some(map => map.has(row.serial)))) throw failure();
+    const release = this.#reserveTrialPeer(peer.serial), controller = new AbortController();
+    this.#manualControlAborters.set(peer.serial, controller);
+    let session: FirstPartyPpcsSession | null = null;
+    const abort = (): void => { controller.abort(); session?.close(); };
+    const deadline = setTimeout(abort, 60_000);
+    const valid = (rows: readonly MegaInventoryDevice[]): boolean => {
+      const child = rows.filter(row => row.serial === serial), parent = rows.filter(row => row.serial === peer.serial);
+      return child.length === 1 && parent.length === 1
+        && rows.filter(row => row.parentSerial === peer.serial && row.channel === device.channel).length === 1
+        && !inventoryBindingChanged(device, child[0]!) && !inventoryBindingChanged(peer, parent[0]!)
+        && parent[0]!.p2pDid === peer.p2pDid && parent[0]!.p2pConnection === peer.p2pConnection
+        && child[0]!.adminUserId === device.adminUserId && parent[0]!.adminUserId === device.adminUserId;
+    };
+    const current = (): void => {
+      if (controller.signal.aborted || this.#recordingClosing || generation !== this.#startupGeneration
+        || session !== null && session.stats.closeReason !== "open" || !binding() || !valid([...this.#devices.values()])) throw failure();
+    };
+    const owned = async <T>(operation: () => Promise<T>): Promise<T> => {
+      current();
+      let cancel!: () => void;
+      const cancelled = new Promise<never>((_resolve, reject) => {
+        cancel = () => reject(failure()); controller.signal.addEventListener("abort", cancel, { once: true });
+        if (controller.signal.aborted) cancel();
+      });
+      try { const result = await Promise.race([operation(), cancelled]); current(); return result; }
+      finally { controller.signal.removeEventListener("abort", cancel); }
+    };
+    const fresh = async (): Promise<void> => {
+      const inventory = await owned(() => this.#client.inventory(controller.signal));
+      if (inventory.devices.filter(row => row.device_sn === serial).length !== 1
+        || inventory.devices.filter(row => row.device_sn === peer.serial).length !== 1 || !valid(parseMegaInventory(inventory))) throw failure();
+    };
+    try {
+      stage = "inventory"; await fresh();
+      stage = "session_key";
+      const dsk = await owned(() => this.#dskKey(peer.serial));
+      if (!dsk) throw failure();
+      session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!, appConnection: peer.p2pConnection!,
+        localAddress: peer.localAddress, dskKey: dsk.key, channel: device.channel!, cameraModel: device.model,
+        stationModel: peer.model, accountId: device.adminUserId!, homeBaseAttached: true, purpose: "control",
+        maxSeconds: 60, resolveCipherKey: key => this.#resolveCipherKey(key, peer) });
+      this.#trialSessions.set(peer.serial, session); session.output.once("end", abort); session.output.resume();
+      stage = "connect"; await owned(() => session!.start());
+      stage = "inventory"; await fresh();
+      stage = "list";
+      const replies = await owned(() => session!.queryQuickResponses());
+      if (id !== undefined) {
+        if (!replies.some(reply => reply.id === id)) throw failure();
+        stage = "inventory"; await fresh();
+        stage = "playback"; await owned(() => session!.playQuickResponse(id, current));
+      }
+      return replies;
+    } catch {
+      logger.warn("doorbell_quick_response_failed", `Quick response failed: stage=${stage} playback_requested=${id !== undefined}`);
+      throw failure();
+    } finally {
+      clearTimeout(deadline); session?.output.removeListener("end", abort); controller.abort();
+      try { session?.close(); await session?.waitUntilClosed(); }
+      finally {
+        if (this.#trialSessions.get(peer.serial) === session) this.#trialSessions.delete(peer.serial);
+        this.#manualControlAborters.delete(peer.serial); release();
+      }
+    }
+  }
+
   /** Own one opt-in manual-light write and its cleanup without claiming reported or physical light state. */
   async #performManualLightTrial(serial: string, request: Extract<ModelControlTrial, { action: "manualLight" }>,
     signal?: AbortSignal): Promise<ModelControlTrialResult> {
@@ -5436,6 +5534,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === true
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       directionalPanControlSupported: this.#c37ControlRouteReady(device),
+      experimentalQuickResponseSupported: this.config.experimentalModelControls === true
+        && this.config.apiAuthenticationConfigured === true && this.#client.authenticatedBinding() !== null
+        && route !== null && isQuickResponseRoute(this.#modelTrialRoute(device, route)) && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       experimentalLightControlSupported: this.#c35LightRouteReady(device) || this.#c37ControlRouteReady(device)
         || Boolean(this.config.apiAuthenticationConfigured && this.modelControlTrials(device.serial).includes("manualLight")
           && isPpcsRouteReady(device, this.#devices, dskPeerSerials)),

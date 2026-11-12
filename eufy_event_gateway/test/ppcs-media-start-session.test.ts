@@ -983,3 +983,49 @@ test("retiring a T8420 during cipher resolution cannot dispatch the alternative"
   assert.equal(f.sent.length, sent);
   assert.equal(f.session.stats.mediaStartProtocols.includes("t8420-clear"), false);
 });
+
+for (const model of ["T8210", "T8214"]) {
+  test(`${model} saved replies use the child query and dispatch playback once`, async context => {
+    const f = await peer(context, true, model, "control", "T8030", undefined, 4);
+    const flush = async () => { await new Promise(resolve => setImmediate(resolve)); };
+    const seal = (plain: Buffer) => {
+      const cipher = createCipheriv("aes-256-gcm", Buffer.alloc(32, 9), Buffer.alloc(12, 7));
+      cipher.setAAD(Buffer.from("eufy security"));
+      const encrypted = Buffer.concat([cipher.update(plain), cipher.final()]);
+      return Buffer.concat([cipher.getAuthTag(), Buffer.alloc(12, 7), Buffer.alloc(4), encrypted]);
+    };
+    const commands = (command: number) => f.sent.filter(packet => packet.length >= 24
+      && packet.toString("ascii", 8, 12) === "XZYH" && packet.readUInt16LE(12) === command);
+    try {
+      await f.negotiate();
+      const listing = f.session.queryQuickResponses(); await flush();
+      const request = commands(1350).at(-1)!;
+      assert.deepEqual(decodePpcsControlRecord(request.subarray(24), request[21]!, Buffer.alloc(16), Buffer.alloc(32, 9)),
+        { account_id: "synthetic-owner", cmd: 6237, mChannel: 4, mValue3: 0 });
+      const list = seal(Buffer.from(JSON.stringify({ cmd: 6237, payload: { voice_list: [{ voice_id: 100, voice_name: "Synthetic reply" }] } })));
+      let listed = false; void listing.then(() => { listed = true; });
+      f.frame(1351, list, 3, false, 8); await flush(); assert.equal(listed, false);
+      f.frame(1351, list, 4, false, 8); assert.equal((await listing).at(-1)!.id, 100);
+      await assert.rejects(f.session.playQuickResponse(4, () => {}));
+      const playing = f.session.playQuickResponse(100, () => {}); await flush();
+      assert.equal(commands(1706).length, 0);
+      f.video(4); context.mock.timers.tick(50); await flush();
+      assert.equal(commands(1706).length, 1);
+      const packet = commands(1706)[0]!;
+      assert.equal(packet[20], 4); assert.equal(packet[21], 8);
+      const payload = packet.subarray(24);
+      const decoder = createDecipheriv("aes-256-gcm", Buffer.alloc(32, 9), payload.subarray(16, 28));
+      decoder.setAAD(Buffer.from("eufy security")); decoder.setAuthTag(payload.subarray(0, 16));
+      const plain = Buffer.concat([decoder.update(payload.subarray(32)), decoder.final()]);
+      assert.equal(plain.length, 136); assert.equal(plain.readUInt32LE(0), 4); assert.equal(plain.readUInt32LE(4), 100);
+      assert.equal(plain.subarray(8).toString().replace(/\0+$/, ""), "synthetic-owner");
+      let finished = false; void playing.then(() => { finished = true; });
+      f.frame(1706, Buffer.alloc(132), 3, true); await flush(); assert.equal(finished, false);
+      f.frame(1706, Buffer.alloc(4), 4, true); await flush(); assert.equal(finished, false);
+      f.frame(1706, Buffer.alloc(132), 4, true); await flush();
+      context.mock.timers.tick(15_000); await playing;
+      assert.equal(commands(1706).length, 1);
+      f.session.close(); assert.equal(f.session.stats.mediaStopAttempts, 1);
+    } finally { f.session.close(); }
+  });
+}

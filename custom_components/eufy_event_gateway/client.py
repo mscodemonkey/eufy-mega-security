@@ -658,6 +658,33 @@ class GatewayClient:
             payload={"enabled": enabled},
         )
 
+    async def quick_responses(self, serial: str) -> list[dict[str, Any]]:
+        """Read saved reply metadata without retrieving audio or storage paths."""
+        result = await self._json(f"/api/cameras/{quote(serial, safe='')}/quick-responses", timeout=65)
+        replies = result.get("replies")
+        if not isinstance(replies, list) or len(replies) > 6:
+            raise GatewayClientError("Saved reply list unavailable")
+        seen: set[int] = set()
+        for reply in replies:
+            if (not isinstance(reply, dict) or set(reply) != {"id", "name", "custom"}
+                    or type(reply["id"]) is not int or reply["id"] not in (1, 2, 3, 100, 101, 102)
+                    or reply["id"] in seen or not isinstance(reply["name"], str)
+                    or not reply["name"].strip() or len(reply["name"]) > 80
+                    or any(ord(char) < 32 or ord(char) == 127 for char in reply["name"])
+                    or type(reply["custom"]) is not bool or reply["custom"] != (reply["id"] >= 100)):
+                raise GatewayClientError("Saved reply list unavailable")
+            seen.add(reply["id"])
+        return replies
+
+    async def play_quick_response(self, serial: str, reply_id: int) -> None:
+        """Dispatch once. A lost acknowledgement must never cause automatic replay."""
+        if type(reply_id) is not int or reply_id not in (1, 2, 3, 100, 101, 102):
+            raise GatewayClientError("Choose one saved reply")
+        result = await self._json(f"/api/cameras/{quote(serial, safe='')}/quick-responses", method="POST",
+                                  payload={"id": reply_id}, timeout=65)
+        if result != {"outcome": "acknowledged", "physicalConfirmationRequired": True}:
+            raise GatewayClientError("Playback outcome is unknown. Check before trying again.")
+
     async def pan_camera(self, serial: str, direction: str) -> None:
         """Send one direct movement click without retrying an unknown outcome."""
         if direction not in ("left", "right", "up", "down"):

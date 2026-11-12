@@ -39,6 +39,22 @@ async def async_setup_entry(
     known: set[tuple[str, str]] = set()
     preset_discovered: set[str] = set()
     preset_pending: set[str] = set()
+    reply_pending: set[str] = set()
+    reply_discovered: set[str] = set()
+
+    async def discover_replies(serial: str) -> None:
+        """Discover opt-in metadata without playing, downloading or changing replies."""
+        try:
+            replies = await coordinator.client.quick_responses(serial)
+        except GatewayClientError:
+            return
+        finally:
+            reply_pending.discard(serial)
+        reply_discovered.add(serial)
+        if replies:
+            async_add_entities([EufyQuickResponseButton(coordinator, serial, reply["id"], reply["name"])
+                                for reply in replies])
+
 
     async def discover_presets(serial: str) -> None:
         """Create buttons only for slots the camera currently marks enabled."""
@@ -66,6 +82,11 @@ async def async_setup_entry(
     def add_new() -> None:
         entities: list[ButtonEntity] = []
         for serial, camera in sorted(coordinator.cameras.items()):
+            if (camera.get("experimentalQuickResponseSupported") is True
+                    and serial not in reply_discovered and serial not in reply_pending):
+                reply_pending.add(serial)
+                entry.async_create_background_task(hass, discover_replies(serial), "Discover Eufy saved replies")
+
             if camera.get("directionalPanControlSupported") is True:
                 for direction in ("left", "right", "up", "down"):
                     key = (serial, f"pan_{direction}")
@@ -129,6 +150,38 @@ async def async_setup_entry(
 
     add_new()
     entry.async_on_unload(coordinator.async_add_listener(add_new))
+
+
+class EufyQuickResponseButton(EufyGatewayEntity, ButtonEntity):
+    """Expose one saved reply as a disabled trial action for this config entry.
+
+    The gateway owns fresh slot validation and the finite playback connection.
+    This entity owns only the slot identity and never claims audible completion.
+    """
+
+    _attr_entity_registry_enabled_default = False
+    _attr_translation_key = "quick_response_experimental"
+    _attr_icon = "mdi:message-text-play-outline"
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, reply_id: int, name: str) -> None:
+        """Bind a discovered slot without retaining audio or a playback URL."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        ButtonEntity.__init__(self)
+        self._reply_id = reply_id
+        self._attr_unique_id = f"{serial}_quick_response_{reply_id}"
+        self._attr_translation_placeholders = {"reply": name}
+
+    @property
+    def available(self) -> bool:
+        """Withdraw playback when current inventory no longer admits the route."""
+        return super().available and self.camera.get("experimentalQuickResponseSupported") is True
+
+    async def async_press(self) -> None:
+        """Send once, leaving any uncertain result for the user to check."""
+        try:
+            await self.coordinator.client.play_quick_response(self.serial, self._reply_id)
+        except GatewayClientError as error:
+            raise HomeAssistantError(str(error)) from error
 
 
 class EufyCompatibilityReportButton(EufyGatewayEntity, ButtonEntity):

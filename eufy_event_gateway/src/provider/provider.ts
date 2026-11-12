@@ -9,6 +9,7 @@
  * tests; the production provider is the only implementation allowed to know
  * Mega and PPCS details.
  */
+import type { DoorbellQuickResponse } from "./quick-responses.js";
 import type { ParameterCheckSummary } from "./reported-parameter-check.js";
 import type { NvrLiveControl, NvrLiveControlResult } from "./nvr-live-controls.js";
 import type { NvrPowerRequest, NvrPowerSummary } from "./nvr-power-trial.js";
@@ -186,6 +187,12 @@ export interface CameraProvider {
   generalRtcPrepareStatus?(): GeneralRtcPreparationState;
 
   start(events: ProviderEvents): Promise<void>;
+  /** Read the current opt-in saved-reply list without playing or downloading audio. */
+  getQuickResponses?(serial: string): Promise<readonly DoorbellQuickResponse[]>;
+
+  /** Play one current saved reply on an exclusive finite session, with no automatic retry. */
+  playQuickResponse?(serial: string, id: number): Promise<void>;
+
   startStream(serial: string): Promise<void>;
   stopStream(serial: string): Promise<void>;
 

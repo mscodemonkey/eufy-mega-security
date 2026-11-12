@@ -18,6 +18,8 @@ entity:
     event_image:
       name: Seneste hændelsesbillede
   button:
+    quick_response_experimental:
+      name: "Afspil hurtigt svar {reply} (eksperimentel)"
     compatibility_report:
       name: Hjælp med at teste denne enhed
     camera_light_on:

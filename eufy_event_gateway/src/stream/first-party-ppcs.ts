@@ -10,6 +10,7 @@
  * stream plus safe counters, so the rest of the gateway never handles PPCS
  * packet layout or camera encryption directly.
  */
+import { parseQuickResponseList, validQuickResponseId, type DoorbellQuickResponse } from "../provider/quick-responses.js";
 import { t8420ClearLiveRoute, t8420ClearLiveStart } from "./t8420-live.js";
 import { createRecordedCipheriv as createCipheriv } from "../diagnostics/raw-crypto.js";
 import { createRecordedDecipheriv as createDecipheriv } from "../diagnostics/raw-crypto.js";
@@ -2667,6 +2668,41 @@ export class FirstPartyPpcsSession {
     }
   }
 
+  /** Read saved reply metadata on an exclusive attached-doorbell control session. */
+  async queryQuickResponses(): Promise<readonly DoorbellQuickResponse[]> {
+    this.#assertQuickResponseSession();
+    return parseQuickResponseList(await this.#queryControlPayload(6237, {}));
+  }
+
+  /** Wake video, dispatch one saved reply, and retain this owned connection for its audio. */
+  async playQuickResponse(id: number, current: () => void): Promise<void> {
+    this.#assertQuickResponseSession();
+    if (!validQuickResponseId(id)) throw new Error("Saved reply is unavailable");
+    await this.#preparePanMotorView();
+    current();
+    const payload = rawPayload(encryptLevel2(buildCameraEnableBody(this.#options.channel, id,
+      this.#options.accountId!), this.#level2Key!, this.#level2Seq++), this.#options.channel, 8, [8, 0], 0);
+    const acknowledged = this.#waitForControlResult(1706, this.#options.channel, CONTROL_TIMEOUT_MILLISECONDS);
+    try { this.#sendCommand(1706, payload); }
+    catch (error) { void acknowledged.catch(() => undefined); throw error; }
+    await acknowledged;
+    current();
+
+    // Saved replies have no completion event. Keep the connection alive without
+    // retransmitting the action, then let the provider await normal teardown.
+    await delay(15_000);
+    current();
+  }
+
+  /** Keep this write outside normal viewers and unrelated control sessions. */
+  #assertQuickResponseSession(): void {
+    if (this.#closed || !this.#remote || this.#options.purpose !== "control" || !this.#options.homeBaseAttached
+      || !["T8210", "T8214"].includes(this.#options.cameraModel) || this.#options.stationModel !== "T8030"
+      || !this.#options.accountId || this.#options.channel < 0 || this.#options.channel > 254) {
+      throw new Error("Saved reply session unavailable");
+    }
+  }
+
   /**
    * Query the camera's preset slots without fetching names or thumbnails.
    *
@@ -3311,8 +3347,11 @@ export class FirstPartyPpcsSession {
       if (this.#pendingControl.authenticatedOnly && signCode !== 8) return;
       if (this.#pendingControl.encryptedOnly && ![1, 2, 8].includes(signCode)) return;
       if (this.#pendingControl.strictChannel !== undefined) {
-        const result = decodeModelControlTrialAcknowledgement(header, payload, this.#pendingControl.command, this.#pendingControl.strictChannel,
-          commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key);
+        const result = command === 1706
+          ? frameChannel === this.#pendingControl.strictChannel && signCode === 0 && header[15] === 0
+            && payload.length === 132 && payload.subarray(4).every(value => value === 0) ? payload.readInt32LE(0) : null
+          : decodeModelControlTrialAcknowledgement(header, payload, this.#pendingControl.command, this.#pendingControl.strictChannel,
+            commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key);
         if (result === null) return;
         const pending = this.#pendingControl;
         this.#pendingControl = null;
@@ -3391,7 +3430,7 @@ export class FirstPartyPpcsSession {
     }
 
     if (command === 1351 && this.#pendingControlQuery
-      && (this.#options.cameraModel !== "T814X" || frameChannel === this.#options.channel)) {
+      && (this.#options.cameraModel !== "T814X" && this.#pendingControlQuery.command !== 6237 || frameChannel === this.#options.channel)) {
       const decoded = decodePpcsControlRecord(payload, signCode,
         commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key);
       const responsePayload = decoded && decoded.cmd === this.#pendingControlQuery.command
@@ -3781,7 +3820,13 @@ export class FirstPartyPpcsSession {
     // Observe that early rejection now and propagate it through the awaited response.
     void response.catch(() => undefined);
     try {
-      await this.#sendControlPayload(command, data);
+      if (command === 6237) {
+        this.#assertQuickResponseSession();
+        const value = JSON.stringify({ account_id: this.#options.accountId, cmd: 6237,
+          mChannel: this.#options.channel, mValue3: 0 });
+        this.#sendCommand(1350, rawPayload(encryptLevel2(Buffer.from(value), this.#level2Key!, this.#level2Seq++),
+          this.#options.channel, 8, [8, 0], 0));
+      } else await this.#sendControlPayload(command, data);
     } catch (error) {
       this.#pendingControlQuery = null;
       if (pendingQuery) {

@@ -8,6 +8,7 @@
  * module owns request authentication, response framing, and route selection;
  * it does not parse Mega payloads or open camera sockets.
  */
+import { validQuickResponseId } from "./provider/quick-responses.js";
 import { SharedLensSnapshotCache, type SharedLens } from "./stream/shared-lens-views.js";
 import { rawHistoryStatus, rawHistoryFiles, rawHistoryPrivateFile } from "./diagnostics/raw-history.js";
 import { ParameterCheckError, parameterCheckStages, validateParameterSummary } from "./provider/reported-parameter-check.js";
@@ -1177,6 +1178,23 @@ export class GatewayServer {
         segments[0] === "api" && segments[1] === "cameras" && segments[3] === "pan" && segments.length === 4
       ) {
         return await this.#cameraPan(request, segments[2]!, response);
+      }
+      if (segments[0] === "api" && segments[1] === "cameras" && segments[3] === "quick-responses"
+        && segments.length === 4 && (request.method === "GET" || request.method === "POST")) {
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
+        if (!this.config.apiToken || !this.state.getCamera(segments[2]!).experimentalQuickResponseSupported
+          || !this.provider.getQuickResponses || !this.provider.playQuickResponse) {
+          return json(response, 409, { error: "Experimental quick responses unavailable" });
+        }
+        if (request.method === "GET") return json(response, 200, { replies: await this.provider.getQuickResponses(segments[2]!) });
+        const text = await readBody(request);
+        if (text.length > 512 || !/^\s*\{\s*"id"\s*:\s*\d+\s*\}\s*$/.test(text)) {
+          return json(response, 400, { error: "Choose one saved reply" });
+        }
+        const body = JSON.parse(text) as { id: unknown };
+        if (!validQuickResponseId(body.id)) return json(response, 400, { error: "Choose one saved reply" });
+        await this.provider.playQuickResponse(segments[2]!, body.id);
+        return json(response, 200, { outcome: "acknowledged", physicalConfirmationRequired: true });
       }
       if (
         request.method === "GET" &&
