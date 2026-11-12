@@ -141,6 +141,34 @@ class NativeStreamTest(unittest.IsolatedAsyncioTestCase):
         request.assert_awaited_with("fixture", audio=True)
 
 
+    async def test_compatible_paths_cannot_select_another_camera_or_profile(self):
+        """A malformed response must fail without returning any playable source."""
+        for path in ("/api/cameras/other/live.h264?access_token=x",
+                     "/api/cameras/fixture/live-native.ts?access_token=x",
+                     "/api/cameras/fixture/live-fixed.h264?access_token=x",
+                     "//other/api/cameras/fixture/live.h264",
+                     "/api/cameras/fixture/live.h264#other",
+                     "/api/cameras/fixture/live.h264?access_token=x&access_token=y",
+                     "/api/cameras/fixture/live.h264?view=other",
+                     "/api/cameras/%ZZ/live.h264",
+                     "/api/cameras/fixture/../other/live.h264"):
+            with self.subTest(path=path):
+                self.client._json.return_value = {"path": path}
+                with self.assertRaisesRegex(self.error, "invalid compatible stream response"):
+                    await self.client.stream_url("fixture")
+
+    async def test_compatible_keys_and_audio_fallback_remain_camera_bound(self):
+        """Encoded identities and the old gateway retry keep the same selected camera."""
+        for key in ("fixture", "a/b", "%", "!'()*"):
+            path = f"/api/cameras/{quote(key, safe='')}/live.ts?access_token=x"
+            self.client._json.return_value = {"path": path}
+            self.assertEqual(await self.client.stream_url(key), "http://fixture" + path)
+            self.client._json.assert_awaited_with(f"/api/cameras/{quote(key, safe='')}/stream-token", method="POST")
+        self.client._json.side_effect = [self.error("old", status=400), {"path": "/api/cameras/other/live.ts?access_token=x"}]
+        with self.assertRaisesRegex(self.error, "invalid compatible stream response"):
+            await self.client.stream_url("fixture", audio=True)
+
+
 class VideoFormatChoiceTest(unittest.TestCase):
     """A camera's own video is the default, and the toggle converts every camera."""
 
