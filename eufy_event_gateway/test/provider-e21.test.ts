@@ -149,6 +149,10 @@ for (const mode of ["absent","empty","duplicate","missing-owner","owner-drift","
 }
 
 test("real MCS decoding and push parsing preserve all care kinds and attributable event pictures",async context => {
+
+  // This checks event mapping, so earlier detections must not expire under
+  // scheduler load before the remaining mappings have been asserted.
+  context.mock.timers.enable({ apis: ["setTimeout"] });
   const f = await fixture(context);
   const jpeg = Buffer.from([255,216,1,2,255,217]);
   const downloads = context.mock.method(MegaClient.prototype,"download",async () => jpeg);
@@ -164,6 +168,8 @@ test("real MCS decoding and push parsing preserve all care kinds and attributabl
   for(let n=0;n<30;n++) await new Promise(resolve=>setImmediate(resolve));
   assert.equal(downloads.mock.callCount(),events.length); assert.equal(f.pictures.length,events.length);
   for(const kind of e21DetectionKinds) assert.equal(f.state.listSensors()[0]?.[`${kind}Detected`],true);
+  context.mock.timers.tick(25);
+  for(const kind of e21DetectionKinds) assert.equal(f.state.listSensors()[0]?.[`${kind}Detected`],false);
   for(const [station,eventType] of [["wrong-parent",3104],["synthetic-e21",3102]] as const) {
     const event = parsePushEvent({device_sn:"synthetic-e21",station_sn:station,msg_type:18,a:eventType,pic_url:"https://example.invalid/ignored.jpg",unique_id:`ignored-${eventType}`});
     assert.ok(event); f.deliver(event);
