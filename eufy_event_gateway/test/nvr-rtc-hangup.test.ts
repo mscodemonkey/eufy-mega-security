@@ -76,7 +76,7 @@ for (const e10 of [false, true]) test(`${e10 ? 'E10' : 'NVR'} keeps its own sign
   const received: Record<string, unknown>[] = [];
   let accepted!: () => void;
   const answered = new Promise<void>(resolve => { accepted = resolve; });
-  const pinged: (() => void)[] = [];
+  const ponged: (() => void)[] = [];
   const closed = new Promise<void>(resolve => server.on('connection', connection => {
     connection.once('close', () => resolve());
     const send = (value: Record<string, unknown>): void => { connection.send(JSON.stringify({ data: JSON.stringify(value) })); };
@@ -85,7 +85,7 @@ for (const e10 of [false, true]) test(`${e10 ? 'E10' : 'NVR'} keeps its own sign
       const message = JSON.parse(outer.data as string) as Record<string, unknown>;
       received.push({ ...message, msgid: outer.msgid });
       if (message.action === 1) send({ action: 1, code: 200 });
-      else if (message.action === 2) { send({ action: 2, code: 200 }); pinged.shift()?.(); }
+      else if (message.action === 2) send({ action: 2, code: 200 });
       else if (message.dataType === 'call') send({ action: 3, sessionId: 'synthetic-sign', sn: 'synthetic-station',
         channelId: 0, dataType: 'call', data: JSON.stringify({ status: 200 }) });
       else if (message.dataType === 'ack') accepted();
@@ -96,19 +96,26 @@ for (const e10 of [false, true]) test(`${e10 ? 'E10' : 'NVR'} keeps its own sign
     administrator: 'synthetic-administrator', context: { host: 'security-smart-ie.eufylife.com', region: 'IE',
       authToken: 'synthetic-token', gtoken: 'synthetic-gtoken', sign: 'synthetic-sign' },
     signal: controller.signal, current: () => true, ready: () => { throw new Error('No offer was sent'); } }, {
-    socket: (_url, protocols, options) => new WebSocket(`ws://127.0.0.1:${port}`, protocols, options),
+    socket: (_url, protocols, options) => {
+      const client = new WebSocket(`ws://127.0.0.1:${port}`, protocols, options);
+      client.on("message", raw => {
+        const inner = JSON.parse(JSON.parse(raw.toString()).data) as Record<string, unknown>;
+        if (inner.action === 2) queueMicrotask(() => ponged.shift()?.());
+      });
+      return client;
+    },
     peer: () => { throw new Error('No offer was sent'); },
   });
   try {
     const starting = session.start();
     await within(answered, 'call not answered');
     for (let ping = 0; ping < 12; ping++) {
-      const replied = new Promise<void>(resolve => pinged.push(resolve));
+      const replied = new Promise<void>(resolve => ponged.push(resolve));
       context.mock.timers.tick(30_000);
-      await within(replied, 'no ping');
 
-      // The reply is read before the next ping, and must not end the call.
-      await new Promise<void>(resolve => setImmediate(resolve));
+      // Server receipt and one event-loop turn do not prove the client read
+      // the response. Observe that socket boundary before closing the call.
+      await within(replied, 'no client ping response');
     }
     controller.abort();
     await assert.rejects(starting, { stage: 'cancelled' });
