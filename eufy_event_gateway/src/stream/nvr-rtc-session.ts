@@ -241,6 +241,15 @@ export interface NvrRtcStats {
   /** Signalling sockets retired after a normal viewer had valid video. */
   signallingClosuresAfterVideo: number;
 
+  /** E10 keepalive envelopes accepted by the local WebSocket send queue, not delivery proof. */
+  signallingPingsQueued: number;
+
+  /** E10 action-2 messages observed after authentication, not a per-ping correlation. */
+  signallingPingResponses: number;
+
+  /** E10 keepalive queue attempts that threw before any delivery could be established. */
+  signallingPingQueueFailures: number;
+
   /** Signalling sockets retired after read-only discovery, while the RTC observer remains active. */
   signallingClosuresAfterModeObservation: number;
   stopUnconfirmed: number;
@@ -285,7 +294,7 @@ export class NvrRtcSession {
   #audioOutput = this.#createOutput();
   readonly stats: NvrRtcStats = { packets: 0, frames: 0, video: 0, controlPackets: 0, rejected: 0,
     segmentNotEchoed: 0, staleReplies: 0, ignoredAudio: 0, audio: 0, rejectedAudio: 0, ignoredUnknownMedia: 0,
-    applicationSequenceRecoveries: 0, videoSequenceRecoveries: 0, callsRepeated: 0, inventoryRepeated: 0, signallingClosuresAfterVideo: 0, signallingClosuresAfterModeObservation: 0, stopUnconfirmed: 0,
+    applicationSequenceRecoveries: 0, videoSequenceRecoveries: 0, callsRepeated: 0, inventoryRepeated: 0, signallingClosuresAfterVideo: 0, signallingPingsQueued: 0, signallingPingResponses: 0, signallingPingQueueFailures: 0, signallingClosuresAfterModeObservation: 0, stopUnconfirmed: 0,
     reorderTimeoutChannel: -1, reorderTimeoutExpected: -1, reorderTimeoutWaiting: -1,
     reorderTimeoutAgeMs: 0, reorderTimeoutQueued: 0,
     channel0Frames: 0, channel1Frames: 0, channel2Frames: 0, channel3Frames: 0, channel4Frames: 0, channel5Frames: 0 };
@@ -1026,14 +1035,24 @@ export class NvrRtcSession {
       this.#repeatCall();
       this.#signallingPing = setInterval(() => {
         if (!this.#retired && this.#socket?.readyState === WebSocket.OPEN) {
-          try { this.#send({ action: 2, data: JSON.stringify({ source: "WEB" }), code: 200 }, true); } catch { /* The socket's close event reports a lost socket. */ }
+          try {
+            this.#send({ action: 2, data: JSON.stringify({ source: "WEB" }), code: 200 }, true);
+            if (this.options.e10RtpTrial) this.stats.signallingPingsQueued++;
+          } catch {
+            if (this.options.e10RtpTrial) this.stats.signallingPingQueueFailures++;
+
+            // The socket's close event still owns failure handling.
+          }
         }
       }, SIGNALLING_PING_MILLISECONDS);
       return;
     }
 
     // The service's answer to the keep-alive ping.
-    if (inner.action === 2) return;
+    if (inner.action === 2) {
+      if (this.options.e10RtpTrial && this.#authenticated) this.stats.signallingPingResponses++;
+      return;
+    }
     if (!this.#authenticated || inner.action !== 3) throw new NvrTrialError("call", "call_unexpected_action");
     if (inner.sessionId !== this.options.context.sign) throw new NvrTrialError("negotiation", "session_mismatch");
     if (inner.sn !== this.options.station) throw new NvrTrialError("negotiation", "station_mismatch");
