@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.262
+
+- Correct incoming Android push receipt acknowledgements. Reliable batches and explicit immediate requests now receive socket-local confirmation, including repeated messages, without publishing duplicate camera events.
+- Heartbeats report our received stream position. Reconnect resets connection-local receipt counters and retains the saved identity. Registration payloads, tokens and account settings are unchanged.
+- This corrects a demonstrated transport omission. It does not establish the cause of the T8416 shared-account zero-delivery report or confirm notification repair on that account. No arranged detection, extra restart, token reset or account change is requested.
+- Retain the v0.1.261 late-name, camera-binding, E10 keepalive and saved-reply changes with their existing hardware limitations.
+
 ## 0.1.261
 
 - Add disabled-by-default saved quick-response buttons for reviewed HomeBase 3 doorbell routes. Current saved slots and media occupancy are checked before playback. T8210 playback is locally confirmed, while the reporter's T8214 remains unconfirmed.
