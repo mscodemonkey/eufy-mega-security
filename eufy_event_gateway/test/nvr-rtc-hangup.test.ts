@@ -11,7 +11,7 @@ import { NvrRtcSession } from '../src/stream/nvr-rtc-session.js';
 
 type Reply = 'accepted' | 'unanswered' | 'busy' | 'not-joined';
 
-async function signalling(reply: Reply): Promise<Record<string, unknown>[]> {
+async function signalling(reply: Reply, e10 = false): Promise<Record<string, unknown>[]> {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await once(server, 'listening');
   const port = (server.address() as { port: number }).port;
@@ -32,7 +32,8 @@ async function signalling(reply: Reply): Promise<Record<string, unknown>[]> {
       }
     });
   }));
-  const session = new NvrRtcSession({ station: 'synthetic-station', camera: 'synthetic-camera', channel: 3,
+  const session = new NvrRtcSession({ station: 'synthetic-station', camera: e10 ? 'synthetic-station' : 'synthetic-camera', channel: e10 ? 0 : 3,
+    ...(e10 ? { e10RtpTrial: true, cameraType: 314, maximumLifetimeMilliseconds: null } : {}),
     administrator: 'synthetic-administrator', context: { host: 'security-smart-ie.eufylife.com', region: 'IE',
       authToken: 'synthetic-token', gtoken: 'synthetic-gtoken', sign: 'synthetic-sign' },
     signal: controller.signal, current: () => true, ready: () => { throw new Error('No offer was sent'); } }, {
@@ -47,8 +48,8 @@ async function signalling(reply: Reply): Promise<Record<string, unknown>[]> {
   } finally { server.close(); }
 }
 
-for (const reply of ['accepted', 'unanswered', 'busy'] as const) test(`a retired ${reply} NVR call is hung up before the socket closes`, { timeout: 10000 }, async () => {
-  const received = await signalling(reply);
+for (const e10 of [false, true]) for (const reply of ['accepted', 'unanswered', 'busy'] as const) test(`a retired ${reply} ${e10 ? 'E10' : 'NVR'} call is hung up before the socket closes`, { timeout: 10000 }, async () => {
+  const received = await signalling(reply, e10);
   const kinds = received.map(message => message.dataType ?? `action${message.action}`);
   assert.deepEqual(kinds, reply === 'accepted' ? ['action1', 'call', 'ack', 'hangup'] : ['action1', 'call', 'hangup']);
   const hangup = received.at(-1)!;

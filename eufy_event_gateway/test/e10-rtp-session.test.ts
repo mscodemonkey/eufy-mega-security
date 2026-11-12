@@ -46,7 +46,7 @@ function payloads(unit: readonly Buffer[]): Buffer[] {
 for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-deadline", "continuous-video", "continuous-stall", "continuous-cancel",
   "continuous-malformed-outer", "continuous-malformed-inner", "continuous-malformed-payload",
   "continuous-keepalive-response", "continuous-keepalive-silent", "continuous-keepalive-queue-failure",
-  "continuous-hangup-empty", "continuous-hangup-missing", "continuous-hangup-null",
+  "continuous-peer-failed", "continuous-hangup-empty", "continuous-hangup-missing", "continuous-hangup-null",
   "continuous-hangup-foreign-session", "continuous-hangup-foreign-station", "continuous-hangup-foreign-channel"]) {
   test(`E10 RTP ${scenario} preserves its media lifetime and cleanup`, { timeout: 20_000 }, async context => {
     const continuous = scenario.startsWith("continuous-");
@@ -225,6 +225,14 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
             await new Promise(resolve => setTimeout(resolve, 150));
             scheduled.filter(timer => timer.delay === 45_000).at(-1)!.fire();
           } else if (scenario === "continuous-cancel") controller.abort();
+          else if (scenario === "continuous-peer-failed") {
+            const failedPeer = ((): RTCPeerConnection | null => peer)();
+            assert.ok(failedPeer);
+            const connection = failedPeer.iceTransports[0]!.connection;
+            const failIce = Reflect.get(connection, "setState") as (state: string) => void;
+            failIce.call(connection, "failed");
+            await new Promise<void>(resolve => session.output.destroyed ? resolve() : session.output.once("close", resolve));
+          }
           else if (scenario.startsWith("continuous-hangup-")) {
             assert.ok(signallingConnection);
             const message: Record<string, unknown> = { action: 3, code: 200, sessionId: "synthetic-sign",
@@ -260,6 +268,13 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
         await new Promise(resolve => setTimeout(resolve, 150));
         assert.equal(chunks.length, closedChunks);
         if (scenario === "continuous-stall") assert.deepEqual(errors.map(error => [error.stage, error.reason]), [["video", "video_progress_timeout"]]);
+        else if (scenario === "continuous-peer-failed") {
+          assert.deepEqual(errors.map(error => [error.stage, error.reason]), [["negotiation", "peer_failed"]]);
+          assert.equal(session.stats.e10LocalRelaySelected, 0);
+          assert.equal(session.stats.e10RemoteRelaySelected, 0);
+          assert.ok(session.stats.e10IceResponses > 0);
+          assert.equal(session.stats.e10IceFailed, 1, "retirement preserves the ICE failure snapshot");
+        }
         else if (scenario === "finite-deadline") assert.equal(errors[0]?.stage, "deadline");
         else if (scenario === "continuous-cancel") assert.equal(errors[0]?.stage, "cancelled");
         else if (scenario.startsWith("continuous-hangup-")) {
