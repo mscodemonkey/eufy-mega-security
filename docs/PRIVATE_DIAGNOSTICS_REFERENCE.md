@@ -103,8 +103,8 @@ standard library. Keep them outside `/config/www`.
 
 ```sh
 mkdir -p /config/eufy-diagnostics-tools
-curl -fL https://raw.githubusercontent.com/mscodemonkey/eufy-mega-security/v0.1.261/eufy_event_gateway/scripts/diagnostic-bundle.py -o /config/eufy-diagnostics-tools/diagnostic-bundle.py
-curl -fL https://raw.githubusercontent.com/mscodemonkey/eufy-mega-security/v0.1.261/eufy_event_gateway/scripts/export-event-image-capture.py -o /config/eufy-diagnostics-tools/export-event-image-capture.py
+curl -fL https://raw.githubusercontent.com/mscodemonkey/eufy-mega-security/v0.1.262/eufy_event_gateway/scripts/diagnostic-bundle.py -o /config/eufy-diagnostics-tools/diagnostic-bundle.py
+curl -fL https://raw.githubusercontent.com/mscodemonkey/eufy-mega-security/v0.1.262/eufy_event_gateway/scripts/export-event-image-capture.py -o /config/eufy-diagnostics-tools/export-event-image-capture.py
 python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py list
 ```
 
