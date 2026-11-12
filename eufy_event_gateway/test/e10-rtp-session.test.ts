@@ -45,11 +45,21 @@ function payloads(unit: readonly Buffer[]): Buffer[] {
 
 for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-deadline", "continuous-video", "continuous-stall", "continuous-cancel",
   "continuous-malformed-outer", "continuous-malformed-inner", "continuous-malformed-payload",
+  "continuous-keepalive-response", "continuous-keepalive-silent", "continuous-keepalive-queue-failure",
   "continuous-hangup-empty", "continuous-hangup-missing", "continuous-hangup-null",
   "continuous-hangup-foreign-session", "continuous-hangup-foreign-station", "continuous-hangup-foreign-channel"]) {
   test(`E10 RTP ${scenario} preserves its media lifetime and cleanup`, { timeout: 20_000 }, async context => {
     const continuous = scenario.startsWith("continuous-");
     let videoNow = 0;
+    const pings: (() => void)[] = [];
+    if (scenario.startsWith("continuous-keepalive-")) {
+      const interval = globalThis.setInterval;
+      context.mock.method(globalThis, "setInterval", ((callback: () => void, delay?: number) => {
+        if (delay === 30_000) pings.push(callback);
+        return interval(callback, delay);
+      }) as typeof setInterval);
+    }
+    let clientSocket: WebSocket | undefined;
     const scheduled: { delay: number; fire: () => void }[] = [];
     const schedule = globalThis.setTimeout;
     context.mock.method(globalThis, "setTimeout", ((callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
@@ -122,7 +132,10 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
         void (async () => {
           const inner = JSON.parse(JSON.parse(raw.toString()).data);
           if (inner.action === 1) { send({ action: 1, code: 200 }); return; }
-          if (inner.action === 2) { send({ action: 2, code: 200 }); return; }
+          if (inner.action === 2) {
+            if (!scenario.endsWith("keepalive-silent")) send({ action: 2, code: 200 });
+            return;
+          }
           const data = JSON.parse(inner.data);
           if (inner.dataType === "call") {
             assert.equal(inner.sn, "synthetic-station"); assert.equal(inner.channelId, 0);
@@ -150,7 +163,8 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
       socket: (url, protocols, options) => {
         assert.equal(url, "wss://security-smart-eu.eufylife.com/v1/rtc/ws/join?reqtype=nvr");
         assert.equal(options.followRedirects, false);
-        return new WebSocket(`ws://127.0.0.1:${address.port}`, protocols);
+        clientSocket = new WebSocket(`ws://127.0.0.1:${address.port}`, protocols);
+        return clientSocket;
       },
       peer: (_servers, offer) => {
         peerCount++;
@@ -191,6 +205,21 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
             assert.equal(session.output.destroyed, false);
           }
           assert.equal(videoNow, 330_000);
+          if (scenario.startsWith("continuous-keepalive-")) {
+            assert.equal(pings.length, 1);
+            if (scenario.endsWith("queue-failure")) {
+              const send = clientSocket!.send.bind(clientSocket!);
+              context.mock.method(clientSocket!, "send", ((data: string) => {
+                if (JSON.parse(JSON.parse(data).data).action === 2) throw new Error("synthetic-queue-failure");
+                send(data);
+              }) as WebSocket["send"]);
+            }
+            for (let index = 0; index < 3; index++) pings[0]!();
+            await new Promise(resolve => setTimeout(resolve, 100));
+            assert.equal(session.stats.signallingPingsQueued, scenario.endsWith("queue-failure") ? 0 : 3);
+            assert.equal(session.stats.signallingPingQueueFailures, scenario.endsWith("queue-failure") ? 3 : 0);
+            assert.equal(session.stats.signallingPingResponses, scenario.endsWith("response") ? 3 : 0);
+          }
           if (scenario === "continuous-stall") {
             if (timer) clearInterval(timer);
             await new Promise(resolve => setTimeout(resolve, 150));
@@ -222,6 +251,11 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
           scheduled.find(timer => timer.delay === 10_000)!.fire();
         }
         await session.close(); await session.close();
+        if (scenario.startsWith("continuous-keepalive-")) {
+          const retained = { ...session.stats };
+          pings[0]!();
+          assert.deepEqual(session.stats, retained);
+        }
         const closedChunks = chunks.length;
         await new Promise(resolve => setTimeout(resolve, 150));
         assert.equal(chunks.length, closedChunks);
