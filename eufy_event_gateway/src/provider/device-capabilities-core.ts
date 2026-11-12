@@ -13,6 +13,7 @@ import type { CoreCapabilityEntry } from "./device-capability-core.js";
 import { DOORBELL_CAPABILITY_CORE } from "./doorbell-capability-core.js";
 import { HOMEBASE_CAPABILITY_CORE, HOMEBASE_DEVICE_TYPES } from "./homebase-capability-core.js";
 import { SENSOR_CAPABILITY_CORE, SENSOR_DEVICE_TYPES } from "./sensor-capability-core.js";
+import { isT8442Camera } from "./t8442-profile.js";
 import { CARE_MONITOR_CAPABILITY_ROWS, isCareBabyMonitor } from "./care-monitor.js";
 
 /** Inventory shape sufficient for baseline family recognition. */
@@ -43,6 +44,7 @@ export function isSupportedCameraType(device: { readonly category: string | null
   if (device.model.toUpperCase() === "T8404" || device.deviceType === 314) {
     return device.model.toUpperCase() === "T8404" && device.deviceType === 314;
   }
+  if (device.model.toUpperCase() === "T8442" || device.deviceType === 46) return isT8442Camera(device);
   if (megaDeviceRole(device.deviceType) !== "camera") return false;
 
   if (device.deviceType === 37) return device.model.toUpperCase() === "T8422";
@@ -68,6 +70,7 @@ export function cameraDetectionKinds(
 ): DetectionKind[] | undefined {
   if (device.category !== "eufy_security") return undefined;
   const model = device.model.toUpperCase();
+  if (isT8442Camera(device)) return ["motion", "person", "pet"];
   if (model === "T81A0" && device.deviceType === 10005 && homeBaseAttached === true) {
     return ["motion", "person", "stranger", "pet", "vehicle", "dog", "crying", "sound"];
   }

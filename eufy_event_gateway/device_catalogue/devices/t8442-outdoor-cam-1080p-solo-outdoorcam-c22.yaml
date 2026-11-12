@@ -5,7 +5,8 @@ id: t8442
 name: Outdoor Cam 1080p (Solo OutdoorCam C22)
 category: camera
 integration:
-  status: recognised
+  status: ready_to_test
+  handler: camera
 models:
   - T8442
 device_type: 46
@@ -25,23 +26,38 @@ capabilities:
   media:
     live_view:
       connections:
+        T8030:
+          status: declared
+          notes: Restricted HomeBase 3 media candidate. Exact T8442/type 46, parent ownership and child channel are required. Hardware video remains unconfirmed.
         direct:
           status: declared
     snapshot:
       connections:
+        T8030:
+          status: declared
+          notes: Reported event pushes contain picture references. Actual HA picture delivery remains unconfirmed.
         direct:
           status: declared
   events:
     motion:
       connections:
+        T8030:
+          status: declared
+          notes: HomeBase-attached notification candidate from issue 770. Delivery in HA remains unconfirmed.
         direct:
           status: declared
     person:
       connections:
+        T8030:
+          status: declared
+          notes: HomeBase-attached notification candidate from issue 770. Delivery in HA remains unconfirmed.
         direct:
           status: declared
     pet:
       connections:
+        T8030:
+          status: declared
+          notes: HomeBase-attached notification candidate from issue 770. Delivery in HA remains unconfirmed.
         direct:
           status: declared
     vehicle:

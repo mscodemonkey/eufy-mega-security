@@ -77,6 +77,7 @@ import { GeneralRtcPreparationError, type GeneralRtcPreparationState, type Camer
 import { GeneralRtcPreparation } from "./general-rtc-preparation.js";
 import { T8417ReadShapeTracker } from "./t8417-read-shape.js";
 import { PushEventDeduplicator } from "./push-event-deduplicator.js";
+import { isT8442Camera } from "./t8442-profile.js";
 import { resolveDeviceRoute } from "./device-routing.js";
 
 import { CameraSettingError, cameraSettingProfile, cameraSettingWireValue, parseCameraSettingChange, readCameraSetting, runConfirmedCameraSetting, type CameraSettingChange } from "./camera-settings.js";
@@ -3190,6 +3191,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   /** Write camera enablement once and publish only cloud-confirmed state. */
   setCameraEnabled(serial: string, enabled: boolean): Promise<CameraIdentity> {
     this.#assertRtcPreparationIdle();
+    this.#assertCameraControlsAdmitted(serial);
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
     const previous = this.#cameraOperations.get(serial) ?? Promise.resolve(this.#requireCameraIdentity(serial));
@@ -3429,6 +3431,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   /** Own one peer until a single reviewed setting is freshly confirmed or invalidated. */
   async setCameraSetting(serial: string, input: CameraSettingChange, signal?: AbortSignal): Promise<CameraIdentity> {
     this.#assertRtcPreparationIdle();
+    this.#assertCameraControlsAdmitted(serial);
     this.#assertLegacyCamera(serial);
     const change = parseCameraSettingChange(input);
     const device = this.#devices.get(serial);
@@ -4033,6 +4036,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
+  /** Discovery of this trial camera does not admit preference or security writes. */
+  #assertCameraControlsAdmitted(serial: string): void {
+    const device = this.#devices.get(serial);
+    if (device && isT8442Camera(device)) throw new Error("T8442 camera controls are not available in this trial");
+  }
+
   #assertNoModelTrial(serial: string): void {
     const peer = this.#devices.get(serial)?.parentSerial || serial;
     if (this.#trialPeers.has(peer) || this.#trialPeers.has(serial)) throw new Error("Wait for the model control trial to finish");
@@ -4051,6 +4060,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
    */
   setCameraMotionDetection(serial: string, enabled: boolean): Promise<CameraIdentity> {
     this.#assertRtcPreparationIdle();
+    this.#assertCameraControlsAdmitted(serial);
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
     const requested = this.#devices.get(serial);
@@ -4459,6 +4469,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   /** Write the camera family's night-vision control and publish fresh confirmed state. */
   setCameraNightVision(serial: string, mode: number, signal?: AbortSignal): Promise<CameraIdentity> {
     this.#assertRtcPreparationIdle();
+    this.#assertCameraControlsAdmitted(serial);
     this.#assertLegacyCamera(serial);
     const nvr = this.#devices.get(serial);
     if (nvr && this.#nvrLiveAdmitted(nvr, this.#devices.get(nvr.parentSerial))) return this.#runNvrLiveControl(serial, { kind: "night", value: mode }, signal);
@@ -5565,6 +5576,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         || supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
       battery: batteryState(device),
     };
+    if (isT8442Camera(device)) return { ...identity, startupSnapshotSupported: false, liveAudioSupported: false,
+      talkbackSupported: false, supportedDetections: ["motion", "person", "pet"],
+      enableControlSupported: false, streamingQualityControlSupported: false, streamingQualityModes: [],
+      audioRecordingControlSupported: false, motionDetectionControlSupported: false, guardModeControlSupported: false,
+      guardModeRefreshSupported: false, nightVisionControlSupported: false, nightVisionModes: [], autoNightVisionControlSupported: false,
+      cameraLightControlSupported: false, directionalPanControlSupported: false, timedLightControlSupported: false, cameraSirenControlSupported: false,
+      presetPositionControlSupported: false, storedRecordingsSupported: false, aiTrackingControlSupported: false,
+      autoCruiseControlSupported: false, motionSensitivityControlSupported: false, homebaseChimeControlSupported: false,
+      lightBrightnessControlSupported: false, manualFloodlightControlSupported: false };
     if (!isE21(device)) return identity;
     const reads = device.reads.e21 ?? e21Readings([]);
     const mediaReady = this.config.experimentalModelControls === true && route?.homeBaseAttached === false
@@ -5675,6 +5695,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
    */
   setCameraSiren(serial: string, durationSeconds: number): Promise<void> {
     this.#assertRtcPreparationIdle();
+    this.#assertCameraControlsAdmitted(serial);
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
     if (!Number.isSafeInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 900) {
@@ -6189,6 +6210,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       ),
     );
     const device = this.#devices.get(event.cameraSerial);
+    if (device && isT8442Camera(device) && event.stationSerial !== (device.parentSerial || device.serial)) return;
     if (!device) return;
     const delivery = this.#pushDeduplicator.observe(
       event.cameraSerial,
@@ -7588,6 +7610,9 @@ export function ppcsStreamRoute(
 ): PpcsStreamRoute | null {
   if (isE21(device) && (device.parentSerial !== device.serial || device.channel !== 0)) return null;
   const route = resolveDeviceRoute(device, devicesBySerial);
+  if (isT8442Camera(device) && (!route?.homeBaseAttached || route.peer.model !== "T8030" || route.peer.deviceType !== 18
+    || route.peer.category !== "eufy_security" || !device.adminUserId || route.peer.adminUserId !== device.adminUserId
+    || device.channel === null || !Number.isInteger(device.channel) || device.channel < 0 || device.channel > 31)) return null;
   return route ? { peer: route.peer, homeBaseAttached: route.homeBaseAttached } : null;
 }
 
