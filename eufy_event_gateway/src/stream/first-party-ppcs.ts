@@ -10,7 +10,7 @@
  * stream plus safe counters, so the rest of the gateway never handles PPCS
  * packet layout or camera encryption directly.
  */
-import { parseQuickResponseList, validQuickResponseId, type DoorbellQuickResponse } from "../provider/quick-responses.js";
+import { QuickResponseListError, parseQuickResponseList, validQuickResponseId, type DoorbellQuickResponse } from "../provider/quick-responses.js";
 import { t8420ClearLiveRoute, t8420ClearLiveStart } from "./t8420-live.js";
 import { createRecordedCipheriv as createCipheriv } from "../diagnostics/raw-crypto.js";
 import { createRecordedDecipheriv as createDecipheriv } from "../diagnostics/raw-crypto.js";
@@ -3056,7 +3056,8 @@ export class FirstPartyPpcsSession {
     }
     if (this.#pendingControlQuery) {
       clearTimeout(this.#pendingControlQuery.timer);
-      this.#pendingControlQuery.reject(new Error("Camera control session closed before query response"));
+      this.#pendingControlQuery.reject(this.#pendingControlQuery.command === 6237
+        ? new QuickResponseListError("session_closed") : new Error("Camera control session closed before query response"));
       this.#pendingControlQuery = null;
     }
     this.#finishAlarmRead("unavailable");
@@ -3805,12 +3806,19 @@ export class FirstPartyPpcsSession {
       throw new Error("Camera already has a control operation in flight");
     }
     if (this.#options.homeBaseAttached || this.#usesSoloCamPanControl()
-      || (this.#options.cameraModel === "T817L" && this.#options.channel === 0)) await this.#waitForLevel2Key();
+      || (this.#options.cameraModel === "T817L" && this.#options.channel === 0)) {
+      try { await this.#waitForLevel2Key(); }
+      catch (error) {
+        if (command === 6237) throw new QuickResponseListError("protection_unavailable");
+        throw error;
+      }
+    }
     let pendingQuery: PendingControlQuery | undefined;
     const response = new Promise<Record<string, unknown>>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#pendingControlQuery = null;
-        reject(new Error(`Camera control query ${command} timed out`));
+        reject(command === 6237 ? new QuickResponseListError("response_timeout")
+          : new Error(`Camera control query ${command} timed out`));
       }, CONTROL_TIMEOUT_MILLISECONDS);
       pendingQuery = { command, resolve, reject, timer };
       this.#pendingControlQuery = pendingQuery;

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import re
+from time import monotonic
 from urllib.parse import urlencode
 
 from homeassistant.components import persistent_notification
@@ -41,15 +42,20 @@ async def async_setup_entry(
     preset_pending: set[str] = set()
     reply_pending: set[str] = set()
     reply_discovered: set[str] = set()
+    reply_retry_at: dict[str, float] = {}
 
     async def discover_replies(serial: str) -> None:
         """Discover opt-in metadata without playing, downloading or changing replies."""
         try:
             replies = await coordinator.client.quick_responses(serial)
         except GatewayClientError:
+
+            # A missing reply list must not open another peer session on every refresh.
+            reply_retry_at[serial] = monotonic() + 900
             return
         finally:
             reply_pending.discard(serial)
+        reply_retry_at.pop(serial, None)
         reply_discovered.add(serial)
         if replies:
             async_add_entities([EufyQuickResponseButton(coordinator, serial, reply["id"], reply["name"])
@@ -83,7 +89,8 @@ async def async_setup_entry(
         entities: list[ButtonEntity] = []
         for serial, camera in sorted(coordinator.cameras.items()):
             if (camera.get("experimentalQuickResponseSupported") is True
-                    and serial not in reply_discovered and serial not in reply_pending):
+                    and serial not in reply_discovered and serial not in reply_pending
+                    and monotonic() >= reply_retry_at.get(serial, 0)):
                 reply_pending.add(serial)
                 entry.async_create_background_task(hass, discover_replies(serial), "Discover Eufy saved replies")
 
