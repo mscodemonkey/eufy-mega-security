@@ -31,7 +31,7 @@ manual clip trial retains its finite lifetime and grants no additional controls.
 
 The v0.1.257 report confirmed 150 seconds of clean HA HLS playback and closure
 when the viewer closed. Later plain HA and Frigate-via-HA views both ended near
-297 seconds with a framing failure. Its cause remains unresolved. The E10
+about five minutes. A v0.1.260 result identifies a remote hang-up after 301 seconds. Its cause remains unresolved. The E10
 signalling diagnostic distinguishes the rejected message layer and shape
 without logging its contents or accepting additional messages. This diagnostic
 does not repair the five-minute closure.
