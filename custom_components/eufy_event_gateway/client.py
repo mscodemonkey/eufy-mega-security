@@ -444,8 +444,9 @@ class GatewayClient:
     async def stream_url(self, serial: str, *, native: bool = False, audio: bool | None = None) -> str:
         """Create a signed viewer URL, validating the opt-in native boundary.
 
-        Compatible calls without an audio choice keep the existing request and
-        response behavior. An audio choice asks for the camera's live audio, or
+        Every returned source must belong to the requested camera and profile.
+        Compatible calls without an audio choice retain the empty POST. An audio
+        choice asks for the camera's live audio, or
         for video only; a gateway that predates it refuses the field, and the
         request is repeated without it. Native responses fail closed when an
         older gateway ignores the profile.
@@ -454,16 +455,29 @@ class GatewayClient:
         if not native:
             if choice:
                 try:
-                    payload = await self._json(f"/api/cameras/{serial}/stream-token", method="POST", payload=choice)
+                    payload = await self._json(f"/api/cameras/{quote(serial, safe='')}/stream-token", method="POST", payload=choice)
                 except GatewayClientError as error:
                     if error.status != 400:
                         raise
-                    payload = await self._json(f"/api/cameras/{serial}/stream-token", method="POST")
+                    payload = await self._json(f"/api/cameras/{quote(serial, safe='')}/stream-token", method="POST")
             else:
-                payload = await self._json(f"/api/cameras/{serial}/stream-token", method="POST")
-            path = payload.get("path")
-            if not isinstance(path, str) or not path.startswith("/"):
-                raise GatewayClientError("Gateway returned an invalid stream path")
+                payload = await self._json(f"/api/cameras/{quote(serial, safe='')}/stream-token", method="POST")
+            try:
+                path = payload.get("path")
+                if not isinstance(path, str) or "\\" in path or "//" in path or ".." in path:
+                    raise ValueError
+                parts = urlsplit(path)
+                if parts.scheme or parts.netloc or parts.fragment or re.search(r"%(?![0-9a-fA-F]{2})", parts.path):
+                    raise ValueError
+                segments = [unquote(segment, errors="strict") for segment in parts.path.split("/")]
+                if segments[:4] != ["", "api", "cameras", serial] or len(segments) != 5 \
+                        or segments[4] not in ("live.h264", "live.ts"):
+                    raise ValueError
+                query = parse_qsl(parts.query, keep_blank_values=True, strict_parsing=True) if parts.query else []
+                if len(query) > 1 or any(key != "access_token" or not value for key, value in query):
+                    raise ValueError
+            except (ValueError, TypeError, AttributeError, UnicodeError):
+                raise GatewayClientError("Gateway returned an invalid compatible stream response") from None
             return self._url(path)
         try:
             token_path = f"/api/cameras/{quote(serial, safe='')}/stream-token"
