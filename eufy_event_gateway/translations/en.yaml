@@ -1,4 +1,7 @@
 configuration:
+  homebase_local_addresses:
+    name: HomeBase local addresses
+    description: Optional serial and private IPv4 address pairs for HomeBase 2, HomeBase 3 or HomeBase S1. Use a reachable routed address when discovery cannot cross VLANs. Existing device authentication still applies. Leave empty for automatic discovery.
   experimental_s340_smooth_live:
     name: Smooth S340 live view (experimental)
     description: Add six seconds of buffering for smoother SoloCam S340 live view through HomeBase 3. Keeps live audio. Off by default. Hardware behaviour needs confirmation.
