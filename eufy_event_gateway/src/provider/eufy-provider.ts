@@ -12,6 +12,7 @@
  * forwarding private event fields into the logger. Periodic cloud refreshes admit
  * newly added devices without replacing push receivers or active media sessions.
  */
+import { homeBaseLocalAddress, type HomeBaseAddress } from "./homebase-address.js";
 import { QuickResponseListError, isQuickResponseRoute, validQuickResponseId, type DoorbellQuickResponse } from "./quick-responses.js";
 import { ppcsSourceDiagnostic } from "../diagnostics/ppcs-source-diagnostic.js";
 import { GENERATED_CATALOGUE_DEVICES } from "./devices/generated-catalogue.js";
@@ -150,6 +151,9 @@ export interface EufyProviderConfig {
   readonly persistentDirectory: string;
   readonly verifyCode?: string;
   readonly maxStreamSeconds: number;
+
+  /** Operator-selected station destinations, never substitutes for authenticated peer identity. */
+  readonly homeBaseLocalAddresses?: readonly HomeBaseAddress[];
 
   /** Explicit opt-in for exact official-model control trials, off by default. */
   readonly experimentalModelControls?: boolean;
@@ -1056,7 +1060,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       current();
       if (!dsk) throw new C31IndexError("admission");
       session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!,
-        appConnection: peer.p2pConnection!, localAddress: peer.localAddress, dskKey: dsk.key,
+        appConnection: peer.p2pConnection!, localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key,
         channel: 0, cameraModel: "T817L", stationModel: peer.model, recordingCameraSerial: device.serial,
         accountId: device.adminUserId, homeBaseAttached: false, purpose: "control", maxSeconds: 45,
         resolveCipherKey: id => this.#resolveCipherKey(id, peer) });
@@ -1248,7 +1252,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const dsk = await owned(() => this.#dskKey(station.serial));
       if (!dsk) throw new LocalMotionError("admission");
       session = new FirstPartyPpcsSession({ stationSerial: station.serial, p2pDid: station.p2pDid!,
-        appConnection: station.p2pConnection!, localAddress: station.localAddress, dskKey: dsk.key,
+        appConnection: station.p2pConnection!, localAddress: homeBaseLocalAddress(station, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key,
         channel: device!.channel!, cameraModel: "T8910", stationModel: station.model,
         accountId: station.adminUserId!, homeBaseAttached: true, purpose: "passive", maxSeconds: 65,
         resolveCipherKey: id => this.#resolveCipherKey(id, station),
@@ -1367,7 +1371,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const dsk = await owned(() => this.#dskKey(station.serial));
       if (!dsk) throw new T85V0StatusError("admission", "connection_key_unavailable");
       session = new FirstPartyPpcsSession({ stationSerial: station.serial, p2pDid: station.p2pDid!,
-        appConnection: station.p2pConnection!, localAddress: station.localAddress, dskKey: dsk.key,
+        appConnection: station.p2pConnection!, localAddress: homeBaseLocalAddress(station, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key,
         channel: device!.channel!, cameraModel: "T85V0", stationModel: station.model,
         accountId: station.adminUserId!, homeBaseAttached: true, purpose: "control", maxSeconds: 45,
         resolveCipherKey: id => this.#resolveCipherKey(id, station) });
@@ -1498,7 +1502,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           || this.#devices.get(serial) === undefined || !this.#devices.get(peer.serial)
           || inventoryBindingChanged(peer, this.#devices.get(peer.serial)!))) throw new EventNameHistoryError("cancelled");
         const session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!,
-          appConnection: peer.p2pConnection!, localAddress: peer.localAddress, dskKey: dsk.key,
+          appConnection: peer.p2pConnection!, localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key,
           channel: device.channel!, cameraModel: device.model, stationModel: peer.model, recordingCameraSerial: device.serial,
           accountId: diagnostic ? peer.adminUserId! : device.adminUserId!, homeBaseAttached: route!.homeBaseAttached,
           purpose: "control", maxSeconds: purpose === "event_picture" ? 60 : 120, resolveCipherKey: (id) => this.#resolveCipherKey(id, peer) });
@@ -3077,7 +3081,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         const stream = new FirstPartyPpcsSession({
           ...(device.model === "T8170" && device.deviceType === 48 && !route.homeBaseAttached ? { lookupTimeoutMs: 8_000 } : {}),
           stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
-          localAddress: peer.localAddress,
+          localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []),
           dskKey: dsk.key, channel: device.channel, cameraModel: device.model, cameraDeviceType: device.deviceType, stationModel: peer.model,
           accountId: device.adminUserId,
           homeBaseAttached: route.homeBaseAttached,
@@ -3218,7 +3222,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         stationSerial: peer.serial,
         p2pDid: peer.p2pDid,
         appConnection: peer.p2pConnection,
-        localAddress: peer.localAddress,
+        localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []),
         dskKey: dsk.key,
         channel: device.channel,
         cameraModel: device.model,
@@ -3300,7 +3304,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           const dsk = this.#dskKeys.get(serial);
           if (!dsk || dsk.expiresAt !== null && dsk.expiresAt <= Date.now()) throw new E21ControlError("admission");
           session = new FirstPartyPpcsSession({ stationSerial: serial, p2pDid: device.p2pDid!, appConnection: device.p2pConnection!,
-            localAddress: device.localAddress, dskKey: dsk.key, channel: 0, cameraModel: "T8354", accountId: device.adminUserId!,
+            localAddress: homeBaseLocalAddress(device, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key, channel: 0, cameraModel: "T8354", accountId: device.adminUserId!,
             homeBaseAttached: false, purpose: "control", maxSeconds: 60, resolveCipherKey: (id) => this.#resolveCipherKey(id, device) });
           await session.start(); check();
           await session.writeE21Preference(preference, value, reads.videoMode); check();
@@ -3383,7 +3387,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       }
       await this.stopStream(serial);
       const session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid,
-        appConnection: peer.p2pConnection, localAddress: peer.localAddress, dskKey: dsk.key,
+        appConnection: peer.p2pConnection, localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key,
         channel: 0, cameraModel: device.model, accountId: device.adminUserId!, homeBaseAttached: false,
         purpose: "control", maxSeconds: 40, resolveCipherKey: (id) => this.#resolveCipherKey(id, peer) });
       try {
@@ -3477,7 +3481,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const dsk = await this.#dskKey(peer.serial); check();
       if (!dsk || !peer.p2pDid || !peer.p2pConnection || device.channel === null) throw new CameraSettingError("unavailable");
       session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid,
-        appConnection: peer.p2pConnection, localAddress: peer.localAddress, dskKey: dsk.key,
+        appConnection: peer.p2pConnection, localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key,
         channel: device.channel, cameraModel: device.model, accountId: device.adminUserId!,
         homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 90,
         resolveCipherKey: id => this.#resolveCipherKey(id, peer) });
@@ -3602,7 +3606,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           || livePeer.p2pDid !== peer.p2pDid || livePeer.p2pConnection !== peer.p2pConnection) throw new AlarmReadRouteChangedError();
       };
       session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!, appConnection: peer.p2pConnection!,
-        localAddress: peer.localAddress, dskKey: dsk.key, channel: 0, cameraModel: "T8170", accountId: device.adminUserId!,
+        localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key, channel: 0, cameraModel: "T8170", accountId: device.adminUserId!,
         homeBaseAttached: false, purpose: "control", modelControlTrial: true, maxSeconds: 40,
         resolveCipherKey: cipherId => this.#resolveCipherKey(cipherId, peer) });
       this.#trialSessions.set(peer.serial, session);
@@ -3680,7 +3684,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       sirenSetupStage = "session_connect";
       failureStage = "session_connect";
       session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid,
-        appConnection: peer.p2pConnection, localAddress: peer.localAddress, dskKey: dsk.key,
+        appConnection: peer.p2pConnection, localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key,
         channel: device.channel, cameraModel: device.model, cameraDeviceType: device.deviceType, accountId: device.adminUserId,
         homeBaseAttached: route.homeBaseAttached, purpose: "control", modelControlTrial: true, maxSeconds: 40,
         resolveCipherKey: cipherId => this.#resolveCipherKey(cipherId, peer),
@@ -3813,7 +3817,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (!dsk) throw unknown();
       stage = "session_connect";
       session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!, appConnection: peer.p2pConnection!,
-        localAddress: peer.localAddress, dskKey: dsk.key, channel: 0, cameraModel: "T8425", accountId: device.adminUserId!,
+        localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key, channel: 0, cameraModel: "T8425", accountId: device.adminUserId!,
         homeBaseAttached: false, purpose: "control", modelControlTrial: true, maxSeconds: 40,
         resolveCipherKey: id => this.#resolveCipherKey(id, peer) });
       this.#trialSessions.set(peer.serial, session);
@@ -3909,7 +3913,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const dsk = await owned(() => this.#dskKey(peer.serial));
       if (!dsk) throw failure();
       session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!, appConnection: peer.p2pConnection!,
-        localAddress: peer.localAddress, dskKey: dsk.key, channel: device.channel!, cameraModel: device.model,
+        localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key, channel: device.channel!, cameraModel: device.model,
         stationModel: peer.model, accountId: device.adminUserId!, homeBaseAttached: true, purpose: "control",
         maxSeconds: 60, resolveCipherKey: key => this.#resolveCipherKey(key, peer) });
       this.#trialSessions.set(peer.serial, session); session.output.once("end", abort); session.output.resume();
@@ -4002,7 +4006,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const dsk = await owned(() => this.#dskKey(peer.serial));
       if (!dsk) throw unknown();
       session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!, appConnection: peer.p2pConnection!,
-        localAddress: peer.localAddress, dskKey: dsk.key, channel: device.channel!, cameraModel: device.model,
+        localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key, channel: device.channel!, cameraModel: device.model,
         stationModel: peer.model, accountId: device.adminUserId!, homeBaseAttached: route.homeBaseAttached, purpose: "control",
         modelControlTrial: true, maxSeconds: 40, resolveCipherKey: id => this.#resolveCipherKey(id, peer) });
       this.#trialSessions.set(peer.serial, session); session.output.once("end", abort); session.output.resume();
@@ -4136,7 +4140,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         current();
         const session = new FirstPartyPpcsSession({
           stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
-          localAddress: peer.localAddress, dskKey: dsk.key, channel: device.channel, cameraModel: device.model, stationModel: peer.model,
+          localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key, channel: device.channel, cameraModel: device.model, stationModel: peer.model,
           accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 40,
           resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
         });
@@ -4247,7 +4251,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       for (let operation = 0; operation < 2; operation += 1) {
         const session = new FirstPartyPpcsSession({
           stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
-          localAddress: peer.localAddress,
+          localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []),
           dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
           accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 40,
           resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
@@ -4313,7 +4317,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       await this.stopStream(serial);
       const session = new FirstPartyPpcsSession({
         stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
-        localAddress: peer.localAddress,
+        localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []),
         dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
         accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 40,
         resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
@@ -4381,7 +4385,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         stationSerial: peer.serial,
         p2pDid: peer.p2pDid,
         appConnection: peer.p2pConnection,
-        localAddress: peer.localAddress,
+        localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []),
         dskKey: dsk.key,
         channel: device.channel,
         cameraModel: device.model,
@@ -4439,7 +4443,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       await this.stopStream(serial);
       const session = new FirstPartyPpcsSession({
         stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
-        localAddress: peer.localAddress, dskKey: dsk.key, channel: device.channel,
+        localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key, channel: device.channel,
         cameraModel: device.model, accountId: device.adminUserId,
         homeBaseAttached: false, purpose: "control", maxSeconds: 40,
       });
@@ -4509,7 +4513,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (standaloneNightVisionSupported) await this.stopStream(serial);
       const session = new FirstPartyPpcsSession({
         stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
-        localAddress: peer.localAddress,
+        localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []),
         dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
         accountId: device.adminUserId, homeBaseAttached: route!.homeBaseAttached, purpose: "control", maxSeconds: 40,
         ...(standaloneNightVisionSupported ? { standaloneNightVisionSupported: true } : {}),
@@ -5657,7 +5661,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         stationSerial: peer.serial,
         p2pDid: peer.p2pDid,
         appConnection: peer.p2pConnection,
-        localAddress: peer.localAddress,
+        localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []),
         dskKey: dsk.key,
         channel: device.channel,
         cameraModel: device.model,
@@ -5740,7 +5744,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
     const session = new FirstPartyPpcsSession({
       stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
-      localAddress: peer.localAddress,
+      localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []),
       dskKey: dsk.key, channel: device.channel, cameraModel: device.model,
       accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 50,
       resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
@@ -6003,7 +6007,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       stationSerial: peer.serial,
       p2pDid: peer.p2pDid,
       appConnection: peer.p2pConnection,
-      localAddress: peer.localAddress,
+      localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []),
       dskKey: dsk.key,
       channel: device.channel,
       cameraModel: device.model,
@@ -6383,7 +6387,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         p2pDid: identity.p2pDid,
         accountId: identity.adminUserId,
         userName: identity.userName ?? "Home Assistant",
-        localAddress: identity.localAddress,
+        localAddress: homeBaseLocalAddress(identity, this.config.homeBaseLocalAddresses ?? []),
         storageProtocol: isHomeBase3(identity) ? "homebase3" : "homebase2",
         firmware: identity.firmware,
       });
