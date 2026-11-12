@@ -166,3 +166,14 @@ test("the private name reader still requires its original transaction and never 
   await assert.rejects(reader.readName(reference), /unavailable/);
   reader.close();
 });
+
+
+test("an opaque storage directory still requires the complete notification path and record identity", () => {
+  const storagePath = "/zx/volume_1/Camera02/202610/20261031092300/20261031092300.zxvideo";
+  const reference = { id: "123", storagePath, triggerMilliseconds: 1_793_419_380_000 };
+  assert.equal(selectEventNameHistory(page([{ ...history, storage_path: storagePath }]), serial, station, reference), person.name);
+  for (const changed of [{ storage_path: storagePath.replace("volume_1", "volume_2") },
+    { record_id: 124 }, { device_sn: "sibling" }]) {
+    assert.equal(selectEventNameHistory(page([{ ...history, storage_path: storagePath, ...changed }]), serial, station, reference), null);
+  }
+});

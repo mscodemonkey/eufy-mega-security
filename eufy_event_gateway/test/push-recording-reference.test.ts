@@ -84,3 +84,16 @@ test("rejected references retain only bounded layout and independent clock categ
   const nested = parsePushEvent({ ...payload, device_sn: "invented", payload: { file_path: "PRIVATE_PATH" } });
   assert.equal(nested?.recordingReferenceShape?.clock, "absent");
 });
+
+
+test("calendar extraction treats a safe storage directory as opaque without loosening the date layout", () => {
+  for (const directory of ["volume_1", "storage-A", "hdd_data0"]) {
+    const alternate = path.replace("hdd_data0", directory);
+    assert.equal(recordingPathDate(alternate), "2026-11-02");
+    assert.equal(pushRecordingReference({ ...payload, file_path: alternate })?.storagePath, alternate);
+  }
+  for (const directory of [".", "..", "a/b", "a%2fb", "a.b", "a b", "a\\b", "a".repeat(65)]) {
+    assert.equal(recordingPathDate(path.replace("hdd_data0", directory)), null);
+  }
+  assert.equal(recordingPathDate(path.replace("hdd_data0", "volume_1").replace("202611/", "202610/")), null);
+});
