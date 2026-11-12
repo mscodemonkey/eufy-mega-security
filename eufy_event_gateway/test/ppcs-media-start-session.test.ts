@@ -2,6 +2,7 @@
  * Exercises media-start repair and owned motion at the real UDP boundary.
  * Synthetic peer keys and sockets are test-owned. No account or camera is used.
  */
+import { QuickResponseListError } from "../src/provider/quick-responses.js";
 import { qualifiedLiveFrameClock, qualifiedS340LiveSource } from "../src/stream/live-frame-clock.js";
 import assert from "node:assert/strict";
 import { createCipheriv, createDecipheriv, createECDH, createHmac, createPrivateKey, createPublicKey, privateDecrypt, publicEncrypt } from "node:crypto";
@@ -1026,6 +1027,28 @@ for (const model of ["T8210", "T8214"]) {
       context.mock.timers.tick(15_000); await playing;
       assert.equal(commands(1706).length, 1);
       f.session.close(); assert.equal(f.session.stats.mediaStopAttempts, 1);
+    } finally { f.session.close(); }
+  });
+}
+
+for (const reason of ["response_timeout", "session_closed", "protection_unavailable", "invalid_list"] as const) {
+  test(`T8214 reply discovery identifies ${reason} without requesting playback`, async context => {
+    const f = await peer(context, true, "T8214", "control", "T8030", undefined, 2);
+    try {
+      if (reason !== "protection_unavailable") await f.negotiate();
+      const pending = f.session.queryQuickResponses();
+      const rejected = assert.rejects(pending, error => error instanceof QuickResponseListError && error.reason === reason);
+      await new Promise(resolve => setImmediate(resolve));
+      if (reason === "session_closed") f.session.close();
+      else if (reason === "invalid_list") {
+        const cipher = createCipheriv("aes-256-gcm", Buffer.alloc(32, 9), Buffer.alloc(12, 7));
+        cipher.setAAD(Buffer.from("eufy security"));
+        const encrypted = Buffer.concat([cipher.update(Buffer.from(JSON.stringify({ cmd: 6237, payload: { voice_list: null } }))), cipher.final()]);
+        f.frame(1351, Buffer.concat([cipher.getAuthTag(), Buffer.alloc(12, 7), Buffer.alloc(4), encrypted]), 2, false, 8);
+      } else context.mock.timers.tick(10_001);
+      await rejected;
+      assert.equal(f.sent.some(packet => packet.length >= 24 && packet.toString("ascii", 8, 12) === "XZYH"
+        && packet.readUInt16LE(12) === 1706), false);
     } finally { f.session.close(); }
   });
 }

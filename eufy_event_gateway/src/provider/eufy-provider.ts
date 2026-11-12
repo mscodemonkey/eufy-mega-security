@@ -13,7 +13,7 @@
  * newly added devices without replacing push receivers or active media sessions.
  */
 import { homeBaseLocalAddress, type HomeBaseAddress } from "./homebase-address.js";
-import { isQuickResponseRoute, validQuickResponseId, type DoorbellQuickResponse } from "./quick-responses.js";
+import { QuickResponseListError, isQuickResponseRoute, validQuickResponseId, type DoorbellQuickResponse } from "./quick-responses.js";
 import { ppcsSourceDiagnostic } from "../diagnostics/ppcs-source-diagnostic.js";
 import { GENERATED_CATALOGUE_DEVICES } from "./devices/generated-catalogue.js";
 import { classicLockInventory } from "./classic-lock-inventory.js";
@@ -3927,8 +3927,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         stage = "playback"; await owned(() => session!.playQuickResponse(id, current));
       }
       return replies;
-    } catch {
-      logger.warn("doorbell_quick_response_failed", `Quick response failed: stage=${stage} playback_requested=${id !== undefined}`);
+    } catch (error) {
+      const reason = error instanceof QuickResponseListError ? error.reason : "unspecified";
+      logger.warn("doorbell_quick_response_failed", `Quick response failed: stage=${stage} reason=${reason} playback_requested=${id !== undefined}`);
       throw failure();
     } finally {
       clearTimeout(deadline); session?.output.removeListener("end", abort); controller.abort();
