@@ -24,3 +24,17 @@ test("query evidence separates transport receipt, selected notifications and com
   for (let index = 0; index < 70_000; index++) trace.notification(3, true, true);
   assert.equal(trace.snapshot().notifications, 65_535);
 });
+
+test("decode counters retain only selected fixed outcomes in immutable private-safe summaries", () => {
+  const trace = new PpcsQueryTrace(2);
+  trace.notification(3, false, false, "authentication_failed");
+  trace.notification(2, false, false, "authenticated_unreadable");
+  const snapshot = trace.snapshot();
+  trace.notification(2, false, false, "authenticated_unreadable");
+  assert.deepEqual(snapshot.decodeOutcomes, { authenticated_unreadable: 1 });
+  const summary = ppcsQueryEvidenceSummary({ ...snapshot,
+    decodeOutcomes: { ...snapshot.decodeOutcomes, legacy: Infinity, ...{ privatePayload: "do-not-log" } } });
+  assert.match(summary, /notify_decode_authenticated_unreadable=1/);
+  assert.match(summary, /notify_decode_authentication_failed=0/);
+  assert.doesNotMatch(summary, /Infinity|privatePayload|do-not-log/);
+});

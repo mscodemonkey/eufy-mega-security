@@ -10,7 +10,7 @@
  * stream plus safe counters, so the rest of the gateway never handles PPCS
  * packet layout or camera encryption directly.
  */
-import { PpcsQueryTrace } from "./ppcs-query-trace.js";
+import { PpcsQueryTrace, type PpcsControlDecodeOutcome } from "./ppcs-query-trace.js";
 import { s340LiveQualityValue } from "../provider/s340-live-quality.js";
 import { QuickResponseListError, parseQuickResponseList, validQuickResponseId, type DoorbellQuickResponse } from "../provider/quick-responses.js";
 import { t8420ClearLiveRoute, t8420ClearLiveStart } from "./t8420-live.js";
@@ -3470,9 +3470,12 @@ export class FirstPartyPpcsSession {
 
     if (command === 1351 && this.#pendingControlQuery) {
       const pending = this.#pendingControlQuery;
+      let decodeOutcome: PpcsControlDecodeOutcome | undefined;
       const decoded = decodePpcsControlRecord(payload, signCode,
-        commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key);
-      pending.trace?.notification(frameChannel, Boolean(decoded) && (signCode === 2 || signCode === 8), decoded?.cmd === pending.command);
+        commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key,
+        outcome => { decodeOutcome = outcome; });
+      pending.trace?.notification(frameChannel, Boolean(decoded) && (signCode === 2 || signCode === 8),
+        decoded?.cmd === pending.command, decodeOutcome);
       if (this.#options.cameraModel !== "T814X" && pending.command !== 6237 || frameChannel === this.#options.channel) {
         const responsePayload = decoded?.cmd === pending.command ? jsonRecord(decoded.payload) : undefined;
         if (responsePayload) {
@@ -4427,22 +4430,33 @@ export function supportsViewerPanControl(model: string | undefined, attached: bo
  * Both observed level-two signatures require authenticated decryption. Missing
  * keys, unknown signatures and authentication failures never fall back to
  * treating ciphertext as a clear or level-one reply.
+ * The optional observer receives one fixed decode stage, separately from command
+ * matching. Observer failures cannot affect response acceptance.
  */
 export function decodePpcsControlRecord(
   payload: Buffer,
   signCode: number,
   level1Key: Buffer,
   level2Key: Buffer | null,
+  observe?: (outcome: PpcsControlDecodeOutcome) => void,
 ): Record<string, unknown> | undefined {
   let clear: Buffer | undefined;
+  let outcome: PpcsControlDecodeOutcome = signCode === 0 ? "clear" : signCode === 1 ? "legacy" : "unsupported";
   if (signCode === 0) clear = payload;
   else if (signCode === 2 || signCode === 8) {
     if (level2Key) clear = decryptLevel2(payload, level2Key, signCode);
+    outcome = !level2Key ? "key_unavailable" : clear ? "authenticated_unreadable" : "authentication_failed";
   } else if (signCode === 1 && payload.length > 0 && payload.length % 16 === 0) {
-    try { clear = decryptEcb(payload, level1Key); } catch { return undefined; }
+    try { clear = decryptEcb(payload, level1Key); } catch {}
   }
-  try { return clear ? parsePpcsControlRecord(clear) : undefined; }
-  finally { if (clear && clear !== payload) clear.fill(0); }
+  try {
+    const decoded = clear ? parsePpcsControlRecord(clear) : undefined;
+    if (decoded && (signCode === 2 || signCode === 8)) outcome = "authenticated_json";
+    return decoded;
+  } finally {
+    if (clear && clear !== payload) clear.fill(0);
+    try { observe?.(outcome); } catch {}
+  }
 }
 
 /** Parse one decrypted control reply, accepting only complete JSON with validated NUL or PKCS7 padding. */
