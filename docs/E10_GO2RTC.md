@@ -19,7 +19,7 @@ streams:
   eufy_e10: "exec:python3 /config/eufy-diagnostics-tools/e10-go2rtc-source.py --connection /config/eufy-e10-source.json"
 ```
 
-The producer reads its token from the private file. Credentials never enter the go2rtc source string or its process arguments. The producer rejects redirects, opens only the saved camera route and closes its response when the consumer stops. Its local RTSP source is then `rtsp://127.0.0.1:8554/eufy_e10` when the consuming application runs on the same machine and go2rtc uses its usual RTSP port. For another machine, use your existing authenticated private go2rtc address. This helper does not configure downstream RTSP access.
+The producer reads its token from the private file. Credentials never enter the go2rtc source string or its process arguments. The producer rejects redirects, opens only the saved camera route and closes its response when the consumer stops. The RTSP stream name is `eufy_e10`, available through go2rtc's loopback listener on its usual port 8554 when the consuming application runs on the same machine. For another machine, use your existing authenticated private go2rtc address. This helper does not configure downstream RTSP access.
 
 Open one ordinary view when no recording or other view owns this camera. Disconnecting the last consumer lets the gateway's normal idle cleanup release the camera. A continuous Frigate consumer keeps requesting media, so stop that consumer when you no longer want the camera active. go2rtc owns reconnect scheduling. EMS does not add a retry loop or guarantee uninterrupted video. If the gateway API token changes, remove the old private fragment and generate a new one.
 
