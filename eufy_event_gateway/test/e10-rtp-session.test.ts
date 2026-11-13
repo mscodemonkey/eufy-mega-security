@@ -46,7 +46,7 @@ function payloads(unit: readonly Buffer[]): Buffer[] {
 for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-deadline", "continuous-video", "continuous-stall", "continuous-cancel",
   "continuous-malformed-outer", "continuous-malformed-inner", "continuous-malformed-payload",
   "continuous-keepalive-response", "continuous-keepalive-silent", "continuous-keepalive-queue-failure",
-  "continuous-peer-failed", "continuous-hangup-empty", "continuous-hangup-missing", "continuous-hangup-null",
+  "continuous-peer-failed", "continuous-peer-disconnected", "peer-failed-before-video", "continuous-hangup-empty", "continuous-hangup-missing", "continuous-hangup-null",
   "continuous-hangup-stall", "continuous-hangup-cancel", "hangup-before-video", "finite-hangup", "continuous-hangup-foreign-session", "continuous-hangup-foreign-station", "continuous-hangup-foreign-channel"]) {
   test(`E10 RTP ${scenario} preserves its media lifetime and cleanup`, { timeout: 20_000 }, async context => {
     const continuous = scenario.startsWith("continuous-");
@@ -172,6 +172,14 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
         peer = new RTCPeerConnection({ iceServers: [], iceUseIpv6: false,
           codecs: { audio: [], video: [useH264({ payloadType: offer!.payloadType, parameters: offer!.parameters })] } });
         context.mock.method(peer, "createDataChannel", () => assert.fail("RTP clip must not create a data channel"));
+        if (scenario === "peer-failed-before-video") {
+          const original = peer.setRemoteDescription.bind(peer);
+          context.mock.method(peer, "setRemoteDescription", async (...args: Parameters<typeof original>) => {
+            const result = await original(...args);
+            setImmediate(() => peer?.connectionStateChange.execute("failed"));
+            return result;
+          });
+        }
         if (scenario === "cancel-offer") {
           const original = peer.setRemoteDescription.bind(peer);
           context.mock.method(peer, "setRemoteDescription", async (...args: Parameters<typeof original>) => {
@@ -189,6 +197,11 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
           && error.stage === "call" && error.reason === "signalling_hangup");
         assert.equal(chunks.length, 0);
         assert.equal(session.stats.e10SignallingHangupsAfterVideo, 0);
+      } else if (scenario === "peer-failed-before-video") {
+        await assert.rejects(session.start(), error => error instanceof NvrTrialError
+          && error.stage === "negotiation" && error.reason === "peer_failed");
+        assert.equal(session.stats.video, 0);
+        assert.equal(chunks.length, 0);
       } else if (scenario === "cancel-offer") {
         const stopped = assert.rejects(session.start(), error => error instanceof NvrTrialError && error.stage === "cancelled");
         await entering; controller.abort(); await stopped; finish();
@@ -231,6 +244,12 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
             await new Promise(resolve => setTimeout(resolve, 150));
             scheduled.filter(timer => timer.delay === 45_000).at(-1)!.fire();
           } else if (scenario === "continuous-cancel") controller.abort();
+          else if (scenario === "continuous-peer-disconnected") {
+            const disconnectedPeer = ((): RTCPeerConnection | null => peer)();
+            assert.ok(disconnectedPeer);
+            disconnectedPeer.connectionStateChange.execute("disconnected");
+            await new Promise<void>(resolve => session.output.destroyed ? resolve() : session.output.once("close", resolve));
+          }
           else if (scenario === "continuous-peer-failed") {
             const failedPeer = ((): RTCPeerConnection | null => peer)();
             assert.ok(failedPeer);
@@ -293,12 +312,13 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
         assert.equal(chunks.length, closedChunks);
         if (scenario === "continuous-stall") assert.deepEqual(errors.map(error => [error.stage, error.reason]), [["video", "video_progress_timeout"]]);
         else if (scenario === "continuous-peer-failed") {
-          assert.deepEqual(errors.map(error => [error.stage, error.reason]), [["negotiation", "peer_failed"]]);
+          assert.deepEqual(errors.map(error => [error.stage, error.reason]), [["video", "peer_failed"]]);
           assert.equal(session.stats.e10LocalRelaySelected, 0);
           assert.equal(session.stats.e10RemoteRelaySelected, 0);
           assert.ok(session.stats.e10IceResponses > 0);
           assert.equal(session.stats.e10IceFailed, 1, "retirement preserves the ICE failure snapshot");
         }
+        else if (scenario === "continuous-peer-disconnected") assert.deepEqual(errors.map(error => [error.stage, error.reason]), [["video", "peer_disconnected"]]);
         else if (scenario === "finite-deadline") assert.equal(errors[0]?.stage, "deadline");
         else if (scenario === "continuous-cancel") assert.equal(errors[0]?.stage, "cancelled");
         else if (scenario === "finite-hangup") assert.deepEqual(errors.map(error => [error.stage, error.reason]), [["video", "signalling_hangup"]]);
