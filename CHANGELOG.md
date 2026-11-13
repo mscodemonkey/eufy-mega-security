@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.268
+
+- Add an opt-in E340/HomeBase 3 event-picture recovery trial that preserves the exact alert and existing privacy settings. Physical E340 results remain unconfirmed.
+- Add disabled-by-default C35 camera enabled controls for the exact standalone model, with owner checks, fresh state confirmation and active-session protection. Physical monitoring and restoration remain unconfirmed.
+- Add an opt-in S340/HomeBase 3 timed manual-light trial with exact child routing, authenticated receipts and cleanup. Physical illumination, timer behaviour and restoration remain unconfirmed.
+- Add a private E10 saved-connection generator and one-connection H264 pipe producer for go2rtc. Real consumer reconnect and cleanup are verified with synthetic video. E10 hardware playback and its separate five-minute stop remain unconfirmed.
+- Explain missing S340 quality selectors and manual HomeBase lookup failures with privacy-safe admission and destination-submission diagnostics. Measured resolution, telephoto access and routed hardware connectivity remain unconfirmed.
+- Separate saved quick-response decoding failures, C35 reply protection and E330 light-receipt stages without relaxing response acceptance or adding control retries.
+- Classify pending NVR first-start receipts without changing start requests, retry timing or response admission. The reported T8172/HomeBase S1 first-start failure and earlier signing failures remain unconfirmed.
+- Preserve fixed privacy-safe push reconnect reasons without exposing connection data or changing notification registration, saved identity or retry behaviour. The reported zero-delivery failure remains unresolved.
+
 ## 0.1.267
 
 - Correct peer-failure and disconnection warning phases after video has started, while retaining negotiation failures before video.
