@@ -978,6 +978,14 @@ test("control queries authenticate both level-two notification signatures withou
   assert.equal(decodePpcsControlRecord(frame.subarray(1), 1, level1, null), undefined);
 });
 
+test("control decode observations distinguish a missing key and cannot change acceptance", () => {
+  const body = Buffer.from('{"cmd":6237}'), stages: string[] = [];
+  assert.equal(decodePpcsControlRecord(body, 8, Buffer.alloc(16), null, stage => stages.push(stage)), undefined);
+  assert.deepEqual(stages, ["key_unavailable"]);
+  assert.deepEqual(decodePpcsControlRecord(body, 0, Buffer.alloc(16), null,
+    () => { throw new Error("observer failure"); }), { cmd: 6237 });
+});
+
 
 test("C31 viewer ownership admits preset and cruise commands without admitting unrelated writes", () => {
   for (const command of [6034, 6035, 6031]) assert.equal(supportsViewerPanControl("T817L", false, 0, command), true);

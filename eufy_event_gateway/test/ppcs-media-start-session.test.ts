@@ -1100,8 +1100,10 @@ test("T8214 list timeout retains receipt and rejected-notification evidence with
     const failed = assert.rejects(operation, error => {
       assert.ok(error instanceof QuickResponseListError);
       assert.equal(error.reason, "response_timeout");
-      assert.deepEqual(error.query, { sent: true, acknowledged: true, notifications: 3,
-        selectedNotifications: 2, authenticatedNotifications: 1, matchingNotifications: 1 });
+      assert.deepEqual(error.query, { sent: true, acknowledged: true, notifications: 7,
+        selectedNotifications: 6, authenticatedNotifications: 1, matchingNotifications: 1,
+        decodeOutcomes: { authentication_failed: 1, authenticated_json: 1,
+          authenticated_unreadable: 1, clear: 1, legacy: 1, unsupported: 1 } });
       return true;
     });
     await new Promise(resolve => setImmediate(resolve));
@@ -1114,6 +1116,11 @@ test("T8214 list timeout retains receipt and rejected-notification evidence with
     f.frame(1351, envelope, 3, false, 8);
     const forged = Buffer.from(envelope); forged[0]! ^= 1;
     f.frame(1351, forged, 2, false, 8); f.frame(1351, envelope, 2, false, 8);
+    const unreadableCipher = createCipheriv("aes-256-gcm", Buffer.alloc(32, 9), Buffer.alloc(12, 8));
+    unreadableCipher.setAAD(Buffer.from("eufy security"));
+    const unreadable = Buffer.concat([unreadableCipher.update(Buffer.from("not-json")), unreadableCipher.final()]);
+    f.frame(1351, Buffer.concat([unreadableCipher.getAuthTag(), Buffer.alloc(12, 8), Buffer.alloc(4), unreadable]), 2, false, 8);
+    for (const sign of [0, 1, 3]) f.frame(1351, Buffer.from("not-json"), 2, false, sign);
     context.mock.timers.tick(10_001); await failed;
     assert.equal(f.sent.filter(packet => packet.length >= 24 && packet.toString("ascii", 8, 12) === "XZYH" && packet.readUInt16LE(12) === 1350).length, 1);
     assert.equal(f.session.stats.mediaStartAttempts, 0);
