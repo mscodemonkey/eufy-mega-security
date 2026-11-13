@@ -242,6 +242,9 @@ export interface NvrRtcStats {
   /** Signalling sockets retired after a normal viewer had valid video. */
   signallingClosuresAfterVideo: number;
 
+  /** Bound E10 signalling hangups received while a viewer-owned connected peer still supplies video. */
+  e10SignallingHangupsAfterVideo: number;
+
   /** E10 keepalive envelopes accepted by the local WebSocket send queue, not delivery proof. */
   signallingPingsQueued: number;
 
@@ -308,7 +311,7 @@ export class NvrRtcSession {
   #audioOutput = this.#createOutput();
   readonly stats: NvrRtcStats = { packets: 0, frames: 0, video: 0, controlPackets: 0, rejected: 0,
     segmentNotEchoed: 0, staleReplies: 0, ignoredAudio: 0, audio: 0, rejectedAudio: 0, ignoredUnknownMedia: 0,
-    applicationSequenceRecoveries: 0, videoSequenceRecoveries: 0, callsRepeated: 0, inventoryRepeated: 0, signallingClosuresAfterVideo: 0, signallingPingsQueued: 0, signallingPingResponses: 0, signallingPingQueueFailures: 0, e10LocalRelaySelected: -1, e10RemoteRelaySelected: -1, e10IceRequests: 0, e10IceResponses: 0, e10ConsentRequests: 0, e10IceFailed: -1, e10DtlsFailed: -1, signallingClosuresAfterModeObservation: 0, stopUnconfirmed: 0,
+    applicationSequenceRecoveries: 0, videoSequenceRecoveries: 0, callsRepeated: 0, inventoryRepeated: 0, signallingClosuresAfterVideo: 0, e10SignallingHangupsAfterVideo: 0, signallingPingsQueued: 0, signallingPingResponses: 0, signallingPingQueueFailures: 0, e10LocalRelaySelected: -1, e10RemoteRelaySelected: -1, e10IceRequests: 0, e10IceResponses: 0, e10ConsentRequests: 0, e10IceFailed: -1, e10DtlsFailed: -1, signallingClosuresAfterModeObservation: 0, stopUnconfirmed: 0,
     reorderTimeoutChannel: -1, reorderTimeoutExpected: -1, reorderTimeoutWaiting: -1,
     reorderTimeoutAgeMs: 0, reorderTimeoutQueued: 0,
     channel0Frames: 0, channel1Frames: 0, channel2Frames: 0, channel3Frames: 0, channel4Frames: 0, channel5Frames: 0 };
@@ -1076,9 +1079,17 @@ export class NvrRtcSession {
     if (inner.sn !== this.options.station) throw new NvrTrialError("negotiation", "station_mismatch");
     if (inner.channelId !== 0) throw new NvrTrialError("negotiation", "channel_mismatch");
 
-    // A bound remote hang-up ends the call even when it carries no payload.
-    // Parsing its optional body first mislabels it or silently ignores it.
-    if (inner.dataType === "hangup") throw new NvrTrialError(this.#stage, "signalling_hangup");
+    // A connected E10 peer can continue media after the service ends signalling.
+    // Retain its owner and stall deadline, rather than losing the peer reference.
+    if (inner.dataType === "hangup") {
+      if (this.options.e10RtpTrial && this.#maximumLifetimeMilliseconds === null
+        && this.#bootstrapped && this.#startVideoObserved && this.#peer?.connectionState === "connected"
+        && this.remainingLifetimeMilliseconds > 0) {
+        this.stats.e10SignallingHangupsAfterVideo++;
+        return;
+      }
+      throw new NvrTrialError(this.#stage, "signalling_hangup");
+    }
     const data = nvrJson(inner.data, this.options.e10RtpTrial ? "payload" : undefined);
     if (inner.dataType === "call") {
       if (data.status === 486) throw new NvrTrialError("busy");

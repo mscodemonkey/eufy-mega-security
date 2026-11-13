@@ -47,7 +47,7 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
   "continuous-malformed-outer", "continuous-malformed-inner", "continuous-malformed-payload",
   "continuous-keepalive-response", "continuous-keepalive-silent", "continuous-keepalive-queue-failure",
   "continuous-peer-failed", "continuous-hangup-empty", "continuous-hangup-missing", "continuous-hangup-null",
-  "continuous-hangup-foreign-session", "continuous-hangup-foreign-station", "continuous-hangup-foreign-channel"]) {
+  "continuous-hangup-stall", "continuous-hangup-cancel", "hangup-before-video", "finite-hangup", "continuous-hangup-foreign-session", "continuous-hangup-foreign-station", "continuous-hangup-foreign-channel"]) {
   test(`E10 RTP ${scenario} preserves its media lifetime and cleanup`, { timeout: 20_000 }, async context => {
     const continuous = scenario.startsWith("continuous-");
     let videoNow = 0;
@@ -141,6 +141,7 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
             assert.equal(inner.sn, "synthetic-station"); assert.equal(inner.channelId, 0);
             assert.equal(typeof data.account, "string");
             reply("call", { status: 200 });
+            if (scenario === "hangup-before-video") { reply("hangup", {}); return; }
             reply("info", { format: "SDP", value: wireOffer });
           } else if (inner.dataType === "hangup") hangups++;
           else if (inner.dataType === "ack") acknowledgements++;
@@ -183,7 +184,12 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
     const errors: NvrTrialError[] = [];
     session.output.on("error", error => { errors.push(error as NvrTrialError); });
     try {
-      if (scenario === "cancel-offer") {
+      if (scenario === "hangup-before-video") {
+        await assert.rejects(session.start(), error => error instanceof NvrTrialError
+          && error.stage === "call" && error.reason === "signalling_hangup");
+        assert.equal(chunks.length, 0);
+        assert.equal(session.stats.e10SignallingHangupsAfterVideo, 0);
+      } else if (scenario === "cancel-offer") {
         const stopped = assert.rejects(session.start(), error => error instanceof NvrTrialError && error.stage === "cancelled");
         await entering; controller.abort(); await stopped; finish();
         await new Promise(resolve => setTimeout(resolve, 50));
@@ -243,7 +249,20 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
             if (scenario.endsWith("foreign-station")) message.sn = "synthetic-other";
             if (scenario.endsWith("foreign-channel")) message.channelId = 1;
             signallingConnection.send(JSON.stringify({ data: JSON.stringify(message) }));
-            await new Promise<void>(resolve => session.output.destroyed ? resolve() : session.output.once("close", resolve));
+            if (scenario.includes("foreign-")) {
+              await new Promise<void>(resolve => session.output.destroyed ? resolve() : session.output.once("close", resolve));
+            } else {
+              const before = chunks.length;
+              await new Promise(resolve => setTimeout(resolve, 350));
+              assert.ok(chunks.length > before, "real RTP continues after the signalling hangup");
+              assert.equal(session.output.destroyed, false);
+              assert.equal(session.stats.e10SignallingHangupsAfterVideo, 1);
+              if (scenario.endsWith("stall")) {
+                if (timer) clearInterval(timer);
+                await new Promise(resolve => setTimeout(resolve, 150));
+                scheduled.filter(timer => timer.delay === 45_000).at(-1)!.fire();
+              } else if (scenario.endsWith("cancel")) controller.abort();
+            }
           }
           else if (scenario.startsWith("continuous-malformed-")) {
             assert.ok(signallingConnection);
@@ -254,6 +273,11 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
             signallingConnection.send(message);
             await new Promise<void>(resolve => session.output.destroyed ? resolve() : session.output.once("close", resolve));
           }
+        } else if (scenario === "finite-hangup") {
+          signallingConnection!.send(JSON.stringify({ data: JSON.stringify({ action: 3, code: 200,
+            sessionId: "synthetic-sign", sn: "synthetic-station", channelId: 0, dataType: "hangup" }) }));
+          await new Promise<void>(resolve => session.output.destroyed ? resolve() : session.output.once("close", resolve));
+          assert.equal(session.stats.e10SignallingHangupsAfterVideo, 0);
         } else if (scenario === "finite-deadline") {
           assert.equal(scheduled.some(timer => timer.delay === 45_000), false);
           scheduled.find(timer => timer.delay === 10_000)!.fire();
@@ -277,7 +301,10 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
         }
         else if (scenario === "finite-deadline") assert.equal(errors[0]?.stage, "deadline");
         else if (scenario === "continuous-cancel") assert.equal(errors[0]?.stage, "cancelled");
-        else if (scenario.startsWith("continuous-hangup-")) {
+        else if (scenario === "finite-hangup") assert.deepEqual(errors.map(error => [error.stage, error.reason]), [["video", "signalling_hangup"]]);
+        else if (scenario === "continuous-hangup-stall") assert.deepEqual(errors.map(error => [error.stage, error.reason]), [["video", "video_progress_timeout"]]);
+        else if (scenario === "continuous-hangup-cancel") assert.equal(errors[0]?.stage, "cancelled");
+        else if (scenario.startsWith("continuous-hangup-") && scenario.includes("foreign-")) {
           const reason = scenario.endsWith("foreign-session") ? "session_mismatch"
             : scenario.endsWith("foreign-station") ? "station_mismatch"
               : scenario.endsWith("foreign-channel") ? "channel_mismatch" : "signalling_hangup";
