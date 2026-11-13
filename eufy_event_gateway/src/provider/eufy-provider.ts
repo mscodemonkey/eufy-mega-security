@@ -79,6 +79,7 @@ import { GeneralRtcPreparation } from "./general-rtc-preparation.js";
 import { T8417ReadShapeTracker } from "./t8417-read-shape.js";
 import { PushEventDeduplicator } from "./push-event-deduplicator.js";
 import { isT8442Camera } from "./t8442-profile.js";
+import { readS340LiveQuality, S340_LIVE_QUALITY_MODES } from "./s340-live-quality.js";
 import { resolveDeviceRoute } from "./device-routing.js";
 
 import { CameraSettingError, cameraSettingProfile, cameraSettingWireValue, parseCameraSettingChange, readCameraSetting, runConfirmedCameraSetting, type CameraSettingChange } from "./camera-settings.js";
@@ -264,6 +265,9 @@ export interface MegaInventoryReads {
   readonly rtspPublicationEnabled?: boolean;
   readonly continuousRecordingEnabled?: boolean;
   readonly streamingQualityTier?: number;
+
+  /** Present only with a complete mode-zero S340 live-quality snapshot. */
+  readonly s340LiveQualityMode?: 0;
   readonly recordingQualityTier?: number;
   readonly solarIntensity?: number;
   readonly solarConnected24h?: boolean;
@@ -3444,17 +3448,19 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const profile = device && route ? cameraSettingProfile(this.#modelTrialRoute(device, route), change.setting) : null;
     if (!device || !route || !peer || !profile || !device.adminUserId || this.#recordingClosing) throw new CameraSettingError("unavailable");
     const optInSetting = change.setting === "lightBrightness" || change.setting === "manualFloodlight"
-      || profile.form === "motion-control" || profile.form === "solo-sensitivity" || profile.form === "solo-quality";
-    if (["solo-sensitivity", "solo-quality"].includes(profile.form) && !this.config.apiAuthenticationConfigured) throw new CameraSettingError("unavailable");
+      || profile.form === "motion-control" || profile.form === "solo-sensitivity" || profile.form === "solo-quality" || profile.form === "attached-quality";
+    if (["solo-sensitivity", "solo-quality", "attached-quality"].includes(profile.form) && !this.config.apiAuthenticationConfigured) throw new CameraSettingError("unavailable");
     const settingBinding = optInSetting ? this.#client.authenticatedBinding() : null;
     if (optInSetting && (!this.config.experimentalModelControls || !this.#client.isAuthenticatedUser(device.adminUserId) || !settingBinding)) throw new CameraSettingError("unavailable");
+    if (profile.form === "attached-quality" && peer.adminUserId !== device.adminUserId) throw new CameraSettingError("unavailable");
     cameraSettingWireValue(profile, change);
     const controlMaps = [this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations,
       this.#audioRecordingOperations, this.#motionOperations, this.#nightVisionOperations, this.#guardModeOperations,
       this.#lightOperations, this.#panControlOperations, this.#cameraSirenOperations];
     const related = [...this.#devices.values()].filter(row => (row.parentSerial || row.serial) === peer.serial || row.serial === peer.serial);
     if (this.#trialPeers.has(peer.serial) || this.#recordingPeerReserved(serial) || this.#stationOperations.has(peer.serial)
-      || related.some(row => this.#ppcsStreams.has(row.serial) || controlMaps.some(map => map.has(row.serial)))) throw new CameraSettingError("busy");
+      || related.some(row => this.#ppcsStreams.has(row.serial) || controlMaps.some(map => map.has(row.serial))
+        || profile.form === "attached-quality" && this.#streamStarts.has(row.serial))) throw new CameraSettingError("busy");
     const releaseTrialPeer = this.#reserveTrialPeer(peer.serial);
     const generation = this.#startupGeneration;
     const deadline = Date.now() + 90_000;
@@ -3469,10 +3475,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         || (settingBinding !== null && !settingBinding())) throw new CameraSettingError("unavailable");
     };
     const clear = (): void => {
-      this.#invalidateLiveReads(serial, [field]);
+      this.#invalidateLiveReads(serial, profile.form === "attached-quality" ? [field, "s340LiveQualityMode"] : [field]);
       const current = this.#devices.get(serial);
       if (current && !inventoryBindingChanged(device, current)) {
         const reads = { ...current.reads }; delete reads[field];
+        if (profile.form === "attached-quality") delete reads.s340LiveQualityMode;
         this.#devices.set(serial, { ...current, reads });
       }
     };
@@ -3482,7 +3489,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (!dsk || !peer.p2pDid || !peer.p2pConnection || device.channel === null) throw new CameraSettingError("unavailable");
       session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid,
         appConnection: peer.p2pConnection, localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key,
-        channel: device.channel, cameraModel: device.model, accountId: device.adminUserId!,
+        channel: device.channel, cameraModel: device.model, cameraDeviceType: device.deviceType, stationModel: peer.model, accountId: device.adminUserId!,
         homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 90,
         resolveCipherKey: id => this.#resolveCipherKey(id, peer) });
       this.#trialSessions.set(peer.serial, session);
@@ -3511,12 +3518,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
             }
           }
           clear(); await this.#refreshInventoryReads(); check();
+          if (profile.form === "attached-quality" && this.#devices.get(serial)?.reads.s340LiveQualityMode !== 0) throw new CameraSettingError("unavailable");
           return this.#devices.get(serial)?.reads[field];
         },
         write: async onDispatch => {
           const owned = await open(); check();
           await owned.writeReviewedCameraSetting(change, this.#modelTrialRoute(device, route), () => {
-            check(); onDispatch(); dispatched = true;
+            check();
+            if (profile.form === "attached-quality" && this.#devices.get(serial)?.reads.s340LiveQualityMode !== 0) throw new CameraSettingError("unavailable");
+            onDispatch(); dispatched = true;
           });
           check();
           if (route.homeBaseAttached) { owned.close(); await owned.waitUntilClosed(); session = null; this.#trialSessions.delete(peer.serial); }
@@ -3526,7 +3536,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       check();
       const identity = this.#cameraIdentity(this.#devices.get(serial)!); this.#events?.camera(identity); return identity;
     } catch (error) {
-      if (!dispatched && generation === this.#startupGeneration) this.#events?.camera(originalPublic);
+      if (!dispatched && generation === this.#startupGeneration) {
+        const current = this.#devices.get(serial);
+        this.#events?.camera(profile.form === "attached-quality" && current ? this.#cameraIdentity(current) : originalPublic);
+      }
       throw error;
     } finally {
       signal?.removeEventListener("abort", abort);
@@ -4055,6 +4068,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #modelTrialRoute(device: MegaInventoryDevice, route: NonNullable<ReturnType<typeof ppcsStreamRoute>>): ModelControlRoute {
     return { model: device.model, deviceType: device.deviceType, channel: device.channel,
       homeBaseAttached: route.homeBaseAttached, peerModel: route.peer.model,
+      ...(device.reads.s340LiveQualityMode === 0 ? { liveQualityVideoMode: 0 } : {}),
       ...(route.homeBaseAttached ? { peerDeviceType: route.peer.deviceType } : {}), selfPeer: route.peer.serial === device.serial };
   }
 
@@ -4291,6 +4305,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   setCameraStreamingQuality(serial: string, quality: number, signal?: AbortSignal): Promise<CameraIdentity> {
     this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
+    const selected = this.#devices.get(serial);
+    if (selected?.model === "T8170" && selected.deviceType === 48) {
+      return this.setCameraSetting(serial, { setting: "streamingQuality", value: quality }, signal);
+    }
     const nvr = this.#devices.get(serial);
     if (nvr && this.#nvrLiveAdmitted(nvr, this.#devices.get(nvr.parentSerial))) return this.#runNvrLiveControl(serial, { kind: "quality", value: quality }, signal);
     if (nvr?.model === "T8134" && nvr.deviceType === 63) {
@@ -5410,10 +5428,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const experimentalSettingsReady = this.config.experimentalModelControls === true && !!device.adminUserId
       && this.#client.isAuthenticatedUser(device.adminUserId);
     const supportedDetections = cameraDetectionKinds(device, route?.homeBaseAttached);
-    const s220Quality = experimentalSettingsReady && settingRouteReady && this.config.apiAuthenticationConfigured === true
+    const s220Quality = device.model === "T8134" && experimentalSettingsReady && settingRouteReady && this.config.apiAuthenticationConfigured === true
       && this.#client.authenticatedBinding() !== null && settingRoute !== null
       && cameraSettingProfile(settingRoute, "streamingQuality") !== null
       && device.reads.streamingQualityTier !== undefined;
+    const s340Quality = experimentalSettingsReady && settingRouteReady && this.config.apiAuthenticationConfigured === true
+      && this.#client.authenticatedBinding() !== null && settingRoute !== null && route?.peer.adminUserId === device.adminUserId
+      && cameraSettingProfile(settingRoute, "streamingQuality")?.form === "attached-quality"
+      && device.reads.streamingQualityTier !== undefined && device.reads.s340LiveQualityMode === 0;
     const standaloneQuality = s220Quality || supportsStandaloneStreamingQuality(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials));
     const identity: CameraIdentity = {
       serial: device.serial,
@@ -5497,8 +5519,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         route,
         isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       ),
-      streamingQualityControlSupported: standaloneQuality,
-      streamingQualityModes: s220Quality ? [
+      streamingQualityControlSupported: standaloneQuality || s340Quality,
+      streamingQualityModes: s340Quality ? S340_LIVE_QUALITY_MODES : s220Quality ? [
         { value: 0, name: "Auto" }, { value: 1, name: "Low" }, { value: 2, name: "Medium" }, { value: 3, name: "High" },
       ] : standaloneQuality ? device.model === "T817L" ? [
         { value: 0, name: "Auto" }, { value: 2, name: "Medium" }, { value: 3, name: "High" },
@@ -7026,8 +7048,10 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const qualityFamily = deviceType === 48 && /^T8170(?:$|[A-Z0-9-])/.test(model ?? "");
   const t8171 = deviceType === 88 && /^T8171(?:$|[A-Z0-9-])/.test(model ?? "");
   const t8425 = deviceType === 47 && /^T8425(?:$|[A-Z0-9-])/.test(model ?? "");
+  const s340LiveQuality = model === "T8170" && deviceType === 48 && !standaloneChannelZero ? readS340LiveQuality(settingRows) : undefined;
   const reviewedStreamingQuality = readCameraSetting(settingRows, model ?? "", deviceType, standaloneChannelZero, "streamingQuality");
-  const streamingQuality = c31 ? activeRecordingQuality(params.get(2730), 0) ?? null
+  const streamingQuality = model === "T8170" && deviceType === 48 ? s340LiveQuality?.quality ?? null
+    : c31 ? activeRecordingQuality(params.get(2730), 0) ?? null
     : typeof reviewedStreamingQuality === "number" ? reviewedStreamingQuality
       : qualityFamily || t8171 ? finiteNumber(params.get(1020)) : null;
   const recordingQuality = c31 ? activeRecordingQuality(params.get(2731), 2)
@@ -7094,6 +7118,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
     ...(enhanceLighting === 0 || enhanceLighting === 1 ? { enhanceLightingEnabled: enhanceLighting === 0 } : {}),
     ...(streamingQuality !== null && Number.isInteger(streamingQuality) && streamingQuality >= 0 && streamingQuality <= 3
       ? { streamingQualityTier: streamingQuality } : {}),
+    ...(s340LiveQuality ? { s340LiveQualityMode: s340LiveQuality.videoMode } : {}),
     ...(recordingQuality !== undefined ? { recordingQualityTier: recordingQuality } : {}),
     ...(solarIntensity !== null && solarIntensity >= 0 && solarIntensity <= Number.MAX_SAFE_INTEGER
       ? { solarIntensity } : {}),

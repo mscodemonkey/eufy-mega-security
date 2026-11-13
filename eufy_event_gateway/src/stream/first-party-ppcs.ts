@@ -10,6 +10,7 @@
  * stream plus safe counters, so the rest of the gateway never handles PPCS
  * packet layout or camera encryption directly.
  */
+import { s340LiveQualityValue } from "../provider/s340-live-quality.js";
 import { QuickResponseListError, parseQuickResponseList, validQuickResponseId, type DoorbellQuickResponse } from "../provider/quick-responses.js";
 import { t8420ClearLiveRoute, t8420ClearLiveStart } from "./t8420-live.js";
 import { createRecordedCipheriv as createCipheriv } from "../diagnostics/raw-crypto.js";
@@ -1023,6 +1024,9 @@ export function buildReviewedCameraSettingPayload(
   }
   if (profile.form === "manual-light" || profile.form === "motion-control" || profile.form === "solo-sensitivity" || profile.form === "solo-quality") throw new Error("Setting requires its native level-one envelope");
   const native = cameraSettingWireValue(profile, change);
+  if (profile.form === "attached-quality") {
+    return { command: 1350, payload: rawPayload(encryptLevel2(Buffer.from(s340LiveQualityValue(route, native, accountId)), key, sequence), route.channel!, 8, [8, 0], 0) };
+  }
   const clear = profile.form === "binary" ? buildCameraEnableBody(route.channel!, native, accountId)
     : Buffer.from(JSON.stringify(profile.form === "payload"
       ? { account_id: accountId, cmd: profile.readParam, mChannel: route.channel, mValue3: 0,
@@ -2344,6 +2348,9 @@ export class FirstPartyPpcsSession {
     if (!profile || this.#closed || this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
       || this.#options.cameraModel !== route.model || this.#options.channel !== route.channel
       || this.#options.homeBaseAttached !== route.homeBaseAttached) throw new Error("Reviewed camera setting session unavailable");
+    if (profile.form === "attached-quality" && (this.#options.cameraDeviceType !== 48 || this.#options.stationModel !== "T8030")) {
+      throw new Error("S340 live quality session unavailable");
+    }
     cameraSettingWireValue(profile, change);
     if (profile.form === "solo-quality") {
       const payload = buildStandaloneJsonControlPayload(buildS220StreamingQualityControlValue(change, route), route.channel!,

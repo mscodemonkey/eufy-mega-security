@@ -286,7 +286,7 @@ export interface NightVisionMode {
 /** One exact model's app-confirmed streaming quality, independent of recorded-video quality. */
 export interface CameraStreamingQualityMode {
   readonly value: number;
-  readonly name: "Auto" | "HD (720P)" | "Full HD (1080P)" | "2K" | "4K" | "Ultra 4K" | "Medium" | "High" | "Low" | "Highest";
+  readonly name: "Auto" | "HD (720P)" | "Full HD (1080P)" | "2K" | "3K" | "4K" | "Ultra 4K" | "Medium" | "High" | "Low" | "Highest";
 }
 
 /** Normalized battery reads exposed only when a device reports each field. */
