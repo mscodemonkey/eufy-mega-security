@@ -9,6 +9,7 @@ import type tls from "node:tls";
 import test from "node:test";
 
 import { PushClient } from "../src/mega/android-push/push-client.js";
+import { McsParser } from "../src/mega/android-push/parser.js";
 import { MessageTag } from "../src/mega/android-push/message-tags.js";
 import { mcsRoot } from "../src/mega/android-push/proto.js";
 
@@ -286,4 +287,20 @@ test("a fresh socket resets stream position but retains delivered-ID deduplicati
   assert.deepEqual(streamAcks(current).map(ack => ack.lastStreamIdReceived), [2]);
   assert.deepEqual(streamAcks(old).map(ack => ack.lastStreamIdReceived), [2, 3]);
   assert.equal(deliveries, 1);
+});
+
+test("a decode failure emits a fixed diagnostic tag and keeps private parser errors out", async context => {
+  const sockets: FakeSocket[] = [];
+  const push = client(sockets);
+  const errors: (Error & { code?: string })[] = [];
+  context.mock.method(McsParser.prototype, "handleData", () => { throw new Error("PRIVATE_PARSER_SENTINEL"); });
+  push.on("error", error => errors.push(error));
+  push.connect();
+  sockets[0]!.emit("data", Buffer.from([1]));
+  assert.equal(sockets[0]!.destroyed, true);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0]!.code, "MCS_DECODE_FAILED");
+  assert.equal(errors[0]!.message, "Android MCS frame could not be decoded");
+  assert.doesNotMatch(JSON.stringify(errors), /PRIVATE_PARSER_SENTINEL/);
+  push.close();
 });

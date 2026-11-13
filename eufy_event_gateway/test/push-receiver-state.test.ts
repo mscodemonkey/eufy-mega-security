@@ -719,3 +719,29 @@ test("NVR mode delivery carries the MCS clock rather than a payload timestamp", 
     assert.equal((fixture.events.at(-1) as { transportSentAtMilliseconds: unknown }).transportSentAtMilliseconds, null);
   } finally { await fixture.cleanup(); }
 });
+
+test("transport failure logs retain only fixed reasons and preserve the saved receiver identity", async context => {
+  const logs: string[] = [];
+  context.mock.method(process.stderr, "write", (chunk: unknown) => { logs.push(String(chunk)); return true; });
+  let registrations = 0;
+  const fixture = await receiverFixture(async () => { registrations++; });
+  try {
+    await fixture.receiver.start();
+    const before = await readFile(fixture.path, "utf8");
+    const cases = [["ECONNRESET", "reset"], ["ETIMEDOUT", "timeout"], ["ECONNREFUSED", "refused"],
+      ["EPIPE", "closed"], ["ERR_TLS_CERT_ALTNAME_INVALID", "tls_verification"],
+      ["MCS_DECODE_FAILED", "decode"], ["PRIVATE_CODE_SENTINEL", "other"]] as const;
+    for (const [code, reason] of cases) {
+      fixture.transports[0]!.emit("error", Object.assign(new Error("PRIVATE_MESSAGE_SENTINEL"), { code }));
+      assert.match(logs.at(-1)!.trimEnd(), new RegExp(`event=push_socket_unavailable .*reason=${reason}$`));
+    }
+    fixture.transports[0]!.emit("error", { get code() { throw new Error("PRIVATE_GETTER_SENTINEL"); } });
+    assert.match(logs.at(-1)!.trimEnd(), /reason=other$/);
+    assert.doesNotMatch(logs.join("\n"), /PRIVATE_|securityToken|androidId/);
+    assert.equal(registrations, 1);
+    assert.equal(fixture.transports.length, 1);
+    assert.deepEqual(fixture.states, ["starting", "connected"]);
+    assert.deepEqual(fixture.events, []);
+    assert.equal(await readFile(fixture.path, "utf8"), before);
+  } finally { await fixture.cleanup(); }
+});

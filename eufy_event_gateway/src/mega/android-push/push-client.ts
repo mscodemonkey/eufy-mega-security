@@ -260,7 +260,7 @@ export class PushClient extends EventEmitter {
         this.parser.handleData(d);
       } catch {
         recordRaw({ boundary: "android_push_decode", connection: this.rawConnection, direction: "decode", metadata: { event: "parse_or_dispatch_failed" } });
-        this.emit("error", new Error("Android MCS frame could not be decoded"));
+        this.emit("error", Object.assign(new Error("Android MCS frame could not be decoded"), { code: "MCS_DECODE_FAILED" }));
         socket.destroy();
       }
     });
