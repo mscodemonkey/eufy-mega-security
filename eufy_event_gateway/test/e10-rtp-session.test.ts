@@ -283,6 +283,7 @@ for (const scenario of ["video", "loss", "unused-data", "cancel-offer", "finite-
               : scenario.endsWith("foreign-channel") ? "channel_mismatch" : "signalling_hangup";
           assert.equal(errors.length, 1);
           assert.equal(errors[0]?.reason, reason);
+          assert.equal(errors[0]?.stage, scenario.includes("foreign-") ? "negotiation" : "video");
           assert.equal(errors[0]?.message.includes("synthetic"), false);
         }
         else if (scenario.startsWith("continuous-malformed-")) {
