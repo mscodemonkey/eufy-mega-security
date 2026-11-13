@@ -575,6 +575,7 @@ export class GatewayState extends EventEmitter {
       rssi: camera.identity.rssi ?? null,
       audioSettings: camera.identity.audioSettings ?? null,
       streamingQualityControlSupported: camera.identity.streamingQualityControlSupported ?? false,
+      ...(camera.identity.streamingQualityControlReason ? { streamingQualityControlReason: camera.identity.streamingQualityControlReason } : {}),
       streamingQualityModes: camera.identity.streamingQualityControlSupported ? camera.identity.streamingQualityModes ?? [] : [],
       nvrPanControlSupported: camera.identity.nvrPanControlSupported ?? false,
       nvrOpticalZoomControlSupported: camera.identity.nvrOpticalZoomControlSupported ?? false,

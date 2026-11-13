@@ -1942,13 +1942,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   /** Supported cameras keep their normal identity, with NVR video added there, until NVR controls are admitted. */
-  #normalNvrIdentity(device: MegaInventoryDevice): Required<CameraIdentity> | null {
+  #normalNvrIdentity(device: MegaInventoryDevice): Required<Omit<CameraIdentity, "streamingQualityControlReason">> | null {
     const station = this.#devices.get(device.parentSerial);
     if (!this.#normalNvrLiveBinding(device, station)) return null;
     return isSupportedMegaCamera(device) && !this.#nvrLiveAdmitted(device, station) ? null : this.#nvrTrialIdentity(device);
   }
 
-  #nvrTrialIdentity(device: MegaInventoryDevice): Required<CameraIdentity> | null {
+  #nvrTrialIdentity(device: MegaInventoryDevice): Required<Omit<CameraIdentity, "streamingQualityControlReason">> | null {
     const station = this.#devices.get(device.parentSerial);
     if (!this.#nvrBinding(device, station) && !this.#nvrLiveAdmitted(device, station)) return null;
     const profile = this.#normalNvrLiveBinding(device, station) && this.#nvrLiveAdmitted(device, station) ? this.#nvrProfile(device) : null;
@@ -4951,7 +4951,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     for (const device of devices) {
       const normalNvr = this.#normalNvrIdentity(device);
       if (normalNvr) events.camera(normalNvr);
-      else if (isSupportedMegaCamera(device)) events.camera(this.#cameraIdentity(device));
+      else if (isSupportedMegaCamera(device)) {
+        const identity = this.#cameraIdentity(device);
+        events.camera(identity);
+        if (device.model === "T8170" && device.deviceType === 48) {
+          logger.info("camera_s340_quality_admission", `model=T8170 reason=${identity.streamingQualityControlReason}`);
+        }
+      }
       else { const trial = this.#nvrTrialIdentity(device); if (trial) events.camera(trial); }
     }
     for (const device of devices) {
@@ -5441,10 +5447,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       && this.#client.authenticatedBinding() !== null && settingRoute !== null
       && cameraSettingProfile(settingRoute, "streamingQuality") !== null
       && device.reads.streamingQualityTier !== undefined;
-    const s340Quality = experimentalSettingsReady && settingRouteReady && this.config.apiAuthenticationConfigured === true
-      && this.#client.authenticatedBinding() !== null && settingRoute !== null && route?.peer.adminUserId === device.adminUserId
-      && cameraSettingProfile(settingRoute, "streamingQuality")?.form === "attached-quality"
-      && device.reads.streamingQualityTier !== undefined && device.reads.s340LiveQualityMode === 0;
+    const s340QualityReason = this.config.experimentalModelControls !== true ? "trial_disabled"
+      : !device.adminUserId || !this.#client.isAuthenticatedUser(device.adminUserId) ? "owner_account_required"
+      : this.config.apiAuthenticationConfigured !== true ? "api_authentication_required"
+      : this.#client.authenticatedBinding() === null ? "account_binding_unavailable"
+      : !settingRouteReady || settingRoute === null ? "route_unavailable"
+      : route?.peer.adminUserId !== device.adminUserId ? "parent_owner_mismatch"
+      : device.reads.s340LiveQualityMode !== 0 ? "live_mode_unconfirmed"
+      : cameraSettingProfile(settingRoute, "streamingQuality")?.form !== "attached-quality" ? "route_unsupported"
+      : device.reads.streamingQualityTier === undefined ? "quality_unconfirmed" : "ready";
+    const s340Quality = s340QualityReason === "ready";
     const standaloneQuality = s220Quality || supportsStandaloneStreamingQuality(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials));
     const identity: CameraIdentity = {
       deviceType: device.deviceType,
@@ -5530,6 +5542,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       ),
       streamingQualityControlSupported: standaloneQuality || s340Quality,
+      ...(device.model === "T8170" && device.deviceType === 48
+        ? { streamingQualityControlReason: s340QualityReason } : {}),
       streamingQualityModes: s340Quality ? S340_LIVE_QUALITY_MODES : s220Quality ? [
         { value: 0, name: "Auto" }, { value: 1, name: "Low" }, { value: 2, name: "Medium" }, { value: 3, name: "High" },
       ] : standaloneQuality ? device.model === "T817L" ? [
