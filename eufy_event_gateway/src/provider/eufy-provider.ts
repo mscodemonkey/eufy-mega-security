@@ -1953,7 +1953,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const values = this.#nvrCachedSettings(device);
     const view = this.#nvrView(device);
     return {
-      serial: device.serial, name: device.name, model: device.model, stationSerial: device.parentSerial,
+      serial: device.serial, name: device.name, model: device.model, deviceType: device.deviceType, stationSerial: device.parentSerial,
       catalogueStatus: profile ? "ready_to_test" : "recognised", firmware: device.firmware, hardwareVersion: device.hardwareVersion ?? null, firmwareSubVersion: device.firmwareSubVersion ?? null,
       firmwareUpdateAvailable: device.firmwareUpdateAvailable ?? null, rssi: device.reads.rssi ?? null, audioSettings: null, reportedSettings: profile ? { streamingQualityTier: values.quality, imageFlipped: null, statusLedEnabled: null, soundDetectionEnabled: null } : null,
       enabled: null, motionDetectionEnabled: null, guardMode: null, nightVisionMode: values.night,
