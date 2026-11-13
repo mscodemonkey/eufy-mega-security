@@ -2907,7 +2907,7 @@ export class FirstPartyPpcsSession {
     return this.#eventNames;
   }
 
-  /** Read one history-bound thumbnail on the observed T8113-Z/HomeBase 3 control route. */
+  /** Read one history-bound thumbnail on the verified camera or opt-in E340 HomeBase 3 route. */
   async readEventPicture(date: string, startId: string, recordId?: string, signal?: AbortSignal, expectedPath?: string): Promise<EventPictureSummary> {
     nextEventHistoryDate(date); eventHistoryCursor(startId);
     return await (await this.#eventPictureReader(signal)).read(date, startId, recordId, signal, expectedPath);
@@ -2919,7 +2919,7 @@ export class FirstPartyPpcsSession {
   }
 
   async #eventPictureReader(signal?: AbortSignal): Promise<EventPictureReader> {
-    if (this.#closed || !this.#options.homeBaseAttached || this.#options.cameraModel !== "T8113-Z"
+    if (this.#closed || !this.#options.homeBaseAttached || !["T8113-Z", "T8214"].includes(this.#options.cameraModel ?? "")
       || this.#options.stationModel !== "T8030" || !this.#options.recordingCameraSerial
       || this.#options.purpose !== "control" || !this.#options.accountId || this.#recordings || this.#eventNames
       || this.#pendingControl || this.#pendingControlQuery || this.#pendingCameraInfo || this.#alarmRead || this.#lockStatus) {
@@ -2949,7 +2949,7 @@ export class FirstPartyPpcsSession {
       },
       decodeImage: (payload, sign) => decodeEventPictureReply(payload, sign, this.#options.accountId!, this.#options.stationSerial)
         ?? decodeLegacyEventPictureReply(payload, sign, commandKey(this.#options.stationSerial, this.#options.p2pDid)),
-    });
+    }, this.#options.cameraModel === "T8214" ? 94 : 8);
     return this.#eventPicture;
   }
 

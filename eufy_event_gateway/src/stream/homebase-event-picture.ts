@@ -129,8 +129,11 @@ export class EventPictureReader {
   #closed = false;
   #used = false;
 
-  /** Borrow this operation's immutable child and parent binding. */
-  constructor(private readonly transport: EventPictureTransport) {}
+  /**
+   * Borrow this operation's immutable child and parent binding.
+   * @param cameraType Exact provider-qualified child type. Type 94 is an experimental E340 route.
+   */
+  constructor(private readonly transport: EventPictureTransport, private readonly cameraType: 8 | 94 = 8) {}
 
   /**
    * Query at most fifty rows and check one thumbnail within forty seconds.
@@ -199,7 +202,7 @@ export class EventPictureReader {
           if (ids.has(id)) throw new EventNameHistoryError("invalid_response");
           ids.add(id);
           if (row.device_sn !== this.transport.serial) continue;
-          if (row.device_type !== 8 || typeof row.start_time !== "string" || !recordTime(row.start_time, row.time_zone)) throw new EventNameHistoryError("invalid_response");
+          if (row.device_type !== this.cameraType || typeof row.start_time !== "string" || !recordTime(row.start_time, row.time_zone)) throw new EventNameHistoryError("invalid_response");
           if (row.start_time.slice(0, 10) === pending.date) owned.push(row);
         }
         const row = pending.recordId === undefined ? owned[0] : owned.find(v => eventHistoryId(v.record_id) === pending.recordId);
