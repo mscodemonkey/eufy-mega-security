@@ -35,7 +35,7 @@ import { PassThrough } from "node:stream";
 import { HomeBaseRecordingReader } from "./homebase-recordings.js";
 import type { PushRecordingReference } from "../mega/push-recording-reference.js";
 import { EventPictureReader, decodeEventPictureReply, decodeLegacyEventPictureReply, type EventPictureSummary } from "./homebase-event-picture.js";
-import { EventNameHistoryError, EventNameHistoryReader, eventHistoryCursor, nextEventHistoryDate, type EventNameHistorySummary } from "./homebase-event-names.js";
+import { EventNameHistoryError, EventNameHistoryReader, eventHistoryCursor, nextEventHistoryDate, type EventNameHistorySummary, type EventNameRecoveryOutcome } from "./homebase-event-names.js";
 import { SoloCamRecordingReader, type CameraStoredRecord } from "./stored-recordings.js";
 import type { CameraPresetPosition, VideoCodec } from "../domain/types.js";
 import { markS340LiveFrameClock, markS340LiveSource } from "./live-frame-clock.js";
@@ -2863,9 +2863,10 @@ export class FirstPartyPpcsSession {
     return await (await this.#eventNameReader(signal)).read(date, startId, signal);
   }
 
-  /** Read a name for one exact notification without starting camera media or publishing detection state. */
-  async recoverEventName(reference: PushRecordingReference, signal: AbortSignal): Promise<string | null> {
-    return await (await this.#eventNameReader(signal)).readName(reference, signal);
+  /** Read one exact visit name without starting media. The optional observer receives only a closed outcome. */
+  async recoverEventName(reference: PushRecordingReference, signal: AbortSignal,
+    onOutcome?: (outcome: EventNameRecoveryOutcome) => void): Promise<string | null> {
+    return await (await this.#eventNameReader(signal)).readName(reference, signal, onOutcome);
   }
 
   async #eventNameReader(signal?: AbortSignal): Promise<EventNameHistoryReader> {

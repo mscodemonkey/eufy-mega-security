@@ -232,7 +232,14 @@ support logs or count diagnostics.
 
 At most three metadata reads are scheduled around 10 seconds, one minute and nine
 minutes after the event. Time spent reading does not move the later deadlines.
-Active views and recording reservations are left alone.
+Active views and recording reservations are left alone. The existing
+`homebase_name_recovery_unavailable` line includes a closed `history_result`
+category for the last attempted read. It distinguishes a record absent from
+that one page, a reference mismatch, missing person crops, missing familiar
+names, ambiguous names and a selected name rejected by the notification filter.
+`not_observed` means no selection result was received for that attempt. These
+categories contain no names or identifiers and do not establish absence from
+other pages. Scheduling, page limits and peer ownership are unchanged.
 Each request has a finite lifetime. A new visit, native name, provider shutdown or
 changed inventory prevents a late result from replacing the current visit.
 Recovery updates the existing name only. It does not ring again, emit a fresh

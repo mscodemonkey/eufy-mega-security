@@ -99,7 +99,9 @@ test("an exact private name uses the same authenticated read without starting me
   const { session, socket, sent, key } = await peer(context);
   const storagePath = "/zx/hdd_data0/Camera02/202610/20261031092300/20261031092300.zxvideo";
   try {
-    const operation = session.recoverEventName({ id: "123", storagePath, triggerMilliseconds: Date.parse("2026-10-30T23:23:00Z") }, new AbortController().signal);
+    const outcomes: string[] = [];
+    const operation = session.recoverEventName({ id: "123", storagePath, triggerMilliseconds: Date.parse("2026-10-30T23:23:00Z") },
+      new AbortController().signal, outcome => outcomes.push(outcome));
     await new Promise(resolve => setImmediate(resolve));
     const commands = sent.filter(value => value.subarray(8, 12).toString() === "XZYH");
     assert.deepEqual(commands.map(value => value.readUInt16LE(12)), [1100, 1350]);
@@ -118,6 +120,7 @@ test("an exact private name uses the same authenticated read without starting me
     const encrypted = Buffer.concat([cipher.update(JSON.stringify(value)), cipher.final()]);
     deliver(socket, 1306, Buffer.concat([cipher.getAuthTag(), nonce, Buffer.alloc(4), encrypted]), 8, 1);
     assert.equal(await operation, "Fixture Person");
+    assert.deepEqual(outcomes, ["name_selected"]);
     assert.equal(session.stats.mediaStartAttempts, 0);
   } finally { session.close(); }
 });

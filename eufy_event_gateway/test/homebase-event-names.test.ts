@@ -177,3 +177,29 @@ test("an opaque storage directory still requires the complete notification path 
     assert.equal(selectEventNameHistory(page([{ ...history, storage_path: storagePath, ...changed }]), serial, station, reference), null);
   }
 });
+
+
+test("late-name outcomes distinguish one-page omissions without exposing private values", () => {
+  const storagePath = "/zx/hdd_data0/Camera02/202610/20261031092300/20261031092300.zxvideo";
+  const reference = { id: "123", storagePath, triggerMilliseconds: Date.parse("2026-10-30T23:23:00Z") };
+  const record = { ...history, storage_path: storagePath };
+  const cases = [
+    [page([]), "record_not_on_page", null],
+    [page([{ ...record, storage_path: storagePath.replace("Camera02", "Camera03") }]), "reference_mismatch", null],
+    [page([record], []), "person_crop_missing", null],
+    [page([record], [crop], [{ ...person, group_id: 255 }]), "familiar_name_missing", null],
+    [page([record], [crop, { ...crop, crop_id: 457, person_id: 10 }], [person, { ...person, person_id: 10, name: "Other Invented Person" }]), "ambiguous_names", null],
+    [page([record]), "name_selected", "Invented Person"],
+  ] as const;
+  for (const [value, outcome, expected] of cases) {
+    const observed: string[] = [];
+    assert.equal(selectEventNameHistory(value, serial, station, reference, result => observed.push(result)), expected);
+    assert.deepEqual(observed, [outcome]);
+    assert.equal(JSON.stringify(observed).includes(storagePath), false);
+    assert.equal(JSON.stringify(observed).includes("Invented Person"), false);
+  }
+  const observed: string[] = [];
+  assert.throws(() => selectEventNameHistory(page([{ ...record, station_sn: "foreign" }]), serial, station, reference,
+    result => observed.push(result)), /invalid_response/);
+  assert.deepEqual(observed, []);
+});
