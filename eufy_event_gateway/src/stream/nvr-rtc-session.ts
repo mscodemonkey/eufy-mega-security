@@ -1215,6 +1215,9 @@ export class NvrRtcSession {
           }
           if (!this.output.write(output)) throw new NvrTrialError("video");
           this.#startVideoObserved = true;
+
+          // Only accepted picture output advances this RTP call beyond negotiation.
+          this.#stage = "video";
           this.#renewVideoProgress();
           this.#readyResolve?.(); this.#readyResolve = null; this.#readyReject = null;
         } catch (error) {
