@@ -10,6 +10,11 @@ Install the companion `eufy_event_gateway` custom integration before starting th
 
 See the [project README](https://github.com/mscodemonkey/eufy-mega-security) for complete Marketplace, HACS, app, automation, Node-RED, and troubleshooting instructions. Developers should start with the repository's [first-day developer guide](../docs/DEVELOPERS_START_HERE.md), then read the [Mega platform reference](../docs/MEGA_PLATFORM.md) before changing the Mega or PPCS paths.
 
+The default-off `experimental_homebase_event_images` option also offers a
+[T8214 E340 event-picture trial](../docs/T8214_EVENT_PICTURE_TEST.md) through
+HomeBase 3. It can recover an exactly matched history thumbnail when a push has
+no picture URL. Hardware recovery remains unconfirmed.
+
 # Local push debugging
 
 Run `npm run debug:push` from this directory with `EUFY_USERNAME` (or

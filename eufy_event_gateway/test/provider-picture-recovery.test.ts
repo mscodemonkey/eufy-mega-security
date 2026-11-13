@@ -26,15 +26,15 @@ async function settle(): Promise<void> {
 }
 
 /** Build an isolated provider whose only device effects are captured test callbacks. */
-async function fixture(context: TestContext, mode = "success", recoveryEnabled = true, route: "homebase3" | "homebase2" | "standalone" = "homebase3") {
+async function fixture(context: TestContext, mode = "success", recoveryEnabled = true, route: "homebase3" | "homebase2" | "standalone" = "homebase3", e340 = false) {
   const directory = await mkdtemp(join(tmpdir(), "picture-recovery-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
   const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
   context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
   const parent = { device_sn: "invented-parent", device_model: mode === "homebase2" || route === "homebase2" ? "T8010" : "T8030", device_type: route === "homebase2" ? 0 : 18,
     category: "eufy_security", p2p_did: "TEST-12345678-TEST", p2p_conn: "invented", member: { admin_user_id: "invented-owner" }, params: [] };
-  const child = { device_sn: "invented-child", device_model: route === "standalone" ? "T8172" : route === "homebase2" ? "T8210" : mode === "wrong-model" ? "T8113" : "T8113-Z",
-    device_type: route === "standalone" ? 89 : route === "homebase2" ? 7 : 8,
+  const child = { device_sn: "invented-child", device_model: e340 ? "T8214" : route === "standalone" ? "T8172" : route === "homebase2" ? "T8210" : mode === "wrong-model" ? "T8113" : "T8113-Z",
+    device_type: e340 ? (mode === "wrong-type" ? 7 : 94) : route === "standalone" ? 89 : route === "homebase2" ? 7 : 8,
     device_channel: route === "standalone" ? 0 : 2, parent_sn: route === "standalone" ? "invented-child" : parent.device_sn, category: "eufy_security", member: { admin_user_id: "invented-owner" }, params: [] };
   let inventories = 0;
   context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [...(route === "standalone" ? [] : [parent]),
@@ -84,7 +84,7 @@ async function fixture(context: TestContext, mode = "success", recoveryEnabled =
   { get: (target, key) => Reflect.get(target, key) ?? (() => undefined) }) as unknown as ProviderEvents;
   await provider.start(events); await settle();
   const event = (id = "visit-a", picture = true) => parsePushEvent({ device_sn: child.device_sn, station_sn: route === "standalone" ? child.device_sn : parent.device_sn,
-    payload: { event_type: 1, unique_id: id, ...(picture ? { pic_url: "https://example.invalid/picture" } : {}),
+    payload: { event_type: e340 ? 3103 : 1, ...(e340 ? { message_type: 18 } : {}), unique_id: id, ...(picture ? { pic_url: "https://example.invalid/picture" } : {}),
       ...(mode === "no-reference" ? {} : { record_id: 42, file_path: path,
         trigger_time: Date.now() + (mode === "stale" ? -301_000 : mode === "future" ? 10_000 : 0) }) } })!;
   return { provider, events, network, cloud, recovery, drained, stationStarts, pictures, event, send: (value: MegaPushEvent) => deliver(value),
@@ -253,3 +253,29 @@ for (const route of ["homebase2", "standalone"] as const) test(`cloud HTTP 404 d
     assert.equal(f.network.mock.callCount(), 0);
   } finally { await f.provider.close(); }
 });
+
+for (const mode of ["success", "off", "unauthenticated", "no-reference", "wrong-type", "stale", "future", "changed-inventory"]) {
+  test(`E340 URL-free press recovery keeps its opt-in and exact reference gates: ${mode}`, async context => {
+    const f = await fixture(context, mode, true, "homebase3", true);
+    try {
+      f.send(f.event("press", false)); await settle();
+      assert.equal(f.recovery.mock.callCount(), mode === "success" ? 1 : 0);
+      assert.equal(f.pictures.length, mode === "success" ? 1 : 0);
+      assert.equal(f.cloud.mock.callCount(), 0); assert.equal(f.network.mock.callCount(), 0);
+      f.send(f.event("press", false)); await settle();
+      assert.equal(f.recovery.mock.callCount(), mode === "success" ? 1 : 0);
+      if (mode === "success") assert.equal(f.drained.mock.callCount(), 1);
+    } finally { await f.provider.close(); }
+  });
+}
+
+for (const route of ["homebase2", "standalone"] as const) {
+  test(`E340 URL-free recovery does not admit an unqualified ${route} route`, async context => {
+    const f = await fixture(context, "success", true, route, true);
+    try {
+      f.send(f.event("press", false)); await settle();
+      assert.equal(f.recovery.mock.callCount(), 0); assert.equal(f.stationStarts.mock.callCount(), 0);
+      assert.equal(f.pictures.length, 0);
+    } finally { await f.provider.close(); }
+  });
+}

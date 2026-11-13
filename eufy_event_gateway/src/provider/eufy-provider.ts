@@ -629,13 +629,14 @@ function supportsOwnedHomeBaseHistory(
     && device.adminUserId === route.peer.adminUserId;
 }
 
-/** Admit only the observed type-8 camera and its current owner-bound HomeBase 3. */
+/** Admit the verified type-8 route and the opt-in E340 trial on an owner-bound HomeBase 3. */
 export function supportsEventPictureHistory(
   device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "parentSerial" | "category" | "adminUserId">,
   route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
   routeReady: boolean,
 ): boolean {
-  return device.model === "T8113-Z" && device.deviceType === 8
+  return ((device.model === "T8113-Z" && device.deviceType === 8)
+    || (device.model === "T8214" && device.deviceType === 94))
     && supportsOwnedHomeBaseHistory(device, route, routeReady);
 }
 
@@ -1484,6 +1485,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const route = device ? ppcsStreamRoute(device, this.#devices) : null;
       const ready = device ? isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys())) : false;
       const admitted = device && (purpose === "event_picture" ? supportsEventPictureHistory(device, route, ready)
+          && (device.model !== "T8214" || this.config.experimentalHomeBaseEventImages === true)
         : diagnostic ? supportsEventNameHistory(device, route, ready) : supportsSoloCamStoredRecordings(device, route, ready));
       if (this.#recordingClosing || !device || !admitted || signal?.aborted
         || diagnostic && generation !== this.#startupGeneration) {
@@ -6252,12 +6254,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       event.pictureUrl !== null,
     );
     const careKind = careMonitorPushKind(device, event.messageType, event.eventType);
+    const historyOnlyPicture = delivery.handleState && this.config.experimentalHomeBaseEventImages
+      && device.model === "T8214" && device.deviceType === 94 && event.pictureUrl === null;
     const pictureEventAccepted = !isE21(device)
       || careKind !== null && event.stationSerial === (device.parentSerial || device.serial);
     if (delivery.handleState && isSupportedMegaCamera(device) && pictureEventAccepted
       && (delivery.retainPicture || cameraDetectionKind(event.eventType) !== null
         || event.eventType === 1 && genericSecurityDetectionKinds(event).length > 0
-        || this.config.experimentalHomeBaseEventNames && isDoorbellDevice(device) && doorbellPushKind(event) === "press")) {
+        || (this.config.experimentalHomeBaseEventNames || historyOnlyPicture) && isDoorbellDevice(device) && doorbellPushKind(event) === "press")) {
       const previous = this.#pictureOwners.get(device.serial);
       const olderVisit = previous && this.#pictureOwnerCurrent(previous) && previous.event.recording && event.recording
         && event.recording.triggerMilliseconds < previous.event.recording.triggerMilliseconds;
@@ -6282,7 +6286,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       }
       return;
     }
-    if (delivery.retainPicture && isSupportedMegaCamera(device)) this.#queuePushSnapshot(events, event);
+    if ((delivery.retainPicture || historyOnlyPicture) && isSupportedMegaCamera(device)) this.#queuePushSnapshot(events, event);
 
     // A delivered station remains part of ownership if a camera binding changes.
     const detectionEventIdentity = event.eventId
@@ -6700,16 +6704,31 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         ...(camera.parentSerial ? { topology: camera.parentSerial !== camera.serial ? "attached" : "direct" } : {}),
       } : {};
       let picture: { data: Buffer } | null, recovered = false;
+      const recover = async (): Promise<{ data: Buffer }> => {
+        if (!event.recording) {
+          throw new EventNameHistoryError("unavailable");
+        }
+        const data = await this.#recoverPushPicture(event, owner!);
+        recovered = true;
+        logger.info("push_snapshot_recovered", "Recovered the matching recording thumbnail from HomeBase");
+        return { data };
+      };
       try { picture = await downloadPushSnapshot(this.#client, event, this.#devices, this.config.eventImageCapture, context, owner?.controller.signal); }
       catch (error) {
         if (!(error instanceof MediaHttpError) || error.failure.status !== 404 || !owner?.historyEligible
           || !this.config.experimentalHomeBaseEventImages) throw error;
         try {
-          picture = { data: await this.#recoverPushPicture(event, owner) }; recovered = true;
-          logger.info("push_snapshot_recovered", "Recovered the matching recording thumbnail from HomeBase");
+          picture = await recover();
         } catch {
-          logger.info("push_snapshot_recovery_unavailable", "The matching recording thumbnail could not be recovered");
+          logger.info("push_snapshot_recovery_unavailable", `The matching recording thumbnail could not be recovered reason=${!event.eventId ? "visit_identity_unavailable" : !event.recording ? "notification_reference_unavailable" : "matching_thumbnail_unavailable"}`);
           throw error;
+        }
+      }
+      if (picture === null && owner?.historyEligible && this.config.experimentalHomeBaseEventImages) {
+        try { picture = await recover(); }
+        catch {
+          logger.info("push_snapshot_recovery_unavailable", `The matching recording thumbnail could not be recovered reason=${!event.eventId ? "visit_identity_unavailable" : !event.recording ? "notification_reference_unavailable" : "matching_thumbnail_unavailable"}`);
+          return;
         }
       }
       if (picture) {

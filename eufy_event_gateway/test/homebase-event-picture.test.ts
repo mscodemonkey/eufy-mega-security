@@ -24,12 +24,12 @@ function encrypted(clear: Buffer, account = "inventedaccount", owner = station):
 }
 
 /** Own one synthetic reader and expose its sent requests to adversarial reply tests. */
-function fixture() {
+function fixture(cameraType: 8 | 94 = 8) {
   let transaction = "", sent: string | null = null, imageCalls = 0;
   const reader = new EventPictureReader({ serial, stationSerial: station,
     query: value => { transaction = value; }, image: value => { sent = value; imageCalls++; },
-    decodeHistory: value => Buffer.from(value), decodeImage: value => Buffer.from(value) });
-  const row = { record_id: 123, device_sn: serial, station_sn: station, device_type: 8,
+    decodeHistory: value => Buffer.from(value), decodeImage: value => Buffer.from(value) }, cameraType);
+  const row = { record_id: 123, device_sn: serial, station_sn: station, device_type: cameraType,
     start_time: `${date} 09:20:00`, time_zone: "+1000", thumb_path: file };
   const frame = (command: number, value: unknown, channel = 255, suffix = Buffer.alloc(0)) => {
     const header = Buffer.alloc(16); header.writeUInt16LE(command, 4); header[12] = channel; header[13] = 1;
@@ -102,6 +102,8 @@ test("the exact type, parent and account role gate excludes superficially simila
     category: "eufy_security", adminUserId: "owner" } as MegaInventoryDevice;
   const route = { homeBaseAttached: true, peer: parent };
   assert.equal(supportsEventPictureHistory(child, route, true), true);
+  assert.equal(supportsEventPictureHistory({ ...child, model: "T8214", deviceType: 94 }, route, true), true);
+  assert.equal(supportsEventPictureHistory({ ...child, model: "T8214", deviceType: 8 }, route, true), false);
   for (const change of [{ deviceType: 7 }, { model: "T8113" }, { adminUserId: "guest" }, { parentSerial: "other" }]) {
     assert.equal(supportsEventPictureHistory({ ...child, ...change }, route, true), false);
   }
@@ -147,4 +149,16 @@ test("an ID collision with a different recording path is refused before any thum
   const f = fixture(), result = f.reader.recover({ id: "123", storagePath: recordingPath, triggerMilliseconds: 1_793_568_000_000 });
   f.page([{ ...f.row, storage_path: recordingPath.replace("092000", "092100") }]);
   await assert.rejects(result, /invalid_response/); assert.equal(f.imageCalls(), 0);
+});
+
+test("the E340 trial accepts only its selected type and exact notification recording", async () => {
+  const f = fixture(94), result = f.reader.read(date, "0", "123");
+  f.page(); assert.equal(f.imageCalls(), 1);
+  f.frame(1308, { file, content: jpeg.toString("base64url") });
+  assert.equal((await result).imageBytes, jpeg.length);
+  for (const type of [8, 7, 97]) {
+    const other = fixture(94), failed = other.reader.read(date, "0", "123");
+    other.page([{ ...other.row, device_type: type }]);
+    await assert.rejects(failed, /invalid_response/); assert.equal(other.imageCalls(), 0);
+  }
 });
