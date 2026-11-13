@@ -97,3 +97,5 @@ the peer fails. This sends no replacement call. Foreign-session messages,
 pre-media hang-ups and finite private clips still fail or close normally.
 Continuation past the reported five-minute stop remains hardware-unconfirmed.
 There is no extra long view or private capture to arrange for this candidate.
+
+For a reconnectable go2rtc input that does not reuse an expiring HA HLS link, see [E10 source for go2rtc](E10_GO2RTC.md). The separate five-minute media failure remains unresolved.

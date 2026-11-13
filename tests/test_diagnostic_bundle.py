@@ -44,6 +44,45 @@ def encoded(value: dict) -> bytes:
 class DiagnosticBundleTests(unittest.TestCase):
     """Exercise local transfers and private-file boundaries with isolated fixtures."""
 
+    def test_e10_go2rtc_source_saves_only_the_admitted_private_connection(self):
+        """Generate a private producer connection without creating a media session."""
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / ".storage").mkdir()
+            config = root / ".storage/core.config_entries"
+            output = root / "go2rtc-e10.json"
+            token = "synthetic_saved_token_12345678"
+            target = {"model": "T8404", "serial": "synthetic-e10"}
+            camera = {**target, "stationSerial": target["serial"], "deviceType": 314, "streamSupported": True}
+            with patch.object(TOOL, "request", return_value=json.dumps({"cameras": [camera]}).encode()) as request:
+                result = TOOL.save_e10_go2rtc_source("http://gateway.invalid:3218", token, target, config, output)
+                request.assert_called_once_with("http://gateway.invalid:3218/api/cameras", token)
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+            source = json.loads(output.read_text())
+            self.assertEqual(source, {"schema": 1, "url": "http://gateway.invalid:3218/api/cameras/synthetic-e10/live.h264", "token": token})
+            self.assertNotIn(token, json.dumps(result))
+            self.assertFalse(result["cameraOpened"])
+            with patch.object(TOOL, "request", return_value=json.dumps({"cameras": [camera]}).encode()):
+                with self.assertRaises((FileExistsError, TOOL.DiagnosticError, TOOL.HELPERS.ExportError)):
+                    TOOL.save_e10_go2rtc_source("http://gateway.invalid:3218", token, target, config, output)
+            output.unlink()
+            for changed in [{"model": "T8404X"}, {"deviceType": True}, {"deviceType": 300},
+                            {"stationSerial": "other-parent"}, {"streamSupported": False}]:
+                with patch.object(TOOL, "request", return_value=json.dumps({"cameras": [{**camera, **changed}]}).encode()):
+                    with self.assertRaises(TOOL.DiagnosticError):
+                        TOOL.save_e10_go2rtc_source("http://gateway.invalid:3218", token, target, config, output)
+                self.assertFalse(output.exists())
+            for unsafe in [token + "#header=X: value", token + "\n", "short"]:
+                with patch.object(TOOL, "request") as request:
+                    with self.assertRaises(TOOL.DiagnosticError):
+                        TOOL.save_e10_go2rtc_source("http://gateway.invalid:3218", unsafe, target, config, output)
+                    request.assert_not_called()
+            (root / "www").mkdir()
+            with patch.object(TOOL, "request") as request:
+                with self.assertRaises((TOOL.DiagnosticError, TOOL.HELPERS.ExportError)):
+                    TOOL.save_e10_go2rtc_source("http://gateway.invalid:3218", token, target, config, root / "www/e10.yaml")
+                request.assert_not_called()
+
     def test_s220_settings_summary_reads_cached_state_without_commands(self):
         """Expose only closed availability facts, never serials, settings or tokens."""
         camera = {"serial": "private-camera", "model": "T8134", "streamingQualityControlSupported": False,
