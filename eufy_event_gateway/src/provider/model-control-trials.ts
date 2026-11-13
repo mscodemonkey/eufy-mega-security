@@ -125,6 +125,9 @@ export interface ModelControlRoute {
   /** Exact parent type for trials that require a specific HomeBase generation. */
   readonly peerDeviceType?: number | null;
   readonly selfPeer: boolean;
+
+  /** Fresh S340 video-mode evidence required by the separate live-quality trial. */
+  readonly liveQualityVideoMode?: number;
 }
 
 /** Parse a closed request shape, rejecting raw commands and implicit conversions. */

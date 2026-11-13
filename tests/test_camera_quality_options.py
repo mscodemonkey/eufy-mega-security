@@ -38,6 +38,41 @@ class StreamingQualityOptionsTest(unittest.TestCase):
         modes = [{'value': 0, 'name': 'Auto'}, {'value': 2, 'name': 'Medium'}, {'value': 3, 'name': 'High'}]
         self.assertEqual(self.map_modes({'streamingQualityModes': modes}), {0: 'auto', 2: 'medium', 3: 'high'})
 
+    def test_s340_3k_is_limited_to_the_exact_model(self) -> None:
+        """A S340 quality choice must not rename another camera's native tier."""
+        modes=[{'value':3,'name':'3K'}]
+        self.assertEqual(self.map_modes({'model':'T8170','streamingQualityModes':modes}),{3:'3k'})
+        for model in ('T8170E','T8171','T8134'):
+            self.assertEqual(self.map_modes({'model':model,'streamingQualityModes':modes}),{})
+
+    def test_s340_quality_entity_requires_explicit_enablement(self) -> None:
+        """An advertised trial creates a disabled entity and keeps other models unchanged."""
+        tree=ast.parse(SOURCE.read_text())
+        cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='EufyStreamingQualitySelect')
+        constructor=next(n for n in cls.body if isinstance(n,ast.FunctionDef) and n.name=='__init__')
+
+        class Entity:
+            """Supply only the coordinator-owned camera dictionary."""
+
+            def __init__(self,coordinator,serial):
+                self.camera=coordinator
+
+        class Select:
+            """Keep the fixture independent of HA's runtime lifecycle."""
+
+            def __init__(self):
+                pass
+
+        namespace={'EufyGatewayEntity':Entity,'SelectEntity':Select,'EufyGatewayCoordinator':dict}
+        exec(compile(ast.Module(body=[constructor],type_ignores=[]),str(SOURCE),'exec'),namespace)
+        entity=Entity({'model':'T8170'},'fixture')
+        namespace['__init__'](entity,{'model':'T8170'},'fixture')
+        self.assertIs(entity._attr_entity_registry_enabled_default,False)
+        self.assertEqual(entity._attr_translation_key,'camera_streaming_quality_experimental')
+        other=Entity({'model':'T8134'},'other')
+        namespace['__init__'](other,{'model':'T8134'},'other')
+        self.assertFalse(hasattr(other,'_attr_entity_registry_enabled_default'))
+
     def test_malformed_values_and_labels_are_rejected(self) -> None:
         """Reject booleans, arbitrary strings and unhashable labels safely."""
         for modes in [None, 'Auto', {}, [None], [{'value': 4, 'name': 'Auto'}], [{'value': True, 'name': 'Auto'}], [{'value': '0', 'name': 'Auto'}], [{'value': 0, 'name': []}], [{'value': 0, 'name': 'Unknown'}]]:

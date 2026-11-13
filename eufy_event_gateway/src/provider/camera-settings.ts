@@ -5,6 +5,7 @@
  * by HTTP, PPCS and the Home Assistant settings boundary.
  */
 import type { ModelControlRoute } from "./model-control-trials.js";
+import { isS340LiveQualityRoute, readS340LiveQuality } from "./s340-live-quality.js";
 
 /** Closed absolute requests never carry arbitrary native command identifiers. */
 export type CameraSettingChange =
@@ -19,7 +20,7 @@ export type CameraSettingChange =
 export interface CameraSettingProfile {
   readonly readParam: number;
   readonly command: number;
-  readonly form: "binary" | "payload" | "control" | "manual-light" | "motion-control" | "solo-sensitivity" | "solo-quality";
+  readonly form: "binary" | "payload" | "control" | "manual-light" | "motion-control" | "solo-sensitivity" | "solo-quality" | "attached-quality";
 
   /** Least-sensitive first; absent for boolean controls. */
   readonly ladder?: readonly number[];
@@ -55,6 +56,9 @@ export function parseCameraSettingChange(value: unknown): CameraSettingChange {
 }
 
 function nativeProfile(model: string, type: number | null, standalone: boolean, setting: CameraSettingChange["setting"]): CameraSettingProfile | null {
+  if (setting === "streamingQuality" && model === "T8170" && type === 48 && !standalone) {
+    return { readParam: 2730, command: 1350, form: "attached-quality" };
+  }
   if (setting === "streamingQuality") return standalone && model === "T8134" && type === 63
     ? { readParam: 1020, command: 1700, form: "solo-quality" } : null;
   if (setting === "motionSensitivity" && standalone && model === "T8134" && type === 63) {
@@ -77,6 +81,8 @@ function nativeProfile(model: string, type: number | null, standalone: boolean, 
 
 /** Admit exact reviewed transport families, excluding nearby model variants; the provider owns opt-in and account gates. */
 export function cameraSettingProfile(route: ModelControlRoute, setting: CameraSettingChange["setting"]): CameraSettingProfile | null {
+  if ((route.model === "T8170" || route.deviceType === 48) && setting === "streamingQuality"
+    && !isS340LiveQualityRoute(route)) return null;
   if (route.model === "T8134" && route.peerModel !== "T8134") return null;
   if (!Number.isInteger(route.channel) || route.channel! < 0 || route.channel! > 255) return null;
   if (route.homeBaseAttached ? route.selfPeer || route.peerModel !== "T8030" : !route.selfPeer || route.channel !== 0) return null;
@@ -90,6 +96,7 @@ export function readCameraSetting(
 ): number | boolean | undefined {
   const profile = nativeProfile(model, type, standalone, setting);
   if (!profile) return undefined;
+  if (profile.form === "attached-quality") return readS340LiveQuality(params)?.quality;
   const rows = params.filter(row => row.param_type === profile.readParam);
   if (rows.length !== 1) return undefined;
   const raw = rows[0]!.param_value;
@@ -106,6 +113,7 @@ export function readCameraSetting(
 export function cameraSettingWireValue(profile: CameraSettingProfile, change: CameraSettingChange): number {
   parseCameraSettingChange(change);
   if (change.setting === "streamingQuality") {
+    if (profile.form === "attached-quality" && profile.readParam === 2730 && profile.command === 1350 && !profile.ladder) return change.value;
     if (profile.readParam !== 1020 || profile.command !== 1700 || profile.form !== "solo-quality" || profile.ladder) throw new CameraSettingError("unavailable");
     return change.value;
   }

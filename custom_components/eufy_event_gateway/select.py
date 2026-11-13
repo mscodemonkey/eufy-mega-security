@@ -205,7 +205,8 @@ class EufyStreamingQualitySelect(EufyGatewayEntity, SelectEntity):
     """Expose an owned camera's live-quality preference using gateway-confirmed state.
 
     The coordinator owns state and discovery. This entity never changes recorded
-    quality or assumes a resolution until a fresh gateway response confirms it.
+    quality. A confirmed preference is not a measurement of delivered resolution.
+    The S340 trial starts disabled and is withdrawn when gateway admission fails.
     """
 
     _attr_translation_key = "camera_streaming_quality"
@@ -215,6 +216,9 @@ class EufyStreamingQualitySelect(EufyGatewayEntity, SelectEntity):
         EufyGatewayEntity.__init__(self, coordinator, serial)
         SelectEntity.__init__(self)
         self._attr_unique_id = f"{serial}_streaming_quality"
+        if self.camera.get("model") == "T8170":
+            self._attr_entity_registry_enabled_default = False
+            self._attr_translation_key = "camera_streaming_quality_experimental"
 
     @property
     def available(self) -> bool:
@@ -259,7 +263,7 @@ def _streaming_quality_modes(camera: dict[str, Any]) -> dict[int, str]:
     """Validate exact native names before translating model-specific choices."""
     names = {
         "Auto": "auto", "HD (720P)": "hd",
-        "Full HD (1080P)": "full_hd", "2K": "2k",
+        "Full HD (1080P)": "full_hd", "2K": "2k", "3K": "3k",
         "Medium": "medium", "High": "high", "Low": "low", "Highest": "highest", "Ultra 4K": "ultra_4k",
     }
     raw_modes = camera.get("streamingQualityModes")
@@ -277,6 +281,7 @@ def _streaming_quality_modes(camera: dict[str, Any]) -> dict[int, str]:
                  and camera.get("model") == "T8416" and camera.get("nvrLiveControlsSupported") is True)
             and isinstance(name, str)
             and name in names
+            and (name != "3K" or value == 3 and camera.get("model") == "T8170")
         ):
             modes[value] = names[name]
     return modes
