@@ -185,6 +185,8 @@ export class HomeBasePpcsSession {
   #cancelConnect: ((error: Error) => void) | null = null;
   #pendingByType = new Map<number, Buffer>();
   #receivedDatagrams = 0;
+  #lookupBroadcastQueued = 0;
+  #lookupDirectedQueued = 0;
   #frameHeaders = 0;
   #sequenceGaps = 0;
   #sequenceRestarts = 0;
@@ -418,6 +420,7 @@ export class HomeBasePpcsSession {
   diagnostics(): string {
     const pendingBytes = [...this.#pendingByType.values()].reduce((sum, value) => sum + value.length, 0);
     return `data_datagrams=${this.#receivedDatagrams} frame_headers=${this.#frameHeaders}`
+      + ` lookup_broadcast_queued=${this.#lookupBroadcastQueued} lookup_directed_queued=${this.#lookupDirectedQueued}`
       + ` sequence_gaps=${this.#sequenceGaps} sequence_restarts=${this.#sequenceRestarts}`
       + ` duplicate_datagrams=${this.#duplicateDatagrams} stale_datagrams=${this.#staleDatagrams}`
       + ` parser_resyncs=${this.#parserResyncs} pending_bytes=${pendingBytes}`
@@ -480,6 +483,10 @@ export class HomeBasePpcsSession {
         Buffer.from([0, 0]),
         address,
       );
+
+      // A local queue count proves selection and submission, never peer receipt.
+      if (address.host === "255.255.255.255") this.#lookupBroadcastQueued++;
+      else this.#lookupDirectedQueued++;
     }
   }
 

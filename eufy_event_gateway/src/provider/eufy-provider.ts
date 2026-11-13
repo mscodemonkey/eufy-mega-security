@@ -12,7 +12,7 @@
  * forwarding private event fields into the logger. Periodic cloud refreshes admit
  * newly added devices without replacing push receivers or active media sessions.
  */
-import { homeBaseLocalAddress, type HomeBaseAddress } from "./homebase-address.js";
+import { homeBaseLocalAddress, homeBaseLocalAddressSelection, type HomeBaseAddress } from "./homebase-address.js";
 import { QuickResponseListError, isQuickResponseRoute, validQuickResponseId, type DoorbellQuickResponse } from "./quick-responses.js";
 import { ppcsSourceDiagnostic } from "../diagnostics/ppcs-source-diagnostic.js";
 import { GENERATED_CATALOGUE_DEVICES } from "./devices/generated-catalogue.js";
@@ -6430,12 +6430,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       }
       if (interruptMedia) await this.#stopStationMedia(serial);
       else if (this.#stationHasActiveMedia(serial)) return this.#requireStation(serial);
+      const destination = homeBaseLocalAddressSelection(identity, this.config.homeBaseLocalAddresses ?? []);
       const session = new HomeBasePpcsSession({
         serial,
         p2pDid: identity.p2pDid,
         accountId: identity.adminUserId,
         userName: identity.userName ?? "Home Assistant",
-        localAddress: homeBaseLocalAddress(identity, this.config.homeBaseLocalAddresses ?? []),
+        localAddress: destination.address,
         storageProtocol: isHomeBase3(identity) ? "homebase3" : "homebase2",
         firmware: identity.firmware,
       });
@@ -6461,7 +6462,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         this.#events?.station(updated);
         return updated;
       } catch (error) {
-        logger.warn("homebase_session_failed", `model=${safeLogModel(identity.model)} ${session.diagnostics()}`);
+        logger.warn("homebase_session_failed", `model=${safeLogModel(identity.model)} local_lookup_source=${destination.source} ${session.diagnostics()}`);
         if (interruptMedia) {
           const updated = { ...this.#requireStation(serial), connected: false };
           this.#stations.set(serial, updated);

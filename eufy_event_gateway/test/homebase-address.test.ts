@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { loadConfig } from "../src/config.js";
-import { homeBaseLocalAddress, parseHomeBaseAddresses } from "../src/provider/homebase-address.js";
+import { homeBaseLocalAddress, homeBaseLocalAddressSelection, parseHomeBaseAddresses } from "../src/provider/homebase-address.js";
 import { ppcsLocalLookupTargets } from "../src/stream/ppcs-lookup.js";
 
 const peer = { serial: "synthetic-station", model: "T8030", deviceType: 18,
@@ -48,4 +48,12 @@ test("configuration defaults empty and refuses ambiguous or nonlocal destination
       && error.message === "HomeBase local addresses must be a JSON list of unique serial and private IPv4 address pairs");
   }
   assert.throws(() => parseHomeBaseAddresses(" ".repeat(8193)));
+});
+
+test("lookup source explains selected and dormant hints without exposing destinations", () => {
+  const hints = [{ serial: peer.serial, address: "10.23.4.5" }];
+  assert.equal(homeBaseLocalAddressSelection(peer, hints).source, "manual");
+  assert.equal(homeBaseLocalAddressSelection({ ...peer, serial: "other" }, hints).source, "inventory");
+  assert.equal(homeBaseLocalAddressSelection({ ...peer, parentSerial: "foreign" }, hints).source, "inventory");
+  assert.equal(homeBaseLocalAddressSelection({ ...peer, localAddress: null }, []).source, "broadcast_only");
 });
