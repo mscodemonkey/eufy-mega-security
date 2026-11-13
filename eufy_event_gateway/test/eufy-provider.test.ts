@@ -2058,3 +2058,13 @@ test("primary-only inventory retains charging days only within the same device b
     assert.equal(mergeInventoryMetadata(existing, rebound, true).reads.lastChargingDays, undefined);
   }
 });
+
+
+test("T8442 startup outcome distinguishes a result scalar from an unobserved reply", () => {
+  const base = { camId: 1, dataDatagrams: 3, frameHeaders: 4, videoFrames: 0, mediaStartAcknowledged: 1 };
+  const absent = ppcsStreamLogSummary("T8442", null, base);
+  assert.match(absent, /media_start_acked=1 media_start_low_power=0 media_start_result=unknown/);
+  const rejected = ppcsStreamLogSummary("T8442", null, { ...base, mediaStartResult: -117, mediaStartLowPower: 1 });
+  assert.match(rejected, /media_start_acked=1 media_start_low_power=1 media_start_result=-117/);
+  assert.match(ppcsStreamLogSummary("T8442", null, { ...base, mediaStartResult: 0 }), /media_start_result=0/);
+});

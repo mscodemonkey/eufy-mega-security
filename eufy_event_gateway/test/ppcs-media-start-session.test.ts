@@ -1052,3 +1052,41 @@ for (const reason of ["response_timeout", "session_closed", "protection_unavaila
     } finally { f.session.close(); }
   });
 }
+
+
+for (const result of [0, -117, -118]) test(`T8442 first-start padded result ${result} survives acknowledgement without changing startup`, async context => {
+  const f = await peer(context, true, "T8442", "media", "T8030", undefined, 3, 46);
+  try {
+    await f.negotiate();
+    f.ack(f.sent.at(-1)!.readUInt16BE(6));
+    const reply = Buffer.alloc(132); reply.writeInt32LE(result);
+    f.frame(1350, reply, 3, true);
+    assert.equal(f.session.stats.mediaStartResult, result);
+    assert.equal(f.session.stats.mediaStartLowPower, result === -117 ? 1 : 0);
+    assert.deepEqual(f.session.stats.mediaStartProtocols, ["level2"]);
+    context.mock.timers.tick(10_000);
+    assert.equal(f.session.stats.mediaStartAttempts, 1);
+    assert.equal(f.session.stats.mediaStopAttempts, 0);
+    assert.equal(f.session.stats.closeReason, "open");
+    reply.writeInt32LE(-119); f.frame(1350, reply, 3, true);
+    assert.equal(f.session.stats.mediaStartResult, result, "later duplicate-shaped replies cannot rewrite first-result evidence");
+  } finally { f.session.close(); }
+});
+
+for (const variant of ["model", "type", "station", "channel", "purpose", "sign", "command", "short", "padding", "video", "not-result", "stopped"] as const) {
+  test(`T8442 first-start result rejects the unqualified ${variant} reply`, async context => {
+    const f = await peer(context, true, variant === "model" ? "T8441" : "T8442",
+      variant === "purpose" ? "control" : "media", variant === "station" ? "T8010" : "T8030",
+      undefined, 3, variant === "type" ? 45 : 46);
+    try {
+      await f.negotiate();
+      const reply = Buffer.alloc(variant === "short" ? 4 : 132); reply.writeInt32LE(-117);
+      if (variant === "padding") reply[131] = 1;
+      if (variant === "video") f.video(3);
+      if (variant === "stopped") f.session.close();
+      f.frame(variant === "command" ? 1003 : 1350, reply, variant === "channel" ? 1 : 3,
+        variant !== "not-result", variant === "sign" ? 8 : 0);
+      assert.equal(f.session.stats.mediaStartResult, null);
+    } finally { f.session.close(); }
+  });
+}
