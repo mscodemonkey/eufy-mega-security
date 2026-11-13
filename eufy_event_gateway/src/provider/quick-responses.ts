@@ -3,6 +3,7 @@
  * authenticated device bindings and sessions; HTTP and HA consume only reply
  * IDs and labels. Recording URLs, file paths and audio never cross this boundary.
  */
+import type { PpcsQueryEvidence } from "../stream/ppcs-query-trace.js";
 import type { ModelControlRoute } from "./model-control-trials.js";
 
 /** Fixed failure categories for list discovery, containing no saved reply or account data. */
@@ -14,7 +15,8 @@ export type QuickResponseListFailure = "protection_unavailable" | "response_time
  * and never retains underlying errors, private response values or audio paths.
  */
 export class QuickResponseListError extends Error {
-  constructor(readonly reason: QuickResponseListFailure) {
+  /** @param query Fixed progress copied at failure, never a retained response. */
+  constructor(readonly reason: QuickResponseListFailure, readonly query?: PpcsQueryEvidence) {
     super(`Saved reply list unavailable: ${reason}`);
   }
 }

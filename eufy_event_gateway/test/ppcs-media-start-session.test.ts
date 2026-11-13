@@ -1090,3 +1090,32 @@ for (const variant of ["model", "type", "station", "channel", "purpose", "sign",
     } finally { f.session.close(); }
   });
 }
+
+
+test("T8214 list timeout retains receipt and rejected-notification evidence without replay", async context => {
+  const f = await peer(context, true, "T8214", "control", "T8030", undefined, 2);
+  try {
+    await f.negotiate();
+    const operation = f.session.queryQuickResponses();
+    const failed = assert.rejects(operation, error => {
+      assert.ok(error instanceof QuickResponseListError);
+      assert.equal(error.reason, "response_timeout");
+      assert.deepEqual(error.query, { sent: true, acknowledged: true, notifications: 3,
+        selectedNotifications: 2, authenticatedNotifications: 1, matchingNotifications: 1 });
+      return true;
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    const requests = f.sent.filter(packet => packet.length >= 24 && packet.toString("ascii", 8, 12) === "XZYH" && packet.readUInt16LE(12) === 1350);
+    assert.equal(requests.length, 1); f.ack(requests[0]!.readUInt16BE(6));
+    const cipher = createCipheriv("aes-256-gcm", Buffer.alloc(32, 9), Buffer.alloc(12, 7));
+    cipher.setAAD(Buffer.from("eufy security"));
+    const body = Buffer.concat([cipher.update(Buffer.from(JSON.stringify({ cmd: 6237 }))), cipher.final()]);
+    const envelope = Buffer.concat([cipher.getAuthTag(), Buffer.alloc(12, 7), Buffer.alloc(4), body]);
+    f.frame(1351, envelope, 3, false, 8);
+    const forged = Buffer.from(envelope); forged[0]! ^= 1;
+    f.frame(1351, forged, 2, false, 8); f.frame(1351, envelope, 2, false, 8);
+    context.mock.timers.tick(10_001); await failed;
+    assert.equal(f.sent.filter(packet => packet.length >= 24 && packet.toString("ascii", 8, 12) === "XZYH" && packet.readUInt16LE(12) === 1350).length, 1);
+    assert.equal(f.session.stats.mediaStartAttempts, 0);
+  } finally { f.session.close(); }
+});

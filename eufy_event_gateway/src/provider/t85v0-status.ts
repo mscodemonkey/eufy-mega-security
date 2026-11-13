@@ -3,6 +3,7 @@
  * correlated reply. The provider owns identity and lifetime, and PPCS supplies
  * authenticated plaintext. This boundary neither actuates locks nor logs secrets.
  */
+import { ppcsQueryEvidenceSummary, type PpcsQueryEvidence } from "../stream/ppcs-query-trace.js";
 import { createRecordedCipheriv as createCipheriv } from "../diagnostics/raw-crypto.js";
 import { createRecordedDecipheriv as createDecipheriv } from "../diagnostics/raw-crypto.js";
 
@@ -19,6 +20,9 @@ const ADMISSION_REASONS = [
 /** Finite, value-free explanations of an existing read-only admission check. */
 export type T85V0AdmissionReason = typeof ADMISSION_REASONS[number];
 
+/** Fixed operation boundaries distinguish a connection timeout from an unanswered status query. */
+export type T85V0StatusBoundary = "inventory" | "connection_key" | "connect" | "protection" | "reply" | "confirmation";
+
 /**
  * Describes one failed status read until its caller finishes reporting it.
  * The provider owns connection cleanup. Only fixed categories and allowlisted
@@ -29,11 +33,23 @@ export class T85V0StatusError extends Error {
   /** Available only for admission errors with an allowlisted explanation. */
   readonly reason?: T85V0AdmissionReason;
 
-  constructor(readonly stage: T85V0StatusStage, reason?: T85V0AdmissionReason) {
+  /**
+   * @param boundary The last active read step, distinct from the failure category.
+   * @param query Fixed progress copied from the owned query at failure.
+   */
+  constructor(readonly stage: T85V0StatusStage, reason?: T85V0AdmissionReason,
+    readonly boundary?: T85V0StatusBoundary, readonly query?: PpcsQueryEvidence) {
     super(stage);
     this.name = "T85V0StatusError";
     if (stage === "admission" && reason !== undefined && ADMISSION_REASONS.includes(reason)) this.reason = reason;
   }
+}
+
+/** Keep the existing failure prefix and append only fixed read progress for support. */
+export function t85v0StatusFailureSummary(failure: T85V0StatusError): string {
+  const boundary = ["inventory", "connection_key", "connect", "protection", "reply", "confirmation"].includes(failure.boundary ?? "")
+    ? ` boundary=${failure.boundary}` : "";
+  return `stage=${failure.stage}${failure.reason ? ` reason=${failure.reason}` : ""}${boundary}${ppcsQueryEvidenceSummary(failure.query)}`;
 }
 
 /** Private, provider-validated child and account binding for this one query. */

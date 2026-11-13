@@ -45,12 +45,12 @@ const identity = { serial: "SYNTHETICLOCK001", accountId: "synthetic-account", c
 const time = 0x65010203, sequence = 7;
 const replyVector = "ff092a000300024822c0dc9806f1f1cc131506bfa0bb61a9b73793ef635fec3a764105b8a363517e34d2";
 
-function encryptedReply(changes: Record<string, unknown> = {}): Buffer {
+function encryptedReply(changes: Record<string, unknown> = {}, sign = 8): Buffer {
   const clear = Buffer.from(JSON.stringify({ cmd: 1940, payload: { apiCommand: 6012, time, seq_num: sequence, lock_payload: replyVector, ...changes } }));
   const iv = Buffer.alloc(12, 7), cipher = createCipheriv("aes-256-gcm", Buffer.alloc(32, 9), iv);
   cipher.setAAD(Buffer.from("eufy security"));
   const encrypted = Buffer.concat([cipher.update(clear), cipher.final()]);
-  return Buffer.concat([cipher.getAuthTag(), iv, Buffer.alloc(4), encrypted]);
+  return Buffer.concat([cipher.getAuthTag(), iv, ...(sign === 8 ? [Buffer.alloc(4)] : []), encrypted]);
 }
 
 for (const mode of ["valid", "close", "timeout", "guard", "malformed"]) test(`attached status encrypted peer: ${mode}`, async context => {
@@ -86,4 +86,49 @@ for (const mode of ["valid", "close", "timeout", "guard", "malformed"]) test(`at
     deliver(socket,1351,encryptedReply(),8,6);
     assert.equal(sent.filter(value=>value.subarray(8,12).toString()==="XZYH" && value.readUInt16LE(12)===1350).length,1);
   } finally { session.close();context.mock.timers.reset(); }
+});
+
+
+for (const sign of [2, 8]) test(`FamiLock status requires authenticated envelope ${sign} and full query correlation`, async context => {
+  context.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const { session, socket } = await peer(context);
+  try {
+    const phases: string[] = [];
+    const operation = session.readT85V0Status(identity, time, sequence, () => {}, phase => phases.push(phase));
+    let settled = false; void operation.then(() => { settled = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    const forged = encryptedReply({}, sign); forged[0]! ^= 1;
+    deliver(socket, 1351, forged, sign, 1);
+    deliver(socket, 1351, encryptedReply({ seq_num: 9 }, sign), sign, 2);
+    await new Promise(resolve => setImmediate(resolve)); assert.equal(settled, false);
+    deliver(socket, 1351, encryptedReply({}, sign), sign, 3);
+    assert.equal((await operation).reportedState, "locked");
+    assert.deepEqual(phases, ["protection", "reply"]);
+    assert.equal(session.stats.mediaStartAttempts, 0);
+  } finally { session.close(); context.mock.timers.reset(); }
+});
+
+test("FamiLock reply timeout separates received notifications from a correlated answer", async context => {
+  context.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const { session, socket, sent } = await peer(context);
+  try {
+    const operation = session.readT85V0Status(identity, time, sequence, () => {});
+    const failed = assert.rejects(operation, error => {
+      assert.ok(error instanceof Error && "query" in error && "boundary" in error);
+      assert.equal(error.boundary, "reply");
+      assert.deepEqual(error.query, { sent: true, acknowledged: true, notifications: 4,
+        selectedNotifications: 3, authenticatedNotifications: 1, matchingNotifications: 1 });
+      return true;
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    const query = sent.filter(packet => packet.toString("ascii", 8, 12) === "XZYH" && packet.readUInt16LE(12) === 1350)[0]!;
+    const ack = Buffer.from([0xf1,0xd1,0,6,0xd1,0,0,1,0,0]); ack.writeUInt16BE(query.readUInt16BE(6), 8);
+    socket.emit("message", ack, {address:"127.0.0.1",port:12345});
+    deliver(socket,1351,encryptedReply(),8,1,4);
+    deliver(socket,1351,Buffer.from("{}"),0,2);
+    const forged=encryptedReply();forged[0]!^=1;deliver(socket,1351,forged,8,3);
+    deliver(socket,1351,encryptedReply({seq_num:8}),8,4);
+    context.mock.timers.tick(15_000); await failed;
+    assert.equal(sent.filter(packet => packet.toString("ascii", 8, 12) === "XZYH" && packet.readUInt16LE(12) === 1350).length, 1);
+  } finally { session.close(); context.mock.timers.reset(); }
 });

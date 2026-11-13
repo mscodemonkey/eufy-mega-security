@@ -12,6 +12,8 @@ import { MegaClient } from "../src/mega/client.js";
 import { MegaPushReceiver } from "../src/mega/push.js";
 import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 import { HomeBasePpcsSession } from "../src/stream/homebase-ppcs.js";
+import { supportsStartupSnapshot } from "../src/startup-snapshot-warmup.js";
+import type { CameraIdentity } from "../src/domain/types.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
 import { T85V0StatusError, type T85V0StatusIdentity } from "../src/provider/t85v0-status.js";
 
@@ -45,7 +47,9 @@ for (const mode of ["valid", "hung", "shutdown", "disabled", "model", "type", "c
     const controller = new AbortController();
     const provider = new EufyProvider({ username: "synthetic", password: "synthetic", country: "AU", persistentDirectory: directory,
       maxStreamSeconds: 120, experimentalModelControls: mode !== "disabled" });
-    const events = new Proxy({}, { get: () => () => undefined }) as ProviderEvents;
+    const cameras = new Map<string, CameraIdentity>();
+    const events = new Proxy({ camera: (identity: CameraIdentity) => cameras.set(identity.serial, identity) },
+      { get: (target, key) => Reflect.get(target, key) ?? (() => undefined) }) as unknown as ProviderEvents;
     const start = context.mock.method(FirstPartyPpcsSession.prototype, "start", async function(this: FirstPartyPpcsSession) {
       if (mode === "account-before-query") accountCurrent = false;
       if (mode === "hung") await new Promise<void>(() => undefined);
@@ -64,6 +68,14 @@ for (const mode of ["valid", "hung", "shutdown", "disabled", "model", "type", "c
     const close = context.mock.method(FirstPartyPpcsSession.prototype, "close", function(this: FirstPartyPpcsSession) { this.output.end(); });
     try {
       await provider.start(events); await new Promise(resolve => setImmediate(resolve));
+      if (mode === "valid") {
+        const lock = cameras.get("SYNTHETICLOCK001")!;
+        assert.equal(lock.streamSupported, true);
+        assert.equal(lock.startupSnapshotSupported, false);
+        assert.equal(supportsStartupSnapshot(lock), false);
+        const { startupSnapshotSupported: _suppressed, ...ordinary } = lock;
+        assert.equal(supportsStartupSnapshot({ ...ordinary, model: "T8210" }), true);
+      }
       context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: Date.now() });
       const operation = provider.readT85V0StatusTrial("SYNTHETICLOCK001", controller.signal);
       const reasons: Record<string, string> = {
@@ -73,6 +85,7 @@ for (const mode of ["valid", "hung", "shutdown", "disabled", "model", "type", "c
       };
       const expected = ["valid", "busy", "shared"].includes(mode) ? operation : assert.rejects(operation, error => {
         assert.ok(error instanceof T85V0StatusError);
+        if (mode === "hung") assert.equal(error.boundary, "connect");
         if (reasons[mode]) {
           assert.equal(error.reason, reasons[mode]);
           assert.equal(start.mock.callCount(), 0);

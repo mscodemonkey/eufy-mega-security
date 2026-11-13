@@ -89,3 +89,12 @@ test("admission explanations exclude unclassified values and non-admission failu
   }
   assert.equal(new T85V0StatusError("cancelled", "owner_account_required").reason, undefined);
 });
+
+
+test("status timeout summaries retain a fixed boundary without private response data", async () => {
+  const { T85V0StatusError, t85v0StatusFailureSummary } = await import("../src/provider/t85v0-status.js");
+  const failure = new T85V0StatusError("timeout", undefined, "reply", { sent: true, acknowledged: true,
+    notifications: 2, selectedNotifications: 1, authenticatedNotifications: 1, matchingNotifications: 0 });
+  assert.match(t85v0StatusFailureSummary(failure), /^stage=timeout boundary=reply query_sent=true query_acked=true/);
+  assert.doesNotMatch(JSON.stringify(failure), /account|serial|sequence|lock_payload/);
+});
