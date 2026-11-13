@@ -88,3 +88,12 @@ Do not repeat a failed trial or use **Read NVR state once** for the E10.
 After the check, restore the experimental option to its starting value. A failure
 at the offer or framing stage is an observation to investigate, not evidence that
 the camera has no video or permission to loosen the media parser.
+
+
+A normal E10 view now retains its already-connected media peer after a bound
+signalling hang-up while valid pictures are still arriving. The same peer stays
+owned until the viewer closes, the existing video-progress deadline expires or
+the peer fails. This sends no replacement call. Foreign-session messages,
+pre-media hang-ups and finite private clips still fail or close normally.
+Continuation past the reported five-minute stop remains hardware-unconfirmed.
+There is no extra long view or private capture to arrange for this candidate.
