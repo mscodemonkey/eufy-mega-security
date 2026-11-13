@@ -10,6 +10,7 @@
  * stream plus safe counters, so the rest of the gateway never handles PPCS
  * packet layout or camera encryption directly.
  */
+import { PpcsQueryTrace } from "./ppcs-query-trace.js";
 import { s340LiveQualityValue } from "../provider/s340-live-quality.js";
 import { QuickResponseListError, parseQuickResponseList, validQuickResponseId, type DoorbellQuickResponse } from "../provider/quick-responses.js";
 import { t8420ClearLiveRoute, t8420ClearLiveStart } from "./t8420-live.js";
@@ -1486,6 +1487,7 @@ interface PendingControl {
 
 /** One in-flight JSON control query correlated by its inner command type. */
 interface PendingControlQuery {
+  readonly trace?: PpcsQueryTrace;
   readonly command: number;
   readonly resolve: (payload: Record<string, unknown>) => void;
   readonly reject: (error: Error) => void;
@@ -1793,7 +1795,7 @@ export class FirstPartyPpcsSession {
   #sessionDeadline = Number.POSITIVE_INFINITY;
   #lockStatus: { readonly identity: T85V0StatusIdentity; readonly keyTime: number; readonly sequence: number;
     readonly resolve: (value: T85V0StatusSummary) => void; readonly reject: (error: T85V0StatusError) => void;
-    readonly timer: NodeJS.Timeout } | null = null;
+    readonly timer: NodeJS.Timeout; readonly trace: PpcsQueryTrace } | null = null;
 
   /** Own correlated card reads separately from live media and camera-setting requests. */
   #recordings: SoloCamRecordingReader | HomeBaseRecordingReader | null = null;
@@ -2818,20 +2820,23 @@ export class FirstPartyPpcsSession {
   }
 
   /** Query an admitted attached FamiLock once, requiring a correlated authenticated reply. */
-  async readT85V0Status(identity: T85V0StatusIdentity, keyTime: number, sequence: number, current: () => void): Promise<T85V0StatusSummary> {
+  async readT85V0Status(identity: T85V0StatusIdentity, keyTime: number, sequence: number, current: () => void, observeBoundary: (boundary: "protection" | "reply") => void = () => undefined): Promise<T85V0StatusSummary> {
     if (this.#options.purpose !== "control" || this.#closed || !this.#remote || this.#options.cameraModel !== "T85V0"
       || this.#options.stationModel !== "T8030" || !this.#options.homeBaseAttached || identity.channel !== this.#options.channel
       || identity.accountId !== this.#options.accountId || this.#lockStatus || this.#c31Index || this.#pendingControl
       || this.#pendingControlQuery || this.#pendingCameraInfo || this.#recordings) throw new T85V0StatusError("admission");
+    observeBoundary("protection");
     await this.#waitForLevel2Key(); current();
     if (this.#closed || !this.#level2Key) throw new T85V0StatusError("cancelled");
     const query = buildT85V0StatusQuery(identity, keyTime, sequence, Math.floor(Date.now() / 1000));
     return new Promise<T85V0StatusSummary>((resolve, reject) => {
-      const timer = setTimeout(() => this.#finishLockStatus(new T85V0StatusError("timeout")), 15_000);
-      this.#lockStatus = { identity, keyTime, sequence, resolve, reject, timer };
+      const trace = new PpcsQueryTrace(identity.channel);
+      const timer = setTimeout(() => this.#finishLockStatus(new T85V0StatusError("timeout", undefined, "reply", trace.snapshot())), 15_000);
+      this.#lockStatus = { identity, keyTime, sequence, resolve, reject, timer, trace };
       try {
         current();
         const encrypted = encryptLevel2(query, this.#level2Key!, this.#level2Seq++);
+        observeBoundary("reply"); trace.sent(this.#seq);
         this.#sendCommand(1350, rawPayload(encrypted, identity.channel, 8, [8, 0], 0));
       } catch (error) { this.#finishLockStatus(error instanceof T85V0StatusError ? error : new T85V0StatusError("session")); }
       finally { query.fill(0); }
@@ -3067,7 +3072,7 @@ export class FirstPartyPpcsSession {
     if (this.#pendingControlQuery) {
       clearTimeout(this.#pendingControlQuery.timer);
       this.#pendingControlQuery.reject(this.#pendingControlQuery.command === 6237
-        ? new QuickResponseListError("session_closed") : new Error("Camera control session closed before query response"));
+        ? new QuickResponseListError("session_closed", this.#pendingControlQuery.trace?.snapshot()) : new Error("Camera control session closed before query response"));
       this.#pendingControlQuery = null;
     }
     this.#finishAlarmRead("unavailable");
@@ -3220,6 +3225,8 @@ export class FirstPartyPpcsSession {
           const sequence = message.readUInt16BE(8 + index * 2);
           this.#mediaStart.acknowledge(sequence);
           this.#gatewayInfoRequest.acknowledge(sequence);
+          this.#pendingControlQuery?.trace?.acknowledge(sequence);
+          this.#lockStatus?.trace.acknowledge(sequence);
         }
       }
       return false;
@@ -3420,16 +3427,21 @@ export class FirstPartyPpcsSession {
     if (this.#lockStatus && command === 1300) {
       this.#finishLockStatus(new T85V0StatusError("malformed")); this.close("client_stop"); return;
     }
-    if (this.#lockStatus && command === 1351 && frameChannel === this.#lockStatus.identity.channel && signCode === 8 && this.#level2Key) {
-      if (payload.length > 16_384 + 32) { this.#finishLockStatus(new T85V0StatusError("malformed")); return; }
-      const clear = decryptLevel2(payload, this.#level2Key, signCode);
-      if (!clear) return;
+    if (this.#lockStatus && command === 1351) {
+      const pending = this.#lockStatus;
+      let clear: Buffer | undefined;
+      if (frameChannel === pending.identity.channel && (signCode === 2 || signCode === 8)
+        && this.#level2Key && payload.length <= 16_384 + 32) clear = decryptLevel2(payload, this.#level2Key, signCode);
       try {
-        const pending = this.#lockStatus;
+        const record = clear ? parsePpcsControlRecord(clear) : undefined;
+        pending.trace.notification(frameChannel, Boolean(record), record?.cmd === 1940);
+        if (frameChannel !== pending.identity.channel || (signCode !== 2 && signCode !== 8) || !this.#level2Key) return;
+        if (payload.length > 16_384 + 32) { this.#finishLockStatus(new T85V0StatusError("malformed")); return; }
+        if (!clear) return;
         const result = decodeT85V0StatusReply(clear, pending.identity, pending.keyTime, pending.sequence);
         if (result) this.#finishLockStatus(result);
       } catch (error) { this.#finishLockStatus(error instanceof T85V0StatusError ? error : new T85V0StatusError("malformed")); }
-      finally { clear.fill(0); }
+      finally { clear?.fill(0); }
       return;
     }
 
@@ -3455,19 +3467,19 @@ export class FirstPartyPpcsSession {
       }
     }
 
-    if (command === 1351 && this.#pendingControlQuery
-      && (this.#options.cameraModel !== "T814X" && this.#pendingControlQuery.command !== 6237 || frameChannel === this.#options.channel)) {
+    if (command === 1351 && this.#pendingControlQuery) {
+      const pending = this.#pendingControlQuery;
       const decoded = decodePpcsControlRecord(payload, signCode,
         commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key);
-      const responsePayload = decoded && decoded.cmd === this.#pendingControlQuery.command
-        ? jsonRecord(decoded.payload)
-        : undefined;
-      if (responsePayload) {
-        const pending = this.#pendingControlQuery;
-        this.#pendingControlQuery = null;
-        clearTimeout(pending.timer);
-        pending.resolve(responsePayload);
-        return;
+      pending.trace?.notification(frameChannel, Boolean(decoded) && (signCode === 2 || signCode === 8), decoded?.cmd === pending.command);
+      if (this.#options.cameraModel !== "T814X" && pending.command !== 6237 || frameChannel === this.#options.channel) {
+        const responsePayload = decoded?.cmd === pending.command ? jsonRecord(decoded.payload) : undefined;
+        if (responsePayload) {
+          this.#pendingControlQuery = null;
+          clearTimeout(pending.timer);
+          pending.resolve(responsePayload);
+          return;
+        }
       }
     }
 
@@ -3842,10 +3854,10 @@ export class FirstPartyPpcsSession {
     const response = new Promise<Record<string, unknown>>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#pendingControlQuery = null;
-        reject(command === 6237 ? new QuickResponseListError("response_timeout")
+        reject(command === 6237 ? new QuickResponseListError("response_timeout", pendingQuery?.trace?.snapshot())
           : new Error(`Camera control query ${command} timed out`));
       }, CONTROL_TIMEOUT_MILLISECONDS);
-      pendingQuery = { command, resolve, reject, timer };
+      pendingQuery = { command, resolve, reject, timer, ...(command === 6237 ? { trace: new PpcsQueryTrace(this.#options.channel) } : {}) };
       this.#pendingControlQuery = pendingQuery;
     });
 
@@ -3857,6 +3869,7 @@ export class FirstPartyPpcsSession {
         this.#assertQuickResponseSession();
         const value = JSON.stringify({ account_id: this.#options.accountId, cmd: 6237,
           mChannel: this.#options.channel, mValue3: 0 });
+        pendingQuery?.trace?.sent(this.#seq);
         this.#sendCommand(1350, rawPayload(encryptLevel2(Buffer.from(value), this.#level2Key!, this.#level2Seq++),
           this.#options.channel, 8, [8, 0], 0));
       } else await this.#sendControlPayload(command, data);

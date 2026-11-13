@@ -19,7 +19,7 @@ import { NvrLiveControlError, type NvrLiveControl } from "./provider/nvr-live-co
 import { NvrPowerError, type NvrPowerRequest } from "./provider/nvr-power-trial.js";
 import { NvrGuardError, type NvrGuardRequest } from "./provider/nvr-guard-trial.js";
 import { nvrGuardTimeZone } from "./provider/nvr-guard-schedule.js";
-import { T85V0StatusError } from "./provider/t85v0-status.js";
+import { T85V0StatusError, t85v0StatusFailureSummary } from "./provider/t85v0-status.js";
 import { LocalMotionError } from "./stream/local-motion-trial.js";
 import { C31IndexError, parseC31IndexRequest, type C31IndexWindow } from "./stream/c31-recording-index.js";
 import { recordingPathDate } from "./mega/push-recording-reference.js";
@@ -833,7 +833,7 @@ export class GatewayServer {
           json(response, 200, { reportedState: result.reportedState, batteryPercent: result.batteryPercent, physicalConfirmationRequired: true });
         } catch (error) {
           const failure = error instanceof T85V0StatusError ? error : new T85V0StatusError(controller.signal.aborted ? "cancelled" : "session");
-          logger.warn("lock_status_trial_failed", `stage=${failure.stage}${failure.reason ? ` reason=${failure.reason}` : ""}`);
+          logger.warn("lock_status_trial_failed", t85v0StatusFailureSummary(failure));
           if (!response.destroyed) json(response, 409, { stage: failure.stage, ...(failure.reason ? { reason: failure.reason } : {}) });
         } finally {
           controller.abort(); clearTimeout(deadline); response.removeListener("close", abort);

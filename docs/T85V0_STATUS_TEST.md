@@ -44,3 +44,18 @@ not change accounts or operate the lock to get past a refusal.
 Fresh ownership checks also run around the read. An admission failure can therefore
 occur after a read was attempted. Its reason does not prove whether a wire command
 was sent, and no rejected or stale result is published as the lock's current state.
+
+
+Timeout logs now identify whether the check stopped during cloud inventory,
+connection setup, protection negotiation or the status reply. They also count
+existing acknowledgements and notification progress without exposing account,
+device or response contents. Copy the complete `lock_status_trial_failed` line
+if an ordinary manual check fails. Do not repeatedly run the check to collect it.
+
+The exact T85V0/type 203 camera is excluded from automatic first-image capture.
+If there is no retained picture, it can remain blank until an event supplies one
+or you explicitly open video or request a snapshot. Existing retained images and
+explicit capture remain available. This removes an unnecessary automatic wake,
+but does not establish the cause of reported battery drain. Disabling the HA
+integration and stopping the EMS gateway app are different actions. The gateway
+continues its own background work while the app is running.

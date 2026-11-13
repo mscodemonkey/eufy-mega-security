@@ -29,7 +29,8 @@ import { NvrPowerError, runNvrPowerTrial, type NvrPowerRequest, type NvrPowerSum
 import { NvrGuardError, runNvrGuardTrial, type NvrGuardRequest, type NvrGuardState, type NvrGuardSummary } from "./nvr-guard-trial.js";
 import { nvrGuardTimeZone, type NvrGuardEffective } from "./nvr-guard-schedule.js";
 import { eventPictureUrl } from "./event-picture-url.js";
-import { T85V0StatusError, validT85V0StatusIdentity, type T85V0AdmissionReason, type T85V0StatusSummary } from "./t85v0-status.js";
+import { ppcsQueryEvidenceSummary } from "../stream/ppcs-query-trace.js";
+import { T85V0StatusError, validT85V0StatusIdentity, type T85V0AdmissionReason, type T85V0StatusBoundary, type T85V0StatusSummary } from "./t85v0-status.js";
 import { LocalMotionCollector, LocalMotionError, type LocalMotionSummary } from "../stream/local-motion-trial.js";
 import { C31IndexError, validateC31IndexWindow, type C31IndexSummary, type C31IndexWindow } from "../stream/c31-recording-index.js";
 import type { E30LockSettingChange, SmartLockState } from "../domain/types.js";
@@ -1334,6 +1335,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const controller = new AbortController();
     const releaseTrialPeer = this.#reserveTrialPeer(station.serial); this.#lockStatusAborters.set(station.serial, controller);
     let session: FirstPartyPpcsSession | null = null;
+    let boundary: T85V0StatusBoundary = "inventory";
     let started = false;
     let failure: T85V0StatusError | null = null, finished = false;
     const abort = (): void => { controller.abort(); session?.close(); };
@@ -1372,6 +1374,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     };
     try {
       await fresh();
+      boundary = "connection_key";
       const dsk = await owned(() => this.#dskKey(station.serial));
       if (!dsk) throw new T85V0StatusError("admission", "connection_key_unavailable");
       session = new FirstPartyPpcsSession({ stationSerial: station.serial, p2pDid: station.p2pDid!,
@@ -1382,22 +1385,24 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#trialSessions.set(station.serial, session);
       const closed = (): void => { if (!finished) { failure ??= new T85V0StatusError("session"); controller.abort(); } };
       session.output.once("end", closed); session.output.resume();
+      boundary = "connect";
       await owned(() => { started = true; return session!.start(); });
       if (session.stats.closeReason !== "open") throw new T85V0StatusError("session");
-      await fresh(); current();
+      boundary = "inventory"; await fresh(); current();
       const now = Math.floor(Date.now() / 1000);
       const keyTime = Math.max(now, this.#lockStatusTime + 1);
       if (keyTime > 0xffffffff || this.#lockStatusSequence >= 0xffffffff) throw new T85V0StatusError("admission", "query_counter_exhausted");
       this.#lockStatusTime = keyTime;
       const sequence = ++this.#lockStatusSequence;
-      const summary = await owned(() => session!.readT85V0Status({ serial, accountId: device!.adminUserId!, channel: device!.channel! }, keyTime, sequence, current));
-      await fresh(); current();
+      const summary = await owned(() => session!.readT85V0Status({ serial, accountId: device!.adminUserId!, channel: device!.channel! }, keyTime, sequence, current, phase => { boundary = phase; }));
+      boundary = "confirmation"; await fresh(); current();
       return summary;
     } catch (error) {
-      throw error instanceof T85V0StatusError ? error : failure ?? new T85V0StatusError(controller.signal.aborted ? "cancelled" : "session");
+      const result = error instanceof T85V0StatusError ? error : failure ?? new T85V0StatusError(controller.signal.aborted ? "cancelled" : "session");
+      throw new T85V0StatusError(result.stage, result.reason, result.boundary ?? boundary, result.query);
     } finally {
       finished = true; clearTimeout(deadline); clearInterval(bindingTimer); signal.removeEventListener("abort", abort);
-      controller.abort(); session?.close();
+      controller.abort(); session?.close(); await session?.waitUntilClosed();
       if (this.#trialSessions.get(station.serial) === session) this.#trialSessions.delete(station.serial);
       this.#lockStatusAborters.delete(station.serial); releaseTrialPeer();
       if (started) {
@@ -3942,7 +3947,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       return replies;
     } catch (error) {
       const reason = error instanceof QuickResponseListError ? error.reason : "unspecified";
-      logger.warn("doorbell_quick_response_failed", `Quick response failed: stage=${stage} reason=${reason} playback_requested=${id !== undefined}`);
+      logger.warn("doorbell_quick_response_failed", `Quick response failed: stage=${stage} reason=${reason} playback_requested=${id !== undefined}${ppcsQueryEvidenceSummary(error instanceof QuickResponseListError ? error.query : undefined)}`);
       throw failure();
     } finally {
       clearTimeout(deadline); session?.output.removeListener("end", abort); controller.abort();
@@ -5509,7 +5514,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       doorbellSupported: isDoorbellDevice(device),
       streamSupported: nvrLive || isPpcsStreamSupported(device, this.#devices, dskPeerSerials) || this.#doorbellRtcBinding(device),
       hlsIdleHandoverSupported: nvrLive,
-      ...(nvrLive || this.config.experimentalT8420Live && device.model === "T8420" && device.deviceType === 3
+      ...(device.model === "T85V0" && device.deviceType === 203 || nvrLive || this.config.experimentalT8420Live && device.model === "T8420" && device.deviceType === 3
         && route?.homeBaseAttached === false ? { startupSnapshotSupported: false } : {}),
       liveAudioSupported: nvrLive ? nvrLiveAudioAdmitted(device, this.#devices.get(device.parentSerial))
         : supportsCameraLiveAudio(device, route, isPpcsStreamSupported(device, this.#devices, dskPeerSerials)),
