@@ -3,7 +3,7 @@
 This owner-run utility reads Home Assistant's existing local integration token
 without displaying it. The gateway owns selection, consent and capture limits.
 The utility owns bounded transfers, an optional live viewer and exclusive private
-output files. Archive inspection never executes content or displays private media.
+output files, including an explicitly requested E10 producer connection. Archive inspection never executes content or displays private media.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import json
 import math
 import multiprocessing
 import os
+import re
 from pathlib import Path
 import stat
 import sys
@@ -249,6 +250,40 @@ def s220_settings_check(url: str, token: str, target: dict) -> dict:
         raise DiagnosticError("S220 settings summary unavailable. No camera command was sent.") from None
 
 
+
+def save_e10_go2rtc_source(url: str, token: str, target: dict, config: Path, output: Path) -> dict:
+    """Save one private reconnectable source without starting a camera or changing go2rtc.
+
+    The companion producer authenticates each consumer connection privately.
+    Only an admitted standalone E10 is selected. The caller owns installation of
+    the secret connection file and go2rtc owns downstream RTSP access and demand.
+    """
+    destination = private_output_path(config, output)
+    if (target.get("model") != "T8404" or not isinstance(target.get("serial"), str)
+            or not target["serial"] or not re.fullmatch(r"[A-Za-z0-9_-]{16,512}", token)):
+        raise DiagnosticError("Select an admitted E10 and a supported saved connection.")
+    value = json.loads(request(url + "/api/cameras", token))
+    rows = value.get("cameras") if isinstance(value, dict) else None
+    if not isinstance(rows, list) or len(rows) > 1000 or any(not isinstance(row, dict) for row in rows):
+        raise DiagnosticError("E10 source admission is unavailable.")
+    matches = [row for row in rows if row.get("serial") == target["serial"]]
+    if (len(matches) != 1 or matches[0].get("model") != "T8404"
+            or type(matches[0].get("deviceType")) is not int or matches[0]["deviceType"] != 314
+            or matches[0].get("stationSerial") != target["serial"]
+            or matches[0].get("streamSupported") is not True):
+        raise DiagnosticError("E10 source admission is unavailable.")
+    source = url + "/api/cameras/" + quote(target["serial"], safe="") + "/live.h264"
+    body = (json.dumps({"schema": 1, "url": source, "token": token}, sort_keys=True) + "\n").encode()
+    descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "wb") as stream:
+        os.fchmod(stream.fileno(), 0o600)
+        stream.write(body)
+        stream.flush()
+        os.fsync(stream.fileno())
+    return {"sourceSaved": True, "model": "T8404", "cameraOpened": False,
+            "containsSecret": True, "lifetimeFixConfirmed": False}
+
+
 def selected_device(rows: list[dict], index: int) -> dict:
     """Resolve a current one-based index while keeping serials out of output."""
     if not 1 <= index <= len(rows):
@@ -463,6 +498,8 @@ def run(options) -> dict:
         rows = devices(endpoint, token)
         return {"devices": [{"index": i + 1, "model": row["model"], "streamSupported": row["streamSupported"]}
                             for i, row in enumerate(rows)]}
+    if options.command == "e10-go2rtc-source":
+        return save_e10_go2rtc_source(url, token, selected_device(devices(endpoint, token), options.target_index), options.config, options.output)
     if options.command == "s220-settings-check":
         return s220_settings_check(url, token, selected_device(devices(endpoint, token), options.target_index))
     if options.command == "state-check":
@@ -524,6 +561,9 @@ def main(arguments=None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("list", "status", "clear"):
         sub.add_parser(name)
+    source = sub.add_parser("e10-go2rtc-source", help="Save a private go2rtc source without opening the E10.")
+    source.add_argument("--target-index", type=int, required=True)
+    source.add_argument("--output", type=Path, required=True)
     settings = sub.add_parser("s220-settings-check", help="Read cached S220 control availability without contacting the camera.")
     settings.add_argument("--target-index", type=int, required=True)
     state = sub.add_parser("state-check", help="Run one consented read-only reported-parameter check.")
