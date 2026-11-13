@@ -57,6 +57,16 @@ capabilities:
         "2": "Full HD (1080P)"
         "3": "Max"
   controls:
+    manual_spotlight:
+      connections:
+        T8030:
+          status: declared
+          notes: Experimental exact T8170 type 48 HomeBase 3 child-channel candidate. Normal HA on/off buttons start disabled. Sends one timed native request with exclusive peer ownership and verified local cleanup. Physical illumination, timer and restoration remain unconfirmed. No readable light state is invented.
+      write:
+        command: 1700
+      values:
+        "0": Manual light off
+        "1": Manual light on
     enabled:
       connections:
         direct:

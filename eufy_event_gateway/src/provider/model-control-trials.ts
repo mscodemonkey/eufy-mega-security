@@ -155,6 +155,13 @@ export function isE330ManualLightTrialRoute(route: ModelControlRoute): boolean {
     && route.channel !== null && Number.isInteger(route.channel) && route.channel >= 0 && route.channel <= 254;
 }
 
+/** Admit only the S340's reported HomeBase 3 child channel for the timed manual-light trial. */
+export function isS340ManualLightTrialRoute(route: ModelControlRoute): boolean {
+  return route.model === "T8170" && route.deviceType === 48 && route.homeBaseAttached
+    && route.peerModel === "T8030" && route.peerDeviceType === 18 && !route.selfPeer
+    && route.channel !== null && Number.isInteger(route.channel) && route.channel >= 0 && route.channel <= 31;
+}
+
 /** Identify only the L40's self-owned channel-zero timed-light route. */
 export function isL40ManualLightTrialRoute(route: ModelControlRoute): boolean {
   return route.model === "T8123" && route.deviceType === 61 && !route.homeBaseAttached
@@ -165,7 +172,7 @@ export function isL40ManualLightTrialRoute(route: ModelControlRoute): boolean {
 export function modelControlTrialActions(route: ModelControlRoute): readonly ModelControlTrial["action"][] {
   if (isL40ManualLightTrialRoute(route)) return ["manualLight"];
   if (route.homeBaseAttached) {
-    if (isE330ManualLightTrialRoute(route)) return ["manualLight"];
+    if (isE330ManualLightTrialRoute(route) || isS340ManualLightTrialRoute(route)) return ["manualLight"];
     if (route.model === "T81A0" && route.deviceType === 10005 && route.peerModel === "T8030"
       && route.peerDeviceType === 18 && !route.selfPeer && route.channel !== null
       && Number.isInteger(route.channel) && route.channel >= 0 && route.channel <= 254) return ["manualLight"];
@@ -199,6 +206,9 @@ export function modelControlTrialCommand(
   if (!accountId || !modelControlTrialActions(route).includes(request.action)) throw new Error("Model control trial route unavailable");
   if (!Number.isSafeInteger(transaction) || transaction < 1_000_000_000_000) throw new Error("Invalid control transaction");
   if (request.action === "manualLight") {
+    if (isS340ManualLightTrialRoute(route)) return { command: 1700,
+      value: JSON.stringify({ commandType: 1400, data: { value: request.enabled ? 1 : 0,
+        open: request.enabled ? 1 : 0, type: 2, time: 60 } }) };
     if (isL40ManualLightTrialRoute(route)) return { command: 1700,
       value: JSON.stringify({ commandType: 1400, data: { type: 2, time: 60, value: request.enabled ? 1 : 0 } }) };
     return { command: 1400, value: request.enabled };
