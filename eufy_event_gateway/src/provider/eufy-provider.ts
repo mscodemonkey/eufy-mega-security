@@ -50,7 +50,7 @@ import { validateRecordingDate, type CameraStoredRecord, type StoredRecordingSum
 import type { EventPictureSummary } from "../stream/homebase-event-picture.js";
 import { MediaHttpError } from "../mega/media-request-diagnostic.js";
 import { recordingPathDate } from "../mega/push-recording-reference.js";
-import { EventNameHistoryError, eventHistoryCursor, eventHistoryId, nextEventHistoryDate, type EventNameHistorySummary } from "../stream/homebase-event-names.js";
+import { EventNameHistoryError, eventHistoryCursor, eventHistoryId, nextEventHistoryDate, type EventNameHistorySummary, type EventNameRecoveryOutcome } from "../stream/homebase-event-names.js";
 
 import type { BatteryState, CameraIdentity, CameraPresetPosition, DetectionKind, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
 import { createLogger } from "../logging.js";
@@ -6597,8 +6597,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (!this.config.experimentalHomeBaseEventNames || !device || !supportsEventNameHistory(device, route, true)
       || owner?.nameRecoveryStarted || owner?.nameRecoveryStopped) return;
     const unavailable = (reason: "notification_reference_unavailable" | "api_authentication_required" | "visit_or_binding_changed"
-      | "expired" | "peer_busy" | "query_failed" | "no_name" | "reference_changed", checks = 0, busySkips = 0): void => {
-      logger.info("homebase_name_recovery_unavailable", `Late-name recovery ended reason=${reason} checks=${checks} busy_skips=${busySkips}`);
+      | "expired" | "peer_busy" | "query_failed" | "no_name" | "reference_changed", checks = 0, busySkips = 0,
+      historyResult: EventNameRecoveryOutcome | "not_observed" | "selected_name_rejected" = "not_observed"): void => {
+      logger.info("homebase_name_recovery_unavailable", `Late-name recovery ended reason=${reason} checks=${checks} busy_skips=${busySkips} history_result=${historyResult}`);
     };
     if (!this.config.apiAuthenticationConfigured) { unavailable("api_authentication_required"); return; }
     if (!owner || !event.eventId || !reference) {
@@ -6617,6 +6618,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     owner.nameRecoveryStarted = true;
     void (async () => {
       let checks = 0, busySkips = 0;
+      let historyResult: EventNameRecoveryOutcome | "not_observed" | "selected_name_rejected" = "not_observed";
       let reason: "no_name" | "peer_busy" | "query_failed" = "no_name";
       try {
         for (const offset of [10_000, 60_000, 540_000]) {
@@ -6630,9 +6632,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           const signal = AbortSignal.any([owner.controller.signal, AbortSignal.timeout(Math.min(60_000, remaining))]);
           let name: string | null;
           checks++;
+          historyResult = "not_observed";
           try {
             name = await this.#recordingOperation(event.cameraSerial, signal,
-              session => session.recoverEventName(reference, signal), "event_names");
+              session => session.recoverEventName(reference, signal, outcome => { historyResult = outcome; }), "event_names");
           } catch { reason = "query_failed"; continue; }
           if (!current()) return;
           const recognized = personNameFromPush({ eventType: event.eventType, personName: name, content: null });
@@ -6643,12 +6646,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
             logger.info("homebase_name_recovered", "An exact notification-owned history record supplied a familiar name");
             return;
           }
+          if (name !== null) historyResult = "selected_name_rejected";
           reason = "no_name";
         }
       } finally {
         if (owner.generation === this.#startupGeneration && !this.#recordingClosing && (!owner.nameRecoveryStopped || owner.nameRecoveryReferenceChanged)) {
           unavailable(owner.nameRecoveryReferenceChanged ? "reference_changed" : Date.now() - reference.triggerMilliseconds >= 600_000 ? "expired"
-            : !this.#pictureOwnerCurrent(owner) ? "visit_or_binding_changed" : reason, checks, busySkips);
+            : !this.#pictureOwnerCurrent(owner) ? "visit_or_binding_changed" : reason, checks, busySkips, historyResult);
         }
       }
     })().catch(() => undefined);

@@ -16,6 +16,10 @@ export interface EventNameHistorySummary {
   readonly unresolvedPersonCrops: number;
 }
 
+/** Selection outcome for one checked page, never a claim about the whole history. */
+export type EventNameRecoveryOutcome = "record_not_on_page" | "reference_mismatch" | "person_crop_missing"
+  | "familiar_name_missing" | "ambiguous_names" | "name_selected";
+
 /** Closed parser stages identify a rejected boundary without exposing rows or names. */
 export type EventNameHistoryStage = "unspecified" | "decode" | "json" | "envelope" | "tables" | "history_table" | "crop_table" | "people_table" | "history" | "people" | "crops" | "crop_duplicate" | "crop_station" | "crop_device";
 
@@ -158,9 +162,11 @@ export function summarizeEventNameHistory(value: unknown, serial: string, statio
  * Select a single familiar name only for the notification's exact record and
  * storage path on the original camera and station. The caller owns freshness.
  * Ambiguous people remain unresolved. This private result must not enter logs
- * or the aggregate diagnostics response.
+ * or the aggregate diagnostics response. The optional observer receives only a
+ * closed selection outcome after page validation.
  */
-export function selectEventNameHistory(value: unknown, serial: string, stationSerial: string, reference: PushRecordingReference): string | null {
+export function selectEventNameHistory(value: unknown, serial: string, stationSerial: string, reference: PushRecordingReference,
+  onOutcome?: (outcome: EventNameRecoveryOutcome) => void): string | null {
   if (!pushRecordingReference({ record_id: reference.id, file_path: reference.storagePath, trigger_time: reference.triggerMilliseconds })) {
     throw new EventNameHistoryError("invalid_request");
   }
@@ -168,18 +174,24 @@ export function selectEventNameHistory(value: unknown, serial: string, stationSe
   summarizeEventNameHistory(value, serial, stationSerial, date);
   const page = value as Record<string, unknown>;
   const record = rows(page, "history_record_info").find(row => row.device_sn === serial
-    && id(row.record_id) === reference.id && row.storage_path === reference.storagePath && typeof row.start_time === "string"
-    && row.start_time.slice(0, 10) === date);
-  if (!record) return null;
+    && id(row.record_id) === reference.id);
+  if (!record) { onOutcome?.("record_not_on_page"); return null; }
+  if (record.storage_path !== reference.storagePath || typeof record.start_time !== "string" || record.start_time.slice(0, 10) !== date) {
+    onOutcome?.("reference_mismatch"); return null;
+  }
   const roster = new Map(rows(page, "person_basic_info").map(person => [person.person_id, person]));
   const names = new Set<string>();
+  let personCrops = 0;
   for (const crop of rows(page, "record_crop_picture_info")) {
     if (id(crop.record_id) !== reference.id || crop.detection_type !== 1) continue;
+    personCrops++;
     const person = roster.get(crop.person_id);
     if (person && person.person_id !== -1 && typeof person.group_id === "number" && Number.isInteger(person.group_id)
       && person.group_id >= 0 && person.group_id < 255 && typeof person.name === "string"
       && person.name.trim() && person.name.length <= 160 && !/[\u0000-\u001f\u007f]/.test(person.name)) names.add(person.name.trim());
   }
+  onOutcome?.(names.size === 1 ? "name_selected" : names.size > 1 ? "ambiguous_names"
+    : personCrops === 0 ? "person_crop_missing" : "familiar_name_missing");
   return names.size === 1 ? [...names][0]! : null;
 }
 
@@ -202,12 +214,13 @@ export class EventNameHistoryReader {
   }
 
   /** Read one page for a notification-owned name without exposing it through diagnostics. */
-  async readName(reference: PushRecordingReference, signal?: AbortSignal): Promise<string | null> {
+  async readName(reference: PushRecordingReference, signal?: AbortSignal,
+    onOutcome?: (outcome: EventNameRecoveryOutcome) => void): Promise<string | null> {
     const date = recordingPathDate(reference.storagePath);
     if (!date || !pushRecordingReference({ record_id: reference.id, file_path: reference.storagePath, trigger_time: reference.triggerMilliseconds })) {
       throw new EventNameHistoryError("invalid_request");
     }
-    return await this.#read(date, "0", signal, value => selectEventNameHistory(value, this.transport.serial, this.transport.stationSerial, reference));
+    return await this.#read(date, "0", signal, value => selectEventNameHistory(value, this.transport.serial, this.transport.stationSerial, reference, onOutcome));
   }
 
   async #read<T>(date: string, startId: string, signal: AbortSignal | undefined, select: (value: unknown) => T): Promise<T> {

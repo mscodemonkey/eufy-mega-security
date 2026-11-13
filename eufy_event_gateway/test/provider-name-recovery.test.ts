@@ -14,6 +14,7 @@ import { MegaClient } from "../src/mega/client.js";
 import { MegaPushReceiver, parsePushEvent, type MegaPushEvent } from "../src/mega/push.js";
 import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 import { HomeBasePpcsSession } from "../src/stream/homebase-ppcs.js";
+import type { EventNameRecoveryOutcome } from "../src/stream/homebase-event-names.js";
 import type { PushRecordingReference } from "../src/mega/push-recording-reference.js";
 
 const storagePath = "/zx/hdd_data0/Camera02/202611/20261108092300/20261108092300.zxvideo";
@@ -54,10 +55,11 @@ async function fixture(context: TestContext, mode = "valid") {
   const closed = context.mock.method(FirstPartyPpcsSession.prototype, "close", function(this: FirstPartyPpcsSession) { this.output.end(); });
   const drained = context.mock.method(FirstPartyPpcsSession.prototype, "waitUntilClosed", async () => undefined);
   let release: (() => void) | undefined;
-  const recovery = context.mock.method(FirstPartyPpcsSession.prototype, "recoverEventName", async (reference: PushRecordingReference) => {
+  const recovery = context.mock.method(FirstPartyPpcsSession.prototype, "recoverEventName", async (reference: PushRecordingReference, _signal: AbortSignal, onOutcome?: (outcome: EventNameRecoveryOutcome) => void) => {
     assert.equal(reference.id, "42"); assert.equal(reference.storagePath, storagePath);
     if (mode === "superseded" || mode === "shutdown" || mode === "native-name" || mode === "conflicting-reference") await new Promise<void>(resolve => { release = resolve; });
     if (mode === "slow-empty") await new Promise<void>(resolve => setTimeout(resolve, 50_000));
+    if (mode === "record-missing") { onOutcome?.("record_not_on_page"); return null; }
     return mode === "empty" || mode === "slow-empty" ? null : mode === "generic" ? "Unknown person" : "Fixture Person";
   });
   const names: unknown[][] = [], people: unknown[][] = [], presses: unknown[][] = [];
@@ -217,5 +219,23 @@ test("the rejected path warning describes the format without querying history or
     assert.match(line, /reference=path_unsupported visit_identity_present=true/);
     assert.match(line, /path_shape=absolute.other.other.digits6.video14 path_calendar=unsupported trigger_clock=milliseconds/);
     assert.equal(/PRIVATE_|202611|record_id|file_path/.test(line), false);
+  } finally { await f.provider.close(); context.mock.timers.reset(); }
+});
+
+
+test("a returned missing visit remains distinct from skipped recording checks", async context => {
+  const f = await fixture(context, "record-missing");
+  try {
+    await f.provider.startStream("child");
+    f.send(f.event()); await settle();
+    context.mock.timers.tick(10_000); await settle();
+    await f.provider.stopStream("child");
+    context.mock.timers.tick(50_000); await settle();
+    context.mock.timers.tick(480_000); await settle();
+    assert.equal(f.recovery.mock.callCount(), 2);
+    assert.equal(f.names.length, 0);
+    const line = f.logs.find(value => value.includes("homebase_name_recovery_unavailable"))!;
+    assert.match(line, /reason=no_name checks=2 busy_skips=1 history_result=record_not_on_page/);
+    for (const value of ["Fixture Person", "parent", "child", storagePath]) assert.equal(line.includes(value), false);
   } finally { await f.provider.close(); context.mock.timers.reset(); }
 });
