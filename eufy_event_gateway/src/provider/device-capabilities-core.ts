@@ -70,7 +70,7 @@ export function cameraDetectionKinds(
 ): DetectionKind[] | undefined {
   if (device.category !== "eufy_security") return undefined;
   const model = device.model.toUpperCase();
-  if (isT8442Camera(device)) return ["motion", "person", "pet"];
+  if (isT8442Camera(device)) return ["motion", "person", "pet", "vehicle"];
   if (model === "T81A0" && device.deviceType === 10005 && homeBaseAttached === true) {
     return ["motion", "person", "stranger", "pet", "vehicle", "dog", "crying", "sound"];
   }
@@ -112,7 +112,7 @@ export function describeCameraCapabilities(device: CapabilityInventoryRow, optio
       : KNOWN_CAMERA_DEVICE_TYPES.has(device.deviceType ?? -1) ? "catalogued-camera-type"
         : "unrecognized-camera-type";
   const capabilities: CameraCapability[] = [];
-  const mainsSentinel = hasMainsBatterySentinel(device.model);
+  const mainsSentinel = hasMainsBatterySentinel(device.model) || isT8442Camera(device);
   if (acceptedAsCamera) {
     capabilities.push(
       { id: "motion", kind: "event", unit: null, evidence: "gateway" },

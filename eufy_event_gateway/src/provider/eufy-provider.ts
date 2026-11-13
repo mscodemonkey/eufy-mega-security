@@ -5609,7 +5609,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       battery: batteryState(device),
     };
     if (isT8442Camera(device)) return { ...identity, startupSnapshotSupported: false, liveAudioSupported: false,
-      talkbackSupported: false, supportedDetections: ["motion", "person", "pet"],
+      talkbackSupported: false,
       enableControlSupported: false, streamingQualityControlSupported: false, streamingQualityModes: [],
       audioRecordingControlSupported: false, motionDetectionControlSupported: false, guardModeControlSupported: false,
       guardModeRefreshSupported: false, nightVisionControlSupported: false, nightVisionModes: [], autoNightVisionControlSupported: false,
@@ -7282,7 +7282,7 @@ export async function confirmStationWrite(
 
 function batteryState(device: MegaInventoryDevice): BatteryState | null {
   const backup = device.model === "T85V0" && device.deviceType === 203 && device.paramTypes.includes(6485);
-  if ((!device.paramTypes.includes(1101) && !backup) || hasMainsBatterySentinel(device.model)) return null;
+  if ((!device.paramTypes.includes(1101) && !backup) || hasMainsBatterySentinel(device.model) || isT8442Camera(device)) return null;
   const supported: BatteryState["supported"] = [
     ...(device.paramTypes.includes(1101) ? ["level" as const] : []),
     ...(backup ? ["backupLevel" as const] : []),
