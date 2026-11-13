@@ -1723,6 +1723,9 @@ export class FirstPartyPpcsSession {
 
     /** Exact type-7 first-start replies reporting SDK POWER_LOW, never transport ACKs. */
     mediaStartLowPower: 0,
+
+    /** First strict T8442 startup response scalar, separate from the transport ACK. */
+    mediaStartResult: null as number | null,
     mediaStartRetransmitted: 0,
     mediaStartExpired: 0,
     mediaStartProtocols: [] as ("level1" | "level2" | "t8200-clear" | "t8420-clear")[],
@@ -3351,6 +3354,21 @@ export class FirstPartyPpcsSession {
       this.stats.mediaStartLowPower = 1;
     }
 
+    // The reported T8442 failure carries this clear, zero-padded result shape.
+    // Retain its scalar only during the first selected-channel media start.
+    // It is distinct from the DATA acknowledgement and never changes retries.
+    if (this.#options.homeBaseAttached === true && this.#options.stationModel === "T8030"
+      && this.#options.cameraModel === "T8442" && this.#options.cameraDeviceType === 46
+      && this.#options.purpose !== "control" && this.#options.purpose !== "passive"
+      && this.stats.mediaStartAttempts === 1 && this.stats.mediaStopAttempts === 0
+      && this.stats.videoFrames === 0 && this.stats.mediaStartResult === null
+      && command === 1350 && frameChannel === this.#options.channel
+      && signCode === 0 && header[14] === 1 && header[15] === 0 && payload.length === 132
+      && payload.subarray(4).every(value => value === 0)) {
+      this.stats.mediaStartResult = payload.readInt32LE(0);
+      if (this.stats.mediaStartResult === -117) this.stats.mediaStartLowPower = 1;
+    }
+
     if (header[14] === 1 && this.#pendingControl?.command === command) {
       if (this.#pendingControl.authenticatedOnly && signCode !== 8) return;
       if (this.#pendingControl.encryptedOnly && ![1, 2, 8].includes(signCode)) return;
@@ -4014,8 +4032,10 @@ export class FirstPartyPpcsSession {
   /** Encrypt and send one HomeBase media lifecycle command on the negotiated level-two channel. */
   #sendAttachedMediaControl(command: 1003 | 1004): void {
     if (!this.#remote || !this.#level2Key) return;
-    if (command === 1003) this.stats.mediaStartAttempts++;
-    else {
+    if (command === 1003) {
+      this.stats.mediaStartAttempts++;
+      if (!this.stats.mediaStartProtocols.includes("level2")) this.stats.mediaStartProtocols.push("level2");
+    } else {
       this.stats.mediaStopAttempts++;
       this.stats.mediaStopProtocol = "level2-payload";
     }

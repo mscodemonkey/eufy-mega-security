@@ -7682,7 +7682,7 @@ export function isPpcsRouteReady(
 export function ppcsStreamLogSummary(
   model: string,
   route: PpcsStreamRoute | null,
-  stats: Pick<FirstPartyPpcsSession["stats"], "camId" | "dataDatagrams" | "frameHeaders" | "videoFrames"> & Partial<Pick<FirstPartyPpcsSession["stats"], "audioFrames" | "audioClearFrames" | "audioAdtsFrames" | "audioProtectedFrames" | "foreignAudioFrames" | "alternateLookupCandidates" | "batteryHistory" | "closeReason" | "commands" | "directLookupCandidates" | "duplicateDatagrams" | "foreignVideoFrames" | "gatewayInfoAcknowledged" | "gatewayInfoRetransmitted" | "gatewayInfoExpired" | "frameShapes" | "incompleteAccessUnitBytes" | "incompleteAccessUnits" | "localLookupCandidates" | "mediaStartAttempts" | "mediaStartLowPower" | "mediaStartAcknowledged" | "mediaStartRetransmitted" | "mediaStartExpired" | "mediaStartProtocols" | "mediaStopAttempts" | "mediaStopProtocol" | "parserBlocked" | "parserResyncs" | "pendingBytes" | "sequenceGaps" | "sequenceRestarts" | "sequenceChannels" | "staleDatagrams" | "types" | "videoCodec" | "videoNalTypes" | "videoOutputFrames" | "videoResults">>,
+  stats: Pick<FirstPartyPpcsSession["stats"], "camId" | "dataDatagrams" | "frameHeaders" | "videoFrames"> & Partial<Pick<FirstPartyPpcsSession["stats"], "audioFrames" | "audioClearFrames" | "audioAdtsFrames" | "audioProtectedFrames" | "foreignAudioFrames" | "alternateLookupCandidates" | "batteryHistory" | "closeReason" | "commands" | "directLookupCandidates" | "duplicateDatagrams" | "foreignVideoFrames" | "gatewayInfoAcknowledged" | "gatewayInfoRetransmitted" | "gatewayInfoExpired" | "frameShapes" | "incompleteAccessUnitBytes" | "incompleteAccessUnits" | "localLookupCandidates" | "mediaStartAttempts" | "mediaStartResult" | "mediaStartLowPower" | "mediaStartAcknowledged" | "mediaStartRetransmitted" | "mediaStartExpired" | "mediaStartProtocols" | "mediaStopAttempts" | "mediaStopProtocol" | "parserBlocked" | "parserResyncs" | "pendingBytes" | "sequenceGaps" | "sequenceRestarts" | "sequenceChannels" | "staleDatagrams" | "types" | "videoCodec" | "videoNalTypes" | "videoOutputFrames" | "videoResults">>,
   error?: unknown,
 ): string {
   const stage = stats.camId === 0 ? "lookup" : stats.videoFrames === 0 ? "first_frame" : "media";
@@ -7736,6 +7736,7 @@ export function ppcsStreamLogSummary(
     `media_stop_protocol=${stats.mediaStopProtocol ?? "none"}`,
     `media_start_acked=${stats.mediaStartAcknowledged ?? 0}`,
     `media_start_low_power=${stats.mediaStartLowPower ?? 0}`,
+    `media_start_result=${stats.mediaStartResult ?? "unknown"}`,
     `media_start_retransmitted=${stats.mediaStartRetransmitted ?? 0}`,
     `media_start_expired=${stats.mediaStartExpired ?? 0}`,
     `close_reason=${stats.closeReason ?? "unknown"}`,
