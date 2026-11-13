@@ -50,7 +50,7 @@ function keyframePackets(frame: Buffer, sequence: number): Buffer[] {
   });
 }
 
-for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'full-queue', 'start-no-ack-recording', 'start-late-video', 'start-s1-late-video', 'start-s1-empty', 'start-s1-cancel-no-ack', 'start-s1-negative-ack', 'start-s1-wrong-type', 'start-s1-other-view', 'start-s1-stale-no-ack', 'start-s1-ack-empty', 'start-s1-after-deadline', 'start-stale-no-ack', 'start-no-ack-h264', 'start-no-ack-h265', 'start-parameters-only', 'start-empty', 'start-negative-ack', 'start-cancel-no-ack', 'observer', 'observer-signalling-close', 'continuous-modes', 'continuous-parameters', 'continuous-h265', 'continuous-controls', 'continuous-video', 'continuous-signalling-close', 'continuous-stall', 'continuous-heartbeat', 'continuous-gap', 'continuous-cancel', 'live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-receiptonly', 'live-pan-nonzero', 'live-tracking', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'inventory-repeat', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
+for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'full-queue', 'start-no-ack-recording', 'start-late-video', 'start-s1-late-video', 'start-s1-empty', 'start-s1-receipt-diagnostic', 'start-s1-cancel-no-ack', 'start-s1-negative-ack', 'start-s1-wrong-type', 'start-s1-other-view', 'start-s1-stale-no-ack', 'start-s1-ack-empty', 'start-s1-after-deadline', 'start-stale-no-ack', 'start-no-ack-h264', 'start-no-ack-h265', 'start-parameters-only', 'start-empty', 'start-negative-ack', 'start-cancel-no-ack', 'observer', 'observer-signalling-close', 'continuous-modes', 'continuous-parameters', 'continuous-h265', 'continuous-controls', 'continuous-video', 'continuous-signalling-close', 'continuous-stall', 'continuous-heartbeat', 'continuous-gap', 'continuous-cancel', 'live-zero-identity', 'live-abort', 'live-read-close', 'live-lifetime', 'live-encode-failure', 'live-pan-child', 'live-pan-ackonly', 'live-pan-receiptonly', 'live-pan-nonzero', 'live-tracking', 'live-badcontrol', 'live-budget', 'live-controls', 'live-malformed-read', 'live-oversized-read', 'h264', 'inventory-repeat', 'h265', 'sequence-gap', 'legacy-first-lens', 'power', 'power-noop', 'power-cancel', 'guard', 'legacy-zero-segment', 'power-unordered', 'power-undefined', 'state-read', 'state-bad-ack-padding', 'state-cancel', 'state-uncorrelated-push', 'state-uncorrelated-error', 'state-matching-error', 'state-uncorrelated-cancel', 'state-uncorrelated-timeout', 'zero-segment-lifecycle', 'identity', 'wrong-channel', 'wrong-type', 'fingerprint', 'unknown-channel', 'cancel-start', 'framing-flags', 'heartbeat-changed', 'heartbeat-short', 'heartbeat-long'] as const) test(`real peers exercise ${scenario} with bounded cleanup`, { timeout: 45000 }, async context => {
   const s1Grace = scenario.startsWith('start-s1-');
   const cameraType = s1Grace && scenario !== 'start-s1-wrong-type' ? 89 : scenario === 'legacy-first-lens' ? 14 : 301;
   let mediaRequested = false;
@@ -289,6 +289,14 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'ful
       }
       if (body.cmd === 1003) {
         mediaRequested = true;
+        if (scenario === 'start-s1-receipt-diagnostic') {
+          const wrongChannel = application(1350, request.segment, Buffer.alloc(4)); wrongChannel[12] = 4;
+          const frames = [wrongChannel, application(1350, request.segment + 1, Buffer.alloc(4)),
+            application(1306, 0, Buffer.alloc(4)),
+            application(1351, 0, Buffer.from(JSON.stringify({ cmd: 9100 })))];
+          for (const frame of frames) for (const packet of nvrPackets(frame, sequence++, 1)) channel.send(packet);
+          return;
+        }
         if (scenario === 'start-empty' || scenario === 'start-s1-empty' || scenario === 'start-s1-ack-empty') return;
         if (scenario === 'start-s1-cancel-no-ack') { setTimeout(() => controller.abort(), 5500); return; }
         if (scenario === 'start-s1-stale-no-ack') setTimeout(() => { current = false; }, 5500);
@@ -561,11 +569,11 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'ful
       assert.deepEqual(commands, [9100, 1103]); assert.equal(attached, 0); assert.equal(snapshots, 0); assert.equal(diagnosticMedia, 0);
       await session.close(); return;
     }
-    if (scenario === 'start-s1-empty' || scenario === 'start-s1-ack-empty' || scenario === 'start-s1-after-deadline') {
+    if (scenario === 'start-s1-empty' || scenario === 'start-s1-receipt-diagnostic' || scenario === 'start-s1-ack-empty' || scenario === 'start-s1-after-deadline') {
       const errors: NvrTrialError[] = [];
       session.output.on('error', error => errors.push(error as NvrTrialError));
       const opening = session.start();
-      const rejected = scenario === 'start-s1-empty' || scenario === 'start-s1-after-deadline'
+      const rejected = scenario === 'start-s1-empty' || scenario === 'start-s1-receipt-diagnostic' || scenario === 'start-s1-after-deadline'
         ? assert.rejects(opening, { stage: 'start', reason: 'start_receipt_timeout' }) : null;
       if (!rejected) await opening;
       const limit = Date.now() + 8000;
@@ -582,6 +590,16 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'ful
         else { await new Promise(resolve => setImmediate(resolve)); assert.equal(errors[0]?.stage, 'video'); }
       } finally { clock.mock.restore(); }
       assert.equal(session.stats.video, 0);
+      if (scenario === 'start-s1-receipt-diagnostic') {
+        assert.equal(session.stats.startReceiptWrongChannel, 1);
+        assert.equal(session.stats.startReceiptWrongSegment, 1);
+        assert.equal(session.stats.startReceiptOtherCommand, 1);
+        assert.equal(session.stats.startReceiptWrongInnerCommand, 1);
+        assert.equal(session.stats.startReceiptAcknowledged, 0);
+        assert.equal(session.stats.startReceiptRejected, 0);
+        assert.equal(session.stats.startReceiptMalformedJson, 0);
+      }
+      if (scenario === 'start-s1-ack-empty') assert.equal(session.stats.startReceiptAcknowledged, 1);
       await session.close();
       assert.equal(commands.filter(command => command === 1003).length, 1);
       return;
@@ -600,6 +618,7 @@ for (const scenario of ['repaired-gap', 'missing-gap', 'missing-video-gap', 'ful
         || scenario === 'start-s1-negative-ack' || scenario === 'start-s1-cancel-no-ack' || scenario === 'start-s1-stale-no-ack') {
         await assert.rejects(session.start(), { stage: scenario === 'start-negative-ack' || scenario === 'start-s1-negative-ack' ? 'start' : 'cancelled' });
         assert.equal(session.stats.video > 0, scenario !== 'start-s1-cancel-no-ack' && scenario !== 'start-s1-stale-no-ack');
+        if (scenario === 'start-negative-ack' || scenario === 'start-s1-negative-ack') assert.equal(session.stats.startReceiptRejected, 1);
       } else {
         await session.start();
         const before = session.stats.video;
