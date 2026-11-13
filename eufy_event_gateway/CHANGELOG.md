@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.264
+
+- Keep connected E10 video after a session-bound signalling hangup while valid pictures continue, with the existing video-stall deadline and viewer cleanup. Five-minute hardware continuation remains unconfirmed.
+- Report E10 remote hangups in the active video phase and retain more specific T8442 first-start diagnostics without guessing a wake-up command.
+- Add a disabled-by-default live-quality trial for exact SoloCam S340 on HomeBase 3, including a 3K preference. Recording quality and telephoto selection are unchanged, and actual capture dimensions remain unconfirmed.
+- Improve saved quick-response list and FamiLock status failure progress. Accept both already-supported authenticated FamiLock reply envelopes and keep the HomeBase reserved through disconnect.
+- Avoid automatic first-picture camera wakes for exact T85V0 FamiLock devices. Retained and event pictures plus explicit views remain available. Battery-drain causation is unconfirmed.
+- Correct the supported-device record for reporter-confirmed T8442 discovery, person pictures and video, while retaining the intermittent first-start limitation.
+
 ## 0.1.263
 
 - Add optional per-HomeBase private IPv4 destinations for routed local networks while retaining existing device authentication. Cross-VLAN hardware operation remains unconfirmed.
