@@ -1026,6 +1026,11 @@ export function buildReviewedCameraSettingPayload(
   }
   if (profile.form === "manual-light" || profile.form === "motion-control" || profile.form === "solo-sensitivity" || profile.form === "solo-quality") throw new Error("Setting requires its native level-one envelope");
   const native = cameraSettingWireValue(profile, change);
+  if (profile.form === "privacy") {
+    const clear = Buffer.from(JSON.stringify({ account_id: accountId, cmd: 6250, mChannel: 0, mValue3: 0,
+      payload: { switch: native } }));
+    return { command: 1350, payload: rawPayload(encryptLevel2(clear, key, sequence), 0, 8, [8, 0], 0) };
+  }
   if (profile.form === "attached-quality") {
     return { command: 1350, payload: rawPayload(encryptLevel2(Buffer.from(s340LiveQualityValue(route, native, accountId)), key, sequence), route.channel!, 8, [8, 0], 0) };
   }
@@ -2365,6 +2370,9 @@ export class FirstPartyPpcsSession {
       || this.#options.homeBaseAttached !== route.homeBaseAttached) throw new Error("Reviewed camera setting session unavailable");
     if (profile.form === "attached-quality" && (this.#options.cameraDeviceType !== 48 || this.#options.stationModel !== "T8030")) {
       throw new Error("S340 live quality session unavailable");
+    }
+    if (profile.form === "privacy" && (this.#options.cameraDeviceType !== 10035 || this.#options.stationModel !== "T8110")) {
+      throw new Error("C35 camera enablement session unavailable");
     }
     cameraSettingWireValue(profile, change);
     if (profile.form === "solo-quality") {

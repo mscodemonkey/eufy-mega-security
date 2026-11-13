@@ -73,13 +73,14 @@ capabilities:
       connections:
         direct:
           status: declared
+          notes: Experimental exact T8110 type 10035 standalone candidate, disabled by default in Home Assistant. Requires owner authentication, known native privacy state and fresh independent readback after one write. Physical power and restoration remain unconfirmed. Attached routes are excluded.
       read:
-        parameter: 99904
+        parameter: 6250
       write:
-        command: 1035
+        command: 1350
       values:
-        "0": "Off"
-        "1": "On"
+        "0": "On"
+        "1": "Off"
     motion_detection:
       connections:
         direct:
