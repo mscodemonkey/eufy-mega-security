@@ -11,6 +11,7 @@
  * packet layout or camera encryption directly.
  */
 import { PpcsQueryTrace, type PpcsControlDecodeOutcome } from "./ppcs-query-trace.js";
+import { mergeReplyProtection, PpcsControlReceiptTrace, type PpcsControlReceiptEvidence, type PpcsReplyProtection } from "./ppcs-reply-evidence.js";
 import { s340LiveQualityValue } from "../provider/s340-live-quality.js";
 import { QuickResponseListError, parseQuickResponseList, validQuickResponseId, type DoorbellQuickResponse } from "../provider/quick-responses.js";
 import { t8420ClearLiveRoute, t8420ClearLiveStart } from "./t8420-live.js";
@@ -1472,6 +1473,7 @@ export interface PpcsCameraOptions {
 
 /** One in-flight control command and the promise settled by its result frame. */
 interface PendingControl {
+  readonly trace?: PpcsControlReceiptTrace;
   readonly command: number;
   readonly strictChannel?: number;
 
@@ -1510,6 +1512,7 @@ interface AlarmReadOwner {
 
 interface PendingCameraInfo {
   readonly protectedReply?: boolean;
+  protectionObserved?: PpcsReplyProtection;
 
   /** Latest protection failure observed during this exact protected read, never reply bytes. */
   protectionFailure?: "protection_mismatch" | "authentication_failed";
@@ -1766,6 +1769,7 @@ export class FirstPartyPpcsSession {
   #firstFrameTimer: ReturnType<typeof setTimeout> | null = null;
   #pendingByType = new Map<number, PendingPpcsFrame>();
   #s100GatewayFrames = 0;
+  #lastControlReceipt: PpcsControlReceiptTrace | undefined;
   #level2Failure: "gateway_decrypt" | "cipher_lookup_error" | "cipher_missing_key" | "cipher_unwrap_failed" | "retired" | null = null;
   #level2Key: Buffer | null = null;
   #level2Seq = 0;
@@ -2093,10 +2097,11 @@ export class FirstPartyPpcsSession {
     return new Promise<readonly PpcsCameraInfoParam[]>((resolve, reject) => {
       const timer = setTimeout(() => {
         const protectionFailure = this.#pendingCameraInfo?.protectionFailure;
+        const protection = this.#pendingCameraInfo?.protectionObserved;
         this.#pendingCameraInfo = null;
         reject(new CameraInfoReadError(protectionFailure ?? cameraInfoTimeoutReason(
           this.stats.cameraInfoFrames > initialFrames, this.stats.cameraInfoDecoded, this.stats.cameraInfoParseStage,
-        )));
+        ), protection));
       }, CONTROL_TIMEOUT_MILLISECONDS);
       this.#pendingCameraInfo = { resolve, reject, timer, protectedReply: c35 };
       try { this.#sendCommand(1103, query); } catch {
@@ -2340,10 +2345,15 @@ export class FirstPartyPpcsSession {
     const frame = buildModelControlTrialPayload(request, route, this.#options.accountId,
       commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key, this.#level2Seq++, Date.now());
     const acknowledgement = this.#waitForControlResult(frame.command, this.#options.channel, CONTROL_TIMEOUT_MILLISECONDS,
-      request.action === "manualLight" && !legacyLight, legacyLight);
+      request.action === "manualLight" && !legacyLight, legacyLight, e330Light);
     try { onDispatch(); this.#sendCommand(frame.command, frame.payload); }
     catch (error) { void acknowledgement.catch(() => undefined); throw error; }
     await acknowledgement;
+  }
+
+  /** Return the last observed E330 receipt window, including after session retirement. */
+  controlReceiptEvidence(): PpcsControlReceiptEvidence | undefined {
+    return this.#lastControlReceipt?.snapshot();
   }
 
   /** Send exactly one reviewed absolute setting; only provider readback can establish success. */
@@ -3377,6 +3387,7 @@ export class FirstPartyPpcsSession {
       if (this.stats.mediaStartResult === -117) this.stats.mediaStartLowPower = 1;
     }
 
+    this.#pendingControl?.trace?.frame(command, frameChannel, signCode, header[14] === 1);
     if (header[14] === 1 && this.#pendingControl?.command === command) {
       if (this.#pendingControl.authenticatedOnly && signCode !== 8) return;
       if (this.#pendingControl.encryptedOnly && ![1, 2, 8].includes(signCode)) return;
@@ -3388,6 +3399,7 @@ export class FirstPartyPpcsSession {
             commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key);
         if (result === null) return;
         const pending = this.#pendingControl;
+        pending.trace?.decoded();
         this.#pendingControl = null;
         clearTimeout(pending.timer);
         result === 0 ? pending.resolve() : pending.reject(new Error(`Camera rejected model control trial (${result})`));
@@ -3661,6 +3673,9 @@ export class FirstPartyPpcsSession {
     this.stats.cameraInfoDecoded = false;
     this.stats.cameraInfoJsonOffset = -1;
     let clear = payload;
+    if (this.#pendingCameraInfo?.protectedReply) {
+      this.#pendingCameraInfo.protectionObserved = mergeReplyProtection(this.#pendingCameraInfo.protectionObserved, signCode);
+    }
     if (this.#pendingCameraInfo?.protectedReply && signCode !== 8) {
       this.#pendingCameraInfo.protectionFailure = "protection_mismatch";
       return;
@@ -3823,7 +3838,7 @@ export class FirstPartyPpcsSession {
    * potentially non-idempotent operation.
    */
   #waitForControlResult(command: number, strictChannel?: number, timeoutMilliseconds = CONTROL_TIMEOUT_MILLISECONDS,
-    authenticatedOnly = false, encryptedOnly = false): Promise<void> {
+    authenticatedOnly = false, encryptedOnly = false, observeReceipt = false): Promise<void> {
     if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#pendingControl) return Promise.reject(new Error("Camera already has a control command in flight"));
     return new Promise<void>((resolve, reject) => {
@@ -3831,7 +3846,9 @@ export class FirstPartyPpcsSession {
         this.#pendingControl = null;
         reject(new CameraControlAcknowledgementTimeoutError());
       }, timeoutMilliseconds);
-      this.#pendingControl = { command, resolve, reject, timer, authenticatedOnly, encryptedOnly,
+      const trace = observeReceipt && strictChannel !== undefined ? new PpcsControlReceiptTrace(command, strictChannel) : undefined;
+      if (trace) this.#lastControlReceipt = trace;
+      this.#pendingControl = { command, resolve, reject, timer, authenticatedOnly, encryptedOnly, ...(trace ? { trace } : {}),
         ...(strictChannel === undefined ? {} : { strictChannel }) };
     });
   }

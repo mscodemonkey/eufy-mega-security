@@ -3,6 +3,7 @@
  * PPCS sessions own response observations. Trial runners and provider logging
  * consume only these fixed reasons, never transport errors or response values.
  */
+import { replyProtectionSummary, type PpcsReplyProtection } from "./ppcs-reply-evidence.js";
 
 /** Distinguish an absent reply, unusable reply and absent required setting. */
 export type CameraInfoFailureReason =
@@ -24,8 +25,12 @@ export class CameraInfoReadError extends Error {
   /** Fixed failure category, independent of an underlying exception's message. */
   readonly reason: CameraInfoFailureReason;
 
-  /** Construct only fixed text, including when called with an invalid runtime value. */
-  constructor(reason: CameraInfoFailureReason) {
+  /**
+   * Construct only fixed text, including when called with an invalid runtime value.
+   * @param protection Observed form on the selected C35 read, independently of acceptance.
+   */
+  constructor(reason: CameraInfoFailureReason,
+    readonly protection?: PpcsReplyProtection) {
     const safe = reasons.has(reason) ? reason : "unavailable";
     super(safe === "setting_missing"
       ? "Trial requires a fresh reported original setting (reason=setting_missing)"
@@ -38,6 +43,13 @@ export class CameraInfoReadError extends Error {
 /** Recheck the closed vocabulary before a failure crosses a public log boundary. */
 export function cameraInfoFailureReason(error: unknown): CameraInfoFailureReason {
   return error instanceof CameraInfoReadError && reasons.has(error.reason) ? error.reason : "unavailable";
+}
+
+/** Include an observed protected-query reply form without exposing the reply itself. */
+export function cameraInfoFailureDiagnostic(error: unknown): string {
+  return `reason=${cameraInfoFailureReason(error)}`
+    + (error instanceof CameraInfoReadError && error.protection !== undefined
+      ? ` reply_protection=${replyProtectionSummary(error.protection)}` : "");
 }
 
 /** Classify only observations made since the current query was submitted. */

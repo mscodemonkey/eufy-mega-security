@@ -66,7 +66,7 @@ import { CloudRecordingError } from "../stream/cloud-recordings.js";
 import { DoorbellRtcSession } from "../stream/doorbell-rtc-session.js";
 import { DoorbellRtcError } from "../stream/doorbell-rtc-offer.js";
 import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession, type PpcsCipherKeyOutcome, PpcsLookupTimeoutError, hasDecoderReadyKeyframe } from "../stream/first-party-ppcs.js";
-import { CameraInfoReadError, cameraInfoFailureReason } from "../stream/camera-info-failure.js";
+import { CameraInfoReadError, cameraInfoFailureReason, cameraInfoFailureDiagnostic } from "../stream/camera-info-failure.js";
 import { observeOwnedStartup } from "../stream/owned-startup-recovery.js";
 import { withCameraControlDeadline } from "./camera-control-deadline.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBaseChildParam, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
@@ -3767,7 +3767,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const s100 = request.action === "siren" || request.action === "sirenConnection";
       const stages = error instanceof S100SirenTrialError ? error.stages : [sirenSetupStage];
       const readReason = !s100 && ["initial_read", "confirmation_read"].includes(failureStage)
-        ? ` reason=${cameraInfoFailureReason(error)}` : "";
+        ? ` ${cameraInfoFailureDiagnostic(error)}` : "";
       logger.warn("model_control_trial_failed", `Model control trial failed: model=${safeLogModel(device.model)} action=${request.action}${s100 ? ` stages=${stages.join(",")}` : ` stage=${failureStage}${readReason}`}`);
       if (s100) throw new S100SirenTrialError(stages, request.action === "sirenConnection");
       if (request.action === "spotlightState") return { outcome: "unavailable", readOnly: true, reason: cameraInfoFailureReason(error) };
@@ -3966,7 +3966,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     signal?: AbortSignal): Promise<ModelControlTrialResult> {
     let stage: S120LightFailureStage = "admission", failedStage: S120LightFailureStage | undefined;
     let writeAttempted = false, acknowledgementReceived = false;
-    const unknown = (): Error => new S120LightTrialError(stage, writeAttempted, acknowledgementReceived);
+    let session: FirstPartyPpcsSession | null = null;
+    const unknown = (): Error => new S120LightTrialError(stage, writeAttempted, acknowledgementReceived,
+      false, session?.controlReceiptEvidence());
     const device = this.#devices.get(serial);
     const route = device ? ppcsStreamRoute(device, this.#devices) : null;
     const peer = route?.peer;
@@ -3985,7 +3987,6 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         || this.#streamStarts.has(row.serial) || controls.some(map => map.has(row.serial)))) throw unknown();
     const controller = new AbortController(), generation = this.#startupGeneration;
     const releaseTrialPeer = this.#reserveTrialPeer(peer.serial); this.#manualControlAborters.set(peer.serial, controller);
-    let session: FirstPartyPpcsSession | null = null;
     const abort = (): void => { controller.abort(); session?.close(); };
     const deadline = setTimeout(abort, 60_000);
     signal?.addEventListener("abort", abort, { once: true });
@@ -4053,7 +4054,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
       // A peer remains busy while its local disconnect is still retiring.
       try { session?.close(); await session?.waitUntilClosed(); }
-      catch { throw new S120LightTrialError(failedStage ?? "cleanup", writeAttempted, acknowledgementReceived, true); }
+      catch { throw new S120LightTrialError(failedStage ?? "cleanup", writeAttempted, acknowledgementReceived,
+        true, session?.controlReceiptEvidence()); }
       finally {
         if (this.#trialSessions.get(peer.serial) === session) this.#trialSessions.delete(peer.serial);
         this.#manualControlAborters.delete(peer.serial); releaseTrialPeer();
