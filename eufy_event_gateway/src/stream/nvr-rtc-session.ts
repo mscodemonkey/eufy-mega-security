@@ -209,6 +209,15 @@ export interface NvrRtcStats {
   rejected: number;
   segmentNotEchoed: number;
   staleReplies: number;
+
+  /** Classifications observed only while the one live-start request is pending, without payload values. */
+  startReceiptWrongChannel: number;
+  startReceiptWrongSegment: number;
+  startReceiptOtherCommand: number;
+  startReceiptWrongInnerCommand: number;
+  startReceiptAcknowledged: number;
+  startReceiptRejected: number;
+  startReceiptMalformedJson: number;
   ignoredAudio: number;
 
   /** Checked AAC delivered for an admitted camera, and audio frames that failed the check. */
@@ -310,7 +319,7 @@ export class NvrRtcSession {
   #output = this.#createOutput();
   #audioOutput = this.#createOutput();
   readonly stats: NvrRtcStats = { packets: 0, frames: 0, video: 0, controlPackets: 0, rejected: 0,
-    segmentNotEchoed: 0, staleReplies: 0, ignoredAudio: 0, audio: 0, rejectedAudio: 0, ignoredUnknownMedia: 0,
+    segmentNotEchoed: 0, staleReplies: 0, startReceiptWrongChannel: 0, startReceiptWrongSegment: 0, startReceiptOtherCommand: 0, startReceiptWrongInnerCommand: 0, startReceiptAcknowledged: 0, startReceiptRejected: 0, startReceiptMalformedJson: 0, ignoredAudio: 0, audio: 0, rejectedAudio: 0, ignoredUnknownMedia: 0,
     applicationSequenceRecoveries: 0, videoSequenceRecoveries: 0, callsRepeated: 0, inventoryRepeated: 0, signallingClosuresAfterVideo: 0, e10SignallingHangupsAfterVideo: 0, signallingPingsQueued: 0, signallingPingResponses: 0, signallingPingQueueFailures: 0, e10LocalRelaySelected: -1, e10RemoteRelaySelected: -1, e10IceRequests: 0, e10IceResponses: 0, e10ConsentRequests: 0, e10IceFailed: -1, e10DtlsFailed: -1, signallingClosuresAfterModeObservation: 0, stopUnconfirmed: 0,
     reorderTimeoutChannel: -1, reorderTimeoutExpected: -1, reorderTimeoutWaiting: -1,
     reorderTimeoutAgeMs: 0, reorderTimeoutQueued: 0,
@@ -1536,26 +1545,49 @@ export class NvrRtcSession {
       return;
     }
     const pending = this.#pending;
-    if (!pending || frame.channel !== 255 || frame.segment !== pending.segment && (frame.segment !== 0 || pending.command === 1103 || pending.strict)) { this.stats.staleReplies++; return; }
+    if (!pending || frame.channel !== 255 || frame.segment !== pending.segment && (frame.segment !== 0 || pending.command === 1103 || pending.strict)) {
+      if (pending?.command === 1003) {
+        if (frame.channel !== 255) this.stats.startReceiptWrongChannel++;
+        else this.stats.startReceiptWrongSegment++;
+      }
+      this.stats.staleReplies++; return;
+    }
     if ((pending.strict || pending.command === 1103 || (this.#powerMode || this.#guardMode) && pending.command === 9100)
       && (frame.segment !== pending.segment || performance.now() >= pending.deadline)) { this.stats.staleReplies++; return; }
     if (frame.segment === 0) this.stats.segmentNotEchoed++;
     if (frame.command === 1350 && frame.payload.length >= 4
       && frame.payload.subarray(4).every((byte) => byte === 0)) {
-      if (frame.payload.readInt32LE(0) !== 0) { pending.reject(new NvrTrialError(this.#stage)); clearTimeout(pending.timer); this.#pending = null; }
-      else if (pending.command === 1003 || pending.command === 1004) { pending.resolve({}); clearTimeout(pending.timer); this.#pending = null; }
+      if (frame.payload.readInt32LE(0) !== 0) {
+        if (pending.command === 1003) this.stats.startReceiptRejected++;
+        pending.reject(new NvrTrialError(this.#stage)); clearTimeout(pending.timer); this.#pending = null;
+      } else if (pending.command === 1003 || pending.command === 1004) {
+        if (pending.command === 1003) this.stats.startReceiptAcknowledged++;
+        pending.resolve({}); clearTimeout(pending.timer); this.#pending = null;
+      }
       return;
     }
-    if (frame.command !== 1351) { this.stats.staleReplies++; return; }
+    if (frame.command !== 1351) {
+      if (pending.command === 1003) this.stats.startReceiptOtherCommand++;
+      this.stats.staleReplies++; return;
+    }
     let response: Record<string, unknown>;
     try { response = this.options.liveControls ? nvrLiveJson(frame.payload.toString("utf8")) : nvrJson(frame.payload.toString("utf8")); }
     catch (error) {
+      if (pending.command === 1003) this.stats.startReceiptMalformedJson++;
       if (!this.options.liveControls || pending.command !== 1103 && !pending.strict) throw error;
       clearTimeout(pending.timer); this.#pending = null; pending.reject(new NvrLiveControlError("unavailable", "reply")); return;
     }
-    if (response.cmd !== pending.command) { this.stats.staleReplies++; return; }
-    if (response.mIntRet !== undefined && response.mIntRet !== 0) pending.reject(new NvrTrialError(this.#stage));
-    else pending.resolve(response);
+    if (response.cmd !== pending.command) {
+      if (pending.command === 1003) this.stats.startReceiptWrongInnerCommand++;
+      this.stats.staleReplies++; return;
+    }
+    if (response.mIntRet !== undefined && response.mIntRet !== 0) {
+      if (pending.command === 1003) this.stats.startReceiptRejected++;
+      pending.reject(new NvrTrialError(this.#stage));
+    } else {
+      if (pending.command === 1003) this.stats.startReceiptAcknowledged++;
+      pending.resolve(response);
+    }
     clearTimeout(pending.timer); this.#pending = null;
   }
 
