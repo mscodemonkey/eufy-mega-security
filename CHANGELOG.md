@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.265
+
+- Add the Vehicle detection entity for exact T8442/type 46 cameras through HomeBase 3, matching vehicle events already received by EMS.
+- Suppress dummy battery telemetry on mains-powered T8442 cameras and retire only their old battery entity IDs when current capabilities also suppress battery readings.
+- Keep T8442 startup reliability, Sound, Stranger and Dog confirmation separate from this entity correction.
+
 ## 0.1.264
 
 - Keep connected E10 video after a session-bound signalling hangup while valid pictures continue, with the existing video-stall deadline and viewer cleanup. Five-minute hardware continuation remains unconfirmed.
