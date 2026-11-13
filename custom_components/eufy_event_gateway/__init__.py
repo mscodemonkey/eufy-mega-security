@@ -79,7 +79,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EufyGatewayConfigEntry) 
     coordinator = EufyGatewayCoordinator(hass, client)
     await coordinator.async_config_entry_first_refresh()
     await _refresh_standalone_alarm_capabilities(coordinator)
-    _remove_t817l_battery_entities(hass, coordinator)
+    _remove_mains_camera_battery_entities(hass, coordinator)
     _hide_legacy_event_cameras(hass, coordinator)
     entry.runtime_data = GatewayRuntimeData(coordinator)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -134,20 +134,26 @@ def _hide_legacy_event_cameras(hass: HomeAssistant, coordinator: EufyGatewayCoor
                 registry.async_update_entity(legacy_id, hidden_by=er.RegistryEntryHider.INTEGRATION)
 
 
-def _remove_t817l_battery_entities(
+def _remove_mains_camera_battery_entities(
     hass: HomeAssistant, coordinator: EufyGatewayCoordinator
 ) -> None:
-    """Remove entities created from T817L's non-battery compatibility fields.
+    """Retire known dummy battery entities on mains-powered camera profiles.
 
-    Version 0.1.28 treated three fields reported by this USB-C-powered model as
-    battery capabilities. Removing only its known unique IDs repairs upgraded
-    installations without touching genuine battery cameras or standalone
-    sensors.
+    Older builds projected compatibility fields on T817L and exact T8442/type
+    46 as real battery telemetry. Remove only those camera-owned battery IDs
+    when the gateway also suppresses battery capabilities. Genuine batteries,
+    other entities and unmatched model/type pairs retain their registry entries.
     """
     registry = er.async_get(hass)
     for serial, camera in coordinator.cameras.items():
         model = camera.get("model")
-        if not isinstance(model, str) or not model.upper().startswith("T817L"):
+        if not isinstance(model, str):
+            continue
+        normalized = model.upper()
+        t8442 = normalized == "T8442" and camera.get("deviceType") == 46
+        if not normalized.startswith("T817L") and not t8442:
+            continue
+        if (camera.get("battery") or {}).get("supported"):
             continue
         for platform, suffix in (
             ("sensor", "battery_level"),

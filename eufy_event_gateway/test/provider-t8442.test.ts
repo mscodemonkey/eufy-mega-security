@@ -65,8 +65,9 @@ test("exact T8442/46 creates separate cameras without enabling controls or start
     assert.equal(f.state.getCamera(child.device_sn).model, "T8442");
     assert.equal(camera.model, "T8442"); assert.equal(camera.stationSerial, f.parent.device_sn);
     assert.equal(camera.catalogueStatus, "ready_to_test"); assert.equal(camera.streamSupported, true);
+    assert.equal(camera.battery, null);
     assert.equal(camera.startupSnapshotSupported, false); assert.equal(camera.liveAudioSupported, false);
-    assert.deepEqual(camera.supportedDetections, ["motion", "person", "pet"]);
+    assert.deepEqual(camera.supportedDetections, ["motion", "person", "pet", "vehicle"]);
     for (const [name, value] of Object.entries(camera)) if (name.endsWith("ControlSupported")) assert.equal(value, false, name);
     for (const write of [() => f.provider.setCameraEnabled(child.device_sn, false),
       () => f.provider.setCameraMotionDetection(child.device_sn, false), () => f.provider.setCameraNightVision(child.device_sn, 0),
@@ -81,22 +82,24 @@ test("exact T8442/46 creates separate cameras without enabling controls or start
   }
 });
 
-test("reported person and pet pushes retain only the owning camera's pictures and suppress duplicates", async context => {
+test("reported person, pet and vehicle pushes retain only the owning camera's pictures and suppress duplicates", async context => {
   const f = await fixture(context), requests: string[] = [];
   context.mock.method(MegaClient.prototype, "download", async (url: string) => {
-    requests.push(url); return Buffer.from([255, 216, url.endsWith("person") ? 1 : 2, 255, 217]);
+    requests.push(url); return Buffer.from([255, 216, url.endsWith("person") ? 1 : url.endsWith("pet") ? 2 : 3, 255, 217]);
   });
   await f.provider.start(f.events);
   const person = parsePushEvent({ device_sn: "synthetic-1", station_sn: f.parent.device_sn, a: 3102, msg_type: 18,
     notification_style: 2, unique_id: "synthetic-person", pic_url: "https://example.invalid/person" })!;
   const pet = parsePushEvent({ device_sn: "synthetic-3", station_sn: f.parent.device_sn, a: 3106, msg_type: 18,
     notification_style: 2, unique_id: "synthetic-pet", pic_url: "https://example.invalid/pet" })!;
-  f.deliver(person); f.deliver(pet); await settle();
-  assert.deepEqual(f.detections, [["synthetic-1", "person"], ["synthetic-3", "pet"]]);
+  const vehicle = parsePushEvent({ device_sn: "synthetic-5", station_sn: f.parent.device_sn, a: 3107, msg_type: 18,
+    notification_style: 2, unique_id: "synthetic-vehicle", pic_url: "https://example.invalid/vehicle" })!;
+  f.deliver(person); f.deliver(pet); f.deliver(vehicle); await settle();
+  assert.deepEqual(f.detections, [["synthetic-1", "person"], ["synthetic-3", "pet"], ["synthetic-5", "vehicle"]]);
   assert.equal(f.images.get("synthetic-1")?.[2], 1); assert.equal(f.images.get("synthetic-3")?.[2], 2);
-  assert.equal(f.images.has("synthetic-5"), false);
+  assert.equal(f.images.get("synthetic-5")?.[2], 3);
   f.deliver(person); f.deliver({ ...pet, stationSerial: "foreign-parent", eventId: "foreign-event" }); await settle();
-  assert.equal(f.detections.length, 2); assert.equal(requests.length, 2);
+  assert.equal(f.detections.length, 3); assert.equal(requests.length, 3);
 });
 
 test("HomeBase provider media starts remain separated by child camera", async context => {

@@ -62,6 +62,9 @@ capabilities:
           status: declared
     vehicle:
       connections:
+        T8030:
+          status: declared
+          notes: Reporter-confirmed vehicle pushes and pictures on v0.1.263. HA vehicle entity projection is implemented but still needs confirmation.
         direct:
           status: declared
     sound:

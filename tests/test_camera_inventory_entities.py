@@ -32,6 +32,28 @@ def load_function(filename: str, name: str, namespace: dict, class_name: str | N
 class CameraInventoryEntitiesTest(unittest.IsolatedAsyncioTestCase):
     """Protect late telemetry and read-only, privacy-safe settings presentation."""
 
+    def test_mains_camera_migration_only_retires_suppressed_battery_ids(self) -> None:
+        """Keep foreign profiles and genuine batteries while repairing upgrades."""
+        removed = []
+        registry = SimpleNamespace(
+            async_get_entity_id=lambda platform, domain, unique: (platform, unique),
+            async_remove=removed.append,
+        )
+        namespace = {"DOMAIN": "eufy_event_gateway", "er": SimpleNamespace(async_get=lambda hass: registry)}
+        migrate = load_function("__init__.py", "_remove_mains_camera_battery_entities", namespace)
+        cameras = {
+            "wired": {"model": "T8442", "deviceType": 46, "battery": None},
+            "usb": {"model": "T817L", "battery": None},
+            "foreign-type": {"model": "T8442", "deviceType": 45},
+            "foreign-model": {"model": "T8441", "deviceType": 46},
+            "alias": {"model": "T8442-extra", "deviceType": 46},
+            "real-battery": {"model": "T8442", "deviceType": 46, "battery": {"supported": ["level"]}},
+        }
+        migrate(None, SimpleNamespace(cameras=cameras))
+        self.assertEqual(len(removed), 8)
+        self.assertEqual({unique.rsplit("_battery", 1)[0] for _, unique in removed}, {"wired", "usb"})
+        self.assertTrue(all(unique.endswith(("battery_level", "battery_health", "battery_temperature", "battery_charging")) for _, unique in removed))
+
     async def test_signal_entity_can_arrive_after_initial_discovery(self) -> None:
         """Create the diagnostic once when its own reading first appears."""
         listeners, added = [], []

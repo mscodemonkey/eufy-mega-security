@@ -358,3 +358,14 @@ test("returns independent gateway copies of camera manifests", () => {
   mutable[0]!.capabilities[0]!.id = "batteryLevel";
   assert.equal(state.listCameraCapabilities()[0]?.capabilities[0]?.id, "motion");
 });
+
+
+test("exact T8442 suppresses dummy batteries without granting other identities that profile", () => {
+  for (const [model, deviceType, suppressed] of [["T8442", 46, true], ["T8442", 45, false], ["T8441", 46, false]] as const) {
+    const manifest = describeCameraCapabilities({
+      serial: "synthetic", model, category: "eufy_security", deviceType, paramTypes: [1101, 2111, 1138, 1198],
+    }, { doorbellSupported: false, streamSupported: true });
+    assert.equal(manifest.matrix.every(row => row.family !== "battery" || row.deviceEvidence === "suppressed-sentinel"), suppressed);
+    if (suppressed) assert.equal(manifest.capabilities.some(row => row.id.startsWith("battery")), false);
+  }
+});
