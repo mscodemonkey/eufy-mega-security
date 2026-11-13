@@ -223,7 +223,7 @@ test("recording quality follows the selected mode instead of guessing the first 
   const config = { cur_mode: 1, mode_0: { quality: 1 }, mode_1: { quality: 3 } };
   assert.equal(read(JSON.stringify(config)).recordingQualityTier, 3);
   assert.equal(read(config).recordingQualityTier, 3);
-  assert.equal(read(config).streamingQualityTier, 0);
+  assert.equal(read(config).streamingQualityTier, undefined);
   assert.equal(read(config, "T8171").recordingQualityTier, undefined);
   for (const invalid of ["broken", "x".repeat(4097), 3, {}, { mode_0: { quality: 3 } },
     { cur_mode: false, mode_0: { quality: 3 } }, { cur_mode: 1, mode_0: { quality: 3 } },

@@ -105,3 +105,12 @@ test("an unchanged fresh S340 preference needs no write", async context => {
   await f.provider.setCameraStreamingQuality("synthetic-child", 0);
   assert.equal(f.writes(), 0);
 });
+
+
+test("a pending S340 view start blocks the preference write", async context => {
+  const f = await fixture(context);
+  const starting = f.provider.startStream("synthetic-child");
+  await assert.rejects(f.provider.setCameraStreamingQuality("synthetic-child", 3), /Wait for other/);
+  await starting;
+  assert.equal(f.writes(), 0);
+});

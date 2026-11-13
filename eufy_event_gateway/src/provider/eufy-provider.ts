@@ -7050,7 +7050,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const t8425 = deviceType === 47 && /^T8425(?:$|[A-Z0-9-])/.test(model ?? "");
   const s340LiveQuality = model === "T8170" && deviceType === 48 && !standaloneChannelZero ? readS340LiveQuality(settingRows) : undefined;
   const reviewedStreamingQuality = readCameraSetting(settingRows, model ?? "", deviceType, standaloneChannelZero, "streamingQuality");
-  const streamingQuality = model === "T8170" && deviceType === 48 ? s340LiveQuality?.quality ?? null
+  const streamingQuality = model === "T8170" && deviceType === 48 && !standaloneChannelZero ? s340LiveQuality?.quality ?? null
     : c31 ? activeRecordingQuality(params.get(2730), 0) ?? null
     : typeof reviewedStreamingQuality === "number" ? reviewedStreamingQuality
       : qualityFamily || t8171 ? finiteNumber(params.get(1020)) : null;

@@ -62,3 +62,12 @@ test("encrypted S340 live-quality request preserves child, owner and mode withou
     payload: { quality: 3, mode: 0, primary_view: 0, channel: 5 } });
   for (const value of [-1, 4, 1.5]) assert.throws(() => s340LiveQualityValue(route, value, "synthetic-owner"));
 });
+
+
+test("attached S340 quality ignores legacy telemetry while standalone reads retain it", () => {
+  const rows = [{ param_type: 1020, param_value: "2" }, ...params("3")];
+  assert.equal(safeInventoryReads(rows, 48, "T8170", false).streamingQualityTier, 3);
+  assert.equal(safeInventoryReads(rows, 48, "T8170", true).streamingQualityTier, 2);
+  assert.equal(safeInventoryReads(rows, 48, "T8170", true).s340LiveQualityMode, undefined);
+  assert.equal(safeInventoryReads(rows.slice(0, 1), 48, "T8170", false).streamingQualityTier, undefined);
+});
