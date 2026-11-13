@@ -121,7 +121,11 @@ async def async_setup_entry(
 
 
 class EufyCameraEnabledSwitch(EufyGatewayEntity, SwitchEntity):
-    """Expose one camera's reported and confirmed master enablement state."""
+    """Expose reported master enablement through the coordinator's confirmed writes.
+
+    The exact C35 trial starts disabled. Its reported setting is separate from
+    physical confirmation that the camera stopped or resumed monitoring.
+    """
 
     _attr_translation_key = "camera_enabled"
 
@@ -130,6 +134,14 @@ class EufyCameraEnabledSwitch(EufyGatewayEntity, SwitchEntity):
         EufyGatewayEntity.__init__(self, coordinator, serial)
         SwitchEntity.__init__(self)
         self._attr_unique_id = f"{serial}_camera_enabled"
+        if self.camera.get("model") == "T8110" and self.camera.get("deviceType") == 10035:
+            self._attr_entity_registry_enabled_default = False
+            self._attr_translation_key = "camera_enabled_experimental"
+
+    @property
+    def available(self) -> bool:
+        """Withdraw the switch when its fresh baseline or control route is unavailable."""
+        return super().available and self.camera.get("enableControlSupported") is True
 
     @property
     def extra_state_attributes(self) -> dict[str, bool]:

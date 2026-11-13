@@ -280,6 +280,8 @@ entity:
       name: Sound round-look
     camera_enhance_lighting:
       name: Enhanced lighting
+    camera_enabled_experimental:
+      name: Camera enabled (experimental)
     camera_enabled:
       name: Camera enabled
     camera_motion_detection:

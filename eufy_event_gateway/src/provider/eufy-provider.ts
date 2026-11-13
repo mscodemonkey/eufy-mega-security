@@ -3205,6 +3205,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Write camera enablement once and publish only cloud-confirmed state. */
   setCameraEnabled(serial: string, enabled: boolean): Promise<CameraIdentity> {
+    const selected = this.#devices.get(serial);
+    if (selected?.model === "T8110" && selected.deviceType === 10035) {
+      return this.setCameraSetting(serial, { setting: "cameraEnabled", value: enabled });
+    }
     this.#assertRtcPreparationIdle();
     this.#assertCameraControlsAdmitted(serial);
     this.#assertLegacyCamera(serial);
@@ -3455,8 +3459,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const profile = device && route ? cameraSettingProfile(this.#modelTrialRoute(device, route), change.setting) : null;
     if (!device || !route || !peer || !profile || !device.adminUserId || this.#recordingClosing) throw new CameraSettingError("unavailable");
     const optInSetting = change.setting === "lightBrightness" || change.setting === "manualFloodlight"
-      || profile.form === "motion-control" || profile.form === "solo-sensitivity" || profile.form === "solo-quality" || profile.form === "attached-quality";
-    if (["solo-sensitivity", "solo-quality", "attached-quality"].includes(profile.form) && !this.config.apiAuthenticationConfigured) throw new CameraSettingError("unavailable");
+      || profile.form === "motion-control" || profile.form === "solo-sensitivity" || profile.form === "solo-quality" || profile.form === "attached-quality" || profile.form === "privacy";
+    if (["solo-sensitivity", "solo-quality", "attached-quality", "privacy"].includes(profile.form) && !this.config.apiAuthenticationConfigured) throw new CameraSettingError("unavailable");
     const settingBinding = optInSetting ? this.#client.authenticatedBinding() : null;
     if (optInSetting && (!this.config.experimentalModelControls || !this.#client.isAuthenticatedUser(device.adminUserId) || !settingBinding)) throw new CameraSettingError("unavailable");
     if (profile.form === "attached-quality" && peer.adminUserId !== device.adminUserId) throw new CameraSettingError("unavailable");
@@ -3467,11 +3471,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const related = [...this.#devices.values()].filter(row => (row.parentSerial || row.serial) === peer.serial || row.serial === peer.serial);
     if (this.#trialPeers.has(peer.serial) || this.#recordingPeerReserved(serial) || this.#stationOperations.has(peer.serial)
       || related.some(row => this.#ppcsStreams.has(row.serial) || controlMaps.some(map => map.has(row.serial))
-        || profile.form === "attached-quality" && this.#streamStarts.has(row.serial))) throw new CameraSettingError("busy");
+        || ["attached-quality", "privacy"].includes(profile.form) && this.#streamStarts.has(row.serial))) throw new CameraSettingError("busy");
     const releaseTrialPeer = this.#reserveTrialPeer(peer.serial);
     const generation = this.#startupGeneration;
     const deadline = Date.now() + 90_000;
-    const field = change.setting === "streamingQuality" ? "streamingQualityTier" : change.setting === "motionSensitivity" ? "motionSensitivityStep" : change.setting === "motionDetection" ? "motionDetectionEnabled" : change.setting === "lightBrightness" ? "lightBrightness" : change.setting === "manualFloodlight" ? "manualFloodlightEnabled" : "homebaseChimeEnabled";
+    const field = change.setting === "cameraEnabled" ? "enabled" : change.setting === "streamingQuality" ? "streamingQualityTier" : change.setting === "motionSensitivity" ? "motionSensitivityStep" : change.setting === "motionDetection" ? "motionDetectionEnabled" : change.setting === "lightBrightness" ? "lightBrightness" : change.setting === "manualFloodlight" ? "manualFloodlightEnabled" : "homebaseChimeEnabled";
     let session: FirstPartyPpcsSession | null = null;
     let dispatched = false;
     const check = (): void => {
@@ -5536,7 +5540,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       liveAudioSupported: nvrLive ? nvrLiveAudioAdmitted(device, this.#devices.get(device.parentSerial))
         : supportsCameraLiveAudio(device, route, isPpcsStreamSupported(device, this.#devices, dskPeerSerials)),
       enabled: device.reads.enabled ?? null,
-      enableControlSupported: supportsCameraEnablement(
+      enableControlSupported: device.model === "T8110" && device.deviceType === 10035
+        ? experimentalSettingsReady && this.config.apiAuthenticationConfigured === true
+          && this.#client.authenticatedBinding() !== null && settingRouteReady && settingRoute !== null
+          && cameraSettingProfile(settingRoute, "cameraEnabled") !== null && typeof device.reads.enabled === "boolean"
+        : supportsCameraEnablement(
         device,
         route,
         isPpcsRouteReady(device, this.#devices, dskPeerSerials),
@@ -7143,7 +7151,8 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const autoNightVision = finiteNumber(params.get(1013));
   const nightVisionMode = finiteNumber(params.get(1277));
   const privacy6250 = finiteNumber(params.get(6250));
-  const enabled = c31
+  const c35Enabled = model === "T8110" && deviceType === 10035 && standaloneChannelZero;
+  const enabled = c35Enabled ? readCameraSetting(settingRows, model, deviceType, true, "cameraEnabled") as boolean | undefined : c31
     ? privacy6250 === 0 || privacy6250 === 1 ? privacy6250 === 0 : undefined
     : openDevice === 0 || openDevice === 1
     ? openDevice === 1

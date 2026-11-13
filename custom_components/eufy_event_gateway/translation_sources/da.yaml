@@ -280,6 +280,8 @@ entity:
       name: Lydrundkig
     camera_enhance_lighting:
       name: Forbedret belysning
+    camera_enabled_experimental:
+      name: Kamera aktiveret (eksperimentelt)
     camera_enabled:
       name: Kamera tilsluttet
     camera_motion_detection:
