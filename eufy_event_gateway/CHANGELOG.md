@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.267
+
+- Correct peer-failure and disconnection warning phases after video has started, while retaining negotiation failures before video.
+- Record that two ordinary E10 views on v0.1.265 still stopped near five minutes despite retaining the connected peer. The call-lifetime contract remains unresolved and this warning correction does not extend playback or add retries.
+
 ## 0.1.266
 
 - Distinguish missing one-page visit records, reference mismatches and unavailable or ambiguous familiar names in the existing late-name recovery failure line.
