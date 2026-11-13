@@ -17,11 +17,13 @@ import type { CameraIdentity } from "../src/domain/types.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
 import { T85V0StatusError, type T85V0StatusIdentity } from "../src/provider/t85v0-status.js";
 
-for (const mode of ["valid", "hung", "shutdown", "disabled", "model", "type", "channel", "owner", "shared", "unauthenticated", "account-before-query", "account-after-reply", "parent", "parent-type", "serial", "after-reply", "raw-duplicate", "duplicate", "changed", "cancelled", "closed", "busy", "generation"]) {
+for (const mode of ["valid", "draining", "hung", "shutdown", "disabled", "model", "type", "channel", "owner", "shared", "unauthenticated", "account-before-query", "account-after-reply", "parent", "parent-type", "serial", "after-reply", "raw-duplicate", "duplicate", "changed", "cancelled", "closed", "busy", "generation"]) {
   test(`FamiLock status admission and cleanup: ${mode}`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "motion-provider-"));
     const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
     let accountCurrent = true;
+    let finishDrain: () => void = () => undefined;
+    const drained = new Promise<void>(resolve => { finishDrain = resolve; });
     context.mock.method(MegaClient.prototype, "authenticatedBinding", () => mode === "unauthenticated" ? null : () => accountCurrent);
     context.mock.method(MegaClient.prototype, "isAuthenticatedUser", (id: string) => !["shared", "unauthenticated"].includes(mode) && id === "synthetic-owner");
     context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
@@ -66,6 +68,9 @@ for (const mode of ["valid", "hung", "shutdown", "disabled", "model", "type", "c
       return { reportedState: "locked" as const, batteryPercent: 77, physicalConfirmationRequired: true as const };
     });
     const close = context.mock.method(FirstPartyPpcsSession.prototype, "close", function(this: FirstPartyPpcsSession) { this.output.end(); });
+    context.mock.method(FirstPartyPpcsSession.prototype, "waitUntilClosed", async () => {
+      if (mode === "draining") await drained;
+    });
     try {
       await provider.start(events); await new Promise(resolve => setImmediate(resolve));
       if (mode === "valid") {
@@ -83,7 +88,7 @@ for (const mode of ["valid", "hung", "shutdown", "disabled", "model", "type", "c
         channel: "channel_unavailable", owner: "owner_binding_unavailable", unauthenticated: "api_authentication_required",
         parent: "station_route_unavailable", "parent-type": "station_route_unavailable", serial: "device_unavailable",
       };
-      const expected = ["valid", "busy", "shared"].includes(mode) ? operation : assert.rejects(operation, error => {
+      const expected = ["valid", "draining", "busy", "shared"].includes(mode) ? operation : assert.rejects(operation, error => {
         assert.ok(error instanceof T85V0StatusError);
         if (mode === "hung") assert.equal(error.boundary, "connect");
         if (reasons[mode]) {
@@ -114,7 +119,16 @@ for (const mode of ["valid", "hung", "shutdown", "disabled", "model", "type", "c
         await provider.refreshStation("station");
       }
       context.mock.timers.tick(mode === "hung" ? 60_000 : 500);
-      if (["valid", "busy", "shared"].includes(mode)) {
+      if (mode === "draining") {
+        let settled = false; void operation.then(() => { settled = true; });
+        for (let index = 0; index < 10; index++) await new Promise(resolve => setImmediate(resolve));
+        assert.equal(settled, false);
+        assert.ok(close.mock.callCount() >= 1);
+        await assert.rejects(provider.startStream("camera"), /recording retrieval/);
+        await assert.rejects(provider.readT85V0StatusTrial("SYNTHETICLOCK001", new AbortController().signal), /busy/);
+        finishDrain();
+      }
+      if (["valid", "draining", "busy", "shared"].includes(mode)) {
         assert.deepEqual(await expected, { reportedState: "locked", batteryPercent: 77, physicalConfirmationRequired: true });
         await assert.rejects(provider.readT85V0StatusTrial("SYNTHETICLOCK001", new AbortController().signal), /busy/);
         assert.equal(start.mock.callCount(), 1); assert.equal(query.mock.callCount(), 1); assert.ok(close.mock.callCount() >= 1);
@@ -126,6 +140,6 @@ for (const mode of ["valid", "hung", "shutdown", "disabled", "model", "type", "c
         }
       } else { await expected; if (mode === "after-reply") assert.equal(query.mock.callCount(),1); }
       assert.equal(network.mock.callCount(), 0);
-    } finally { context.mock.timers.reset(); await provider.close(); await rm(directory, { recursive: true, force: true }); }
+    } finally { finishDrain(); context.mock.timers.reset(); await provider.close(); await rm(directory, { recursive: true, force: true }); }
   });
 }

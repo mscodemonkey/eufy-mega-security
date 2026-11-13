@@ -1402,7 +1402,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       throw new T85V0StatusError(result.stage, result.reason, result.boundary ?? boundary, result.query);
     } finally {
       finished = true; clearTimeout(deadline); clearInterval(bindingTimer); signal.removeEventListener("abort", abort);
-      controller.abort(); session?.close();
+      controller.abort(); session?.close(); await session?.waitUntilClosed();
       if (this.#trialSessions.get(station.serial) === session) this.#trialSessions.delete(station.serial);
       this.#lockStatusAborters.delete(station.serial); releaseTrialPeer();
       if (started) {
