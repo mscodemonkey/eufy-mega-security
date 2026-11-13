@@ -163,6 +163,11 @@ export interface CameraState {
   /** Whether the owned route and known recording baseline admit the verified audio write. */
   readonly audioRecordingControlSupported?: boolean;
 
+  /** Fixed admission result for the exact S340 trial, containing no account or parameter values. */
+  readonly streamingQualityControlReason?: "trial_disabled" | "owner_account_required" | "api_authentication_required"
+    | "account_binding_unavailable" | "route_unavailable" | "parent_owner_mismatch" | "live_mode_unconfirmed"
+    | "route_unsupported" | "quality_unconfirmed" | "ready";
+
   /** Whether the owned ready route and known baseline admit native streaming-quality writes. */
   readonly streamingQualityControlSupported?: boolean;
 
@@ -498,6 +503,9 @@ export interface CameraIdentity {
 
   /** Optional provider admission for the independently confirmed recorded-audio write. */
   readonly audioRecordingControlSupported?: boolean;
+
+  /** Preserve the fixed S340 admission diagnostic alongside its control capability. */
+  readonly streamingQualityControlReason?: CameraState["streamingQualityControlReason"];
 
   /** Optional admission for fresh-state-confirmed streaming-quality writes. */
   readonly streamingQualityControlSupported?: boolean;

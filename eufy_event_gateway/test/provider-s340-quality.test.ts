@@ -20,6 +20,10 @@ import { HomeBasePpcsSession } from "../src/stream/homebase-ppcs.js";
 async function fixture(context: TestContext, options: { optIn?: boolean; owner?: boolean; apiAuth?: boolean; mode?: number; parentOwner?: string; missingAfter?: boolean; missingBefore?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "s340-quality-"));
   let quality = 0, writes = 0, reads = 0, stops = 0;
+  const logs: string[] = [];
+  context.mock.method(process.stdout, "write", ((chunk: unknown) => {
+    logs.push(String(chunk)); return true;
+  }) as typeof process.stdout.write);
   const network = context.mock.method(globalThis, "fetch", async () => { throw new Error("Network forbidden"); });
   context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
   context.mock.method(MegaClient.prototype, "isAuthenticatedUser", () => options.owner !== false);
@@ -54,22 +58,32 @@ async function fixture(context: TestContext, options: { optIn?: boolean; owner?:
     maxStreamSeconds: 120, experimentalModelControls: options.optIn !== false, apiAuthenticationConfigured: options.apiAuth !== false });
   context.after(async () => { await provider.close(); assert.equal(network.mock.callCount(), 0); await rm(directory, { recursive: true, force: true }); });
   await provider.start(events);
-  return { provider, identities, writes: () => writes, reads: () => reads, stops: () => stops };
+  return { provider, identities, logs, writes: () => writes, reads: () => reads, stops: () => stops };
 }
 
 test("S340 quality is published only after one write and a fresh matching mode-zero read", async context => {
   const f = await fixture(context);
   assert.equal(f.identities.get("synthetic-child")?.streamingQualityControlSupported, true);
+  assert.equal(f.identities.get("synthetic-child")?.streamingQualityControlReason, "ready");
   assert.deepEqual(f.identities.get("synthetic-child")?.streamingQualityModes?.map(row => row.name), ["Auto", "HD (720P)", "Full HD (1080P)", "3K"]);
   const changed = await f.provider.setCameraStreamingQuality("synthetic-child", 3);
   assert.equal(changed.reportedSettings?.streamingQualityTier, 3);
   assert.equal(f.writes(), 1); assert.ok(f.reads() >= 3);
 });
 
-for (const options of [{ optIn: false }, { owner: false }, { apiAuth: false }, { mode: 12 }, { parentOwner: "foreign-owner" }]) {
+for (const [options, reason] of [
+  [{ optIn: false }, "trial_disabled"], [{ owner: false }, "owner_account_required"],
+  [{ apiAuth: false }, "api_authentication_required"], [{ mode: 12 }, "live_mode_unconfirmed"],
+  [{ parentOwner: "foreign-owner" }, "parent_owner_mismatch"],
+] as const) {
   test(`S340 quality admission rejects ${JSON.stringify(options)}`, async context => {
     const f = await fixture(context, options);
     assert.equal(f.identities.get("synthetic-child")?.streamingQualityControlSupported, false);
+    assert.equal(f.identities.get("synthetic-child")?.streamingQualityControlReason, reason);
+    const admission = f.logs.filter(line => line.includes("event=camera_s340_quality_admission"));
+    assert.equal(admission.length, 1);
+    assert.ok(admission[0]!.endsWith(`model=T8170 reason=${reason}\n`));
+    assert.ok(!admission[0]!.includes("synthetic-owner") && !admission[0]!.includes("synthetic-child"));
     await assert.rejects(f.provider.setCameraStreamingQuality("synthetic-child", 3));
     assert.equal(f.writes(), 0);
   });
