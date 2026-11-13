@@ -63,6 +63,7 @@ test("exact T8442/46 creates separate cameras without enabling controls or start
   for (const child of f.children) {
     const camera = f.identities.get(child.device_sn)!;
     assert.equal(f.state.getCamera(child.device_sn).model, "T8442");
+    assert.equal(f.state.getCamera(child.device_sn).deviceType, 46);
     assert.equal(camera.model, "T8442"); assert.equal(camera.stationSerial, f.parent.device_sn);
     assert.equal(camera.catalogueStatus, "ready_to_test"); assert.equal(camera.streamSupported, true);
     assert.equal(camera.battery, null);
