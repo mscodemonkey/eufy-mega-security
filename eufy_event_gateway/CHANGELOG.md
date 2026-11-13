@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.266
+
+- Distinguish missing one-page visit records, reference mismatches and unavailable or ambiguous familiar names in the existing late-name recovery failure line.
+- Preserve exact visit ownership, the existing three-check schedule, history page limit and active recording/view protections. This improves the next ordinary failure report and does not confirm late-name recovery fixed.
+
 ## 0.1.265
 
 - Add the Vehicle detection entity for exact T8442/type 46 cameras through HomeBase 3, matching vehicle events already received by EMS.
