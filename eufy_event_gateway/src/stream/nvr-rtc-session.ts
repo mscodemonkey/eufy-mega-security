@@ -1142,7 +1142,7 @@ export class NvrRtcSession {
       try { peer = this.#peer = this.dependencies.peer(this.#turn, this.#e10Offer ?? undefined);
         observeRawPeer(peer, { station: this.options.station, camera: this.options.camera }); }
       catch { throw new NvrTrialError("negotiation", "peer_setup"); }
-      peer.connectionStateChange.subscribe(state => { this.#retainE10PeerEvidence(); if (state === "failed" || state === "disconnected") this.#fail("negotiation", state === "failed" ? "peer_failed" : "peer_disconnected"); });
+      peer.connectionStateChange.subscribe(state => { this.#retainE10PeerEvidence(); if (state === "failed" || state === "disconnected") this.#fail(this.#stage, state === "failed" ? "peer_failed" : "peer_disconnected"); });
       peer.onIceCandidate.subscribe(candidate => {
         if (!candidate?.candidate || this.#retired) return;
         this.#markTiming("firstLocalCandidate");
