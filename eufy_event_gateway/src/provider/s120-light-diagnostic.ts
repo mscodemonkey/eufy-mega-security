@@ -3,6 +3,7 @@
  * logging. The trial owns device effects and cleanup. These observations never
  * establish illumination, reported switch state or permission to retry a write.
  */
+import { controlReceiptSummary, type PpcsControlReceiptEvidence } from "../stream/ppcs-reply-evidence.js";
 
 const stages = ["admission", "busy", "initial_inventory", "session_key", "session_connect",
   "session_inventory", "write_prepare", "write_receipt", "cleanup"] as const;
@@ -20,9 +21,11 @@ export class S120LightTrialError extends Error {
   /**
    * @param writeAttempted The send boundary was reached, without proving bytes reached the camera.
    * @param acknowledgementReceived The model's command receipt was accepted, without proving illumination.
+   * @param receipt Snapshot of the existing selected command wait, retained after cleanup.
    */
   constructor(readonly stage: S120LightFailureStage, readonly writeAttempted: boolean,
-    readonly acknowledgementReceived: boolean, readonly cleanupFailed = false) {
+    readonly acknowledgementReceived: boolean, readonly cleanupFailed = false,
+    readonly receipt?: PpcsControlReceiptEvidence) {
     super("Manual light test did not confirm the light state. Check the light and restore it before trying again.");
   }
 }
@@ -33,5 +36,6 @@ export function s120LightFailureDiagnostic(error: unknown): string {
   const flag = (value: unknown): string => value === true ? "true" : value === false ? "false" : "unknown";
   return `stage=${known ? error.stage : "unknown"} write_attempted=${flag(known ? error.writeAttempted : null)}`
     + ` acknowledgement_received=${flag(known ? error.acknowledgementReceived : null)}`
-    + ` cleanup_failed=${flag(known ? error.cleanupFailed : null)}`;
+    + ` cleanup_failed=${flag(known ? error.cleanupFailed : null)}`
+    + controlReceiptSummary(known ? error.receipt : undefined);
 }

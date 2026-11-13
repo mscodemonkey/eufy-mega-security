@@ -40,15 +40,15 @@ test("E330 on/off keeps the child channel, account and level-one integer envelop
 });
 
 /** Deliver a framed result through the session's real socket listener. */
-function deliver(socket: Socket, payload: Buffer, sign: number, sequence: number, channel = 3, command = 1400): void {
+function deliver(socket: Socket, payload: Buffer, sign: number, sequence: number, channel = 3, command = 1400, result = true): void {
   const frame = Buffer.alloc(16);
   frame.write("XZYH"); frame.writeUInt16LE(command, 4); frame.writeUInt32LE(payload.length, 6);
-  frame[12] = channel; frame[13] = sign; frame[14] = 1;
+  frame[12] = channel; frame[13] = sign; frame[14] = result ? 1 : 0;
   const header = Buffer.from([0xf1, 0xd0, 0, 0, 0xd1, 0, 0, 0]); header.writeUInt16BE(sequence, 6);
   socket.emit("message", Buffer.concat([header, frame, payload]), { address: "127.0.0.1", port: 12345 });
 }
 
-for (const mode of ["on", "off", "negative", "timeout", "cancelled"] as const) {
+for (const mode of ["on", "off", "negative", "timeout", "unusable", "cancelled"] as const) {
   test(`E330 sends once without a level-two key and correlates its encrypted receipt: ${mode}`, async context => {
     let socket!: Socket;
     const sent: Buffer[] = [];
@@ -87,9 +87,23 @@ for (const mode of ["on", "off", "negative", "timeout", "cancelled"] as const) {
         deliver(socket, encrypted, 1, 3, 3, 1403);
         await new Promise(resolve => setImmediate(resolve));
         assert.equal(settled, false);
-        deliver(socket, encrypted, 1, 4);
+        if (mode === "unusable") {
+          deliver(socket, Buffer.from("{}"), 1, 4, 3, 1351, false);
+          context.mock.timers.tick(10_000);
+        }
+        else deliver(socket, encrypted, 1, 4);
       }
       await result;
+      const evidence = session.controlReceiptEvidence();
+      if (mode === "cancelled") assert.equal(evidence, undefined);
+      else assert.deepEqual(evidence, mode === "timeout"
+        ? { notificationFrames: 0, selectedNotifications: 0, resultFrames: 0, selectedFrames: 0, matchingFrames: 0, decodedFrames: 0 }
+        : { notificationFrames: mode === "unusable" ? 1 : 0, selectedNotifications: mode === "unusable" ? 1 : 0,
+          resultFrames: mode === "unusable" ? 3 : 4, selectedFrames: mode === "unusable" ? 2 : 3,
+          matchingFrames: mode === "unusable" ? 1 : 2, decodedFrames: mode === "unusable" ? 0 : 1,
+          protection: mode === "unusable" ? "clear" : "mixed" });
+      session.close();
+      assert.deepEqual(session.controlReceiptEvidence(), evidence);
       assert.equal(session.stats.mediaStartAttempts, 0);
     } finally { session.close(); context.mock.timers.reset(); }
   });

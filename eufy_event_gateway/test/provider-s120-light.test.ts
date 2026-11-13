@@ -72,10 +72,14 @@ for (const family of ["s120", "e330"] as const) for (const entry of ["valid", "o
       if (["cleanup_failed", "receipt_cleanup_failed"].includes(mode)) throw Error("PRIVATE_CLEANUP");
       if (mode === "cleanup") await held;
     });
+    const receipt = { notificationFrames: 0, selectedNotifications: 0, resultFrames: 3, selectedFrames: 2, matchingFrames: 1, decodedFrames: 0, protection: "clear" as const };
+    let receiptObserved = false;
+    context.mock.method(FirstPartyPpcsSession.prototype, "controlReceiptEvidence", () => receiptObserved ? receipt : undefined);
     const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeModelControlTrial", async (_request: ModelControlTrial, _route: ModelControlRoute, current?: () => void, onDispatch?: () => void) => {
       current!();
       if (mode === "write_prepare_failed") throw Error("PRIVATE_PREPARE");
       onDispatch?.();
+      receiptObserved = family === "e330" && ["receipt_timeout", "receipt_cleanup_failed"].includes(mode);
       if (["receipt_timeout", "receipt_cleanup_failed"].includes(mode)) throw Error("PRIVATE_RECEIPT");
       if (mode === "busy") await held; current!();
     });
@@ -128,6 +132,7 @@ for (const family of ["s120", "e330"] as const) for (const entry of ["valid", "o
           assert.ok(failure instanceof S120LightTrialError);
           assert.deepEqual([failure.stage, failure.writeAttempted, failure.acknowledgementReceived, failure.cleanupFailed],
             phases[mode as keyof typeof phases]);
+          assert.deepEqual(failure.receipt, receiptObserved ? receipt : undefined);
         }
         assert.equal(write.mock.callCount(), ["write_prepare_failed", "receipt_timeout", "cleanup_failed", "receipt_cleanup_failed"].includes(mode) ? 1 : 0);
       }
@@ -139,6 +144,7 @@ for (const family of ["s120", "e330"] as const) for (const entry of ["valid", "o
           ? /stage=write_receipt write_attempted=true acknowledgement_received=false cleanup_failed=false/
           : /stage=cleanup write_attempted=true acknowledgement_received=true cleanup_failed=true/);
         assert.doesNotMatch(failures[0]!, /PRIVATE_|synthetic|sensor|station/);
+        if (receiptObserved) assert.match(failures[0]!, /result_frames=3 selected_result_frames=2 matching_result_frames=1 decoded_result_frames=0 result_protection=clear/);
       } else assert.equal(failures.length, 0);
       assert.equal(network.mock.callCount(), 0);
     } finally { release(); context.mock.timers.reset(); await provider.close(); await rm(directory, { recursive: true, force: true }); }

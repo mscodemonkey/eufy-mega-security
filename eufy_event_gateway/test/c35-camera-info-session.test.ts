@@ -55,12 +55,13 @@ function response(body: string): Buffer {
   return Buffer.concat([cipher.getAuthTag(), iv, Buffer.alloc(4), encrypted]);
 }
 
-for (const mode of ["valid", "invalid-tag", "clear", "wrong-channel", "invalid-schema", "closed", "timeout"]) {
+for (const mode of ["valid", "invalid-tag", "clear", "legacy", "short-gcm", "unsupported", "mixed", "wrong-channel", "invalid-schema", "closed", "timeout"]) {
   test(`C35 protected state query: ${mode}`, async context => {
     const { session, socket, sent } = await peer(context);
     const operation = session.readCameraInfo("c35-spotlight-state");
     const result = mode === "valid" ? operation
-      : assert.rejects(operation, mode === "clear" ? { reason: "protection_mismatch" }
+      : assert.rejects(operation, ["clear", "legacy", "short-gcm", "unsupported", "mixed"].includes(mode)
+        ? { reason: "protection_mismatch", protection: { clear: "clear", legacy: "legacy", "short-gcm": "level2_short", unsupported: "unsupported", mixed: "mixed" }[mode] }
         : mode === "invalid-tag" ? { reason: "authentication_failed" } : { name: "CameraInfoReadError" });
     try {
       await new Promise(resolve => setImmediate(resolve));
@@ -83,7 +84,12 @@ for (const mode of ["valid", "invalid-tag", "clear", "wrong-channel", "invalid-s
       else if (mode === "closed") session.close();
       else {
         if (mode === "invalid-tag") payload[0] = payload[0]! ^ 1;
-        if (mode === "clear") deliver(socket, 1103, Buffer.from(document), 0, 1);
+        if (["clear", "legacy", "short-gcm", "unsupported", "mixed"].includes(mode)) {
+          const sign = mode === "legacy" ? 1 : mode === "short-gcm" ? 2 : mode === "unsupported" ? 7 : 0;
+          deliver(socket, 1103, mode === "short-gcm" ? Buffer.concat([payload.subarray(0, 28), payload.subarray(32)])
+            : Buffer.from(document), sign, 1);
+          if (mode === "mixed") deliver(socket, 1103, Buffer.from(document), 1, 2);
+        }
         else if (mode !== "timeout") deliver(socket, 1103, payload, 8, 1, mode === "wrong-channel" ? 1 : 0);
         context.mock.timers.tick(10_000);
       }
@@ -94,7 +100,7 @@ for (const mode of ["valid", "invalid-tag", "clear", "wrong-channel", "invalid-s
       if (mode !== "closed") {
         const next = session.readCameraInfo("c35-spotlight-state");
         await new Promise(resolve => setImmediate(resolve));
-        deliver(socket, 1103, response(document), 8, mode === "timeout" ? 1 : 2);
+        deliver(socket, 1103, response(document), 8, mode === "timeout" ? 1 : mode === "mixed" ? 3 : 2);
         await next;
       }
     } finally { session.close(); await operation.catch(() => undefined); context.mock.timers.reset(); }
