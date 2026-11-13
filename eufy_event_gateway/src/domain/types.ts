@@ -141,6 +141,9 @@ export interface CameraReportedSettings {
 /** Complete state returned for one camera by the HTTP API. */
 export interface CameraState {
 
+  /** Reported numeric camera identity, absent on older or simulated providers. */
+  readonly deviceType?: number | null;
+
   /** Optional device-owned secondary firmware and explicit update flag. */
   readonly firmwareSubVersion?: string | null;
   readonly firmwareUpdateAvailable?: boolean | null;
@@ -473,6 +476,9 @@ export type GatewayEvent =
 
 /** Stable camera metadata discovered from Mega inventory. */
 export interface CameraIdentity {
+
+  /** Reported numeric camera identity, absent on older or simulated providers. */
+  readonly deviceType?: number | null;
 
   /** Camera-owned firmware metadata. Unknown update status never becomes false. */
   readonly firmwareSubVersion?: string | null;

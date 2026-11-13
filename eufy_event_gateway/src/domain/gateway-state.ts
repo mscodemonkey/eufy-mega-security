@@ -567,6 +567,7 @@ export class GatewayState extends EventEmitter {
       serial: camera.identity.serial,
       name: camera.identity.name,
       model: camera.identity.model,
+      deviceType: camera.identity.deviceType ?? null,
       firmware: camera.identity.firmware ?? null,
       hardwareVersion: camera.identity.hardwareVersion ?? null,
       firmwareSubVersion: camera.identity.firmwareSubVersion ?? null,

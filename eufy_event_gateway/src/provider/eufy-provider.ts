@@ -5443,6 +5443,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       && device.reads.streamingQualityTier !== undefined && device.reads.s340LiveQualityMode === 0;
     const standaloneQuality = s220Quality || supportsStandaloneStreamingQuality(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials));
     const identity: CameraIdentity = {
+      deviceType: device.deviceType,
       serial: device.serial,
       name: device.name,
       model: device.model,
