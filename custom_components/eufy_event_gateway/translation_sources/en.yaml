@@ -155,6 +155,18 @@ entity:
         high: High
         low: Low
         highest: Highest
+    camera_streaming_quality_experimental:
+      name: "Streaming quality (experimental)"
+      state:
+        "auto": "Auto"
+        "hd": "HD (720p)"
+        "full_hd": "Full HD (1080p)"
+        "2k": "2K"
+        "medium": "Medium"
+        "high": "High"
+        "low": "Low"
+        "highest": "Highest"
+        "3k": "3K"
     camera_night_vision:
       name: Night vision
       state:
