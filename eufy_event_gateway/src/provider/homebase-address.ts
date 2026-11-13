@@ -42,12 +42,31 @@ export function homeBaseLocalAddress(
     readonly category: string | null; readonly parentSerial: string; readonly localAddress: string | null },
   hints: readonly HomeBaseAddress[],
 ): string | null {
+  return homeBaseLocalAddressSelection(peer, hints).address;
+}
+
+
+/** A selected discovery destination and its safe-to-log origin, never proof of reachability. */
+export interface HomeBaseAddressSelection {
+  readonly address: string | null;
+  readonly source: "manual" | "inventory" | "broadcast_only";
+}
+
+/**
+ * Preserve exact station admission while distinguishing a dormant hint from a selected one.
+ * Callers may log the closed source value, but the destination stays private.
+ */
+export function homeBaseLocalAddressSelection(
+  peer: Parameters<typeof homeBaseLocalAddress>[0],
+  hints: readonly HomeBaseAddress[],
+): HomeBaseAddressSelection {
   const station = peer.category === "eufy_security" && (!peer.parentSerial || peer.parentSerial === peer.serial)
     && (peer.model.startsWith("T8010") && peer.deviceType === 0
       || peer.model.startsWith("T8030") && peer.deviceType === 18
       || peer.model === "T9000" && peer.deviceType === 27);
-  if (!station) return peer.localAddress;
-  return hints.find(hint => hint.serial === peer.serial)?.address ?? peer.localAddress;
+  const hint = station ? hints.find(candidate => candidate.serial === peer.serial) : undefined;
+  if (hint) return { address: hint.address, source: "manual" };
+  return { address: peer.localAddress, source: peer.localAddress ? "inventory" : "broadcast_only" };
 }
 
 /** Keep configured destinations within the transport's existing private IPv4 scope. */
