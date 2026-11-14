@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.269
+
+- Add an opt-in ten-second continuous-recording preview for the exact standalone C31 route, locally verified with video, audio and seeking. Other C31 gaps and reporter hardware remain separate.
+- Use the alarm volume reported in HomeBase inventory and allow the read-only state check without enabling experimental controls. Missing values remain unknown.
+- Recover event pictures using the negotiated session-key reply form, while preserving exact event ownership and authentication.
+- Expose reported T8900 connection health, low-battery warnings and accessory firmware without inventing missing readings.
+- Reconnect the HA event receiver when its connection stops carrying heartbeats, while keeping healthy connections open.
+- Identify the existing owner behind busy light-trial refusals and report content-free clear reply shapes. Light receipt acceptance, write counts and hardware confirmation remain unchanged.
+- Record confirmed T8E00 shared-lens playback and independent view closure. Longer playback and other pairings remain unconfirmed.
+
 ## 0.1.268
 
 - Add an opt-in E340/HomeBase 3 event-picture recovery trial that preserves the exact alert and existing privacy settings. Physical E340 results remain unconfirmed.
