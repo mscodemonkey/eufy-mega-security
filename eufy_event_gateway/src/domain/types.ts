@@ -163,10 +163,10 @@ export interface CameraState {
   /** Whether the owned route and known recording baseline admit the verified audio write. */
   readonly audioRecordingControlSupported?: boolean;
 
-  /** Fixed admission result for the exact S340 trial, containing no account or parameter values. */
+  /** Fixed admission result for exact quality trials, containing no account or parameter values. */
   readonly streamingQualityControlReason?: "trial_disabled" | "owner_account_required" | "api_authentication_required"
     | "account_binding_unavailable" | "route_unavailable" | "parent_owner_mismatch" | "live_mode_unconfirmed"
-    | "route_unsupported" | "quality_unconfirmed" | "ready";
+    | "route_unsupported" | "quality_unconfirmed" | "account_membership_unconfirmed" | "live_view_required" | "ready";
 
   /** Session-scoped values expire with live view and are not saved camera settings. */
   readonly streamingQualityControlScope?: "active_stream";

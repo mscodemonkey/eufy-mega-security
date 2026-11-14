@@ -221,6 +221,12 @@ export interface MegaInventoryDevice {
   readonly localAddress: string | null;
   readonly cipherId: number | null;
   readonly adminUserId: string | null;
+
+  /** Current inventory member identity, kept internal for exact live-control admission. */
+  readonly memberUserId?: string | null;
+
+  /** Strict vendor membership code, never inferred from the administrator identity. */
+  readonly memberType?: number | null;
   readonly userName: string | null;
   readonly firmware: string | null;
 
@@ -4454,15 +4460,30 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return current;
   }
 
-  /** Require opt-in and exact owner/topology authority without interpreting old cloud quality. */
-  #attachedQualityAdmitted(device: MegaInventoryDevice): boolean {
+  /** Admit the owner or the observed signed-in type-1 member on both exact quality-route rows. */
+  #attachedQualityMember(device: MegaInventoryDevice, peer: MegaInventoryDevice): boolean {
+    if (!device.adminUserId || peer.adminUserId !== device.adminUserId) return false;
+    if (this.#client.isAuthenticatedUser(device.adminUserId)) return true;
+    return [device, peer].every(row => row.memberType === 1 && !!row.memberUserId
+      && this.#client.isAuthenticatedUser(row.memberUserId));
+  }
+
+  /** Explain exact-route admission without exposing account or membership identities. */
+  #attachedQualityAdmissionReason(device: MegaInventoryDevice): NonNullable<CameraIdentity["streamingQualityControlReason"]> {
+    if (!this.config.experimentalModelControls) return "trial_disabled";
+    if (!this.config.apiAuthenticationConfigured) return "api_authentication_required";
+    if (this.#client.authenticatedBinding()?.() !== true) return "account_binding_unavailable";
     const route = ppcsStreamRoute(device, this.#devices);
-    return this.config.experimentalModelControls === true && this.config.apiAuthenticationConfigured === true
-      && !!device.adminUserId && this.#client.isAuthenticatedUser(device.adminUserId)
-      && this.#client.authenticatedBinding()?.() === true && !!route
-      && isT8171SessionQualityRoute(this.#modelTrialRoute(device, route))
-      && route.peer.adminUserId === device.adminUserId
-      && isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys()));
+    if (!route || !isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys()))) return "route_unavailable";
+    if (!isT8171SessionQualityRoute(this.#modelTrialRoute(device, route))) return "route_unsupported";
+    if (!device.adminUserId || route.peer.adminUserId !== device.adminUserId) return "parent_owner_mismatch";
+    if (!this.#attachedQualityMember(device, route.peer)) return "account_membership_unconfirmed";
+    return "ready";
+  }
+
+  /** Require current authority without interpreting the camera's old cloud quality. */
+  #attachedQualityAdmitted(device: MegaInventoryDevice): boolean {
+    return this.#attachedQualityAdmissionReason(device) === "ready";
   }
 
   /** Borrow one live source for a correlated quality request, preserving the existing viewer. */
@@ -4485,6 +4506,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const fresh = this.#devices.get(serial), parent = this.#devices.get(peer.serial);
       if (signal.aborted || this.#recordingClosing || generation !== this.#startupGeneration || !account?.()
         || !fresh || !parent || inventoryBindingChanged(device, fresh) || inventoryBindingChanged(peer, parent)
+        || fresh.memberUserId !== device.memberUserId || fresh.memberType !== device.memberType
+        || parent.memberUserId !== peer.memberUserId || parent.memberType !== peer.memberType
         || this.#ppcsStreams.get(serial) !== session || !session.attachedQualityReady || !this.#attachedQualityAdmitted(fresh)) {
         throw new CameraSettingError("unavailable");
       }
@@ -4497,7 +4520,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         const raw = inventory.devices.filter(row => row.device_sn === expected.serial);
         const fresh = parsed.filter(row => row.serial === expected.serial);
         if (raw.length !== 1 || !isRecord(raw[0]?.member) || raw[0].member.admin_user_id !== device.adminUserId
-          || fresh.length !== 1 || inventoryBindingChanged(expected, fresh[0]!)) throw new CameraSettingError("unavailable");
+          || fresh.length !== 1 || inventoryBindingChanged(expected, fresh[0]!)
+          || fresh[0]!.memberUserId !== expected.memberUserId || fresh[0]!.memberType !== expected.memberType) {
+          throw new CameraSettingError("unavailable");
+        }
       }
       if (parsed.filter(row => row.parentSerial === peer.serial && row.serial !== peer.serial && row.channel === device.channel).length !== 1) {
         throw new CameraSettingError("unavailable");
@@ -5684,8 +5710,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       ),
       streamingQualityControlSupported: standaloneQuality || s340Quality || attachedQuality,
       ...(attachedT8171 ? { streamingQualityControlScope: "active_stream" as const } : {}),
-      ...(device.model === "T8170" && device.deviceType === 48
-        ? { streamingQualityControlReason: s340QualityReason } : {}),
+      ...(attachedT8171 ? { streamingQualityControlReason: this.#attachedQualityAdmitted(device)
+        ? attachedQuality ? "ready" as const : "live_view_required" as const : this.#attachedQualityAdmissionReason(device) }
+        : device.model === "T8170" && device.deviceType === 48 ? { streamingQualityControlReason: s340QualityReason } : {}),
       streamingQualityModes: attachedQuality ? T8171_SESSION_QUALITY_MODES : s340Quality ? S340_LIVE_QUALITY_MODES : s220Quality ? [
         { value: 0, name: "Auto" }, { value: 1, name: "Low" }, { value: 2, name: "Medium" }, { value: 3, name: "High" },
       ] : standaloneQuality ? device.model === "T817L" ? [
@@ -7072,6 +7099,9 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
       localAddress: freshestLanAddress(value),
       cipherId: integer(value.cipher_id),
       adminUserId: isRecord(value.member) ? safeValue(value.member.admin_user_id, 128) : null,
+      memberUserId: isRecord(value.member) ? safeValue(value.member.member_user_id, 128) : null,
+      memberType: isRecord(value.member) && typeof value.member.member_type === "number"
+        && Number.isInteger(value.member.member_type) ? value.member.member_type : null,
       userName: isRecord(value.member) ? safeValue(value.member.nick_name, 128) : null,
       firmware: safeValue(value.main_sw_version, 100),
       hardwareVersion: safeValue(value.main_hw_version, 100),

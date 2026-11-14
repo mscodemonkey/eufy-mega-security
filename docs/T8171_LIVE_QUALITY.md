@@ -4,7 +4,9 @@ An experimental streaming-quality select is available for an exact T8171
 (device type 88) attached to a T8030 HomeBase 3 (type 18). Enable
 **Experimental model controls**, then enable the camera's disabled-by-default
 **Streaming quality (experimental)** entity in Home Assistant. The gateway
-requires API authentication and the owner's Eufy account.
+requires API authentication and either the owner's Eufy account or an explicitly
+verified shared membership for both the camera and HomeBase. Unknown memberships
+remain unavailable.
 
 Open the camera's live view in Home Assistant before choosing Auto, HD (720P),
 Full HD (1080P) or 2K. The control uses that existing connection. It does not

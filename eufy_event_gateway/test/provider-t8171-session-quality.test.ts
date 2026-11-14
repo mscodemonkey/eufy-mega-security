@@ -15,13 +15,13 @@ import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 import { GatewayState } from "../src/domain/gateway-state.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
 
-for (const mode of ["ready", "idle", "disabled", "guest", "no-api", "no-binding", "changed-parent", "duplicate-child"] as const) {
+for (const mode of ["ready", "idle", "disabled", "guest", "no-api", "no-binding", "changed-parent", "duplicate-child", "shared", "shared-guest", "shared-other-member", "shared-parent-role", "shared-changed-role"] as const) {
   test(`attached live quality keeps its exact active source and fresh authority: ${mode}`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "t8171-quality-"));
     let active = false, value: number | null = null, writes = 0, reads = 0, source: FirstPartyPpcsSession | undefined;
     context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
     context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
-    context.mock.method(MegaClient.prototype, "isAuthenticatedUser", () => mode !== "guest");
+    context.mock.method(MegaClient.prototype, "isAuthenticatedUser", (user: string) => mode.startsWith("shared") ? user === "member" : mode !== "guest");
     context.mock.method(MegaClient.prototype, "authenticatedBinding", () => mode === "no-binding" ? null : () => true);
     context.mock.method(MegaClient.prototype, "inventory", async () => {
       reads++;
@@ -29,6 +29,11 @@ for (const mode of ["ready", "idle", "disabled", "guest", "no-api", "no-binding"
         device_channel: 1, member: { admin_user_id: "synthetic" }, params: [{ param_type: 1020, param_value: "3" }] };
       const parent = { device_sn: "hub", device_model: "T8030", device_type: 18, category: "eufy_security", parent_sn: "hub",
         p2p_did: "TEST-12345678-TEST", p2p_conn: "synthetic", member: { admin_user_id: "synthetic" }, params: [] };
+      if (mode.startsWith("shared")) {
+        Object.assign(camera.member, { member_type: mode === "shared-guest" ? 0 : 1, member_user_id: mode === "shared-other-member" ? "other" : "member" });
+        Object.assign(parent.member, { member_type: mode === "shared-parent-role" ? 2 : 1, member_user_id: "member" });
+        if (reads > 1 && mode === "shared-changed-role") Object.assign(camera.member, { member_type: 0 });
+      }
       if (reads > 1 && mode === "changed-parent") parent.member.admin_user_id = "other";
       return { devices: reads > 1 && mode === "duplicate-child" ? [camera, camera, parent] : [camera, parent] };
     });
@@ -55,8 +60,13 @@ for (const mode of ["ready", "idle", "disabled", "guest", "no-api", "no-binding"
       await provider.start(events);
       assert.equal(state.getCamera("camera").reportedSettings?.streamingQualityTier, null);
       assert.equal(state.getCamera("camera").streamingQualityControlScope, "active_stream");
+      if (mode === "ready" || mode === "idle" || mode === "shared") {
+        assert.equal(state.getCamera("camera").streamingQualityControlReason, "live_view_required");
+      }
+      if (mode === "disabled") assert.equal(state.getCamera("camera").streamingQualityControlReason, "trial_disabled");
+      if (mode === "shared-guest") assert.equal(state.getCamera("camera").streamingQualityControlReason, "account_membership_unconfirmed");
       if (mode !== "idle") { await provider.startStream("camera"); source!.output.emit("data", Buffer.from([1])); }
-      if (mode === "ready") {
+      if (mode === "ready" || mode === "shared") {
         assert.equal(state.getCamera("camera").streamingQualityControlSupported, true);
         assert.equal((await provider.setCameraStreamingQuality("camera", 1)).reportedSettings?.streamingQualityTier, 1);
         assert.equal(writes, 1); assert.equal(active, true);
