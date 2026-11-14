@@ -2,7 +2,7 @@
 
 The exact eufyCam 2C T8113-Z, device type 8, has an optional motion-sensitivity control through HomeBase 2 T8010. It uses the existing seven-step scale, where a higher Home Assistant value means more sensitive.
 
-Enable experimental model controls in the app options to make the control available. API authentication, the current owner account and a reported sensitivity value are required. Home Assistant shows **Motion sensitivity (experimental)** on the camera's existing device. The entity keeps its existing identity, so a trial does not create a second sensitivity control.
+Enable experimental model controls in the app options to make the control available. API authentication, the current owner account and a reported sensitivity value are required. Home Assistant shows **Motion sensitivity (experimental)** on the camera's existing device. New trial entities start disabled. Enable the entity on that normal HA device page when choosing to test it. Existing entity IDs and user choices are preserved. The entity keeps its existing identity, so a trial does not create a second sensitivity control.
 
 This route is implemented and software-tested. Physical behaviour has not yet been confirmed. HomeBase 3 support and other HomeBase 2 controls are unchanged. The trial does not cover other 2C model strings, stations or sensitivity schemes.
 
