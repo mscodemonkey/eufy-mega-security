@@ -1755,6 +1755,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#locks = this.config.experimentalE30Locks ? new E30LockProvider({
       accountName: this.config.username.split("@")[0] || "Home Assistant",
       credentials: () => this.#client.e30MqttCredentials(),
+      backgroundReadAllowed: serial => generation === this.#startupGeneration
+        && !this.#rtcPreparation.gated && !this.#generalRtcReserved(serial),
       freshDevices: async () => (await this.#client.inventory()).devices,
       changed: locks => { if (generation === this.#startupGeneration) events.locks?.([...locks, ...this.#classicLocks]); },
     }) : null;
@@ -6317,6 +6319,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         station !== undefined,
       ) + ` visit_ref=${this.#visitLogReference(event)}`,
     );
+    if (this.#locks?.acceptPushHint(event)) return;
     const device = this.#devices.get(event.cameraSerial);
     if (device && isT8442Camera(device) && event.stationSerial !== (device.parentSerial || device.serial)) return;
     if (!device) return;
