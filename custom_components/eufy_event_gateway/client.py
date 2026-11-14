@@ -795,10 +795,15 @@ class GatewayClient:
             raise GatewayClientError(str(error)) from error
 
     async def events(self) -> AsyncIterator[dict[str, Any]]:
-        """Yield normalized SSE events until the connection closes or fails."""
+        """Yield events without a total lifetime limit, failing a silent connection.
+
+        The gateway sends a heartbeat every fifteen seconds. Three silent
+        heartbeat intervals return control to the coordinator's reconnect loop.
+        """
         try:
             async with self._session.get(
-                self._url("/api/events"), headers=self._headers, timeout=None
+                self._url("/api/events"), headers=self._headers,
+                timeout=ClientTimeout(total=None, sock_read=45),
             ) as response:
                 self._raise_for_status(response)
                 data_lines: list[str] = []
