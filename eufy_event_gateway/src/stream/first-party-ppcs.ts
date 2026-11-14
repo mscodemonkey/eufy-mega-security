@@ -169,13 +169,16 @@ export function acceptsAttachedCameraMedia(command: number, frameChannel: number
  * Attached E30 routes may use assigned channels. Direct routes use zero, and
  * S220 additionally requires its exact reported device type.
  * T8210 requires type 7 and its observed HomeBase 3 parent.
+ * T8113-Z requires type 8 and its observed HomeBase 2 or 3 parent.
  * Payload validation and protection checks remain with the owning session.
  */
 export function acceptsSoloCamAudio(cameraModel: string, homeBaseAttached: boolean, requestedChannel: number,
   frameChannel: number, purpose: string | undefined, cameraDeviceType?: number | null, stationModel?: string): boolean {
   return (cameraModel === "T8171" || (["T817L", "T8354"].includes(cameraModel) && !homeBaseAttached)
     || (cameraModel === "T8134" && cameraDeviceType === 63 && !homeBaseAttached)
-    || (cameraModel === "T8210" && cameraDeviceType === 7 && homeBaseAttached && stationModel === "T8030"))
+    || (cameraModel === "T8210" && cameraDeviceType === 7 && homeBaseAttached && stationModel === "T8030")
+    || (cameraModel === "T8113-Z" && cameraDeviceType === 8 && homeBaseAttached
+      && (stationModel === "T8010" || stationModel === "T8030")))
     && Number.isSafeInteger(requestedChannel) && requestedChannel >= 0
     && frameChannel === requestedChannel && (homeBaseAttached || requestedChannel === 0) && purpose !== "control" && purpose !== "passive";
 }
@@ -1654,7 +1657,7 @@ export class CameraControlAcknowledgementTimeoutError extends Error {
  * eufy-security-client or the expiring Web Portal PIN.
  *
  * Media sessions emit Annex-B bytes on `output` and optional validated AAC on
- * `audioOutput` for admitted E30, HB3 T8210 and direct C31, E21 and S220 consumers.
+ * `audioOutput` for admitted E30, attached 2C/T8210 and direct C31, E21 and S220 consumers.
  * Control sessions suppress
  * media startup and expose the closed command set below, including explicitly
  * admitted experimental controls. Some writes
