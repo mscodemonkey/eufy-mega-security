@@ -590,6 +590,7 @@ export class GatewayState extends EventEmitter {
       ...(camera.identity.supportedDetections !== undefined ? { supportedDetections: camera.identity.supportedDetections } : {}),
       motionSensitivityControlSupported: camera.identity.motionSensitivityControlSupported ?? false,
       motionSensitivitySteps: camera.identity.motionSensitivitySteps ?? null,
+      motionSensitivityExperimental: camera.identity.motionSensitivityExperimental ?? false,
       homebaseChimeControlSupported: camera.identity.homebaseChimeControlSupported ?? false,
       lightBrightnessControlSupported: camera.identity.lightBrightnessControlSupported ?? false,
       manualFloodlightControlSupported: camera.identity.manualFloodlightControlSupported ?? false,

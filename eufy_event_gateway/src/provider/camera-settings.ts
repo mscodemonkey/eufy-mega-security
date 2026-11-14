@@ -23,6 +23,9 @@ export interface CameraSettingProfile {
   readonly command: number;
   readonly form: "binary" | "payload" | "control" | "manual-light" | "motion-control" | "solo-sensitivity" | "solo-quality" | "attached-quality" | "privacy";
 
+  /** Require authenticated opt-in while the exact transport awaits hardware confirmation. */
+  readonly experimental?: true;
+
   /** Least-sensitive first; absent for boolean controls. */
   readonly ladder?: readonly number[];
 }
@@ -88,6 +91,11 @@ export function cameraSettingProfile(route: ModelControlRoute, setting: CameraSe
     && !isS340LiveQualityRoute(route)) return null;
   if (route.model === "T8134" && route.peerModel !== "T8134") return null;
   if (!Number.isInteger(route.channel) || route.channel! < 0 || route.channel! > 255) return null;
+  if (route.homeBaseAttached && !route.selfPeer && route.peerModel === "T8010"
+    && route.model === "T8113-Z" && route.deviceType === 8 && setting === "motionSensitivity") {
+    const profile = nativeProfile(route.model, route.deviceType, false, setting);
+    return profile ? { ...profile, experimental: true } : null;
+  }
   if (route.homeBaseAttached ? route.selfPeer || route.peerModel !== "T8030" : !route.selfPeer || route.channel !== 0) return null;
   return nativeProfile(route.model, route.deviceType, !route.homeBaseAttached, setting);
 }

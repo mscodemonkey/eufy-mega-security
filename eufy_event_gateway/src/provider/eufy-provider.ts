@@ -2006,7 +2006,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       autoNightVisionControlSupported: false, cameraLightControlSupported: false, experimentalLightControlSupported: false, experimentalQuickResponseSupported: false,
       timedLightControlSupported: false,
       cameraSirenControlSupported: false, presetPositionControlSupported: false, aiTrackingControlSupported: !!profile?.aiTracking && values.tracking !== null,
-      autoCruiseControlSupported: false, motionSensitivityControlSupported: false, motionSensitivitySteps: null, homebaseChimeControlSupported: false, lightBrightnessControlSupported: false, manualFloodlightControlSupported: false, preferenceControls: [], streamingQualityModes: profile?.quality ?? [], nightVisionModes: profile?.night ?? [],
+      autoCruiseControlSupported: false, motionSensitivityControlSupported: false, motionSensitivitySteps: null, motionSensitivityExperimental: false, homebaseChimeControlSupported: false, lightBrightnessControlSupported: false, manualFloodlightControlSupported: false, preferenceControls: [], streamingQualityModes: profile?.quality ?? [], nightVisionModes: profile?.night ?? [],
     };
   }
 
@@ -3488,9 +3488,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const peer = route?.peer;
     const profile = device && route ? cameraSettingProfile(this.#modelTrialRoute(device, route), change.setting) : null;
     if (!device || !route || !peer || !profile || !device.adminUserId || this.#recordingClosing) throw new CameraSettingError("unavailable");
-    const optInSetting = change.setting === "lightBrightness" || change.setting === "manualFloodlight"
+    const optInSetting = profile.experimental === true || change.setting === "lightBrightness" || change.setting === "manualFloodlight"
       || profile.form === "motion-control" || profile.form === "solo-sensitivity" || profile.form === "solo-quality" || profile.form === "attached-quality" || profile.form === "privacy";
     if (["solo-sensitivity", "solo-quality", "attached-quality", "privacy"].includes(profile.form) && !this.config.apiAuthenticationConfigured) throw new CameraSettingError("unavailable");
+    if (profile.experimental && (!this.config.apiAuthenticationConfigured || peer.adminUserId !== device.adminUserId)) throw new CameraSettingError("unavailable");
     const settingBinding = optInSetting ? this.#client.authenticatedBinding() : null;
     if (optInSetting && (!this.config.experimentalModelControls || !this.#client.isAuthenticatedUser(device.adminUserId) || !settingBinding)) throw new CameraSettingError("unavailable");
     if (profile.form === "attached-quality" && peer.adminUserId !== device.adminUserId) throw new CameraSettingError("unavailable");
@@ -5516,10 +5517,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       },
       talkbackSupported: supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
       motionSensitivityControlSupported: settingRouteReady && sensitivityProfile !== null
+        && (sensitivityProfile.experimental !== true || experimentalSettingsReady && this.config.apiAuthenticationConfigured === true
+          && this.#client.authenticatedBinding() !== null && route?.peer.adminUserId === device.adminUserId)
         && (!["motion-control", "solo-sensitivity"].includes(sensitivityProfile.form) || experimentalSettingsReady)
         && (sensitivityProfile.form !== "solo-sensitivity" || this.config.apiAuthenticationConfigured === true && this.#client.authenticatedBinding() !== null)
         && device.reads.motionSensitivityStep !== undefined,
       motionSensitivitySteps: sensitivityProfile?.ladder?.length ?? null,
+      motionSensitivityExperimental: sensitivityProfile?.experimental === true,
       manualFloodlightControlSupported: this.config.experimentalModelControls === true && settingRouteReady
         && !!settingRoute && cameraSettingProfile(settingRoute, "manualFloodlight") !== null
         && !!device.adminUserId && this.#client.isAuthenticatedUser(device.adminUserId) && device.reads.manualFloodlightEnabled !== undefined,

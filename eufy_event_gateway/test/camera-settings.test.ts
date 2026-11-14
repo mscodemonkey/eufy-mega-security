@@ -212,3 +212,29 @@ test("S220 live quality keeps exact standalone identity and its level-one native
   }
   assert.equal(safeInventoryReads([{ param_type: 1020, param_value: "1" }], 63, "T8134", false).streamingQualityTier, undefined);
 });
+
+
+test("HomeBase 2 admits only the exact 2C sensitivity trial and preserves its descending native ladder", () => {
+  const selected = { ...route("T8113-Z", 8, true), peerModel: "T8010", channel: 0 };
+  const profile = cameraSettingProfile(selected, "motionSensitivity")!;
+  assert.equal(profile.experimental, true);
+  const key = Buffer.alloc(32, 7);
+  for (const [index, value] of [192, 118, 72, 46, 30, 20, 14].entries()) {
+    const frame = buildReviewedCameraSettingPayload({ setting: "motionSensitivity", value: index + 1 }, selected, "fixture-owner", key, index, 1791464400000);
+    const body = clear(frame, key);
+    assert.equal(frame.command, 1210);
+    assert.equal(body.length, 136);
+    assert.equal(body.readUInt32LE(0), 0);
+    assert.equal(body.readUInt32LE(4), value);
+    assert.equal(body.subarray(8, 21).toString(), "fixture-owner");
+    assert.equal(readCameraSetting([{ param_type: 1210, param_value: String(value) }], "T8113-Z", 8, false, "motionSensitivity"), index + 1);
+  }
+  for (const patch of [{ model: "T8113" }, { model: "T8113-ZX" }, { deviceType: 9 }, { peerModel: "T8010X" },
+    { homeBaseAttached: false }, { selfPeer: true }, { channel: null }, { channel: -1 }, { channel: 256 }]) {
+    assert.equal(cameraSettingProfile({ ...selected, ...patch }, "motionSensitivity"), null);
+  }
+  for (const setting of ["cameraEnabled", "streamingQuality", "homebaseChime", "motionDetection", "lightBrightness", "manualFloodlight"] as const) {
+    assert.equal(cameraSettingProfile(selected, setting), null);
+  }
+  assert.equal(cameraSettingProfile(route("T8113-Z", 8, true), "motionSensitivity")?.experimental, undefined);
+});

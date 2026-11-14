@@ -28,6 +28,20 @@ class ClientFailure(Exception):
 class CameraSettingsTest(unittest.IsolatedAsyncioTestCase):
     """Protect integer validation, confirmation and targeted failure semantics."""
 
+    def test_trial_sensitivity_keeps_the_existing_entity_identity(self):
+        """Use an experimental label only for explicit trial metadata, without a second entity."""
+        base = SimpleNamespace(__init__=lambda entity, coordinator, serial: None)
+        number = SimpleNamespace(__init__=lambda entity: None)
+        callback = method("number.py", "EufyMotionSensitivityNumber", "__init__",
+                          {"EufyGatewayEntity": base, "NumberEntity": number})
+        for value in (True, False, None, "true", 1):
+            entity = SimpleNamespace(camera={"motionSensitivityExperimental": value},
+                                     _attr_translation_key="camera_motion_sensitivity")
+            callback(entity, None, "fixture")
+            self.assertEqual(entity._attr_unique_id, "fixture_motion_sensitivity")
+            self.assertEqual(entity._attr_translation_key,
+                             "camera_motion_sensitivity_experimental" if value is True else "camera_motion_sensitivity")
+
     async def test_brightness_requires_integral_values_and_clears_only_uncertain_state(self):
         """Keep opt-in brightness independent of floodlight switching and motion settings."""
         callback = method("number.py", "EufyFloodlightBrightnessNumber", "async_set_native_value",
