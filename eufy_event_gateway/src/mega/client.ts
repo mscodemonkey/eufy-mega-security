@@ -1027,24 +1027,32 @@ export class MegaClient {
    * Explicit overrides skip discovery. Queueing, discovery and signing share a
    * ten-second deadline, and a replaced session or failed discovery cannot send
    * its token to a newly discovered host. Account domains remain unchanged.
+   * Fixed failure reasons preserve the last attempted queue, region, request or
+   * response-body boundary without retaining an error message or extending it.
    */
   async nvrSignallingContext(station: string, region: "auto" | "us" | "eu" | "ie", cancellation: AbortSignal): Promise<NvrSignallingContext> {
     this.#requireAuthentication();
     const session = this.#session!;
     const deadline = AbortSignal.any([cancellation, AbortSignal.timeout(10_000)]);
+    let phase: "queue" | "region" | "request" | "body" = "queue";
+    const failure = (): NvrTrialError => new NvrTrialError(cancellation.aborted ? "cancelled" : "sign",
+      cancellation.aborted ? "unspecified" : `sign_${phase}_${deadline.aborted ? "timeout" : "failed"}`);
     const pending = this.#enqueue(async lifetime => {
       const signal = AbortSignal.any([lifetime, deadline]); signal.throwIfAborted();
       try {
+        phase = "region";
         const selected = region === "auto" ? await discoverNvrServiceRegion(this.#fetch, this.#country, signal) : region;
         signal.throwIfAborted();
         if (this.#session !== session) throw new NvrTrialError("cancelled");
         const host = selected === "us" ? "security-smart.eufylife.com" : `security-smart-${selected}.eufylife.com`;
+        phase = "request";
         const response = await this.#fetch(`https://${host}/v1/smart/nvr/ws/sign?station_sn=${encodeURIComponent(station)}`, {
           headers: { "app-name": "eufy_mega", "model-type": "WEB", "web-country": this.#country.toUpperCase(),
             gtoken: megaUserToken(session.userId), "x-auth-token": session.authToken, authorization: session.authToken },
           redirect: "manual", signal,
         });
         if (!response.ok) { await response.body?.cancel(); throw new NvrTrialError("region_or_authorization_rejected", "unspecified", response.status); }
+        phase = "body";
         const value: unknown = JSON.parse((await readBoundedResponse(response, 65536, signal)).toString("utf8"));
         if (!isRecord(value) || value.code !== 0 || typeof value.data !== "string" || !value.data.length || value.data.length > 8192) {
           throw new NvrTrialError("region_or_authorization_rejected", "unspecified", response.status);
@@ -1053,12 +1061,12 @@ export class MegaClient {
         return { host, region: selected.toUpperCase() as "US" | "EU" | "IE", authToken: session.authToken,
           gtoken: megaUserToken(session.userId), sign: value.data };
       } catch (error) {
-        throw error instanceof NvrTrialError ? error : new NvrTrialError(cancellation.aborted ? "cancelled" : "sign");
+        throw error instanceof NvrTrialError ? error : failure();
       }
     });
     return await new Promise<NvrSignallingContext>((resolve, reject) => {
       const abort = (): void => { deadline.removeEventListener("abort", abort);
-        reject(new NvrTrialError(cancellation.aborted ? "cancelled" : "sign")); };
+        reject(failure()); };
       deadline.addEventListener("abort", abort, { once: true });
       void pending.then(resolve, reject).finally(() => deadline.removeEventListener("abort", abort));
       if (deadline.aborted) abort();
