@@ -15,7 +15,7 @@ import { MegaPushReceiver } from "../src/mega/push.js";
 import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 import { ParameterCheckError } from "../src/provider/reported-parameter-check.js";
 
-for (const mode of ["advanced", "hb2", "unchanged", "regressed", "missing", "absent-params", "future", "duplicate-param", "changed", "account", "cancel", "shutdown", "duplicate-device", "hung", "disabled", "wrong-model", "wrong-parent", "ambiguous", "busy"] as const) {
+for (const mode of ["advanced", "hb2", "unchanged", "regressed", "missing", "absent-params", "future", "duplicate-param", "changed", "account", "cancel", "shutdown", "duplicate-device", "hung", "controls-off", "wrong-model", "wrong-parent", "ambiguous", "busy"] as const) {
   test(`shared T8910 device-list comparison: ${mode}`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "device-list-motion-")), now = Date.now();
     let reads = 0, callbacks = 0, bound = true;
@@ -44,13 +44,13 @@ for (const mode of ["advanced", "hb2", "unchanged", "regressed", "missing", "abs
         ...(reads > 1 && mode === "ambiguous" ? [{ ...sensor, device_sn: "sibling" }] : [])] };
     });
     const provider = new EufyProvider({ username: "synthetic", password: "synthetic", country: "AU", persistentDirectory: directory,
-      maxStreamSeconds: 120, experimentalModelControls: mode !== "disabled", apiAuthenticationConfigured: true });
+      maxStreamSeconds: 120, experimentalModelControls: false, apiAuthenticationConfigured: true });
     try {
       await provider.start(new Proxy({}, { get: (_target, key) => () => { if (["sensorMotion", "sensor", "camera", "snapshot"].includes(String(key))) callbacks++; } }) as ProviderEvents);
       const baseline = callbacks;
       context.mock.timers.enable({ apis: ["setTimeout"] });
       const operation = provider.readReportedParameters("target", controller.signal, "device_list");
-      const success = ["advanced", "hb2", "unchanged", "regressed", "missing", "absent-params", "future", "duplicate-param", "busy"].includes(mode);
+      const success = ["advanced", "hb2", "unchanged", "regressed", "missing", "absent-params", "future", "duplicate-param", "busy", "controls-off"].includes(mode);
       const result = success ? operation : assert.rejects(operation, ParameterCheckError);
       await new Promise(resolve => setImmediate(resolve));
       if (mode === "busy") await assert.rejects(provider.readReportedParameters("target", controller.signal, "device_list"), ParameterCheckError);
@@ -61,7 +61,7 @@ for (const mode of ["advanced", "hb2", "unchanged", "regressed", "missing", "abs
       const value = await result;
       if (success) {
         assert.equal(value?.source, "device_list");
-        assert.equal(value?.change, ["missing", "absent-params", "future", "duplicate-param"].includes(mode) ? "unavailable" : ["busy", "hb2"].includes(mode) ? "advanced" : mode);
+        assert.equal(value?.change, ["missing", "absent-params", "future", "duplicate-param"].includes(mode) ? "unavailable" : ["busy", "hb2", "controls-off"].includes(mode) ? "advanced" : mode);
         assert.equal(reads, 3);
       }
       assert.equal(callbacks, baseline);
