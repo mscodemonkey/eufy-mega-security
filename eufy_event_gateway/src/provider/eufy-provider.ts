@@ -1039,6 +1039,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Retrieve one separately consented continuous preview under the signed-in account and fresh index. */
   async readC31ContinuousTrial(serial: string, begin: number, signal: AbortSignal): Promise<Buffer> {
+    this.#assertRtcPreparationIdle();
     validateC31IndexWindow(begin, begin + 10, Math.floor(Date.now() / 1000));
     const account = this.#client.authenticatedUserId(), binding = this.#client.authenticatedBinding();
     if (!account || !binding) throw new C31IndexError("admission");
