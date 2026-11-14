@@ -855,10 +855,9 @@ stays opt-in for them.
 Each camera that delivers live audio has a **Live audio** switch, off by default. A direct S220 receive-audio view waits up to 12 seconds for its first AAC before choosing video-only output. It starts sooner when audio arrives, keeps the existing startup memory limit, and never opens another camera session. A camera with its microphone muted can therefore take longer to start when Live audio is enabled. The `camera_live_audio_startup` log after closing a compatible view reports timing and whether audio was selected, without recording media or device identifiers.
 Off, its views carry video only and open fastest. On, they carry the camera's
 sound as well, in one MPEG-TS stream with the video left as it is; in a browser
-the view then opens a little later, because Home Assistant converts the audio for
-WebRTC. The switch is a Home Assistant choice and changes nothing on the camera.
+the view then opens a little later while Home Assistant prepares its HLS output. The switch is a Home Assistant choice and changes nothing on the camera.
 It applies the next time a view opens.
-Home Assistant's existing go2rtc provider continues to own WebRTC signalling.
+Gateway cameras use Home Assistant's HLS pipeline so reconnects receive renewed access credentials. The built-in go2rtc WebRTC path retains an expiring producer URL, so it is not offered for these cameras. Native video and the Live audio choice still apply to HLS.
 
 **Try faster native startup** is a separate, default-off option. With native video enabled, it gives a new ordinary HLS stream a two-second segment target. It uses less playback buffering, so turn it off if playback becomes unstable. Home Assistant must have low-latency HLS enabled. Existing streams, active recordings, preload and other cameras' settings are left to Home Assistant. Camera connection and keyframe timing can still limit startup.
 

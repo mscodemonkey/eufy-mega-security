@@ -463,6 +463,18 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         self._hls_idle_stream = stream
         return stream
 
+    async def _async_get_supported_webrtc_provider(self, fn: Any) -> None:
+        """Keep expiring gateway URLs on Home Assistant's renewing HLS worker.
+
+        External providers such as go2rtc retain their own producer URL and do
+        not consume this entity's periodic source renewal. After the gateway's
+        normal session limit, reconnecting with that URL eventually fails its
+        ten-minute signature. The base Camera lifecycle still owns provider
+        registration and removal, but this source has no eligible provider.
+        HLS preserves the selected native media profile and live audio choice.
+        """
+        return None
+
     async def async_added_to_hass(self) -> None:
         """Start updates and refresh credentials on Home Assistant's cached stream."""
         await super().async_added_to_hass()
