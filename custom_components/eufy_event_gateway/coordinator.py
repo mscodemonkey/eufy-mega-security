@@ -200,7 +200,7 @@ class EufyGatewayCoordinator(
         self.async_set_updated_data(updated)
 
     def async_set_station(self, station: dict[str, Any]) -> None:
-        """Merge confirmed command state and notify all station entities."""
+        """Merge confirmed station state and refresh owned HA device metadata."""
         serial = station.get("serial")
         if not isinstance(serial, str):
             return
@@ -211,11 +211,14 @@ class EufyGatewayCoordinator(
             "locks": dict(self.locks),
         }
         updated["stations"][serial] = station
-        self._sync_device_name(serial, station.get("name"))
+        if isinstance(station.get("firmware"), str):
+            self._sync_device_name(serial, station.get("name"), firmware=station["firmware"])
+        else:
+            self._sync_device_name(serial, station.get("name"))
         self.async_set_updated_data(updated)
 
     def async_set_camera(self, camera: dict[str, Any]) -> None:
-        """Merge confirmed command state and notify all camera entities."""
+        """Merge confirmed camera state and refresh owned HA device metadata."""
         serial = camera.get("serial")
         if not isinstance(serial, str):
             return
@@ -226,7 +229,10 @@ class EufyGatewayCoordinator(
             "locks": dict(self.locks),
         }
         updated["cameras"][serial] = camera
-        self._sync_device_name(serial, camera.get("name"))
+        if isinstance(camera.get("firmware"), str):
+            self._sync_device_name(serial, camera.get("name"), firmware=camera["firmware"])
+        else:
+            self._sync_device_name(serial, camera.get("name"))
         self.async_set_updated_data(updated)
 
     def start_event_listener(self) -> None:
@@ -317,6 +323,7 @@ class EufyGatewayCoordinator(
                 "sensors": normalized,
                 "locks": dict(self.locks),
             }
+            self._sync_device_names(updated)
             self.async_set_updated_data(updated)
 
         sensor = event.get("sensor")
@@ -328,7 +335,10 @@ class EufyGatewayCoordinator(
                 "locks": dict(self.locks),
             }
             updated["sensors"][sensor["serial"]] = sensor
-            self._sync_device_name(sensor["serial"], sensor.get("name"))
+            if isinstance(sensor.get("firmware"), str):
+                self._sync_device_name(sensor["serial"], sensor.get("name"), firmware=sensor["firmware"])
+            else:
+                self._sync_device_name(sensor["serial"], sensor.get("name"))
             self.async_set_updated_data(updated)
 
         locks = event.get("locks")
@@ -354,16 +364,19 @@ class EufyGatewayCoordinator(
     def _sync_device_names(
         self, data: dict[str, dict[str, dict[str, Any]]]
     ) -> None:
-        """Refresh names and reported lock firmware without changing user name overrides."""
+        """Refresh reported names and firmware without changing user name overrides."""
         for family in ("cameras", "stations", "sensors", "locks"):
             for serial, device in data.get(family, {}).items():
-                if family == "locks" and isinstance(device.get("firmware"), str):
+                if isinstance(device.get("firmware"), str):
                     self._sync_device_name(serial, device.get("name"), firmware=device["firmware"])
                 else:
                     self._sync_device_name(serial, device.get("name"))
 
     def _sync_device_name(self, serial: str, name: object, *, firmware: object = None) -> None:
-        """Update reported metadata only on a device owned by this config entry."""
+        """Update reported metadata only on a device owned by this config entry.
+
+        Missing or invalid firmware never clears a registered version.
+        """
         updates = {}
         if isinstance(name, str) and name.strip():
             updates["name"] = name
