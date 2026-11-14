@@ -2999,8 +2999,11 @@ export class FirstPartyPpcsSession {
         return decodeEventPictureReply(payload, sign, this.#options.accountId!, this.#options.stationSerial)
           ?? decodeLegacyEventPictureReply(payload, sign, commandKey(this.#options.stationSerial, this.#options.p2pDid));
       },
-      decodeImage: (payload, sign) => decodeEventPictureReply(payload, sign, this.#options.accountId!, this.#options.stationSerial)
-        ?? decodeLegacyEventPictureReply(payload, sign, commandKey(this.#options.stationSerial, this.#options.p2pDid)),
+      decodeImage: (payload, sign) => {
+        if (sign === 2) return this.#level2Key ? decryptLevel2(payload, this.#level2Key, sign) ?? null : null;
+        return decodeEventPictureReply(payload, sign, this.#options.accountId!, this.#options.stationSerial)
+          ?? decodeLegacyEventPictureReply(payload, sign, commandKey(this.#options.stationSerial, this.#options.p2pDid));
+      },
     }, this.#options.cameraModel === "T8214" ? 94 : 8);
     return this.#eventPicture;
   }
