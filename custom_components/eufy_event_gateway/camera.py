@@ -595,9 +595,14 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         mode = reported.get("workingMode")
         if mode in ("Optimal Battery Life", "Optimal Surveillance", "Customize Recording"):
             attributes["reported_working_mode"] = mode
+        c31_sound = (
+            self.camera.get("model") == "T817L"
+            and self.camera.get("deviceType") == 10031
+            and not self.camera.get("stationSerial")
+        )
         for field, attribute, allowed in (
-            ("soundDetectionSensitivity", "reported_sound_detection_sensitivity", (1, 3, 5)),
-            ("soundDetectionType", "reported_sound_detection_type", (1, 2)),
+            ("soundDetectionSensitivity", "reported_sound_detection_sensitivity", (1, 2, 3, 4, 5) if c31_sound else (1, 3, 5)),
+            ("soundDetectionType", "reported_sound_detection_type", (128, 256) if c31_sound else (1, 2)),
             ("streamingQualityTier", "reported_streaming_quality_tier", (0, 1, 2, 3, 4) if self.camera.get("model") == "T8416" and self.camera.get("nvrLiveControlsSupported") is True else (0, 1, 2, 3)),
             ("recordingQualityTier", "reported_recording_quality_tier", (1, 2, 3)),
             ("notificationStyle", "reported_notification_style", (1, 2, 3)),
