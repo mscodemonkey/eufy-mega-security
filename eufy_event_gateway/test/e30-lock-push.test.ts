@@ -89,11 +89,13 @@ test("E30 rejects foreign, unsupported, stale and untrusted-clock hints", async 
   const f = await fixture(context);
   const event = hint();
   for (const patch of [{ cameraSerial: "foreign" }, { stationSerial: "foreign" }, { eventType: 1 },
-    { eventType: null }, { transportSentAtMilliseconds: null }, { transportSentAtMilliseconds: undefined },
+    { eventType: null }, { transportSentAtMilliseconds: null },
     { transportSentAtMilliseconds: Date.now() - 60_001 }, { transportSentAtMilliseconds: Date.now() + 5_001 },
     { transportSentAtMilliseconds: Date.now() + 0.5 }]) {
     assert.equal(f.provider.acceptPushHint({ ...event, ...patch }), false);
   }
+  const { transportSentAtMilliseconds: _clock, ...withoutClock } = event;
+  assert.equal(f.provider.acceptPushHint(withoutClock), false);
   context.mock.timers.tick(20_000); await settle();
   assert.equal(f.queries(), 1);
 });
