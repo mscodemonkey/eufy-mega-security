@@ -220,6 +220,10 @@ export interface MegaInventoryDevice {
   readonly localAddress: string | null;
   readonly cipherId: number | null;
   readonly adminUserId: string | null;
+
+  /** Private cloud membership used only by the exact administrator-qualified light trial. */
+  readonly memberUserId?: string | null;
+  readonly memberType?: number | null;
   readonly userName: string | null;
   readonly firmware: string | null;
 
@@ -3500,8 +3504,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       || profile.form === "motion-control" || profile.form === "solo-sensitivity" || profile.form === "solo-quality" || profile.form === "attached-quality" || profile.form === "privacy";
     if (["solo-sensitivity", "solo-quality", "attached-quality", "privacy"].includes(profile.form) && !this.config.apiAuthenticationConfigured) throw new CameraSettingError("unavailable");
     if (profile.experimental && (!this.config.apiAuthenticationConfigured || peer.adminUserId !== device.adminUserId)) throw new CameraSettingError("unavailable");
+    const administratorLight = change.setting === "manualFloodlight" && profile.experimental === true
+      && this.#manual2cLightMember(device, peer);
     const settingBinding = optInSetting ? this.#client.authenticatedBinding() : null;
-    if (optInSetting && (!this.config.experimentalModelControls || !this.#client.isAuthenticatedUser(device.adminUserId) || !settingBinding)) throw new CameraSettingError("unavailable");
+    if (optInSetting && (!this.config.experimentalModelControls || (!this.#client.isAuthenticatedUser(device.adminUserId) && !administratorLight) || !settingBinding)) throw new CameraSettingError("unavailable");
     if (profile.form === "attached-quality" && peer.adminUserId !== device.adminUserId) throw new CameraSettingError("unavailable");
     cameraSettingWireValue(profile, change);
     const controlMaps = [this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations,
@@ -3522,7 +3528,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (this.#recordingClosing || generation !== this.#startupGeneration || Date.now() >= deadline || (!dispatched && signal?.aborted)
         || !current || !currentPeer || inventoryBindingChanged(device, current) || inventoryBindingChanged(peer, currentPeer)
         || currentPeer.p2pDid !== peer.p2pDid || currentPeer.p2pConnection !== peer.p2pConnection
-        || (settingBinding !== null && !settingBinding())) throw new CameraSettingError("unavailable");
+        || (settingBinding !== null && !settingBinding())
+        || (administratorLight && !this.#manual2cLightMember(current, currentPeer))) throw new CameraSettingError("unavailable");
     };
     const clear = (): void => {
       this.#invalidateLiveReads(serial, profile.form === "attached-quality" ? [field, "s340LiveQualityMode"] : [field]);
@@ -5470,6 +5477,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return this.#c37ControlRouteReady(device) && typeof device.reads.aiTrackingEnabled === "boolean";
   }
 
+  /** Admit only the signed-in administrator's camera and HB3 membership, never a guest or inferred owner. */
+  #manual2cLightMember(device: MegaInventoryDevice, peer: MegaInventoryDevice | undefined): boolean {
+    return device.model === "T8113-Z" && device.deviceType === 8 && peer?.model === "T8030" && peer.deviceType === 18
+      && device.parentSerial === peer.serial && device.serial !== peer.serial && !!device.adminUserId && peer.adminUserId === device.adminUserId
+      && [device, peer].every(row => (row.memberType === 1 || row.memberType === 2)
+        && !!row.memberUserId && this.#client.isAuthenticatedUser(row.memberUserId));
+  }
+
   #cameraIdentity(device: MegaInventoryDevice): CameraIdentity {
     const dskPeerSerials = new Set(this.#dskKeys.keys());
     const route = ppcsStreamRoute(device, this.#devices);
@@ -5493,7 +5508,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const manualLightReason = manualLightProfile === null ? "route_unsupported"
       : this.config.experimentalModelControls !== true ? "trial_disabled"
       : !settingRouteReady ? "route_not_ready"
-      : !device.adminUserId || !this.#client.isAuthenticatedUser(device.adminUserId) ? "owner_account_required"
+      : !device.adminUserId || !this.#client.isAuthenticatedUser(device.adminUserId)
+        && !(manualLightProfile.experimental && this.#manual2cLightMember(device, route?.peer)) ? "owner_account_required"
       : manualLightProfile.experimental && this.config.apiAuthenticationConfigured !== true ? "api_authentication_required"
       : manualLightProfile.experimental && this.#client.authenticatedBinding() === null ? "account_binding_unavailable"
       : manualLightProfile.experimental && route?.peer.adminUserId !== device.adminUserId ? "parent_owner_mismatch"
@@ -6976,6 +6992,9 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
       localAddress: freshestLanAddress(value),
       cipherId: integer(value.cipher_id),
       adminUserId: isRecord(value.member) ? safeValue(value.member.admin_user_id, 128) : null,
+      memberUserId: isRecord(value.member) ? safeValue(value.member.member_user_id, 128) : null,
+      memberType: isRecord(value.member) && typeof value.member.member_type === "number"
+        && Number.isInteger(value.member.member_type) ? value.member.member_type : null,
       userName: isRecord(value.member) ? safeValue(value.member.nick_name, 128) : null,
       firmware: safeValue(value.main_sw_version, 100),
       hardwareVersion: safeValue(value.main_hw_version, 100),

@@ -38,7 +38,7 @@ Optional camera attributes include the device's secondary firmware and explicit 
 
 The exact eufyCam 2C T8113-Z/type 8 now has an opt-in [HomeBase 2 sensitivity trial](docs/HB2_2C_SENSITIVITY.md). Its physical behaviour is unconfirmed. It is labelled experimental and requires fresh setting readback.
 
-The same exact model has a manual spotlight trial through HomeBase 3 T8030. Enable Experimental model controls, then explicitly enable its disabled-by-default Spotlight (experimental) light entity. The gateway requires an owned account, API authentication and fresh setting readback. This trial does not add brightness control or admit HomeBase 2 light writes. HA hardware confirmation is pending.
+The same exact model has a manual spotlight trial through HomeBase 3 T8030. Enable Experimental model controls, then explicitly enable its disabled-by-default Spotlight (experimental) light entity. The gateway requires the primary account or a matching administrator membership on both camera and HomeBase, API authentication and fresh setting readback. Guests are refused. This trial does not add brightness control or admit HomeBase 2 light writes. HA hardware confirmation is pending.
 
 T8171 exposes reported live-view and recording quality, notification style, and standalone controls for infrared mode, motion detection, live-view quality, recorded audio and AI tracking. T8425 exposes watermark mode and anti-theft detection configuration. T8170 exposes its reported spotlight-enable switch and raw motion-sensitivity value. The spotlight switch does not say whether its lamp is currently illuminated, and notification style does not prove delivery. These settings are not inferred for another model merely because it reports the same parameter number.
 

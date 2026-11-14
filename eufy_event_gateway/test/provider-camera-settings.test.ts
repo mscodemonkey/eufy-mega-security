@@ -239,3 +239,49 @@ for (const mode of ["ready", "disabled", "guest", "no-binding", "no-api", "paren
     } finally { await provider.close(); await rm(directory, { recursive: true, force: true }); assert.equal(network.mock.callCount(), 0); }
   });
 }
+
+for (const mode of ["administrator", "super-admin", "guest", "foreign-member", "parent-guest", "parent-foreign", "missing-role", "revoked"] as const) {
+  test(`2C spotlight binds delegated authority to both current account memberships: ${mode}`, async context => {
+    const directory = await mkdtemp(join(tmpdir(), "2c-member-light-"));
+    let actual = false, writes = 0, revoked = false;
+    const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
+    context.mock.method(globalThis, "setInterval", (() => ({ unref() {} })) as unknown as typeof setInterval);
+    context.mock.method(globalThis, "clearInterval", (() => {}) as typeof clearInterval);
+    context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
+    context.mock.method(MegaClient.prototype, "isAuthenticatedUser", (id: string) => id === "signed-in-member");
+    context.mock.method(MegaClient.prototype, "authenticatedBinding", () => () => true);
+    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [
+      { device_sn: "base", device_model: "T8030", device_type: 18, category: "eufy_security", p2p_did: "TEST-12345678-TEST", p2p_conn: "synthetic",
+        member: { admin_user_id: "primary-owner", member_user_id: mode === "parent-foreign" ? "foreign" : "signed-in-member", member_type: mode === "parent-guest" ? 0 : 1 } },
+      { device_sn: "camera", parent_sn: "base", device_model: "T8113-Z", device_type: 8, category: "eufy_security", device_channel: 2,
+        member: { admin_user_id: "primary-owner", member_user_id: mode === "foreign-member" ? "foreign" : "signed-in-member",
+          ...(mode === "missing-role" ? {} : { member_type: mode === "guest" || revoked ? 0 : mode === "super-admin" ? 2 : 1 }) },
+        params: [{ param_type: 1400, param_value: String(Number(actual)) }] },
+    ] }));
+    context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ base: { key: "synthetic", expiresAt: null } }));
+    context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
+    context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => {});
+    context.mock.method(FirstPartyPpcsSession.prototype, "close");
+    context.mock.method(FirstPartyPpcsSession.prototype, "writeReviewedCameraSetting", async (_change: unknown, _route: unknown, dispatch: () => void) => {
+      dispatch(); writes++; actual = true;
+    });
+    const state = new GatewayState();
+    const events = new Proxy({ camera: (identity: Parameters<ProviderEvents["camera"]>[0]) => state.registerCamera(identity) },
+      { get: (target, name) => Reflect.get(target, name) ?? (() => {}) }) as unknown as ProviderEvents;
+    const provider = new EufyProvider({ username: "synthetic", password: "redacted", country: "AU", persistentDirectory: directory,
+      maxStreamSeconds: 120, experimentalModelControls: true, apiAuthenticationConfigured: true });
+    try {
+      await provider.start(events);
+      const admitted = ["administrator", "super-admin", "revoked"].includes(mode);
+      assert.equal(state.getCamera("camera").manualFloodlightControlSupported, admitted);
+      revoked = mode === "revoked";
+      if (mode === "administrator" || mode === "super-admin") {
+        assert.equal((await provider.setCameraSetting("camera", { setting: "manualFloodlight", value: true })).reportedSettings?.manualFloodlightEnabled, true);
+        assert.equal(writes, 1);
+      } else {
+        await assert.rejects(provider.setCameraSetting("camera", { setting: "manualFloodlight", value: true }));
+        assert.equal(writes, 0);
+      }
+    } finally { await provider.close(); await rm(directory, { recursive: true, force: true }); assert.equal(network.mock.callCount(), 0); }
+  });
+}
