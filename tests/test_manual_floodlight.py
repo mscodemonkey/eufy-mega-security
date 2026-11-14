@@ -6,6 +6,8 @@ turns unknown manual state into motion state or optimistic success.
 """
 from __future__ import annotations
 
+import ast
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import unittest
@@ -17,6 +19,17 @@ from test_camera_settings import ClientFailure
 
 class ManualFloodlightTests(unittest.IsolatedAsyncioTestCase):
     """Keep manual override, motion lighting and unrelated settings separate."""
+
+    def test_2c_trial_starts_disabled_with_the_experimental_light_label(self):
+        """Enabling gateway trials alone cannot expose an active HA light control."""
+        source = Path(__file__).parents[1] / "custom_components/eufy_event_gateway/light.py"
+        tree = ast.parse(source.read_text())
+        node = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "Eufy2CSpotlight")
+        namespace = {"EufyManualFloodlight": object}
+        exec(compile(ast.Module(body=[node], type_ignores=[]), str(source), "exec"), namespace)
+        entity = namespace["Eufy2CSpotlight"]()
+        self.assertIs(entity._attr_entity_registry_enabled_default, False)
+        self.assertEqual(entity._attr_translation_key, "spotlight_experimental")
 
     def test_only_boolean_manual_state_is_readable(self):
         """Missing or ambiguous reports stay unknown, including false-like values."""

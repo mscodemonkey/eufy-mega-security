@@ -220,6 +220,10 @@ export interface MegaInventoryDevice {
   readonly localAddress: string | null;
   readonly cipherId: number | null;
   readonly adminUserId: string | null;
+
+  /** Private cloud membership used only by the exact administrator-qualified light trial. */
+  readonly memberUserId?: string | null;
+  readonly memberType?: number | null;
   readonly userName: string | null;
   readonly firmware: string | null;
 
@@ -2014,7 +2018,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       autoNightVisionControlSupported: false, cameraLightControlSupported: false, experimentalLightControlSupported: false, experimentalQuickResponseSupported: false,
       timedLightControlSupported: false,
       cameraSirenControlSupported: false, presetPositionControlSupported: false, aiTrackingControlSupported: !!profile?.aiTracking && values.tracking !== null,
-      autoCruiseControlSupported: false, motionSensitivityControlSupported: false, motionSensitivitySteps: null, motionSensitivityExperimental: false, homebaseChimeControlSupported: false, lightBrightnessControlSupported: false, manualFloodlightControlSupported: false, preferenceControls: [], streamingQualityModes: profile?.quality ?? [], nightVisionModes: profile?.night ?? [],
+      autoCruiseControlSupported: false, motionSensitivityControlSupported: false, motionSensitivitySteps: null, motionSensitivityExperimental: false, homebaseChimeControlSupported: false, lightBrightnessControlSupported: false, manualFloodlightControlSupported: false, manualFloodlightControlReason: "route_unsupported", preferenceControls: [], streamingQualityModes: profile?.quality ?? [], nightVisionModes: profile?.night ?? [],
     };
   }
 
@@ -3500,8 +3504,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       || profile.form === "motion-control" || profile.form === "solo-sensitivity" || profile.form === "solo-quality" || profile.form === "attached-quality" || profile.form === "privacy";
     if (["solo-sensitivity", "solo-quality", "attached-quality", "privacy"].includes(profile.form) && !this.config.apiAuthenticationConfigured) throw new CameraSettingError("unavailable");
     if (profile.experimental && (!this.config.apiAuthenticationConfigured || peer.adminUserId !== device.adminUserId)) throw new CameraSettingError("unavailable");
+    const administratorLight = change.setting === "manualFloodlight" && profile.experimental === true
+      && this.#manual2cLightMember(device, peer);
     const settingBinding = optInSetting ? this.#client.authenticatedBinding() : null;
-    if (optInSetting && (!this.config.experimentalModelControls || !this.#client.isAuthenticatedUser(device.adminUserId) || !settingBinding)) throw new CameraSettingError("unavailable");
+    if (optInSetting && (!this.config.experimentalModelControls || (!this.#client.isAuthenticatedUser(device.adminUserId) && !administratorLight) || !settingBinding)) throw new CameraSettingError("unavailable");
     if (profile.form === "attached-quality" && peer.adminUserId !== device.adminUserId) throw new CameraSettingError("unavailable");
     cameraSettingWireValue(profile, change);
     const controlMaps = [this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations,
@@ -3517,12 +3523,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const field = change.setting === "cameraEnabled" ? "enabled" : change.setting === "streamingQuality" ? "streamingQualityTier" : change.setting === "motionSensitivity" ? "motionSensitivityStep" : change.setting === "motionDetection" ? "motionDetectionEnabled" : change.setting === "lightBrightness" ? "lightBrightness" : change.setting === "manualFloodlight" ? "manualFloodlightEnabled" : "homebaseChimeEnabled";
     let session: FirstPartyPpcsSession | null = null;
     let dispatched = false;
+    let confirmedLightState: boolean | undefined;
     const check = (): void => {
       const current = this.#devices.get(serial), currentPeer = this.#devices.get(peer.serial);
       if (this.#recordingClosing || generation !== this.#startupGeneration || Date.now() >= deadline || (!dispatched && signal?.aborted)
         || !current || !currentPeer || inventoryBindingChanged(device, current) || inventoryBindingChanged(peer, currentPeer)
         || currentPeer.p2pDid !== peer.p2pDid || currentPeer.p2pConnection !== peer.p2pConnection
-        || (settingBinding !== null && !settingBinding())) throw new CameraSettingError("unavailable");
+        || (settingBinding !== null && !settingBinding())
+        || (administratorLight && !this.#manual2cLightMember(current, currentPeer))) throw new CameraSettingError("unavailable");
     };
     const clear = (): void => {
       this.#invalidateLiveReads(serial, profile.form === "attached-quality" ? [field, "s340LiveQualityMode"] : [field]);
@@ -3552,8 +3560,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const abort = (): void => { if (!dispatched) session?.close(); };
     signal?.addEventListener("abort", abort, { once: true });
     try {
-      await runConfirmedCameraSetting({ deadline, ...(signal ? { signal } : {}), check,
+      await runConfirmedCameraSetting({ deadline, ...(profile.form === "attached-light" ? { alwaysWrite: true as const } : {}), ...(signal ? { signal } : {}), check,
         read: async () => {
+          if (dispatched && profile.form === "attached-light") {
+            if (confirmedLightState === undefined) throw new CameraSettingError("outcome_unknown");
+            const current = this.#devices.get(serial)!;
+            this.#devices.set(serial, { ...current, reads: { ...current.reads, manualFloodlightEnabled: confirmedLightState } });
+            this.#liveDeviceReads.set(serial, { ...this.#liveDeviceReads.get(serial), manualFloodlightEnabled: confirmedLightState });
+            return confirmedLightState;
+          }
           if (!route.homeBaseAttached && (session !== null || !dispatched)) {
             const owned = await open(); check();
             try {
@@ -3573,11 +3588,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         },
         write: async onDispatch => {
           const owned = await open(); check();
-          await owned.writeReviewedCameraSetting(change, this.#modelTrialRoute(device, route), () => {
+          const observed = await owned.writeReviewedCameraSetting(change, this.#modelTrialRoute(device, route), () => {
             check();
             if (profile.form === "attached-quality" && this.#devices.get(serial)?.reads.s340LiveQualityMode !== 0) throw new CameraSettingError("unavailable");
             onDispatch(); dispatched = true;
           });
+          if (profile.form === "attached-light") {
+            if (typeof observed !== "boolean" || observed !== change.value) throw new CameraSettingError("outcome_unknown");
+            confirmedLightState = observed;
+          }
           check();
           if (route.homeBaseAttached) { owned.close(); await owned.waitUntilClosed(); session = null; this.#trialSessions.delete(peer.serial); }
         },
@@ -5470,11 +5489,20 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return this.#c37ControlRouteReady(device) && typeof device.reads.aiTrackingEnabled === "boolean";
   }
 
+  /** Admit only the signed-in administrator's camera and HB3 membership, never a guest or inferred owner. */
+  #manual2cLightMember(device: MegaInventoryDevice, peer: MegaInventoryDevice | undefined): boolean {
+    return device.model === "T8113-Z" && device.deviceType === 8 && peer?.model === "T8030" && peer.deviceType === 18
+      && device.parentSerial === peer.serial && device.serial !== peer.serial && !!device.adminUserId && peer.adminUserId === device.adminUserId
+      && [device, peer].every(row => (row.memberType === 1 || row.memberType === 2)
+        && !!row.memberUserId && this.#client.isAuthenticatedUser(row.memberUserId));
+  }
+
   #cameraIdentity(device: MegaInventoryDevice): CameraIdentity {
     const dskPeerSerials = new Set(this.#dskKeys.keys());
     const route = ppcsStreamRoute(device, this.#devices);
     const settingRoute = route ? this.#modelTrialRoute(device, route) : null;
     const sensitivityProfile = settingRoute ? cameraSettingProfile(settingRoute, "motionSensitivity") : null;
+    const manualLightProfile = settingRoute ? cameraSettingProfile(settingRoute, "manualFloodlight") : null;
     const chimeProfile = settingRoute ? cameraSettingProfile(settingRoute, "homebaseChime") : null;
     const settingRouteReady = Boolean(device.adminUserId) && isPpcsRouteReady(device, this.#devices, dskPeerSerials);
     const t817lControlsSupported = device.model.toUpperCase().startsWith("T817L")
@@ -5489,6 +5517,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const nvrLive = this.#normalNvrLiveBinding(device, this.#devices.get(device.parentSerial));
     const experimentalSettingsReady = this.config.experimentalModelControls === true && !!device.adminUserId
       && this.#client.isAuthenticatedUser(device.adminUserId);
+    const manualLightReason = manualLightProfile === null ? "route_unsupported"
+      : this.config.experimentalModelControls !== true ? "trial_disabled"
+      : !settingRouteReady ? "route_not_ready"
+      : !device.adminUserId || !this.#client.isAuthenticatedUser(device.adminUserId)
+        && !(manualLightProfile.experimental && this.#manual2cLightMember(device, route?.peer)) ? "owner_account_required"
+      : manualLightProfile.experimental && this.config.apiAuthenticationConfigured !== true ? "api_authentication_required"
+      : manualLightProfile.experimental && this.#client.authenticatedBinding() === null ? "account_binding_unavailable"
+      : manualLightProfile.experimental && route?.peer.adminUserId !== device.adminUserId ? "parent_owner_mismatch"
+      : device.reads.manualFloodlightEnabled === undefined ? "state_unavailable" : "ready";
     const supportedDetections = cameraDetectionKinds(device, route?.homeBaseAttached);
     const s220Quality = device.model === "T8134" && experimentalSettingsReady && settingRouteReady && this.config.apiAuthenticationConfigured === true
       && this.#client.authenticatedBinding() !== null && settingRoute !== null
@@ -5532,9 +5569,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.reads.motionSensitivityStep !== undefined,
       motionSensitivitySteps: sensitivityProfile?.ladder?.length ?? null,
       motionSensitivityExperimental: sensitivityProfile?.experimental === true,
-      manualFloodlightControlSupported: this.config.experimentalModelControls === true && settingRouteReady
-        && !!settingRoute && cameraSettingProfile(settingRoute, "manualFloodlight") !== null
-        && !!device.adminUserId && this.#client.isAuthenticatedUser(device.adminUserId) && device.reads.manualFloodlightEnabled !== undefined,
+      manualFloodlightControlSupported: manualLightReason === "ready",
+      manualFloodlightControlReason: manualLightReason,
       lightBrightnessControlSupported: this.config.experimentalModelControls === true && settingRouteReady
         && !!settingRoute && cameraSettingProfile(settingRoute, "lightBrightness") !== null
         && !!device.adminUserId && this.#client.isAuthenticatedUser(device.adminUserId) && device.reads.lightBrightness !== undefined,
@@ -5689,7 +5725,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       cameraLightControlSupported: false, directionalPanControlSupported: false, timedLightControlSupported: false, cameraSirenControlSupported: false,
       presetPositionControlSupported: false, storedRecordingsSupported: false, aiTrackingControlSupported: false,
       autoCruiseControlSupported: false, motionSensitivityControlSupported: false, homebaseChimeControlSupported: false,
-      lightBrightnessControlSupported: false, manualFloodlightControlSupported: false };
+      lightBrightnessControlSupported: false, manualFloodlightControlSupported: false, manualFloodlightControlReason: "route_unsupported" };
     if (!isE21(device)) return identity;
     const reads = device.reads.e21 ?? e21Readings([]);
     const mediaReady = this.config.experimentalModelControls === true && route?.homeBaseAttached === false
@@ -5705,7 +5741,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       guardModeRefreshSupported: false, nightVisionControlSupported: false, nightVisionModes: [], autoNightVisionControlSupported: false,
       cameraLightControlSupported: false, directionalPanControlSupported: false, timedLightControlSupported: false, cameraSirenControlSupported: false,
       presetPositionControlSupported: false, storedRecordingsSupported: false, aiTrackingControlSupported: false,
-      autoCruiseControlSupported: false, motionSensitivityControlSupported: false, homebaseChimeControlSupported: false, lightBrightnessControlSupported: false, manualFloodlightControlSupported: false,
+      autoCruiseControlSupported: false, motionSensitivityControlSupported: false, homebaseChimeControlSupported: false, lightBrightnessControlSupported: false, manualFloodlightControlSupported: false, manualFloodlightControlReason: "route_unsupported",
       battery: { supported: [], level: null, backupLevel: null, charging: null, health: null, temperature: null, lastChargingDays: null },
       audioSettings: { microphoneEnabled: reads.preferences.microphone === undefined ? null : reads.preferences.microphone === 1,
         speakerEnabled: reads.preferences.speaker === undefined ? null : reads.preferences.speaker === 1,
@@ -6968,6 +7004,9 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
       localAddress: freshestLanAddress(value),
       cipherId: integer(value.cipher_id),
       adminUserId: isRecord(value.member) ? safeValue(value.member.admin_user_id, 128) : null,
+      memberUserId: isRecord(value.member) ? safeValue(value.member.member_user_id, 128) : null,
+      memberType: isRecord(value.member) && typeof value.member.member_type === "number"
+        && Number.isInteger(value.member.member_type) ? value.member.member_type : null,
       userName: isRecord(value.member) ? safeValue(value.member.nick_name, 128) : null,
       firmware: safeValue(value.main_sw_version, 100),
       hardwareVersion: safeValue(value.main_hw_version, 100),

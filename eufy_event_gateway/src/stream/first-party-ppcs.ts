@@ -1022,7 +1022,10 @@ export function buildE21PreferencePayload(
     payload: rawPayload(encryptLevel2(clear, key, sequence), 0, 8, [8, 0], 0) };
 }
 
-/** Build one exact-profile encrypted setting frame with native ownership and child routing. */
+/**
+ * Build one exact-profile encrypted setting frame with native ownership and child routing.
+ * The 2C manual-light selector is always two, independently of its frame's child channel.
+ */
 export function buildReviewedCameraSettingPayload(
   change: CameraSettingChange, route: ModelControlRoute, accountId: string, key: Buffer, sequence: number, now: number,
 ): { readonly command: number; readonly payload: Buffer } {
@@ -1040,7 +1043,8 @@ export function buildReviewedCameraSettingPayload(
   if (profile.form === "attached-quality") {
     return { command: 1350, payload: rawPayload(encryptLevel2(Buffer.from(s340LiveQualityValue(route, native, accountId)), key, sequence), route.channel!, 8, [8, 0], 0) };
   }
-  const clear = profile.form === "binary" ? buildCameraEnableBody(route.channel!, native, accountId)
+  const clear = profile.form === "binary" || profile.form === "attached-light"
+    ? buildCameraEnableBody(profile.form === "attached-light" ? 2 : route.channel!, native, accountId)
     : Buffer.from(JSON.stringify(profile.form === "payload"
       ? { account_id: accountId, cmd: profile.readParam, mChannel: route.channel, mValue3: 0,
         payload: { sensitivity: native, channel: route.channel } }
@@ -1482,6 +1486,15 @@ export interface PpcsCameraOptions {
   readonly onSensorMotion?: (observation: SensorMotionObservation) => void;
 }
 
+/** Own one post-dispatch scalar observation until confirmation, timeout or session closure. */
+interface Pending2CLightState {
+  readonly expected: boolean;
+  dispatched: boolean;
+  readonly timer: ReturnType<typeof setTimeout>;
+  readonly resolve: (state: boolean) => void;
+  readonly reject: (error: Error) => void;
+}
+
 /** One in-flight control command and the promise settled by its result frame. */
 interface PendingControl {
   readonly trace?: PpcsControlReceiptTrace;
@@ -1801,6 +1814,10 @@ export class FirstPartyPpcsSession {
   #lookupTimer: ReturnType<typeof setInterval> | null = null;
   #selfAddress: { host: string; port: number } | null = null;
   #pendingControl: PendingControl | null = null;
+
+  /** A second write could confuse a delayed notification from the first command. */
+  #twoCLightWriteAttempted = false;
+  #pending2cLightState: Pending2CLightState | null = null;
   #pendingControlQuery: PendingControlQuery | null = null;
   #c31IndexBody: unknown;
   #continuous: C31ContinuousReader | undefined;
@@ -2135,7 +2152,7 @@ export class FirstPartyPpcsSession {
     const unavailable: AlarmStateTrialResult = { outcome: "unavailable", frames: 0, parseStage: "none", keyReady: false };
     if (this.#closed || !this.#remote || this.#options.purpose !== "control" || !this.#options.modelControlTrial
       || this.#options.cameraModel !== "T8170" || this.#options.channel !== 0 || this.#options.homeBaseAttached
-      || this.#pendingCameraInfo || this.#pendingControl || this.#pendingControlQuery || this.#alarmReadUsed) return unavailable;
+      || this.#pendingCameraInfo || this.#pendingControl || this.#pending2cLightState || this.#pendingControlQuery || this.#alarmReadUsed) return unavailable;
     let resolve!: (value: AlarmStateTrialResult) => void;
     const result = new Promise<AlarmStateTrialResult>(done => { resolve = done; });
     const owner: AlarmReadOwner = { resolve, dispatched: false, keyWaitSucceeded: false, frames: 0, parseStage: "none" };
@@ -2223,7 +2240,7 @@ export class FirstPartyPpcsSession {
     if (confirmation !== undefined && confirmation !== "fresh-inventory") throw new Error("Invalid motion confirmation profile");
     if (this.#options.purpose !== "control") throw new Error("Motion control requires a control session");
     if (this.#closed) throw new Error("Camera motion session closed before dispatch");
-    if (this.#pendingControl) throw new Error("Camera already has a control command in flight");
+    if (this.#pendingControl || this.#pending2cLightState) throw new Error("Camera already has a control command in flight");
     if (!this.#remote) throw new Error("Motion control session is not connected");
     const accountId = this.#options.accountId;
     if (!accountId) throw new Error("Motion control account identity is unavailable");
@@ -2279,7 +2296,7 @@ export class FirstPartyPpcsSession {
    * this original session after provider cancellation or inventory replacement.
    */
   async prepareS100SirenTrial(route: ModelControlRoute, enabled: boolean): Promise<S100SirenTrialTransport> {
-    if (this.#closed || !this.#remote || this.#pendingCameraInfo || this.#pendingControl || this.#pendingControlQuery) {
+    if (this.#closed || !this.#remote || this.#pendingCameraInfo || this.#pendingControl || this.#pending2cLightState || this.#pendingControlQuery) {
       throw new S100SirenTrialError(["session_prepare"]);
     }
     if (this.#options.purpose !== "control" || !this.#options.accountId
@@ -2370,15 +2387,18 @@ export class FirstPartyPpcsSession {
     return this.#lastControlReceipt?.snapshot();
   }
 
-  /** Send exactly one reviewed absolute setting; only provider readback can establish success. */
-  async writeReviewedCameraSetting(change: CameraSettingChange, route: ModelControlRoute, onDispatch: () => void): Promise<void> {
+  /**
+   * Send one reviewed setting. The exact 2C light returns its encrypted
+   * post-dispatch state notification, while other profiles require provider readback.
+   */
+  async writeReviewedCameraSetting(change: CameraSettingChange, route: ModelControlRoute, onDispatch: () => void): Promise<boolean | void> {
     if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     const profile = cameraSettingProfile(route, change.setting);
     if (!profile || this.#closed || this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
       || this.#options.cameraModel !== route.model || this.#options.channel !== route.channel
       || this.#options.homeBaseAttached !== route.homeBaseAttached) throw new Error("Reviewed camera setting session unavailable");
-    if (profile.experimental && (this.#options.stationModel !== "T8010" || this.#options.cameraDeviceType !== 8)) {
-      throw new Error("HomeBase 2 sensitivity session unavailable");
+    if (profile.experimental && (this.#options.stationModel !== route.peerModel || this.#options.cameraDeviceType !== route.deviceType)) {
+      throw new Error("Experimental setting session unavailable");
     }
     if (profile.form === "attached-quality" && (this.#options.cameraDeviceType !== 48 || this.#options.stationModel !== "T8030")) {
       throw new Error("S340 live quality session unavailable");
@@ -2409,7 +2429,7 @@ export class FirstPartyPpcsSession {
       this.#sendCommand(1700, payload);
       return;
     }
-    if (change.setting === "manualFloodlight") {
+    if (change.setting === "manualFloodlight" && profile.form === "manual-light") {
       const payload = buildStandaloneJsonControlPayload(buildManualFloodlightControlValue(change.value), route.channel!,
         commandKey(this.#options.stationSerial, this.#options.p2pDid));
       onDispatch();
@@ -2418,6 +2438,30 @@ export class FirstPartyPpcsSession {
     }
     await this.#waitForLevel2Key();
     const frame = buildReviewedCameraSettingPayload(change, route, this.#options.accountId, this.#level2Key!, this.#level2Seq++, Date.now());
+    if (profile.form === "attached-light") {
+      if (change.setting !== "manualFloodlight" || this.#twoCLightWriteAttempted || this.#pendingControl || this.#pending2cLightState) {
+        throw new Error("2C light requires its own unused control session");
+      }
+      let pending!: Pending2CLightState;
+      const state = new Promise<boolean>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("2C light state notification timed out")), 20_000);
+        pending = { expected: change.value, dispatched: false, timer, resolve, reject };
+        this.#pending2cLightState = pending;
+      });
+      void state.catch(() => undefined);
+      try {
+        onDispatch();
+        pending.dispatched = true; this.#twoCLightWriteAttempted = true;
+        this.#sendCommand(frame.command, frame.payload);
+        return await state;
+      } catch (error) {
+        pending.reject(error instanceof Error ? error : new Error("2C light dispatch failed"));
+        throw error;
+      } finally {
+        clearTimeout(pending.timer);
+        if (this.#pending2cLightState === pending) this.#pending2cLightState = null;
+      }
+    }
     const acknowledgement = this.#waitForControlResult(frame.command, route.channel!);
     try {
       onDispatch();
@@ -2816,13 +2860,13 @@ export class FirstPartyPpcsSession {
     if (this.#options.purpose !== "control" || this.#closed || !this.#remote
       || this.#options.cameraModel !== "T817L" || this.#options.homeBaseAttached !== false
       || this.#options.channel !== 0 || !this.#options.accountId || this.#c31Index || this.#continuous
-      || this.#pendingControl || this.#pendingControlQuery || this.#pendingCameraInfo || this.#recordings) {
+      || this.#pendingControl || this.#pending2cLightState || this.#pendingControlQuery || this.#pendingCameraInfo || this.#recordings) {
       throw new C31IndexError("admission");
     }
     await this.#waitForLevel2Key();
     current();
     if (this.#closed || !this.#level2Key) throw new C31IndexError("cancelled");
-    if (this.#c31Index || this.#pendingControl || this.#pendingControlQuery || this.#pendingCameraInfo || this.#recordings) {
+    if (this.#c31Index || this.#pendingControl || this.#pending2cLightState || this.#pendingControlQuery || this.#pendingCameraInfo || this.#recordings) {
       throw new C31IndexError("busy");
     }
     const transaction = `${Date.now()}`;
@@ -2934,7 +2978,7 @@ export class FirstPartyPpcsSession {
     if (this.#closed || !this.#options.homeBaseAttached || this.#options.cameraModel !== "T8210"
       || this.#options.stationModel !== "T8030" || !this.#options.recordingCameraSerial
       || this.#options.purpose !== "control" || !this.#options.accountId || this.#recordings || this.#eventPicture
-      || this.#pendingControl || this.#pendingControlQuery || this.#pendingCameraInfo || this.#alarmRead || this.#lockStatus) {
+      || this.#pendingControl || this.#pending2cLightState || this.#pendingControlQuery || this.#pendingCameraInfo || this.#alarmRead || this.#lockStatus) {
       throw new EventNameHistoryError("unavailable");
     }
     await this.#waitForLevel2Key();
@@ -2983,7 +3027,7 @@ export class FirstPartyPpcsSession {
     if (this.#closed || !this.#options.homeBaseAttached || !["T8113-Z", "T8214"].includes(this.#options.cameraModel ?? "")
       || this.#options.stationModel !== "T8030" || !this.#options.recordingCameraSerial
       || this.#options.purpose !== "control" || !this.#options.accountId || this.#recordings || this.#eventNames
-      || this.#pendingControl || this.#pendingControlQuery || this.#pendingCameraInfo || this.#alarmRead || this.#lockStatus) {
+      || this.#pendingControl || this.#pending2cLightState || this.#pendingControlQuery || this.#pendingCameraInfo || this.#alarmRead || this.#lockStatus) {
       throw new EventNameHistoryError("unavailable");
     }
     await this.#waitForLevel2Key();
@@ -3131,6 +3175,11 @@ export class FirstPartyPpcsSession {
     if (this.#heartbeat) clearInterval(this.#heartbeat);
     if (this.#attachedMediaRestartTimer) clearTimeout(this.#attachedMediaRestartTimer);
     if (this.#lookupTimer) clearInterval(this.#lookupTimer);
+    if (this.#pending2cLightState) {
+      clearTimeout(this.#pending2cLightState.timer);
+      this.#pending2cLightState.reject(new Error("2C light session closed before its state notification"));
+      this.#pending2cLightState = null;
+    }
     if (this.#pendingControl) {
       clearTimeout(this.#pendingControl.timer);
       this.#pendingControl.reject(new Error("Camera control session closed before acknowledgement"));
@@ -3442,6 +3491,32 @@ export class FirstPartyPpcsSession {
       && payload.subarray(4).every(value => value === 0)) {
       this.stats.mediaStartResult = payload.readInt32LE(0);
       if (this.stats.mediaStartResult === -117) this.stats.mediaStartLowPower = 1;
+    }
+
+    const light = this.#pending2cLightState;
+    if (light?.dispatched && type === 2 && command === 1400 && frameChannel === this.#options.channel
+      && header[14] === 0) {
+      let clear: Buffer | undefined;
+      if (signCode === 2 && payload.length === 32 && this.#level2Key) {
+        clear = decryptLevel2(payload, this.#level2Key, signCode);
+      } else if (signCode === 1 && payload.length === 16) {
+
+        // The physically observed HB3 cycle returned one legacy block on this
+        // control peer. Its scalar occupies four bytes, with opaque trailing
+        // bytes rather than zero or PKCS7 padding. ECB provides no message MAC.
+        try { clear = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); }
+        catch { clear = undefined; }
+      }
+      if (clear) {
+        try {
+          if (signCode === 2 && clear.length === 4 || signCode === 1 && clear.length === 16) {
+            const value = clear.readUInt32LE(0);
+            if ((value === 0 || value === 1) && Boolean(value) === light.expected) {
+              clearTimeout(light.timer); this.#pending2cLightState = null; light.resolve(Boolean(value));
+            }
+          }
+        } finally { clear.fill(0); }
+      }
     }
 
     this.#pendingControl?.trace?.frame(command, frameChannel, signCode, header[14] === 1, payload);
@@ -3898,7 +3973,7 @@ export class FirstPartyPpcsSession {
   #waitForControlResult(command: number, strictChannel?: number, timeoutMilliseconds = CONTROL_TIMEOUT_MILLISECONDS,
     authenticatedOnly = false, encryptedOnly = false, observeReceipt = false): Promise<void> {
     if (this.#alarmRead) throw new Error("Alarm state read owns this session");
-    if (this.#pendingControl) return Promise.reject(new Error("Camera already has a control command in flight"));
+    if (this.#pendingControl || this.#pending2cLightState) return Promise.reject(new Error("Camera already has a control command in flight"));
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#pendingControl = null;
@@ -3918,7 +3993,7 @@ export class FirstPartyPpcsSession {
   ): Promise<Record<string, unknown>> {
     if (this.#options.purpose !== "control" && !this.#allowsViewerPanControl(command)) throw new Error("Camera query requires a control session");
     if (!this.#remote) throw new Error("Camera control session is not connected");
-    if (this.#alarmRead || this.#pendingControlQuery || this.#pendingControl) {
+    if (this.#alarmRead || this.#pendingControlQuery || this.#pendingControl || this.#pending2cLightState) {
       throw new Error("Camera already has a control operation in flight");
     }
     if (this.#options.homeBaseAttached || this.#usesSoloCamPanControl()

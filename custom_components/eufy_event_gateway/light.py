@@ -33,7 +33,10 @@ async def async_setup_entry(hass, entry, async_add_entities) -> None:
                    if camera.get("manualFloodlightControlSupported") is True} - known
         known.update(serials)
         if serials:
-            async_add_entities([EufyManualFloodlight(coordinator, serial) for serial in sorted(serials)])
+            async_add_entities([
+                (Eufy2CSpotlight if coordinator.cameras[serial].get("model") == "T8113-Z" else EufyManualFloodlight)(coordinator, serial)
+                for serial in sorted(serials)
+            ])
 
     add_new()
     entry.async_on_unload(coordinator.async_add_listener(add_new))
@@ -91,6 +94,17 @@ class EufyManualFloodlight(EufyGatewayEntity, LightEntity):
                 camera = {**self.camera, "reportedSettings": {**(self.camera.get("reportedSettings") or {}), "manualFloodlightEnabled": None}}
                 self.coordinator.async_set_camera(camera)
             raise HomeAssistantError(str(error)) from error
+
+
+class Eufy2CSpotlight(EufyManualFloodlight):
+    """Offer the 2C trial only after gateway opt-in and explicit entity enablement.
+
+    The inherited gateway boundary owns single dispatch, fresh state readback and
+    uncertainty. App-side physical proof does not qualify this HA write path.
+    """
+
+    _attr_translation_key = "spotlight_experimental"
+    _attr_entity_registry_enabled_default = False
 
 
 class EufySpotlight(EufyGatewayEntity, LightEntity):

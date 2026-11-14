@@ -558,7 +558,7 @@ test("parses only whitelisted Mega inventory fields and de-duplicates serials", 
   assert.deepEqual(result, [{
     serial: "T8113ABC", name: "Test camera", model: "T8113-Z", parentSerial: "T8030ABC",
     deviceType: 8, category: "eufy_security", channel: 3, p2pDid: "ABC-123456-XYZ",
-    adminUserId: null, userName: null, firmware: null, hardwareVersion: null,
+    adminUserId: null, memberUserId: null, memberType: null, userName: null, firmware: null, hardwareVersion: null,
     firmwareSubVersion: null, firmwareUpdateAvailable: null, p2pConnection: null, localAddress: null, cipherId: null,
     paramTypes: [], reads: { lastChargingDays: 44 },
   }]);
@@ -2096,4 +2096,19 @@ test("T8442 startup outcome distinguishes a result scalar from an unobserved rep
   const rejected = ppcsStreamLogSummary("T8442", null, { ...base, mediaStartResult: -117, mediaStartLowPower: 1 });
   assert.match(rejected, /media_start_acked=1 media_start_low_power=1 media_start_result=-117/);
   assert.match(ppcsStreamLogSummary("T8442", null, { ...base, mediaStartResult: 0 }), /media_start_result=0/);
+});
+
+
+test("membership authority keeps numeric roles strict and never infers the signed-in member from the primary owner", () => {
+  for (const role of [undefined, null, true, "1", "2", {}, [], 1.5]) {
+    const [row] = parseMegaInventory({ devices: [{ device_sn: "synthetic", device_model: "T8113-Z",
+      member: { admin_user_id: "owner", member_type: role } }] });
+    assert.equal(row!.memberUserId, null);
+    assert.equal(row!.memberType, null);
+  }
+  const [row] = parseMegaInventory({ devices: [{ device_sn: "synthetic", device_model: "T8113-Z",
+    member: { admin_user_id: "owner", member_user_id: "delegated", member_type: 1 } }] });
+  assert.equal(row!.adminUserId, "owner");
+  assert.equal(row!.memberUserId, "delegated");
+  assert.equal(row!.memberType, 1);
 });
