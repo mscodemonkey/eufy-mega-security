@@ -224,6 +224,9 @@ for (const mode of ["ready", "disabled", "guest", "no-binding", "no-api", "paren
       maxStreamSeconds: 120, experimentalModelControls: mode !== "disabled", apiAuthenticationConfigured: mode !== "no-api" });
     try {
       await provider.start(events);
+      const reason = { ready: "ready", disabled: "trial_disabled", guest: "owner_account_required", "no-binding": "account_binding_unavailable",
+        "no-api": "api_authentication_required", "parent-owner": "parent_owner_mismatch", "missing-read": "state_unavailable", "changed-binding": "ready" }[mode];
+      assert.equal(state.getCamera("camera").manualFloodlightControlReason, reason);
       if (mode === "ready") {
         assert.equal(state.getCamera("camera").manualFloodlightControlSupported, true);
         assert.equal((await provider.setCameraSetting("camera", { setting: "manualFloodlight", value: true })).reportedSettings?.manualFloodlightEnabled, true);

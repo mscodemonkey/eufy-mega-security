@@ -197,8 +197,11 @@ export interface CameraState {
   /** Opt-in exact T8425/T8426 brightness with a readable baseline; physical behaviour is unconfirmed. */
   readonly lightBrightnessControlSupported?: boolean;
 
-  /** Opt-in exact T8426 manual override with independent setting readback. */
+  /** Opt-in model-qualified manual override with independent setting readback. */
   readonly manualFloodlightControlSupported?: boolean;
+
+  /** Admission category only, never account, route or device identifiers. */
+  readonly manualFloodlightControlReason?: ManualLightControlReason;
 
   /** Model-specific streaming choices, used only when control admission is true. */
   readonly streamingQualityModes?: readonly CameraStreamingQualityMode[];
@@ -503,6 +506,10 @@ export type GatewayEvent =
   | { readonly type: "event-image-updated"; readonly cameraSerial: string; readonly eventImage: SnapshotInfo }
   | { readonly type: "connection-updated"; readonly state: ConnectionState; readonly detail: string | null };
 
+/** Content-free reason why a reviewed manual light is unavailable to HA. */
+export type ManualLightControlReason = "ready" | "route_unsupported" | "trial_disabled" | "route_not_ready"
+  | "owner_account_required" | "api_authentication_required" | "account_binding_unavailable" | "parent_owner_mismatch" | "state_unavailable";
+
 /** Stable camera metadata discovered from Mega inventory. */
 export interface CameraIdentity {
 
@@ -560,8 +567,11 @@ export interface CameraIdentity {
   /** Opt-in exact T8425/T8426 brightness with a readable baseline; physical behaviour is unconfirmed. */
   readonly lightBrightnessControlSupported?: boolean;
 
-  /** Opt-in exact T8426 manual override with independent setting readback. */
+  /** Opt-in model-qualified manual override with independent setting readback. */
   readonly manualFloodlightControlSupported?: boolean;
+
+  /** Admission category only, never account, route or device identifiers. */
+  readonly manualFloodlightControlReason?: ManualLightControlReason;
 
   /** Native choices for this model, separate from recorded-video resolution. */
   readonly streamingQualityModes?: readonly CameraStreamingQualityMode[];

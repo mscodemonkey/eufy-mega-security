@@ -594,6 +594,7 @@ export class GatewayState extends EventEmitter {
       homebaseChimeControlSupported: camera.identity.homebaseChimeControlSupported ?? false,
       lightBrightnessControlSupported: camera.identity.lightBrightnessControlSupported ?? false,
       manualFloodlightControlSupported: camera.identity.manualFloodlightControlSupported ?? false,
+      manualFloodlightControlReason: camera.identity.manualFloodlightControlReason ?? "route_unsupported",
       audioRecordingControlSupported: camera.identity.audioRecordingControlSupported ?? false,
       reportedSettings: camera.identity.reportedSettings ?? null,
       catalogueStatus: camera.identity.catalogueStatus ?? null,

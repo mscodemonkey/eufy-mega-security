@@ -2014,7 +2014,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       autoNightVisionControlSupported: false, cameraLightControlSupported: false, experimentalLightControlSupported: false, experimentalQuickResponseSupported: false,
       timedLightControlSupported: false,
       cameraSirenControlSupported: false, presetPositionControlSupported: false, aiTrackingControlSupported: !!profile?.aiTracking && values.tracking !== null,
-      autoCruiseControlSupported: false, motionSensitivityControlSupported: false, motionSensitivitySteps: null, motionSensitivityExperimental: false, homebaseChimeControlSupported: false, lightBrightnessControlSupported: false, manualFloodlightControlSupported: false, preferenceControls: [], streamingQualityModes: profile?.quality ?? [], nightVisionModes: profile?.night ?? [],
+      autoCruiseControlSupported: false, motionSensitivityControlSupported: false, motionSensitivitySteps: null, motionSensitivityExperimental: false, homebaseChimeControlSupported: false, lightBrightnessControlSupported: false, manualFloodlightControlSupported: false, manualFloodlightControlReason: "route_unsupported", preferenceControls: [], streamingQualityModes: profile?.quality ?? [], nightVisionModes: profile?.night ?? [],
     };
   }
 
@@ -5490,6 +5490,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const nvrLive = this.#normalNvrLiveBinding(device, this.#devices.get(device.parentSerial));
     const experimentalSettingsReady = this.config.experimentalModelControls === true && !!device.adminUserId
       && this.#client.isAuthenticatedUser(device.adminUserId);
+    const manualLightReason = manualLightProfile === null ? "route_unsupported"
+      : this.config.experimentalModelControls !== true ? "trial_disabled"
+      : !settingRouteReady ? "route_not_ready"
+      : !device.adminUserId || !this.#client.isAuthenticatedUser(device.adminUserId) ? "owner_account_required"
+      : manualLightProfile.experimental && this.config.apiAuthenticationConfigured !== true ? "api_authentication_required"
+      : manualLightProfile.experimental && this.#client.authenticatedBinding() === null ? "account_binding_unavailable"
+      : manualLightProfile.experimental && route?.peer.adminUserId !== device.adminUserId ? "parent_owner_mismatch"
+      : device.reads.manualFloodlightEnabled === undefined ? "state_unavailable" : "ready";
     const supportedDetections = cameraDetectionKinds(device, route?.homeBaseAttached);
     const s220Quality = device.model === "T8134" && experimentalSettingsReady && settingRouteReady && this.config.apiAuthenticationConfigured === true
       && this.#client.authenticatedBinding() !== null && settingRoute !== null
@@ -5533,11 +5541,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.reads.motionSensitivityStep !== undefined,
       motionSensitivitySteps: sensitivityProfile?.ladder?.length ?? null,
       motionSensitivityExperimental: sensitivityProfile?.experimental === true,
-      manualFloodlightControlSupported: this.config.experimentalModelControls === true && settingRouteReady
-        && manualLightProfile !== null
-        && (manualLightProfile.experimental !== true || this.config.apiAuthenticationConfigured === true
-          && this.#client.authenticatedBinding() !== null && route?.peer.adminUserId === device.adminUserId)
-        && !!device.adminUserId && this.#client.isAuthenticatedUser(device.adminUserId) && device.reads.manualFloodlightEnabled !== undefined,
+      manualFloodlightControlSupported: manualLightReason === "ready",
+      manualFloodlightControlReason: manualLightReason,
       lightBrightnessControlSupported: this.config.experimentalModelControls === true && settingRouteReady
         && !!settingRoute && cameraSettingProfile(settingRoute, "lightBrightness") !== null
         && !!device.adminUserId && this.#client.isAuthenticatedUser(device.adminUserId) && device.reads.lightBrightness !== undefined,
@@ -5692,7 +5697,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       cameraLightControlSupported: false, directionalPanControlSupported: false, timedLightControlSupported: false, cameraSirenControlSupported: false,
       presetPositionControlSupported: false, storedRecordingsSupported: false, aiTrackingControlSupported: false,
       autoCruiseControlSupported: false, motionSensitivityControlSupported: false, homebaseChimeControlSupported: false,
-      lightBrightnessControlSupported: false, manualFloodlightControlSupported: false };
+      lightBrightnessControlSupported: false, manualFloodlightControlSupported: false, manualFloodlightControlReason: "route_unsupported" };
     if (!isE21(device)) return identity;
     const reads = device.reads.e21 ?? e21Readings([]);
     const mediaReady = this.config.experimentalModelControls === true && route?.homeBaseAttached === false
@@ -5708,7 +5713,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       guardModeRefreshSupported: false, nightVisionControlSupported: false, nightVisionModes: [], autoNightVisionControlSupported: false,
       cameraLightControlSupported: false, directionalPanControlSupported: false, timedLightControlSupported: false, cameraSirenControlSupported: false,
       presetPositionControlSupported: false, storedRecordingsSupported: false, aiTrackingControlSupported: false,
-      autoCruiseControlSupported: false, motionSensitivityControlSupported: false, homebaseChimeControlSupported: false, lightBrightnessControlSupported: false, manualFloodlightControlSupported: false,
+      autoCruiseControlSupported: false, motionSensitivityControlSupported: false, homebaseChimeControlSupported: false, lightBrightnessControlSupported: false, manualFloodlightControlSupported: false, manualFloodlightControlReason: "route_unsupported",
       battery: { supported: [], level: null, backupLevel: null, charging: null, health: null, temperature: null, lastChargingDays: null },
       audioSettings: { microphoneEnabled: reads.preferences.microphone === undefined ? null : reads.preferences.microphone === 1,
         speakerEnabled: reads.preferences.speaker === undefined ? null : reads.preferences.speaker === 1,
