@@ -113,6 +113,7 @@ export class NativeTransportMuxer {
    *
    * @param audioWaitMilliseconds Longest hold of video for the first AAC. Zero starts video-only at once.
    * @param now Monotonic clock in milliseconds, shared by video and audio arrival.
+   * @param onLateAudio The source owner may retire one unrecorded viewer for a safe reconnect.
    */
   constructor(
     private readonly response: ServerResponse,
@@ -121,6 +122,7 @@ export class NativeTransportMuxer {
     private readonly onFailure: (reason: string) => void = () => undefined,
     private readonly onSummary: (summary: NativeTransportSummary) => void = () => undefined,
     private readonly now: () => number = () => performance.now(),
+    private readonly onLateAudio: () => boolean = () => false,
   ) {
     this.videoInput.on("data", (chunk: Buffer) => this.#acceptVideo(chunk));
     this.videoInput.once("end", () => this.close());
@@ -133,7 +135,8 @@ export class NativeTransportMuxer {
   /**
    * Consume provider-validated AAC whose clock belongs with the opening picture.
    * Older startup batches cannot select an empty track. Late audio after a
-   * video-only start remains ignored for that program.
+   * video-only start remains ignored for that program unless its owner admits a
+   * one-time reconnect. This never adds a track to an already published program.
    */
   acceptAudio(chunk: Buffer): void {
     if (this.#closed || chunk.length === 0) return;
@@ -143,6 +146,7 @@ export class NativeTransportMuxer {
       else if (parseAdtsAccessUnits(chunk)) {
         this.#firstAudioAt ??= this.now();
         this.#audioAfterVideoOnly++;
+        if (this.onLateAudio()) this.close();
       }
       return;
     }

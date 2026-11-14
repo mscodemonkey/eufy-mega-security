@@ -259,6 +259,9 @@ interface Session {
   /** Activity-aware HA workers keep their call until HA actually closes the response. */
   readonly hlsClients: Set<VideoViewerResponse>;
   readonly audioConsumers: Set<(chunk: Buffer) => void>;
+
+  /** Marked native S220 views already retired for late AAC on this exact source. */
+  readonly lateAudioViews: Set<string>;
   parameterSets: VideoParameterSetCache;
   state: "idle" | "starting" | "streaming" | "stopping" | "error";
   start: PendingSourceStart | null;
@@ -823,7 +826,20 @@ export class LiveStreamManager extends EventEmitter {
     const stopped = (reason: string): void => { this.emit("warning", new Error(`Camera live transport stopped: reason=${reason}`)); };
     if (profile === "native") {
       const muxer = new NativeTransportMuxer(response, () => session.audioConsumers.delete(consumeNative), audioWait, stopped,
-        summary => this.emit("native-transport-closed", { model, ...summary }));
+        summary => this.emit("native-transport-closed", { model, ...summary }), undefined, () => {
+          if (this.#closed || !this.state.hasCamera(serial)) return false;
+          const camera = this.state.getCamera(serial);
+          if (camera.model !== "T8134" || camera.stationSerial !== serial || !view
+            || this.stopGraceMilliseconds < 10_000 || session.lateAudioViews.has(view)
+            || session.lateAudioViews.size >= 64 || !session.yieldingClients.has(muxer.videoInput)
+            || this.#heldViews.has(view) || session.heldClients.has(muxer.videoInput)
+            || session.recordings.size || session.leases || session.stop || !session.audioSource) return false;
+
+          // HA retries this marked response during the existing source grace.
+          // Reusing the mark permits one handover, never a reconnect loop.
+          session.lateAudioViews.add(view);
+          return true;
+        });
       const consumeNative = (chunk: Buffer): void => muxer.acceptAudio(chunk);
       session.audioConsumers.add(consumeNative);
       await this.#addClient(serial, muxer.videoInput, "native", requestedAtMilliseconds, view);
@@ -1078,6 +1094,7 @@ export class LiveStreamManager extends EventEmitter {
     session.source = source;
     for (const delivery of session.clientDeliveries.values()) delivery.sourceAttached = true;
     session.audioSource = audio ?? null;
+    session.lateAudioViews.clear();
     audio?.on("data", (chunk: Buffer) => {
       if (session.generation !== generation || chunk.length === 0) return;
       if (!session.privateTrial && !session.suppressSnapshots && this.listenerCount("diagnostic-media")) {
@@ -1913,6 +1930,7 @@ export class LiveStreamManager extends EventEmitter {
         heldClients: new Map(),
         hlsClients: new Set(),
         audioConsumers: new Set(),
+        lateAudioViews: new Set(),
         parameterSets: new VideoParameterSetCache(),
         state: "idle",
         start: null,
