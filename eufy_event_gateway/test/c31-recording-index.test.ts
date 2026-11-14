@@ -11,9 +11,9 @@ import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 import { C31IndexError, parseC31IndexRequest, summarizeC31Index, validateC31IndexWindow } from "../src/stream/c31-recording-index.js";
 
 /** Deliver a synthetic XZYH frame through the real session's socket listener. */
-function deliver(socket:Socket,command:number,payload:Buffer,sign=0,sequence=0):void {
-  const frame=Buffer.alloc(16);frame.write("XZYH");frame.writeUInt16LE(command,4);frame.writeUInt32LE(payload.length,6);frame[13]=sign;
-  const header=Buffer.from([0xf1,0xd0,0,0,0xd1,0,0,0]);header.writeUInt16BE(sequence,6);
+function deliver(socket:Socket,command:number,payload:Buffer,sign=0,sequence=0,type=0,channel=0):void {
+  const frame=Buffer.alloc(16);frame.write("XZYH");frame.writeUInt16LE(command,4);frame.writeUInt32LE(payload.length,6);frame[13]=sign;frame[12]=channel;
+  const header=Buffer.from([0xf1,0xd0,0,0,0xd1,0,0,0]);header[5]=type;header.writeUInt16BE(sequence,6);
   socket.emit("message",Buffer.concat([header,frame,payload]),{address:"127.0.0.1",port:12345});
 }
 
@@ -146,6 +146,12 @@ test("continuous session uses a fresh index, signed-in playback identity and one
     videos: [{ start_time: begin - 5, stop_time: begin + 20, cipher_id: 1 }],
   } })), 0, 1);
   await new Promise(resolve => setImmediate(resolve));
+  const timestamp = Buffer.alloc(128); timestamp.write("1791500754");
+  const encrypt = createCipheriv("aes-128-ecb", Buffer.from("1234567-12345678"), null); encrypt.setAutoPadding(false);
+  deliver(p.socket, 6001, Buffer.concat([encrypt.update(timestamp), encrypt.final()]), 1, 0, 2);
+  let settled = false; void operation.then(() => { settled = true; }, () => { settled = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(settled, false, "the selected legacy key receipt must be usable before cancellation");
   controller.abort(); await rejected; p.session.close(); p.session.close();
   const requests = p.sent.filter(data => {
     const at = data.indexOf(Buffer.from("XZYH")); return at >= 0 && data.readUInt16LE(at + 4) === 1700;

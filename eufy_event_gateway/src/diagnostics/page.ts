@@ -581,8 +581,9 @@ window.addEventListener('pagehide', cancelIndex);
 let continuousJob = null, continuousUrl = null;
 const clearContinuousPreview = () => {
   continuousJob?.abort(); continuousJob = null; el('continuous-start').disabled = false;
-  const video = el('continuous-video'); video.pause(); video.removeAttribute('src'); video.load(); video.hidden = true;
-  if(continuousUrl) URL.revokeObjectURL(continuousUrl); continuousUrl = null;
+  const video = el('continuous-video');
+  if(continuousUrl) { video.pause(); video.removeAttribute('src'); video.load(); URL.revokeObjectURL(continuousUrl); }
+  video.hidden = true; continuousUrl = null;
 };
 el('continuous-cancel').onclick = () => { clearContinuousPreview(); el('continuous-status').textContent = 'Preview cancelled.'; };
 el('device').addEventListener('change', clearContinuousPreview);

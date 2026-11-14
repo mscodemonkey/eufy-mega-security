@@ -2850,8 +2850,13 @@ export class FirstPartyPpcsSession {
         device_sn: this.#options.stationSerial, index: 0, play_speed: 1, play_type: 0, record_id: 0, sensor_id: 0, session_id: 125 }); },
       stop: () => send({ begin_time: 0, cmd: 3, device_sn: this.#options.stationSerial, file_path: "",
         index: 0, play_speed: 1, play_type: 0, record_id: 0, sensor_id: 0, session_id: 123 }),
-      decodeReply: (payload, sign) => this.#level2Key && [2, 8].includes(sign)
-        ? decryptLevel2(payload, this.#level2Key, sign) ?? null : null,
+      decodeReply: (payload, sign) => {
+        if (sign === 1 && payload.length === 128) {
+          try { return decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); }
+          catch { return null; }
+        }
+        return this.#level2Key && [2, 8].includes(sign) ? decryptLevel2(payload, this.#level2Key, sign) ?? null : null;
+      },
     });
     this.#continuous = reader;
     try { return await reader.read(signal); }

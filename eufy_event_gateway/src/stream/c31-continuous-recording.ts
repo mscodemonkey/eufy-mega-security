@@ -44,7 +44,7 @@ export interface C31ContinuousTransport {
   /** Submit one stop while the parent transport still owns the peer. */
   stop(): void;
 
-  /** Authenticate the selected response before its timestamp can supply a media key. */
+  /** Decode the selected protection form before its bounded timestamp can supply a media key. */
   decodeReply(payload: Buffer, sign: number): Buffer | null;
 }
 
@@ -115,7 +115,7 @@ export class C31ContinuousReader {
     if (!this.#active || header.length !== 16) return false;
     const command = header.readUInt16LE(4), sign = header[13] ?? 0;
     if (command === 6001) {
-      if (header[12] !== 0 || type !== 2 || ![2, 8].includes(sign)) return true;
+      if (header[12] !== 0 || type !== 2 || ![1, 2, 8].includes(sign)) return true;
       const clear = this.transport.decodeReply(payload, sign);
       if (!clear || clear.length !== 128 || clear[10] !== 0 || !/^\d{10}$/.test(clear.subarray(0, 10).toString("ascii"))) {
         this.#fail(new C31IndexError("malformed")); return true;
