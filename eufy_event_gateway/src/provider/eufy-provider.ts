@@ -3523,6 +3523,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const field = change.setting === "cameraEnabled" ? "enabled" : change.setting === "streamingQuality" ? "streamingQualityTier" : change.setting === "motionSensitivity" ? "motionSensitivityStep" : change.setting === "motionDetection" ? "motionDetectionEnabled" : change.setting === "lightBrightness" ? "lightBrightness" : change.setting === "manualFloodlight" ? "manualFloodlightEnabled" : "homebaseChimeEnabled";
     let session: FirstPartyPpcsSession | null = null;
     let dispatched = false;
+    let confirmedLightState: boolean | undefined;
     const check = (): void => {
       const current = this.#devices.get(serial), currentPeer = this.#devices.get(peer.serial);
       if (this.#recordingClosing || generation !== this.#startupGeneration || Date.now() >= deadline || (!dispatched && signal?.aborted)
@@ -3559,8 +3560,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const abort = (): void => { if (!dispatched) session?.close(); };
     signal?.addEventListener("abort", abort, { once: true });
     try {
-      await runConfirmedCameraSetting({ deadline, ...(signal ? { signal } : {}), check,
+      await runConfirmedCameraSetting({ deadline, ...(profile.form === "attached-light" ? { alwaysWrite: true as const } : {}), ...(signal ? { signal } : {}), check,
         read: async () => {
+          if (dispatched && profile.form === "attached-light") {
+            if (confirmedLightState === undefined) throw new CameraSettingError("outcome_unknown");
+            const current = this.#devices.get(serial)!;
+            this.#devices.set(serial, { ...current, reads: { ...current.reads, manualFloodlightEnabled: confirmedLightState } });
+            this.#liveDeviceReads.set(serial, { ...this.#liveDeviceReads.get(serial), manualFloodlightEnabled: confirmedLightState });
+            return confirmedLightState;
+          }
           if (!route.homeBaseAttached && (session !== null || !dispatched)) {
             const owned = await open(); check();
             try {
@@ -3580,11 +3588,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         },
         write: async onDispatch => {
           const owned = await open(); check();
-          await owned.writeReviewedCameraSetting(change, this.#modelTrialRoute(device, route), () => {
+          const observed = await owned.writeReviewedCameraSetting(change, this.#modelTrialRoute(device, route), () => {
             check();
             if (profile.form === "attached-quality" && this.#devices.get(serial)?.reads.s340LiveQualityMode !== 0) throw new CameraSettingError("unavailable");
             onDispatch(); dispatched = true;
           });
+          if (profile.form === "attached-light") {
+            if (typeof observed !== "boolean" || observed !== change.value) throw new CameraSettingError("outcome_unknown");
+            confirmedLightState = observed;
+          }
           check();
           if (route.homeBaseAttached) { owned.close(); await owned.waitUntilClosed(); session = null; this.#trialSessions.delete(peer.serial); }
         },

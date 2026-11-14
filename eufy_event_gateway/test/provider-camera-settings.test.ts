@@ -215,7 +215,7 @@ for (const mode of ["ready", "disabled", "guest", "no-binding", "no-api", "paren
     context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => {});
     context.mock.method(FirstPartyPpcsSession.prototype, "close");
     context.mock.method(FirstPartyPpcsSession.prototype, "writeReviewedCameraSetting", async (_change: unknown, _route: unknown, dispatch: () => void) => {
-      dispatch(); writes++; actual = 1;
+      dispatch(); writes++; actual = 1; return true;
     });
     const state = new GatewayState();
     const events = new Proxy({ camera: (identity: Parameters<ProviderEvents["camera"]>[0]) => state.registerCamera(identity) },
@@ -256,14 +256,14 @@ for (const mode of ["administrator", "super-admin", "guest", "foreign-member", "
       { device_sn: "camera", parent_sn: "base", device_model: "T8113-Z", device_type: 8, category: "eufy_security", device_channel: 2,
         member: { admin_user_id: "primary-owner", member_user_id: mode === "foreign-member" ? "foreign" : "signed-in-member",
           ...(mode === "missing-role" ? {} : { member_type: mode === "guest" || revoked ? 0 : mode === "super-admin" ? 2 : 1 }) },
-        params: [{ param_type: 1400, param_value: String(Number(actual)) }] },
+        params: [{ param_type: 1400, param_value: "0" }] },
     ] }));
     context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ base: { key: "synthetic", expiresAt: null } }));
     context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
     context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => {});
     context.mock.method(FirstPartyPpcsSession.prototype, "close");
-    context.mock.method(FirstPartyPpcsSession.prototype, "writeReviewedCameraSetting", async (_change: unknown, _route: unknown, dispatch: () => void) => {
-      dispatch(); writes++; actual = true;
+    context.mock.method(FirstPartyPpcsSession.prototype, "writeReviewedCameraSetting", async (change: { value: number | boolean }, _route: unknown, dispatch: () => void) => {
+      dispatch(); writes++; actual = change.value === true; return actual;
     });
     const state = new GatewayState();
     const events = new Proxy({ camera: (identity: Parameters<ProviderEvents["camera"]>[0]) => state.registerCamera(identity) },
@@ -278,6 +278,9 @@ for (const mode of ["administrator", "super-admin", "guest", "foreign-member", "
       if (mode === "administrator" || mode === "super-admin") {
         assert.equal((await provider.setCameraSetting("camera", { setting: "manualFloodlight", value: true })).reportedSettings?.manualFloodlightEnabled, true);
         assert.equal(writes, 1);
+        assert.equal((await provider.setCameraSetting("camera", { setting: "manualFloodlight", value: false })).reportedSettings?.manualFloodlightEnabled, false);
+        assert.equal(writes, 2);
+        assert.equal(actual, false);
       } else {
         await assert.rejects(provider.setCameraSetting("camera", { setting: "manualFloodlight", value: true }));
         assert.equal(writes, 0);

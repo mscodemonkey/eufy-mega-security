@@ -63,7 +63,7 @@ function gateway(cipherId = 1): Buffer {
 /** Own a synthetic CAM_ID handshake, inbound frames, packet loss and fake time. */
 async function peer(context: TestContext, attached = true, model = "T8113-Z", purpose: "media" | "control" | "passive" | "default" = "media", stationModel = "T8010", startupDeadlineMilliseconds?: number, channelOverride?: number, deviceTypeOverride?: number | null, options: Partial<PpcsCameraOptions> = {}) {
   let socket!: Socket;
-  let inbound = 0;
+  const inbound = new Map<number, number>();
   const sent: Buffer[] = [];
   context.mock.timers.enable({ apis: ["Date", "setTimeout", "setInterval"], now: 1800000000000 });
   context.mock.method(Socket.prototype, "bind", function (this: Socket) {
@@ -83,10 +83,11 @@ async function peer(context: TestContext, attached = true, model = "T8113-Z", pu
     accountId: "synthetic-owner", maxSeconds: 120,
     resolveCipherKey: async () => Buffer.alloc(32, 1).toString("hex"), ...options });
   const receive = (packet: Buffer, port = 12345, address = "127.0.0.1") => socket.emit("message", packet, { address, port });
-  const frame = (command: number, payload: Buffer, channel = 1, result = false, sign = 0) => {
+  const frame = (command: number, payload: Buffer, channel = 1, result = false, sign = 0, type = 0) => {
     const packet = Buffer.alloc(24 + payload.length);
     packet.set([0xf1, 0xd0], 0); packet.writeUInt16BE(packet.length - 4, 2);
-    packet.set([0xd1, 0], 4); packet.writeUInt16BE(inbound++, 6);
+    packet.set([0xd1, type], 4);
+    const sequence = inbound.get(type) ?? 0; packet.writeUInt16BE(sequence, 6); inbound.set(type, sequence + 1);
     packet.write("XZYH", 8); packet.writeUInt16LE(command, 12); packet.writeUInt32LE(payload.length, 14);
     packet[20] = channel; packet[21] = sign; packet[22] = result ? 1 : 0;
     payload.copy(packet, 24); receive(packet);
@@ -1236,23 +1237,73 @@ for (const [stationModel, deviceType] of [["T8030", 8], ["T8010", 9], ["T8010", 
 }
 
 
+
+/** Build the independently observed GCM scalar notification, with no command ACK flag. */
+function lightNotification(value: number, key = Buffer.alloc(32, 9)): Buffer {
+  const nonce = Buffer.alloc(12, 5), clear = Buffer.alloc(4); clear.writeUInt32LE(value);
+  const cipher = createCipheriv("aes-256-gcm", key, nonce); cipher.setAAD(Buffer.from("eufy security"));
+  const encrypted = Buffer.concat([cipher.update(clear), cipher.final()]);
+  return Buffer.concat([cipher.getAuthTag(), nonce, encrypted]);
+}
+
 for (const enabled of [true, false]) {
-  test(`2C spotlight dispatches one native 1400 write on its HB3 child channel: ${enabled}`, async context => {
+  test(`2C spotlight needs its authenticated state on transport two after one write: ${enabled}`, async context => {
     const f = await peer(context, true, "T8113-Z", "control", "T8030", undefined, 2, 8);
     const route = { model: "T8113-Z", deviceType: 8, homeBaseAttached: true, peerModel: "T8030", selfPeer: false, channel: 2 };
-    let dispatches = 0;
+    let dispatches = 0, settled = false;
     try {
       await f.negotiate();
+      f.frame(1400, lightNotification(Number(enabled)), 2, false, 2, 2);
       const pending = f.session.writeReviewedCameraSetting({ setting: "manualFloodlight", value: enabled }, route, () => { dispatches++; });
+      void pending.then(() => { settled = true; });
       await new Promise(resolve => setImmediate(resolve));
       const writes = f.sent.filter(packet => packet.length >= 24 && packet.subarray(8, 12).toString() === "XZYH" && packet.readUInt16LE(12) === 1400);
-      assert.equal(writes.length, 1);
-      assert.equal(dispatches, 1);
-      assert.equal(writes[0]![20], 2);
-      assert.equal(writes[0]![21], 8);
-      f.frame(1400, Buffer.alloc(4), 2, true);
-      await pending;
+      assert.equal(writes.length, 1); assert.equal(dispatches, 1);
+      assert.equal(writes[0]![20], 2); assert.equal(writes[0]![21], 8);
+      f.frame(1400, Buffer.alloc(132), 2, true);
+      f.frame(1400, lightNotification(Number(enabled)), 3, false, 2, 2);
+      f.frame(1400, lightNotification(Number(enabled)), 2, false, 2, 0);
+      f.frame(1400, lightNotification(Number(enabled), Buffer.alloc(32, 8)), 2, false, 2, 2);
+      f.frame(1400, lightNotification(Number(!enabled)), 2, false, 2, 2);
+      f.frame(1400, lightNotification(2), 2, false, 2, 2);
+      f.frame(1400, lightNotification(Number(enabled)), 2, true, 2, 2);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(settled, false);
+      f.frame(1400, lightNotification(Number(enabled)), 2, false, 2, 2);
+      assert.equal(await pending, enabled);
       assert.equal(f.session.stats.mediaStartAttempts, 0);
+      await assert.rejects(f.session.writeReviewedCameraSetting({ setting: "manualFloodlight", value: enabled }, route, () => { dispatches++; }));
+      assert.equal(dispatches, 1);
     } finally { f.session.close(); }
   });
 }
+
+test("2C light ACK alone times out without resending or starting media", async context => {
+  const f = await peer(context, true, "T8113-Z", "control", "T8030", undefined, 2, 8);
+  try {
+    await f.negotiate();
+    const pending = f.session.writeReviewedCameraSetting({ setting: "manualFloodlight", value: true },
+      { model: "T8113-Z", deviceType: 8, homeBaseAttached: true, peerModel: "T8030", selfPeer: false, channel: 2 }, () => {});
+    const rejected = assert.rejects(pending, /light state notification timed out/);
+    await new Promise(resolve => setImmediate(resolve));
+    f.frame(1400, Buffer.alloc(132), 2, true);
+    context.mock.timers.tick(20_001); await rejected;
+    assert.equal(f.sent.filter(packet => packet.length >= 24 && packet.subarray(8, 12).toString() === "XZYH" && packet.readUInt16LE(12) === 1400).length, 1);
+    assert.equal(f.session.stats.mediaStartAttempts, 0);
+  } finally { f.session.close(); }
+});
+
+
+test("closing a 2C light peer retires its pending state wait without a second write", async context => {
+  const f = await peer(context, true, "T8113-Z", "control", "T8030", undefined, 2, 8);
+  try {
+    await f.negotiate();
+    const pending = f.session.writeReviewedCameraSetting({ setting: "manualFloodlight", value: true },
+      { model: "T8113-Z", deviceType: 8, homeBaseAttached: true, peerModel: "T8030", selfPeer: false, channel: 2 }, () => {});
+    const rejected = assert.rejects(pending, /closed before its state notification/);
+    await new Promise(resolve => setImmediate(resolve));
+    f.session.close(); await rejected;
+    context.mock.timers.tick(20_001);
+    assert.equal(f.sent.filter(packet => packet.length >= 24 && packet.subarray(8, 12).toString() === "XZYH" && packet.readUInt16LE(12) === 1400).length, 1);
+  } finally { f.session.close(); }
+});

@@ -21,7 +21,7 @@ export type CameraSettingChange =
 export interface CameraSettingProfile {
   readonly readParam: number;
   readonly command: number;
-  readonly form: "binary" | "payload" | "control" | "manual-light" | "motion-control" | "solo-sensitivity" | "solo-quality" | "attached-quality" | "privacy";
+  readonly form: "binary" | "payload" | "control" | "manual-light" | "attached-light" | "motion-control" | "solo-sensitivity" | "solo-quality" | "attached-quality" | "privacy";
 
   /** Require authenticated opt-in while the exact transport awaits hardware confirmation. */
   readonly experimental?: true;
@@ -74,7 +74,7 @@ function nativeProfile(model: string, type: number | null, standalone: boolean, 
   if (setting === "motionDetection") return floodlight ? { readParam: 6040, command: 1700, form: "motion-control" } : null;
   if (setting === "motionSensitivity" && floodlight) return { readParam: 6041, command: 1700, form: "motion-control", ladder: [1, 2, 3, 4, 5] };
   if (setting === "manualFloodlight" && !standalone && model === "T8113-Z" && type === 8) {
-    return { readParam: 1400, command: 1400, form: "binary", experimental: true };
+    return { readParam: 1400, command: 1400, form: "attached-light", experimental: true };
   }
   if (setting === "manualFloodlight") return standalone && model === "T8426" && type === 87 ? { readParam: 1400, command: 1700, form: "manual-light" } : null;
   if (setting === "lightBrightness") return standalone && ((model === "T8425" && type === 47) || (model === "T8426" && type === 87))
@@ -142,7 +142,7 @@ export function cameraSettingWireValue(profile: CameraSettingProfile, change: Ca
   }
   if (change.setting === "manualFloodlight") {
     const standalone = profile.command === 1700 && profile.form === "manual-light";
-    const attached = profile.command === 1400 && profile.form === "binary" && profile.experimental === true;
+    const attached = profile.command === 1400 && profile.form === "attached-light" && profile.experimental === true;
     if (profile.readParam !== 1400 || (!standalone && !attached) || profile.ladder) throw new CameraSettingError("unavailable");
     return change.value ? 1 : 0;
   }
@@ -174,6 +174,9 @@ export interface ConfirmedCameraSettingOperation {
   /** Absolute epoch-millisecond deadline; HA allows a longer HTTP timeout. */
   readonly deadline: number;
   readonly wait?: () => Promise<void>;
+
+  /** Absolute light writes require a new device notification even when the cloud mirror already matches. */
+  readonly alwaysWrite?: true;
 }
 
 /** Submit once from a fresh baseline, retaining confirmed state on every clean rejection. */
@@ -194,7 +197,7 @@ export async function runConfirmedCameraSetting(operation: ConfirmedCameraSettin
   try {
     check(); const baseline = await bounded(operation.read()); check();
     if (baseline === undefined) throw new CameraSettingError("unavailable");
-    if (baseline === expected) return;
+    if (baseline === expected && operation.alwaysWrite !== true) return;
     await bounded(operation.write(() => { check(); if (operation.deadline - Date.now() < 20_000) throw new CameraSettingError("unavailable"); dispatched = true; }));
     check();
     if (!dispatched) throw new CameraSettingError("unavailable");
