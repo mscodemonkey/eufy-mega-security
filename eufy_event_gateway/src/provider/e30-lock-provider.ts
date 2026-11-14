@@ -113,8 +113,10 @@ export class E30LockProvider {
       this.#identities.set(serial, identity);
       if (!this.#states.has(serial)) this.#states.set(serial, { serial, name: identity.name, model: "T85F1",
         state: "unknown", available: false, batteryPercent: null, stateObservedAt: null });
-      this.#states.set(serial, { ...this.#states.get(serial)!, firmware: firmware.get(serial) ?? null,
-        stationSerial: parents.get(serial) });
+      const { stationSerial: _previousParent, ...state } = this.#states.get(serial)!;
+      const parent = parents.get(serial);
+      this.#states.set(serial, { ...state, firmware: firmware.get(serial) ?? null,
+        ...(parent ? { stationSerial: parent } : {}) });
     }
     this.#emit();
     if (!this.#timer) {
