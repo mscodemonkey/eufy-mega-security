@@ -7453,6 +7453,7 @@ function securitySensorState(device: MegaInventoryDevice): SecuritySensorState |
     name: device.name,
     model: device.model,
     deviceType: device.deviceType!,
+    ...(device.parentSerial ? { stationSerial: device.parentSerial } : {}),
     firmware: device.firmware,
     available: true,
     capabilities: [

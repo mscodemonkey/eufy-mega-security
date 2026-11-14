@@ -86,6 +86,7 @@ export class E30LockProvider {
     this.#inventoryConfirmed = true;
     const next = new Map<string, E30LockIdentity>();
     const firmware = new Map<string, string | null>();
+    const parents = new Map<string, string>();
     for (const row of devices) {
       const identity = e30InventoryIdentity(row, this.options.accountName);
       if (row.device_model === "T85F1" && row.device_type === 206 && !identity) {
@@ -94,6 +95,8 @@ export class E30LockProvider {
       }
       if (identity) {
         next.set(identity.serial, identity);
+        const parent = row.parent_sn || row.station_sn;
+        if (parent === identity.serial) parents.set(identity.serial, parent);
         const version = row.main_sw_version;
         firmware.set(identity.serial, typeof version === "string" && version.length <= 100 && version.trim()
           ? version.trim() : null);
@@ -110,7 +113,8 @@ export class E30LockProvider {
       this.#identities.set(serial, identity);
       if (!this.#states.has(serial)) this.#states.set(serial, { serial, name: identity.name, model: "T85F1",
         state: "unknown", available: false, batteryPercent: null, stateObservedAt: null });
-      this.#states.set(serial, { ...this.#states.get(serial)!, firmware: firmware.get(serial) ?? null });
+      this.#states.set(serial, { ...this.#states.get(serial)!, firmware: firmware.get(serial) ?? null,
+        stationSerial: parents.get(serial) });
     }
     this.#emit();
     if (!this.#timer) {

@@ -7,70 +7,24 @@ Home Assistant device registry.
 
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
-import sys
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
+import unittest
 from unittest.mock import Mock
 
 
-class _DataUpdateCoordinator:
-    """Provide the generic base needed to load the production coordinator."""
-
-    @classmethod
-    def __class_getitem__(cls, _item: object) -> type[_DataUpdateCoordinator]:
-        """Return the stub class for the coordinator's generic base expression."""
-        return cls
-
-
 def _load_coordinator(registry: object) -> type:
-    """Load the production coordinator against one synthetic registry."""
-    homeassistant = ModuleType("homeassistant")
-    core = ModuleType("homeassistant.core")
-    core.HomeAssistant = object
-    helpers = ModuleType("homeassistant.helpers")
-    device_registry = ModuleType("homeassistant.helpers.device_registry")
-    device_registry.async_get = lambda _hass: registry
-    update_coordinator = ModuleType("homeassistant.helpers.update_coordinator")
-    update_coordinator.DataUpdateCoordinator = _DataUpdateCoordinator
-    update_coordinator.UpdateFailed = RuntimeError
-    package = ModuleType("custom_components.eufy_event_gateway")
-    package.__path__ = []
-    client = ModuleType("custom_components.eufy_event_gateway.client")
-    client.GatewayClient = object
-    client.GatewayClientError = RuntimeError
-    const = ModuleType("custom_components.eufy_event_gateway.const")
-    const.DOMAIN = "eufy_event_gateway"
-    image_cache = ModuleType("custom_components.eufy_event_gateway.image_cache")
-    image_cache.CameraImageCache = object
-    modules = {
-        "homeassistant": homeassistant,
-        "homeassistant.core": core,
-        "homeassistant.helpers": helpers,
-        "homeassistant.helpers.device_registry": device_registry,
-        "homeassistant.helpers.update_coordinator": update_coordinator,
-        "custom_components.eufy_event_gateway": package,
-        "custom_components.eufy_event_gateway.client": client,
-        "custom_components.eufy_event_gateway.const": const,
-        "custom_components.eufy_event_gateway.image_cache": image_cache,
-    }
-    previous = {name: sys.modules.get(name) for name in modules}
-    sys.modules.update(modules)
-    try:
-        path = Path(__file__).parents[1] / "custom_components/eufy_event_gateway/coordinator.py"
-        spec = importlib.util.spec_from_file_location(
-            "custom_components.eufy_event_gateway.coordinator_registry_test", path
-        )
-        assert spec is not None and spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module.EufyGatewayCoordinator
-    finally:
-        for name, value in previous.items():
-            if value is None:
-                sys.modules.pop(name, None)
-            else:
-                sys.modules[name] = value
+    """Load actual metadata methods without importing unrelated HA components."""
+    import ast
+    from typing import Any
+
+    path = Path(__file__).parents[1] / "custom_components/eufy_event_gateway/coordinator.py"
+    tree = ast.parse(path.read_text())
+    owner = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "EufyGatewayCoordinator")
+    methods = [node for node in owner.body if isinstance(node, ast.FunctionDef) and node.name in {"_sync_device_names", "_sync_device_name"}]
+    namespace = {"Any": Any, "dr": SimpleNamespace(async_get=lambda hass: registry), "DOMAIN": "eufy_event_gateway"}
+    exec(compile(ast.Module(body=methods, type_ignores=[]), str(path), "exec"), namespace)
+    return type("MetadataCoordinator", (), {node.name: namespace[node.name] for node in methods})
 
 
 def _coordinator(coordinator_type: type) -> object:
@@ -116,3 +70,51 @@ def test_device_name_sync_falls_back_without_cross_entry_update() -> None:
         identifiers={("eufy_event_gateway", "serial")}
     )
     registry.async_update_device.assert_not_called()
+
+
+def test_child_parent_sync_is_scoped_and_retries_after_parent_registration() -> None:
+    """Late HomeBase registration links the sensor without overwriting user choices."""
+    child = SimpleNamespace(id="child", name="Sensor", via_device_id=None, name_by_user="My choice")
+    parent = SimpleNamespace(id="base", via_device_id=None)
+    entries = {"sensor": child}
+    registry = SimpleNamespace(
+        async_get_device_by_identifier=Mock(side_effect=lambda key, entry: entries.get(key[1])),
+        async_update_device=Mock(),
+    )
+    owner = _coordinator(_load_coordinator(registry))
+    data = {"stations": {"station": {"name": None}},
+            "sensors": {"sensor": {"name": "Sensor", "stationSerial": "station"}}}
+    owner._sync_device_names(data)
+    registry.async_update_device.assert_not_called()
+    entries["station"] = parent
+    owner._sync_device_names(data)
+    registry.async_update_device.assert_called_once_with("child", via_device_id="base")
+    assert child.name_by_user == "My choice"
+    assert all(call.args[1] == "owned-entry" for call in registry.async_get_device_by_identifier.call_args_list)
+
+
+def test_parent_sync_rejects_foreign_missing_self_and_nested_parent() -> None:
+    """Legacy lookups never attach another entry or form a parent cycle."""
+    child = SimpleNamespace(id="child", name="Sensor", config_entry_id="owned-entry", via_device_id="existing")
+    parent = SimpleNamespace(id="base", config_entry_id="other-entry", via_device_id=None)
+    registry = SimpleNamespace(
+        async_get_device=Mock(side_effect=lambda identifiers: child if ("eufy_event_gateway", "sensor") in identifiers else parent),
+        async_update_device=Mock(),
+    )
+    owner = _coordinator(_load_coordinator(registry))
+    for identifier in (None, "", "sensor", "x" * 129, "station"):
+        owner._sync_device_name("sensor", "Sensor", parent_serial=identifier)
+    registry.async_update_device.assert_not_called()
+    parent.config_entry_id = "owned-entry"
+    parent.via_device_id = "child"
+    owner._sync_device_name("sensor", "Sensor", parent_serial="station")
+    registry.async_update_device.assert_not_called()
+    parent.via_device_id = None
+    owner._sync_device_name("sensor", "Sensor", parent_serial="station")
+    registry.async_update_device.assert_called_once_with("child", via_device_id="base")
+
+
+def load_tests(loader: unittest.TestLoader, tests: unittest.TestSuite, pattern: str | None) -> unittest.TestSuite:
+    """Include function regressions in the repository's unittest discovery gate."""
+    tests.addTests(unittest.FunctionTestCase(value) for name, value in globals().items() if name.startswith("test_") and callable(value))
+    return tests

@@ -29,6 +29,20 @@ def method(file: str, owner: str, name: str, namespace: dict):
 class E30LockTest(unittest.IsolatedAsyncioTestCase):
     """Protect physical state semantics and four-family event preservation."""
 
+    def test_reported_parent_is_optional_metadata_and_never_refreshes_state(self):
+        """Preserve explicit topology without inferring a parent from a lock's model."""
+        projection = method("client.py", "GatewayClient", "_lock_state", {"GatewayClientError": ValueError})
+        original = {"serial": "fixture", "name": "Synthetic", "model": "T85F1", "state": "locked",
+                    "available": True, "batteryPercent": 76, "stateObservedAt": "2026-11-14T08:00:00Z"}
+        for parent in (None, False, 42, "", " ", " padded ", "x" * 129, "fixture"):
+            state = projection({**original, "stationSerial": parent})
+            self.assertEqual(state["stateObservedAt"], original["stateObservedAt"])
+            self.assertEqual(state["state"], "locked")
+            if parent == "fixture":
+                self.assertEqual(state["stationSerial"], parent)
+            else:
+                self.assertNotIn("stationSerial", state)
+
     def test_lock_firmware_reaches_device_info_without_affecting_state(self):
         """Accept bounded optional inventory metadata while keeping old gateway replies valid."""
         projection = method("client.py", "GatewayClient", "_lock_state", {"GatewayClientError": ValueError})

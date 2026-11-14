@@ -1080,6 +1080,7 @@ test("E30 firmware metadata survives queries without extending state freshness o
     await new Promise(resolve => setImmediate(resolve));
     const before = provider.list()[0]!;
     assert.equal(before.firmware, "1.2.3.4");
+    assert.equal(before.stationSerial, identity.serial);
     assert.equal(before.state, "locked");
     provider.inventory([{ ...inventoryRow(), main_sw_version: "1.2.3.5" }]);
     assert.equal(provider.list()[0]!.firmware, "1.2.3.5");
@@ -1091,6 +1092,10 @@ test("E30 firmware metadata survives queries without extending state freshness o
       assert.equal(provider.list()[0]!.firmware, null);
       assert.equal(provider.list()[0]!.stateObservedAt, before.stateObservedAt);
     }
+    assert.equal(queries, 1);
+    provider.inventory([{ ...inventoryRow(), parent_sn: undefined }]);
+    assert.equal(provider.list()[0]!.stationSerial, undefined);
+    assert.equal(provider.list()[0]!.stateObservedAt, before.stateObservedAt);
     assert.equal(queries, 1);
     assert.equal(writes, 0);
   } finally { provider.close(); }
