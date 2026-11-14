@@ -1307,3 +1307,41 @@ test("closing a 2C light peer retires its pending state wait without a second wr
     assert.equal(f.sent.filter(packet => packet.length >= 24 && packet.subarray(8, 12).toString() === "XZYH" && packet.readUInt16LE(12) === 1400).length, 1);
   } finally { f.session.close(); }
 });
+
+
+/** Build the observed legacy scalar with deliberately opaque trailing bytes. */
+function legacyLightNotification(value: number, key = Buffer.from("1234567-12345678")): Buffer {
+  const clear = Buffer.alloc(16, 0xa5); clear.writeUInt32LE(value);
+  const cipher = createCipheriv("aes-128-ecb", key, null); cipher.setAutoPadding(false);
+  return Buffer.concat([cipher.update(clear), cipher.final()]);
+}
+
+for (const enabled of [true, false]) {
+  test(`2C legacy light state confirms only its dispatched value on the selected child: ${enabled}`, async context => {
+    const f = await peer(context, true, "T8113-Z", "control", "T8030", undefined, 2, 8);
+    const route = { model: "T8113-Z", deviceType: 8, homeBaseAttached: true, peerModel: "T8030", selfPeer: false, channel: 2 };
+    let settled = false;
+    try {
+      await f.negotiate();
+      f.frame(1400, legacyLightNotification(Number(enabled)), 2, false, 1, 2);
+      const pending = f.session.writeReviewedCameraSetting({ setting: "manualFloodlight", value: enabled }, route, () => {});
+      void pending.then(() => { settled = true; });
+      await new Promise(resolve => setImmediate(resolve));
+      f.frame(1400, Buffer.alloc(132), 2, true);
+      f.frame(1400, legacyLightNotification(Number(enabled)), 3, false, 1, 2);
+      f.frame(1400, legacyLightNotification(Number(enabled)), 2, false, 1, 0);
+      f.frame(1400, legacyLightNotification(Number(enabled), Buffer.alloc(16, 8)), 2, false, 1, 2);
+      f.frame(1400, legacyLightNotification(Number(!enabled)), 2, false, 1, 2);
+      f.frame(1400, legacyLightNotification(2), 2, false, 1, 2);
+      f.frame(1400, legacyLightNotification(Number(enabled)), 2, true, 1, 2);
+      f.frame(1400, Buffer.concat([legacyLightNotification(Number(enabled)), Buffer.alloc(16)]), 2, false, 1, 2);
+      f.frame(1400, legacyLightNotification(Number(enabled)), 2, false, 0, 2);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(settled, false);
+      f.frame(1400, legacyLightNotification(Number(enabled)), 2, false, 1, 2);
+      assert.equal(await pending, enabled);
+      assert.equal(f.session.stats.mediaStartAttempts, 0);
+      assert.equal(f.sent.filter(packet => packet.length >= 24 && packet.subarray(8, 12).toString() === "XZYH" && packet.readUInt16LE(12) === 1400).length, 1);
+    } finally { f.session.close(); }
+  });
+}

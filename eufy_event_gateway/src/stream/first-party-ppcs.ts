@@ -2388,7 +2388,7 @@ export class FirstPartyPpcsSession {
   }
 
   /**
-   * Send one reviewed setting. The exact 2C light returns its authenticated
+   * Send one reviewed setting. The exact 2C light returns its encrypted
    * post-dispatch state notification, while other profiles require provider readback.
    */
   async writeReviewedCameraSetting(change: CameraSettingChange, route: ModelControlRoute, onDispatch: () => void): Promise<boolean | void> {
@@ -3495,13 +3495,27 @@ export class FirstPartyPpcsSession {
 
     const light = this.#pending2cLightState;
     if (light?.dispatched && type === 2 && command === 1400 && frameChannel === this.#options.channel
-      && signCode === 2 && header[14] === 0 && payload.length === 32 && this.#level2Key) {
-      const clear = decryptLevel2(payload, this.#level2Key, signCode);
-      if (clear?.length === 4) {
-        const value = clear.readUInt32LE(0);
-        if ((value === 0 || value === 1) && Boolean(value) === light.expected) {
-          clearTimeout(light.timer); this.#pending2cLightState = null; light.resolve(Boolean(value));
-        }
+      && header[14] === 0) {
+      let clear: Buffer | undefined;
+      if (signCode === 2 && payload.length === 32 && this.#level2Key) {
+        clear = decryptLevel2(payload, this.#level2Key, signCode);
+      } else if (signCode === 1 && payload.length === 16) {
+
+        // The physically observed HB3 cycle returned one legacy block on this
+        // control peer. Its scalar occupies four bytes, with opaque trailing
+        // bytes rather than zero or PKCS7 padding. ECB provides no message MAC.
+        try { clear = decryptEcb(payload, commandKey(this.#options.stationSerial, this.#options.p2pDid)); }
+        catch { clear = undefined; }
+      }
+      if (clear) {
+        try {
+          if (signCode === 2 && clear.length === 4 || signCode === 1 && clear.length === 16) {
+            const value = clear.readUInt32LE(0);
+            if ((value === 0 || value === 1) && Boolean(value) === light.expected) {
+              clearTimeout(light.timer); this.#pending2cLightState = null; light.resolve(Boolean(value));
+            }
+          }
+        } finally { clear.fill(0); }
       }
     }
 
