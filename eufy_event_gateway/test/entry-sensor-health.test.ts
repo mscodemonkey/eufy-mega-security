@@ -72,3 +72,12 @@ test("capability manifests map health only on the same qualified model and type"
     .find(row => row.family === "sensor")!;
   assert.equal(other.matrix.some(row => row.id === "sensor.connected" || row.id === "sensor.battery_low"), false);
 });
+
+
+test("an omitted sensor parent is never inferred from its model or identity", () => {
+  const device = parseMegaInventory({ devices: [{ device_sn: "invented-sensor", device_model: "T8900",
+    device_type: 2, category: "eufy_security", params: [param(1550, "0")] }] })[0]!;
+  let parent: string | undefined = "unobserved";
+  publishHomeBaseChildSensorObservation(device, { sensor: value => { parent = value.stationSerial; } });
+  assert.equal(parent, undefined);
+});

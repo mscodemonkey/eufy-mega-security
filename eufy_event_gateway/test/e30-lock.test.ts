@@ -1093,7 +1093,8 @@ test("E30 firmware metadata survives queries without extending state freshness o
       assert.equal(provider.list()[0]!.stateObservedAt, before.stateObservedAt);
     }
     assert.equal(queries, 1);
-    provider.inventory([{ ...inventoryRow(), parent_sn: undefined }]);
+    const { parent_sn: _reportedParent, ...withoutParent } = inventoryRow();
+    provider.inventory([withoutParent]);
     assert.equal(provider.list()[0]!.stationSerial, undefined);
     assert.equal(provider.list()[0]!.stateObservedAt, before.stateObservedAt);
     assert.equal(queries, 1);
