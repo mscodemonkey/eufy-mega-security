@@ -183,6 +183,19 @@ class CameraStreamRefreshTest(unittest.IsolatedAsyncioTestCase):
         camera._async_stream_url = lambda: camera.coordinator.client.stream_url(camera.serial)
         return namespace["_async_refresh_stream_source"], camera, stream, client
 
+    async def test_static_webrtc_producer_cannot_retain_expiring_gateway_url(self):
+        """Select HLS without handing a short-lived source to another owner."""
+        tree = ast.parse(CAMERA_SOURCE.read_text())
+        method = next(node for node in ast.walk(tree)
+                      if isinstance(node, ast.AsyncFunctionDef)
+                      and node.name == "_async_get_supported_webrtc_provider")
+        namespace = {"Any": object}
+        exec(compile(ast.Module(body=[method], type_ignores=[]), str(CAMERA_SOURCE), "exec"), namespace)
+        provider_lookup = AsyncMock(return_value=object())
+        camera = SimpleNamespace()
+        self.assertIsNone(await namespace[method.name](camera, provider_lookup))
+        provider_lookup.assert_not_awaited()
+
     async def test_missing_stream_does_not_renew(self):
         """A removed stream has no credentials to refresh."""
         refresh, camera, _stream, client = self._fixture()
