@@ -1234,3 +1234,25 @@ for (const [stationModel, deviceType] of [["T8030", 8], ["T8010", 9], ["T8010", 
     } finally { f.session.close(); }
   });
 }
+
+
+for (const enabled of [true, false]) {
+  test(`2C spotlight dispatches one native 1400 write on its HB3 child channel: ${enabled}`, async context => {
+    const f = await peer(context, true, "T8113-Z", "control", "T8030", undefined, 2, 8);
+    const route = { model: "T8113-Z", deviceType: 8, homeBaseAttached: true, peerModel: "T8030", selfPeer: false, channel: 2 };
+    let dispatches = 0;
+    try {
+      await f.negotiate();
+      const pending = f.session.writeReviewedCameraSetting({ setting: "manualFloodlight", value: enabled }, route, () => { dispatches++; });
+      await new Promise(resolve => setImmediate(resolve));
+      const writes = f.sent.filter(packet => packet.length >= 24 && packet.subarray(8, 12).toString() === "XZYH" && packet.readUInt16LE(12) === 1400);
+      assert.equal(writes.length, 1);
+      assert.equal(dispatches, 1);
+      assert.equal(writes[0]![20], 2);
+      assert.equal(writes[0]![21], 8);
+      f.frame(1400, Buffer.alloc(4), 2, true);
+      await pending;
+      assert.equal(f.session.stats.mediaStartAttempts, 0);
+    } finally { f.session.close(); }
+  });
+}

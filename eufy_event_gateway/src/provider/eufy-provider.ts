@@ -5475,6 +5475,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const route = ppcsStreamRoute(device, this.#devices);
     const settingRoute = route ? this.#modelTrialRoute(device, route) : null;
     const sensitivityProfile = settingRoute ? cameraSettingProfile(settingRoute, "motionSensitivity") : null;
+    const manualLightProfile = settingRoute ? cameraSettingProfile(settingRoute, "manualFloodlight") : null;
     const chimeProfile = settingRoute ? cameraSettingProfile(settingRoute, "homebaseChime") : null;
     const settingRouteReady = Boolean(device.adminUserId) && isPpcsRouteReady(device, this.#devices, dskPeerSerials);
     const t817lControlsSupported = device.model.toUpperCase().startsWith("T817L")
@@ -5533,7 +5534,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       motionSensitivitySteps: sensitivityProfile?.ladder?.length ?? null,
       motionSensitivityExperimental: sensitivityProfile?.experimental === true,
       manualFloodlightControlSupported: this.config.experimentalModelControls === true && settingRouteReady
-        && !!settingRoute && cameraSettingProfile(settingRoute, "manualFloodlight") !== null
+        && manualLightProfile !== null
+        && (manualLightProfile.experimental !== true || this.config.apiAuthenticationConfigured === true
+          && this.#client.authenticatedBinding() !== null && route?.peer.adminUserId === device.adminUserId)
         && !!device.adminUserId && this.#client.isAuthenticatedUser(device.adminUserId) && device.reads.manualFloodlightEnabled !== undefined,
       lightBrightnessControlSupported: this.config.experimentalModelControls === true && settingRouteReady
         && !!settingRoute && cameraSettingProfile(settingRoute, "lightBrightness") !== null

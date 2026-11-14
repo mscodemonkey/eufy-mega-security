@@ -73,6 +73,9 @@ function nativeProfile(model: string, type: number | null, standalone: boolean, 
   const floodlight = standalone && ((model === "T8425" && type === 47) || (model === "T8426" && type === 87));
   if (setting === "motionDetection") return floodlight ? { readParam: 6040, command: 1700, form: "motion-control" } : null;
   if (setting === "motionSensitivity" && floodlight) return { readParam: 6041, command: 1700, form: "motion-control", ladder: [1, 2, 3, 4, 5] };
+  if (setting === "manualFloodlight" && !standalone && model === "T8113-Z" && type === 8) {
+    return { readParam: 1400, command: 1400, form: "binary", experimental: true };
+  }
   if (setting === "manualFloodlight") return standalone && model === "T8426" && type === 87 ? { readParam: 1400, command: 1700, form: "manual-light" } : null;
   if (setting === "lightBrightness") return standalone && ((model === "T8425" && type === 47) || (model === "T8426" && type === 87))
     ? { readParam: 1401, command: 1401, form: "binary" } : null;
@@ -138,7 +141,9 @@ export function cameraSettingWireValue(profile: CameraSettingProfile, change: Ca
     return change.value ? 1 : 0;
   }
   if (change.setting === "manualFloodlight") {
-    if (profile.readParam !== 1400 || profile.command !== 1700 || profile.form !== "manual-light" || profile.ladder) throw new CameraSettingError("unavailable");
+    const standalone = profile.command === 1700 && profile.form === "manual-light";
+    const attached = profile.command === 1400 && profile.form === "binary" && profile.experimental === true;
+    if (profile.readParam !== 1400 || (!standalone && !attached) || profile.ladder) throw new CameraSettingError("unavailable");
     return change.value ? 1 : 0;
   }
   if (change.setting === "homebaseChime") {
