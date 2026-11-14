@@ -410,6 +410,20 @@ test("live audio retains E30 routes and isolates the exact standalone C31", () =
   assert.equal(supportsCameraLiveAudio(e30, { ...attached, peer: { ...attached.peer, model: "T8010" } }, true), false);
 });
 
+test("T8210 audio requires the exact type and a ready owned HB3 child route", () => {
+  const device = { serial: "fixture-doorbell", model: "T8210", deviceType: 7, channel: 2, adminUserId: "fixture-admin" };
+  const peer = { serial: "fixture-station", model: "T8030" } as MegaInventoryDevice;
+  const route = { homeBaseAttached: true, peer };
+  assert.equal(supportsCameraLiveAudio(device, route, true), true);
+  assert.equal(supportsCameraLiveAudio(device, route, false), false);
+  assert.equal(supportsCameraLiveAudio(device, null, true), false);
+  for (const changed of [{ model: "T8210X" }, { deviceType: 94 }, { deviceType: null }, { channel: -1 }, { channel: 1.5 }, { channel: null }, { adminUserId: null }]) {
+    assert.equal(supportsCameraLiveAudio({ ...device, ...changed }, route, true), false);
+  }
+  assert.equal(supportsCameraLiveAudio(device, { ...route, homeBaseAttached: false }, true), false);
+  assert.equal(supportsCameraLiveAudio(device, { ...route, peer: { ...peer, model: "T8010" } }, true), false);
+});
+
 test("S220 audio requires exact type 63 on its own ready direct channel", () => {
   const device = { serial: "fixture-s220", model: "T8134", deviceType: 63, channel: 0, adminUserId: "fixture-admin" };
   const peer = { serial: device.serial, model: "T8134" } as MegaInventoryDevice;

@@ -114,6 +114,41 @@ async function peer(context: TestContext, attached = true, model = "T8113-Z", pu
   return { session, sent, frame, ack, negotiate, video, receive };
 }
 
+test("T8210 HB3 media emits only clear valid AAC from its selected child", async context => {
+  const f = await peer(context, true, "T8210", "media", "T8030", undefined, 2, 7);
+  const output: Buffer[] = [];
+  f.session.audioOutput.on("data", chunk => output.push(Buffer.from(chunk)));
+  const adts = Buffer.from([0xff, 0xf1, 0x60, 0x40, 0x01, 0x1f, 0xfc, 0x00]);
+  const header = Buffer.alloc(16); header.writeUInt32LE(adts.length);
+  const audio = Buffer.concat([header, adts]);
+  try {
+    await f.negotiate();
+    f.frame(1301, audio, 1);
+    f.frame(1301, audio, 2, false, 1);
+    f.frame(1301, Buffer.alloc(24), 2);
+    assert.equal(output.length, 0);
+    f.frame(1301, audio, 2);
+    assert.deepEqual(output, [adts]);
+    assert.equal(f.session.stats.foreignAudioFrames, 1);
+    assert.equal(f.session.stats.audioProtectedFrames, 1);
+    assert.equal(f.session.stats.audioAdtsFrames, 1);
+  } finally { f.session.close(); }
+});
+
+test("T8210 audio remains excluded on an unverified HomeBase 2 route", async context => {
+  const f = await peer(context, true, "T8210", "media", "T8010", undefined, 2, 7);
+  const output: Buffer[] = [];
+  f.session.audioOutput.on("data", chunk => output.push(Buffer.from(chunk)));
+  const audio = Buffer.alloc(24); audio.writeUInt32LE(8);
+  audio.set([0xff, 0xf1, 0x60, 0x40, 0x01, 0x1f, 0xfc, 0x00], 16);
+  try {
+    await f.negotiate();
+    f.frame(1301, audio, 2);
+    assert.equal(f.session.stats.audioAdtsFrames, 1);
+    assert.equal(output.length, 0);
+  } finally { f.session.close(); }
+});
+
 test("T8171 acknowledged startup leaves a slow encoder alive until its first frame", async context => {
   const f = await peer(context, true, "T8171", "media", "T8030");
   try {
