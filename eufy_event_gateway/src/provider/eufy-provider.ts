@@ -793,6 +793,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #dskRefreshes = new Map<string, Promise<{ readonly key: string; readonly expiresAt: number | null } | null>>();
   readonly #cipherKeys = new Map<string, string>();
   readonly #cipherFlights = new Map<string, Promise<PpcsCipherKeyOutcome>>();
+
+  /** One provider lifetime salts log references without publishing notification or device IDs. */
+  readonly #visitLogSecret = randomBytes(32);
   readonly #pictureOwners = new Map<string, PushPictureOwner>();
   readonly #pictureRecoveryCooldowns = new Map<string, number>();
   readonly #pushSnapshotQueues = new Map<string, Promise<void>>();
@@ -6312,7 +6315,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         this.#devices.get(event.cameraSerial) ?? null,
         stationIdentity !== undefined && !stationIdentity.parentSerial,
         station !== undefined,
-      ),
+      ) + ` visit_ref=${this.#visitLogReference(event)}`,
     );
     const device = this.#devices.get(event.cameraSerial);
     if (device && isT8442Camera(device) && event.stationSerial !== (device.parentSerial || device.serial)) return;
@@ -6662,25 +6665,40 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   /**
+   * Correlate one notification-owned visit within this provider lifetime only.
+   * The keyed digest includes the camera, station and generation, so redeliveries
+   * remain joinable while unrelated visits and replacement lifetimes differ.
+   * A missing event identity stays unavailable rather than using arrival time.
+   */
+  #visitLogReference(event: MegaPushEvent): string {
+    if (!event.eventId) return "unavailable";
+    return createHmac("sha256", this.#visitLogSecret)
+      .update(JSON.stringify([this.#startupGeneration, event.cameraSerial, event.stationSerial, event.eventId, event.eventType]))
+      .digest("hex").slice(0, 16);
+  }
+
+  /**
    * Read visit-owned metadata on fixed event-relative deadlines. Busy media is
    * never displaced. Terminal categories explain skipped or retired work without
    * publishing notification references, names or device/account identities.
    */
   #queueHistoryName(events: ProviderEvents, event: MegaPushEvent, identity: string, kind: "person" | "doorbell"): void {
     const owner = this.#pictureOwners.get(event.cameraSerial), reference = event.recording;
+    const visitReference = this.#visitLogReference(event);
     const device = this.#devices.get(event.cameraSerial), route = device ? ppcsStreamRoute(device, this.#devices) : null;
     if (!this.config.experimentalHomeBaseEventNames || !device || !supportsEventNameHistory(device, route, true)
       || owner?.nameRecoveryStarted || owner?.nameRecoveryStopped) return;
     const unavailable = (reason: "notification_reference_unavailable" | "api_authentication_required" | "visit_or_binding_changed"
       | "expired" | "peer_busy" | "query_failed" | "no_name" | "reference_changed", checks = 0, busySkips = 0,
       historyResult: EventNameRecoveryOutcome | "not_observed" | "selected_name_rejected" = "not_observed"): void => {
-      logger.info("homebase_name_recovery_unavailable", `Late-name recovery ended reason=${reason} checks=${checks} busy_skips=${busySkips} history_result=${historyResult}`);
+      logger.info("homebase_name_recovery_unavailable", `Late-name recovery ended reason=${reason} checks=${checks} busy_skips=${busySkips} history_result=${historyResult} visit_ref=${visitReference}`);
     };
     if (!this.config.apiAuthenticationConfigured) { unavailable("api_authentication_required"); return; }
     if (!owner || !event.eventId || !reference) {
       logger.info("homebase_name_recovery_unavailable", "Late-name recovery ended reason=notification_reference_unavailable checks=0 busy_skips=0"
         + ` reference=${event.recordingReferenceProblem ?? "unknown"} visit_identity_present=${Boolean(event.eventId)}`
-        + (event.recordingReferenceShape ? ` path_shape=${event.recordingReferenceShape.pathShape} path_calendar=${event.recordingReferenceShape.calendar} trigger_clock=${event.recordingReferenceShape.clock}` : ""));
+        + (event.recordingReferenceShape ? ` path_shape=${event.recordingReferenceShape.pathShape} path_calendar=${event.recordingReferenceShape.calendar} trigger_clock=${event.recordingReferenceShape.clock}` : "")
+        + ` visit_ref=${visitReference}`);
       return;
     }
     if (event.stationSerial !== route?.peer.serial
@@ -6718,7 +6736,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
             owner.nameRecoveryStopped = true;
             if (kind === "doorbell") events.doorbellName?.(event.cameraSerial, identity, recognized);
             else events.personName?.(event.cameraSerial, identity, recognized);
-            logger.info("homebase_name_recovered", "An exact notification-owned history record supplied a familiar name");
+            logger.info("homebase_name_recovered", `An exact notification-owned history record supplied a familiar name visit_ref=${visitReference}`);
             return;
           }
           if (name !== null) historyResult = "selected_name_rejected";
