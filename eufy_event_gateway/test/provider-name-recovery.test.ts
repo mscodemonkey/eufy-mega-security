@@ -60,6 +60,7 @@ async function fixture(context: TestContext, mode = "valid") {
     if (mode === "superseded" || mode === "shutdown" || mode === "native-name" || mode === "conflicting-reference") await new Promise<void>(resolve => { release = resolve; });
     if (mode === "slow-empty") await new Promise<void>(resolve => setTimeout(resolve, 50_000));
     if (mode === "record-missing") { onOutcome?.("record_not_on_page"); return null; }
+    if (mode === "crop-missing") { onOutcome?.("person_crop_missing"); return null; }
     return mode === "empty" || mode === "slow-empty" ? null : mode === "generic" ? "Unknown person" : "Fixture Person";
   });
   const names: unknown[][] = [], people: unknown[][] = [], presses: unknown[][] = [];
@@ -238,4 +239,84 @@ test("a returned missing visit remains distinct from skipped recording checks", 
     assert.match(line, /reason=no_name checks=2 busy_skips=1 history_result=record_not_on_page/);
     for (const value of ["Fixture Person", "parent", "child", storagePath]) assert.equal(line.includes(value), false);
   } finally { await f.provider.close(); context.mock.timers.reset(); }
+});
+
+
+/** Read only the public, opaque reference emitted for a notification's recovery. */
+function loggedVisitReference(line: string): string {
+  const match = /\bvisit_ref=([a-f0-9]{16}|unavailable)\b/.exec(line);
+  assert.ok(match, "the original push and delayed result need a joinable safe reference");
+  return match[1]!;
+}
+
+test("an older cancelled lookup remains identifiable after the next visit's push", async context => {
+  const f = await fixture(context, "crop-missing");
+  try {
+    await f.provider.startStream("child");
+    f.send(f.event("private-older-visit")); await settle();
+    context.mock.timers.tick(10_000); await settle();
+    f.send(f.event("private-newer-visit")); await settle();
+    const pushes = f.logs.filter(line => line.includes("event=push_received"));
+    const oldResult = f.logs.find(line => /homebase_name_recovery_unavailable.*reason=visit_or_binding_changed/.test(line))!;
+    assert.equal(pushes.length, 2);
+    assert.match(oldResult, /checks=0 busy_skips=1 history_result=not_observed/);
+    assert.ok(f.logs.indexOf(oldResult) > f.logs.indexOf(pushes[1]!));
+    const older = loggedVisitReference(pushes[0]!), newer = loggedVisitReference(pushes[1]!);
+    assert.notEqual(older, newer);
+    assert.equal(loggedVisitReference(oldResult), older);
+    context.mock.timers.tick(10_000); await settle();
+    await f.provider.stopStream("child");
+    context.mock.timers.tick(50_000); await settle();
+    context.mock.timers.tick(480_000); await settle();
+    const newResult = f.logs.find(line => /homebase_name_recovery_unavailable.*reason=no_name.*history_result=person_crop_missing/.test(line))!;
+    assert.match(newResult, /checks=2 busy_skips=1/);
+    assert.equal(loggedVisitReference(newResult), newer);
+    assert.equal(f.recovery.mock.callCount(), 2);
+    assert.equal(f.names.length, 0);
+    for (const line of [oldResult, newResult, ...pushes]) {
+      assert.equal(/private-older|private-newer|Fixture Person|parent|child|Camera02/.test(line), false);
+    }
+  } finally { await f.provider.close(); context.mock.timers.reset(); }
+});
+
+test("duplicate notification logs and successful recovery keep the same opaque reference", async context => {
+  const f = await fixture(context);
+  try {
+    const event = f.event("private-repeat-visit"); f.send(event); await settle();
+    context.mock.timers.tick(1_000); f.send(event); await settle();
+    const pushes = f.logs.filter(line => line.includes("event=push_received"));
+    assert.equal(pushes.length, 2);
+    const reference = loggedVisitReference(pushes[0]!);
+    assert.equal(loggedVisitReference(pushes[1]!), reference);
+    context.mock.timers.tick(10_000); await settle();
+    const recovered = f.logs.find(line => line.includes("event=homebase_name_recovered"))!;
+    assert.equal(loggedVisitReference(recovered), reference);
+    assert.equal(f.recovery.mock.callCount(), 1);
+    assert.equal(recovered.includes("Fixture Person"), false);
+  } finally { await f.provider.close(); context.mock.timers.reset(); }
+});
+
+test("a notification without an identity does not acquire a guessed visit reference", async context => {
+  const f = await fixture(context);
+  try {
+    f.send({ ...f.event(), eventId: null }); await settle();
+    assert.equal(loggedVisitReference(f.logs.find(line => line.includes("event=push_received"))!), "unavailable");
+    assert.equal(f.recovery.mock.callCount(), 0);
+  } finally { await f.provider.close(); context.mock.timers.reset(); }
+});
+
+
+test("identical synthetic visit IDs cannot be linked across provider instances", async context => {
+  let firstReference: string;
+  const first = await fixture(context, "off");
+  try {
+    first.send(first.event("same-private-id")); await settle();
+    firstReference = loggedVisitReference(first.logs.find(line => line.includes("event=push_received"))!);
+  } finally { await first.provider.close(); context.mock.timers.reset(); }
+  const second = await fixture(context, "off");
+  try {
+    second.send(second.event("same-private-id")); await settle();
+    const secondReference = loggedVisitReference(second.logs.find(line => line.includes("event=push_received"))!);
+    assert.notEqual(firstReference, secondReference);
+  } finally { await second.provider.close(); context.mock.timers.reset(); }
 });
