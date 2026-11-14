@@ -22,6 +22,7 @@ import { nvrGuardTimeZone } from "./provider/nvr-guard-schedule.js";
 import { T85V0StatusError, t85v0StatusFailureSummary } from "./provider/t85v0-status.js";
 import { LocalMotionError } from "./stream/local-motion-trial.js";
 import { C31IndexError, parseC31IndexRequest, type C31IndexWindow } from "./stream/c31-recording-index.js";
+import { parseC31ContinuousRequest } from "./stream/c31-continuous-recording.js";
 import { recordingPathDate } from "./mega/push-recording-reference.js";
 import { projectEventPictureSummary } from "./stream/homebase-event-picture.js";
 import { EventNameHistoryError, eventHistoryCursor, eventHistoryId, nextEventHistoryDate, projectEventNameHistorySummary } from "./stream/homebase-event-names.js";
@@ -862,6 +863,35 @@ export class GatewayServer {
         } catch (error) {
           const failure = error instanceof LocalMotionError ? error : new LocalMotionError(controller.signal.aborted ? "cancelled" : "session");
           logger.warn("local_motion_trial_failed", `stage=${failure.stage}`);
+          if (!response.destroyed) json(response, 409, { stage: failure.stage });
+        } finally {
+          controller.abort(); clearTimeout(deadline); response.removeListener("close", abort);
+          request.removeListener("aborted", abort); this.#recordingIndexJobs.delete(controller);
+        }
+        return;
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras"
+        && segments[3] === "continuous-recording-trial" && segments.length === 4) {
+        response.setHeader("cache-control", "no-store");
+        if (!this.config.apiToken || !this.config.experimentalModelControls || !this.provider.readC31ContinuousTrial) return json(response, 409, { stage: "admission" });
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { stage: "admission" });
+        if ((request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase() !== "application/json") return json(response, 400, { stage: "admission" });
+        let begin: number;
+        try { begin = parseC31ContinuousRequest(await readJson(request), Math.floor(Date.now() / 1000)).beginTime; }
+        catch { return json(response, 400, { stage: "admission" }); }
+        if (this.#recordingIndexJobs.size || this.#nvrTrialJobs.size || this.streams.hasActiveSession(segments[2]!)) return json(response, 409, { stage: "busy" });
+        const controller = new AbortController(); this.#recordingIndexJobs.add(controller);
+        const deadline = setTimeout(() => controller.abort(), 90_000);
+        const abort = (): void => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", abort); request.once("aborted", abort);
+        try {
+          const media = await this.provider.readC31ContinuousTrial(segments[2]!, begin, controller.signal);
+          if (controller.signal.aborted || response.destroyed) { media.fill(0); return; }
+          response.setHeader("content-type", "video/mp4"); response.setHeader("content-length", media.length);
+          response.end(media, () => media.fill(0));
+        } catch (error) {
+          const failure = error instanceof C31IndexError ? error : new C31IndexError(controller.signal.aborted ? "cancelled" : "session");
+          logger.warn("continuous_recording_trial_failed", `stage=${failure.stage}`);
           if (!response.destroyed) json(response, 409, { stage: failure.stage });
         } finally {
           controller.abort(); clearTimeout(deadline); response.removeListener("close", abort);

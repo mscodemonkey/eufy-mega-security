@@ -122,6 +122,13 @@ export function diagnosticsPage(): string {
 <label><input id="index-consent" type="checkbox"> I agree to one experimental index query for the last thirty minutes. I understand that hardware behaviour is unconfirmed.</label>
 <button id="index-start">Check recording index once</button><button id="index-cancel">Cancel index test</button>
 <pre id="index-status" role="status">No index test started. A timeout is inconclusive.</pre></details>
+<details><summary>Experimental C31 continuous-recording preview</summary>
+<p>Select a standalone C31 and a time with existing continuous footage. Close its live viewers first. This retrieves ten seconds after that time, checks that the clip decodes, then stops the camera connection. It does not enable recording or change your camera settings.</p>
+<label>Recording time (your browser's local time) <input id="continuous-time" type="datetime-local" step="1"></label>
+<label><input id="continuous-consent" type="checkbox"> I agree to retrieve private footage from this camera.</label>
+<button id="continuous-start">Load ten-second preview</button><button id="continuous-cancel">Cancel preview</button>
+<pre id="continuous-status" role="status">Choose footage from within the last twenty-four hours.</pre>
+<video id="continuous-video" controls playsinline hidden aria-label="Private C31 continuous recording preview"></video></details>
 <details><summary>Experimental cloud recording preview</summary>
 <p>Enable this test in the app options first. Select one camera and a day, then choose an existing cloud recording. This does not list local HomeBase recordings or change your subscription.</p>
 <label>Recording day <input id="cloud-date" type="date"></label><button id="cloud-list">Load cloud recordings</button>
@@ -571,6 +578,41 @@ const cancelIndex = () => { if(indexJob) indexJob.abort(); };
 el('index-cancel').addEventListener('click', cancelIndex);
 el('device').addEventListener('change', () => { cancelIndex(); el('index-consent').checked = false; });
 window.addEventListener('pagehide', cancelIndex);
+let continuousJob = null, continuousUrl = null;
+const clearContinuousPreview = () => {
+  continuousJob?.abort(); continuousJob = null; el('continuous-start').disabled = false;
+  const video = el('continuous-video');
+  if(continuousUrl) { video.pause(); video.removeAttribute('src'); video.load(); URL.revokeObjectURL(continuousUrl); }
+  video.hidden = true; continuousUrl = null;
+};
+el('continuous-cancel').onclick = () => { clearContinuousPreview(); el('continuous-status').textContent = 'Preview cancelled.'; };
+el('device').addEventListener('change', clearContinuousPreview);
+el('token').addEventListener('change', clearContinuousPreview);
+window.addEventListener('pagehide', clearContinuousPreview);
+el('continuous-start').onclick = async () => {
+  const selected = el('device').value, beginTime = Date.parse(el('continuous-time').value) / 1000;
+  if(!selected || !el('continuous-consent').checked || !Number.isSafeInteger(beginTime)) {
+    el('continuous-status').textContent = 'Select a camera and recording time, then agree to retrieve private footage.'; return;
+  }
+  clearContinuousPreview(); const job = continuousJob = new AbortController();
+  el('continuous-consent').checked = false; el('continuous-start').disabled = true;
+  el('continuous-status').textContent = 'Checking the recording interval and retrieving ten seconds...';
+  try {
+    const response = await fetch('api/cameras/' + encodeURIComponent(selected) + '/continuous-recording-trial', {
+      method: 'POST', headers: { Authorization: 'Bearer ' + el('token').value, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ consentPrivateMedia: true, beginTime }), signal: job.signal, cache: 'no-store'
+    });
+    if(!response.ok) {
+      const failure = await response.json().catch(() => ({}));
+      throw Error('Preview unavailable' + (failure.stage ? ' (' + failure.stage + ')' : '') + '.');
+    }
+    const blob = await response.blob();
+    if(job.signal.aborted || continuousJob !== job || selected !== el('device').value) return;
+    continuousUrl = URL.createObjectURL(blob); el('continuous-video').src = continuousUrl; el('continuous-video').hidden = false;
+    el('continuous-status').textContent = 'Preview ready. Use the player to watch the retrieved recording.';
+  } catch(error) { if(continuousJob === job) el('continuous-status').textContent = job.signal.aborted ? 'Preview cancelled.' : error.message; }
+  finally { if(continuousJob === job) { continuousJob = null; el('continuous-start').disabled = false; } }
+};
 action('index-start', async () => {
   const selected = el('device').value;
   if(indexJob || !selected || !el('index-consent').checked) throw Error('Select one C31 and confirm index-test consent.');

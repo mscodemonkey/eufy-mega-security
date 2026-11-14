@@ -140,6 +140,9 @@ export interface CameraProvider {
   /** Read one consented recent or selected historical C31 interval, returning structural counts only. */
   readRecordingIndexTrial?(serial: string, signal: AbortSignal, window?: C31IndexWindow): Promise<C31IndexSummary>;
 
+  /** Retrieve a fixed ten-second, index-owned C31 preview without changing recording settings. */
+  readC31ContinuousTrial?(serial: string, beginTime: number, signal: AbortSignal): Promise<Buffer>;
+
   /** Run one separately consented NVR camera-power test, retaining its lease through restoration. */
   testNvrCameraPower?(serial: string, request: NvrPowerRequest, signal: AbortSignal): Promise<NvrPowerSummary>;
 

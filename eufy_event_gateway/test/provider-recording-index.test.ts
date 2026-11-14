@@ -65,3 +65,45 @@ for (const mode of ["valid", "historical", "invalid-window", "disabled", "type",
     } finally { release(); await provider.close(); await rm(directory, { recursive: true, force: true }); }
   });
 }
+
+for (const mode of ["valid", "disabled", "expired-auth", "changed-auth", "changed-owner", "busy"]) {
+  test(`continuous preview preserves account, peer and inventory ownership: ${mode}`, async context => {
+    const directory = await mkdtemp(join(tmpdir(), "c31-continuous-provider-"));
+    const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
+    context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
+    context.mock.method(MegaClient.prototype, "authenticatedUserId", () => mode === "expired-auth" ? null : "signed-in-user");
+    let accountCurrent = true, reads = 0;
+    context.mock.method(MegaClient.prototype, "authenticatedBinding", () => () => accountCurrent);
+    context.mock.method(MegaClient.prototype, "inventory", async () => {
+      reads++;
+      if (mode === "changed-auth" && reads > 1) accountCurrent = false;
+      return { devices: [{ device_sn: "camera", device_model: "T817L", device_type: 10031, device_channel: 0,
+        category: "eufy_security", p2p_did: "TEST-12345678-TEST", p2p_conn: "synthetic", params: [],
+        member: { admin_user_id: mode === "changed-owner" && reads > 2 ? "other" : "owner" } }] };
+    });
+    context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ camera: { key: "synthetic", expiresAt: null } }));
+    context.mock.method(MegaPushReceiver.prototype, "start", async () => undefined);
+    context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => undefined);
+    context.mock.method(FirstPartyPpcsSession.prototype, "readCameraInfo", async () => []);
+    const begin = Math.floor(Date.now() / 1000) - 100;
+    let enter!: () => void, release!: () => void;
+    const entered = new Promise<void>(resolve => { enter = resolve; }), held = new Promise<void>(resolve => { release = resolve; });
+    const capture = context.mock.method(FirstPartyPpcsSession.prototype, "readC31ContinuousClip", async (time: number, account: string, signal: AbortSignal, current: () => void) => {
+      assert.equal(time, begin); assert.equal(account, "signed-in-user"); assert.equal(signal.aborted, false); current(); enter();
+      if (mode === "busy") await held;
+      return Buffer.from("synthetic-media");
+    });
+    const provider = new EufyProvider({ username: "synthetic", password: "synthetic", country: "AU", persistentDirectory: directory,
+      maxStreamSeconds: 120, experimentalModelControls: mode !== "disabled" });
+    try {
+      await provider.start(new Proxy({}, { get: () => () => undefined }) as ProviderEvents);
+      await new Promise(resolve => setImmediate(resolve));
+      const work = provider.readC31ContinuousTrial("camera", begin, new AbortController().signal);
+      if (mode === "busy") { await entered; await assert.rejects(provider.readRecordingIndexTrial("camera", new AbortController().signal), /busy/); release(); }
+      if (["valid", "busy"].includes(mode)) assert.equal((await work).toString(), "synthetic-media");
+      else await assert.rejects(work, C31IndexError);
+      if (["disabled", "expired-auth"].includes(mode)) assert.equal(capture.mock.callCount(), 0);
+      assert.equal(network.mock.callCount(), 0);
+    } finally { release(); await provider.close(); await rm(directory, { recursive: true, force: true }); }
+  });
+}
