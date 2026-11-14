@@ -191,3 +191,25 @@ for (const enabled of [true, false]) test(`provider forwards lock hints only to 
     assert.equal(network.mock.callCount(), 0);
   } finally { await provider.close(); }
 });
+
+for (const eventType of [257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 270, 271]) {
+  test(`E30 official lock or unlock method ${eventType} triggers only an independent query`, async context => {
+    const f = await fixture(context);
+    context.mock.timers.tick(11_000);
+    f.state(3);
+    assert.equal(f.provider.acceptPushHint({ ...hint(), eventType }), true);
+    context.mock.timers.tick(1); await settle();
+    assert.equal(f.queries(), 2);
+    assert.equal(f.provider.list()[0]?.state, "unlocked");
+    assert.equal(f.actuations(), 0);
+  });
+}
+
+test("E30 alarm and battery notifications do not schedule state reads", async context => {
+  const f = await fixture(context);
+  for (const eventType of [256, 272, 513, 514, 515, 516, 517, 518, 519, 520, 521, 522, 534, 535]) {
+    assert.equal(f.provider.acceptPushHint({ ...hint(), eventType }), false);
+  }
+  context.mock.timers.tick(20_000); await settle();
+  assert.equal(f.queries(), 1);
+});

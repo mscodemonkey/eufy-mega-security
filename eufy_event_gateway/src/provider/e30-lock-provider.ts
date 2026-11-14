@@ -1,5 +1,5 @@
 /**
- * Owns the opt-in E30 inventory, operation leases and polling lifecycle.
+ * Owns the opt-in E30 inventory, operation leases, polling and notification-triggered reads.
  * EufyProvider supplies authenticated inventory and credentials. This registry
  * publishes only normalized lock facts to GatewayState, retires stale bindings
  * before cancellation, and never reports broker acceptance as physical state.
@@ -17,6 +17,9 @@ const logger = createLogger("e30-lock");
 
 /** Experimental polling cadence; cache GETs never wake the lock. */
 export const E30_LOCK_POLL_MS = 300_000;
+
+/** Official SmartLockPushHandler lock/unlock methods, not alarm or battery notifications. */
+const LOCK_CHANGE_EVENTS = new Set([257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 270, 271]);
 
 const PUSH_HINT_MAX_AGE_MS = 60_000;
 const PUSH_HINT_FUTURE_SKEW_MS = 5_000;
@@ -65,7 +68,7 @@ export interface E30LockProviderOptions {
 
 /**
  * One opt-in lock registry per EufyProvider generation. It owns operation
- * controllers and its polling timer. close() retires everything synchronously;
+ * controllers, polling and queued hint timers. close() retires everything synchronously;
  * late credential reads or device replies cannot publish state or commands. Inventory
  * firmware remains separate from binding identity and physical-query freshness.
  */
@@ -167,7 +170,7 @@ export class E30LockProvider {
     const identity = this.#identities.get(event.cameraSerial), sentAt = event.transportSentAtMilliseconds;
     const age = typeof sentAt === "number" ? Date.now() - sentAt : NaN;
     if (this.#closed || !this.#inventoryConfirmed || !identity || event.stationSerial !== identity.serial
-      || event.eventType !== 257 || !Number.isSafeInteger(sentAt) || !Number.isFinite(age)
+      || (event.eventType === null || !LOCK_CHANGE_EVENTS.has(event.eventType)) || !Number.isSafeInteger(sentAt) || !Number.isFinite(age)
       || age < -PUSH_HINT_FUTURE_SKEW_MS || age > PUSH_HINT_MAX_AGE_MS
       || sentAt! <= (this.#lastPushSentAt.get(identity.serial) ?? 0)) return false;
     this.#lastPushSentAt.set(identity.serial, sentAt!);
