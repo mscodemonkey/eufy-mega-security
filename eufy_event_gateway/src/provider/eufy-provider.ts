@@ -14,6 +14,7 @@
  */
 import { homeBaseLocalAddress, homeBaseLocalAddressSelection, type HomeBaseAddress } from "./homebase-address.js";
 import { homeBaseInventoryAlarmVolume } from "./homebase-inventory-volume.js";
+import { entrySensorHealth } from "./entry-sensor-health.js";
 import { QuickResponseListError, isQuickResponseRoute, validQuickResponseId, type DoorbellQuickResponse } from "./quick-responses.js";
 import { ppcsSourceDiagnostic } from "../diagnostics/ppcs-source-diagnostic.js";
 import { GENERATED_CATALOGUE_DEVICES } from "./devices/generated-catalogue.js";
@@ -245,6 +246,10 @@ export interface MegaInventoryDevice {
 
 /** Allowlisted, validated current values retained from one Mega inventory row. */
 export interface MegaInventoryReads {
+
+  /** Explicit T8900 connection and low-power observations, never synthesized defaults. */
+  readonly entrySensorConnected?: boolean;
+  readonly entrySensorBatteryLow?: boolean;
 
   /** Exact standalone T8426 manual override, without inferring physical illumination. */
   readonly manualFloodlightEnabled?: boolean;
@@ -7051,6 +7056,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   if (deviceType === 86 && model === "T8354") return { e21: e21Readings(value) };
   if (!Array.isArray(value)) return {};
   const alarmVolume = homeBaseInventoryAlarmVolume(value, model, deviceType);
+  const sensorHealth = entrySensorHealth(value, model, deviceType);
   const params = new Map<number, unknown>();
   for (const row of value) {
     if (!isRecord(row)) continue;
@@ -7187,6 +7193,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
       ? cameraSwitch === cameraEnableRawValue(deviceType, true)
       : undefined;
   return {
+    ...sensorHealth,
     ...(ringtoneVolume !== undefined && Number.isInteger(ringtoneVolume) ? { ringtoneVolume } : {}),
     ...(alarmVolume !== undefined ? { alarmVolume } : {}),
     ...(soundSensitivity !== null && Number.isInteger(soundSensitivity) && (c31 ? soundSensitivity >= 1 && soundSensitivity <= 5 : [1, 3, 5].includes(soundSensitivity))
@@ -7420,13 +7427,17 @@ function securitySensorState(device: MegaInventoryDevice): SecuritySensorState |
   const lastSeen = device.paramTypes.includes(1551)
     || (motion && device.paramTypes.includes(1605));
   const rssi = device.paramTypes.includes(1141);
-  if (!contact && !motion && !battery && !lastSeen && !rssi) return null;
+  const entrySensor = device.model === "T8900" && device.deviceType === 2;
+  const connected = entrySensor && device.paramTypes.includes(1131);
+  const batteryLow = entrySensor && device.paramTypes.includes(1552);
+  if (!contact && !motion && !battery && !lastSeen && !rssi && !connected && !batteryLow) return null;
   if (![2, 10, 20, 21, 22, 123, 126, 127].includes(device.deviceType ?? -1)) return null;
   return {
     serial: device.serial,
     name: device.name,
     model: device.model,
     deviceType: device.deviceType!,
+    firmware: device.firmware,
     available: true,
     capabilities: [
       ...(battery ? ["battery" as const] : []),
@@ -7434,7 +7445,11 @@ function securitySensorState(device: MegaInventoryDevice): SecuritySensorState |
       ...(lastSeen ? ["lastSeen" as const] : []),
       ...(motion ? ["motion" as const] : []),
       ...(rssi ? ["rssi" as const] : []),
+      ...(connected ? ["connected" as const] : []),
+      ...(batteryLow ? ["batteryLow" as const] : []),
     ],
+    ...(connected ? { connected: device.reads.entrySensorConnected ?? null } : {}),
+    ...(batteryLow ? { batteryLow: device.reads.entrySensorBatteryLow ?? null } : {}),
     batteryLevel: device.reads.batteryLevel ?? null,
     contactOpen: device.reads.contactOpen ?? null,
     lastSeen: device.reads.lastSeen ?? null,

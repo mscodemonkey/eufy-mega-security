@@ -74,9 +74,16 @@ async def async_setup_entry(
     known_stations: set[str] = set()
     known_sensors: set[str] = set()
     known_read_only_locks: set[str] = set()
+    known_sensor_health: set[tuple[str, str]] = set()
     applied_profiles: dict[str, tuple[str, ...] | None] = {}
 
     def add_new() -> None:
+        for serial, sensor in coordinator.sensors.items():
+            for kind in ("connected", "batteryLow"):
+                identity = (serial, kind)
+                if kind in sensor.get("capabilities", []) and identity not in known_sensor_health:
+                    known_sensor_health.add(identity)
+                    async_add_entities([EufySensorHealth(coordinator, serial, kind)])
         read_only_locks = {
             serial for serial, state in coordinator.locks.items()
             if state.get("readOnly") is True
@@ -304,6 +311,36 @@ class EufyStandaloneBinarySensor(EufySecuritySensorEntity, BinarySensorEntity):
         """Return normalized open or motion state without inventing unknown values."""
         field = "contactOpen" if self.kind == "contact" else f"{self.kind}Detected"
         value = self.sensor.get(field)
+        return value if isinstance(value, bool) else None
+
+
+class EufySensorHealth(EufySecuritySensorEntity, BinarySensorEntity):
+    """Expose reported accessory health without deriving it from missing values.
+
+    The coordinator owns freshness. These diagnostic entities remain separate
+    from settled contact state and never query or change the physical sensor.
+    """
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, kind: str) -> None:
+        """Bind one advertised health field to its stable accessory identity."""
+        super().__init__(coordinator, serial)
+        self.kind = kind
+        self._attr_unique_id = f"{serial}_{kind}"
+        self._attr_translation_key = "sensor_connection" if kind == "connected" else "sensor_battery_low"
+        self._attr_device_class = (BinarySensorDeviceClass.CONNECTIVITY
+                                   if kind == "connected" else BinarySensorDeviceClass.BATTERY)
+
+    @property
+    def available(self) -> bool:
+        """Withdraw the reading when its gateway capability is no longer present."""
+        return super().available and self.kind in self.sensor.get("capabilities", [])
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return only an explicit boolean, preserving unknown health."""
+        value = self.sensor.get(self.kind)
         return value if isinstance(value, bool) else None
 
 
