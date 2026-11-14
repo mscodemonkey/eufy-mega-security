@@ -4374,7 +4374,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     const selected = this.#devices.get(serial);
-    if (selected?.model === "T8171" && selected.deviceType === 88 && selected.parentSerial !== selected.serial) {
+    if (selected?.model === "T8171" && selected.deviceType === 88
+      && ppcsStreamRoute(selected, this.#devices)?.homeBaseAttached === true) {
+      this.#assertNoModelTrial(serial);
       if (this.#streamingQualityOperations.has(serial)) return Promise.reject(new CameraSettingError("busy"));
       const operation = this.#setAttachedLiveQuality(serial, quality, signal);
       this.#streamingQualityOperations.set(serial, operation);

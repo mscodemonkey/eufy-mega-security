@@ -1859,6 +1859,7 @@ export class FirstPartyPpcsSession {
 
   /** Change quality on the existing viewer without replacing it or claiming persistent readback. */
   async writeAttachedStreamingQuality(quality: number, signal: AbortSignal): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (!this.attachedQualityReady || !this.#options.accountId || this.#pendingControl || this.#pendingControlQuery
       || this.#pendingCameraInfo || this.#speaker || this.#recordings || this.#alarmRead) {
       throw new Error("Open this camera's live view before changing its quality");

@@ -71,3 +71,30 @@ for (const mode of ["ready", "idle", "disabled", "guest", "no-api", "no-binding"
     } finally { await provider.close(); await rm(directory, { recursive: true, force: true }); }
   });
 }
+
+for (const parent of ["", "camera"]) {
+  test(`standalone T8171 quality retains its existing writer with parent ${parent || "absent"}`, async context => {
+    const directory = await mkdtemp(join(tmpdir(), "t8171-direct-quality-")); let value = 0, writes = 0;
+    context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
+    context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
+    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{
+      device_sn: "camera", device_model: "T8171", device_type: 88, category: "eufy_security", parent_sn: parent,
+      device_channel: 0, p2p_did: "TEST-12345678-TEST", p2p_conn: "synthetic", member: { admin_user_id: "synthetic" },
+      params: [{ param_type: 1020, param_value: `${value}` }],
+    }] }));
+    context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ camera: { key: "synthetic", expiresAt: null } }));
+    context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
+    context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => {});
+    context.mock.method(FirstPartyPpcsSession.prototype, "writeStreamingQuality", async (quality: number) => { writes++; value = quality; });
+    const provider = new EufyProvider({ username: "synthetic", password: "redacted", country: "AU", persistentDirectory: directory, maxStreamSeconds: 120 });
+    const state = new GatewayState();
+    const events = new Proxy({ camera: (identity: Parameters<ProviderEvents["camera"]>[0]) => state.registerCamera(identity) },
+      { get: (target, key) => Reflect.get(target, key) ?? (() => {}) }) as unknown as ProviderEvents;
+    try {
+      await provider.start(events);
+      assert.equal(state.getCamera("camera").streamingQualityControlScope, undefined);
+      assert.equal((await provider.setCameraStreamingQuality("camera", 2)).reportedSettings?.streamingQualityTier, 2);
+      assert.equal(writes, 1);
+    } finally { await provider.close(); await rm(directory, { recursive: true, force: true }); }
+  });
+}
