@@ -457,7 +457,21 @@ export function maskSmartLockState(state: SmartLockState, now = Date.now()): Sma
     ...(!fresh(state.settings.observedAt) ? { volume: null, autoLock: null, autoLockDelaySeconds: null, observedAt: null } : {}),
     ...(!fresh(state.settings.notificationsObservedAt) ? { notifications: null, lockedNotifications: null, unlockedNotifications: null, notificationsObservedAt: null } : {}) } : undefined;
   return { ...state, ...(settings ? { settings } : {}),
+    ...(state.lastEvent ? { lastEvent: { ...state.lastEvent } } : {}),
     ...(!fresh(state.stateObservedAt) ? { state: "unknown" as const, available: false, batteryPercent: null } : {}) };
+}
+
+/**
+ * Last accepted Eufy change notification, owned by the current lock binding.
+ * Receipt time and the reported user describe the message, not independently
+ * verified identity or physical state. Manual, automatic and keypad-lock events
+ * have no identified user.
+ */
+export interface SmartLockEvent {
+  readonly action: "locked" | "unlocked";
+  readonly method: "manual" | "automatic" | "keypad" | "passcode" | "fingerprint" | "app" | "temporary_passcode" | "nfc";
+  readonly userName: string | null;
+  readonly receivedAt: string;
 }
 
 /**
@@ -487,6 +501,9 @@ export interface SmartLockState {
   readonly batteryPercent: number | null;
   readonly stateObservedAt: string | null;
   readonly settings?: SmartLockSettings;
+
+  /** Optional notification context, cleared on binding retirement and independent of query freshness. */
+  readonly lastEvent?: SmartLockEvent;
 }
 
 /** Normalized state notifications consumed by the authenticated SSE connection. */

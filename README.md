@@ -645,9 +645,24 @@ stopped before its restore write. Low and Medium sound values were compared
 with the app. High, timed auto-locking and these controls in Home Assistant
 still need hardware confirmation.
 
-State and battery depend on Eufy's cloud. EMS polls every five minutes and
-expires observations after six minutes, so a change made elsewhere can take
-several minutes to appear. Home Assistant's recovery poll reads the EMS cache.
+State and battery depend on Eufy's cloud. A fresh lock or unlock notification
+prompts an independent status query, sharing the existing ten-second read limit.
+Enable the relevant notification in Eufy for this to work. Manual lock/unlock,
+fingerprint unlock and passcode unlock have been confirmed through Home Assistant.
+EMS also polls every five minutes and expires observations after six minutes.
+When notifications are disabled or unavailable, an external change can therefore
+take several minutes to appear. Home Assistant's recovery poll reads the EMS cache.
+
+The lock entity exposes the latest accepted notification as `last_event_action`,
+`last_event_method`, `last_event_user` and `last_event_received_at`. These can be
+used in HA notification templates and automations. Methods are `manual`,
+`automatic`, `keypad`, `passcode`, `fingerprint`, `app`, `temporary_passcode` or
+`nfc`. The name is Eufy's reported display name, and the timestamp is gateway
+receipt time. Manual turns, automatic changes and one-touch keypad locking have
+no identified user. A missing name clears the previous event's name. This
+message context never sets the physical lock position or refreshes its age.
+It lasts for the current gateway/device binding and clears on restart or rebinding.
+
 Enabling this feature exposes unlock to Home Assistant dashboards, automations
 and any voice assistants to which you expose the entity. Review those before
 enabling it.
