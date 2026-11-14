@@ -175,6 +175,8 @@ class EufyMotionSensitivityNumber(EufyGatewayEntity, NumberEntity):
         EufyGatewayEntity.__init__(self, coordinator, serial)
         NumberEntity.__init__(self)
         self._attr_unique_id = f"{serial}_motion_sensitivity"
+        if self.camera.get("motionSensitivityExperimental") is True:
+            self._attr_translation_key = "camera_motion_sensitivity_experimental"
 
     @property
     def native_max_value(self) -> float:

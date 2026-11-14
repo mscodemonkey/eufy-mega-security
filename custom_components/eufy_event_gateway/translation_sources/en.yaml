@@ -103,6 +103,8 @@ entity:
   number:
     camera_motion_sensitivity:
       name: Motion sensitivity
+    camera_motion_sensitivity_experimental:
+      name: Motion sensitivity (experimental)
     camera_light_brightness:
       name: Light brightness
     camera_notification_interval:

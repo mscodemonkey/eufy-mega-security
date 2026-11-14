@@ -2371,6 +2371,9 @@ export class FirstPartyPpcsSession {
     if (!profile || this.#closed || this.#options.purpose !== "control" || !this.#remote || !this.#options.accountId
       || this.#options.cameraModel !== route.model || this.#options.channel !== route.channel
       || this.#options.homeBaseAttached !== route.homeBaseAttached) throw new Error("Reviewed camera setting session unavailable");
+    if (profile.experimental && (this.#options.stationModel !== "T8010" || this.#options.cameraDeviceType !== 8)) {
+      throw new Error("HomeBase 2 sensitivity session unavailable");
+    }
     if (profile.form === "attached-quality" && (this.#options.cameraDeviceType !== 48 || this.#options.stationModel !== "T8030")) {
       throw new Error("S340 live quality session unavailable");
     }

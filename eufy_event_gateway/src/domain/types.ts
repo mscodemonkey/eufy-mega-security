@@ -189,6 +189,9 @@ export interface CameraState {
   /** Exact-route admission for fresh-state-confirmed sensitivity and HomeBase chime writes. */
   readonly motionSensitivityControlSupported?: boolean;
   readonly motionSensitivitySteps?: number | null;
+
+  /** Mark an opt-in sensitivity transport whose physical behaviour is unconfirmed. */
+  readonly motionSensitivityExperimental?: boolean;
   readonly homebaseChimeControlSupported?: boolean;
 
   /** Opt-in exact T8425/T8426 brightness with a readable baseline; physical behaviour is unconfirmed. */
@@ -538,6 +541,9 @@ export interface CameraIdentity {
   /** Exact-route admission for fresh-state-confirmed sensitivity and HomeBase chime writes. */
   readonly motionSensitivityControlSupported?: boolean;
   readonly motionSensitivitySteps?: number | null;
+
+  /** Mark an opt-in sensitivity transport whose physical behaviour is unconfirmed. */
+  readonly motionSensitivityExperimental?: boolean;
   readonly homebaseChimeControlSupported?: boolean;
 
   /** Opt-in exact T8425/T8426 brightness with a readable baseline; physical behaviour is unconfirmed. */

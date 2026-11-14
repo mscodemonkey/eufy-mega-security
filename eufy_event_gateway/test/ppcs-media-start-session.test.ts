@@ -1126,3 +1126,34 @@ test("T8214 list timeout retains receipt and rejected-notification evidence with
     assert.equal(f.session.stats.mediaStartAttempts, 0);
   } finally { f.session.close(); }
 });
+
+
+test("HomeBase 2 sensitivity sends once on the exact child channel", async context => {
+  const f = await peer(context, true, "T8113-Z", "control", "T8010", undefined, 0, 8);
+  const route = { model: "T8113-Z", deviceType: 8, homeBaseAttached: true, peerModel: "T8010", selfPeer: false, channel: 0 };
+  let dispatches = 0;
+  try {
+    await f.negotiate();
+    const pending = f.session.writeReviewedCameraSetting({ setting: "motionSensitivity", value: 3 }, route, () => { dispatches++; });
+    await new Promise(resolve => setImmediate(resolve));
+    const writes = f.sent.filter(packet => packet.length >= 24 && packet.subarray(8, 12).toString() === "XZYH" && packet.readUInt16LE(12) === 1210);
+    assert.equal(writes.length, 1);
+    assert.equal(dispatches, 1);
+    assert.equal(writes[0]![20], 0);
+    f.frame(1210, Buffer.alloc(4), 0, true);
+    await pending;
+  } finally { f.session.close(); }
+});
+
+for (const [stationModel, deviceType] of [["T8030", 8], ["T8010", 9], ["T8010", null]] as const) {
+  test(`HomeBase 2 sensitivity rejects a mismatched session before dispatch: ${stationModel}/${deviceType}`, async context => {
+    const f = await peer(context, true, "T8113-Z", "control", stationModel, undefined, 0, deviceType);
+    let dispatches = 0;
+    try {
+      await assert.rejects(f.session.writeReviewedCameraSetting({ setting: "motionSensitivity", value: 3 },
+        { model: "T8113-Z", deviceType: 8, homeBaseAttached: true, peerModel: "T8010", selfPeer: false, channel: 0 }, () => { dispatches++; }));
+      assert.equal(dispatches, 0);
+      assert.equal(f.sent.filter(packet => packet.length >= 24 && packet.subarray(8, 12).toString() === "XZYH" && packet.readUInt16LE(12) === 1210).length, 0);
+    } finally { f.session.close(); }
+  });
+}
