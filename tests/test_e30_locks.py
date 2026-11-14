@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 ROOT = Path(__file__).parents[1] / "custom_components/eufy_event_gateway"
 
@@ -28,6 +28,59 @@ def method(file: str, owner: str, name: str, namespace: dict):
 
 class E30LockTest(unittest.IsolatedAsyncioTestCase):
     """Protect physical state semantics and four-family event preservation."""
+
+    def test_lock_firmware_reaches_device_info_without_affecting_state(self):
+        """Accept bounded optional inventory metadata while keeping old gateway replies valid."""
+        projection = method("client.py", "GatewayClient", "_lock_state", {"GatewayClientError": ValueError})
+        info = method("lock.py", "EufyLockEntity", "device_info", {"DOMAIN": "eufy_event_gateway", "DeviceInfo": dict})
+        original = {"serial": "fixture", "name": "Synthetic", "model": "T85F1", "state": "locked",
+                    "available": True, "batteryPercent": 76, "stateObservedAt": "2026-11-14T08:00:00Z"}
+        self.assertNotIn("firmware", projection(original))
+        for value, expected in (("1.2.3.4", "1.2.3.4"), (" 1.2.3.4 ", "1.2.3.4"),
+                                (None, None), (False, None), (42, None), ("", None), ("x" * 101, None)):
+            state = projection({**original, "firmware": value})
+            self.assertEqual(state["state"], "locked")
+            self.assertEqual(state["stateObservedAt"], original["stateObservedAt"])
+            self.assertEqual(state["firmware"], expected)
+            entity = SimpleNamespace(serial="fixture", lock_state=state)
+            self.assertEqual(info(entity)["sw_version"], expected)
+            self.assertEqual(info(entity)["identifiers"], {("eufy_event_gateway", "fixture")})
+
+    def test_late_lock_firmware_updates_the_owned_registry_without_renaming_user_override(self):
+        """A full inventory can supply firmware after the entity already exists."""
+        device = SimpleNamespace(id="fixture-device", name="Synthetic", name_by_user="My chosen name", sw_version=None)
+        registry = SimpleNamespace(async_get_device_by_identifier=Mock(return_value=device), async_update_device=Mock())
+        namespace = {"dr": SimpleNamespace(async_get=lambda hass: registry), "DOMAIN": "eufy_event_gateway"}
+        sync = method("coordinator.py", "EufyGatewayCoordinator", "_sync_device_name", namespace)
+        all_devices = method("coordinator.py", "EufyGatewayCoordinator", "_sync_device_names", namespace)
+        owner = SimpleNamespace(hass=object(), config_entry=SimpleNamespace(entry_id="owned-entry"))
+        owner._sync_device_name = lambda *args, **kwargs: sync(owner, *args, **kwargs)
+        all_devices(owner, {"locks": {"fixture": {"name": "Synthetic", "firmware": "1.2.3.4"}}})
+        registry.async_get_device_by_identifier.assert_called_once_with(("eufy_event_gateway", "fixture"), "owned-entry")
+        registry.async_update_device.assert_called_once_with("fixture-device", sw_version="1.2.3.4")
+        self.assertEqual(device.name_by_user, "My chosen name")
+        registry.async_update_device.reset_mock()
+        device.sw_version = "1.2.3.4"
+        sync(owner, "fixture", "Synthetic", firmware="1.2.3.4")
+        registry.async_update_device.assert_not_called()
+
+    def test_lock_firmware_registry_update_rejects_other_entries_and_invalid_versions(self):
+        """The legacy lookup cannot update another entry or erase a known version on omission."""
+        for entries in ({"foreign-entry"}, {"owned-entry"}):
+            device = SimpleNamespace(id="fixture-device", name="Synthetic", config_entries=entries, sw_version="1.2.3.4")
+            registry = SimpleNamespace(async_get_device=Mock(return_value=device), async_update_device=Mock())
+            sync = method("coordinator.py", "EufyGatewayCoordinator", "_sync_device_name",
+                          {"dr": SimpleNamespace(async_get=lambda hass: registry), "DOMAIN": "eufy_event_gateway"})
+            owner = SimpleNamespace(hass=object(), config_entry=SimpleNamespace(entry_id="owned-entry"))
+            sync(owner, "fixture", "Synthetic", firmware="1.2.3.5")
+            if "owned-entry" in entries:
+                registry.async_update_device.assert_called_once_with("fixture-device", sw_version="1.2.3.5")
+            else:
+                registry.async_update_device.assert_not_called()
+            registry.async_update_device.reset_mock()
+            for invalid in (None, False, 42, "", " ", "x" * 101):
+                sync(owner, "fixture", "Synthetic", firmware=invalid)
+            registry.async_update_device.assert_not_called()
 
     async def test_all_event_families_preserve_siblings_and_empty_locks_replace(self):
         """Full and single updates must never erase an unrelated inventory."""

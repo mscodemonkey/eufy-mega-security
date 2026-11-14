@@ -193,7 +193,10 @@ class EufyGatewayCoordinator(
         updated = {"cameras": dict(self.cameras), "stations": dict(self.stations),
                    "sensors": dict(self.sensors), "locks": dict(self.locks)}
         updated["locks"][lock["serial"]] = lock
-        self._sync_device_name(lock["serial"], lock.get("name"))
+        if isinstance(lock.get("firmware"), str):
+            self._sync_device_name(lock["serial"], lock.get("name"), firmware=lock["firmware"])
+        else:
+            self._sync_device_name(lock["serial"], lock.get("name"))
         self.async_set_updated_data(updated)
 
     def async_set_station(self, station: dict[str, Any]) -> None:
@@ -351,14 +354,22 @@ class EufyGatewayCoordinator(
     def _sync_device_names(
         self, data: dict[str, dict[str, dict[str, Any]]]
     ) -> None:
-        """Refresh vendor names without changing Home Assistant user overrides."""
+        """Refresh names and reported lock firmware without changing user name overrides."""
         for family in ("cameras", "stations", "sensors", "locks"):
             for serial, device in data.get(family, {}).items():
-                self._sync_device_name(serial, device.get("name"))
+                if family == "locks" and isinstance(device.get("firmware"), str):
+                    self._sync_device_name(serial, device.get("name"), firmware=device["firmware"])
+                else:
+                    self._sync_device_name(serial, device.get("name"))
 
-    def _sync_device_name(self, serial: str, name: object) -> None:
-        """Update an existing registry device when Eufy reports a new name."""
-        if not isinstance(name, str) or not name.strip():
+    def _sync_device_name(self, serial: str, name: object, *, firmware: object = None) -> None:
+        """Update reported metadata only on a device owned by this config entry."""
+        updates = {}
+        if isinstance(name, str) and name.strip():
+            updates["name"] = name
+        if isinstance(firmware, str) and len(firmware) <= 100 and firmware.strip():
+            updates["sw_version"] = firmware.strip()
+        if not updates:
             return
         registry = dr.async_get(self.hass)
         scoped_lookup = getattr(registry, "async_get_device_by_identifier", None)
@@ -374,5 +385,7 @@ class EufyGatewayCoordinator(
                     owned = self.config_entry.entry_id in device.config_entries
                 if not owned:
                     device = None
-        if device is not None and device.name != name:
-            registry.async_update_device(device.id, name=name)
+        if device is not None:
+            updates = {key: value for key, value in updates.items() if getattr(device, key, None) != value}
+            if updates:
+                registry.async_update_device(device.id, **updates)

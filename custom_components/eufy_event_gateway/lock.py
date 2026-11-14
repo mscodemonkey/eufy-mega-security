@@ -75,7 +75,8 @@ class EufyLockEntity(CoordinatorEntity[EufyGatewayCoordinator]):
         """Group lock and battery under the same physical device."""
         return DeviceInfo(identifiers={(DOMAIN, self.serial)},
                           name=self.lock_state.get("name") or "Smart Lock E30",
-                          manufacturer="Eufy", model=self.lock_state.get("model"))
+                          manufacturer="Eufy", model=self.lock_state.get("model"),
+                          sw_version=self.lock_state.get("firmware"))
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
