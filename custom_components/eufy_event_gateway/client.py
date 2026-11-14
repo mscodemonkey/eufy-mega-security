@@ -233,6 +233,9 @@ class GatewayClient:
         state = {key: value.get(key) for key in (
             "serial", "name", "model", "state", "available", "batteryPercent", "stateObservedAt"
         )}
+        parent = value.get("stationSerial")
+        if isinstance(parent, str) and 0 < len(parent) <= 128 and parent.strip() == parent:
+            state["stationSerial"] = parent
         if "firmware" in value:
             version = value["firmware"]
             state["firmware"] = version.strip() if isinstance(version, str) and len(version) <= 100 and version.strip() else None

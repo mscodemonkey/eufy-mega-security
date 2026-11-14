@@ -316,6 +316,10 @@ export interface BatteryState {
 /** Complete normalized state for one supported standalone security sensor. */
 export interface SecuritySensorState {
   readonly serial: string;
+
+  /** Reported inventory parent, including self for an explicitly direct device. Absent means unknown. */
+  readonly stationSerial?: string;
+
   readonly name: string;
   readonly model: string;
   readonly deviceType: number;
@@ -463,6 +467,10 @@ export function maskSmartLockState(state: SmartLockState, now = Date.now()): Sma
  */
 export interface SmartLockState {
   readonly serial: string;
+
+  /** Reported inventory parent, including self for an explicitly direct device. Absent means unknown. */
+  readonly stationSerial?: string;
+
   readonly name: string;
   readonly model: "T85F1" | "T8520" | "T8520J11" | "T8520S";
 

@@ -15,7 +15,7 @@ const param = (id: number, value: unknown) => ({ param_type: id, param_value: va
 /** Project the actual inventory adapter without starting its account lifecycle. */
 function project(params: unknown[], model = "T8900", deviceType = 2): SecuritySensorState | null {
   const device = parseMegaInventory({ devices: [{ device_sn: "invented-sensor", device_model: model,
-    device_type: deviceType, category: "eufy_security", main_sw_version: "1.2.3", params }] })[0]!;
+    device_type: deviceType, parent_sn: "invented-homebase", category: "eufy_security", main_sw_version: "1.2.3", params }] })[0]!;
   let sensor: SecuritySensorState | null = null;
   publishHomeBaseChildSensorObservation(device, { sensor: value => { sensor = value; } });
   return sensor;
@@ -48,6 +48,7 @@ test("inventory publishes current accessory firmware and separately advertised h
   const connected = project([param(1131, "1"), param(1550, "0"), param(1601, "1")])!;
   assert.equal(connected.connected, true);
   assert.equal(connected.firmware, "1.2.3");
+  assert.equal(connected.stationSerial, "invented-homebase");
   assert.equal(connected.contactOpen, false);
   assert.equal(connected.capabilities.includes("connected"), true);
   assert.equal(connected.capabilities.includes("batteryLow"), false);
@@ -70,4 +71,13 @@ test("capability manifests map health only on the same qualified model and type"
   const other = describeDeviceCapabilities({ ...device, model: "T8910", deviceType: 10 }, options)
     .find(row => row.family === "sensor")!;
   assert.equal(other.matrix.some(row => row.id === "sensor.connected" || row.id === "sensor.battery_low"), false);
+});
+
+
+test("an omitted sensor parent is never inferred from its model or identity", () => {
+  const device = parseMegaInventory({ devices: [{ device_sn: "invented-sensor", device_model: "T8900",
+    device_type: 2, category: "eufy_security", params: [param(1550, "0")] }] })[0]!;
+  let parent: string | undefined = "unobserved";
+  publishHomeBaseChildSensorObservation(device, { sensor: value => { parent = value.stationSerial; } });
+  assert.equal(parent, undefined);
 });
