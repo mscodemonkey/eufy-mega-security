@@ -936,6 +936,23 @@ test("SoloCam audio isolates attached children and excludes controls and unrelat
 });
 
 
+test("T8210 audio isolates the observed HB3 child and excludes other routes", () => {
+  assert.equal(acceptsSoloCamAudio("T8210", true, 2, 2, "media", 7, "T8030"), true);
+  for (const [model, attached, requested, received, purpose, type, parent] of [
+    ["T8210", true, 2, 1, "media", 7, "T8030"],
+    ["T8210", true, 2, 2, "control", 7, "T8030"],
+    ["T8210", true, 2, 2, "passive", 7, "T8030"],
+    ["T8210", true, 2, 2, "media", 7, "T8010"],
+    ["T8210", true, 2, 2, "media", 7, undefined],
+    ["T8210", true, 2, 2, "media", undefined, "T8030"],
+    ["T8210", true, 2, 2, "media", 94, "T8030"],
+    ["T8210", false, 0, 0, "media", 7, "T8030"],
+    ["T8210X", true, 2, 2, "media", 7, "T8030"],
+  ] as const) {
+    assert.equal(acceptsSoloCamAudio(model, attached, requested, received, purpose, type, parent), false);
+  }
+});
+
 test("control replies accept native PKCS7 padding and reject partial or trailing data", () => {
   const body = Buffer.from(JSON.stringify({ cmd: 6034, payload: { points: [{ index: 1, enable: 1 }] } }));
   const expected = JSON.parse(body.toString());
