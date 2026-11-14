@@ -24,6 +24,7 @@ import { e21PreferenceContracts, validateE21Preference, type E21Preference } fro
 import { cameraSettingProfile, cameraSettingWireValue, type CameraSettingChange } from "../provider/camera-settings.js";
 import { buildT85V0StatusQuery, decodeT85V0StatusReply, T85V0StatusError, type T85V0StatusIdentity, type T85V0StatusSummary } from "../provider/t85v0-status.js";
 import { C31IndexError, summarizeC31Index, validateC31IndexWindow, type C31IndexSummary } from "./c31-recording-index.js";
+import { C31ContinuousReader, requireC31ContinuousInterval } from "./c31-continuous-recording.js";
 import { CameraInfoReadError, cameraInfoTimeoutReason } from "./camera-info-failure.js";
 import { buildS100SirenCommand } from "./s100-siren-command.js";
 import { S100SirenTrialError, type S100SirenTrialTransport, type S100SirenFailureStage } from "../provider/s100-siren-trial.js";
@@ -1795,6 +1796,8 @@ export class FirstPartyPpcsSession {
   #selfAddress: { host: string; port: number } | null = null;
   #pendingControl: PendingControl | null = null;
   #pendingControlQuery: PendingControlQuery | null = null;
+  #c31IndexBody: unknown;
+  #continuous: C31ContinuousReader | undefined;
   #c31Index: { readonly begin: number; readonly end: number; readonly owner: string; readonly transaction: string;
     readonly resolve: (value: C31IndexSummary) => void; readonly reject: (error: C31IndexError) => void;
     readonly timer: NodeJS.Timeout } | null = null;
@@ -2800,9 +2803,10 @@ export class FirstPartyPpcsSession {
    */
   async readC31RecordingIndex(begin: number, end: number, current: () => void): Promise<C31IndexSummary> {
     validateC31IndexWindow(begin, end, Math.floor(Date.now() / 1000));
+    this.#c31IndexBody = undefined;
     if (this.#options.purpose !== "control" || this.#closed || !this.#remote
       || this.#options.cameraModel !== "T817L" || this.#options.homeBaseAttached !== false
-      || this.#options.channel !== 0 || !this.#options.accountId || this.#c31Index
+      || this.#options.channel !== 0 || !this.#options.accountId || this.#c31Index || this.#continuous
       || this.#pendingControl || this.#pendingControlQuery || this.#pendingCameraInfo || this.#recordings) {
       throw new C31IndexError("admission");
     }
@@ -2827,6 +2831,31 @@ export class FirstPartyPpcsSession {
         this.#sendCommand(1700, rawPayload(encrypted, 0, 8, [8, 0], 0));
       } catch (error) { this.#finishC31Index(error instanceof C31IndexError ? error : new C31IndexError(this.#closed ? "cancelled" : "session")); }
     });
+  }
+
+  /** Retrieve one index-owned ten-second continuous preview without changing recording settings. */
+  async readC31ContinuousClip(begin: number, playbackAccount: string, signal: AbortSignal, current: () => void): Promise<Buffer> {
+    if (this.#continuous || !playbackAccount || signal.aborted) throw new C31IndexError("admission");
+    await this.readC31RecordingIndex(begin, begin + 10, current);
+    requireC31ContinuousInterval(this.#c31IndexBody, begin, this.#options.accountId!);
+    this.#c31IndexBody = undefined;
+    current();
+    const send = (data: Record<string, unknown>): void => {
+      if (this.#closed || !this.#level2Key) throw new C31IndexError("cancelled");
+      const value = buildCameraControlQueryValue(6001, data);
+      this.#sendCommand(1700, rawPayload(encryptLevel2(Buffer.from(value), this.#level2Key, this.#level2Seq++), 0, 8, [8, 0], 0));
+    };
+    const reader = new C31ContinuousReader({ serial: this.#options.stationSerial, did: this.#options.p2pDid,
+      start: () => { current(); send({ account_id: playbackAccount, begin_time: begin, cmd: 0,
+        device_sn: this.#options.stationSerial, index: 0, play_speed: 1, play_type: 0, record_id: 0, sensor_id: 0, session_id: 125 }); },
+      stop: () => send({ begin_time: 0, cmd: 3, device_sn: this.#options.stationSerial, file_path: "",
+        index: 0, play_speed: 1, play_type: 0, record_id: 0, sensor_id: 0, session_id: 123 }),
+      decodeReply: (payload, sign) => this.#level2Key && [2, 8].includes(sign)
+        ? decryptLevel2(payload, this.#level2Key, sign) ?? null : null,
+    });
+    this.#continuous = reader;
+    try { return await reader.read(signal); }
+    finally { reader.close(); if (this.#continuous === reader) this.#continuous = undefined; }
   }
 
   #finishC31Index(result: C31IndexSummary | C31IndexError): void {
@@ -3067,6 +3096,8 @@ export class FirstPartyPpcsSession {
     this.#mediaStart.close();
     this.#gatewayInfoRequest.close();
     this.#speaker?.close();
+    this.#continuous?.close();
+    this.#c31IndexBody = undefined;
     this.#closed = true;
     this.#level2Failure = null;
     this.#lookupCancel?.();
@@ -3354,6 +3385,7 @@ export class FirstPartyPpcsSession {
    * HomeBase peer, media is accepted only from the requested child channel.
    */
   #handleFrame(header: Buffer, payload: Buffer, type: number): void {
+    if (this.#continuous?.handleFrame(header, payload, type)) return;
     if (this.#eventPicture?.handleFrame(header, payload)) return;
     if (this.#eventNames?.handleFrame(header, payload)) return;
     if (this.#recordings?.handleFrame(header, payload, type)) return;
@@ -3481,7 +3513,8 @@ export class FirstPartyPpcsSession {
         if ((decoded.transaction !== undefined && decoded.transaction !== pending.transaction)
           || (body?.transaction !== undefined && body.transaction !== pending.transaction)) return;
         if (!body || !["begin_time", "beginTime", "end_time", "endTime", "videos"].some(key => Object.hasOwn(body, key))) return;
-        try { this.#finishC31Index(summarizeC31Index(body, pending.begin, pending.end, pending.owner)); }
+        try { const summary = summarizeC31Index(body, pending.begin, pending.end, pending.owner);
+          this.#c31IndexBody = body; this.#finishC31Index(summary); }
         catch { this.#finishC31Index(new C31IndexError("malformed")); }
         finally { payload.fill(0); }
         return;

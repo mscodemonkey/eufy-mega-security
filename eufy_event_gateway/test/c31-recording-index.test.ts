@@ -134,3 +134,31 @@ test("index readers cannot replace each other's slot after waiting for a key", a
       return at >= 0 && b.readUInt16LE(at + 4) === 1700; }).length, 1);
   } finally { p.session.close(); }
 });
+
+test("continuous session uses a fresh index, signed-in playback identity and one stop before disconnect", async context => {
+  const p = await peer(context), begin = Math.floor(Date.now() / 1000) - 100;
+  const controller = new AbortController();
+  const operation = p.session.readC31ContinuousClip(begin, "synthetic-playback-user", controller.signal, () => {});
+  const rejected = assert.rejects(operation);
+  await new Promise(resolve => setImmediate(resolve));
+  deliver(p.socket, 1351, Buffer.from(JSON.stringify({ cmd: 6000, payload: {
+    begin_time: begin, end_time: begin + 10, account: "synthetic-account", id: 1,
+    videos: [{ start_time: begin - 5, stop_time: begin + 20, cipher_id: 1 }],
+  } })), 0, 1);
+  await new Promise(resolve => setImmediate(resolve));
+  controller.abort(); await rejected; p.session.close(); p.session.close();
+  const requests = p.sent.filter(data => {
+    const at = data.indexOf(Buffer.from("XZYH")); return at >= 0 && data.readUInt16LE(at + 4) === 1700;
+  }).map(data => {
+    const encrypted = data.subarray(data.indexOf(Buffer.from("XZYH")) + 16);
+    const decrypt = createDecipheriv("aes-256-gcm", Buffer.alloc(32, 9), encrypted.subarray(16, 28));
+    decrypt.setAAD(Buffer.from("eufy security")); decrypt.setAuthTag(encrypted.subarray(0, 16));
+    return JSON.parse(Buffer.concat([decrypt.update(encrypted.subarray(32)), decrypt.final()]).toString());
+  });
+  assert.equal(requests.length, 3); assert.equal(requests[0].commandType, 6000);
+  assert.deepEqual(requests[1], { commandType: 6001, data: { account_id: "synthetic-playback-user", begin_time: begin, cmd: 0,
+    device_sn: "SYNTHETIC1234567", index: 0, play_speed: 1, play_type: 0, record_id: 0, sensor_id: 0, session_id: 125 } });
+  assert.deepEqual(requests[2], { commandType: 6001, data: { begin_time: 0, cmd: 3,
+    device_sn: "SYNTHETIC1234567", file_path: "", index: 0, play_speed: 1, play_type: 0, record_id: 0, sensor_id: 0, session_id: 123 } });
+  assert.equal(p.session.stats.mediaStartAttempts, 0);
+});

@@ -243,6 +243,9 @@ export class MegaClient {
     this.#identityRecoveryFlights.clear();
   }
 
+  /** Return the signed-in user's opaque playback identity without authentication or token exposure. */
+  authenticatedUserId(): string | null { return this.isAuthenticated ? this.#session!.userId : null; }
+
   /** Check the current authenticated user without exposing stored account identity. */
   isAuthenticatedUser(userId: string): boolean {
     return this.isAuthenticated && !!userId && this.#session?.userId === userId;

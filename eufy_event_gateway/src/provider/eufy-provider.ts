@@ -1031,6 +1031,26 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   async readRecordingIndexTrial(serial: string, signal: AbortSignal, window?: C31IndexWindow): Promise<C31IndexSummary> {
     const selected = window ? { beginTime: window.beginTime, endTime: window.endTime } : undefined;
     if (selected) validateC31IndexWindow(selected.beginTime, selected.endTime, Math.floor(Date.now() / 1000));
+    return await this.#c31RecordingOperation(serial, signal, async (session, current) => {
+      const end = Math.floor(Date.now() / 1000);
+      return await session.readC31RecordingIndex(selected?.beginTime ?? end - 1800, selected?.endTime ?? end, current);
+    });
+  }
+
+  /** Retrieve one separately consented continuous preview under the signed-in account and fresh index. */
+  async readC31ContinuousTrial(serial: string, begin: number, signal: AbortSignal): Promise<Buffer> {
+    validateC31IndexWindow(begin, begin + 10, Math.floor(Date.now() / 1000));
+    const account = this.#client.authenticatedUserId(), binding = this.#client.authenticatedBinding();
+    if (!account || !binding) throw new C31IndexError("admission");
+    return await this.#c31RecordingOperation(serial, signal, async (session, current) => {
+      const valid = (): void => { current(); if (!binding()) throw new C31IndexError("cancelled"); };
+      return await session.readC31ContinuousClip(begin, account, signal, valid);
+    }, 90);
+  }
+
+  /** Reserve and retire the exact C31 peer while fresh inventory brackets one owned operation. */
+  async #c31RecordingOperation<T>(serial: string, signal: AbortSignal,
+    operation: (session: FirstPartyPpcsSession, current: () => void) => Promise<T>, maxSeconds = 45): Promise<T> {
     this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     const device = this.#devices.get(serial), generation = this.#startupGeneration;
@@ -1068,18 +1088,17 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!,
         appConnection: peer.p2pConnection!, localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key,
         channel: 0, cameraModel: "T817L", stationModel: peer.model, recordingCameraSerial: device.serial,
-        accountId: device.adminUserId, homeBaseAttached: false, purpose: "control", maxSeconds: 45,
+        accountId: device.adminUserId, homeBaseAttached: false, purpose: "control", maxSeconds,
         resolveCipherKey: id => this.#resolveCipherKey(id, peer) });
       this.#recordingSessions.set(serial, session);
       await session.start(); current();
-      const end = Math.floor(Date.now() / 1000);
-      const result = await session.readC31RecordingIndex(selected?.beginTime ?? end - 1800, selected?.endTime ?? end, current);
+      const result = await operation(session, current);
       current(); await freshBinding(); current();
       return result;
     } catch (error) {
       throw error instanceof C31IndexError ? error : new C31IndexError(signal.aborted ? "cancelled" : "session");
     } finally {
-      signal.removeEventListener("abort", abort); session?.close();
+      signal.removeEventListener("abort", abort); session?.close(); await session?.waitUntilClosed();
       if (this.#recordingSessions.get(serial) === session) this.#recordingSessions.delete(serial);
       this.#recordingReservations.delete(serial); this.#recordingIndexActive = false;
       this.#recordingIndexCooldowns.delete(serial); this.#recordingIndexCooldowns.set(serial, Date.now() + 10_000);
