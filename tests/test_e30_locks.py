@@ -29,6 +29,51 @@ def method(file: str, owner: str, name: str, namespace: dict):
 class E30LockTest(unittest.IsolatedAsyncioTestCase):
     """Protect physical state semantics and four-family event preservation."""
 
+    def test_lock_event_context_reaches_ha_without_claiming_physical_state(self):
+        """Expose reported user/method while retaining independently queried position and age."""
+        projection = method("client.py", "GatewayClient", "_lock_state",
+                            {"GatewayClientError": ValueError, "datetime": datetime})
+        attributes = method("lock.py", "EufySmartLock", "extra_state_attributes", {})
+        original = {"serial": "fixture", "model": "T85F1", "state": "locked", "available": True,
+                    "stateObservedAt": "2026-11-14T08:00:00Z", "batteryPercent": 75}
+        event = {"action": "unlocked", "method": "fingerprint", "userName": "Casey",
+                 "receivedAt": "2026-11-14T08:01:00.000Z"}
+        state = projection({**original, "lastEvent": event})
+        self.assertEqual(state["state"], "locked")
+        self.assertEqual(state["stateObservedAt"], original["stateObservedAt"])
+        self.assertEqual(attributes(SimpleNamespace(lock_state=state)), {
+            "state_observed_at": original["stateObservedAt"], "last_event_action": "unlocked",
+            "last_event_method": "fingerprint", "last_event_user": "Casey",
+            "last_event_received_at": event["receivedAt"],
+        })
+        accessory_attributes = method("lock.py", "EufyLockEntity", "extra_state_attributes", {})
+        self.assertEqual(accessory_attributes(SimpleNamespace(lock_state=state)),
+                         {"state_observed_at": original["stateObservedAt"]})
+        state = projection(original)
+        self.assertNotIn("lastEvent", state)
+        self.assertEqual(attributes(SimpleNamespace(lock_state=state)),
+                         {"state_observed_at": original["stateObservedAt"]})
+
+    def test_lock_context_discards_private_ids_and_invalid_shapes(self):
+        """Keep optional context closed, bounded and independent of other lock profiles."""
+        projection = method("client.py", "GatewayClient", "_lock_state",
+                            {"GatewayClientError": ValueError, "datetime": datetime})
+        original = {"serial": "fixture", "model": "T85F1", "state": "unlocked", "available": True,
+                    "stateObservedAt": "2026-11-14T08:00:00Z", "batteryPercent": 75}
+        event = {"action": "unlocked", "method": "passcode", "userName": "Casey",
+                 "receivedAt": "2026-11-14T08:01:00.000Z"}
+        for patch in ({"user_id": "private"}, {"method": "unknown"}, {"action": "opened"},
+                      {"receivedAt": "not-a-date"}, {"receivedAt": "2026-11-14T08:01:00"},
+                      {"userName": "x" * 101}, {"userName": "Casey\nOther"}, {"userName": 12}):
+            with self.subTest(patch=patch):
+                self.assertNotIn("lastEvent", projection({**original, "lastEvent": {**event, **patch}}))
+        for method_name in ("manual", "automatic", "keypad"):
+            state = projection({**original, "lastEvent": {**event, "method": method_name}})
+            self.assertIsNone(state["lastEvent"]["userName"])
+        readonly = projection({**original, "model": "T8520", "readOnly": True,
+                               "observationSource": "cloud_inventory", "lastEvent": event})
+        self.assertNotIn("lastEvent", readonly)
+
     def test_reported_parent_is_optional_metadata_and_never_refreshes_state(self):
         """Preserve explicit topology without inferring a parent from a lock's model."""
         projection = method("client.py", "GatewayClient", "_lock_state", {"GatewayClientError": ValueError})

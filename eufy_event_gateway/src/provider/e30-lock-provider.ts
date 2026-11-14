@@ -8,7 +8,7 @@ import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 import type { MegaDevice } from "../mega/types.js";
 import type { MegaPushEvent } from "../mega/push.js";
-import { maskSmartLockState, isE30LockSettingChange, type E30LockSettingChange, type SmartLockSettings, type SmartLockState } from "../domain/types.js";
+import { maskSmartLockState, isE30LockSettingChange, type E30LockSettingChange, type SmartLockSettings, type SmartLockState, type SmartLockEvent } from "../domain/types.js";
 import { createLogger } from "../logging.js";
 import { bounded, E30MqttSession, E30_STATUS_QUERY_TIMEOUT_MS } from "./e30-lock-mqtt.js";
 import { E30LockError, validateE30Identity, type E30LockIdentity, type E30MqttCredentials, type E30Observation, type E30SettingsObservation, type E30AudibleVolume, type E30NotificationSetting, parseE30NotificationMode } from "./e30-lock-protocol.js";
@@ -19,7 +19,23 @@ const logger = createLogger("e30-lock");
 export const E30_LOCK_POLL_MS = 300_000;
 
 /** Official SmartLockPushHandler lock/unlock methods, not alarm or battery notifications. */
-const LOCK_CHANGE_EVENTS = new Set([257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 270, 271]);
+const LOCK_CHANGE_EVENTS = new Map<number, Readonly<Pick<SmartLockEvent, "action" | "method">>>([
+  [257, { action: "unlocked", method: "manual" }],
+  [258, { action: "unlocked", method: "automatic" }],
+  [259, { action: "unlocked", method: "passcode" }],
+  [260, { action: "unlocked", method: "fingerprint" }],
+  [261, { action: "unlocked", method: "app" }],
+  [262, { action: "locked", method: "manual" }],
+  [263, { action: "locked", method: "keypad" }],
+  [264, { action: "locked", method: "app" }],
+  [265, { action: "locked", method: "automatic" }],
+  [266, { action: "locked", method: "passcode" }],
+  [267, { action: "locked", method: "fingerprint" }],
+  [268, { action: "locked", method: "temporary_passcode" }],
+  [269, { action: "unlocked", method: "temporary_passcode" }],
+  [270, { action: "unlocked", method: "nfc" }],
+  [271, { action: "locked", method: "nfc" }],
+]);
 
 const PUSH_HINT_MAX_AGE_MS = 60_000;
 const PUSH_HINT_FUTURE_SKEW_MS = 5_000;
@@ -162,18 +178,27 @@ export class E30LockProvider {
   /**
    * Queue one fresh status read for an observed direct-lock change notification.
    * Only the trusted transport send clock and inventory binding admit this hint.
-   * Notification state, names and parameter values are never published as lock state.
+   * Reported action, method and bounded name are retained as separate message
+   * context. They never replace independently queried physical state.
    * Duplicate/old hints are ignored; bursts share one pending read and existing
    * query/motor operations retain exclusive ownership and the normal read throttle.
    */
-  acceptPushHint(event: Pick<MegaPushEvent, "cameraSerial" | "stationSerial" | "eventType" | "transportSentAtMilliseconds">): boolean {
+  acceptPushHint(event: Pick<MegaPushEvent, "cameraSerial" | "stationSerial" | "eventType" | "transportSentAtMilliseconds" | "personName">): boolean {
     const identity = this.#identities.get(event.cameraSerial), sentAt = event.transportSentAtMilliseconds;
-    const age = typeof sentAt === "number" ? Date.now() - sentAt : NaN;
+    const now = Date.now(), age = typeof sentAt === "number" ? now - sentAt : NaN;
+    const change = event.eventType === null ? undefined : LOCK_CHANGE_EVENTS.get(event.eventType);
     if (this.#closed || !this.#inventoryConfirmed || !identity || event.stationSerial !== identity.serial
-      || (event.eventType === null || !LOCK_CHANGE_EVENTS.has(event.eventType)) || !Number.isSafeInteger(sentAt) || !Number.isFinite(age)
+      || !change || !Number.isSafeInteger(sentAt) || !Number.isFinite(age)
       || age < -PUSH_HINT_FUTURE_SKEW_MS || age > PUSH_HINT_MAX_AGE_MS
       || sentAt! <= (this.#lastPushSentAt.get(identity.serial) ?? 0)) return false;
     this.#lastPushSentAt.set(identity.serial, sentAt!);
+    const name = typeof event.personName === "string" ? event.personName.trim() : "";
+    const userName = !["manual", "automatic", "keypad"].includes(change.method)
+      && name.length > 0 && name.length <= 100 && !/[\x00-\x1f\x7f-\x9f]/u.test(name) ? name : null;
+    const previous = this.#states.get(identity.serial)!;
+    this.#states.set(identity.serial, { ...previous,
+      lastEvent: { ...change, userName, receivedAt: new Date(now).toISOString() } });
+    this.#emit();
     this.#pendingPushReads.set(identity.serial, { binding: JSON.stringify(identity), sentAt: sentAt! });
     this.#schedulePushRead(identity.serial);
     return true;
