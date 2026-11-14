@@ -1108,14 +1108,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   /**
-   * Read one default-off cloud profile under the current account and fresh inventory snapshots.
+   * Read one explicitly requested cloud profile under the current account and fresh inventory snapshots.
    * This flight owns cancellation only. It never ingests those snapshots into
    * normal state, opens a peer, or treats cached candidates as control readback.
+   * The HTTP caller requires authenticated per-request consent independently
+   * of the experimental setting that enables device controls.
    */
   async readReportedParameters(serial: string, signal: AbortSignal, source?: "device_list"): Promise<ParameterCheckSummary> {
     if (this.#rtcPreparation.gated) throw new ParameterCheckError("busy");
     if (this.#recordingClosing) throw new ParameterCheckError("shutdown");
-    if (!this.config.experimentalModelControls) throw new ParameterCheckError("disabled");
     if (!this.config.apiAuthenticationConfigured) throw new ParameterCheckError("unauthorized");
     if (this.#parameterCheck || this.#rtcPreparation.gated) throw new ParameterCheckError("busy");
     const device = this.#devices.get(serial), generation = this.#startupGeneration;

@@ -277,7 +277,7 @@ export class GatewayServer {
         response.setHeader("cache-control", "no-store");
         if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) return json(response, 401, { stage: "unauthorized" });
         if (request.method !== "POST" || url.search || request.headers["content-type"]?.split(";")[0]?.trim().toLowerCase() !== "application/json") return json(response, 400, { stage: "invalid_request" });
-        if (!this.config.experimentalModelControls || !this.provider.readReportedParameters) return json(response, 409, { stage: "disabled" });
+        if (!this.provider.readReportedParameters) return json(response, 409, { stage: "disabled" });
         const controller = new AbortController();
         let timeout = false, dispatched = false;
         const close = (): void => { if (!response.writableFinished) controller.abort(); };
