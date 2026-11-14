@@ -598,7 +598,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         c31_sound = (
             self.camera.get("model") == "T817L"
             and self.camera.get("deviceType") == 10031
-            and not self.camera.get("stationSerial")
+            and self.camera.get("stationSerial") in (None, "", self.serial)
         )
         for field, attribute, allowed in (
             ("soundDetectionSensitivity", "reported_sound_detection_sensitivity", (1, 2, 3, 4, 5) if c31_sound else (1, 3, 5)),

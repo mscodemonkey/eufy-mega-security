@@ -145,10 +145,11 @@ class CameraInventoryEntitiesTest(unittest.IsolatedAsyncioTestCase):
         getter = load_function("camera.py", "extra_state_attributes", {}, "EufyGatewayCamera")
         for sound_type in (128, 256):
             for sensitivity in range(1, 6):
-                camera = {"model": "T817L", "deviceType": 10031, "reportedSettings": {
+                camera = {"serial": "fixture-camera", "stationSerial": "fixture-camera",
+                          "model": "T817L", "deviceType": 10031, "reportedSettings": {
                     "soundDetectionType": sound_type, "soundDetectionSensitivity": sensitivity,
                 }}
-                self.assertEqual(getter(SimpleNamespace(camera=camera)), {
+                self.assertEqual(getter(SimpleNamespace(camera=camera, serial="fixture-camera")), {
                     "reported_sound_detection_type": sound_type,
                     "reported_sound_detection_sensitivity": sensitivity,
                 })
@@ -163,9 +164,9 @@ class CameraInventoryEntitiesTest(unittest.IsolatedAsyncioTestCase):
                 camera = {**identity, "reportedSettings": {
                     "soundDetectionType": sound_type, "soundDetectionSensitivity": sensitivity,
                 }}
-                self.assertEqual(getter(SimpleNamespace(camera=camera)), {})
+                self.assertEqual(getter(SimpleNamespace(camera=camera, serial="fixture-camera")), {})
             camera["reportedSettings"] = {"soundDetectionType": 2, "soundDetectionSensitivity": 3}
-            self.assertEqual(getter(SimpleNamespace(camera=camera)), {
+            self.assertEqual(getter(SimpleNamespace(camera=camera, serial="fixture-camera")), {
                 "reported_sound_detection_type": 2, "reported_sound_detection_sensitivity": 3,
             })
 
@@ -175,12 +176,12 @@ class CameraInventoryEntitiesTest(unittest.IsolatedAsyncioTestCase):
         for value in (None, True, False, "128", 128.0, 0, -1, 257):
             camera = {"model": "T817L", "deviceType": 10031,
                       "reportedSettings": {"soundDetectionType": value}}
-            self.assertEqual(getter(SimpleNamespace(camera=camera)), {})
+            self.assertEqual(getter(SimpleNamespace(camera=camera, serial="fixture-camera")), {})
         for value in (None, True, False, "2", 2.0, 0, -1, 6):
             camera["reportedSettings"] = {"soundDetectionSensitivity": value}
-            self.assertEqual(getter(SimpleNamespace(camera=camera)), {})
+            self.assertEqual(getter(SimpleNamespace(camera=camera, serial="fixture-camera")), {})
         camera["reportedSettings"] = {}
-        self.assertEqual(getter(SimpleNamespace(camera=camera)), {})
+        self.assertEqual(getter(SimpleNamespace(camera=camera, serial="fixture-camera")), {})
 
     async def test_solar_intensity_is_unitless_and_boolean_is_strict(self) -> None:
         """Do not rescale solar input or mistake malformed values for disconnected."""
