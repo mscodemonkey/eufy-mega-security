@@ -168,6 +168,9 @@ export interface CameraState {
     | "account_binding_unavailable" | "route_unavailable" | "parent_owner_mismatch" | "live_mode_unconfirmed"
     | "route_unsupported" | "quality_unconfirmed" | "ready";
 
+  /** Session-scoped values expire with live view and are not saved camera settings. */
+  readonly streamingQualityControlScope?: "active_stream";
+
   /** Whether the owned ready route and known baseline admit native streaming-quality writes. */
   readonly streamingQualityControlSupported?: boolean;
 
@@ -547,6 +550,9 @@ export interface CameraIdentity {
 
   /** Preserve the fixed S340 admission diagnostic alongside its control capability. */
   readonly streamingQualityControlReason?: CameraState["streamingQualityControlReason"];
+
+  /** Session-scoped values expire with live view and are not saved camera settings. */
+  readonly streamingQualityControlScope?: "active_stream";
 
   /** Optional admission for fresh-state-confirmed streaming-quality writes. */
   readonly streamingQualityControlSupported?: boolean;
