@@ -31,6 +31,13 @@ candidates with `valid` so they cannot disclose a possible privacy setting.
 Neither result is proof of physical state, freshness or permission to use a
 control. This check does not resolve manual siren-state feedback.
 
+The normal HomeBase 3 alarm-volume entity also uses a valid value already
+reported in device inventory when no local reading is available. The gateway
+marks that reading's `alarmVolumeSource` as `inventory`. It may lag a setting
+change. A local reading takes precedence and is marked `local`. An inventory
+value cannot confirm that a volume command succeeded. Manual siren feedback
+remains separate.
+
 ## Home Assistant terminal method
 
 Supervisor discovery keeps the gateway token private. The diagnostics page does

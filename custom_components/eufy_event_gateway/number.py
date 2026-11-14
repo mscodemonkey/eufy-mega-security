@@ -73,11 +73,12 @@ async def async_setup_entry(
 
 
 class EufyStationVolume(EufyStationEntity, NumberEntity):
-    """Expose one confirmed HomeBase volume property for a station lifetime.
+    """Expose one reported HomeBase volume property for a station lifetime.
 
     Each instance selects either the alarm or prompt command at construction.
-    It shares station state with sibling entities and publishes a new value only
-    after the gateway confirms that the command succeeded.
+    It shares station readings with sibling entities, including cached alarm
+    volume from inventory. Writes still require the gateway's local readback
+    and never optimistically publish the requested value.
     """
 
     _attr_native_min_value = 1
@@ -100,7 +101,7 @@ class EufyStationVolume(EufyStationEntity, NumberEntity):
         )
     @property
     def native_value(self) -> float | None:
-        """Return the confirmed raw Eufy volume level."""
+        """Return the latest reported Eufy volume level."""
         value = self.station.get(f"{self.kind}Volume")
         return float(value) if isinstance(value, (int, float)) else None
 
