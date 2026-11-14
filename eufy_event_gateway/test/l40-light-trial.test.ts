@@ -88,6 +88,13 @@ for (const mode of ["on", "off", "negative", "timeout", "cancelled"] as const) {
         deliver(socket, encrypted, 1, 4);
       }
       await result;
+      const evidence = session.controlReceiptEvidence();
+      if (mode === "cancelled") assert.equal(evidence, undefined);
+      else {
+        assert.equal(evidence?.matchingFrames, mode === "timeout" ? 0 : 2);
+        assert.equal(evidence?.decodedFrames, mode === "on" || mode === "off" || mode === "negative" ? 1 : 0);
+        assert.equal(evidence?.clearResultShape, mode === "timeout" ? undefined : "scalar");
+      }
       assert.equal(session.stats.mediaStartAttempts, 0);
     } finally { session.close(); context.mock.timers.reset(); }
   });

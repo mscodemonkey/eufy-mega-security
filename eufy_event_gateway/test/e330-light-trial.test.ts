@@ -101,7 +101,7 @@ for (const mode of ["on", "off", "negative", "timeout", "unusable", "cancelled"]
         : { notificationFrames: mode === "unusable" ? 1 : 0, selectedNotifications: mode === "unusable" ? 1 : 0,
           resultFrames: mode === "unusable" ? 3 : 4, selectedFrames: mode === "unusable" ? 2 : 3,
           matchingFrames: mode === "unusable" ? 1 : 2, decodedFrames: mode === "unusable" ? 0 : 1,
-          protection: mode === "unusable" ? "clear" : "mixed" });
+          protection: mode === "unusable" ? "clear" : "mixed", clearResultShape: "scalar" });
       session.close();
       assert.deepEqual(session.controlReceiptEvidence(), evidence);
       assert.equal(session.stats.mediaStartAttempts, 0);

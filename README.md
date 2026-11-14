@@ -69,7 +69,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 
 ### NVR
 
-- 🟠 NVR S4 Max T8N00: inventory discovery and read-only configured guard-mode reporting are implemented, with periodic refresh confirmed on hardware. A reporter confirmed that the default-off background watcher on v0.1.225 began listening within six seconds and HA followed a mode change within one second without live view. The reporter also confirmed the released watcher through a scheduled transition, inventory refreshes and live-view closure on v0.1.240. A reporter also confirmed T8E00 RTC views of about a minute and reopening on v0.1.163, with startup delay and initially accelerated playback still reported. Sustained playback is unconfirmed. Two T8416/type 104 cameras on firmware 1.5.6.4 have contributor-tested pan, zoom, quality and AI-tracking controls on the owner-only NVR route. Night vision has readback evidence only. Camera-power and Schedule guard-mode trials remain default-off. One T8E00/type 301 through T8N00/type 300 reporter observed physical power off/on and restored on state in three runs on v0.1.188. Later versions are not separately confirmed, and the guard-mode trial remains physically unconfirmed. Normal arm/disarm, storage diagnostics and automatic fresh snapshots remain unavailable.
+- 🟠 NVR S4 Max T8N00: inventory discovery and read-only configured guard-mode reporting are implemented, with periodic refresh confirmed on hardware. A reporter confirmed that the default-off background watcher on v0.1.225 began listening within six seconds and HA followed a mode change within one second without live view. The reporter also confirmed the released watcher through a scheduled transition, inventory refreshes and live-view closure on v0.1.240. A reporter also confirmed T8E00 RTC views of about a minute and reopening on v0.1.163, with startup delay and initially accelerated playback still reported. On v0.1.262, a reporter confirmed simultaneous T8E00 Fixed and Movable shared 720p panes for 2.5 minutes, correct physical lens selection, continued Movable playback for 83 seconds after Fixed closed, and one final shared-call close in [#433](https://github.com/mscodemonkey/eufy-mega-security/issues/433). Longer playback remains unconfirmed. Two T8416/type 104 cameras on firmware 1.5.6.4 have contributor-tested pan, zoom, quality and AI-tracking controls on the owner-only NVR route. Night vision has readback evidence only. Camera-power and Schedule guard-mode trials remain default-off. One T8E00/type 301 through T8N00/type 300 reporter observed physical power off/on and restored on state in three runs on v0.1.188. Later versions are not separately confirmed, and the guard-mode trial remains physically unconfirmed. Normal arm/disarm, storage diagnostics and automatic fresh snapshots remain unavailable.
 
 ### Cameras
 
@@ -525,8 +525,10 @@ For an owned T8E00 on T8N00, the existing experimental NVR controls can expose
 optional Fixed and Movable camera entities from one Both feed. Both entities
 start disabled in HA. Each shows its own 1280x720 video-only pane and retained
 image, sharing one camera connection and decoder. They require Both view and
-keep the NVR call while either view or its recording is active. Hardware
-simultaneous playback remains unconfirmed. See [shared lens setup and limits](docs/NVR_LIVE_CONTROLS.md#separate-shared-720p-lens-entities).
+keep the NVR call while either view or its recording is active. A reporter confirmed both panes playing together on v0.1.262, their physical
+lens identities, continued playback after one closed and a single final call
+close in [#433](https://github.com/mscodemonkey/eufy-mega-security/issues/433).
+Longer playback and other camera/station pairings remain unconfirmed. See [shared lens setup and limits](docs/NVR_LIVE_CONTROLS.md#separate-shared-720p-lens-entities).
 
 ### Experimental fixed H.265 viewer resolution
 

@@ -8,6 +8,11 @@ import { controlReceiptSummary, type PpcsControlReceiptEvidence } from "../strea
 const stages = ["admission", "busy", "initial_inventory", "session_key", "session_connect",
   "session_inventory", "write_prepare", "write_receipt", "cleanup"] as const;
 
+const busyReasons = ["local_motion", "trial", "recording", "station", "stream", "stream_start", "control"] as const;
+
+/** Existing owner preventing another manual-light operation, never permission to evict it. */
+export type ManualLightBusyReason = typeof busyReasons[number];
+
 /** Last attempted boundary of one retired manual-light trial. */
 export type S120LightFailureStage = typeof stages[number];
 
@@ -25,7 +30,7 @@ export class S120LightTrialError extends Error {
    */
   constructor(readonly stage: S120LightFailureStage, readonly writeAttempted: boolean,
     readonly acknowledgementReceived: boolean, readonly cleanupFailed = false,
-    readonly receipt?: PpcsControlReceiptEvidence) {
+    readonly receipt?: PpcsControlReceiptEvidence, readonly busyReason?: ManualLightBusyReason) {
     super("Manual light test did not confirm the light state. Check the light and restore it before trying again.");
   }
 }
@@ -37,5 +42,7 @@ export function s120LightFailureDiagnostic(error: unknown): string {
   return `stage=${known ? error.stage : "unknown"} write_attempted=${flag(known ? error.writeAttempted : null)}`
     + ` acknowledgement_received=${flag(known ? error.acknowledgementReceived : null)}`
     + ` cleanup_failed=${flag(known ? error.cleanupFailed : null)}`
-    + controlReceiptSummary(known ? error.receipt : undefined);
+    + controlReceiptSummary(known ? error.receipt : undefined)
+    + (known && error.stage === "busy" && busyReasons.includes(error.busyReason as ManualLightBusyReason)
+      ? ` busy_reason=${error.busyReason}` : "");
 }

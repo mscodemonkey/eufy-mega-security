@@ -22,7 +22,7 @@ import { classicLockInventory } from "./classic-lock-inventory.js";
 import { ParameterCheckError, parameterCheckLog, projectDeviceListMotion, type ParameterCheckModel, type ParameterCheckSummary } from "./reported-parameter-check.js";
 import { nvrLiveProfile, NvrLiveControlError, type NvrLiveControl, type NvrLiveControlResult } from "./nvr-live-controls.js";
 import { NvrModeObserver } from "./nvr-mode-observer.js";
-import { S120LightTrialError, s120LightFailureDiagnostic, type S120LightFailureStage } from "./s120-light-diagnostic.js";
+import { S120LightTrialError, s120LightFailureDiagnostic, type S120LightFailureStage, type ManualLightBusyReason } from "./s120-light-diagnostic.js";
 import type { NvrEffectiveMode, NvrEffectiveModeObservation } from "../stream/nvr-effective-mode.js";
 import type { NvrLiveSettings } from "../stream/nvr-live-control-protocol.js";
 import { InventoryMotionClock, type InventoryMotionOutcome } from "./inventory-motion.js";
@@ -4000,9 +4000,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     signal?: AbortSignal): Promise<ModelControlTrialResult> {
     let stage: S120LightFailureStage = "admission", failedStage: S120LightFailureStage | undefined;
     let writeAttempted = false, acknowledgementReceived = false;
+    let busyReason: ManualLightBusyReason | undefined;
     let session: FirstPartyPpcsSession | null = null;
     const unknown = (): Error => new S120LightTrialError(stage, writeAttempted, acknowledgementReceived,
-      false, session?.controlReceiptEvidence());
+      false, session?.controlReceiptEvidence(), busyReason);
     const device = this.#devices.get(serial);
     const route = device ? ppcsStreamRoute(device, this.#devices) : null;
     const peer = route?.peer;
@@ -4016,9 +4017,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#audioRecordingOperations, this.#motionOperations, this.#nightVisionOperations, this.#guardModeOperations,
       this.#lightOperations, this.#panControlOperations, this.#cameraSirenOperations];
     const related = [...this.#devices.values()].filter(row => row.serial === peer.serial || row.parentSerial === peer.serial);
-    if (this.#localMotionAborters.size || this.#trialPeers.has(peer.serial) || this.#recordingPeerReserved(serial)
-      || this.#stationOperations.has(peer.serial) || related.some(row => this.#ppcsStreams.has(row.serial)
-        || this.#streamStarts.has(row.serial) || controls.some(map => map.has(row.serial)))) throw unknown();
+    busyReason = this.#localMotionAborters.size ? "local_motion" : this.#trialPeers.has(peer.serial) ? "trial"
+      : this.#recordingPeerReserved(serial) ? "recording" : this.#stationOperations.has(peer.serial) ? "station"
+      : related.some(row => this.#ppcsStreams.has(row.serial)) ? "stream"
+      : related.some(row => this.#streamStarts.has(row.serial)) ? "stream_start"
+      : related.some(row => controls.some(map => map.has(row.serial))) ? "control" : undefined;
+    if (busyReason) throw unknown();
     const controller = new AbortController(), generation = this.#startupGeneration;
     const releaseTrialPeer = this.#reserveTrialPeer(peer.serial); this.#manualControlAborters.set(peer.serial, controller);
     const abort = (): void => { controller.abort(); session?.close(); };

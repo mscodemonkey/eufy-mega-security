@@ -80,7 +80,12 @@ for (const mode of ["valid", "off", "button", "hung", "shutdown", "account", "di
       const expected = ["valid", "off", "button", "cleanup"].includes(mode) ? operation : assert.rejects(operation, /Manual light test did not confirm the light state/);
       for (let index = 0; index < 10; index++) await new Promise(resolve => setImmediate(resolve));
       if (mode === "cleanup") {
-        await assert.rejects(provider.performModelControlTrial("sensor", request), /Manual light test/);
+        await assert.rejects(provider.performModelControlTrial("sensor", request), error => {
+          assert.ok(error instanceof S120LightTrialError);
+          assert.equal(error.stage, "busy"); assert.equal(error.busyReason, "trial");
+          assert.equal(error.writeAttempted, false);
+          return true;
+        });
         await assert.rejects(provider.startStream("sensor"), /recording retrieval|Wait/i);
         release();
       }
