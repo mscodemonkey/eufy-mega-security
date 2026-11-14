@@ -36,11 +36,13 @@ class CameraSettingsTest(unittest.IsolatedAsyncioTestCase):
                           {"EufyGatewayEntity": base, "NumberEntity": number})
         for value in (True, False, None, "true", 1):
             entity = SimpleNamespace(camera={"motionSensitivityExperimental": value},
-                                     _attr_translation_key="camera_motion_sensitivity")
+                                     _attr_translation_key="camera_motion_sensitivity",
+                                     _attr_entity_registry_enabled_default=True)
             callback(entity, None, "fixture")
             self.assertEqual(entity._attr_unique_id, "fixture_motion_sensitivity")
             self.assertEqual(entity._attr_translation_key,
                              "camera_motion_sensitivity_experimental" if value is True else "camera_motion_sensitivity")
+            self.assertIs(entity._attr_entity_registry_enabled_default, value is not True)
 
     async def test_brightness_requires_integral_values_and_clears_only_uncertain_state(self):
         """Keep opt-in brightness independent of floodlight switching and motion settings."""

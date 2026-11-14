@@ -2,6 +2,7 @@
 
 ## 0.1.269
 
+- Add an opt-in HomeBase 2 2C sensitivity trial with exact model and owner checks, fresh state confirmation and a disabled-by-default HA entity. Physical changes and restoration remain unconfirmed.
 - Add an opt-in ten-second continuous-recording preview for the exact standalone C31 route, locally verified with video, audio and seeking. Other C31 gaps and reporter hardware remain separate.
 - Use the alarm volume reported in HomeBase inventory and allow the read-only state check without enabling experimental controls. Missing values remain unknown.
 - Recover event pictures using the negotiated session-key reply form, while preserving exact event ownership and authentication.
