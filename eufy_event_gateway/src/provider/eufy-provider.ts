@@ -13,6 +13,7 @@
  * newly added devices without replacing push receivers or active media sessions.
  */
 import { homeBaseLocalAddress, homeBaseLocalAddressSelection, type HomeBaseAddress } from "./homebase-address.js";
+import { homeBaseInventoryAlarmVolume } from "./homebase-inventory-volume.js";
 import { QuickResponseListError, isQuickResponseRoute, validQuickResponseId, type DoorbellQuickResponse } from "./quick-responses.js";
 import { ppcsSourceDiagnostic } from "../diagnostics/ppcs-source-diagnostic.js";
 import { GENERATED_CATALOGUE_DEVICES } from "./devices/generated-catalogue.js";
@@ -308,6 +309,9 @@ export interface MegaInventoryReads {
   /** Exact SoloCam tracking enable bit, independent of app-side cloud bookkeeping. */
   readonly aiTrackingEnabled?: boolean;
   readonly guardMode?: number;
+
+  /** Cached T8030 station volume, never accepted as local command readback. */
+  readonly alarmVolume?: number;
   readonly autoNightVisionEnabled?: boolean;
   readonly nightVisionMode?: number;
 
@@ -1108,14 +1112,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   /**
-   * Read one default-off cloud profile under the current account and fresh inventory snapshots.
+   * Read one explicitly requested cloud profile under the current account and fresh inventory snapshots.
    * This flight owns cancellation only. It never ingests those snapshots into
    * normal state, opens a peer, or treats cached candidates as control readback.
+   * The HTTP caller requires authenticated per-request consent independently
+   * of the experimental setting that enables device controls.
    */
   async readReportedParameters(serial: string, signal: AbortSignal, source?: "device_list"): Promise<ParameterCheckSummary> {
     if (this.#rtcPreparation.gated) throw new ParameterCheckError("busy");
     if (this.#recordingClosing) throw new ParameterCheckError("shutdown");
-    if (!this.config.experimentalModelControls) throw new ParameterCheckError("disabled");
     if (!this.config.apiAuthenticationConfigured) throw new ParameterCheckError("unauthorized");
     if (this.#parameterCheck || this.#rtcPreparation.gated) throw new ParameterCheckError("busy");
     const device = this.#devices.get(serial), generation = this.#startupGeneration;
@@ -7045,6 +7050,7 @@ function isPrivateIpv4(value: string): boolean {
 export function safeInventoryReads(value: unknown, deviceType: number | null = null, model?: string, standaloneChannelZero = false): MegaInventoryReads {
   if (deviceType === 86 && model === "T8354") return { e21: e21Readings(value) };
   if (!Array.isArray(value)) return {};
+  const alarmVolume = homeBaseInventoryAlarmVolume(value, model, deviceType);
   const params = new Map<number, unknown>();
   for (const row of value) {
     if (!isRecord(row)) continue;
@@ -7182,6 +7188,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
       : undefined;
   return {
     ...(ringtoneVolume !== undefined && Number.isInteger(ringtoneVolume) ? { ringtoneVolume } : {}),
+    ...(alarmVolume !== undefined ? { alarmVolume } : {}),
     ...(soundSensitivity !== null && Number.isInteger(soundSensitivity) && (c31 ? soundSensitivity >= 1 && soundSensitivity <= 5 : [1, 3, 5].includes(soundSensitivity))
       ? { soundDetectionSensitivity: soundSensitivity } : {}),
     ...((c31 ? soundType === 128 || soundType === 256 : soundType === 1 || soundType === 2) ? { soundDetectionType: soundType! } : {}),
@@ -7523,7 +7530,8 @@ export function initialHomeBaseState(device: MegaInventoryDevice, dskReady: bool
     guardModeNames: device.guardModeNames ?? {},
     effectiveMode: null,
     alarmActive: null,
-    alarmVolume: null,
+    alarmVolume: device.reads.alarmVolume ?? null,
+    ...(device.reads.alarmVolume !== undefined ? { alarmVolumeSource: "inventory" as const } : {}),
     promptVolume: null,
     alarmTone: null,
     storageSupported: controlsSupported ? ["emmc", "hdd"] : homeBase2 ? ["sd"] : [],
@@ -7556,6 +7564,8 @@ export function refreshInventoryStationState(
     ...(!preserved && existing.effectiveModeReportedAt && device.reads.guardMode !== undefined && device.reads.guardMode !== existing.guardMode
       ? { effectiveMode: null, effectiveModeReportedAt: null, effectiveModeSource: null } : {}),
     guardModeNames: device.guardModeNames ?? existing.guardModeNames,
+    ...(device.reads.alarmVolume !== undefined && existing.alarmVolumeSource !== "local"
+      ? { alarmVolume: device.reads.alarmVolume, alarmVolumeSource: "inventory" as const } : {}),
   };
 }
 
@@ -7578,6 +7588,7 @@ export function mergeHomeBaseState(existing: HomeBaseState, observed: HomeBasePp
       ? null
       : existing.effectiveMode),
     alarmVolume: observed.alarmVolume ?? existing.alarmVolume,
+    ...(observed.alarmVolume != null ? { alarmVolumeSource: "local" as const } : {}),
     promptVolume: observed.promptVolume ?? existing.promptVolume,
     alarmTone: observed.alarmTone ?? existing.alarmTone,
     storage: observed.storage ?? existing.storage,

@@ -19,7 +19,7 @@ export function diagnosticsPage(): string {
 <button id="load">Load devices</button>
 <label>Device <select id="device"><option value="">All devices</option></select></label>
 <details><summary>Read-only state check</summary>
-<p>For T8410, T8417, HomeBase 3 (T8030) and T8910 sensors through HomeBase 2 or 3 only. Enable Experimental model controls first. This asks Eufy to authorise one cloud read using your existing account. It leaves settings unchanged and does not enable controls. Cloud readings may lag. The 6250 candidate is not a lens-position readback.</p>
+<p>For T8410, T8417, HomeBase 3 (T8030) and T8910 sensors through HomeBase 2 or 3 only. Experimental model controls can stay off. This asks Eufy to authorise one cloud read using your existing account. It leaves settings unchanged and does not enable controls. Cloud readings may lag. The 6250 candidate is not a lens-position readback.</p>
 <p>For a T8910, this checks whether a separate cloud read reports a cached motion time. Recent means within one minute of the gateway clock. It does not confirm motion delivery or enable a polling receiver. Keep your current notification and security settings.</p>
 <label>Read source <select id="parameter-source"><option value="">Separate parameter API</option><option value="device_list">T8910 device-list comparison</option></select></label>
 <p>The T8910 device-list check uses your current account and compares two cloud lists ten seconds apart. It reports only a time band and whether the timestamp advances. An unchanged value in this short window does not rule out later updates. It does not change settings or feed its results into HA.</p>

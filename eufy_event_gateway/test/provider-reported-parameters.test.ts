@@ -16,7 +16,7 @@ import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
 import { ParameterCheckError, projectReportedParameters, type ParameterCheckModel } from "../src/provider/reported-parameter-check.js";
 
-for (const mode of ["valid", "attached", "root", "self", "unauthenticated", "hung-inventory", "disabled", "token", "shared", "shared-denied", "missing-owner", "parent-owner", "model", "type", "parent", "channel", "ambiguous", "raw-duplicate", "changed", "binding", "inventory", "cancelled", "hung", "shutdown", "busy", "late", "pir-hb2", "pir-hb3", "pir-standalone", "pir-self", "pir-alias", "pir-type", "pir-parent", "pir-channel", "pir-parent-owner", "pir-duplicate", "pir-shared-denied", "pir-missing-owner"] as const) {
+for (const mode of ["valid", "attached", "root", "self", "unauthenticated", "hung-inventory", "controls-off", "token", "shared", "shared-denied", "missing-owner", "parent-owner", "model", "type", "parent", "channel", "ambiguous", "raw-duplicate", "changed", "binding", "inventory", "cancelled", "hung", "shutdown", "busy", "late", "pir-hb2", "pir-hb3", "pir-standalone", "pir-self", "pir-alias", "pir-type", "pir-parent", "pir-channel", "pir-parent-owner", "pir-duplicate", "pir-shared-denied", "pir-missing-owner"] as const) {
   test(`reported parameters: ${mode}`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "parameter-provider-"));
     const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
@@ -26,8 +26,8 @@ for (const mode of ["valid", "attached", "root", "self", "unauthenticated", "hun
     context.mock.method(MegaClient.prototype, "isAuthenticatedUser", (id: string) => mode !== "shared" && id === "owner");
     const pir = mode.startsWith("pir-");
     const attached = (pir && !["pir-standalone", "pir-self"].includes(mode)) || ["attached", "parent-owner", "parent", "channel", "ambiguous"].includes(mode);
-    const sensor = { device_sn: "target", device_model: pir ? mode === "pir-alias" ? "T8910C" : "T8910" : mode === "root" ? "T8030" : attached ? "T8417" : mode === "model" ? "T8410C" : "T8410",
-      device_type: pir ? mode === "pir-type" ? 2 : 10 : mode === "root" ? 18 : attached ? 105 : mode === "type" ? 105 : 31, device_channel: ["channel", "pir-channel"].includes(mode) ? 255 : 1,
+    const sensor = { device_sn: "target", device_model: pir ? mode === "pir-alias" ? "T8910C" : "T8910" : ["root", "controls-off"].includes(mode) ? "T8030" : attached ? "T8417" : mode === "model" ? "T8410C" : "T8410",
+      device_type: pir ? mode === "pir-type" ? 2 : 10 : ["root", "controls-off"].includes(mode) ? 18 : attached ? 105 : mode === "type" ? 105 : 31, device_channel: ["channel", "pir-channel"].includes(mode) ? 255 : 1,
       parent_sn: attached ? "station" : ["self", "pir-self"].includes(mode) ? "target" : "", category: "eufy_security", member: { admin_user_id: ["missing-owner", "pir-missing-owner"].includes(mode) ? "" : "owner" }, params: [] };
     const station = { device_sn: "station", device_model: ["parent", "pir-parent"].includes(mode) ? "T9000" : mode === "pir-hb2" ? "T8010" : "T8030", device_type: mode === "pir-hb2" ? 0 : 18,
       category: "eufy_security", member: { admin_user_id: mode === "pir-missing-owner" ? "" : ["parent-owner", "pir-parent-owner"].includes(mode) ? "other" : "owner" }, params: [] };
@@ -47,7 +47,7 @@ for (const mode of ["valid", "attached", "root", "self", "unauthenticated", "hun
     const peer = context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => { throw Error("Peer forbidden"); });
     const controller = new AbortController();
     const provider = new EufyProvider({ username: "synthetic", password: "synthetic", country: "AU", persistentDirectory: directory,
-      maxStreamSeconds: 120, experimentalModelControls: mode !== "disabled", apiAuthenticationConfigured: mode !== "token" });
+      maxStreamSeconds: 120, experimentalModelControls: false, apiAuthenticationConfigured: mode !== "token" });
     let callbackCount = 0;
     const events = new Proxy({}, { get: () => () => { callbackCount++; } }) as ProviderEvents;
     let resolve!: () => void;
@@ -64,7 +64,7 @@ for (const mode of ["valid", "attached", "root", "self", "unauthenticated", "hun
       const before = callbackCount, beforeReads = reads;
       context.mock.timers.enable({ apis: ["setTimeout"], now: Date.now() });
       const operation = provider.readReportedParameters("target", controller.signal);
-      const succeeds = ["valid", "attached", "root", "self", "busy", "shared", "pir-hb2", "pir-hb3"].includes(mode);
+      const succeeds = ["valid", "attached", "root", "controls-off", "self", "busy", "shared", "pir-hb2", "pir-hb3"].includes(mode);
       const localBindingFailure = ["missing-owner", "parent-owner", "pir-parent-owner", "pir-missing-owner"].includes(mode);
       const cloudRefusal = ["shared-denied", "pir-shared-denied"].includes(mode);
       const result = succeeds ? operation : assert.rejects(operation, error => error instanceof ParameterCheckError
@@ -89,7 +89,7 @@ for (const mode of ["valid", "attached", "root", "self", "unauthenticated", "hun
         for (let index = 0; index < 10; index++) await new Promise(done => setImmediate(done));
         context.mock.timers.tick(30_000); await nextResult;
       }
-      if (["disabled", "token", "unauthenticated", "missing-owner", "parent-owner", "model", "type", "parent", "channel", "pir-standalone", "pir-self", "pir-alias", "pir-type", "pir-parent", "pir-channel", "pir-parent-owner"].includes(mode)) {
+      if (["token", "unauthenticated", "missing-owner", "parent-owner", "model", "type", "parent", "channel", "pir-standalone", "pir-self", "pir-alias", "pir-type", "pir-parent", "pir-channel", "pir-parent-owner"].includes(mode)) {
         assert.equal(reads, beforeReads); assert.equal(query.mock.callCount(), 0);
       }
       assert.equal(network.mock.callCount(), 0); assert.equal(peer.mock.callCount(), 0);

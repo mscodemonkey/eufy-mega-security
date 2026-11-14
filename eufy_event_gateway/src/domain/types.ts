@@ -385,6 +385,9 @@ export interface HomeBaseState {
   readonly effectiveModeSource?: "eufy_push" | "nvr_rtc" | null;
   readonly alarmActive: boolean | null;
   readonly alarmVolume: number | null;
+
+  /** Origin of the last volume reading. Inventory is cached and cannot confirm a write. */
+  readonly alarmVolumeSource?: "inventory" | "local";
   readonly promptVolume: number | null;
   readonly alarmTone: number | null;
 

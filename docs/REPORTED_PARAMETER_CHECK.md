@@ -6,8 +6,8 @@ T8410 and T8417 cameras, and the missing alarm-volume candidate on HomeBase 3
 controls, change settings, start live view or update Home Assistant state.
 
 In the local diagnostics page, load devices, select one supported device and
-open **Read-only state check**. Experimental model controls and a configured
-gateway API token are required. Tick its separate consent box, then choose
+open **Read-only state check**. A configured gateway API token is required.
+Experimental model controls can stay off. Tick its separate consent box, then choose
 **Run once**. This asks Eufy to authorise one cloud parameter read using your existing account, between two
 inventory checks. Nothing runs automatically. **Cancel state check**, changing
 the selected device or leaving the page retires the request and its result.
@@ -31,6 +31,13 @@ candidates with `valid` so they cannot disclose a possible privacy setting.
 Neither result is proof of physical state, freshness or permission to use a
 control. This check does not resolve manual siren-state feedback.
 
+The normal HomeBase 3 alarm-volume entity also uses a valid value already
+reported in device inventory when no local reading is available. The gateway
+marks that reading's `alarmVolumeSource` as `inventory`. It may lag a setting
+change. A local reading takes precedence and is marked `local`. An inventory
+value cannot confirm that a volume command succeeded. Manual siren feedback
+remains separate.
+
 ## Home Assistant terminal method
 
 Supervisor discovery keeps the gateway token private. The diagnostics page does
@@ -47,7 +54,7 @@ curl -fL https://raw.githubusercontent.com/mscodemonkey/eufy-mega-security/v0.1.
 python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py list
 ```
 
-Keep **Experimental model controls** enabled. Replace `1` below with the
+Leave **Experimental model controls** at its existing setting. Replace `1` below with the
 supported device's current index from the list:
 
 ```sh

@@ -24,7 +24,7 @@ test("parameter HTTP authenticates loopback, closes consent and rejects private 
   const provider = { readReportedParameters: async (_serial: string, signal: AbortSignal, source?: "device_list") => {
     calls++; receivedSignal = signal; receivedSource = source; if (fail) throw fail; return value;
   } } as CameraProvider;
-  const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "fixture", experimentalModelControls: true }, new GatewayState(),
+  const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "fixture", experimentalModelControls: false }, new GatewayState(),
     new SnapshotStore(directory), {} as LiveStreamManager, provider, null);
   try {
     await server.listen(); const url = `http://127.0.0.1:${server.port}/api/diagnostics/parameter-check`;
@@ -74,7 +74,7 @@ test("real HTTP disconnect cancels the provider and retires the handler", async 
   const provider = { readReportedParameters: async (_serial: string, signal: AbortSignal) => {
     started(); signal.addEventListener("abort", aborted, { once: true }); return await new Promise(() => undefined);
   } } as unknown as CameraProvider;
-  const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "fixture", experimentalModelControls: true }, new GatewayState(),
+  const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "fixture", experimentalModelControls: false }, new GatewayState(),
     new SnapshotStore(directory), {} as LiveStreamManager, provider, null);
   try {
     await server.listen();
@@ -85,7 +85,7 @@ test("real HTTP disconnect cancels the provider and retires the handler", async 
   } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
-for (const mode of ["disabled", "missing-token", "timeout"] as const) {
+for (const mode of ["unsupported", "missing-token", "timeout"] as const) {
   test(`parameter HTTP fails safely: ${mode}`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "parameter-http-gate-"));
     let calls = 0, signal: AbortSignal | undefined;
@@ -96,14 +96,15 @@ for (const mode of ["disabled", "missing-token", "timeout"] as const) {
     const provider = { readReportedParameters: async (_serial: string, value: AbortSignal) => {
       calls++; signal = value; return await new Promise(() => undefined);
     } } as unknown as CameraProvider;
-    const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: mode === "missing-token" ? "" : "fixture", experimentalModelControls: mode !== "disabled" },
+    if (mode === "unsupported") delete provider.readReportedParameters;
+    const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: mode === "missing-token" ? "" : "fixture", experimentalModelControls: false },
       new GatewayState(), new SnapshotStore(directory), {} as LiveStreamManager, provider, null);
     try {
       await server.listen();
       const result = await fetch(`http://127.0.0.1:${server.port}/api/diagnostics/parameter-check`, {
         method: "POST", headers: { authorization: "Bearer fixture", "content-type": "application/json" }, body: '{"serial":"target","consent":true}',
       });
-      assert.deepEqual(await result.json(), { stage: mode === "missing-token" ? "unauthorized" : mode });
+      assert.deepEqual(await result.json(), { stage: mode === "missing-token" ? "unauthorized" : mode === "unsupported" ? "disabled" : mode });
       assert.equal(calls, mode === "timeout" ? 1 : 0);
       if (mode === "timeout") assert.equal(signal?.aborted, true);
     } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
