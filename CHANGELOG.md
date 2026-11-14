@@ -9,6 +9,7 @@
 - Reconnect the HA event receiver when its connection stops carrying heartbeats, while keeping healthy connections open.
 - Identify the existing owner behind busy light-trial refusals and report content-free clear reply shapes. Light receipt acceptance, write counts and hardware confirmation remain unchanged.
 - Record confirmed T8E00 shared-lens playback and independent view closure. Longer playback and other pairings remain unconfirmed.
+- Preserve the NVR signing boundary in failure warnings, separating queue, region lookup, request and response-reading failures without changing timeouts or retries.
 
 ## 0.1.268
 
