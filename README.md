@@ -610,6 +610,8 @@ or measure how effectively a camera detects physical motion at each step.
 
 ### Experimental Smart Lock E30
 
+The HA device information includes the lock's own reported firmware. This inventory metadata does not refresh the lock-state observation or imply that the lock is currently reachable. Missing firmware stays unknown.
+
 The `experimental_e30_locks` app option is off by default. Enable it only with
 an API token of at least 32 characters. The trial supports one standalone E30
 T85F1, type 206, on the US cloud route. Other models and regions remain disabled.

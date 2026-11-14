@@ -233,6 +233,9 @@ class GatewayClient:
         state = {key: value.get(key) for key in (
             "serial", "name", "model", "state", "available", "batteryPercent", "stateObservedAt"
         )}
+        if "firmware" in value:
+            version = value["firmware"]
+            state["firmware"] = version.strip() if isinstance(version, str) and len(version) <= 100 and version.strip() else None
         if value["model"] != "T85F1":
             if value.get("readOnly") is not True or value.get("observationSource") != "cloud_inventory":
                 raise GatewayClientError("Gateway returned an invalid read-only lock profile")

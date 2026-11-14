@@ -53,7 +53,8 @@ export interface E30LockProviderOptions {
 /**
  * One opt-in lock registry per EufyProvider generation. It owns operation
  * controllers and its polling timer. close() retires everything synchronously;
- * late credential reads or device replies cannot publish state or commands.
+ * late credential reads or device replies cannot publish state or commands. Inventory
+ * firmware remains separate from binding identity and physical-query freshness.
  */
 export class E30LockProvider {
   readonly #identities = new Map<string, E30LockIdentity>();
@@ -84,13 +85,19 @@ export class E30LockProvider {
     }
     this.#inventoryConfirmed = true;
     const next = new Map<string, E30LockIdentity>();
+    const firmware = new Map<string, string | null>();
     for (const row of devices) {
       const identity = e30InventoryIdentity(row, this.options.accountName);
       if (row.device_model === "T85F1" && row.device_type === 206 && !identity) {
         const member = row.member as Record<string, unknown> | undefined;
         logger.info("e30_lock_admission", `admitted=false serial_length=${row.device_sn.length} owner_present=${typeof member?.admin_user_id === "string"} short_id_present=${typeof member?.short_user_id === "string"} name_present=${Boolean(this.options.accountName || member?.nick_name)} self_parent=${!row.parent_sn || row.parent_sn === row.device_sn} self_station=${!row.station_sn || row.station_sn === row.device_sn}`);
       }
-      if (identity) next.set(identity.serial, identity);
+      if (identity) {
+        next.set(identity.serial, identity);
+        const version = row.main_sw_version;
+        firmware.set(identity.serial, typeof version === "string" && version.length <= 100 && version.trim()
+          ? version.trim() : null);
+      }
     }
     for (const [serial, previous] of this.#identities) {
       if (JSON.stringify(previous) === JSON.stringify(next.get(serial))) continue;
@@ -103,6 +110,7 @@ export class E30LockProvider {
       this.#identities.set(serial, identity);
       if (!this.#states.has(serial)) this.#states.set(serial, { serial, name: identity.name, model: "T85F1",
         state: "unknown", available: false, batteryPercent: null, stateObservedAt: null });
+      this.#states.set(serial, { ...this.#states.get(serial)!, firmware: firmware.get(serial) ?? null });
     }
     this.#emit();
     if (!this.#timer) {

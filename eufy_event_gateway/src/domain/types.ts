@@ -466,6 +466,9 @@ export interface SmartLockState {
   readonly name: string;
   readonly model: "T85F1" | "T8520" | "T8520J11" | "T8520S";
 
+  /** Lock-owned inventory metadata; it does not refresh the physical state observation. */
+  readonly firmware?: string | null;
+
   /** A cloud inventory profile has no lock, unlock, settings or query authority. */
   readonly readOnly?: true;
 

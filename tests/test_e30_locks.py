@@ -29,6 +29,23 @@ def method(file: str, owner: str, name: str, namespace: dict):
 class E30LockTest(unittest.IsolatedAsyncioTestCase):
     """Protect physical state semantics and four-family event preservation."""
 
+    def test_lock_firmware_reaches_device_info_without_affecting_state(self):
+        """Accept bounded optional inventory metadata while keeping old gateway replies valid."""
+        projection = method("client.py", "GatewayClient", "_lock_state", {"GatewayClientError": ValueError})
+        info = method("lock.py", "EufyLockEntity", "device_info", {"DOMAIN": "eufy_event_gateway", "DeviceInfo": dict})
+        original = {"serial": "fixture", "name": "Synthetic", "model": "T85F1", "state": "locked",
+                    "available": True, "batteryPercent": 76, "stateObservedAt": "2026-11-14T08:00:00Z"}
+        self.assertNotIn("firmware", projection(original))
+        for value, expected in (("1.2.3.4", "1.2.3.4"), (" 1.2.3.4 ", "1.2.3.4"),
+                                (None, None), (False, None), (42, None), ("", None), ("x" * 101, None)):
+            state = projection({**original, "firmware": value})
+            self.assertEqual(state["state"], "locked")
+            self.assertEqual(state["stateObservedAt"], original["stateObservedAt"])
+            self.assertEqual(state["firmware"], expected)
+            entity = SimpleNamespace(serial="fixture", lock_state=state)
+            self.assertEqual(info(entity)["sw_version"], expected)
+            self.assertEqual(info(entity)["identifiers"], {("eufy_event_gateway", "fixture")})
+
     async def test_all_event_families_preserve_siblings_and_empty_locks_replace(self):
         """Full and single updates must never erase an unrelated inventory."""
         namespace = {"GatewayClientError": ValueError}
