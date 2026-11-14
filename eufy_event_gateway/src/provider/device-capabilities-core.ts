@@ -12,7 +12,7 @@ import { CAMERA_CAPABILITY_CORE, catalogueIntegrationStatus, hasMainsBatterySent
 import type { CoreCapabilityEntry } from "./device-capability-core.js";
 import { DOORBELL_CAPABILITY_CORE } from "./doorbell-capability-core.js";
 import { HOMEBASE_CAPABILITY_CORE, HOMEBASE_DEVICE_TYPES } from "./homebase-capability-core.js";
-import { SENSOR_CAPABILITY_CORE, SENSOR_DEVICE_TYPES } from "./sensor-capability-core.js";
+import { ENTRY_SENSOR_HEALTH_CAPABILITY_CORE, SENSOR_CAPABILITY_CORE, SENSOR_DEVICE_TYPES } from "./sensor-capability-core.js";
 import { isT8442Camera } from "./t8442-profile.js";
 import { CARE_MONITOR_CAPABILITY_ROWS, isCareBabyMonitor } from "./care-monitor.js";
 
@@ -232,9 +232,11 @@ function describeHomeBaseFamily(
 function describeSensorFamily(device: CapabilityInventoryRow): DeviceCapabilityManifest {
   const observed = new Set(device.paramTypes);
   const motionType = device.deviceType === 10 || device.deviceType === 127;
-  const supported = motionType || [1101, 1550, 1551].some((id) => observed.has(id));
-  const mapped = new Set(SENSOR_CAPABILITY_CORE.flatMap(({ evidenceParamIds }) => evidenceParamIds));
-  const matrix = SENSOR_CAPABILITY_CORE.map((entry) => {
+  const entrySensor = device.model === "T8900" && device.deviceType === 2;
+  const catalogue = [...SENSOR_CAPABILITY_CORE, ...(entrySensor ? ENTRY_SENSOR_HEALTH_CAPABILITY_CORE : [])];
+  const supported = motionType || [1101, 1550, 1551, ...(entrySensor ? [1131, 1552] : [])].some((id) => observed.has(id));
+  const mapped = new Set(catalogue.flatMap(({ evidenceParamIds }) => evidenceParamIds));
+  const matrix = catalogue.map((entry) => {
     if (entry.id === "sensor.motion_event" && !motionType) {
       return { ...evaluateCoreEntry(entry, observed, false, false), deviceEvidence: "requires-live-proof" as const };
     }

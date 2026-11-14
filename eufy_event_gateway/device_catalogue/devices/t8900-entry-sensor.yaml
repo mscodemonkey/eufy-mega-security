@@ -24,6 +24,21 @@ capabilities:
           status: declared
       read:
         parameter: 1552
+      notes: Exposed only when the exact T8900 reports this flag. Missing or malformed data stays unknown. Motion-sensor battery fields are not substituted.
+    connected:
+      connections:
+        T8030:
+          status: declared
+      read:
+        parameter: 1131
+      notes: Reported accessory status, separate from gateway availability and settled contact state. Only online state 1 is connected.
+    firmware:
+      connections:
+        T8030:
+          status: declared
+      read:
+        field: firmware
+      notes: Home Assistant device information uses the accessory firmware rather than its HomeBase version.
     contact_open:
       connections:
         T8010:

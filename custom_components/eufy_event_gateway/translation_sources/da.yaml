@@ -94,6 +94,10 @@ entity:
       name: Kontakt
     eufy_station_connection:
       name: Forbindelse
+    sensor_connection:
+      name: Forbindelse
+    sensor_battery_low:
+      name: Lavt batteri
     eufy_station_camera_route:
       name: Kamera rute
   number:

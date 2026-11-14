@@ -21,3 +21,9 @@ export const SENSOR_CAPABILITY_CORE: readonly CoreCapabilityEntry[] = [
   { id: "sensor.last_seen", family: "diagnostic", kind: "read", evidenceParamIds: [1551, 1605], gatewaySupport: "implemented", note: "Normalized from the family-specific cloud event timestamp." },
   { id: "sensor.rssi", family: "diagnostic", kind: "read", evidenceParamIds: [1141], gatewaySupport: "implemented", note: "Reported directly by the accessory in dBm without conversion to bars." },
 ] as const;
+
+/** T8900-only health reads, added by the family adapter after exact model/type qualification. */
+export const ENTRY_SENSOR_HEALTH_CAPABILITY_CORE: readonly CoreCapabilityEntry[] = [
+  { id: "sensor.connected", family: "connection", kind: "read", evidenceParamIds: [1131], gatewaySupport: "implemented", note: "Reported accessory status. Only state 1 means online. Missing or invalid values remain unknown." },
+  { id: "sensor.battery_low", family: "battery", kind: "read", evidenceParamIds: [1552], gatewaySupport: "implemented", note: "Explicit entry-sensor low-power bit. Never inferred from another family's battery state or a missing value." },
+] as const;

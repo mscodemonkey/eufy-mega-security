@@ -138,4 +138,5 @@ class EufySecuritySensorEntity(CoordinatorEntity[EufyGatewayCoordinator]):
             name=self.sensor.get("name") or f"Eufy sensor {self.serial[-4:]}",
             manufacturer="Eufy",
             model=self.sensor.get("model"),
+            sw_version=self.sensor.get("firmware"),
         )

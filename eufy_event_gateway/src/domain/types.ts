@@ -317,7 +317,14 @@ export interface SecuritySensorState {
   readonly model: string;
   readonly deviceType: number;
   readonly available: boolean;
-  readonly capabilities: readonly ("battery" | "contact" | "crying" | "lastSeen" | "motion" | "rssi" | "sound" | "pet" | "babyLeft" | "babyEntered" | "temperatureHigh" | "temperatureLow" | "careAreaLeft" | "careAreaEntered" | "babyActivity" | "roomTemperature" | "careDiagnostics")[];
+
+  /** Firmware reported for this accessory, never inherited from its HomeBase. */
+  readonly firmware?: string | null;
+
+  /** Reported entry-sensor health. Absence and invalid values remain unknown. */
+  readonly connected?: boolean | null;
+  readonly batteryLow?: boolean | null;
+  readonly capabilities: readonly ("battery" | "batteryLow" | "connected" | "contact" | "crying" | "lastSeen" | "motion" | "rssi" | "sound" | "pet" | "babyLeft" | "babyEntered" | "temperatureHigh" | "temperatureLow" | "careAreaLeft" | "careAreaEntered" | "babyActivity" | "roomTemperature" | "careDiagnostics")[];
   readonly batteryLevel: number | null;
   readonly contactOpen: boolean | null;
   readonly lastSeen: string | null;
