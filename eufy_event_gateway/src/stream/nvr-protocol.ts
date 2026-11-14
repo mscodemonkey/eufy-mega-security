@@ -14,6 +14,8 @@ export type NvrTrialStage = "admission" | "region_or_authorization_rejected" | "
 
 const nvrTrialReasons = [
   "call_timeout", "call_unexpected_action",
+  "sign_queue_timeout", "sign_region_timeout", "sign_request_timeout", "sign_body_timeout",
+  "sign_queue_failed", "sign_region_failed", "sign_request_failed", "sign_body_failed",
   "unspecified", "signalling_queue_limit", "signalling_closed", "signalling_error", "signalling_hangup", "session_mismatch",
   "station_mismatch", "channel_mismatch", "relay_count", "relay_shape", "relay_fields", "candidate_limit",
   "candidate_shape", "candidate_component", "candidate_transport", "candidate_priority", "candidate_host",

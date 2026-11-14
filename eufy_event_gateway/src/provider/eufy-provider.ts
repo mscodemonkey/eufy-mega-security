@@ -2306,7 +2306,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         return this.#startNvrTrial(serial);
       }
       logger.warn(entry.diagnostic ? "nvr_live_trial_failed" : "nvr_live_stream_failed",
-        `stage=${failure.stage} reason=${failure.reason}${entry.session ? " " + nvrTrialCounters(entry.session) : ""}`);
+        `stage=${failure.stage} reason=${failure.reason}${failure.httpStatus === undefined ? "" : ` http_status=${failure.httpStatus}`}${entry.session ? " " + nvrTrialCounters(entry.session) : ""}`);
       if (!entry.diagnostic && !entry.stateOnly && entry.sourceReported) entry.retireStart();
       await entry.release(); throw failure;
     }
