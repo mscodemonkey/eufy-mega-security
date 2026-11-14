@@ -22,3 +22,15 @@ test("unknown and malformed trial errors cannot add unreviewed diagnostic values
       "stage=unknown write_attempted=unknown acknowledgement_received=unknown cleanup_failed=unknown");
   }
 });
+
+
+test("busy reasons report only the existing refusal and discard unknown values", () => {
+  for (const reason of ["local_motion", "trial", "recording", "station", "stream", "stream_start", "control"] as const) {
+    const failure = new S120LightTrialError("busy", false, false, false, undefined, reason);
+    assert.match(s120LightFailureDiagnostic(failure), new RegExp(` busy_reason=${reason}$`));
+  }
+  for (const failure of [new S120LightTrialError("write_receipt", true, false, false, undefined, "stream"),
+    new S120LightTrialError("busy", false, false, false, undefined, "PRIVATE" as never)]) {
+    assert.doesNotMatch(s120LightFailureDiagnostic(failure), /busy_reason|PRIVATE/);
+  }
+});

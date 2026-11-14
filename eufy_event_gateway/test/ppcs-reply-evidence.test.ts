@@ -34,3 +34,33 @@ test("failure summaries discard invalid fields and arbitrary private text", () =
   assert.equal(cameraInfoFailureDiagnostic(Object.assign(new CameraInfoReadError("protection_mismatch"), { protection: "PRIVATE" })),
     "reason=protection_mismatch reply_protection=unobserved");
 });
+
+
+test("clear reply shapes are correlated, immutable and independent of result values", () => {
+  const trace = new PpcsControlReceiptTrace(1400, 3);
+  trace.frame(1400, 4, 0, true, Buffer.alloc(132));
+  trace.frame(1403, 3, 0, true, Buffer.alloc(132));
+  trace.frame(1400, 3, 0, false, Buffer.alloc(132));
+  assert.equal(trace.snapshot().clearResultShape, undefined);
+  const padded = Buffer.alloc(132); padded.writeInt32LE(-117);
+  trace.frame(1400, 3, 0, true, padded);
+  const snapshot = trace.snapshot();
+  assert.equal(snapshot.clearResultShape, "padded_scalar");
+  assert.match(controlReceiptSummary(snapshot), / clear_result_shape=padded_scalar$/);
+  padded[131] = 1;
+  trace.frame(1400, 3, 0, true, padded);
+  assert.equal(trace.snapshot().clearResultShape, "mixed");
+  assert.equal(snapshot.clearResultShape, "padded_scalar");
+  const scalar = new PpcsControlReceiptTrace(1400, 3);
+  scalar.frame(1400, 3, 0, true, Buffer.alloc(4, 255));
+  assert.equal(scalar.snapshot().clearResultShape, "scalar");
+  for (const payload of [Buffer.alloc(0), Buffer.alloc(3), Buffer.alloc(5), padded]) {
+    const malformed = new PpcsControlReceiptTrace(1400, 3);
+    malformed.frame(1400, 3, 0, true, payload);
+    assert.equal(malformed.snapshot().clearResultShape, "other");
+  }
+  const encrypted = new PpcsControlReceiptTrace(1400, 3);
+  encrypted.frame(1400, 3, 1, true, Buffer.alloc(132));
+  assert.equal(encrypted.snapshot().clearResultShape, undefined);
+  assert.doesNotMatch(controlReceiptSummary({ ...snapshot, clearResultShape: "PRIVATE" as never }), /PRIVATE|clear_result_shape/);
+});

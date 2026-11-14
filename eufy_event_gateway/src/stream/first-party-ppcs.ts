@@ -2353,13 +2353,13 @@ export class FirstPartyPpcsSession {
     const frame = buildModelControlTrialPayload(request, route, this.#options.accountId,
       commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key, this.#level2Seq++, Date.now());
     const acknowledgement = this.#waitForControlResult(frame.command, this.#options.channel, CONTROL_TIMEOUT_MILLISECONDS,
-      request.action === "manualLight" && !legacyLight, legacyLight, e330Light);
+      request.action === "manualLight" && !legacyLight, legacyLight, legacyLight);
     try { onDispatch(); this.#sendCommand(frame.command, frame.payload); }
     catch (error) { void acknowledgement.catch(() => undefined); throw error; }
     await acknowledgement;
   }
 
-  /** Return the last observed E330 receipt window, including after session retirement. */
+  /** Return the last observed manual-light receipt window, including after session retirement. */
   controlReceiptEvidence(): PpcsControlReceiptEvidence | undefined {
     return this.#lastControlReceipt?.snapshot();
   }
@@ -3435,7 +3435,7 @@ export class FirstPartyPpcsSession {
       if (this.stats.mediaStartResult === -117) this.stats.mediaStartLowPower = 1;
     }
 
-    this.#pendingControl?.trace?.frame(command, frameChannel, signCode, header[14] === 1);
+    this.#pendingControl?.trace?.frame(command, frameChannel, signCode, header[14] === 1, payload);
     if (header[14] === 1 && this.#pendingControl?.command === command) {
       if (this.#pendingControl.authenticatedOnly && signCode !== 8) return;
       if (this.#pendingControl.encryptedOnly && ![1, 2, 8].includes(signCode)) return;

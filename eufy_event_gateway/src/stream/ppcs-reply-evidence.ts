@@ -25,6 +25,9 @@ export function replyProtectionSummary(value: unknown): string {
     ? String(value) : "unobserved";
 }
 
+/** Content-free shape of matching clear replies, without interpreting the result value. */
+export type PpcsClearResultShape = "scalar" | "padded_scalar" | "other" | "mixed";
+
 /** Immutable observations from one owned receipt wait, separate from physical effect. */
 export interface PpcsControlReceiptEvidence {
   readonly notificationFrames: number;
@@ -34,6 +37,7 @@ export interface PpcsControlReceiptEvidence {
   readonly matchingFrames: number;
   readonly decodedFrames: number;
   readonly protection?: PpcsReplyProtection;
+  readonly clearResultShape?: PpcsClearResultShape;
 }
 
 /**
@@ -49,11 +53,12 @@ export class PpcsControlReceiptTrace {
   #matching = 0;
   #decoded = 0;
   #protection: PpcsReplyProtection | undefined;
+  #clearResultShape: PpcsClearResultShape | undefined;
 
   constructor(private readonly command: number, private readonly channel: number) {}
 
   /** Observe a result header before acceptance filters, without admitting it. */
-  frame(command: number, channel: number | null, sign: number, result: boolean): void {
+  frame(command: number, channel: number | null, sign: number, result: boolean, payload?: Buffer): void {
     if (command === 1351) {
       this.#notifications = Math.min(65_535, this.#notifications + 1);
       if (channel === this.channel) this.#selectedNotifications = Math.min(65_535, this.#selectedNotifications + 1);
@@ -65,6 +70,11 @@ export class PpcsControlReceiptTrace {
     if (command !== this.command) return;
     this.#matching = Math.min(65_535, this.#matching + 1);
     this.#protection = mergeReplyProtection(this.#protection, sign);
+    if (sign === 0 && payload) {
+      const shape = payload.length === 4 ? "scalar"
+        : payload.length === 132 && payload.subarray(4).every(value => value === 0) ? "padded_scalar" : "other";
+      this.#clearResultShape = this.#clearResultShape === undefined || this.#clearResultShape === shape ? shape : "mixed";
+    }
   }
 
   /** Count a readable correlated result, including an explicit device rejection. */
@@ -75,7 +85,8 @@ export class PpcsControlReceiptTrace {
     return Object.freeze({ notificationFrames: this.#notifications, selectedNotifications: this.#selectedNotifications,
       resultFrames: this.#result, selectedFrames: this.#selected,
       matchingFrames: this.#matching, decodedFrames: this.#decoded,
-      ...(this.#protection === undefined ? {} : { protection: this.#protection }) });
+      ...(this.#protection === undefined ? {} : { protection: this.#protection }),
+      ...(this.#clearResultShape === undefined ? {} : { clearResultShape: this.#clearResultShape }) });
   }
 }
 
@@ -83,8 +94,10 @@ export class PpcsControlReceiptTrace {
 export function controlReceiptSummary(value: PpcsControlReceiptEvidence | undefined): string {
   if (!value) return "";
   const count = (n: unknown): number => typeof n === "number" && Number.isInteger(n) && n >= 0 ? Math.min(n, 65_535) : 0;
+  const shape = ["scalar", "padded_scalar", "other", "mixed"].includes(value.clearResultShape as string)
+    ? ` clear_result_shape=${value.clearResultShape}` : "";
   return ` result_frames=${count(value.resultFrames)} selected_result_frames=${count(value.selectedFrames)}`
     + ` matching_result_frames=${count(value.matchingFrames)} decoded_result_frames=${count(value.decodedFrames)}`
     + ` result_protection=${replyProtectionSummary(value.protection)}`
-    + ` receipt_notify_frames=${count(value.notificationFrames)} selected_receipt_notify_frames=${count(value.selectedNotifications)}`;
+    + ` receipt_notify_frames=${count(value.notificationFrames)} selected_receipt_notify_frames=${count(value.selectedNotifications)}` + shape;
 }
