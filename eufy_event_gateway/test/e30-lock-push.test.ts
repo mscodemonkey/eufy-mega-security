@@ -24,9 +24,9 @@ async function settle(): Promise<void> {
 }
 
 /** Use the observed base64 wrapper shape, with deliberately irrelevant notification state. */
-function hint(sentAt = Date.now()): MegaPushEvent {
+function hint(sentAt = Date.now(), eventType = 257, userName?: string): MegaPushEvent {
   const event = parsePushEvent({ device_sn: serial, station_sn: serial, type: "206",
-    payload: Buffer.from(JSON.stringify({ event_type: 257, device_sn: serial,
+    payload: Buffer.from(JSON.stringify({ event_type: eventType, device_sn: serial, nick_name: userName,
       params: [{ param_type: 6000, param_value: "4" }] })).toString("base64") });
   assert.ok(event);
   return { ...event, transportSentAtMilliseconds: sentAt };
@@ -212,4 +212,77 @@ test("E30 alarm and battery notifications do not schedule state reads", async co
   }
   context.mock.timers.tick(20_000); await settle();
   assert.equal(f.queries(), 1);
+});
+
+for (const [eventType, method] of [[259, "passcode"], [260, "fingerprint"]] as const) {
+  test(`E30 retains reported ${method} attribution without changing queried state`, async context => {
+    const f = await fixture(context);
+    context.mock.timers.tick(11_000);
+    const receivedAt = new Date().toISOString();
+    assert.equal(f.provider.acceptPushHint(hint(Date.now(), eventType, "Casey")), true);
+    const before = f.provider.list()[0]!;
+    assert.equal(before.state, "locked");
+    assert.notEqual(before.stateObservedAt, receivedAt);
+    assert.deepEqual(before.lastEvent, { action: "unlocked", method, userName: "Casey", receivedAt });
+    f.state(3);
+    context.mock.timers.tick(1); await settle();
+    assert.equal(f.provider.list()[0]?.state, "unlocked");
+    assert.deepEqual(f.provider.list()[0]?.lastEvent, before.lastEvent);
+    assert.equal(f.actuations(), 0);
+  });
+}
+
+test("E30 unidentified actions clear the previous user and stale hints cannot restore them", async context => {
+  const f = await fixture(context);
+  const named = hint(Date.now(), 260, "Casey");
+  assert.equal(f.provider.acceptPushHint(named), true);
+  context.mock.timers.tick(1);
+  const manual = hint(Date.now(), 262, "Account owner");
+  assert.equal(f.provider.acceptPushHint(manual), true);
+  assert.equal(f.provider.list()[0]?.lastEvent?.userName, null);
+  assert.equal(f.provider.acceptPushHint(named), false);
+  assert.equal(f.provider.list()[0]?.lastEvent?.method, "manual");
+  for (const eventType of [258, 263, 265]) {
+    context.mock.timers.tick(1);
+    assert.equal(f.provider.acceptPushHint(hint(Date.now(), eventType, "Account owner")), true);
+    assert.equal(f.provider.list()[0]?.lastEvent?.userName, null);
+  }
+});
+
+test("E30 missing or unsafe names never borrow an earlier user's name", async context => {
+  const f = await fixture(context);
+  assert.equal(f.provider.acceptPushHint(hint(Date.now(), 260, "Casey")), true);
+  for (const name of [undefined, "", "  ", "x".repeat(101), "Casey\nOther", "Casey\u0085Other"]) {
+    context.mock.timers.tick(1);
+    assert.equal(f.provider.acceptPushHint(hint(Date.now(), 259, name)), true);
+    assert.equal(f.provider.list()[0]?.lastEvent?.userName, null);
+  }
+});
+
+test("E30 reported access context survives a failed query without claiming physical success", async context => {
+  const f = await fixture(context);
+  const originalObservedAt = f.provider.list()[0]!.stateObservedAt;
+  context.mock.timers.tick(11_000); f.fail();
+  assert.equal(f.provider.acceptPushHint(hint(Date.now(), 259, "Casey")), true);
+  context.mock.timers.tick(1); await settle();
+  const state = f.provider.list()[0]!;
+  assert.equal(state.state, "unknown");
+  assert.equal(state.available, false);
+  assert.equal(state.stateObservedAt, originalObservedAt);
+  assert.equal(state.lastEvent?.userName, "Casey");
+  assert.equal(state.lastEvent?.method, "passcode");
+  assert.equal(f.actuations(), 0);
+});
+
+test("E30 event snapshots are isolated and retire with their binding", async context => {
+  const f = await fixture(context);
+  assert.equal(f.provider.acceptPushHint(hint(Date.now(), 260, "Casey")), true);
+  const snapshot = f.provider.list()[0]!.lastEvent!;
+  Reflect.set(snapshot, "userName", "Changed by caller");
+  assert.equal(f.provider.list()[0]?.lastEvent?.userName, "Casey");
+  f.provider.inventory([{ ...inventory(), main_sw_version: "new-version" }]);
+  assert.equal(f.provider.list()[0]?.lastEvent?.userName, "Casey");
+  const changedMember = { ...inventory().member, short_user_id: "0002" };
+  f.provider.inventory([{ ...inventory(), member: changedMember }]);
+  assert.equal(f.provider.list()[0]?.lastEvent, undefined);
 });

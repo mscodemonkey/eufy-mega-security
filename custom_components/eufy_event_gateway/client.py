@@ -12,6 +12,7 @@ from __future__ import annotations
 import calendar
 import json
 import re
+from datetime import datetime
 from urllib.parse import quote, urlencode, urlsplit, unquote, parse_qsl
 from collections.abc import AsyncIterator
 from typing import Any
@@ -252,6 +253,24 @@ class GatewayClient:
             return state
         if value.get("readOnly") is not None or value.get("observationSource") is not None:
             raise GatewayClientError("Gateway returned an invalid E30 lock profile")
+        event = value.get("lastEvent")
+        if (isinstance(event, dict) and set(event) == {"action", "method", "userName", "receivedAt"}
+                and event.get("action") in ("locked", "unlocked")
+                and event.get("method") in ("manual", "automatic", "keypad", "passcode", "fingerprint",
+                                            "app", "temporary_passcode", "nfc")):
+            name, stamp = event["userName"], event["receivedAt"]
+            valid_name = name is None or (isinstance(name, str) and 0 < len(name) <= 100
+                                         and name.strip() == name
+                                         and not any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in name))
+            try:
+                received = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+                valid_time = received.tzinfo is not None
+            except (TypeError, ValueError, AttributeError):
+                valid_time = False
+            if valid_name and valid_time:
+                state["lastEvent"] = {"action": event["action"], "method": event["method"],
+                                      "userName": None if event["method"] in ("manual", "automatic", "keypad") else name,
+                                      "receivedAt": stamp}
         settings = value.get("settings")
         if isinstance(settings, dict):
             booleans = ("autoLock", "notifications", "lockedNotifications", "unlockedNotifications")
