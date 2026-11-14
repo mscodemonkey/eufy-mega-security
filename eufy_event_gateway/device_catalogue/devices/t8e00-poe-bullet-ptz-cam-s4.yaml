@@ -67,8 +67,7 @@ capabilities:
           notes: Normal HA live view is implemented behind the default-off NVR video option for exact T8E00/type 301 through T9000/type 27. A reporter confirmed normal HA live view using the PTZ lens on v0.1.243 in issue 308. Sustained playback, fresh reopening and fixed-lens selection remain unconfirmed. That release added no camera controls.
         T8N00:
           status: declared
-          notes: Experimental opt-in normal playback. Source profile and selected lens
-            require hardware confirmation.
+          notes: Experimental opt-in normal playback. A reporter confirmed both shared 720p lens panes on v0.1.262, correct physical lens identity, continued playback after one pane closed and one final shared-call close in issue 433. Longer playback and other pairings remain unconfirmed.
     snapshot:
       connections:
         T9000:
