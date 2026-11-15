@@ -159,7 +159,8 @@ async def async_setup_entry(
                 known_lenses.add(serial)
                 async_add_entities([
                     EufyGatewaySharedLensCamera(coordinator, serial, lens,
-                        short_hls_idle=entry.options.get(CONF_SHORT_HLS_IDLE) is True)
+                        short_hls_idle=entry.options.get(CONF_SHORT_HLS_IDLE) is True,
+                        h264_compatibility=entry.options.get(CONF_H264_COMPATIBILITY) is True)
                     for lens in ("fixed", "movable")
                 ])
 
@@ -245,7 +246,8 @@ def _view_for(camera: Any, url: str) -> str:
     another camera has the call. Views and recordings start on HA's one event
     loop, so no view can be marked between a recording starting and its hold.
     """
-    if urlsplit(url).path.rsplit("/", 1)[-1] in ("live-fixed.h264", "live-movable.h264"):
+    if urlsplit(url).path.rsplit("/", 1)[-1] in ("live-fixed.h264", "live-movable.h264",
+                                                  "live-fixed-native.annexb", "live-movable-native.annexb"):
         return _with_view(url, None)
     return (_new_view(url, camera.camera.get("hlsIdleHandoverSupported") is True) if camera.coordinator.client.live_view_handover_supported
             and getattr(camera.coordinator.client, "hls_view_idle_supported", False) is True
@@ -369,8 +371,9 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         # Assistant keeps that stream for a while, but it can only retry a view
         # that has had its turn and holds old video. Its worker also stops for good
         # if the source changes during a retry wait, so start a new stream instead.
+        # A native pane has its own call, which the main camera's stream state does not describe.
         if (cached is not None and not cached.dynamic_stream_settings.preload_stream
-                and "recorder" not in cached.outputs()
+                and "recorder" not in cached.outputs() and not getattr(self, "_own_nvr_call", False)
                 and (self.camera.get("stream", {}).get("state") in {"idle", "stopping", "error"}
                      or getattr(getattr(self, "_hls_activity", None), "expiring", False))):
             await cached.stop()
@@ -809,10 +812,11 @@ def _shared_lens_profile(camera: dict[str, Any]) -> bool:
 
 
 class EufyGatewaySharedLensCamera(EufyGatewayCamera):
-    """Own one optional pane entity while the gateway shares the physical source.
+    """Own one optional pane entity on the existing physical HA device.
 
-    Both pane entities stay on the existing physical HA device. Their image
-    caches and HA stream workers are separate, their gateway source is not.
+    Each pane plays its lens's own native NVR call, unconverted. With H.264
+    compatibility on, both panes share the camera's Both source and its 720p
+    H.264 split instead. Image caches and HA stream workers are separate.
     They are video-only and unavailable outside Both view. HA's camera.record
     records the pane's protected stream, while the gateway clip service is
     refused because it records the full source.
@@ -821,11 +825,13 @@ class EufyGatewaySharedLensCamera(EufyGatewayCamera):
     _attr_entity_registry_enabled_default = False
     _track_live_audio = False
 
-    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, lens: str, *, short_hls_idle: bool = False) -> None:
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, lens: str, *,
+                 short_hls_idle: bool = False, h264_compatibility: bool = False) -> None:
         """Bind one closed pane selector without modifying the device's view setting."""
         if lens not in ("fixed", "movable"):
             raise ValueError("Invalid shared lens")
-        super().__init__(coordinator, serial, short_hls_idle=short_hls_idle, h264_compatibility=True)
+        super().__init__(coordinator, serial, short_hls_idle=short_hls_idle, h264_compatibility=h264_compatibility)
+        self._own_nvr_call = self._native_video
         self.lens = lens
         self._attr_unique_id = f"{serial}_shared_{lens}_camera"
         self._attr_translation_key = f"shared_{lens}"
@@ -845,6 +851,8 @@ class EufyGatewaySharedLensCamera(EufyGatewayCamera):
         """Select a video-only pane for initial open and every credential renewal."""
         if not self.available:
             raise GatewayClientError("Select Both view before opening a shared lens")
+        if self._native_video:
+            return await self.coordinator.client.shared_lens_stream_url(self.serial, self.lens, native=True)
         return await self.coordinator.client.shared_lens_stream_url(self.serial, self.lens)
 
     async def async_camera_image(self, width: int | None = None, height: int | None = None) -> bytes:

@@ -25,6 +25,7 @@ class BaseCamera:
     def __init__(self, coordinator, serial, **kwargs):
         self.coordinator, self.serial = coordinator, serial
         self.options = kwargs
+        self._native_video = not kwargs.get("h264_compatibility", False)
 
     @property
     def camera(self):
@@ -72,7 +73,7 @@ class SharedLensCameraTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(entity.available)
             self.assertEqual(await entity._async_stream_url(), "signed-pane")
             self.assertEqual(await entity.async_camera_image(), b"pane")
-            client.shared_lens_stream_url.assert_awaited_with("test", lens)
+            client.shared_lens_stream_url.assert_awaited_with("test", lens, native=True)
             self.assertEqual(cache.async_image.call_args.args[:2], ("test", f"snapshot-{lens}"))
             with self.assertRaisesRegex(GatewayError, "camera.record"):
                 await entity.async_record_clip("ignored", 15)
@@ -88,12 +89,30 @@ class SharedLensCameraTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             cls(coordinator, "test", "other")
 
+    async def test_compatibility_keeps_the_shared_h264_pane_and_native_panes_ignore_the_main_state(self):
+        """H.264 compatibility selects today's shared route; a native pane has its own call."""
+        env = namespace()
+        row = {"model": "T8E00", "nvrLiveControlsSupported": True,
+               "nvrViewOptions": ["Fixed", "Movable", "Both"], "nvrSelectedView": 2}
+        client = SimpleNamespace(shared_lens_stream_url=AsyncMock(return_value="signed-pane"))
+        coordinator = SimpleNamespace(cameras={"test": row}, last_update_success=True, client=client)
+        cls = env["EufyGatewaySharedLensCamera"]
+        for lens in ("fixed", "movable"):
+            compatible = cls(coordinator, "test", lens, h264_compatibility=True)
+            self.assertEqual(compatible.options["h264_compatibility"], True)
+            await compatible._async_stream_url()
+            client.shared_lens_stream_url.assert_awaited_with("test", lens)
+            self.assertFalse(compatible._own_nvr_call)
+            native = cls(coordinator, "test", lens)
+            self.assertEqual(native.options["h264_compatibility"], False)
+            self.assertTrue(native._own_nvr_call)
+
     async def test_pane_urls_never_take_or_yield_the_nvr_call(self):
         """A recorder sharing either pane retains the unmarked physical source."""
         env = namespace()
         camera = SimpleNamespace(camera={}, coordinator=SimpleNamespace(client=SimpleNamespace(live_view_handover_supported=True, hls_view_idle_supported=True), recording_holds=set()))
-        for lens in ("fixed", "movable"):
-            url = f"http://gateway/api/cameras/test/live-{lens}.h264?access_token=token&view=old"
+        for media in ("live-fixed.h264", "live-movable.h264", "live-fixed-native.annexb", "live-movable-native.annexb"):
+            url = f"http://gateway/api/cameras/test/{media}?access_token=token&view=old"
             self.assertEqual(dict(parse_qsl(urlsplit(env["_view_for"](camera, url)).query)), {"access_token": "token"})
         self.assertIn("view=new", env["_view_for"](camera, "http://gateway/live.h264?access_token=token"))
 
@@ -154,6 +173,7 @@ class SharedLensCameraTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(added), 3)
         self.assertEqual({e.serial for e in added}, {"test"})
         self.assertEqual({e.lens for e in added if hasattr(e, "lens")}, {"fixed", "movable"})
+        self.assertEqual({e.options["h264_compatibility"] for e in added if hasattr(e, "lens")}, {False})
 
     async def test_client_requires_the_exact_pane_without_retry(self):
         """An older gateway, ignored lens or other-camera response stays unavailable."""
@@ -175,4 +195,37 @@ class SharedLensCameraTests(unittest.IsolatedAsyncioTestCase):
         request.reset_mock(); request.side_effect = GatewayError("old gateway")
         with self.assertRaises(GatewayError):
             await env[method.name](client, "test", "fixed")
+        self.assertEqual(request.await_count, 1)
+
+    async def test_client_asks_for_the_native_pane_and_falls_back_only_on_an_older_gateway(self):
+        """A native pane must come back native; a gateway without native panes refuses with 400."""
+        tree = ast.parse((ROOT / "client.py").read_text())
+        cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "GatewayClient")
+        method = next(n for n in cls.body if getattr(n, "name", None) == "shared_lens_stream_url")
+
+        class StatusError(GatewayError):
+            """Carry the HTTP status as the real client error does."""
+            def __init__(self, message, status=None):
+                super().__init__(message); self.status = status
+        env = {"GatewayClientError": StatusError, "urlsplit": urlsplit, "quote": __import__("urllib.parse", fromlist=["quote"]).quote}
+        exec(compile(ast.Module(body=[method], type_ignores=[]), str(ROOT / "client.py"), "exec"), env)
+        native = {"lens": "movable", "profile": "native", "path": "/api/cameras/test/live-movable-native.annexb?access_token=native.1.x"}
+        request = AsyncMock(return_value=native)
+        client = SimpleNamespace(_json=request, _url=lambda path: "http://gateway" + path)
+        self.assertEqual(await env[method.name](client, "test", "movable", native=True), "http://gateway" + native["path"])
+        self.assertEqual(request.call_args.kwargs["payload"], {"profile": "native", "audio": "off", "lens": "movable"})
+        for value in ({**native, "profile": "compatible"}, {**native, "path": "/api/cameras/test/live-movable.h264"},
+                      {**native, "path": "/api/cameras/test/live-fixed-native.annexb"}):
+            request.reset_mock(); request.return_value = value
+            with self.assertRaises(StatusError):
+                await env[method.name](client, "test", "movable", native=True)
+            self.assertEqual(request.await_count, 1)
+        old = {"lens": "movable", "path": "/api/cameras/test/live-movable.h264?access_token=secret"}
+        request.reset_mock(); request.return_value = None
+        request.side_effect = [StatusError("Invalid stream profile", status=400), old]
+        self.assertEqual(await env[method.name](client, "test", "movable", native=True), "http://gateway" + old["path"])
+        self.assertEqual([call.kwargs["payload"]["profile"] for call in request.call_args_list], ["native", "compatible"])
+        request.reset_mock(); request.side_effect = StatusError("Shared lens views are unavailable", status=409)
+        with self.assertRaises(StatusError):
+            await env[method.name](client, "test", "movable", native=True)
         self.assertEqual(request.await_count, 1)

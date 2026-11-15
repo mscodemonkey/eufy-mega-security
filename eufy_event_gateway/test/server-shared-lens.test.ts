@@ -13,7 +13,7 @@ import test from "node:test";
 import { loadConfig } from "../src/config.js";
 import { GatewayState } from "../src/domain/gateway-state.js";
 import type { CameraProvider } from "../src/provider/provider.js";
-import { createStreamToken, GatewayServer } from "../src/server.js";
+import { createNativeStreamToken, createStreamToken, GatewayServer } from "../src/server.js";
 import { SnapshotStore } from "../src/storage/snapshot-store.js";
 import type { LiveStreamManager } from "../src/stream/live-stream-manager.js";
 
@@ -33,7 +33,7 @@ test("pane tokens require explicit admission, stay on one camera, and never fall
     await server.listen(); const base = `http://127.0.0.1:${server.port}/api/cameras`;
     const headers = { authorization: "Bearer fixture", "content-type": "application/json" };
     const token = async (body: string, serial = "test") => await fetch(`${base}/${serial}/stream-token`, { method: "POST", headers, body });
-    for (const body of ['{"lens":"other"}', '{"lens":"fixed","profile":"native"}', '{"lens":"movable","audio":"on"}',
+    for (const body of ['{"lens":"other"}', '{"lens":"movable","audio":"on"}', '{"lens":"fixed","profile":"native","audio":"on"}',
       '{"lens":"fixed","lens":"movable"}', '{"lens":"fixed","command":"write"}']) assert.equal((await token(body)).status, 400);
     assert.equal((await token('{"lens":"fixed"}', "other")).status, 409); assert.equal(calls, 0);
     for (const lens of ["fixed", "movable"]) {
@@ -70,5 +70,47 @@ test("pane tokens require explicit admission, stay on one camera, and never fall
     assert.equal((await fetch(`${base}/test/live-fixed.h264?access_token=${signed}`)).status, 409);
     assert.equal((await fetch(`${base}/test/snapshot-fixed`, { headers })).status, 409);
     assert.equal(calls, 2);
+  } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("native pane tokens name the lens's own unconverted route and need the native signature", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "native-lens-http-")), state = new GatewayState();
+  state.registerCamera({ serial: "test", name: "Synthetic", model: "T8E00", stationSerial: "station", streamSupported: true, doorbellSupported: false });
+  let admitted = true;
+  const native: string[] = [], compatible: string[] = [];
+  const streams = {
+    addNativeLensClient: async (serial: string, lens: string, response: import("node:http").ServerResponse) => {
+      native.push(`${serial}:${lens}`); response.writeHead(200); response.end(lens);
+    },
+    addLensClient: async (serial: string, lens: string, response: import("node:http").ServerResponse) => {
+      compatible.push(`${serial}:${lens}`); response.writeHead(200); response.end(lens);
+    },
+  } as unknown as LiveStreamManager;
+  const provider = { nvrSharedLensViewsAdmitted: (serial: string) => admitted && serial === "test" } as unknown as CameraProvider;
+  const snapshots = new SnapshotStore(directory);
+  await snapshots.initialize();
+  const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "fixture" }, state, snapshots, streams, provider, null);
+  try {
+    await server.listen(); const base = `http://127.0.0.1:${server.port}/api/cameras`;
+    const headers = { authorization: "Bearer fixture", "content-type": "application/json" };
+    for (const lens of ["fixed", "movable"]) {
+      const response = await fetch(`${base}/test/stream-token`, { method: "POST", headers, body: JSON.stringify({ profile: "native", audio: "off", lens }) });
+      assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "no-store");
+      const result = await response.json();
+      assert.equal(result.lens, lens); assert.equal(result.profile, "native");
+      const url = new URL(result.path, base);
+      assert.equal(url.pathname, `/api/cameras/test/live-${lens}-native.annexb`);
+      assert.match(url.searchParams.get("access_token") ?? "", /^native\./);
+      assert.equal(await (await fetch(url)).text(), lens);
+      const compatibleToken = createStreamToken("test", Math.floor(Date.now() / 1000) + 60, "fixture");
+      assert.equal((await fetch(`${base}/test/live-${lens}-native.annexb?access_token=${compatibleToken}`)).status, 401);
+      const nativeToken = createNativeStreamToken("test", Math.floor(Date.now() / 1000) + 60, "fixture");
+      assert.equal((await fetch(`${base}/test/live-${lens}.h264?access_token=${nativeToken}`)).status, 401);
+    }
+    assert.deepEqual(native, ["test:fixed", "test:movable"]); assert.deepEqual(compatible, []);
+    admitted = false;
+    const signed = createNativeStreamToken("test", Math.floor(Date.now() / 1000) + 60, "fixture");
+    assert.equal((await fetch(`${base}/test/live-fixed-native.annexb?access_token=${signed}`)).status, 409);
+    assert.equal(native.length, 2);
   } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
