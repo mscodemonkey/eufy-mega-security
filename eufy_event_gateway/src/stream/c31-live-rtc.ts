@@ -60,25 +60,39 @@ export interface C31LiveRtcSummary {
   readonly speakerFailures: number;
 }
 
+/** Read a finite media field list without backtracking over untrusted SDP. */
+function mediaPayloads(section: string, kind: "audio" | "video"): readonly number[] | null {
+  const fields = section.split(/\r?\n/, 1)[0]!.split(" ");
+  if (fields.length < 4 || fields.length > 35 || fields[0] !== `m=${kind}`
+    || !/^[1-9]\d{0,4}$/.test(fields[1]!) || Number(fields[1]) > 65535
+    || fields[2] !== "UDP/TLS/RTP/SAVPF") return null;
+  const payloads = fields.slice(3);
+  if (payloads.some(value => !/^(?:0|[1-9]\d{0,2})$/.test(value) || Number(value) > 127)) return null;
+  return payloads.map(Number);
+}
+
 /** Accept only a browser receive-video offer and conventional mono PCMU audio. */
 export function c31LiveRtcOffer(sdp: string): { receiveMicrophone: boolean } {
   if (typeof sdp !== "string" || Buffer.byteLength(sdp) > 65_536 || sdp.includes("\0")) throw new C31LiveRtcError("offer");
   const sections = sdp.split(/(?=^m=)/m).filter(value => value.startsWith("m="));
   if (sections.length !== 2 || sections.some(value => !/^m=(video|audio) /.test(value))) throw new C31LiveRtcError("offer");
-  const video = sections.find(value => value.startsWith("m=video "))!;
-  const audio = sections.find(value => value.startsWith("m=audio "))!;
+  const video = sections.find(value => value.startsWith("m=video "));
+  const audio = sections.find(value => value.startsWith("m=audio "));
+  if (!video || !audio) throw new C31LiveRtcError("offer");
+  const videoPayloads = mediaPayloads(video, "video");
+  const audioPayloads = mediaPayloads(audio, "audio");
   const h264 = video && [...video.matchAll(/^a=rtpmap:(\d+) H264\/90000\r?$/gmi)].some(match => {
     const payload = Number(match[1]);
     const fmt = video.split(/\r?\n/).find(line => line.startsWith(`a=fmtp:${payload} `));
-    const listed = video.split(/\r?\n/)[0]!.split(" ").slice(3).includes(String(payload));
+    const listed = videoPayloads?.includes(payload) === true;
     return payload >= 96 && payload <= 127 && listed && fmt !== undefined
       && /(?:^|[ ;])packetization-mode=1(?:;|$)/.test(fmt)
       && /(?:^|[ ;])profile-level-id=42[ce]01f(?:;|$)/i.test(fmt);
   });
   if (!video || !audio || !/^a=recvonly\r?$/m.test(video) || !h264
-    || !/^m=video [1-9]\d* UDP\/TLS\/RTP\/SAVPF (?:\d+ ?)+\r?$/m.test(video)
+    || videoPayloads === null
     || !/^a=rtcp-mux\r?$/m.test(video) || !/^a=rtcp-mux\r?$/m.test(audio)
-    || !/^m=audio [1-9]\d* UDP\/TLS\/RTP\/SAVPF (?:\d+ )*0(?: \d+)*\r?$/m.test(audio)
+    || audioPayloads === null || !audioPayloads.includes(0)
     || !/^a=rtpmap:0 PCMU\/8000\r?$/mi.test(audio)) throw new C31LiveRtcError("offer");
   const directions = audio.match(/^a=(sendrecv|recvonly|sendonly|inactive)\r?$/gm);
   if (directions?.length !== 1 || !/^a=(sendrecv|recvonly)\r?$/.test(directions[0]!)) throw new C31LiveRtcError("offer");

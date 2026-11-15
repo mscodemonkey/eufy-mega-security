@@ -24,6 +24,7 @@ test("C31 microphone negotiation distinguishes a receive-only viewer", () => {
 
 for (const [name, change] of [
   ["no video", (sdp: string) => sdp.replace("m=video", "m=application")],
+  ["duplicate audio", (sdp: string) => sdp.replace("m=video", "m=audio")],
   ["disabled video", (sdp: string) => sdp.replace("m=video 9", "m=video 0")],
   ["send-only video", (sdp: string) => sdp.replace("a=recvonly", "a=sendonly")],
   ["wrong audio codec", (sdp: string) => sdp.replace("PCMU/8000", "opus/48000/2")],
@@ -32,6 +33,10 @@ for (const [name, change] of [
   ["wrong H264 profile", (sdp: string) => sdp.replace("42e01f", "64001f")],
   ["unlisted H264", (sdp: string) => sdp.replace("SAVPF 96", "SAVPF 97")],
   ["oversized SDP", (sdp: string) => sdp + "x".repeat(65536)],
+  ["long repeated payload token", (sdp: string) => sdp.replace("SAVPF 96", "SAVPF " + "0".repeat(10000))],
+  ["too many codec fields", (sdp: string) => sdp.replace("SAVPF 96", "SAVPF " + Array(33).fill("96").join(" "))],
+  ["invalid port", (sdp: string) => sdp.replace("m=video 9", "m=video 65536")],
+  ["invalid codec number", (sdp: string) => sdp.replace("SAVPF 96", "SAVPF 999")],
   ["null byte", (sdp: string) => sdp + "\0"],
 ] as const) test(`C31 refuses ${name} before peer allocation`, () => {
   assert.throws(() => c31LiveRtcOffer(change(offer())), { code: "offer" });
