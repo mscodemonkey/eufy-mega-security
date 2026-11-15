@@ -137,6 +137,7 @@ for (const route of [
   { cameraModel: "T8113-V", cameraType: 8, stationModel: "T9000", stationType: 27 },
   { cameraModel: "T8172", cameraType: 89, stationModel: "T9000", stationType: 27 },
   { cameraModel: "T8215", cameraType: 97, stationModel: "T9000", stationType: 27 },
+  { cameraModel: "T8162", cameraType: 26, stationModel: "T9000", stationType: 27 },
 ]) {
   test(`NVR provider offers opted-in ${route.cameraModel} live view without startup capture`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "nvr-normal-live-"));
@@ -249,12 +250,12 @@ for (const route of [
     { ...camera, parent: "T9000", parentType: 27, enabled: true },
     { ...camera, parent: "T8030", parentType: 18, enabled: true },
   ]),
-  ...[{ model: "T8140", type: 14 }, { model: "T8113-V", type: 8 }, { model: "T8172", type: 89 }, { model: "T8215", type: 97 }]
+  ...[{ model: "T8162", type: 26 }, { model: "T8140", type: 14 }, { model: "T8113-V", type: 8 }, { model: "T8172", type: 89 }, { model: "T8215", type: 97 }]
     .flatMap(camera => [
       { ...camera, parent: "T9000", parentType: 27, enabled: false },
       { ...camera, type: camera.type + 1, parent: "T9000", parentType: 27, enabled: true },
       { ...camera, parent: "T8030", parentType: 18, enabled: true },
-      ...(camera.model === "T8215" ? [{ ...camera, parent: "T8N00", parentType: 300, enabled: true }] : []),
+      ...(["T8215", "T8162"].includes(camera.model) ? [{ ...camera, parent: "T8N00", parentType: 300, enabled: true }] : []),
       { ...camera, parent: "T9000", parentType: 300, enabled: true },
     ]),
 ]) test(`NVR provider rejects normal ${route.model}/${route.type} through ${route.parent}/${route.parentType} when enabled=${route.enabled}`, async context => {
