@@ -18,11 +18,15 @@ import type { VideoViewerResponse } from "./live-transport-muxer.js";
 /** Content-free refusal boundaries suitable for a reporter's single diagnostic line. */
 export type C31LiveRtcErrorCode = "offer" | "busy" | "admission" | "negotiation" | "session";
 
+/** Fixed offer checks distinguish malformed layouts from unsupported media. */
+export type C31LiveRtcOfferRejection = "size" | "layout" | "video_line" | "audio_line" | "video_direction"
+  | "video_codec" | "rtcp_mux" | "audio_codec" | "audio_direction";
+
 /** One failed RTC operation, without retaining SDP, candidates or peer identity. */
 export class C31LiveRtcError extends Error {
 
   /** Keep only the fixed boundary that prevented the operation. */
-  constructor(readonly code: C31LiveRtcErrorCode) { super("Live talkback unavailable"); }
+  constructor(readonly code: C31LiveRtcErrorCode, readonly detail?: C31LiveRtcOfferRejection) { super("Live talkback unavailable"); }
 }
 
 /** Effects remain bound to the selected camera and the original source owner. */
@@ -73,12 +77,12 @@ function mediaPayloads(section: string, kind: "audio" | "video"): readonly numbe
 
 /** Accept only a browser receive-video offer and conventional mono PCMU audio. */
 export function c31LiveRtcOffer(sdp: string): { receiveMicrophone: boolean } {
-  if (typeof sdp !== "string" || Buffer.byteLength(sdp) > 65_536 || sdp.includes("\0")) throw new C31LiveRtcError("offer");
+  if (typeof sdp !== "string" || Buffer.byteLength(sdp) > 65_536 || sdp.includes("\0")) throw new C31LiveRtcError("offer", "size");
   const sections = sdp.split(/(?=^m=)/m).filter(value => value.startsWith("m="));
-  if (sections.length !== 2 || sections.some(value => !/^m=(video|audio) /.test(value))) throw new C31LiveRtcError("offer");
+  if (sections.length !== 2 || sections.some(value => !/^m=(video|audio) /.test(value))) throw new C31LiveRtcError("offer", "layout");
   const video = sections.find(value => value.startsWith("m=video "));
   const audio = sections.find(value => value.startsWith("m=audio "));
-  if (!video || !audio) throw new C31LiveRtcError("offer");
+  if (!video || !audio) throw new C31LiveRtcError("offer", "layout");
   const videoPayloads = mediaPayloads(video, "video");
   const audioPayloads = mediaPayloads(audio, "audio");
   const h264 = video && [...video.matchAll(/^a=rtpmap:(\d+) H264\/90000\r?$/gmi)].some(match => {
@@ -89,14 +93,46 @@ export function c31LiveRtcOffer(sdp: string): { receiveMicrophone: boolean } {
       && /(?:^|[ ;])packetization-mode=1(?:;|$)/.test(fmt)
       && /(?:^|[ ;])profile-level-id=42[ce]01f(?:;|$)/i.test(fmt);
   });
-  if (!video || !audio || !/^a=recvonly\r?$/m.test(video) || !h264
-    || videoPayloads === null
-    || !/^a=rtcp-mux\r?$/m.test(video) || !/^a=rtcp-mux\r?$/m.test(audio)
-    || audioPayloads === null || !audioPayloads.includes(0)
-    || !/^a=rtpmap:0 PCMU\/8000\r?$/mi.test(audio)) throw new C31LiveRtcError("offer");
+  if (videoPayloads === null) throw new C31LiveRtcError("offer", "video_line");
+  if (audioPayloads === null) throw new C31LiveRtcError("offer", "audio_line");
+  if (!/^a=recvonly\r?$/m.test(video)) throw new C31LiveRtcError("offer", "video_direction");
+  if (!h264) throw new C31LiveRtcError("offer", "video_codec");
+  if (!/^a=rtcp-mux\r?$/m.test(video) || !/^a=rtcp-mux\r?$/m.test(audio)) throw new C31LiveRtcError("offer", "rtcp_mux");
+  if (!audioPayloads.includes(0) || !/^a=rtpmap:0 PCMU\/8000\r?$/mi.test(audio)) throw new C31LiveRtcError("offer", "audio_codec");
   const directions = audio.match(/^a=(sendrecv|recvonly|sendonly|inactive)\r?$/gm);
-  if (directions?.length !== 1 || !/^a=(sendrecv|recvonly)\r?$/.test(directions[0]!)) throw new C31LiveRtcError("offer");
+  if (directions?.length !== 1 || !/^a=(sendrecv|recvonly)\r?$/.test(directions[0]!)) throw new C31LiveRtcError("offer", "audio_direction");
   return { receiveMicrophone: directions[0]!.startsWith("a=sendrecv") };
+}
+
+/**
+ * Describe only media declarations on a refused offer, never connection content.
+ * Values are fixed labels, numeric codec IDs or six-digit codec profiles. ICE,
+ * addresses, credentials, fingerprints and track/session identifiers are omitted.
+ */
+export function c31LiveRtcOfferDiagnostic(sdp: string): string {
+  if (typeof sdp !== "string" || Buffer.byteLength(sdp) > 65_536 || sdp.includes("\0")) return "shape=invalid";
+  const sections = sdp.split(/(?=^m=)/m).filter(value => value.startsWith("m="));
+  const kinds = sections.slice(0, 4).map(value => /^m=audio /.test(value) ? "audio" : /^m=video /.test(value) ? "video" : "other");
+  const video = sections.find(value => value.startsWith("m=video ")) ?? "";
+  const audio = sections.find(value => value.startsWith("m=audio ")) ?? "";
+  const direction = (section: string): string => {
+    const values = [...section.matchAll(/^a=(sendrecv|recvonly|sendonly|inactive)\r?$/gm)].map(value => value[1]);
+    return values.length === 1 ? values[0]! : values.length ? "multiple" : "missing";
+  };
+  const port = (section: string): string => {
+    const value = section.split(/\r?\n/, 1)[0]?.split(" ")[1];
+    return value === "0" ? "zero" : value && /^[1-9]\d{0,4}$/.test(value) && Number(value) <= 65535 ? "active" : "invalid";
+  };
+  const profiles = [...video.matchAll(/(?:^|[ ;])profile-level-id=([a-f0-9]{6})(?:;|\r?$)/gmi)]
+    .slice(0, 8).map(value => value[1]!.toLowerCase());
+  const h264Payloads = [...video.matchAll(/^a=rtpmap:(\d{1,3}) H264\/90000\r?$/gmi)]
+    .slice(0, 8).map(value => Number(value[1])).filter(value => value <= 127);
+  const pcmu = /^a=rtpmap:0 PCMU\/8000\r?$/mi.test(audio) ? "implicit_mono"
+    : /^a=rtpmap:0 PCMU\/8000\/1\r?$/mi.test(audio) ? "explicit_mono" : "unsupported";
+  return `media_count=${sections.length} media=${kinds.join(",") || "none"}`
+    + ` video_port=${port(video)} audio_port=${port(audio)} video_dir=${direction(video)} audio_dir=${direction(audio)}`
+    + ` h264_profiles=${profiles.join(",") || "none"} h264_payloads=${h264Payloads.join(",") || "none"} pcmu=${pcmu}`
+    + ` video_bundle_only=${/^a=bundle-only\r?$/m.test(video)} audio_bundle_only=${/^a=bundle-only\r?$/m.test(audio)}`;
 }
 
 /** Fixed pipe input and loopback-only RTP destinations for the owned viewer encoder. */

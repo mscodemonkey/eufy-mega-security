@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { c31LiveRtcOffer } from "../src/stream/c31-live-rtc.js";
+import { c31LiveRtcOffer, c31LiveRtcOfferDiagnostic } from "../src/stream/c31-live-rtc.js";
 
 /** Describe a generated receive-video and send/receive-audio peer, without live candidates. */
 function offer(): string {
@@ -40,4 +40,26 @@ for (const [name, change] of [
   ["null byte", (sdp: string) => sdp + "\0"],
 ] as const) test(`C31 refuses ${name} before peer allocation`, () => {
   assert.throws(() => c31LiveRtcOffer(change(offer())), { code: "offer" });
+});
+
+
+test("refused-offer diagnostics expose media declarations without private connection content", () => {
+  const sdp = offer().replace("a=ice-ufrag:abcd", "a=ice-ufrag:PRIVATE-USER-CANARY")
+    + "a=candidate:PRIVATE-CANDIDATE-CANARY 1 UDP 1 192.168.99.99 12345 typ host\r\n";
+  const summary = c31LiveRtcOfferDiagnostic(sdp);
+  assert.match(summary, /media_count=2 media=video,audio/);
+  assert.match(summary, /video_dir=recvonly audio_dir=sendrecv/);
+  assert.match(summary, /h264_profiles=42e01f h264_payloads=96 pcmu=implicit_mono/);
+  assert.doesNotMatch(summary, /PRIVATE|192\.168|12345|abcdefghijkl|fingerprint/);
+  assert.equal(c31LiveRtcOfferDiagnostic("x".repeat(65537)), "shape=invalid");
+});
+
+for (const [detail, change] of [
+  ["layout", (sdp: string) => sdp.replace("m=video", "m=audio")],
+  ["video_line", (sdp: string) => sdp.replace("m=video 9", "m=video 0")],
+  ["audio_codec", (sdp: string) => sdp.replace("PCMU/8000", "PCMU/8000/1")],
+  ["video_codec", (sdp: string) => sdp.replace("42e01f", "42e033")],
+  ["audio_direction", (sdp: string) => sdp.replace("a=sendrecv", "a=sendonly")],
+] as const) test(`C31 refusal names the exact ${detail} check`, () => {
+  assert.throws(() => c31LiveRtcOffer(change(offer())), { code: "offer", detail });
 });

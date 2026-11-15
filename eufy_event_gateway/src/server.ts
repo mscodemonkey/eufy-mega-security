@@ -8,7 +8,7 @@
  * module owns request authentication, response framing, and route selection;
  * it does not parse Mega payloads or open camera sockets.
  */
-import { C31LiveRtc, C31LiveRtcError } from "./stream/c31-live-rtc.js";
+import { C31LiveRtc, C31LiveRtcError, c31LiveRtcOfferDiagnostic } from "./stream/c31-live-rtc.js";
 import { validQuickResponseId } from "./provider/quick-responses.js";
 import { SharedLensSnapshotCache, type SharedLens } from "./stream/shared-lens-views.js";
 import { rawHistoryStatus, rawHistoryFiles, rawHistoryPrivateFile } from "./diagnostics/raw-history.js";
@@ -703,7 +703,9 @@ export class GatewayServer {
             return json(response, 200, owner);
           } catch (error) {
             const stage = error instanceof C31LiveRtcError ? error.code : "negotiation";
-            logger.warn("c31_live_talkback_failed", `model=T817L stage=${stage}`);
+            const detail = error instanceof C31LiveRtcError ? error.detail : undefined;
+            logger.warn("c31_live_talkback_failed", `model=T817L stage=${stage} detail=${detail ?? "none"}`
+              + (stage === "offer" ? ` ${c31LiveRtcOfferDiagnostic(body.sdp as string)}` : ""));
             return json(response, 409, { error: "Live talkback unavailable", code: stage });
           }
           finally { response.off("close", disconnected); }
