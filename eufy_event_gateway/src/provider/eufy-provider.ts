@@ -3637,6 +3637,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
+  /** Invalidate only the exact 2C/HB3 retained light reply when its media lease retires. */
+  retireManualLightState(serial: string): void {
+    const device = this.#devices.get(serial), route = device ? ppcsStreamRoute(device, this.#devices) : null;
+    if (!device || !route || cameraSettingProfile(this.#modelTrialRoute(device, route), "manualFloodlight")?.form !== "attached-light") return;
+    this.#invalidateLiveReads(serial, ["manualFloodlightEnabled"]);
+    const reads = { ...device.reads }; delete reads.manualFloodlightEnabled;
+    const current = { ...device, reads }; this.#devices.set(serial, current);
+    this.#events?.camera(this.#cameraIdentity(current));
+  }
+
   /** List trials independently of normal hardware-verified capability flags. */
   modelControlTrials(serial: string): readonly ModelControlTrial["action"][] {
     return this.modelControlTrialAdmission(serial).actions;

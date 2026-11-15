@@ -106,6 +106,16 @@ class Eufy2CSpotlight(EufyManualFloodlight):
     _attr_translation_key = "spotlight_experimental"
     _attr_entity_registry_enabled_default = False
 
+    @property
+    def available(self) -> bool:
+        """Allow an absolute wake command after an expired light state becomes unknown."""
+        if self.camera.get("model") != "T8113-Z" or self.camera.get("deviceType") != 8:
+            return False
+        return super().available or (
+            EufyGatewayEntity.available.fget(self)
+            and self.camera.get("manualFloodlightControlReason") == "state_unavailable"
+        )
+
 
 class EufySpotlight(EufyGatewayEntity, LightEntity):
     """Expose the C35 manual light using provider-owned confirmation and lifetime.

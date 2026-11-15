@@ -235,6 +235,8 @@ for (const mode of ["ready", "live-view", "view-not-ready", "view-retired", "dis
         assert.equal((await provider.setCameraSetting("camera", { setting: "manualFloodlight", value: true })).reportedSettings?.manualFloodlightEnabled, true);
         assert.equal(writes, 1);
         if (mode === "live-view") assert.equal(sourceClosed, false);
+        provider.retireManualLightState("camera");
+        assert.equal(state.getCamera("camera").reportedSettings?.manualFloodlightEnabled, null);
       } else {
         if (!["changed-binding", "view-not-ready", "view-retired"].includes(mode)) assert.equal(state.getCamera("camera").manualFloodlightControlSupported, false);
         await assert.rejects(provider.setCameraSetting("camera", { setting: "manualFloodlight", value: true }));
