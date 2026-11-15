@@ -113,6 +113,9 @@ export interface CameraProvider {
   /** Submit one reviewed absolute camera setting and return fresh confirmed state. */
   setCameraSetting?(serial: string, change: CameraSettingChange, signal?: AbortSignal): Promise<CameraIdentity>;
 
+  /** Discard an exact 2C light's retained reply after its owned live source expires, without a device write. */
+  retireManualLightState?(serial: string): void;
+
   /** Refresh one admitted experimental lock without actuating it. */
   refreshLock?(serial: string, signal?: AbortSignal): Promise<SmartLockState>;
 

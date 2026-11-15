@@ -2097,3 +2097,18 @@ test("T8442 startup outcome distinguishes a result scalar from an unobserved rep
   assert.match(rejected, /media_start_acked=1 media_start_low_power=1 media_start_result=-117/);
   assert.match(ppcsStreamLogSummary("T8442", null, { ...base, mediaStartResult: 0 }), /media_start_result=0/);
 });
+
+
+test("membership authority keeps numeric roles strict and never infers the signed-in member from the primary owner", () => {
+  for (const role of [undefined, null, true, "1", "2", {}, [], 1.5]) {
+    const [row] = parseMegaInventory({ devices: [{ device_sn: "synthetic", device_model: "T8113-Z",
+      member: { admin_user_id: "owner", member_type: role } }] });
+    assert.equal(row!.memberUserId, undefined);
+    assert.equal(row!.memberType, undefined);
+  }
+  const [row] = parseMegaInventory({ devices: [{ device_sn: "synthetic", device_model: "T8113-Z",
+    member: { admin_user_id: "owner", member_user_id: "delegated", member_type: 1 } }] });
+  assert.equal(row!.adminUserId, "owner");
+  assert.equal(row!.memberUserId, "delegated");
+  assert.equal(row!.memberType, 1);
+});

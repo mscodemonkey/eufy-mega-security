@@ -904,6 +904,46 @@ export class LiveStreamManager extends EventEmitter {
     }
   }
 
+  /**
+   * Hold a decoded source until its end or the caller releases this lease.
+   * Source startup, normal viewer sharing and the existing maximum lifetime
+   * remain manager-owned. Cancellation releases only this operation's lease.
+   */
+  async holdManualLightSource(serial: string, signal: AbortSignal, ready: () => void): Promise<void> {
+    if (this.#closed || signal.aborted) throw new Error("Manual light source cancelled before startup");
+    const session = this.#session(serial);
+    this.#assertShareable(session);
+    const previousRevision = this.state.getCamera(serial).snapshot?.revision ?? 0;
+    this.#cancelStop(session);
+    session.leases++;
+    this.#updateState(serial, session);
+    const snapshot = this.#waitForSnapshot(serial, previousRevision, SNAPSHOT_CAPTURE_TIMEOUT_MILLISECONDS);
+    void snapshot.promise.catch(() => undefined);
+    let abort!: () => void;
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      abort = () => reject(new Error("Manual light source released"));
+      signal.addEventListener("abort", abort, { once: true });
+    });
+    let cleanup = (): void => {};
+    try {
+      await Promise.race([this.#ensureStarted(serial, session), cancelled]);
+      await Promise.race([snapshot.promise, cancelled]);
+      const source = session.source;
+      if (!source || source.destroyed || source.readableEnded || signal.aborted) throw new Error("Manual light source unavailable");
+      const ended = new Promise<void>(resolve => {
+        const finish = (): void => resolve();
+        source.once("end", finish); source.once("close", finish);
+        cleanup = () => { source.off("end", finish); source.off("close", finish); };
+      });
+      ready();
+      try { await Promise.race([ended, cancelled]); }
+      catch (error) { if (!signal.aborted) throw error; }
+    } finally {
+      cleanup(); snapshot.cancel(); signal.removeEventListener("abort", abort);
+      session.leases--; this.#scheduleStopIfUnused(serial, session);
+    }
+  }
+
   /** True only for a decoded normal source with a real attached viewer. */
   hasActiveViewer(serial: string): boolean {
     const session = this.#sessions.get(serial);

@@ -1717,3 +1717,61 @@ test("H.264 snapshot delivery keeps its existing path when backpressure is follo
     assert.equal(written.length, before + 2, "unchanged H.264 snapshots must not wait forever for another keyframe");
   } finally { response.destroy(); await manager.close(); }
 });
+
+for (const mode of ["release", "source-end", "shared-viewer"] as const) {
+  test(`manual-light lease respects manager ownership: ${mode}`, async () => {
+    const state = new GatewayState(); state.registerCamera(camera);
+    const source = new PassThrough();
+    const controller = new AbortController();
+    let stops = 0, ready!: () => void;
+    const readiness = new Promise<void>(resolve => { ready = resolve; });
+    const manager = new LiveStreamManager(state, {} as never, {
+      async startStream() {
+        manager.attachSource(camera.serial, source);
+        setTimeout(() => state.updateSnapshot(camera.serial, {
+          capturedAt: new Date().toISOString(), contentType: "image/jpeg", source: "live", revision: 1,
+        }), 1);
+      },
+      async stopStream() { stops++; },
+    }, 5);
+    const viewer = new PassThrough() as unknown as ServerResponse;
+    try {
+      const held = manager.holdManualLightSource(camera.serial, controller.signal, ready);
+      await readiness;
+      if (mode === "shared-viewer") await manager.addClient(camera.serial, viewer);
+      await new Promise(resolve => setTimeout(resolve, 15)); assert.equal(stops, 0);
+      if (mode === "source-end") { source.end(); } else controller.abort();
+      await held;
+      await new Promise(resolve => setTimeout(resolve, 15));
+      if (mode === "shared-viewer") {
+        assert.equal(stops, 0); assert.equal(viewer.writableEnded, false);
+        viewer.emit("close"); await new Promise(resolve => setTimeout(resolve, 15)); assert.equal(stops, 1);
+      } else if (mode === "release") assert.equal(stops, 1);
+    } finally { controller.abort(); await manager.close(); }
+  });
+}
+
+for (const mode of ["transport-start", "fresh-frame"] as const) {
+  test(`manual-light startup cancellation releases its waiter: ${mode}`, async () => {
+    const state = new GatewayState(); state.registerCamera(camera);
+    const source = new PassThrough();
+    const controller = new AbortController();
+    let finishStart!: () => void, ready = 0, stops = 0;
+    const manager = new LiveStreamManager(state, {} as never, {
+      async startStream() {
+        if (mode === "transport-start") await new Promise<void>(resolve => { finishStart = resolve; });
+        manager.attachSource(camera.serial, source);
+      },
+      async stopStream() { stops++; },
+    }, 5);
+    try {
+      const baseline = state.listenerCount("event");
+      const held = manager.holdManualLightSource(camera.serial, controller.signal, () => { ready++; });
+      await new Promise(resolve => setImmediate(resolve)); controller.abort();
+      await assert.rejects(held, /released/);
+      assert.equal(ready, 0); assert.equal(state.listenerCount("event"), baseline);
+      if (mode === "transport-start") finishStart();
+      await new Promise(resolve => setTimeout(resolve, 20)); assert.equal(stops, 1);
+    } finally { await manager.close(); }
+  });
+}

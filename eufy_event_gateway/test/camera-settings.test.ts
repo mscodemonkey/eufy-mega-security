@@ -238,3 +238,52 @@ test("HomeBase 2 admits only the exact 2C sensitivity trial and preserves its de
   }
   assert.equal(cameraSettingProfile(route("T8113-Z", 8, true), "motionSensitivity")?.experimental, undefined);
 });
+
+
+test("2C manual spotlight uses the observed 136-byte channel/value body only on HomeBase 3", () => {
+  const selected = route("T8113-Z", 8, true);
+  const profile = cameraSettingProfile(selected, "manualFloodlight")!;
+  assert.deepEqual(profile, { readParam: 1400, command: 1400, form: "attached-light", experimental: true });
+  for (const value of [false, true]) {
+    const key = Buffer.alloc(32, 7);
+    const frame = buildReviewedCameraSettingPayload({ setting: "manualFloodlight", value }, selected, "fixture-owner", key, 1, 1791464400000);
+    const body = clear(frame, key);
+    assert.equal(frame.command, 1400);
+    assert.equal(body.length, 136);
+    assert.equal(body.readUInt32LE(0), 2);
+    assert.equal(body.readUInt32LE(4), Number(value));
+    assert.equal(body.subarray(8, 21).toString(), "fixture-owner");
+    assert.equal(readCameraSetting([{ param_type: 1400, param_value: String(Number(value)) }], "T8113-Z", 8, false, "manualFloodlight"), value);
+    assert.equal(safeInventoryReads([{ param_type: 1400, param_value: String(Number(value)) }], 8, "T8113-Z", false).manualFloodlightEnabled, value);
+  }
+  for (const patch of [{ model: "T8113" }, { model: "T8113-ZX" }, { deviceType: 9 }, { peerModel: "T8010" },
+    { homeBaseAttached: false }, { selfPeer: true }, { channel: null }, { channel: -1 }, { channel: 256 }]) {
+    assert.equal(cameraSettingProfile({ ...selected, ...patch }, "manualFloodlight"), null);
+  }
+  for (const value of [null, true, 2, "", "false", " 0"]) {
+    assert.equal(readCameraSetting([{ param_type: 1400, param_value: value }], "T8113-Z", 8, false, "manualFloodlight"), undefined);
+  }
+  assert.equal(readCameraSetting([{ param_type: 1400, param_value: 0 }, { param_type: 1400, param_value: 0 }], "T8113-Z", 8, false, "manualFloodlight"), undefined);
+});
+
+
+test("2C light selector remains two across distinct child channels", () => {
+  for (const channel of [0, 1, 2, 5]) {
+    const selected = { ...route("T8113-Z", 8, true), channel };
+    const key = Buffer.alloc(32, 7);
+    const frame = buildReviewedCameraSettingPayload({ setting: "manualFloodlight", value: false }, selected, "fixture-owner", key, 1, 1791464400000);
+    assert.equal(clear(frame, key).readUInt32LE(0), 2);
+    assert.equal(clear(frame, key).readUInt32LE(4), 0);
+    assert.equal(frame.payload[6], channel);
+  }
+});
+
+
+test("absolute light confirmation writes once even if the cloud baseline already matches", async () => {
+  let reads = 0, writes = 0;
+  await runConfirmedCameraSetting({ alwaysWrite: true, deadline: Date.now() + 90_000,
+    read: async () => { reads++; return false; }, check() {},
+    write: async dispatch => { dispatch(); writes++; }, invalidate() { assert.fail("Must retain confirmed state"); } }, false);
+  assert.equal(reads, 2);
+  assert.equal(writes, 1);
+});

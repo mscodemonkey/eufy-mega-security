@@ -6,6 +6,8 @@ turns unknown manual state into motion state or optimistic success.
 """
 from __future__ import annotations
 
+import ast
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import unittest
@@ -17,6 +19,50 @@ from test_camera_settings import ClientFailure
 
 class ManualFloodlightTests(unittest.IsolatedAsyncioTestCase):
     """Keep manual override, motion lighting and unrelated settings separate."""
+
+    def test_2c_trial_starts_disabled_with_the_experimental_light_label(self):
+        """Enabling gateway trials alone cannot expose an active HA light control."""
+        source = Path(__file__).parents[1] / "custom_components/eufy_event_gateway/light.py"
+        tree = ast.parse(source.read_text())
+        node = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "Eufy2CSpotlight")
+        namespace = {"EufyManualFloodlight": object}
+        exec(compile(ast.Module(body=[node], type_ignores=[]), str(source), "exec"), namespace)
+        entity = namespace["Eufy2CSpotlight"]()
+        self.assertIs(entity._attr_entity_registry_enabled_default, False)
+        self.assertEqual(entity._attr_translation_key, "spotlight_experimental")
+
+    def test_2c_absolute_control_can_recover_from_expired_unknown_state(self):
+        """An unknown lamp state allows a new wake only on the admitted exact trial."""
+        source = Path(__file__).parents[1] / "custom_components/eufy_event_gateway/light.py"
+        tree = ast.parse(source.read_text())
+        node = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Eufy2CSpotlight")
+
+        class Gateway:
+            """Supply the integration connection state independently of lamp state."""
+            @property
+            def available(self):
+                return self.gateway_available
+
+        class Parent(Gateway):
+            """Supply the inherited known-state availability decision."""
+            @property
+            def available(self):
+                return self.parent_available
+
+        namespace = {"EufyManualFloodlight": Parent, "EufyGatewayEntity": Gateway}
+        exec(compile(ast.Module(body=[node], type_ignores=[]), str(source), "exec"), namespace)
+        entity = namespace["Eufy2CSpotlight"]()
+        entity.gateway_available = True
+        entity.parent_available = False
+        entity.camera = {"model": "T8113-Z", "deviceType": 8, "manualFloodlightControlReason": "state_unavailable"}
+        self.assertTrue(entity.available)
+        for key, value in (("model", "T8426"), ("deviceType", 9), ("manualFloodlightControlReason", "trial_disabled")):
+            original = entity.camera[key]
+            entity.camera[key] = value
+            self.assertFalse(entity.available)
+            entity.camera[key] = original
+        entity.gateway_available = False
+        self.assertFalse(entity.available)
 
     def test_only_boolean_manual_state_is_readable(self):
         """Missing or ambiguous reports stay unknown, including false-like values."""

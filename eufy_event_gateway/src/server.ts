@@ -49,6 +49,7 @@ import { S100SirenTrialError, type S100SirenFailureStage } from "./provider/s100
 import { parseModelControlTrial, closedAlarmStateResult, closedSpotlightStateResult } from "./provider/model-control-trials.js";
 import { s120LightFailureDiagnostic } from "./provider/s120-light-diagnostic.js";
 import { E30LockError } from "./provider/e30-lock-protocol.js";
+import { ManualLightSource } from "./stream/manual-light-source.js";
 import { CameraSettingError, parseCameraSettingChange } from "./provider/camera-settings.js";
 import { validateC31Preference } from "./provider/c31-preferences.js";
 import { SimulatedProvider } from "./provider/simulated-provider.js";
@@ -88,6 +89,10 @@ export class GatewayServer {
   readonly #cloudCalendarJobs = new Set<AbortController>();
   readonly #nvrTrialJobs = new Set<AbortController>();
   readonly #speakerJobs = new Map<string, AbortController>();
+  readonly #manualLightSources = new ManualLightSource(
+    (serial, signal, ready) => this.streams.holdManualLightSource(serial, signal, ready),
+    serial => this.provider.retireManualLightState?.(serial),
+  );
   readonly #recordingJobs = new Map<string, { promise: Promise<Buffer | null>; controller: AbortController; users: Set<ServerResponse> }>();
 
   /**
@@ -125,6 +130,7 @@ export class GatewayServer {
   /** Stop accepting requests, end open responses and wait for the HTTP server to close. */
   async close(): Promise<void> {
     this.#lensSnapshotCache.clear();
+    await this.#manualLightSources.close();
     for (const controller of this.#cloudCalendarJobs) controller.abort();
     for (const controller of this.#nvrTrialJobs) controller.abort();
     for (const controller of this.#recordingIndexJobs) controller.abort();
@@ -1126,7 +1132,16 @@ export class GatewayServer {
         const abort = (): void => { if (!response.writableEnded) controller.abort(); };
         response.once("close", abort);
         try {
-          const identity = await this.provider.setCameraSetting(segments[2]!, change, controller.signal);
+          const serial = segments[2]!, camera = this.state.getCamera(serial);
+          const wakeLight = change.setting === "manualFloodlight" && camera.model === "T8113-Z" && camera.deviceType === 8
+            && (camera.manualFloodlightControlReason === "ready" || camera.manualFloodlightControlReason === "state_unavailable");
+          let submitted = false;
+          const write = () => { submitted = true; return this.provider.setCameraSetting!(serial, change, controller.signal); };
+          const identity = wakeLight
+            ? await this.#manualLightSources.run(serial, change.value === true, write, controller.signal).catch(error => {
+                throw error instanceof CameraSettingError ? error : new CameraSettingError(submitted ? "outcome_unknown" : "unavailable");
+              })
+            : await write();
           return json(response, 200, this.state.registerCamera(identity));
         } catch (error) {
           if (error instanceof CameraSettingError) return json(response, error.code === "outcome_unknown" ? 503 : 409, { code: error.code, error: error.message });
