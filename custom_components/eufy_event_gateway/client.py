@@ -547,6 +547,48 @@ class GatewayClient:
         """Ask the gateway to wake a supported camera and retain a new JPEG."""
         await self._json(f"/api/cameras/{serial}/capture-snapshot", method="POST")
 
+    async def live_talkback_offer(self, serial: str, sdp: str) -> dict[str, str]:
+        """Negotiate one transient browser peer without retaining its SDP."""
+        if not isinstance(sdp, str) or len(sdp.encode()) > 65536:
+            raise GatewayClientError("Invalid live talkback offer")
+        payload = await self._json(
+            f"/api/cameras/{quote(serial, safe='')}/live-talkback", method="POST",
+            payload={"sdp": sdp}, timeout=20,
+        )
+        session = payload.get("sessionId")
+        answer = payload.get("sdp")
+        valid_session = isinstance(session, str) and re.fullmatch(r"[a-f0-9]{32}", session) is not None
+        if (not valid_session or not isinstance(answer, str) or not answer.startswith("v=0")
+                or len(answer.encode()) > 65536):
+            if valid_session:
+                try:
+                    await self.close_live_talkback(serial, session)
+                except GatewayClientError:
+                    pass
+            raise GatewayClientError("Gateway returned invalid live talkback negotiation")
+        return {"sessionId": session, "sdp": answer}
+
+    async def live_talkback_candidate(self, serial: str, session: str, candidate: dict[str, Any] | None) -> None:
+        """Forward a bounded browser ICE candidate only to its returned peer ID."""
+        if not isinstance(session, str) or re.fullmatch(r"[a-f0-9]{32}", session) is None:
+            raise GatewayClientError("Invalid live talkback session")
+        await self._json(
+            f"/api/cameras/{quote(serial, safe='')}/live-talkback/{session}", method="PATCH",
+            payload={"candidate": candidate}, timeout=10,
+        )
+
+    async def close_live_talkback(self, serial: str, session: str) -> None:
+        """Wait for the exact peer's speaker, encoders and source consumer to retire."""
+        if not isinstance(session, str) or re.fullmatch(r"[a-f0-9]{32}", session) is None:
+            raise GatewayClientError("Invalid live talkback session")
+        try:
+            await self._json(
+                f"/api/cameras/{quote(serial, safe='')}/live-talkback/{session}", method="DELETE", timeout=15,
+            )
+        except GatewayClientError as error:
+            if error.status != 409:
+                raise
+
     async def set_camera_enabled(
         self, serial: str, enabled: bool
     ) -> dict[str, Any]:

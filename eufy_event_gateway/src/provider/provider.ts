@@ -205,6 +205,9 @@ export interface CameraProvider {
   /** Play bounded native AAC on the leased live source, stopping on cancellation or failure. */
   playCameraAudio?(serial: string, audio: Buffer, signal?: AbortSignal): Promise<void>;
 
+  /** Borrow one ready C31 source for bounded transient AAC, never a saved upload. */
+  streamCameraAudio?(serial: string, frames: AsyncIterable<Buffer>, signal: AbortSignal): Promise<void>;
+
   /** Write camera enablement and return only state confirmed by fresh readback. */
   setCameraEnabled(serial: string, enabled: boolean): Promise<CameraIdentity>;
 

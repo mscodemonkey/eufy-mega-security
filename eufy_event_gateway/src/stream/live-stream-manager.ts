@@ -11,7 +11,6 @@
  */
 import { spawn, type ChildProcessWithoutNullStreams, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
-import type { ServerResponse } from "node:http";
 import { setPriority } from "node:os";
 import { type Readable, type Writable } from "node:stream";
 
@@ -812,7 +811,7 @@ export class LiveStreamManager extends EventEmitter {
    * from the old source out of a new viewer's startup buffer. The native profile
    * carries the camera's own video unconverted; compatible carries H.264.
    */
-  async addTransportClient(serial: string, response: ServerResponse, profile: ViewerProfile = "compatible", view?: string): Promise<void> {
+  async addTransportClient(serial: string, response: VideoViewerResponse, profile: ViewerProfile = "compatible", view?: string): Promise<void> {
     const requestedAtMilliseconds = performance.now();
     if (response.destroyed || response.writableEnded) return;
     const session = this.#session(serial);

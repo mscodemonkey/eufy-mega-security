@@ -45,3 +45,45 @@ test("cancellation during startup stops without transmitting queued audio", asyn
   const operation = sender.play(frame(), controller.signal); controller.abort(); await assert.rejects(operation);
   assert.equal(starts, 1); assert.equal(stops, 1); assert.equal(sent, 0);
 });
+
+
+test("live input is sent before its producer finishes and stops once", async () => {
+  let finish!: () => void;
+  const done = new Promise<void>(resolve => { finish = resolve; });
+  let sent!: () => void;
+  const observed = new Promise<void>(resolve => { sent = resolve; });
+  let starts = 0, stops = 0, count = 0;
+  const sender = new C31TalkbackSender({ start: () => { starts++; }, stop: () => { stops++; }, send: () => {
+    const sequence = count++; queueMicrotask(() => sender.acknowledge(sequence)); sent(); return sequence;
+  } });
+  async function* input(): AsyncGenerator<Buffer> { yield frame(); await done; yield frame(); }
+  const operation = sender.stream(input());
+  await observed; assert.equal(stops, 0); assert.equal(count, 1);
+  finish(); await operation; sender.close();
+  assert.equal(starts, 1); assert.equal(stops, 1); assert.equal(count, 2);
+});
+
+
+test("empty or malformed live input never starts a speaker", async () => {
+  for (const kind of ["empty", "invalid"]) {
+    let starts = 0, stops = 0;
+    const sender = new C31TalkbackSender({ start: () => { starts++; }, stop: () => { stops++; }, send: () => 1 });
+    async function* input(): AsyncGenerator<Buffer> { if (kind === "invalid") yield Buffer.alloc(3); }
+    if (kind === "invalid") await assert.rejects(sender.stream(input()));
+    else await sender.stream(input());
+    assert.equal(starts, 0); assert.equal(stops, 0);
+  }
+});
+
+
+test("live cancellation interrupts a stalled producer and retires only its speaker", async () => {
+  const abort = new AbortController(); let stops = 0, sent!: () => void;
+  const observed = new Promise<void>(resolve => { sent = resolve; });
+  const sender = new C31TalkbackSender({ start: () => {}, stop: () => { stops++; }, send: () => { sent(); return 1; } });
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  async function* input(): AsyncGenerator<Buffer> { yield frame(); await held; }
+  const operation = sender.stream(input(), abort.signal);
+  await observed; abort.abort(); await assert.rejects(operation); release();
+  assert.equal(stops, 1); sender.close(); assert.equal(stops, 1);
+});

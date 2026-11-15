@@ -8,6 +8,7 @@
  * module owns request authentication, response framing, and route selection;
  * it does not parse Mega payloads or open camera sockets.
  */
+import { C31LiveRtc, C31LiveRtcError } from "./stream/c31-live-rtc.js";
 import { validQuickResponseId } from "./provider/quick-responses.js";
 import { SharedLensSnapshotCache, type SharedLens } from "./stream/shared-lens-views.js";
 import { rawHistoryStatus, rawHistoryFiles, rawHistoryPrivateFile } from "./diagnostics/raw-history.js";
@@ -89,6 +90,21 @@ export class GatewayServer {
   readonly #cloudCalendarJobs = new Set<AbortController>();
   readonly #nvrTrialJobs = new Set<AbortController>();
   readonly #speakerJobs = new Map<string, AbortController>();
+  readonly #liveRtc = new C31LiveRtc({
+    admitted: serial => {
+      if (!this.config.experimentalC31LiveTalkback || !this.config.apiToken || !this.provider.streamCameraAudio
+        || !this.state.hasCamera(serial)) return false;
+      const camera = this.state.getCamera(serial);
+      return camera.model === "T817L" && camera.deviceType === 10031 && camera.liveTalkbackEnabled === true
+        && camera.streamSupported && camera.liveAudioSupported === true;
+    },
+    microphoneReady: serial => this.state.hasCamera(serial) && this.state.getCamera(serial).audioSettings?.speakerEnabled === true,
+    source: (serial, input) => this.streams.addTransportClient(serial, input, "compatible"),
+    speaker: (serial, frames, signal) => this.provider.streamCameraAudio!(serial, frames, signal),
+    finished: summary => logger.info("c31_live_talkback_finished", `model=T817L outcome=${summary.outcome}`
+      + ` video_packets=${summary.videoPackets} audio_packets=${summary.audioPackets} microphone_packets=${summary.microphonePackets}`
+      + ` ignored_microphone_packets=${summary.ignoredMicrophonePackets} encoded_frames=${summary.encodedFrames} segments=${summary.microphoneSegments} speaker_failures=${summary.speakerFailures}`),
+  });
   readonly #manualLightSources = new ManualLightSource(
     (serial, signal, ready) => this.streams.holdManualLightSource(serial, signal, ready),
     serial => this.provider.retireManualLightState?.(serial),
@@ -131,6 +147,7 @@ export class GatewayServer {
   async close(): Promise<void> {
     this.#lensSnapshotCache.clear();
     await this.#manualLightSources.close();
+    await this.#liveRtc.closeAll();
     for (const controller of this.#cloudCalendarJobs) controller.abort();
     for (const controller of this.#nvrTrialJobs) controller.abort();
     for (const controller of this.#recordingIndexJobs) controller.abort();
@@ -665,12 +682,65 @@ export class GatewayServer {
         }
         return;
       }
+      if (segments[0] === "api" && segments[1] === "cameras" && segments[3] === "live-talkback") {
+        const serial = segments[2]!;
+        if (request.method === "POST" && segments.length === 4) {
+          if (!this.config.experimentalC31LiveTalkback || !this.config.apiToken || !this.state.hasCamera(serial)
+            || this.state.getCamera(serial).liveTalkbackEnabled !== true) return json(response, 409, { error: "Live talkback unavailable" });
+          if (this.#speakerJobs.has(serial) || this.#liveRtc.has(serial)) return json(response, 409, { error: "Camera speaker is busy" });
+          let body: Record<string, unknown>;
+          try { body = await readJson(request, 96 * 1024); }
+          catch { throw new SyntaxError("Invalid live offer"); }
+          if (Object.keys(body).length !== 1 || typeof body.sdp !== "string") throw new SyntaxError("Invalid live offer");
+          let owner: { sessionId: string; sdp: string } | undefined;
+          const disconnected = (): void => {
+            if (owner && !response.writableEnded) void this.#liveRtc.close(serial, owner.sessionId).catch(() => undefined);
+          };
+          response.once("close", disconnected);
+          try {
+            owner = await this.#liveRtc.offer(serial, body.sdp);
+            if (response.destroyed) { await this.#liveRtc.close(serial, owner.sessionId); return; }
+            return json(response, 200, owner);
+          } catch (error) {
+            const stage = error instanceof C31LiveRtcError ? error.code : "negotiation";
+            logger.warn("c31_live_talkback_failed", `model=T817L stage=${stage}`);
+            return json(response, 409, { error: "Live talkback unavailable", code: stage });
+          }
+          finally { response.off("close", disconnected); }
+        }
+        const id = segments[4];
+        if (segments.length !== 5 || typeof id !== "string" || !/^[a-f0-9]{32}$/.test(id)) throw new SyntaxError("Invalid live session");
+        try {
+          if (request.method === "DELETE") await this.#liveRtc.close(serial, id);
+          else if (request.method === "PATCH") {
+            const body = await readJson(request);
+            if (Object.keys(body).length !== 1 || !("candidate" in body)) throw new SyntaxError("Invalid live candidate");
+            const candidate = body.candidate;
+            if (candidate !== null) {
+              if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) throw new SyntaxError("Invalid live candidate");
+              const fields = candidate as Record<string, unknown>;
+              if (typeof fields.candidate !== "string" || fields.candidate.length > 2048
+                || Object.keys(fields).some(key => !["candidate", "sdpMid", "sdpMLineIndex", "usernameFragment"].includes(key))
+                || fields.sdpMid !== undefined && fields.sdpMid !== null && (typeof fields.sdpMid !== "string" || fields.sdpMid.length > 16)
+                || fields.sdpMLineIndex !== undefined && fields.sdpMLineIndex !== null
+                  && (!Number.isInteger(fields.sdpMLineIndex) || (fields.sdpMLineIndex as number) < 0 || (fields.sdpMLineIndex as number) > 1)) {
+                throw new SyntaxError("Invalid live candidate");
+              }
+            }
+            await this.#liveRtc.candidate(serial, id, candidate as import("werift").RTCIceCandidateInit | null);
+          } else return json(response, 405, { error: "Method not allowed" });
+          return json(response, 200, { ok: true });
+        } catch (error) {
+          if (error instanceof SyntaxError) throw error;
+          return json(response, 409, { error: "Live talkback session unavailable" });
+        }
+      }
       if (request.method === "POST" && segments.length === 4 && segments[0] === "api"
         && segments[1] === "cameras" && segments[3] === "speaker-audio") {
         const serial = segments[2]!;
         if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
         if (!this.state.getCamera(serial).talkbackSupported || !this.provider.playCameraAudio) return json(response, 409, { error: "Speaker playback unavailable" });
-        if (this.#speakerJobs.has(serial)) return json(response, 409, { error: "Camera speaker is busy" });
+        if (this.#speakerJobs.has(serial) || this.#liveRtc.has(serial)) return json(response, 409, { error: "Camera speaker is busy" });
         if (request.headers["content-type"]?.split(";", 1)[0] !== "audio/aac") throw new SyntaxError("Speaker audio requires audio/aac");
         const controller = new AbortController();
         this.#speakerJobs.set(serial, controller);
@@ -1952,13 +2022,13 @@ async function readClosedNvrBody(request: IncomingMessage): Promise<Record<strin
   return value as Record<string, unknown>;
 }
 
-async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
+async function readJson(request: IncomingMessage, maximumBytes = 16_384): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   let length = 0;
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     length += buffer.length;
-    if (length > 16_384) throw new Error("Request body is too large");
+    if (length > maximumBytes) throw new Error("Request body is too large");
     chunks.push(buffer);
   }
   if (chunks.length === 0) return {};

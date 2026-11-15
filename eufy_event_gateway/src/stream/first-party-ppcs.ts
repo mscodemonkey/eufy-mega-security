@@ -43,7 +43,7 @@ import { SoloCamRecordingReader, type CameraStoredRecord } from "./stored-record
 import type { CameraPresetPosition, VideoCodec } from "../domain/types.js";
 import { markS340LiveFrameClock, markS340LiveSource } from "./live-frame-clock.js";
 import { PpcsAccessUnitAssembler } from "./ppcs-access-unit-assembler.js";
-import { C31TalkbackSender, c31TalkbackBody } from "./c31-talkback.js";
+import { C31TalkbackSender, c31TalkbackBody, type C31SpeakerSummary } from "./c31-talkback.js";
 import { decodePpcsAac } from "./ppcs-audio.js";
 import { ppcsCandidatePorts, ppcsLocalLookupTargets } from "./ppcs-lookup.js";
 import { PpcsLookupSocketPool } from "./ppcs-lookup-sockets.js";
@@ -2719,11 +2719,44 @@ export class FirstPartyPpcsSession {
       throw new Error("Speaker playback requires an idle owned standalone C31 media session");
     }
     await this.#waitForLevel2Key();
+    const sender = this.#createC31Speaker();
+    try { await sender.play(audio, signal); }
+    catch (error) { this.close("client_stop"); throw error; }
+    finally { sender.close(); if (this.#speaker === sender) this.#speaker = null; }
+  }
+
+  /**
+   * Stream transient native AAC through this original C31 connection.
+   * The caller owns input cancellation and source retention. Input failures stop
+   * only the speaker, while a failed stop retires the original transport.
+   */
+  async playC31AudioStream(frames: AsyncIterable<Buffer>, signal?: AbortSignal, finished?: (summary: C31SpeakerSummary) => void): Promise<void> {
+    if (this.#closed || !this.#remote || this.#speaker || this.#options.purpose === "control" || this.#options.purpose === "passive"
+      || this.#options.cameraModel !== "T817L" || this.#options.cameraDeviceType !== 10031
+      || this.#options.homeBaseAttached || this.#options.channel !== 0) {
+      throw new Error("Live speaker requires the owned standalone C31 media session");
+    }
+    await this.#waitForLevel2Key();
+    const sender = this.#createC31Speaker();
+    try { await sender.stream(frames, signal); }
+    finally {
+      try { sender.close(); }
+      catch (error) { this.close("client_stop"); throw error; }
+      finally { if (this.#speaker === sender) this.#speaker = null; finished?.(sender.summary); }
+    }
+  }
+
+  /** Reserve this original session's one speaker after its key has settled. */
+  #createC31Speaker(): C31TalkbackSender {
+    if (this.#closed || !this.#remote || this.#speaker || !this.#level2Key) throw new Error("Speaker connection unavailable");
     const control = (commandType: 1001 | 1002): void => {
       const value = JSON.stringify({ commandType, data: { transaction: `${Date.now()}` } });
       this.#sendCommand(1700, rawPayload(encryptLevel2(Buffer.from(value), this.#level2Key!, this.#level2Seq++), 0, 8, [8, 0], 0));
     };
-    const sender = new C31TalkbackSender({ start: () => control(1001), stop: () => control(1002),
+    const sender = new C31TalkbackSender({ start: () => control(1001), stop: () => {
+      try { control(1002); }
+      catch (error) { this.close("client_stop"); throw error; }
+    },
       send: (frame, retrySequence) => {
         if (this.#closed || !this.#remote) throw new Error("Speaker connection closed");
         const sequence = retrySequence ?? (this.#speakerSequence++ & 0xffff);
@@ -2732,9 +2765,7 @@ export class FirstPartyPpcsSession {
         return sequence;
       } });
     this.#speaker = sender;
-    try { await sender.play(audio, signal); }
-    catch (error) { this.close("client_stop"); throw error; }
-    finally { sender.close(); if (this.#speaker === sender) this.#speaker = null; }
+    return sender;
   }
 
   /** Transmit a native C31 alarm action; the provider owns pulse timing, cancellation and stop. */

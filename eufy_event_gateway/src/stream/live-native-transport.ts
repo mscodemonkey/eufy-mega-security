@@ -4,7 +4,7 @@
  * the camera source and fans audio out without opening another camera session.
  * Each instance owns its writer, bounded startup buffer, timers and disconnect cleanup.
  */
-import type { OutgoingHttpHeaders, ServerResponse } from "node:http";
+import type { OutgoingHttpHeaders } from "node:http";
 import { PassThrough } from "node:stream";
 import type { VideoCodec } from "../domain/types.js";
 import { splitAccessUnits } from "./annexb-access-units.js";
@@ -116,7 +116,7 @@ export class NativeTransportMuxer {
    * @param onLateAudio The source owner may retire one unrecorded viewer for a safe reconnect.
    */
   constructor(
-    private readonly response: ServerResponse,
+    private readonly response: VideoViewerResponse,
     private readonly onClose: () => void,
     private readonly audioWaitMilliseconds: number,
     private readonly onFailure: (reason: string) => void = () => undefined,

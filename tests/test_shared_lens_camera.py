@@ -144,7 +144,9 @@ class SharedLensCameraTests(unittest.IsolatedAsyncioTestCase):
                    DOMAIN="fixture", CONF_SHORT_HLS_IDLE="short", CONF_FAST_NATIVE_HLS="fast", CONF_H264_COMPATIBILITY="compat",
                    async_get_current_platform=lambda: SimpleNamespace(async_register_entity_service=lambda *args, **kwargs: None),
                    vol=Schema(), cv=Schema(), CONF_FILENAME="filename", CONF_DURATION="duration", SupportsResponse=SimpleNamespace(ONLY="only"))
-        exec(compile(ast.Module(body=[setup], type_ignores=[]), str(ROOT / "camera.py"), "exec"), env)
+        helper = next(n for n in tree.body if getattr(n, "name", None) == "_live_talkback_camera")
+        env.update(WebRTCAnswer=None, WebRTCError=None)
+        exec(compile(ast.Module(body=[helper, setup], type_ignores=[]), str(ROOT / "camera.py"), "exec"), env)
         await env["async_setup_entry"](None, entry, added.extend)
         self.assertEqual(len(added), 1)
         coordinator.cameras["test"].update(nvrLiveControlsSupported=True, nvrViewOptions=["Fixed", "Movable", "Both"])

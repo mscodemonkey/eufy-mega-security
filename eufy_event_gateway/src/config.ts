@@ -60,6 +60,9 @@ export interface GatewayConfig {
   /** Default-off owner-account portal RTC clip, isolated from normal media routes. */
   readonly experimentalGeneralRtc: boolean;
 
+  /** Default-off browser microphone path on the exact standalone C31. */
+  readonly experimentalC31LiveTalkback?: boolean;
+
   /** Default-off download of existing cloud recordings with explicit private-media consent. */
   readonly experimentalCloudRecordings: boolean;
 
@@ -109,6 +112,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
   if (experimentalDoorbellRtc && !apiToken) throw new Error("Experimental doorbell video requires EUFY_GATEWAY_API_TOKEN");
   const experimentalGeneralRtc = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_GENERAL_RTC, "EUFY_GATEWAY_EXPERIMENTAL_GENERAL_RTC");
   if (experimentalGeneralRtc && !apiToken) throw new Error("Experimental general video requires EUFY_GATEWAY_API_TOKEN");
+  const experimentalC31LiveTalkback = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_C31_LIVE_TALKBACK, "EUFY_GATEWAY_EXPERIMENTAL_C31_LIVE_TALKBACK");
+  if (experimentalC31LiveTalkback && !apiToken) throw new Error("Live talkback requires EUFY_GATEWAY_API_TOKEN");
   const experimentalCloudRecordings = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS, "EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS");
   if (experimentalCloudRecordings && !apiToken) throw new Error("Experimental cloud recordings require EUFY_GATEWAY_API_TOKEN");
   const experimentalNvrControls = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_NVR_CONTROLS, "EUFY_GATEWAY_EXPERIMENTAL_NVR_CONTROLS");
@@ -164,6 +169,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
     experimentalNvrControls,
     experimentalDoorbellRtc,
     experimentalGeneralRtc,
+    experimentalC31LiveTalkback,
     experimentalCloudRecordings,
     experimentalFixedH265Resolution,
     experimentalLowCpuH265Conversion,

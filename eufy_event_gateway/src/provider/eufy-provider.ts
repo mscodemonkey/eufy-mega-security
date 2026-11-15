@@ -163,6 +163,9 @@ export interface EufyProviderConfig {
   /** Explicit opt-in for exact official-model control trials, off by default. */
   readonly experimentalModelControls?: boolean;
 
+  /** Default-off C31 microphone input through its existing media session. */
+  readonly experimentalC31LiveTalkback?: boolean;
+
   /** Explicit E30 MQTT opt-in, independent of camera admission and controls. */
   readonly experimentalE30Locks?: boolean;
 
@@ -585,6 +588,19 @@ export function supportsStandaloneC31Presets(
   return device.model === "T817L" && device.deviceType === 10_031 && device.channel === 0
     && route?.homeBaseAttached === false && route.peer.serial === device.serial
     && Boolean(device.adminUserId) && routeReady;
+}
+
+/**
+ * Admit the owner or the signed-in type-1 member on an already qualified C31 row.
+ * Unknown roles and another member's identity grant no microphone access. Route,
+ * feature opt-in and speaker readiness remain the provider caller's responsibility.
+ */
+export function supportsC31LiveTalkbackAccount(
+  device: Pick<MegaInventoryDevice, "adminUserId" | "memberType" | "memberUserId">,
+  authenticated: (userId: string) => boolean,
+): boolean {
+  return !!device.adminUserId && (authenticated(device.adminUserId)
+    || device.memberType === 1 && !!device.memberUserId && authenticated(device.memberUserId));
 }
 
 /** Admit checked live AAC on verified E30, attached 2C/T8210 and standalone C31/S220 routes. */
@@ -2038,7 +2054,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       supportedDetections: ["motion", "person", "stranger", "pet", "vehicle", "dog", "crying", "sound", "packageDelivered", "packageTaken", "packageStranded"],
       streamingQualityControlSupported: !!profile && values.quality !== null, storedRecordingsSupported: false,
       liveAudioSupported: this.#normalNvrLiveBinding(device, station) && nvrLiveAudioAdmitted(device, station),
-      talkbackSupported: false, enableControlSupported: false, motionDetectionControlSupported: false,
+      talkbackSupported: false, liveTalkbackSupported: false, liveTalkbackEnabled: false, enableControlSupported: false, motionDetectionControlSupported: false,
       guardModeControlSupported: false, guardModeRefreshSupported: false, nightVisionControlSupported: !!profile && values.night !== null,
       autoNightVisionControlSupported: false, cameraLightControlSupported: false, experimentalLightControlSupported: false, experimentalQuickResponseSupported: false,
       timedLightControlSupported: false,
@@ -3276,6 +3292,39 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#panControlOperations.set(serial, current);
     try { await current; }
     finally { if (this.#panControlOperations.get(serial) === current) this.#panControlOperations.delete(serial); }
+  }
+
+  /** Retain the selected C31 speaker owner until its original source and input settle. */
+  async streamCameraAudio(serial: string, frames: AsyncIterable<Buffer>, signal: AbortSignal): Promise<void> {
+    this.#assertRtcPreparationIdle();
+    this.#assertLegacyCamera(serial);
+    const device = this.#devices.get(serial);
+    const route = device ? ppcsStreamRoute(device, this.#devices) : null;
+    const session = this.#ppcsStreams.get(serial);
+    const account = this.#client.authenticatedBinding();
+    if (!this.config.experimentalC31LiveTalkback || this.config.apiAuthenticationConfigured !== true
+      || !device || !account || !supportsC31LiveTalkbackAccount(device, id => this.#client.isAuthenticatedUser(id))
+      || signal.aborted || this.#panControlOperations.has(serial)
+      || !device || !session || this.#recordingClosing || !supportsStandaloneC31Presets(device, route, true)
+      || device.reads.speakerEnabled !== true) throw new Error("Live speaker unavailable or busy");
+    const current = async function* (provider: EufyProvider): AsyncGenerator<Buffer> {
+      for await (const frame of frames) {
+        signal.throwIfAborted();
+        const observed = provider.#devices.get(serial);
+        if (!account() || provider.#recordingClosing || provider.#ppcsStreams.get(serial) !== session || !observed
+          || inventoryBindingChanged(device, observed) || observed.reads.speakerEnabled !== true) {
+          throw new Error("Live speaker source changed");
+        }
+        yield frame;
+      }
+    };
+    const operation = session.playC31AudioStream(current(this), signal, summary => {
+      logger.info("c31_live_speaker_finished", `model=T817L sent_frames=${summary.sentFrames} acknowledged_frames=${summary.acknowledgedFrames}`
+        + ` retransmissions=${summary.retransmissions} stop_attempts=${summary.stopAttempts} pending_frames=${summary.pendingFrames}`);
+    });
+    this.#panControlOperations.set(serial, operation);
+    try { await operation; }
+    finally { if (this.#panControlOperations.get(serial) === operation) this.#panControlOperations.delete(serial); }
   }
 
   /** Write camera enablement once and publish only cloud-confirmed state. */
@@ -5711,6 +5760,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         speakerVolume: device.reads.speakerVolume ?? null,
       },
       talkbackSupported: supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
+      liveTalkbackEnabled: this.config.experimentalC31LiveTalkback === true && this.config.apiAuthenticationConfigured === true
+        && supportsStandaloneC31Presets(device, route, true) && supportsC31LiveTalkbackAccount(device, id => this.#client.isAuthenticatedUser(id)),
+      liveTalkbackSupported: this.config.experimentalC31LiveTalkback === true && this.config.apiAuthenticationConfigured === true
+        && supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials))
+        && device.reads.speakerEnabled === true && supportsC31LiveTalkbackAccount(device, id => this.#client.isAuthenticatedUser(id)),
       motionSensitivityControlSupported: settingRouteReady && sensitivityProfile !== null
         && (sensitivityProfile.experimental !== true || experimentalSettingsReady && this.config.apiAuthenticationConfigured === true
           && this.#client.authenticatedBinding() !== null && route?.peer.adminUserId === device.adminUserId)

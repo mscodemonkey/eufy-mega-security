@@ -7,7 +7,7 @@
 import { LiveFramePacer, type LivePacingSummary } from "./live-frame-pacer.js";
 import { ClockedTransportWriter } from "./clocked-transport.js";
 import { spawn, type ChildProcess } from "node:child_process";
-import type { OutgoingHttpHeaders, ServerResponse } from "node:http";
+import type { OutgoingHttpHeaders } from "node:http";
 import { PassThrough, type Writable } from "node:stream";
 
 /** Writable viewer boundary used by HTTP responses and an internal muxer input. */
@@ -75,7 +75,7 @@ export class LiveTransportMuxer {
    * @param onAudioClosed Receive startup timing without media, identifiers or camera settings after retirement.
    */
   constructor(
-    private readonly response: ServerResponse,
+    private readonly response: VideoViewerResponse,
     private readonly onClose: () => void,
     private readonly audioWaitMilliseconds = AUDIO_START_WAIT_MILLISECONDS,
     private readonly onFailure: (reason: string) => void = () => undefined,

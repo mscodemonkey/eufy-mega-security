@@ -603,6 +603,8 @@ export class GatewayState extends EventEmitter {
       streamSupported: camera.identity.streamSupported,
       liveAudioSupported: camera.identity.liveAudioSupported ?? false,
       talkbackSupported: camera.identity.talkbackSupported ?? false,
+      liveTalkbackSupported: camera.identity.liveTalkbackSupported ?? false,
+      liveTalkbackEnabled: camera.identity.liveTalkbackEnabled ?? false,
       storedRecordingsSupported: camera.identity.storedRecordingsSupported ?? false,
       doorbellSupported: camera.identity.doorbellSupported,
       enabled: camera.identity.enabled ?? null,
