@@ -28,14 +28,19 @@ capabilities:
       connections:
         T8030:
           status: declared
-          notes: Restricted HomeBase 3 media candidate. Exact T8442/type 46, parent ownership and child channel are required. Hardware video remains unconfirmed.
+          notes: Reporter-confirmed H.264 playback on channels 1, 3 and 5 with v0.1.263, including idle starts and reopening. Restart-period failures remain unresolved. Exact T8442/type 46, parent ownership and child channel are required.
         direct:
           status: declared
+    live_audio:
+      connections:
+        T8030:
+          status: declared
+          notes: Issue 770 reports clear ADTS audio on the working live route. The exact type-46/type-18 path now has a disabled experimental HA Live audio entity. Audible E210 playback remains unconfirmed. No talkback or camera-setting write is enabled.
     snapshot:
       connections:
         T8030:
           status: declared
-          notes: Reported event pushes contain picture references. Actual HA picture delivery remains unconfirmed.
+          notes: Reporter confirmed correct HA event pictures on v0.1.263. Fresh live snapshots and startup seeding remain separate.
         direct:
           status: declared
   events:

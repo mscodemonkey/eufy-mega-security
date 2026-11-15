@@ -255,10 +255,14 @@ class EufyLiveAudioSwitch(EufyGatewayEntity, SwitchEntity, RestoreEntity):
     _attr_translation_key = "camera_live_audio"
 
     def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
-        """Bind the switch to a camera whose route delivers live audio."""
+        """Bind admitted audio, keeping unconfirmed routes disabled and labelled."""
         EufyGatewayEntity.__init__(self, coordinator, serial)
         SwitchEntity.__init__(self)
         self._attr_unique_id = f"{serial}_camera_live_audio"
+        if self.camera.get("liveAudioExperimental") is True:
+            self._attr_translation_key = None
+            self._attr_name = "Live audio (Experimental)"
+            self._attr_entity_registry_enabled_default = False
 
     async def async_added_to_hass(self) -> None:
         """Restore the last choice, or leave live audio off."""

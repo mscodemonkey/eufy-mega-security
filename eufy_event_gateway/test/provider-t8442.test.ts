@@ -11,7 +11,7 @@ import test, { type TestContext } from "node:test";
 import { GatewayState } from "../src/domain/gateway-state.js";
 import { MegaClient } from "../src/mega/client.js";
 import { MegaPushReceiver, parsePushEvent, type MegaPushEvent } from "../src/mega/push.js";
-import { EufyProvider, isSupportedMegaCamera, ppcsStreamRoute, isPpcsStreamSupported, parseMegaInventory } from "../src/provider/eufy-provider.js";
+import { EufyProvider, isSupportedMegaCamera, ppcsStreamRoute, isPpcsStreamSupported, parseMegaInventory, supportsCameraLiveAudio } from "../src/provider/eufy-provider.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
 import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 import { HomeBasePpcsSession } from "../src/stream/homebase-ppcs.js";
@@ -67,7 +67,9 @@ test("exact T8442/46 creates separate cameras without enabling controls or start
     assert.equal(camera.model, "T8442"); assert.equal(camera.stationSerial, f.parent.device_sn);
     assert.equal(camera.catalogueStatus, "ready_to_test"); assert.equal(camera.streamSupported, true);
     assert.equal(camera.battery, null);
-    assert.equal(camera.startupSnapshotSupported, false); assert.equal(camera.liveAudioSupported, false);
+    assert.equal(camera.startupSnapshotSupported, false); assert.equal(camera.liveAudioSupported, true);
+    assert.equal(camera.liveAudioExperimental, true);
+    assert.equal(f.state.getCamera(child.device_sn).liveAudioExperimental, true);
     assert.deepEqual(camera.supportedDetections, ["motion", "person", "pet", "vehicle"]);
     for (const [name, value] of Object.entries(camera)) if (name.endsWith("ControlSupported")) assert.equal(value, false, name);
     for (const write of [() => f.provider.setCameraEnabled(child.device_sn, false),
@@ -131,4 +133,22 @@ test("missing parents, wrong HomeBase types, foreign ownership and invalid chann
   assert.equal(ppcsStreamRoute(child, new Map([[child.serial, child]])), null);
   assert.equal(route({ ...child, parentSerial: child.serial, channel: 0 }), null);
   assert.equal(isPpcsStreamSupported(child, new Map([[parent.serial, parent], [child.serial, child]]), new Set()), false);
+});
+
+
+test("E210 live audio requires the exact ready HB3 route and inventory ownership", async context => {
+  const f = await fixture(context);
+  const rows = parseMegaInventory({ devices: [f.parent, ...f.children] });
+  const child = rows.find(row => row.serial === "synthetic-1")!, parent = rows.find(row => row.serial === f.parent.device_sn)!;
+  const route = { homeBaseAttached: true, peer: parent };
+  assert.equal(supportsCameraLiveAudio(child, route, true), true);
+  assert.equal(supportsCameraLiveAudio(child, route, false), false);
+  assert.equal(supportsCameraLiveAudio(child, null, true), false);
+  for (const changed of [{ deviceType: 45 }, { model: "T8442X" }, { channel: -1 }, { channel: 32 }, { channel: 1.5 }, { channel: null }, { adminUserId: null }, { adminUserId: "foreign-owner" }]) {
+    assert.equal(supportsCameraLiveAudio({ ...child, ...changed }, route, true), false);
+  }
+  for (const changed of [{ model: "T8010" }, { model: "T9000" }, { deviceType: 0 }, { adminUserId: "foreign-owner" }]) {
+    assert.equal(supportsCameraLiveAudio(child, { ...route, peer: { ...parent, ...changed } }, true), false);
+  }
+  assert.equal(supportsCameraLiveAudio(child, { ...route, homeBaseAttached: false }, true), false);
 });

@@ -237,6 +237,9 @@ export interface CameraState {
   /** Whether the ready camera route supplies validated AAC for live MPEG-TS delivery. */
   readonly liveAudioSupported?: boolean;
 
+  /** Unconfirmed live audio is offered as a disabled experimental HA entity. */
+  readonly liveAudioExperimental?: boolean;
+
   /** Exact route support for bounded speaker audio, independent of microphone streaming. */
   readonly talkbackSupported?: boolean;
 
@@ -638,6 +641,9 @@ export interface CameraIdentity {
 
   /** Optional provider admission for live AAC, independent of reported microphone settings. */
   readonly liveAudioSupported?: boolean;
+
+  /** Unconfirmed live audio is offered as a disabled experimental HA entity. */
+  readonly liveAudioExperimental?: boolean;
 
   /** Exact route support for bounded speaker audio, independent of microphone streaming. */
   readonly talkbackSupported?: boolean;

@@ -602,6 +602,7 @@ export class GatewayState extends EventEmitter {
       stationSerial: camera.identity.stationSerial,
       streamSupported: camera.identity.streamSupported,
       liveAudioSupported: camera.identity.liveAudioSupported ?? false,
+      liveAudioExperimental: camera.identity.liveAudioExperimental === true && camera.identity.liveAudioSupported === true,
       talkbackSupported: camera.identity.talkbackSupported ?? false,
       liveTalkbackSupported: camera.identity.liveTalkbackSupported ?? false,
       liveTalkbackEnabled: camera.identity.liveTalkbackEnabled ?? false,
