@@ -49,10 +49,7 @@ export class ManualLightSource {
         if (!enabled) await this.#release(source);
         return result;
       } catch (error) {
-        if (!existing || submitted) {
-          source.retained = false;
-          await this.#release(source);
-        }
+        if (!existing || submitted) await this.#release(source);
         throw error;
       } finally { signal?.removeEventListener("abort", cancel); }
     });

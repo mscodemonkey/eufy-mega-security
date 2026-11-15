@@ -31,7 +31,7 @@ for (const mode of ["off", "expired", "failure", "shutdown"] as const) {
         assert.equal(expired, 1);
       } else if (mode === "failure") {
         await assert.rejects(lights.run("camera", true, async () => { writes++; throw new Error("unconfirmed"); }), /unconfirmed/);
-        assert.equal(writes, 2); assert.equal(expired, 0);
+        assert.equal(writes, 2); assert.equal(expired, 1);
       } else {
         await lights.close();
         await assert.rejects(lights.run("camera", true, async () => { writes++; }), /closed/);

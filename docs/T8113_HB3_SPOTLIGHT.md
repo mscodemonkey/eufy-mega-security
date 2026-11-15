@@ -26,6 +26,14 @@ That observation does not establish the firmware's internal timeout or promise
 unlimited illumination. This control does not change motion lighting, brightness,
 recording preferences or night-vision policy.
 
-The new automatic idle-start and retained-source lifecycle still need their
-installed HA and physical test. Earlier warm-viewer confirmation does not
-qualify that new lifecycle. Keep the PR in draft until that test is complete.
+The automatic idle-start lifecycle was then tested through the installed HA
+light with the camera idle and the official app at Home. The observer confirmed
+on, still on after a separate observation interval, and off after the HA command.
+HA confirmed both absolute values. Twenty-one consecutive state reads over
+20 seconds kept the same source and reported on. After off, that source retired
+and the camera and related sources were idle again. The actual outgoing requests
+were independently authenticated, and each encrypted legacy reply matched its
+own peer and expected value. This qualifies the exact tested route, not other
+models, firmware or account arrangements. Source expiry, failure cleanup,
+unknown-state recovery and preserving other viewers also have focused software
+tests. Those tests do not substitute for hardware results on another setup.
