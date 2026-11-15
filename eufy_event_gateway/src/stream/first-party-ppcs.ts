@@ -13,6 +13,7 @@
 import { PpcsQueryTrace, type PpcsControlDecodeOutcome } from "./ppcs-query-trace.js";
 import { mergeReplyProtection, PpcsControlReceiptTrace, type PpcsControlReceiptEvidence, type PpcsReplyProtection } from "./ppcs-reply-evidence.js";
 import { s340LiveQualityValue } from "../provider/s340-live-quality.js";
+import { T8171SessionQuality } from "../provider/t8171-session-quality.js";
 import { QuickResponseListError, parseQuickResponseList, validQuickResponseId, type DoorbellQuickResponse } from "../provider/quick-responses.js";
 import { t8420ClearLiveRoute, t8420ClearLiveStart } from "./t8420-live.js";
 import { createRecordedCipheriv as createCipheriv } from "../diagnostics/raw-crypto.js";
@@ -1439,6 +1440,9 @@ export interface PpcsCameraOptions {
   /** Parent peer model used only where HomeBase generations have different media lifecycle commands. */
   readonly stationModel?: string;
 
+  /** Exact parent type required by attached live-session quality control. */
+  readonly stationDeviceType?: number | null;
+
   /** Current inventory child identity used only to project HomeBase recording ownership. */
   readonly recordingCameraSerial?: string;
 
@@ -1802,6 +1806,9 @@ export class FirstPartyPpcsSession {
   #selfAddress: { host: string; port: number } | null = null;
   #pendingControl: PendingControl | null = null;
   #pendingControlQuery: PendingControlQuery | null = null;
+
+  /** Accepted live-quality context belongs exclusively to this connection. */
+  readonly #attachedQuality = new T8171SessionQuality();
   #c31IndexBody: unknown;
   #continuous: C31ContinuousReader | undefined;
   #c31Index: { readonly begin: number; readonly end: number; readonly owner: string; readonly transaction: string;
@@ -1828,6 +1835,40 @@ export class FirstPartyPpcsSession {
   get videoCodec(): VideoCodec | null {
     const codec = this.#videoNormalizer.codec;
     return codec === "unknown" ? null : codec;
+  }
+
+  /** Whether the observed attached route has emitted usable media on this connection. */
+  get attachedQualityReady(): boolean {
+    return !this.#closed && !!this.#remote && !!this.#level2Key && this.stats.videoOutputFrames > 0
+      && (this.#options.purpose ?? "media") === "media" && this.#options.cameraModel === "T8171"
+      && this.#options.cameraDeviceType === 88 && this.#options.homeBaseAttached === true
+      && this.#options.stationModel === "T8030" && this.#options.stationDeviceType === 18
+      && Number.isInteger(this.#options.channel) && this.#options.channel >= 0 && this.#options.channel <= 31;
+  }
+
+  /** Last correlated live-quality reply, never a saved or cloud preference. */
+  get attachedStreamingQuality(): number | null {
+    return this.attachedQualityReady ? this.#attachedQuality.value : null;
+  }
+
+  /** Refuse quality authority after inventory replaces this connection's parent, child or owner. */
+  hasAttachedQualityBinding(stationSerial: string, channel: number | null, account: string | null): boolean {
+    return this.attachedQualityReady && this.#options.stationSerial === stationSerial
+      && this.#options.channel === channel && this.#options.accountId === account;
+  }
+
+  /** Change quality on the existing viewer without replacing it or claiming persistent readback. */
+  async writeAttachedStreamingQuality(quality: number, signal: AbortSignal): Promise<void> {
+    if (this.#alarmRead) throw new Error("Alarm state read owns this session");
+    if (!this.attachedQualityReady || !this.#options.accountId || this.#pendingControl || this.#pendingControlQuery
+      || this.#pendingCameraInfo || this.#speaker || this.#recordings || this.#alarmRead) {
+      throw new Error("Open this camera's live view before changing its quality");
+    }
+    await this.#attachedQuality.change(this.#options.channel, quality, this.#options.accountId, signal, value => {
+      if (!this.attachedQualityReady || signal.aborted) throw new Error("Live quality session changed");
+      this.#sendCommand(1350, rawPayload(encryptLevel2(Buffer.from(value), this.#level2Key!, this.#level2Seq++),
+        this.#options.channel, 8, [8, 0], 0));
+    });
   }
 
   /** Create a session; no socket is bound until {@link start} runs. */
@@ -3112,6 +3153,7 @@ export class FirstPartyPpcsSession {
     if (this.#closed) return;
     this.#mediaStart.close();
     this.#gatewayInfoRequest.close();
+    this.#attachedQuality.close();
     this.#speaker?.close();
     this.#continuous?.close();
     this.#c31IndexBody = undefined;
@@ -3475,6 +3517,13 @@ export class FirstPartyPpcsSession {
         result === 0 ? pending.resolve() : pending.reject(new Error(`Camera rejected enablement command (${result})`));
       }
       return;
+    }
+
+    if (command === 1351 && this.#attachedQuality.busy && frameChannel === this.#options.channel
+      && payload.length <= 4096) {
+      const reply = decodeAttachedT8171QualityReply(payload, signCode,
+        commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key);
+      if (reply && this.#attachedQuality.accept(reply, frameChannel)) return;
     }
 
     if (command === 1351 && payload.length <= 65_536 && this.#options.homeBaseAttached
@@ -4532,6 +4581,31 @@ export function decodePpcsControlRecord(
     if (clear && clear !== payload) clear.fill(0);
     try { observe?.(outcome); } catch {}
   }
+}
+
+/**
+ * Decode the exact attached T8171's observed encrypted quality reply schemes.
+ * The owning session supplies peer/channel admission and the controller checks
+ * its pending transaction. Legacy ECB provides no authentication and is never
+ * used as a fallback for failed GCM. Its observed C-string terminator excludes
+ * unspecified block padding. Clear or unknown schemes are rejected.
+ */
+export function decodeAttachedT8171QualityReply(
+  payload: Buffer, signCode: number, level1Key: Buffer, level2Key: Buffer | null,
+): Record<string, unknown> | undefined {
+  if (payload.length > 4096 || ![1, 2, 8].includes(signCode)) return undefined;
+  let value: Record<string, unknown> | undefined;
+  if (signCode === 1) {
+    if (payload.length === 0 || payload.length % 16 !== 0) return undefined;
+    let clear: Buffer | undefined;
+    try {
+      clear = decryptEcb(payload, level1Key);
+      const terminator = clear.indexOf(0);
+      value = parsePpcsControlRecord(terminator < 0 ? clear : clear.subarray(0, terminator));
+    } catch { return undefined; }
+    finally { clear?.fill(0); }
+  } else value = decodePpcsControlRecord(payload, signCode, level1Key, level2Key);
+  return value?.cmd === 2730 ? value : undefined;
 }
 
 /** Parse one decrypted control reply, accepting only complete JSON with validated NUL or PKCS7 padding. */

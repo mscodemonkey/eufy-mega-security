@@ -680,6 +680,8 @@ recovery remains unconfirmed. See [the diagnostic guide](docs/PRIVATE_DIAGNOSTIC
 
 An exact HomeBase 3 attached S340 has a separate, disabled-by-default [live-quality trial](docs/S340_LIVE_QUALITY.md). It exposes reported live preferences, including 3K, while actual capture dimensions and telephoto access remain unconfirmed.
 
+An exact HomeBase 3 attached T8171 has a disabled-by-default [live-quality control](docs/T8171_LIVE_QUALITY.md) for its current HA live connection. Its value expires when that connection ends and does not represent a saved camera setting.
+
 The standalone C35 T8110/type10035 has opt-in [manual spotlight](docs/C35_SPOTLIGHT.md) and [camera enablement](docs/C35_CAMERA_ENABLED.md) candidates. The camera enablement switch starts disabled, sends once and requires fresh reported state. Physical behaviour remains unconfirmed.
 
 The exact standalone SoloCam S220 T8134/type63 offers an opt-in seven-step motion sensitivity number when its current value is reported. It requires the configured owner account, gateway API authentication and fresh camera confirmation. Physical sensitivity behaviour remains unconfirmed. Talkback, guard modes and the other requested settings remain separate.

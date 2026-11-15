@@ -83,6 +83,7 @@ import { T8417ReadShapeTracker } from "./t8417-read-shape.js";
 import { PushEventDeduplicator } from "./push-event-deduplicator.js";
 import { isT8442Camera } from "./t8442-profile.js";
 import { readS340LiveQuality, S340_LIVE_QUALITY_MODES } from "./s340-live-quality.js";
+import { isT8171SessionQualityRoute, T8171_SESSION_QUALITY_MODES } from "./t8171-session-quality.js";
 import { resolveDeviceRoute } from "./device-routing.js";
 
 import { CameraSettingError, cameraSettingProfile, cameraSettingWireValue, parseCameraSettingChange, readCameraSetting, runConfirmedCameraSetting, type CameraSettingChange } from "./camera-settings.js";
@@ -220,6 +221,12 @@ export interface MegaInventoryDevice {
   readonly localAddress: string | null;
   readonly cipherId: number | null;
   readonly adminUserId: string | null;
+
+  /** Current inventory member identity, kept internal for exact live-control admission. */
+  readonly memberUserId?: string | null;
+
+  /** Strict vendor membership code, never inferred from the administrator identity. */
+  readonly memberType?: number | null;
   readonly userName: string | null;
   readonly firmware: string | null;
 
@@ -1985,13 +1992,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   /** Supported cameras keep their normal identity, with NVR video added there, until NVR controls are admitted. */
-  #normalNvrIdentity(device: MegaInventoryDevice): Required<Omit<CameraIdentity, "streamingQualityControlReason">> | null {
+  #normalNvrIdentity(device: MegaInventoryDevice): Required<Omit<CameraIdentity, "streamingQualityControlReason" | "streamingQualityControlScope">> | null {
     const station = this.#devices.get(device.parentSerial);
     if (!this.#normalNvrLiveBinding(device, station)) return null;
     return isSupportedMegaCamera(device) && !this.#nvrLiveAdmitted(device, station) ? null : this.#nvrTrialIdentity(device);
   }
 
-  #nvrTrialIdentity(device: MegaInventoryDevice): Required<Omit<CameraIdentity, "streamingQualityControlReason">> | null {
+  #nvrTrialIdentity(device: MegaInventoryDevice): Required<Omit<CameraIdentity, "streamingQualityControlReason" | "streamingQualityControlScope">> | null {
     const station = this.#devices.get(device.parentSerial);
     if (!this.#nvrBinding(device, station) && !this.#nvrLiveAdmitted(device, station)) return null;
     const profile = this.#normalNvrLiveBinding(device, station) && this.#nvrLiveAdmitted(device, station) ? this.#nvrProfile(device) : null;
@@ -3136,7 +3143,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           ...(device.model === "T8170" && device.deviceType === 48 && !route.homeBaseAttached ? { lookupTimeoutMs: 8_000 } : {}),
           stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
           localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []),
-          dskKey: dsk.key, channel: device.channel, cameraModel: device.model, cameraDeviceType: device.deviceType, stationModel: peer.model,
+          dskKey: dsk.key, channel: device.channel, cameraModel: device.model, cameraDeviceType: device.deviceType, stationModel: peer.model, stationDeviceType: peer.deviceType,
           accountId: device.adminUserId,
           homeBaseAttached: route.homeBaseAttached,
           cipherId: device.cipherId,
@@ -3202,6 +3209,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         const audio = (isE21(device) || supportsCameraLiveAudio(device, route, true))
           ? stream.audioOutput : undefined;
         this.#events?.streamStarted(serial, stream.output, () => stream.videoCodec, audio);
+        if (isT8171SessionQualityRoute(this.#modelTrialRoute(device, route))) {
+
+          // The emitter advances its frame counter after the data callback returns.
+          stream.output.once("data", () => queueMicrotask(() => {
+            const fresh = this.#devices.get(serial);
+            if (fresh && this.#ppcsStreams.get(serial) === stream) this.#events?.camera(this.#cameraIdentity(fresh));
+          }));
+        }
         const finalize = () => this.#finalizeStream(serial, stream, device, route);
         stream.output.once("end", finalize);
         stream.output.once("close", finalize);
@@ -4367,6 +4382,17 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     const selected = this.#devices.get(serial);
+    if (selected?.model === "T8171" && selected.deviceType === 88
+      && ppcsStreamRoute(selected, this.#devices)?.homeBaseAttached === true) {
+      this.#assertNoModelTrial(serial);
+      if (this.#streamingQualityOperations.has(serial)) return Promise.reject(new CameraSettingError("busy"));
+      const operation = this.#setAttachedLiveQuality(serial, quality, signal);
+      this.#streamingQualityOperations.set(serial, operation);
+      void operation.finally(() => {
+        if (this.#streamingQualityOperations.get(serial) === operation) this.#streamingQualityOperations.delete(serial);
+      }).catch(() => undefined);
+      return operation;
+    }
     if (selected?.model === "T8170" && selected.deviceType === 48) {
       return this.setCameraSetting(serial, { setting: "streamingQuality", value: quality }, signal);
     }
@@ -4434,6 +4460,83 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (this.#streamingQualityOperations.get(serial) === current) this.#streamingQualityOperations.delete(serial);
     }).catch(() => undefined);
     return current;
+  }
+
+  /** Admit the owner or the observed signed-in type-1 member on both exact quality-route rows. */
+  #attachedQualityMember(device: MegaInventoryDevice, peer: MegaInventoryDevice): boolean {
+    if (!device.adminUserId || peer.adminUserId !== device.adminUserId) return false;
+    if (this.#client.isAuthenticatedUser(device.adminUserId)) return true;
+    return [device, peer].every(row => row.memberType === 1 && !!row.memberUserId
+      && this.#client.isAuthenticatedUser(row.memberUserId));
+  }
+
+  /** Explain exact-route admission without exposing account or membership identities. */
+  #attachedQualityAdmissionReason(device: MegaInventoryDevice): NonNullable<CameraIdentity["streamingQualityControlReason"]> {
+    if (!this.config.experimentalModelControls) return "trial_disabled";
+    if (!this.config.apiAuthenticationConfigured) return "api_authentication_required";
+    if (this.#client.authenticatedBinding()?.() !== true) return "account_binding_unavailable";
+    const route = ppcsStreamRoute(device, this.#devices);
+    if (!route || !isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys()))) return "route_unavailable";
+    if (!isT8171SessionQualityRoute(this.#modelTrialRoute(device, route))) return "route_unsupported";
+    if (!device.adminUserId || route.peer.adminUserId !== device.adminUserId) return "parent_owner_mismatch";
+    if (!this.#attachedQualityMember(device, route.peer)) return "account_membership_unconfirmed";
+    return "ready";
+  }
+
+  /** Require current authority without interpreting the camera's old cloud quality. */
+  #attachedQualityAdmitted(device: MegaInventoryDevice): boolean {
+    return this.#attachedQualityAdmissionReason(device) === "ready";
+  }
+
+  /** Borrow one live source for a correlated quality request, preserving the existing viewer. */
+  async #setAttachedLiveQuality(serial: string, quality: number, external?: AbortSignal): Promise<CameraIdentity> {
+    const device = this.#devices.get(serial), session = this.#ppcsStreams.get(serial);
+    const route = device ? ppcsStreamRoute(device, this.#devices) : null;
+    if (!device || !route || !session?.hasAttachedQualityBinding(route.peer.serial, device.channel, device.adminUserId) || !this.#attachedQualityAdmitted(device)
+      || !Number.isInteger(quality) || quality < 0 || quality > 3) throw new CameraSettingError("unavailable");
+    const peer = route.peer, generation = this.#startupGeneration, account = this.#client.authenticatedBinding();
+    const related = [...this.#devices.values()].filter(row => row.serial === peer.serial || row.parentSerial === peer.serial);
+    const controls = [this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations,
+      this.#audioRecordingOperations, this.#motionOperations, this.#nightVisionOperations, this.#guardModeOperations,
+      this.#lightOperations, this.#panControlOperations, this.#cameraSirenOperations];
+    if (this.#localMotionAborters.size || this.#recordingPeerReserved(serial) || this.#stationOperations.has(peer.serial)
+      || related.some(row => this.#streamStarts.has(row.serial) || controls.some(map => map.has(row.serial))
+        || row.serial !== serial && this.#ppcsStreams.has(row.serial))) throw new CameraSettingError("busy");
+    const signal = AbortSignal.any([external ?? new AbortController().signal, AbortSignal.timeout(25_000)]);
+    const release = this.#reserveTrialPeer(peer.serial);
+    const current = (): void => {
+      const fresh = this.#devices.get(serial), parent = this.#devices.get(peer.serial);
+      if (signal.aborted || this.#recordingClosing || generation !== this.#startupGeneration || !account?.()
+        || !fresh || !parent || inventoryBindingChanged(device, fresh) || inventoryBindingChanged(peer, parent)
+        || fresh.memberUserId !== device.memberUserId || fresh.memberType !== device.memberType
+        || parent.memberUserId !== peer.memberUserId || parent.memberType !== peer.memberType
+        || this.#ppcsStreams.get(serial) !== session || !session.attachedQualityReady || !this.#attachedQualityAdmitted(fresh)) {
+        throw new CameraSettingError("unavailable");
+      }
+    };
+    try {
+      current();
+      const inventory = await this.#client.inventory(signal, { includeChargingDays: false }); current();
+      const parsed = parseMegaInventory(inventory);
+      for (const expected of [device, peer]) {
+        const raw = inventory.devices.filter(row => row.device_sn === expected.serial);
+        const fresh = parsed.filter(row => row.serial === expected.serial);
+        if (raw.length !== 1 || !isRecord(raw[0]?.member) || raw[0].member.admin_user_id !== device.adminUserId
+          || fresh.length !== 1 || inventoryBindingChanged(expected, fresh[0]!)
+          || fresh[0]!.memberUserId !== expected.memberUserId || fresh[0]!.memberType !== expected.memberType) {
+          throw new CameraSettingError("unavailable");
+        }
+      }
+      if (parsed.filter(row => row.parentSerial === peer.serial && row.serial !== peer.serial && row.channel === device.channel).length !== 1) {
+        throw new CameraSettingError("unavailable");
+      }
+      current(); await session.writeAttachedStreamingQuality(quality, signal); current();
+      return this.#cameraIdentity(this.#devices.get(serial)!);
+    } finally {
+      release();
+      const fresh = this.#devices.get(serial);
+      if (fresh) this.#events?.camera(this.#cameraIdentity(fresh));
+    }
   }
 
   /** Refresh a direct camera's known reads from its read-only parameter table. */
@@ -4657,6 +4760,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       logger.info("camera_stream_closed", ppcsStreamLogSummary(device.model, route, stream.stats));
       this.#ppcsStreams.delete(serial);
       this.#events?.streamStopped(serial);
+      const fresh = this.#devices.get(serial);
+      if (fresh && device.model === "T8171" && route?.homeBaseAttached) this.#events?.camera(this.#cameraIdentity(fresh));
     });
   }
 
@@ -5509,6 +5614,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       : cameraSettingProfile(settingRoute, "streamingQuality")?.form !== "attached-quality" ? "route_unsupported"
       : device.reads.streamingQualityTier === undefined ? "quality_unconfirmed" : "ready";
     const s340Quality = s340QualityReason === "ready";
+    const attachedT8171 = settingRoute !== null && isT8171SessionQualityRoute(settingRoute);
+    const attachedQuality = attachedT8171 && this.#attachedQualityAdmitted(device)
+      && this.#ppcsStreams.get(device.serial)?.hasAttachedQualityBinding(route!.peer.serial, device.channel, device.adminUserId) === true;
     const standaloneQuality = s220Quality || supportsStandaloneStreamingQuality(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials));
     const identity: CameraIdentity = {
       deviceType: device.deviceType,
@@ -5558,7 +5666,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         notificationIntervalMinutes: device.reads.notificationIntervalMinutes ?? null,
         rtspPublicationEnabled: device.reads.rtspPublicationEnabled ?? null,
         continuousRecordingEnabled: device.reads.continuousRecordingEnabled ?? null,
-        streamingQualityTier: device.reads.streamingQualityTier ?? null,
+        streamingQualityTier: attachedT8171
+          ? attachedQuality ? this.#ppcsStreams.get(device.serial)!.attachedStreamingQuality : null
+          : device.reads.streamingQualityTier ?? null,
         recordingQualityTier: device.reads.recordingQualityTier ?? null,
         solarIntensity: device.reads.solarIntensity ?? null,
         solarConnected24h: device.reads.solarConnected24h ?? null,
@@ -5600,10 +5710,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         route,
         isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       ),
-      streamingQualityControlSupported: standaloneQuality || s340Quality,
-      ...(device.model === "T8170" && device.deviceType === 48
-        ? { streamingQualityControlReason: s340QualityReason } : {}),
-      streamingQualityModes: s340Quality ? S340_LIVE_QUALITY_MODES : s220Quality ? [
+      streamingQualityControlSupported: standaloneQuality || s340Quality || attachedQuality,
+      ...(attachedT8171 ? { streamingQualityControlScope: "active_stream" as const } : {}),
+      ...(attachedT8171 ? { streamingQualityControlReason: this.#attachedQualityAdmitted(device)
+        ? attachedQuality ? "ready" as const : "live_view_required" as const : this.#attachedQualityAdmissionReason(device) }
+        : device.model === "T8170" && device.deviceType === 48 ? { streamingQualityControlReason: s340QualityReason } : {}),
+      streamingQualityModes: attachedQuality ? T8171_SESSION_QUALITY_MODES : s340Quality ? S340_LIVE_QUALITY_MODES : s220Quality ? [
         { value: 0, name: "Auto" }, { value: 1, name: "Low" }, { value: 2, name: "Medium" }, { value: 3, name: "High" },
       ] : standaloneQuality ? device.model === "T817L" ? [
         { value: 0, name: "Auto" }, { value: 2, name: "Medium" }, { value: 3, name: "High" },
@@ -6989,6 +7101,10 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
       localAddress: freshestLanAddress(value),
       cipherId: integer(value.cipher_id),
       adminUserId: isRecord(value.member) ? safeValue(value.member.admin_user_id, 128) : null,
+      ...(isRecord(value.member) && safeValue(value.member.member_user_id, 128)
+        ? { memberUserId: safeValue(value.member.member_user_id, 128) } : {}),
+      ...(isRecord(value.member) && typeof value.member.member_type === "number" && Number.isInteger(value.member.member_type)
+        ? { memberType: value.member.member_type } : {}),
       userName: isRecord(value.member) ? safeValue(value.member.nick_name, 128) : null,
       firmware: safeValue(value.main_sw_version, 100),
       hardwareVersion: safeValue(value.main_hw_version, 100),
