@@ -33,4 +33,9 @@ motion notifications or every firmware and child channel.
 Synthetic socket tests exercise the production handshake, exact wire layout,
 wrong-channel and malformed replies, rejection, timeout and no replay. Provider
 tests independently confirm parameter selection and fresh inventory after an
-acknowledgement is missing. Local HA delivery qualification is still pending.
+acknowledgement is missing. The installed gateway fingerprint and HA switch source matched. The actual
+registered HA switch then reached off and on, with pending control settled and
+fresh gateway confirmation for each. The original on baseline and entity
+registry state were restored. The first immediate HA read ran before its queued
+change completed and is retained as an unqualified check, not a device failure.
+No physical motion trigger was part of this control test.
