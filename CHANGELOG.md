@@ -11,6 +11,14 @@
 - Identify the existing owner behind busy light-trial refusals and report content-free clear reply shapes. Light receipt acceptance, write counts and hardware confirmation remain unchanged.
 - Record confirmed T8E00 shared-lens playback and independent view closure. Longer playback and other pairings remain unconfirmed.
 - Preserve the NVR signing boundary in failure warnings, separating queue, region lookup, request and response-reading failures without changing timeouts or retries.
+- Carry received AAC from exact T8113-Z/type-8 2C cameras through HomeBase 2 and 3 using the existing, default-off Live audio switch. Local HA HLS playback was verified on those routes, while other models remain separate.
+- Keep reported firmware and sensor/lock parent connections current in existing HA device entries, preserving user overrides and unknown values.
+- Keep C31 sound-setting attributes visible with their model-specific ranges, without changing camera settings or detection behaviour.
+- Tie each delayed familiar-name result to its original notification with a privacy-safe visit reference. Missing-name recovery itself remains unresolved.
+- Refresh experimental E30 lock state after eligible external-change notifications and expose the latest reported event name and method separately from queried lock position. Stale or duplicate events, account identifiers and passcode details remain excluded.
+- Keep gateway cameras on HA's renewing HLS playback path instead of a static WebRTC producer URL that expires between reconnects. Native video and Live audio remain available. Actual affected-dashboard recovery still needs confirmation.
+- Allow one guarded, same-source late-audio handover for an unrecorded native S220 view, protecting recordings and excluding preload, other models and shorter source grace. Actual HA and S220 handover remain unconfirmed.
+- Record the returned standalone T8200 live, event, physical-ring and thumbnail results, and clarify the S340 quality trial's single-view requirement without asking for account or lens changes.
 
 ## 0.1.268
 

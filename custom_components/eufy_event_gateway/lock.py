@@ -97,6 +97,16 @@ class EufySmartLock(EufyLockEntity, LockEntity):
     _attr_name = None
 
     @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose reported access context only on the lock, separate from physical freshness."""
+        attributes = {"state_observed_at": self.lock_state.get("stateObservedAt")}
+        event = self.lock_state.get("lastEvent")
+        if self.lock_state.get("model") == "T85F1" and isinstance(event, dict):
+            attributes.update({"last_event_action": event["action"], "last_event_method": event["method"],
+                               "last_event_user": event["userName"], "last_event_received_at": event["receivedAt"]})
+        return attributes
+
+    @property
     def available(self) -> bool:
         """Never retain motor controls after a profile becomes read-only."""
         return super().available and self.lock_state.get("readOnly") is not True

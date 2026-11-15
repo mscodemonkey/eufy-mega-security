@@ -227,13 +227,23 @@ identity, recording ID, storage path and recent trigger clock. The name is used
 only when that exact camera, parent, record and full path match one history row,
 and the matching crops identify a single familiar name. Ambiguous names stay
 unresolved. Only the first page of at most 50 station records is read, so a busy
-history page can omit the selected visit. Names and identifiers never enter
+history page can omit the selected visit. Names and raw identifiers never enter
 support logs or count diagnostics.
 
 At most three metadata reads are scheduled around 10 seconds, one minute and nine
 minutes after the event. Time spent reading does not move the later deadlines.
-Active views and recording reservations are left alone. The existing
-`homebase_name_recovery_unavailable` line includes a closed `history_result`
+Active views and recording reservations are left alone.
+
+The provider's `push_received`, `homebase_name_recovered` and
+`homebase_name_recovery_unavailable` lines include `visit_ref`. Match it within
+the same gateway run to identify which notification a delayed result belongs to.
+An older check can end immediately after a new notification cancels it, so log
+order alone is insufficient. The reference uses a provider-local secret and
+contains no raw notification, camera or recording ID. Missing notification IDs
+use `visit_ref=unavailable`. References cannot identify visits across provider
+lifetimes and are not a substitute for the exact recording/name join.
+
+The `homebase_name_recovery_unavailable` line includes a closed `history_result`
 category for the last attempted read. It distinguishes a record absent from
 that one page, a reference mismatch, missing person crops, missing familiar
 names, ambiguous names and a selected name rejected by the notification filter.

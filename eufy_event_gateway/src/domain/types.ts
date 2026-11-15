@@ -163,10 +163,13 @@ export interface CameraState {
   /** Whether the owned route and known recording baseline admit the verified audio write. */
   readonly audioRecordingControlSupported?: boolean;
 
-  /** Fixed admission result for the exact S340 trial, containing no account or parameter values. */
+  /** Fixed admission result for exact quality trials, containing no account or parameter values. */
   readonly streamingQualityControlReason?: "trial_disabled" | "owner_account_required" | "api_authentication_required"
     | "account_binding_unavailable" | "route_unavailable" | "parent_owner_mismatch" | "live_mode_unconfirmed"
-    | "route_unsupported" | "quality_unconfirmed" | "ready";
+    | "route_unsupported" | "quality_unconfirmed" | "account_membership_unconfirmed" | "live_view_required" | "ready";
+
+  /** Session-scoped values expire with live view and are not saved camera settings. */
+  readonly streamingQualityControlScope?: "active_stream";
 
   /** Whether the owned ready route and known baseline admit native streaming-quality writes. */
   readonly streamingQualityControlSupported?: boolean;
@@ -460,7 +463,21 @@ export function maskSmartLockState(state: SmartLockState, now = Date.now()): Sma
     ...(!fresh(state.settings.observedAt) ? { volume: null, autoLock: null, autoLockDelaySeconds: null, observedAt: null } : {}),
     ...(!fresh(state.settings.notificationsObservedAt) ? { notifications: null, lockedNotifications: null, unlockedNotifications: null, notificationsObservedAt: null } : {}) } : undefined;
   return { ...state, ...(settings ? { settings } : {}),
+    ...(state.lastEvent ? { lastEvent: { ...state.lastEvent } } : {}),
     ...(!fresh(state.stateObservedAt) ? { state: "unknown" as const, available: false, batteryPercent: null } : {}) };
+}
+
+/**
+ * Last accepted Eufy change notification, owned by the current lock binding.
+ * Receipt time and the reported user describe the message, not independently
+ * verified identity or physical state. Manual, automatic and keypad-lock events
+ * have no identified user.
+ */
+export interface SmartLockEvent {
+  readonly action: "locked" | "unlocked";
+  readonly method: "manual" | "automatic" | "keypad" | "passcode" | "fingerprint" | "app" | "temporary_passcode" | "nfc";
+  readonly userName: string | null;
+  readonly receivedAt: string;
 }
 
 /**
@@ -490,6 +507,9 @@ export interface SmartLockState {
   readonly batteryPercent: number | null;
   readonly stateObservedAt: string | null;
   readonly settings?: SmartLockSettings;
+
+  /** Optional notification context, cleared on binding retirement and independent of query freshness. */
+  readonly lastEvent?: SmartLockEvent;
 }
 
 /** Normalized state notifications consumed by the authenticated SSE connection. */
@@ -537,6 +557,9 @@ export interface CameraIdentity {
 
   /** Preserve the fixed S340 admission diagnostic alongside its control capability. */
   readonly streamingQualityControlReason?: CameraState["streamingQualityControlReason"];
+
+  /** Session-scoped values expire with live view and are not saved camera settings. */
+  readonly streamingQualityControlScope?: "active_stream";
 
   /** Optional admission for fresh-state-confirmed streaming-quality writes. */
   readonly streamingQualityControlSupported?: boolean;

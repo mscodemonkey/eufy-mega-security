@@ -206,7 +206,9 @@ class EufyStreamingQualitySelect(EufyGatewayEntity, SelectEntity):
 
     The coordinator owns state and discovery. This entity never changes recorded
     quality. A confirmed preference is not a measurement of delivered resolution.
-    The S340 trial starts disabled and is withdrawn when gateway admission fails.
+    Experimental controls start disabled and are withdrawn when admission fails.
+    An active-stream preference is accepted for that connection only. Its value
+    becomes unknown when live view ends and does not describe a saved setting.
     """
 
     _attr_translation_key = "camera_streaming_quality"
@@ -216,7 +218,7 @@ class EufyStreamingQualitySelect(EufyGatewayEntity, SelectEntity):
         EufyGatewayEntity.__init__(self, coordinator, serial)
         SelectEntity.__init__(self)
         self._attr_unique_id = f"{serial}_streaming_quality"
-        if self.camera.get("model") == "T8170":
+        if self.camera.get("model") == "T8170" or self.camera.get("streamingQualityControlScope") == "active_stream":
             self._attr_entity_registry_enabled_default = False
             self._attr_translation_key = "camera_streaming_quality_experimental"
 
@@ -240,7 +242,7 @@ class EufyStreamingQualitySelect(EufyGatewayEntity, SelectEntity):
         return list(_streaming_quality_modes(self.camera).values())
 
     async def async_select_option(self, option: str) -> None:
-        """Publish the new preference only after the gateway confirms fresh readback."""
+        """Publish device readback or a correlated active-stream reply, as the route requires."""
         quality = next(
             (value for value, label in _streaming_quality_modes(self.camera).items() if label == option),
             None,

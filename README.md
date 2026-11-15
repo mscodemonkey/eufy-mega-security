@@ -114,7 +114,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 
 ### Doorbells
 
-- 🟠 Video Doorbell T8200: discovery, entities, motion and person events, retained event images, and continuous live video are reporter-confirmed through its self-parented PPCS session on v0.1.157. The reporter still sees 30 to 45 seconds of startup stutter. Push registration is separately under investigation. Press notifications and on-demand snapshots remain unresolved.
+- 🟠 Video Doorbell T8200: a standalone wired camera on firmware 2.354 has reporter-confirmed discovery, live view, person and motion events, a physical doorbell press that returns to off after about ten seconds, and a Last event image thumbnail with app and integration v0.1.262. This does not settle the earlier startup stutter or separate push-registration report. On-demand snapshots and the other exposed sensors remain untested on that setup.
 - 🟠 Video Doorbell S4 T8215: exact type 97 discovery, battery readings, motion, person and button-press events are reporter-confirmed through HomeBase Professional S1. Snapshots and normal live video with close/reopen are reporter-confirmed. The latest result confirms the extra Play press is no longer needed after v0.1.252. Controls and separate Chime 2 T8026 support remain unconfirmed.
 - ✅ Video Doorbell T8210: live streams and snapshots produced on real hardware. One HomeBase 2 reporter now has smooth playback, while another still receives video data without a rendered view. The exact type-7 route through HomeBase 3 T8030 now supports received live audio. Actual HA HLS decoded both H.264 and AAC with the normal Live audio switch enabled. That switch stays off by default. HomeBase 2 audio and talkback remain unconfirmed.
 - 🟠 Video Doorbell T8213: discovery, sensors, retained images, and live video are confirmed through HomeBase 3. A second HomeBase 3 setup now shows live video from both lenses on v0.1.123, while fresh snapshots and longer-term reliability on that setup remain unconfirmed.
@@ -647,9 +647,24 @@ stopped before its restore write. Low and Medium sound values were compared
 with the app. High, timed auto-locking and these controls in Home Assistant
 still need hardware confirmation.
 
-State and battery depend on Eufy's cloud. EMS polls every five minutes and
-expires observations after six minutes, so a change made elsewhere can take
-several minutes to appear. Home Assistant's recovery poll reads the EMS cache.
+State and battery depend on Eufy's cloud. A fresh lock or unlock notification
+prompts an independent status query, sharing the existing ten-second read limit.
+Enable the relevant notification in Eufy for this to work. Manual lock/unlock,
+fingerprint unlock and passcode unlock have been confirmed through Home Assistant.
+EMS also polls every five minutes and expires observations after six minutes.
+When notifications are disabled or unavailable, an external change can therefore
+take several minutes to appear. Home Assistant's recovery poll reads the EMS cache.
+
+The lock entity exposes the latest accepted notification as `last_event_action`,
+`last_event_method`, `last_event_user` and `last_event_received_at`. These can be
+used in HA notification templates and automations. Methods are `manual`,
+`automatic`, `keypad`, `passcode`, `fingerprint`, `app`, `temporary_passcode` or
+`nfc`. The name is Eufy's reported display name, and the timestamp is gateway
+receipt time. Manual turns, automatic changes and one-touch keypad locking have
+no identified user. A missing name clears the previous event's name. This
+message context never sets the physical lock position or refreshes its age.
+It lasts for the current gateway/device binding and clears on restart or rebinding.
+
 Enabling this feature exposes unlock to Home Assistant dashboards, automations
 and any voice assistants to which you expose the entity. Review those before
 enabling it.
@@ -666,6 +681,8 @@ recovery remains unconfirmed. See [the diagnostic guide](docs/PRIVATE_DIAGNOSTIC
 ### Experimental model controls
 
 An exact HomeBase 3 attached S340 has a separate, disabled-by-default [live-quality trial](docs/S340_LIVE_QUALITY.md). It exposes reported live preferences, including 3K, while actual capture dimensions and telephoto access remain unconfirmed.
+
+An exact HomeBase 3 attached T8171 has a disabled-by-default [live-quality control](docs/T8171_LIVE_QUALITY.md) for its current HA live connection. Its value expires when that connection ends and does not represent a saved camera setting.
 
 The standalone C35 T8110/type10035 has opt-in [manual spotlight](docs/C35_SPOTLIGHT.md) and [camera enablement](docs/C35_CAMERA_ENABLED.md) candidates. The camera enablement switch starts disabled, sends once and requires fresh reported state. Physical behaviour remains unconfirmed.
 
@@ -854,13 +871,12 @@ Installations set up before this option keep the video they had: compatibility
 mode is on unless they had enabled **Try native camera video**, so native video
 stays opt-in for them.
 
-Each camera that delivers live audio has a **Live audio** switch, off by default. A direct S220 receive-audio view waits up to 12 seconds for its first AAC before choosing video-only output. It starts sooner when audio arrives, keeps the existing startup memory limit, and never opens another camera session. A camera with its microphone muted can therefore take longer to start when Live audio is enabled. The `camera_live_audio_startup` log after closing a compatible view reports timing and whether audio was selected, without recording media or device identifiers.
+Each camera that delivers live audio has a **Live audio** switch, off by default. A direct S220 receive-audio view waits up to 12 seconds for its first AAC before choosing video-only output. It starts sooner when audio arrives, keeps the existing startup memory limit, and never opens another camera session. A camera with its microphone muted can therefore take longer to start when Live audio is enabled. If valid audio arrives later on a direct S220 native view, one unrecorded, marked viewer can reconnect during the existing ten-second source grace. It rejoins the same camera source. Recording-protected and preloaded views, other models and shorter configured grace periods are excluded. Each marked view gets at most one handover on that source. Actual S220 playback after this handover remains unconfirmed. The `camera_live_audio_startup` log after closing a compatible view reports timing and whether audio was selected, without recording media or device identifiers.
 Off, its views carry video only and open fastest. On, they carry the camera's
 sound as well, in one MPEG-TS stream with the video left as it is; in a browser
-the view then opens a little later, because Home Assistant converts the audio for
-WebRTC. The switch is a Home Assistant choice and changes nothing on the camera.
+the view then opens a little later while Home Assistant prepares its HLS output. The switch is a Home Assistant choice and changes nothing on the camera.
 It applies the next time a view opens.
-Home Assistant's existing go2rtc provider continues to own WebRTC signalling.
+Gateway cameras use Home Assistant's HLS pipeline so reconnects receive renewed access credentials. The built-in go2rtc WebRTC path retains an expiring producer URL, so it is not offered for these cameras. Native video and the Live audio choice still apply to HLS.
 
 **Try faster native startup** is a separate, default-off option. With native video enabled, it gives a new ordinary HLS stream a two-second segment target. It uses less playback buffering, so turn it off if playback becomes unstable. Home Assistant must have low-latency HLS enabled. Existing streams, active recordings, preload and other cameras' settings are left to Home Assistant. Camera connection and keyframe timing can still limit startup.
 

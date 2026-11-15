@@ -463,6 +463,18 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         self._hls_idle_stream = stream
         return stream
 
+    async def _async_get_supported_webrtc_provider(self, fn: Any) -> None:
+        """Keep expiring gateway URLs on Home Assistant's renewing HLS worker.
+
+        External providers such as go2rtc retain their own producer URL and do
+        not consume this entity's periodic source renewal. After the gateway's
+        normal session limit, reconnecting with that URL eventually fails its
+        ten-minute signature. The base Camera lifecycle still owns provider
+        registration and removal, but this source has no eligible provider.
+        HLS preserves the selected native media profile and live audio choice.
+        """
+        return None
+
     async def async_added_to_hass(self) -> None:
         """Start updates and refresh credentials on Home Assistant's cached stream."""
         await super().async_added_to_hass()
@@ -595,9 +607,14 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         mode = reported.get("workingMode")
         if mode in ("Optimal Battery Life", "Optimal Surveillance", "Customize Recording"):
             attributes["reported_working_mode"] = mode
+        c31_sound = (
+            self.camera.get("model") == "T817L"
+            and self.camera.get("deviceType") == 10031
+            and self.camera.get("stationSerial") in (None, "", self.serial)
+        )
         for field, attribute, allowed in (
-            ("soundDetectionSensitivity", "reported_sound_detection_sensitivity", (1, 3, 5)),
-            ("soundDetectionType", "reported_sound_detection_type", (1, 2)),
+            ("soundDetectionSensitivity", "reported_sound_detection_sensitivity", (1, 2, 3, 4, 5) if c31_sound else (1, 3, 5)),
+            ("soundDetectionType", "reported_sound_detection_type", (128, 256) if c31_sound else (1, 2)),
             ("streamingQualityTier", "reported_streaming_quality_tier", (0, 1, 2, 3, 4) if self.camera.get("model") == "T8416" and self.camera.get("nvrLiveControlsSupported") is True else (0, 1, 2, 3)),
             ("recordingQualityTier", "reported_recording_quality_tier", (1, 2, 3)),
             ("notificationStyle", "reported_notification_style", (1, 2, 3)),

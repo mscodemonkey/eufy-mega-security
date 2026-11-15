@@ -1101,3 +1101,27 @@ test("E30 firmware metadata survives queries without extending state freshness o
     assert.equal(writes, 0);
   } finally { provider.close(); }
 });
+
+
+test("E30 unchanged inventory preserves an in-flight status query", async context => {
+  const now = Date.now();
+  context.mock.timers.enable({ apis: ["Date"], now });
+  let hold = false;
+  let finish!: (value: { rawState: number; batteryPercent: number }) => void;
+  const provider = new E30LockProvider({ credentials: async () => credentials, changed: () => {},
+    session: () => ({ open: async () => {}, query: async () => hold
+      ? new Promise(resolve => { finish = resolve; }) : { rawState: 4, batteryPercent: 75 },
+    actuate: async () => { throw Error("Actuation forbidden"); }, close: () => {} }) });
+  try {
+    provider.inventory([inventoryRow()], true);
+    await new Promise(resolve => setImmediate(resolve));
+    context.mock.timers.setTime(now + 11_000);
+    hold = true;
+    const query = provider.refresh(identity.serial);
+    await new Promise(resolve => setImmediate(resolve));
+    provider.inventory([{ ...inventoryRow(), main_sw_version: "fixture-firmware" }]);
+    finish({ rawState: 3, batteryPercent: 75 });
+    assert.equal((await query).state, "unlocked");
+    assert.equal(provider.list()[0]?.firmware, "fixture-firmware");
+  } finally { provider.close(); }
+});

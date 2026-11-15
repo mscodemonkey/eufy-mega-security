@@ -1,5 +1,5 @@
 /**
- * Owns the opt-in E30 inventory, operation leases and polling lifecycle.
+ * Owns the opt-in E30 inventory, operation leases, polling and notification-triggered reads.
  * EufyProvider supplies authenticated inventory and credentials. This registry
  * publishes only normalized lock facts to GatewayState, retires stale bindings
  * before cancellation, and never reports broker acceptance as physical state.
@@ -7,7 +7,8 @@
 import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 import type { MegaDevice } from "../mega/types.js";
-import { maskSmartLockState, isE30LockSettingChange, type E30LockSettingChange, type SmartLockSettings, type SmartLockState } from "../domain/types.js";
+import type { MegaPushEvent } from "../mega/push.js";
+import { maskSmartLockState, isE30LockSettingChange, type E30LockSettingChange, type SmartLockSettings, type SmartLockState, type SmartLockEvent } from "../domain/types.js";
 import { createLogger } from "../logging.js";
 import { bounded, E30MqttSession, E30_STATUS_QUERY_TIMEOUT_MS } from "./e30-lock-mqtt.js";
 import { E30LockError, validateE30Identity, type E30LockIdentity, type E30MqttCredentials, type E30Observation, type E30SettingsObservation, type E30AudibleVolume, type E30NotificationSetting, parseE30NotificationMode } from "./e30-lock-protocol.js";
@@ -16,6 +17,34 @@ const logger = createLogger("e30-lock");
 
 /** Experimental polling cadence; cache GETs never wake the lock. */
 export const E30_LOCK_POLL_MS = 300_000;
+
+/** Official SmartLockPushHandler lock/unlock methods, not alarm or battery notifications. */
+const LOCK_CHANGE_EVENTS = new Map<number, Readonly<Pick<SmartLockEvent, "action" | "method">>>([
+  [257, { action: "unlocked", method: "manual" }],
+  [258, { action: "unlocked", method: "automatic" }],
+  [259, { action: "unlocked", method: "passcode" }],
+  [260, { action: "unlocked", method: "fingerprint" }],
+  [261, { action: "unlocked", method: "app" }],
+  [262, { action: "locked", method: "manual" }],
+  [263, { action: "locked", method: "keypad" }],
+  [264, { action: "locked", method: "app" }],
+  [265, { action: "locked", method: "automatic" }],
+  [266, { action: "locked", method: "passcode" }],
+  [267, { action: "locked", method: "fingerprint" }],
+  [268, { action: "locked", method: "temporary_passcode" }],
+  [269, { action: "unlocked", method: "temporary_passcode" }],
+  [270, { action: "unlocked", method: "nfc" }],
+  [271, { action: "locked", method: "nfc" }],
+]);
+
+const PUSH_HINT_MAX_AGE_MS = 60_000;
+const PUSH_HINT_FUTURE_SKEW_MS = 5_000;
+const READ_THROTTLE_MS = 10_000;
+
+interface PendingPushRead {
+  readonly binding: string;
+  readonly sentAt: number;
+}
 
 /**
  * Exact-model enum admitted by two independent settled queries per value,
@@ -44,6 +73,9 @@ export interface E30LockProviderOptions {
 
   /** Current account's acting display name, kept private and used only inside encrypted commands. */
   readonly accountName?: string;
+
+  /** Keep autonomous reads outside the composition root's account/preparation reservations. */
+  readonly backgroundReadAllowed?: (serial: string) => boolean;
   readonly session?: (identity: E30LockIdentity, credentials: E30MqttCredentials, signal: AbortSignal) => E30LockSession;
 
   /** Synthetic enum admission for isolated tests; production uses the hardware-evidenced constant. */
@@ -52,7 +84,7 @@ export interface E30LockProviderOptions {
 
 /**
  * One opt-in lock registry per EufyProvider generation. It owns operation
- * controllers and its polling timer. close() retires everything synchronously;
+ * controllers, polling and queued hint timers. close() retires everything synchronously;
  * late credential reads or device replies cannot publish state or commands. Inventory
  * firmware remains separate from binding identity and physical-query freshness.
  */
@@ -63,6 +95,9 @@ export class E30LockProvider {
   readonly #lastRefresh = new Map<string, number>();
   readonly #lastWrite = new Map<string, number>();
   readonly #rawStates = new Map<string, number>();
+  readonly #pendingPushReads = new Map<string, PendingPushRead>();
+  readonly #pushReadTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  readonly #lastPushSentAt = new Map<string, number>();
   #lastNotificationRead = 0;
   #inventoryConfirmed = true;
   #closed = false;
@@ -78,6 +113,7 @@ export class E30LockProvider {
     if (this.#closed) return;
     if (!initial && devices.length === 0) {
       this.#inventoryConfirmed = false;
+      for (const serial of this.#pendingPushReads.keys()) this.#retirePushRead(serial);
       for (const controller of this.#operations.values()) controller.abort();
       for (const serial of this.#states.keys()) this.#invalidate(serial);
       this.#emit();
@@ -105,12 +141,15 @@ export class E30LockProvider {
     for (const [serial, previous] of this.#identities) {
       if (JSON.stringify(previous) === JSON.stringify(next.get(serial))) continue;
       this.#operations.get(serial)?.abort();
+      this.#retirePushRead(serial);
       this.#identities.delete(serial); this.#states.delete(serial); this.#rawStates.delete(serial);
     }
     const added: string[] = [];
     for (const [serial, identity] of next) {
       if (!this.#identities.has(serial)) added.push(serial);
-      this.#identities.set(serial, identity);
+
+      // Operations pin this object until its binding changes, not until the next inventory receipt.
+      if (!this.#identities.has(serial)) this.#identities.set(serial, identity);
       if (!this.#states.has(serial)) this.#states.set(serial, { serial, name: identity.name, model: "T85F1",
         state: "unknown", available: false, batteryPercent: null, stateObservedAt: null });
       const { stationSerial: _previousParent, ...state } = this.#states.get(serial)!;
@@ -136,6 +175,81 @@ export class E30LockProvider {
     return [...this.#states.values()].map(state => maskSmartLockState(state));
   }
 
+  /**
+   * Queue one fresh status read for an observed direct-lock change notification.
+   * Only the trusted transport send clock and inventory binding admit this hint.
+   * Reported action, method and bounded name are retained as separate message
+   * context. They never replace independently queried physical state.
+   * Duplicate/old hints are ignored; bursts share one pending read and existing
+   * query/motor operations retain exclusive ownership and the normal read throttle.
+   */
+  acceptPushHint(event: Pick<MegaPushEvent, "cameraSerial" | "stationSerial" | "eventType" | "transportSentAtMilliseconds" | "personName">): boolean {
+    const identity = this.#identities.get(event.cameraSerial), sentAt = event.transportSentAtMilliseconds;
+    const now = Date.now(), age = typeof sentAt === "number" ? now - sentAt : NaN;
+    const change = event.eventType === null ? undefined : LOCK_CHANGE_EVENTS.get(event.eventType);
+    if (this.#closed || !this.#inventoryConfirmed || !identity || event.stationSerial !== identity.serial
+      || !change || !Number.isSafeInteger(sentAt) || !Number.isFinite(age)
+      || age < -PUSH_HINT_FUTURE_SKEW_MS || age > PUSH_HINT_MAX_AGE_MS
+      || sentAt! <= (this.#lastPushSentAt.get(identity.serial) ?? 0)) return false;
+    this.#lastPushSentAt.set(identity.serial, sentAt!);
+    const name = typeof event.personName === "string" ? event.personName.trim() : "";
+    const userName = !["manual", "automatic", "keypad"].includes(change.method)
+      && name.length > 0 && name.length <= 100 && !/[\x00-\x1f\x7f-\x9f]/u.test(name) ? name : null;
+    const previous = this.#states.get(identity.serial)!;
+    this.#states.set(identity.serial, { ...previous,
+      lastEvent: { ...change, userName, receivedAt: new Date(now).toISOString() } });
+    this.#emit();
+    this.#pendingPushReads.set(identity.serial, { binding: JSON.stringify(identity), sentAt: sentAt! });
+    this.#schedulePushRead(identity.serial);
+    return true;
+  }
+
+  #backgroundReadAllowed(serial: string): boolean {
+    try { return this.options.backgroundReadAllowed?.(serial) ?? true; }
+    catch { return false; }
+  }
+
+  #retirePushRead(serial: string): void {
+    clearTimeout(this.#pushReadTimers.get(serial));
+    this.#pushReadTimers.delete(serial);
+    this.#pendingPushReads.delete(serial);
+    this.#lastPushSentAt.delete(serial);
+  }
+
+  #schedulePushRead(serial: string, minimumDelay = 0): void {
+    if (this.#closed || !this.#pendingPushReads.has(serial) || this.#pushReadTimers.has(serial)) return;
+    const delayMs = Math.max(minimumDelay, (this.#lastRefresh.get(serial) ?? 0) + READ_THROTTLE_MS - Date.now(), 0);
+    const timer = setTimeout(() => {
+      this.#pushReadTimers.delete(serial);
+      void this.#readPushHint(serial);
+    }, delayMs);
+    timer.unref();
+    this.#pushReadTimers.set(serial, timer);
+  }
+
+  async #readPushHint(serial: string): Promise<void> {
+    const pending = this.#pendingPushReads.get(serial), identity = this.#identities.get(serial);
+    if (!pending) return;
+    if (this.#closed || !this.#inventoryConfirmed || !identity || pending.binding !== JSON.stringify(identity)
+      || Date.now() - pending.sentAt > PUSH_HINT_MAX_AGE_MS) {
+      this.#retirePushRead(serial);
+      return;
+    }
+    if (this.#operations.size || !this.#backgroundReadAllowed(serial)) {
+      this.#schedulePushRead(serial, 1_000);
+      return;
+    }
+    this.#pendingPushReads.delete(serial);
+    try {
+      await this.refresh(serial);
+      if (!this.#closed) logger.info("e30_lock_push_refresh", "result=queried");
+    } catch {
+      if (!this.#closed) logger.warn("e30_lock_push_refresh", "result=unavailable");
+    } finally {
+      this.#schedulePushRead(serial);
+    }
+  }
+
   /** Explicit read-only refresh; repeated calls are throttled and never queued. */
   async refresh(serial: string, signal?: AbortSignal): Promise<SmartLockState> {
     return this.#operate(serial, undefined, signal);
@@ -159,6 +273,9 @@ export class E30LockProvider {
     if (this.#timer) clearInterval(this.#timer);
     this.#timer = null;
     for (const controller of this.#operations.values()) controller.abort();
+    for (const serial of this.#pendingPushReads.keys()) this.#retirePushRead(serial);
+    for (const timer of this.#pushReadTimers.values()) clearTimeout(timer);
+    this.#pushReadTimers.clear(); this.#pendingPushReads.clear(); this.#lastPushSentAt.clear();
     this.#identities.clear(); this.#states.clear();
   }
 
@@ -167,7 +284,7 @@ export class E30LockProvider {
     if (!identity || this.#closed || !this.#inventoryConfirmed) throw new E30LockError("unavailable");
     if (this.#operations.size) throw new E30LockError("busy");
     const throttle = desired === undefined ? this.#lastRefresh : this.#lastWrite;
-    if (Date.now() - (throttle.get(serial) ?? 0) < 10_000) throw new E30LockError("rate_limited");
+    if (Date.now() - (throttle.get(serial) ?? 0) < READ_THROTTLE_MS) throw new E30LockError("rate_limited");
     const changingSettings = typeof desired === "object";
     const deadline = Date.now() + (changingSettings ? 90_000 : 45_000);
     const reserve = changingSettings ? (["autoLock", "autoLockDelaySeconds"].includes(desired.setting) ? 35_000 : 30_000)
@@ -388,7 +505,7 @@ export class E30LockProvider {
   async #poll(serials: readonly string[]): Promise<void> {
     for (const serial of serials) {
       if (this.#closed) return;
-      if (this.#operations.size) continue;
+      if (this.#operations.size || !this.#backgroundReadAllowed(serial)) continue;
       try { await this.refresh(serial); }
       catch { if (!this.#closed) logger.warn("e30_lock_read_unavailable", "E30 state query unavailable"); }
     }

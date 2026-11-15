@@ -189,7 +189,7 @@ class EufyGatewayCoordinator(
         return (self.data or {}).get("locks", {})
 
     def async_set_lock(self, lock: dict[str, Any]) -> None:
-        """Publish a confirmed lock response while preserving every other family."""
+        """Publish normalized lock facts and separate event context, preserving other families."""
         updated = {"cameras": dict(self.cameras), "stations": dict(self.stations),
                    "sensors": dict(self.sensors), "locks": dict(self.locks)}
         updated["locks"][lock["serial"]] = lock
