@@ -17,8 +17,14 @@
 - Tie each delayed familiar-name result to its original notification with a privacy-safe visit reference. Missing-name recovery itself remains unresolved.
 - Refresh experimental E30 lock state after eligible external-change notifications and expose the latest reported event name and method separately from queried lock position. Stale or duplicate events, account identifiers and passcode details remain excluded.
 - Keep gateway cameras on HA's renewing HLS playback path instead of a static WebRTC producer URL that expires between reconnects. Native video and Live audio remain available. Actual affected-dashboard recovery still needs confirmation.
-- Allow one guarded, same-source late-audio handover for an unrecorded native S220 view, protecting recordings and excluding preload, other models and shorter source grace. Actual HA and S220 handover remain unconfirmed.
+- Allow one guarded, same-source late-audio handover for an unrecorded native S220 view, protecting recordings and excluding preload, other models and shorter source grace. The installed HA worker passed generated late-AAC reconnect and recording/preload protection checks. Physical S220 playback remains unconfirmed.
 - Record the returned standalone T8200 live, event, physical-ring and thumbnail results, and clarify the S340 quality trial's single-view requirement without asking for account or lens changes.
+
+- Add a default-off experimental 2C spotlight through HomeBase 3. Physical on, retained illumination and off were confirmed on the exact owned route, with original settings restored.
+- Add experimental T8171 live quality and its HomeBase motion switch. Owned HA quality changes decoded at the selected dimensions, and motion off/on state was independently confirmed and restored.
+- Add a default-off C31 HA viewer talkback trial and correct actual HA ICE field mapping and valid browser format-list admission. Generated speaker audio was physically heard, but the uninterrupted phone video-plus-microphone check remains deferred and unconfirmed.
+- Carry clear AAC from exact T8442/type 46 cameras through HomeBase 3 behind a disabled, off Live audio trial. HA output passed on a different owned attached camera. E210 listening remains unconfirmed.
+- Offer normal experimental live view for exact T8162/type 26 cameras through HomeBase S1 T9000/type 27 after two reporter-confirmed diagnostic H.265 views. Ordinary HA playback, audio and controls remain unconfirmed.
 
 ## 0.1.268
 
