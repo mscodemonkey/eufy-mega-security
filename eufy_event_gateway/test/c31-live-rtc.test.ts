@@ -29,9 +29,9 @@ for (const finishMicrophone of [true, false]) test(`local C31 RTC decodes video 
     audio: [new RTCRtpCodecParameters({ mimeType: "audio/PCMU", clockRate: 8000, payloadType: 0, channels: 1 })],
   };
   const browser = new RTCPeerConnection({ iceServers: [], codecs });
-  browser.addTransceiver("video", { direction: "recvonly" });
   const microphone = new MediaStreamTrack({ kind: "audio" });
   browser.addTransceiver(microphone, { direction: "sendrecv" });
+  browser.addTransceiver("video", { direction: "recvonly" });
   const transports = [...browser.dtlsTransports];
   const video: Buffer[] = [], assembler = new DoorbellH264Assembler();
   let receivedAudio = 0, nativeFrames = 0, activeSpeaker = false, speakerCompleted = false, sourceEnded = false;
