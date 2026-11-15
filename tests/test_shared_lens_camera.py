@@ -5,7 +5,9 @@ fixtures own discovery, stream URLs and cache reads, never a gateway or camera.
 """
 from __future__ import annotations
 
+import __future__
 import ast
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -88,6 +90,42 @@ class SharedLensCameraTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(entity.available)
         with self.assertRaises(ValueError):
             cls(coordinator, "test", "other")
+
+    async def test_panes_show_their_lens_names_and_the_camera_keeps_the_device_name(self):
+        """Home Assistant prefers any _attr_name to the translation key, so only the camera may set one."""
+        tree = ast.parse((ROOT / "camera.py").read_text())
+        source = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "EufyGatewayCamera")
+        source.body = [node for node in source.body
+                       if isinstance(node, (ast.Assign, ast.AnnAssign)) or getattr(node, "name", None) == "__init__"]
+
+        class Entity:
+            _snapshot_revision = 0
+
+            def __init__(self, coordinator, serial):
+                self.coordinator, self.serial = coordinator, serial
+
+        class Camera:
+            def __init__(self):
+                self.stream_options = {}
+
+        env = namespace()
+        env.update({"EufyGatewayEntity": Entity, "Camera": Camera, "CONF_USE_WALLCLOCK_AS_TIMESTAMPS": "wallclock"})
+        exec(compile(ast.Module(body=[source], type_ignores=[]), str(ROOT / "camera.py"), "exec",
+                     flags=__future__.annotations.compiler_flag, dont_inherit=True), env)
+        pane = env["EufyGatewaySharedLensCamera"]
+        pane.__bases__ = (env["EufyGatewayCamera"],)
+        names = json.loads((ROOT / "translations/en.json").read_text())["entity"]["camera"]
+
+        def shown(entity):
+            # Home Assistant 2026.11 Entity._name_internal, has_entity_name entities.
+            if hasattr(entity, "_attr_name"):
+                return entity._attr_name
+            return names[entity._attr_translation_key]["name"]
+
+        coordinator = SimpleNamespace(cameras={})
+        self.assertIsNone(shown(env["EufyGatewayCamera"](coordinator, "test")), "the camera takes the device's name")
+        self.assertEqual(shown(pane(coordinator, "test", "fixed")), "Fixed lens")
+        self.assertEqual(shown(pane(coordinator, "test", "movable")), "Movable lens")
 
     async def test_compatibility_keeps_the_shared_h264_pane_and_native_panes_ignore_the_main_state(self):
         """H.264 compatibility selects today's shared route; a native pane has its own call."""

@@ -263,9 +263,12 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
     path authorization and the final atomic recording write.
     """
 
-    _attr_name = None
     _attr_content_type = "image/jpeg"
     _track_live_audio = True
+
+    # Home Assistant prefers any _attr_name to the translation key, so only the
+    # camera itself sets one (None: the device's name). Panes keep their names.
+    _named_by_device = True
 
     def __init__(
         self, coordinator: EufyGatewayCoordinator, serial: str,
@@ -274,6 +277,8 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         """Bind playback options for this entity until the next entry reload."""
         EufyGatewayEntity.__init__(self, coordinator, serial)
         Camera.__init__(self)
+        if self._named_by_device:
+            self._attr_name = None
         self._attr_unique_id = f"{serial}_camera"
         self._published_snapshot_revision = self._snapshot_revision
         self._short_hls_idle = short_hls_idle
@@ -824,6 +829,7 @@ class EufyGatewaySharedLensCamera(EufyGatewayCamera):
 
     _attr_entity_registry_enabled_default = False
     _track_live_audio = False
+    _named_by_device = False
 
     def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, lens: str, *,
                  short_hls_idle: bool = False, h264_compatibility: bool = False) -> None:

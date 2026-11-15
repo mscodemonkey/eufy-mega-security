@@ -61,12 +61,16 @@ async function fixture(context: TestContext) {
     maxStreamSeconds: 120, normalNvrLive: true, experimentalNvrLive: true, experimentalModelControls: true,
     experimentalNvrControls: true, apiAuthenticationConfigured: true });
   let active = false;
-  provider.setNvrLiveMediaChecks({ viewer: () => true, recording: () => false, active: () => active, yieldable: () => false, settling: () => false });
+  const recording = new Set<string>();
+
+  // The stream manager never yields a recording view's call; here no view yields.
+  provider.setNvrLiveMediaChecks({ viewer: () => true, recording: serial => recording.has(serial), active: () => active,
+    yieldable: () => false, settling: () => false });
   await provider.start(events);
   context.after(async () => { await provider.close(); await rm(directory, { recursive: true, force: true }); });
   const sensors = (list: Options[]) => list.map(options => `${options.camera}:${String(options.sensor)}`);
   return { provider, state, started, closed, sensors, failStarts: (error: Error | null) => { startFailure = error; },
-    setActive: (value: boolean) => { active = value; } };
+    setActive: (value: boolean) => { active = value; }, setRecording: (serial: string) => { recording.add(serial); } };
 }
 
 const settle = async (): Promise<void> => { for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve)); };
@@ -119,6 +123,22 @@ test("the idle settings refresh runs beside open panes as the one ordinary call"
   assert.equal(value.closed.length, 1, "the refresh hung up its own call and left both panes");
   assert.equal(value.sensors(value.started).length, 2, "the refresh started no video");
   await Promise.all([fixed.close(), movable.close()]);
+});
+
+test("panes open beside a recording view without touching its call, and a new view cannot take it", async context => {
+  const value = await fixture(context);
+  value.setRecording("synthetic-s4");
+  await value.provider.startStream("synthetic-s4"); await settle();
+  const fixed = await value.provider.openNvrLensCall("synthetic-s4", "fixed");
+  const movable = await value.provider.openNvrLensCall("synthetic-s4", "movable");
+  assert.equal(value.started.length, 3, "each pane placed its own call beside the recording view");
+  assert.deepEqual(value.sensors(value.started.slice(1)), ["synthetic-s4:0", "synthetic-s4:1"]);
+  await assert.rejects(value.provider.startStream("synthetic-e41"), (error: unknown) => error instanceof NvrTrialError && error.stage === "admission");
+  assert.equal(value.started.length, 3, "the refused view placed no call");
+  assert.equal(value.closed.length, 0, "the recording view and both panes kept their calls");
+  await Promise.all([fixed.close(), movable.close()]);
+  assert.equal(value.closed.length, 2, "closing the panes hung up only the panes");
+  await value.provider.stopStream("synthetic-s4");
 });
 
 test("closing one pane leaves the other call running, and the view stays fixed while a pane is open", async context => {
