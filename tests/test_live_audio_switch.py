@@ -98,7 +98,7 @@ class LiveAudioSwitchTest(unittest.IsolatedAsyncioTestCase):
     async def test_unconfirmed_live_audio_is_labelled_and_disabled_without_affecting_existing_routes(self):
         coordinator = Coordinator({"trial": {"liveAudioSupported": True, "liveAudioExperimental": True}, "known": {"liveAudioSupported": True}})
         trial = self.switch_class(coordinator, "trial")
-        self.assertEqual(trial._attr_name, "Live audio (Experimental)")
+        self.assertEqual(trial._attr_translation_key, "camera_live_audio_experimental")
         self.assertFalse(trial._attr_entity_registry_enabled_default)
         self.assertEqual(trial._attr_unique_id, "trial_camera_live_audio")
         await trial.async_added_to_hass()

@@ -260,8 +260,7 @@ class EufyLiveAudioSwitch(EufyGatewayEntity, SwitchEntity, RestoreEntity):
         SwitchEntity.__init__(self)
         self._attr_unique_id = f"{serial}_camera_live_audio"
         if self.camera.get("liveAudioExperimental") is True:
-            self._attr_translation_key = None
-            self._attr_name = "Live audio (Experimental)"
+            self._attr_translation_key = "camera_live_audio_experimental"
             self._attr_entity_registry_enabled_default = False
 
     async def async_added_to_hass(self) -> None:
