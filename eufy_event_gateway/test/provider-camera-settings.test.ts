@@ -191,10 +191,11 @@ for (const mode of ["ready", "disabled", "guest", "no-binding", "no-api", "paren
 }
 
 
-for (const mode of ["ready", "disabled", "guest", "no-binding", "no-api", "parent-owner", "missing-read", "changed-binding"] as const) {
+for (const mode of ["ready", "live-view", "view-not-ready", "view-retired", "disabled", "guest", "no-binding", "no-api", "parent-owner", "missing-read", "changed-binding"] as const) {
   test(`2C spotlight trial retains account, opt-in and fresh confirmation: ${mode}`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "2c-light-"));
     let actual = 0, writes = 0, bound = true;
+    let source: FirstPartyPpcsSession | undefined, sourceClosed = false;
     const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
     context.mock.method(globalThis, "setInterval", (() => ({ unref() {} })) as unknown as typeof setInterval);
     context.mock.method(globalThis, "clearInterval", (() => {}) as typeof clearInterval);
@@ -212,8 +213,9 @@ for (const mode of ["ready", "disabled", "guest", "no-binding", "no-api", "paren
     });
     context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ base: { key: "synthetic", expiresAt: null } }));
     context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
-    context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => {});
-    context.mock.method(FirstPartyPpcsSession.prototype, "close");
+    context.mock.method(FirstPartyPpcsSession.prototype, "start", async function (this: FirstPartyPpcsSession) { if (!source) source = this; else if (mode === "view-retired") sourceClosed = true; });
+    context.mock.method(FirstPartyPpcsSession.prototype, "hasAttached2CLightWakeBinding", function (this: FirstPartyPpcsSession) { return this === source && !sourceClosed && mode !== "view-not-ready"; });
+    context.mock.method(FirstPartyPpcsSession.prototype, "close", function (this: FirstPartyPpcsSession) { if (this === source) sourceClosed = true; });
     context.mock.method(FirstPartyPpcsSession.prototype, "writeReviewedCameraSetting", async (_change: unknown, _route: unknown, dispatch: () => void) => {
       dispatch(); writes++; actual = 1; return true;
     });
@@ -224,15 +226,17 @@ for (const mode of ["ready", "disabled", "guest", "no-binding", "no-api", "paren
       maxStreamSeconds: 120, experimentalModelControls: mode !== "disabled", apiAuthenticationConfigured: mode !== "no-api" });
     try {
       await provider.start(events);
-      const reason = { ready: "ready", disabled: "trial_disabled", guest: "owner_account_required", "no-binding": "account_binding_unavailable",
+      const reason = { ready: "ready", "live-view": "ready", "view-not-ready": "ready", "view-retired": "ready", disabled: "trial_disabled", guest: "owner_account_required", "no-binding": "account_binding_unavailable",
         "no-api": "api_authentication_required", "parent-owner": "parent_owner_mismatch", "missing-read": "state_unavailable", "changed-binding": "ready" }[mode];
       assert.equal(state.getCamera("camera").manualFloodlightControlReason, reason);
-      if (mode === "ready") {
+      if (["live-view", "view-not-ready", "view-retired"].includes(mode)) await provider.startStream("camera");
+      if (mode === "ready" || mode === "live-view") {
         assert.equal(state.getCamera("camera").manualFloodlightControlSupported, true);
         assert.equal((await provider.setCameraSetting("camera", { setting: "manualFloodlight", value: true })).reportedSettings?.manualFloodlightEnabled, true);
         assert.equal(writes, 1);
+        if (mode === "live-view") assert.equal(sourceClosed, false);
       } else {
-        if (mode !== "changed-binding") assert.equal(state.getCamera("camera").manualFloodlightControlSupported, false);
+        if (!["changed-binding", "view-not-ready", "view-retired"].includes(mode)) assert.equal(state.getCamera("camera").manualFloodlightControlSupported, false);
         await assert.rejects(provider.setCameraSetting("camera", { setting: "manualFloodlight", value: true }));
         assert.equal(writes, 0);
       }

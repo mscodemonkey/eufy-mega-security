@@ -3526,12 +3526,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (optInSetting && (!this.config.experimentalModelControls || (!this.#client.isAuthenticatedUser(device.adminUserId) && !administratorLight) || !settingBinding)) throw new CameraSettingError("unavailable");
     if (profile.form === "attached-quality" && peer.adminUserId !== device.adminUserId) throw new CameraSettingError("unavailable");
     cameraSettingWireValue(profile, change);
+    const lightWakeSource = profile.form === "attached-light" ? this.#ppcsStreams.get(serial) : undefined;
+    const lightWakeReady = lightWakeSource?.hasAttached2CLightWakeBinding(peer.serial, device.channel, device.adminUserId) === true;
     const controlMaps = [this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations,
       this.#audioRecordingOperations, this.#motionOperations, this.#nightVisionOperations, this.#guardModeOperations,
       this.#lightOperations, this.#panControlOperations, this.#cameraSirenOperations];
     const related = [...this.#devices.values()].filter(row => (row.parentSerial || row.serial) === peer.serial || row.serial === peer.serial);
     if (this.#trialPeers.has(peer.serial) || this.#recordingPeerReserved(serial) || this.#stationOperations.has(peer.serial)
-      || related.some(row => this.#ppcsStreams.has(row.serial) || controlMaps.some(map => map.has(row.serial))
+      || related.some(row => (this.#ppcsStreams.has(row.serial) && !(row.serial === serial && lightWakeReady)) || controlMaps.some(map => map.has(row.serial))
         || ["attached-quality", "privacy"].includes(profile.form) && this.#streamStarts.has(row.serial))) throw new CameraSettingError("busy");
     const releaseTrialPeer = this.#reserveTrialPeer(peer.serial);
     const generation = this.#startupGeneration;
@@ -3546,6 +3548,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         || !current || !currentPeer || inventoryBindingChanged(device, current) || inventoryBindingChanged(peer, currentPeer)
         || currentPeer.p2pDid !== peer.p2pDid || currentPeer.p2pConnection !== peer.p2pConnection
         || (settingBinding !== null && !settingBinding())
+        || (lightWakeSource !== undefined && (this.#ppcsStreams.get(serial) !== lightWakeSource
+          || !lightWakeSource.hasAttached2CLightWakeBinding(peer.serial, current?.channel ?? null, current?.adminUserId ?? null)))
         || (administratorLight && !this.#manual2cLightMember(current, currentPeer))) throw new CameraSettingError("unavailable");
     };
     const clear = (): void => {

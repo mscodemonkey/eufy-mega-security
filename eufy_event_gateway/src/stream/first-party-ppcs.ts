@@ -1863,6 +1863,20 @@ export class FirstPartyPpcsSession {
       && Number.isInteger(this.#options.channel) && this.#options.channel >= 0 && this.#options.channel <= 31;
   }
 
+  /**
+   * Identify the existing decoded 2C viewer that can keep its child awake.
+   * This grants no light-write authority and never starts or replaces media.
+   * The provider separately owns membership and each single-write control peer.
+   */
+  hasAttached2CLightWakeBinding(stationSerial: string, channel: number | null, account: string | null): boolean {
+    return !this.#closed && !!this.#remote && this.stats.videoOutputFrames > 0
+      && (this.#options.purpose ?? "media") === "media" && this.#options.cameraModel === "T8113-Z"
+      && this.#options.cameraDeviceType === 8 && this.#options.homeBaseAttached === true
+      && this.#options.stationModel === "T8030" && this.#options.stationDeviceType === 18
+      && this.#options.stationSerial === stationSerial && this.#options.channel === channel
+      && this.#options.accountId === account;
+  }
+
   /** Last correlated live-quality reply, never a saved or cloud preference. */
   get attachedStreamingQuality(): number | null {
     return this.attachedQualityReady ? this.#attachedQuality.value : null;
