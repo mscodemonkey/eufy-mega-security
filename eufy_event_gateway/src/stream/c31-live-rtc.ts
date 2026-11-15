@@ -67,11 +67,12 @@ export interface C31LiveRtcSummary {
 /** Read a finite media field list without backtracking over untrusted SDP. */
 function mediaPayloads(section: string, kind: "audio" | "video"): readonly number[] | null {
   const fields = section.split(/\r?\n/, 1)[0]!.split(" ");
-  if (fields.length < 4 || fields.length > 35 || fields[0] !== `m=${kind}`
+  if (fields.length < 4 || fields.length > 131 || fields[0] !== `m=${kind}`
     || !/^[1-9]\d{0,4}$/.test(fields[1]!) || Number(fields[1]) > 65535
     || fields[2] !== "UDP/TLS/RTP/SAVPF") return null;
   const payloads = fields.slice(3);
   if (payloads.some(value => !/^(?:0|[1-9]\d{0,2})$/.test(value) || Number(value) > 127)) return null;
+  if (new Set(payloads).size !== payloads.length) return null;
   return payloads.map(Number);
 }
 
@@ -127,10 +128,11 @@ export function c31LiveRtcOfferDiagnostic(sdp: string): string {
     .slice(0, 8).map(value => value[1]!.toLowerCase());
   const h264Payloads = [...video.matchAll(/^a=rtpmap:(\d{1,3}) H264\/90000\r?$/gmi)]
     .slice(0, 8).map(value => Number(value[1])).filter(value => value <= 127);
+  const payloadCount = (section: string): number => section ? Math.max(0, section.split(/\r?\n/, 1)[0]!.split(" ").length - 3) : 0;
   const pcmu = /^a=rtpmap:0 PCMU\/8000\r?$/mi.test(audio) ? "implicit_mono"
     : /^a=rtpmap:0 PCMU\/8000\/1\r?$/mi.test(audio) ? "explicit_mono" : "unsupported";
   return `media_count=${sections.length} media=${kinds.join(",") || "none"}`
-    + ` video_port=${port(video)} audio_port=${port(audio)} video_dir=${direction(video)} audio_dir=${direction(audio)}`
+    + ` video_port=${port(video)} audio_port=${port(audio)} video_payloads=${payloadCount(video)} audio_payloads=${payloadCount(audio)} video_dir=${direction(video)} audio_dir=${direction(audio)}`
     + ` h264_profiles=${profiles.join(",") || "none"} h264_payloads=${h264Payloads.join(",") || "none"} pcmu=${pcmu}`
     + ` video_bundle_only=${/^a=bundle-only\r?$/m.test(video)} audio_bundle_only=${/^a=bundle-only\r?$/m.test(audio)}`;
 }

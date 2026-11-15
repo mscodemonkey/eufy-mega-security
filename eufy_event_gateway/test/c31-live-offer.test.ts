@@ -3,6 +3,7 @@
  * Generated SDP contains no candidates or household identity and opens no sockets.
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { c31LiveRtcOffer, c31LiveRtcOfferDiagnostic } from "../src/stream/c31-live-rtc.js";
 
@@ -34,7 +35,8 @@ for (const [name, change] of [
   ["unlisted H264", (sdp: string) => sdp.replace("SAVPF 96", "SAVPF 97")],
   ["oversized SDP", (sdp: string) => sdp + "x".repeat(65536)],
   ["long repeated payload token", (sdp: string) => sdp.replace("SAVPF 96", "SAVPF " + "0".repeat(10000))],
-  ["too many codec fields", (sdp: string) => sdp.replace("SAVPF 96", "SAVPF " + Array(33).fill("96").join(" "))],
+  ["duplicate codec fields", (sdp: string) => sdp.replace("SAVPF 96", "SAVPF " + Array(33).fill("96").join(" "))],
+  ["payload space overflow", (sdp: string) => sdp.replace("SAVPF 96", "SAVPF " + Array(129).fill("96").join(" "))],
   ["invalid port", (sdp: string) => sdp.replace("m=video 9", "m=video 65536")],
   ["invalid codec number", (sdp: string) => sdp.replace("SAVPF 96", "SAVPF 999")],
   ["null byte", (sdp: string) => sdp + "\0"],
@@ -62,4 +64,11 @@ for (const [detail, change] of [
   ["audio_direction", (sdp: string) => sdp.replace("a=sendrecv", "a=sendonly")],
 ] as const) test(`C31 refusal names the exact ${detail} check`, () => {
   assert.throws(() => c31LiveRtcOffer(change(offer())), { code: "offer", detail });
+});
+
+
+for (const mode of ["recvonly", "sendrecv"]) test(`native browser media list is accepted with audio ${mode}`, () => {
+  const sdp = readFileSync(new URL(`./fixtures/c31-browser-audio-first-${mode}.sdp`, import.meta.url), "utf8");
+  assert.ok(sdp.split(/\r?\n/).find(line => line.startsWith("m=video "))!.split(" ").length > 35);
+  assert.deepEqual(c31LiveRtcOffer(sdp), { receiveMicrophone: mode === "sendrecv" });
 });
