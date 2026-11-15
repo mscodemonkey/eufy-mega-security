@@ -13,7 +13,7 @@ test("SoloCam T8171 detection reads take precedence over conflicting legacy bits
     const reads = safeInventoryReads([
       { param_type: 6040, param_value: String(enabled) },
       { param_type: 1011, param_value: String(1 - enabled) },
-    ], 88, "T8171");
+    ], 88, "T8171", true);
     assert.equal(reads.motionDetectionEnabled, enabled === 1);
   }
 });
@@ -23,7 +23,7 @@ test("SoloCam T8171 never guesses a missing or invalid detection state from a le
     const reads = safeInventoryReads([
       { param_type: 6040, param_value: value },
       { param_type: 1011, param_value: 1 },
-    ], 88, "T8171");
+    ], 88, "T8171", true);
     assert.equal(reads.motionDetectionEnabled, undefined);
   }
 });
@@ -43,7 +43,7 @@ test("SoloCam T8171 audio recording uses its enable bit rather than the legacy m
     const reads = safeInventoryReads([
       { param_type: 6012, param_value: String(enabled) },
       { param_type: 1288, param_value: String(enabled) },
-    ], 88, "T8171");
+    ], 88, "T8171", true);
     assert.equal(reads.audioRecordingEnabled, enabled === 1);
   }
 });
@@ -51,7 +51,7 @@ test("SoloCam T8171 audio recording uses its enable bit rather than the legacy m
 test("missing and malformed SoloCam audio states remain unknown without changing other models", () => {
   for (const value of [undefined, null, "invalid", 2, -1, 0.5]) {
     const rows = [{ param_type: 6012, param_value: value }, { param_type: 1288, param_value: 0 }];
-    assert.equal(safeInventoryReads(rows, 88, "T8171").audioRecordingEnabled, undefined);
+    assert.equal(safeInventoryReads(rows, 88, "T8171", true).audioRecordingEnabled, undefined);
     assert.equal(safeInventoryReads(rows, 34, "T8417").audioRecordingEnabled, true);
   }
 });
