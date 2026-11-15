@@ -1,8 +1,9 @@
 /**
  * Adapts one opted-in C31 viewer to browser WebRTC with transient microphone audio.
  * The stream manager owns the physical camera. Each peer owns its viewer input,
- * encoder children, loopback RTP sockets and finite speaker operation. No host
- * microphone, source URL, SDP or audio contents enter persistent diagnostics.
+ * encoder children, loopback RTP sockets and finite speaker operation. Ordinary
+ * diagnostics retain only counters. The existing optional encrypted transport
+ * history can include native audio, while this peer creates no speech recording.
  */
 import { randomBytes } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -234,6 +235,7 @@ class C31RtcSession {
     const input = new C31MicrophoneInput(); this.#counts.microphoneSegments++;
     const operation = this.effects.speaker(this.serial, input.frames, this.#abort.signal)
       .catch(() => {
+        if (this.#abort.signal.aborted) return;
         this.#counts.speakerFailures++;
         if (this.effects.microphoneReady(this.serial)) void this.close("speaker_failed");
       })

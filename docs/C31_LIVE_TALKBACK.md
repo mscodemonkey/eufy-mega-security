@@ -28,7 +28,10 @@ to 720p and 10 frames per second. Normal HLS cameras are unchanged. Speaker clea
 Disconnects, gaps, failed encoding, buffer overflow and unsupported offers fail
 closed without creating another camera connection or replaying a microphone
 utterance. Existing viewers remain owned by their original consumers. Fixed
-reason codes and counters explain the failed boundary without retaining speech.
+reason codes and counters explain the failed boundary in ordinary logs. If
+the separate private raw-history option is enabled, its encrypted transport
+history can retain the native speaker audio alongside other camera traffic.
+The microphone trial creates no additional speech recording.
 
 Implementation and hardware qualification are in progress. No audible output,
 real microphone result or normal HA microphone UI is claimed by this document.

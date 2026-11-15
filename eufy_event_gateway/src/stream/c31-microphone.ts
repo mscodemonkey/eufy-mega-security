@@ -175,7 +175,10 @@ export class C31MicrophoneInput {
     this.#last = { sequence, timestamp, samples: payload.length };
     this.#received++; this.#inserted += gap;
     clearTimeout(this.#idle);
-    this.#idle = setTimeout(() => this.end("silence"), 750); this.#idle.unref();
+
+    // Flush before the native sender's 500 ms stale-audio limit. Waiting
+    // longer would turn an ordinary microphone mute into a pacing failure.
+    this.#idle = setTimeout(() => this.end("silence"), 250); this.#idle.unref();
     if (gap && !this.#child.stdin.write(Buffer.alloc(gap, 0xff))) { this.close("input_backpressure"); return; }
     if (!this.#child.stdin.write(payload)) this.close("input_backpressure");
   }

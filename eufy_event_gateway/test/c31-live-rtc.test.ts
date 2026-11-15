@@ -10,7 +10,7 @@ import test from "node:test";
 import { MediaStreamTrack, RTCPeerConnection, RTCRtpCodecParameters, RtpHeader, RtpPacket } from "werift";
 import { C31LiveRtc, c31LiveRtcOffer, type C31LiveRtcSummary } from "../src/stream/c31-live-rtc.js";
 import { DoorbellH264Assembler } from "../src/stream/doorbell-rtp.js";
-import { c31TalkbackFrames } from "../src/stream/c31-talkback.js";
+import { c31TalkbackFrames, C31TalkbackSender } from "../src/stream/c31-talkback.js";
 
 /** Wait for an observed condition without retaining a success timeout. */
 async function until(check: () => boolean): Promise<void> {
@@ -22,7 +22,7 @@ async function until(check: () => boolean): Promise<void> {
 }
 
 
-test("local C31 RTC decodes video and streams generated microphone audio, then retires", { timeout: 20_000 }, async () => {
+for (const finishMicrophone of [true, false]) test(`local C31 RTC decodes video and retires its microphone, finish=${finishMicrophone}`, { timeout: 20_000 }, async () => {
   const codecs = {
     video: [new RTCRtpCodecParameters({ mimeType: "video/H264", clockRate: 90000, payloadType: 102,
       parameters: "packetization-mode=1;profile-level-id=42e01f;level-asymmetry-allowed=1" })],
@@ -34,7 +34,7 @@ test("local C31 RTC decodes video and streams generated microphone audio, then r
   browser.addTransceiver(microphone, { direction: "sendrecv" });
   const transports = [...browser.dtlsTransports];
   const video: Buffer[] = [], assembler = new DoorbellH264Assembler();
-  let receivedAudio = 0, nativeFrames = 0, activeSpeaker = false, sourceEnded = false;
+  let receivedAudio = 0, nativeFrames = 0, activeSpeaker = false, speakerCompleted = false, sourceEnded = false;
   let source: ReturnType<typeof spawn> | undefined;
   let sourceClosed: Promise<void> = Promise.resolve();
   const finished: C31LiveRtcSummary[] = [];
@@ -60,7 +60,11 @@ test("local C31 RTC decodes video and streams generated microphone audio, then r
     speaker: async (_serial, frames, signal) => {
       activeSpeaker = true;
       try {
-        for await (const frame of frames) { signal.throwIfAborted(); assert.equal(c31TalkbackFrames(frame).length, 1); nativeFrames++; }
+        const sender = new C31TalkbackSender({ start: () => {}, stop: () => {}, send: frame => {
+          assert.equal(c31TalkbackFrames(frame).length, 1);
+          const sequence = nativeFrames++; queueMicrotask(() => sender.acknowledge(sequence)); return sequence;
+        } });
+        await sender.stream(frames, signal); speakerCompleted = true;
       } finally { activeSpeaker = false; }
     },
     finished: summary => finished.push(summary),
@@ -80,10 +84,13 @@ test("local C31 RTC decodes video and streams generated microphone audio, then r
         payloadType: 0, ssrc: 12345 }), Buffer.alloc(160, 0xff)));
       await delay(20);
     }
-    await until(() => nativeFrames > 2);
+    if (finishMicrophone) {
+      await until(() => speakerCompleted);
+      assert.equal(activeSpeaker, false);
+    } else await until(() => nativeFrames > 2);
     await broker.close("synthetic", result.sessionId); await sourceClosed;
     assert.equal(activeSpeaker, false); assert.equal(sourceEnded, true); assert.equal(broker.has("synthetic"), false);
-    assert.equal(finished.length, 1); assert.ok(finished[0]!.microphonePackets > 20); assert.ok(finished[0]!.encodedFrames > 2);
+    assert.equal(finished.length, 1); assert.equal(finished[0]!.speakerFailures, 0); assert.equal(finished[0]!.outcome, "client_closed"); assert.ok(finished[0]!.microphonePackets > 20); assert.ok(finished[0]!.encodedFrames > 2);
     const progress = execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "h264", "-i", "pipe:0",
       "-progress", "pipe:1", "-f", "null", "-"], { input: Buffer.concat(video), timeout: 5_000 }).toString();
     assert.match(progress, /frame=[1-9]\d*/);
