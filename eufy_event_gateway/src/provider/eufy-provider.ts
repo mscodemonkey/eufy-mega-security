@@ -3210,10 +3210,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           ? stream.audioOutput : undefined;
         this.#events?.streamStarted(serial, stream.output, () => stream.videoCodec, audio);
         if (isT8171SessionQualityRoute(this.#modelTrialRoute(device, route))) {
-          stream.output.once("data", () => {
+
+          // The emitter advances its frame counter after the data callback returns.
+          stream.output.once("data", () => queueMicrotask(() => {
             const fresh = this.#devices.get(serial);
             if (fresh && this.#ppcsStreams.get(serial) === stream) this.#events?.camera(this.#cameraIdentity(fresh));
-          });
+          }));
         }
         const finalize = () => this.#finalizeStream(serial, stream, device, route);
         stream.output.once("end", finalize);
@@ -7099,9 +7101,10 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
       localAddress: freshestLanAddress(value),
       cipherId: integer(value.cipher_id),
       adminUserId: isRecord(value.member) ? safeValue(value.member.admin_user_id, 128) : null,
-      memberUserId: isRecord(value.member) ? safeValue(value.member.member_user_id, 128) : null,
-      memberType: isRecord(value.member) && typeof value.member.member_type === "number"
-        && Number.isInteger(value.member.member_type) ? value.member.member_type : null,
+      ...(isRecord(value.member) && safeValue(value.member.member_user_id, 128)
+        ? { memberUserId: safeValue(value.member.member_user_id, 128) } : {}),
+      ...(isRecord(value.member) && typeof value.member.member_type === "number" && Number.isInteger(value.member.member_type)
+        ? { memberType: value.member.member_type } : {}),
       userName: isRecord(value.member) ? safeValue(value.member.nick_name, 128) : null,
       firmware: safeValue(value.main_sw_version, 100),
       hardwareVersion: safeValue(value.main_hw_version, 100),

@@ -40,9 +40,9 @@ for (const mode of ["ready", "idle", "disabled", "guest", "no-api", "no-binding"
     context.mock.method(MegaClient.prototype, "dskKeys", async () => ({ hub: { key: "synthetic", expiresAt: null } }));
     context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
     context.mock.method(FirstPartyPpcsSession.prototype, "start", async function (this: FirstPartyPpcsSession) {
-      source = this; active = true; this.stats.videoOutputFrames = 1;
+      source = this; active = true; this.stats.videoOutputFrames = 0;
     });
-    context.mock.getter(FirstPartyPpcsSession.prototype, "attachedQualityReady", () => active);
+    context.mock.getter(FirstPartyPpcsSession.prototype, "attachedQualityReady", () => active && (source?.stats.videoOutputFrames ?? 0) > 0);
     context.mock.getter(FirstPartyPpcsSession.prototype, "attachedStreamingQuality", () => active ? value : null);
     context.mock.method(FirstPartyPpcsSession.prototype, "writeAttachedStreamingQuality", async function (this: FirstPartyPpcsSession, quality: number) {
       assert.equal(this, source); assert.equal(active, true); writes++; value = quality;
@@ -65,7 +65,12 @@ for (const mode of ["ready", "idle", "disabled", "guest", "no-api", "no-binding"
       }
       if (mode === "disabled") assert.equal(state.getCamera("camera").streamingQualityControlReason, "trial_disabled");
       if (mode === "shared-guest") assert.equal(state.getCamera("camera").streamingQualityControlReason, "account_membership_unconfirmed");
-      if (mode !== "idle") { await provider.startStream("camera"); source!.output.emit("data", Buffer.from([1])); }
+      if (mode !== "idle") {
+        await provider.startStream("camera");
+        source!.output.emit("data", Buffer.from([1]));
+        source!.stats.videoOutputFrames++;
+        await Promise.resolve();
+      }
       if (mode === "ready" || mode === "shared") {
         assert.equal(state.getCamera("camera").streamingQualityControlSupported, true);
         assert.equal((await provider.setCameraStreamingQuality("camera", 1)).reportedSettings?.streamingQualityTier, 1);
