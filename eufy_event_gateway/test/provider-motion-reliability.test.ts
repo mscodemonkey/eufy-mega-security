@@ -17,7 +17,7 @@ import type { ProviderEvents } from "../src/provider/provider.js";
 import { observeLogEvents } from "../src/logging.js";
 
 /** Own a normalized camera, confirmed settings and all synthetic session effects. */
-async function fixture(context: TestContext, standalone = false, stationModel = "T8010", extra = false, stationSerial = "base", cameraChannel = standalone ? 0 : 1, chargingDays?: number, enableParam?: 1035 | 2001) {
+async function fixture(context: TestContext, standalone = false, stationModel = "T8010", extra = false, stationSerial = "base", cameraChannel = standalone ? 0 : 1, chargingDays?: number, enableParam?: 1035 | 2001, attachedE30 = false) {
   const directory = await mkdtemp(join(tmpdir(), "motion-reliability-"));
   let motion = true;
   let enabled: boolean | undefined = true;
@@ -29,7 +29,7 @@ async function fixture(context: TestContext, standalone = false, stationModel = 
     ...(!standalone ? [{ device_sn: stationSerial, device_model: stationModel, device_type: stationModel === "T8010" ? 0 : 18,
       p2p_did: stationSerial === "base" ? "synthetic-peer" : "TEST-12345678-TEST", p2p_conn: "synthetic-route", category: "eufy_security", member: { admin_user_id: "owner" } }] : []),
     { ...(chargingDays !== undefined && options?.includeChargingDays !== false ? { charging_days: chargingDays } : {}),
-      device_sn: "camera", device_model: standalone ? "T8171" : "T8113-Z", device_type: standalone ? 88 : 8,
+      device_sn: "camera", device_model: standalone || attachedE30 ? "T8171" : "T8113-Z", device_type: standalone || attachedE30 ? 88 : 8,
       parent_sn: standalone ? "camera" : stationSerial, device_channel: cameraChannel,
       p2p_did: "synthetic-camera", p2p_conn: "synthetic-route", category: "eufy_security", member: { admin_user_id: "owner" },
       params: [{ param_type: standalone ? 6040 : 1011, param_value: motion ? "1" : "0" },
@@ -670,3 +670,21 @@ test("motion timings distinguish same-peer waiting from a slow command", async c
     assert.match(lines[1]!, /queue_ms=73 prepare_ms=0 connect_ms=0 write_ms=0/);
   } finally { release(); await f.dispose(); }
 });
+
+
+for (const lost of [false, true]) {
+  test(`attached E30 confirms fresh HomeBase state with one operation, missing receipt=${lost}`, async context => {
+    const f = await fixture(context, false, "T8030", false, "base", 1, undefined, undefined, true);
+    try {
+      const write = context.mock.method(FirstPartyPpcsSession.prototype, "writeMotionDetection", async (value: boolean, dispatched?: () => void) => {
+        dispatched?.(); f.setMotion(value);
+        if (lost) throw new CameraControlAcknowledgementTimeoutError();
+      });
+      assert.equal((await f.provider.setCameraMotionDetection("camera", false)).motionDetectionEnabled, false);
+      assert.equal(write.mock.callCount(), 1); assert.equal(f.start.mock.callCount(), 1);
+      assert.ok(f.closes.includes(f.sessions[0]!));
+      assert.equal((await f.provider.setCameraMotionDetection("camera", true)).motionDetectionEnabled, true);
+      assert.equal(write.mock.callCount(), 2);
+    } finally { await f.dispose(); }
+  });
+}

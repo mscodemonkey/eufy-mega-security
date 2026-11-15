@@ -318,6 +318,9 @@ export interface MegaInventoryReads {
   readonly cameraSwitch1035?: "zero" | "one" | "other_number" | "boolean" | "text" | "structured" | "other";
   readonly motionDetectionEnabled?: boolean;
 
+  /** Exact T8171 routing override. Missing native parameter means the HomeBase branch. */
+  readonly t8171OutdoorMode?: boolean;
+
   /** Exact SoloCam tracking enable bit, independent of app-side cloud bookkeeping. */
   readonly aiTrackingEnabled?: boolean;
   readonly guardMode?: number;
@@ -523,6 +526,20 @@ export function supportsStandaloneMotionDetection(
   return ((device.model === "T8171" && device.deviceType === 88) || (device.model === "T817L" && device.deviceType === 10_031)) && device.channel === 0
     && route?.homeBaseAttached === false && route.peer.serial === device.serial
     && device.reads.motionDetectionEnabled !== undefined && Boolean(device.adminUserId) && routeReady;
+}
+
+/** Admit the native T8171 HomeBase motion branch only with qualified topology and cached state. */
+export function supportsAttachedT8171MotionDetection(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "parentSerial" | "adminUserId" | "reads">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return device.model === "T8171" && device.deviceType === 88 && routeReady
+    && route?.homeBaseAttached === true && route.peer.model === "T8030" && route.peer.deviceType === 18
+    && route.peer.serial !== device.serial && device.parentSerial === route.peer.serial
+    && Number.isInteger(device.channel) && device.channel !== null && device.channel >= 0 && device.channel <= 31
+    && Boolean(device.adminUserId) && device.reads.t8171OutdoorMode === false
+    && typeof device.reads.motionDetectionEnabled === "boolean";
 }
 
 /** Admit verified recording-audio switches only with an owned, ready standalone route and known state. */
@@ -4217,6 +4234,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const current = (): void => {
         scope.signal.throwIfAborted();
         if (generation !== this.#startupGeneration || this.#recordingClosing) throw new Error("Camera motion control cancelled");
+        if (requested?.model === "T8171") {
+          const observed = this.#devices.get(serial);
+          if (!observed || inventoryBindingChanged(requested, observed)
+            || requestedRoute?.homeBaseAttached && observed.reads.t8171OutdoorMode !== false) {
+            throw new Error("Camera motion route changed before confirmation");
+          }
+        }
       };
       current();
       if (peerKey) {
@@ -4237,11 +4261,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         || requested?.adminUserId !== device.adminUserId)) throw new Error("Camera motion route changed before dispatch");
       if (this.#recordingPeerReserved(serial)) throw new Error("Wait for recording retrieval before changing motion detection");
       this.#assertNoModelTrial(serial);
-      const soloCam = (device.deviceType === 88 && device.model === "T8171")
+      const soloCam = (device.deviceType === 88 && device.model === "T8171" && route?.homeBaseAttached === false)
         || (device.deviceType === 10_031 && device.model === "T817L" && route?.homeBaseAttached === false);
       if (!route || !peer?.p2pDid || !peer.p2pConnection || device.channel === null || !device.adminUserId) {
         throw new Error("Camera motion detection control is unavailable for this camera");
       }
+      if (device.model === "T8171" && !soloCam && !supportsAttachedT8171MotionDetection(
+        device, route, isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys())),
+      )) throw new Error("Attached T8171 motion control requires a known HomeBase 3 motion setting");
       if (soloCam && (route.homeBaseAttached || peer.serial !== device.serial || device.channel !== 0
         || device.reads.motionDetectionEnabled === undefined)) {
         throw new Error("SoloCam motion control requires a known standalone channel-zero setting");
@@ -4259,7 +4286,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         current();
         const session = new FirstPartyPpcsSession({
           stationSerial: peer.serial, p2pDid: peer.p2pDid, appConnection: peer.p2pConnection,
-          localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key, channel: device.channel, cameraModel: device.model, stationModel: peer.model,
+          localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key, channel: device.channel, cameraModel: device.model, cameraDeviceType: device.deviceType, stationModel: peer.model,
           accountId: device.adminUserId, homeBaseAttached: route.homeBaseAttached, purpose: "control", maxSeconds: 40,
           resolveCipherKey: (cipherId: number) => this.#resolveCipherKey(cipherId, peer),
         });
@@ -5776,6 +5803,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         : device.reads.motionDetectionEnabled !== undefined
         && ((device.deviceType === 88 && device.model === "T8171") || (device.deviceType === 10_031 && device.model === "T817L" && route?.homeBaseAttached === false)
           ? supportsStandaloneMotionDetection(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials))
+            || supportsAttachedT8171MotionDetection(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials))
           : supportsMotionDetectionControlRoute(route))
         && device.channel !== null
         && device.adminUserId !== null
@@ -7377,8 +7405,15 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const nativeLightMotion = standaloneChannelZero && nativeLightProfile;
   const floodlight = model === "T8425" || model === "T8426";
   const reviewedMotion = readCameraSetting(settingRows, model ?? "", deviceType, standaloneChannelZero, "motionDetection");
-  const motionSwitch = floodlight ? (typeof reviewedMotion === "boolean" ? Number(reviewedMotion) : null)
-    : finiteNumber(params.get(soloE30 || c31 || nativeLightMotion ? 6040 : 1011));
+  const outdoorRows = settingRows.filter(row => row.param_type === 6271);
+  const outdoorModeValue = outdoorRows.length > 1 ? null : params.has(6271) ? finiteNumber(params.get(6271)) : 0;
+  const t8171OutdoorMode = soloE30 && !standaloneChannelZero
+    ? outdoorModeValue === 0 ? false : outdoorModeValue === 1 ? true : undefined : undefined;
+  const e30NativeMotion = soloE30 && (standaloneChannelZero || t8171OutdoorMode === true);
+  const attachedMotionAmbiguous = soloE30 && !standaloneChannelZero
+    && (t8171OutdoorMode === undefined || settingRows.filter(row => row.param_type === (e30NativeMotion ? 6040 : 1011)).length > 1);
+  const motionSwitch = attachedMotionAmbiguous ? null : floodlight ? (typeof reviewedMotion === "boolean" ? Number(reviewedMotion) : null)
+    : finiteNumber(params.get(e30NativeMotion || c31 || nativeLightMotion ? 6040 : 1011));
   const guardMode = finiteNumber(params.get(1224));
   const autoNightVision = finiteNumber(params.get(1013));
   const nightVisionMode = finiteNumber(params.get(1277));
@@ -7448,6 +7483,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
     ...(speakerVolume !== undefined ? { speakerVolume } : {}),
     ...(enabled !== undefined ? { enabled } : {}),
     ...(cameraSwitch1035 !== undefined ? { cameraSwitch1035 } : {}),
+    ...(soloE30 && !standaloneChannelZero && t8171OutdoorMode !== undefined ? { t8171OutdoorMode } : {}),
     ...(motionSwitch === 0 || motionSwitch === 1 ? { motionDetectionEnabled: motionSwitch === 1 } : {}),
     ...(soloAiTracking === 0 || soloAiTracking === 1 ? { aiTrackingEnabled: soloAiTracking === 1 } : {}),
     ...(guardMode !== null && [0, 1, 2, 3, 4, 5, 6, 47, 63].includes(guardMode) ? { guardMode } : {}),

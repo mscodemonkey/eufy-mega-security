@@ -2299,6 +2299,11 @@ export class FirstPartyPpcsSession {
     if (!this.#remote) throw new Error("Motion control session is not connected");
     const accountId = this.#options.accountId;
     if (!accountId) throw new Error("Motion control account identity is unavailable");
+    const attachedT8171 = this.#options.cameraModel === "T8171" && this.#options.homeBaseAttached === true;
+    if (attachedT8171 && (this.#options.stationModel !== "T8030" || this.#options.cameraDeviceType !== 88
+      || !Number.isInteger(this.#options.channel) || this.#options.channel < 0 || this.#options.channel > 31)) {
+      throw new Error("Attached T8171 motion control requires the qualified HomeBase 3 route");
+    }
     await this.#waitForLevel2Key();
     if (this.#closed) throw new Error("Camera motion session closed before dispatch");
     let sent = false;
@@ -2311,7 +2316,7 @@ export class FirstPartyPpcsSession {
       sent = true;
     };
     try {
-      if (this.#options.cameraModel === "T8171"
+      if ((this.#options.cameraModel === "T8171" && this.#options.homeBaseAttached !== true)
         || (this.#options.cameraModel === "T817L" && this.#options.homeBaseAttached === false)) {
         if (this.#options.homeBaseAttached || this.#options.channel !== 0) {
           throw new Error("SoloCam motion control requires a standalone channel-zero route");
@@ -2330,13 +2335,13 @@ export class FirstPartyPpcsSession {
 
       // Observe closure rejection even while a redundant transmission is waiting.
       void acknowledgement.catch(() => undefined);
-      for (let index = 0; index < 3; index += 1) {
+      for (let index = 0; index < (attachedT8171 ? 1 : 3); index += 1) {
         dispatch();
         const sequence = this.#level2Seq++;
         const encrypted = encryptLevel2(body, this.#level2Key!, sequence);
         const header = commandHeader(this.#seq++, 1011);
         this.#send(REQ.data, Buffer.concat([header, rawPayload(encrypted, this.#options.channel, 8, [8, 0], 0)]), this.#remote);
-        if (index < 2) await delay(200);
+        if (!attachedT8171 && index < 2) await delay(200);
       }
       await acknowledgement;
     } catch (error) {
@@ -3580,7 +3585,16 @@ export class FirstPartyPpcsSession {
       if (this.#pendingControl.authenticatedOnly && signCode !== 8) return;
       if (this.#pendingControl.encryptedOnly && ![1, 2, 8].includes(signCode)) return;
       if (this.#pendingControl.strictChannel !== undefined) {
-        const result = command === 1706
+
+        // The attached E30 returns a clear 132-byte receipt with an opaque tail.
+        // Its scalar is acknowledgement only. Provider inventory confirms state.
+        const attachedMotion = command === 1011 && this.#options.cameraModel === "T8171"
+          && this.#options.cameraDeviceType === 88 && this.#options.homeBaseAttached === true
+          && this.#options.stationModel === "T8030";
+        const result = attachedMotion
+          ? frameChannel === this.#pendingControl.strictChannel && signCode === 0 && header[15] === 0
+            && payload.length === 132 ? payload.readInt32LE(0) : null
+          : command === 1706
           ? frameChannel === this.#pendingControl.strictChannel && signCode === 0 && header[15] === 0
             && payload.length === 132 && payload.subarray(4).every(value => value === 0) ? payload.readInt32LE(0) : null
           : decodeModelControlTrialAcknowledgement(header, payload, this.#pendingControl.command, this.#pendingControl.strictChannel,

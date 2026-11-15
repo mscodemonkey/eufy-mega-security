@@ -27,6 +27,7 @@ import {
   supportsCameraEnablement,
   supportsMotionDetectionControlRoute,
   supportsStandaloneMotionDetection,
+  supportsAttachedT8171MotionDetection,
   supportsStandaloneNightVision,
   supportsStandaloneAudioRecording,
   supportsStandaloneStreamingQuality,
@@ -2111,4 +2112,42 @@ test("membership authority keeps numeric roles strict and never infers the signe
   assert.equal(row!.adminUserId, "owner");
   assert.equal(row!.memberUserId, "delegated");
   assert.equal(row!.memberType, 1);
+});
+
+
+test("attached E30 motion uses its HomeBase bit and the outdoor override", () => {
+  for (const enabled of [false, true]) {
+    const params = [{ param_type: 1011, param_value: Number(enabled) }, { param_type: 6040, param_value: Number(!enabled) }];
+    assert.equal(safeInventoryReads(params, 88, "T8171", false).motionDetectionEnabled, enabled);
+    assert.equal(safeInventoryReads(params, 88, "T8171", false).t8171OutdoorMode, false);
+    assert.equal(safeInventoryReads(params, 88, "T8171", true).motionDetectionEnabled, !enabled);
+    assert.equal(safeInventoryReads([...params, { param_type: 6271, param_value: 1 }], 88, "T8171", false).motionDetectionEnabled, !enabled);
+    assert.equal(safeInventoryReads([...params, { param_type: 6271, param_value: 2 }], 88, "T8171", false).motionDetectionEnabled, undefined);
+  }
+});
+
+
+test("attached E30 motion rejects unknown, unowned and neighbouring routes", () => {
+  const device = { serial: "camera", parentSerial: "base", model: "T8171", deviceType: 88, channel: 1,
+    adminUserId: "fixture-admin", reads: { motionDetectionEnabled: false, t8171OutdoorMode: false } };
+  const peer = parseMegaInventory({ devices: [{ device_sn: "base", device_model: "T8030", device_type: 18 }] })[0]!;
+  const route = { homeBaseAttached: true, peer };
+  assert.equal(supportsAttachedT8171MotionDetection(device, route, true), true);
+  for (const change of [{ model: "T8171X" }, { deviceType: 87 }, { channel: -1 }, { channel: 32 }, { channel: 1.5 },
+    { parentSerial: "other" }, { serial: "base" }, { adminUserId: null }, { reads: {} },
+    { reads: { motionDetectionEnabled: true, t8171OutdoorMode: true } }, { reads: { motionDetectionEnabled: true } }]) {
+    assert.equal(supportsAttachedT8171MotionDetection({ ...device, ...change }, route, true), false);
+  }
+  for (const candidate of [null, { ...route, homeBaseAttached: false }, { ...route, peer: { ...peer, model: "T8010" } },
+    { ...route, peer: { ...peer, deviceType: 0 } }]) assert.equal(supportsAttachedT8171MotionDetection(device, candidate, true), false);
+  assert.equal(supportsAttachedT8171MotionDetection(device, route, false), false);
+});
+
+
+test("attached E30 motion does not accept ambiguous native branch or state rows", () => {
+  for (const duplicate of [1011, 6271]) {
+    const params = [{ param_type: 1011, param_value: 1 }, { param_type: 6271, param_value: 0 },
+      { param_type: duplicate, param_value: 0 }];
+    assert.equal(safeInventoryReads(params, 88, "T8171", false).motionDetectionEnabled, undefined);
+  }
 });
