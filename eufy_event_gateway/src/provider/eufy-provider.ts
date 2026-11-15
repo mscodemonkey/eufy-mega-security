@@ -603,13 +603,18 @@ export function supportsC31LiveTalkbackAccount(
     || device.memberType === 1 && !!device.memberUserId && authenticated(device.memberUserId));
 }
 
-/** Admit checked live AAC on verified E30, attached 2C/T8210 and standalone C31/S220 routes. */
+/** Admit checked live AAC on qualified routes, including the exact E210/HB3 trial. */
 export function supportsCameraLiveAudio(
   device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">,
   route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
   routeReady: boolean,
 ): boolean {
   if (!routeReady || !route || device.channel === null) return false;
+  if (device.model === "T8442" && device.deviceType === 46) {
+    return route.homeBaseAttached && route.peer.model === "T8030" && route.peer.deviceType === 18
+      && Number.isSafeInteger(device.channel) && device.channel >= 0 && device.channel <= 31
+      && Boolean(device.adminUserId) && route.peer.adminUserId === device.adminUserId;
+  }
   if (device.model === "T8113-Z" && device.deviceType === 8) {
     return route.homeBaseAttached && ["T8010", "T8030"].includes(route.peer.model)
       && Number.isSafeInteger(device.channel) && device.channel >= 0 && Boolean(device.adminUserId);
@@ -2054,6 +2059,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       supportedDetections: ["motion", "person", "stranger", "pet", "vehicle", "dog", "crying", "sound", "packageDelivered", "packageTaken", "packageStranded"],
       streamingQualityControlSupported: !!profile && values.quality !== null, storedRecordingsSupported: false,
       liveAudioSupported: this.#normalNvrLiveBinding(device, station) && nvrLiveAudioAdmitted(device, station),
+      liveAudioExperimental: false,
       talkbackSupported: false, liveTalkbackSupported: false, liveTalkbackEnabled: false, enableControlSupported: false, motionDetectionControlSupported: false,
       guardModeControlSupported: false, guardModeRefreshSupported: false, nightVisionControlSupported: !!profile && values.night !== null,
       autoNightVisionControlSupported: false, cameraLightControlSupported: false, experimentalLightControlSupported: false, experimentalQuickResponseSupported: false,
@@ -5926,8 +5932,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         || supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
       battery: batteryState(device),
     };
-    if (isT8442Camera(device)) return { ...identity, startupSnapshotSupported: false, liveAudioSupported: false,
-      talkbackSupported: false,
+    if (isT8442Camera(device)) return { ...identity, startupSnapshotSupported: false,
+      liveAudioExperimental: identity.liveAudioSupported === true, talkbackSupported: false,
       enableControlSupported: false, streamingQualityControlSupported: false, streamingQualityModes: [],
       audioRecordingControlSupported: false, motionDetectionControlSupported: false, guardModeControlSupported: false,
       guardModeRefreshSupported: false, nightVisionControlSupported: false, nightVisionModes: [], autoNightVisionControlSupported: false,

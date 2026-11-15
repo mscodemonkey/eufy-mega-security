@@ -26,7 +26,16 @@ function audioFrame(channel: number, sign: number, valid = true): Buffer {
   return Buffer.concat([header, body]);
 }
 
-for (const { model, type, attached, channel, purpose, admitted } of [
+for (const { model, type, attached, channel, purpose, admitted, parent, parentType } of [
+  { model: "T8442", type: 46, attached: true, channel: 1, purpose: "media", admitted: true, parent: "T8030", parentType: 18 },
+  { model: "T8442", type: 46, attached: true, channel: 3, purpose: "media", admitted: true, parent: "T8030", parentType: 18 },
+  { model: "T8442", type: 46, attached: true, channel: 5, purpose: "media", admitted: true, parent: "T8030", parentType: 18 },
+  { model: "T8442", type: 45, attached: true, channel: 1, purpose: "media", admitted: false, parent: "T8030", parentType: 18 },
+  { model: "T8442", type: 46, attached: false, channel: 1, purpose: "media", admitted: false, parent: "T8030", parentType: 18 },
+  { model: "T8442", type: 46, attached: true, channel: 1, purpose: "control", admitted: false, parent: "T8030", parentType: 18 },
+  { model: "T8442", type: 46, attached: true, channel: 1, purpose: "passive", admitted: false, parent: "T8030", parentType: 18 },
+  { model: "T8442", type: 46, attached: true, channel: 1, purpose: "media", admitted: false, parent: "T8010", parentType: 0 },
+  { model: "T8442", type: 46, attached: true, channel: 1, purpose: "media", admitted: false, parent: "T8030", parentType: 0 },
   { model: "T8134", type: 63, attached: false, channel: 0, purpose: "media", admitted: true },
   { model: "T8134", type: 14, attached: false, channel: 0, purpose: "media", admitted: false },
   { model: "T8134", type: undefined, attached: false, channel: 0, purpose: "media", admitted: false },
@@ -54,6 +63,7 @@ for (const { model, type, attached, channel, purpose, admitted } of [
     });
     const session = new FirstPartyPpcsSession({ stationSerial: "SYNTHETIC1234567", p2pDid: "TEST-12345678-TEST", appConnection: "",
       dskKey: "synthetic", accountId: "synthetic-owner", localAddress: "127.0.0.1", channel,
+      ...(parent === undefined ? {} : { stationModel: parent, stationDeviceType: parentType! }),
       cameraModel: model, ...(type === undefined ? {} : { cameraDeviceType: type }), homeBaseAttached: attached, purpose: purpose as "media" | "control" | "passive", maxSeconds: 30 });
     const output: Buffer[] = [];
     session.audioOutput.on("data", chunk => output.push(chunk));

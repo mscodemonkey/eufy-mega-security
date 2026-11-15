@@ -413,6 +413,9 @@
       "camera_live_audio": {
         "name": "Live lyd"
       },
+      "camera_live_audio_experimental": {
+        "name": "Live lyd (eksperimentel)"
+      },
       "auto_night_vision": {
         "name": "Auto night vision"
       },

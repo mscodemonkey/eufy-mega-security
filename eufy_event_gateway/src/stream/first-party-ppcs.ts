@@ -171,12 +171,16 @@ export function acceptsAttachedCameraMedia(command: number, frameChannel: number
  * S220 additionally requires its exact reported device type.
  * T8210 requires type 7 and its observed HomeBase 3 parent.
  * T8113-Z requires type 8 and its observed HomeBase 2 or 3 parent.
+ * The E210 trial requires exact type 46, an HB3/type-18 parent and channel 0..31.
  * Payload validation and protection checks remain with the owning session.
  */
 export function acceptsSoloCamAudio(cameraModel: string, homeBaseAttached: boolean, requestedChannel: number,
-  frameChannel: number, purpose: string | undefined, cameraDeviceType?: number | null, stationModel?: string): boolean {
+  frameChannel: number, purpose: string | undefined, cameraDeviceType?: number | null, stationModel?: string, stationDeviceType?: number | null): boolean {
   return (cameraModel === "T8171" || (["T817L", "T8354"].includes(cameraModel) && !homeBaseAttached)
     || (cameraModel === "T8134" && cameraDeviceType === 63 && !homeBaseAttached)
+    || (cameraModel === "T8442" && cameraDeviceType === 46 && homeBaseAttached
+      && stationModel === "T8030" && stationDeviceType === 18 && requestedChannel <= 31
+      && (purpose === undefined || purpose === "media"))
     || (cameraModel === "T8210" && cameraDeviceType === 7 && homeBaseAttached && stationModel === "T8030")
     || (cameraModel === "T8113-Z" && cameraDeviceType === 8 && homeBaseAttached
       && (stationModel === "T8010" || stationModel === "T8030")))
@@ -3780,7 +3784,7 @@ export class FirstPartyPpcsSession {
         // Observe unsupported routes without admitting their audio to playback.
         // Discard bytes without consumers instead of retaining an unbounded stream.
         if (audio && acceptsSoloCamAudio(this.#options.cameraModel, this.#options.homeBaseAttached === true,
-          this.#options.channel, frameChannel ?? -1, this.#options.purpose, this.#options.cameraDeviceType, this.#options.stationModel)
+          this.#options.channel, frameChannel ?? -1, this.#options.purpose, this.#options.cameraDeviceType, this.#options.stationModel, this.#options.stationDeviceType)
           && this.audioOutput.listenerCount("data") > 0) this.audioOutput.write(audio);
       }
     } else if (command === 1300 && this.#options.homeBaseAttached) {
