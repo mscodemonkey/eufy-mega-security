@@ -388,6 +388,9 @@ export class NvrRtcSession {
   /** Video from the previous camera may still be arriving and is never delivered. */
   #switching = false;
 
+  /** Parked: connected with no camera started, waiting for a view to switch here. */
+  #parked = false;
+
   /** The NVR's camera list from this call's start. It cannot change during a call. */
   #inventory: Record<string, unknown> | null = null;
   #switchPicture: { readonly resolve: () => void; readonly reject: (error: Error) => void } | null = null;
@@ -528,6 +531,53 @@ export class NvrRtcSession {
       && this.#channels.get("WebrtcDataChannel")?.readyState === "open";
   }
 
+  /** True while this call is parked and nothing is in flight, so a view can switch here. */
+  get idle(): boolean {
+    return this.#parked && !this.#retired && !this.#switching && !this.#pending && !this.#livePending
+      && this.#channels.get("WebrtcDataChannel")?.readyState === "open";
+  }
+
+  /**
+   * Stop this call's camera and keep the call connected with no camera, for a
+   * later switchCamera on the same NVR. A T8N00 ends the gateway's other calls
+   * when one of them hangs up, so the provider parks a call instead while other
+   * calls there are in use. The viewer's output ends here, and `owner` replaces
+   * the viewer's cancellation and currency checks until a view takes the call
+   * or it is closed.
+   */
+  async park(owner: Pick<NvrRtcOptions, "signal" | "current">): Promise<void> {
+    if (!this.switchable) throw new NvrTrialError("admission");
+    this.#switching = true;
+    if (!this.#timingsEmitted && this.#startInvoked) {
+      this.#timingsEmitted = true;
+      try { this.options.onTimings?.(this.timings); } catch { /* Diagnostics must never prevent parking. */ }
+    }
+    if (this.#modeObserved) {
+      this.#modeObserved = false;
+      try { this.options.onEffectiveMode?.(null); } catch { /* State listeners must not prevent parking. */ }
+    }
+    this.options.signal.removeEventListener("abort", this.#externalAbort);
+    this.options = { ...this.options, ...owner, ready: () => {}, liveControls: false, audio: false, onEffectiveMode: () => {}, onTimings: () => {} };
+    this.options.signal.addEventListener("abort", this.#externalAbort, { once: true });
+    const previous = this.#output, previousAudio = this.#audioOutput;
+    this.#output = this.#createOutput();
+    this.#audioOutput = this.#createOutput();
+    previous.end();
+    previousAudio.end();
+    for (const timer of [this.#firstFrame, this.#videoProgressTimer]) if (timer) clearTimeout(timer);
+    this.#firstFrame = null; this.#videoProgressTimer = null; this.#videoProgressExpiresAt = null;
+    this.#stage = "stop";
+    await this.#request(1004, 1500);
+    this.#guard();
+
+    // No camera is started now: later video is dropped, and the next switch sends no stop.
+    this.#startSent = false;
+    this.#resetVideo();
+    this.#parked = true;
+    this.#switching = false;
+    this.#stage = "state";
+  }
+
   /**
    * Move this call to another camera on the same NVR, without a new call.
    * The previous camera's output ends cleanly and ownership moves synchronously,
@@ -535,12 +585,14 @@ export class NvrRtcSession {
    * promise. The new output is reported only after a checked picture, which
    * leaves a failed switch free to close this call and open a fresh one.
    * Resolves with the milliseconds from the start request to that picture.
-   * An idle mode observer call becomes a normal view the same way.
+   * An idle mode observer call or a parked call becomes a normal view the same way.
    */
   async switchCamera(target: NvrSwitchTarget): Promise<number> {
     const observer = this.canTakeOver(this.options.station);
-    if (!observer && !this.switchable) throw new NvrTrialError("admission");
+    const parked = !observer && this.idle;
+    if (!observer && !parked && !this.switchable) throw new NvrTrialError("admission");
     this.#switching = true;
+    this.#parked = false;
     this.options.signal.removeEventListener("abort", this.#externalAbort);
 
     // The observer's own mode callback must not survive into the view.
@@ -554,8 +606,8 @@ export class NvrRtcSession {
     this.#resetVideo();
     this.#renewVideoProgress();
 
-    // An observer call never started a camera, so there is nothing to stop.
-    if (!observer) {
+    // An observer or parked call has no camera started, so there is nothing to stop.
+    if (!observer && !parked) {
       this.#stage = "stop";
       await this.#request(1004, 1500);
     }

@@ -529,7 +529,10 @@ For an owned T8E00 on T8N00, the existing experimental NVR controls can expose
 optional **Fixed lens** and **Movable lens** camera entities. Both start disabled in HA
 and require Both view. Each plays its own lens on its own NVR call, 1920x1080
 H.265 with no conversion, and keeps that call while its view or recording is
-active. Both panes and one ordinary view fit the NVR's call limit. With H.264
+active. Both panes and one ordinary view fit the NVR's call limit. The NVR ends
+all of the gateway's calls when one hangs up, so a call that is no longer in use
+stays connected with no camera while other calls on that NVR are, and the next
+view reuses it. With H.264
 compatibility on, the panes instead share one Both call and decoder as two
 1280x720 H.264 panes. A reporter confirmed both shared panes playing together on v0.1.262, their physical
 lens identities, continued playback after one closed and a single final call

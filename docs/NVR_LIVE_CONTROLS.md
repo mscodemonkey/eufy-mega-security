@@ -94,19 +94,34 @@ picture per call: a second live start inside a call replaces the first within
 milliseconds. So the two panes are two calls, and the first one opened takes over
 the mode observer's listening call when there is one. Viewers of a pane share its
 call and join from its current keyframe. A slow viewer closes on its own. When a
-pane's last viewer has gone, its call is stopped and hung up after the gateway's
-normal idle grace (`EUFY_GATEWAY_STREAM_GRACE_SECONDS`, 10 s by default), so
-Home Assistant's URL renewals do not hang up and call again. Closing one pane
-never touches the other. If the NVR ends a pane's call, its viewers close and
-Home Assistant's retry places a fresh call.
+pane's last viewer has gone, its call is stopped after the gateway's normal idle
+grace (`EUFY_GATEWAY_STREAM_GRACE_SECONDS`, 10 s by default), so Home
+Assistant's URL renewals do not stop it and call again.
+
+The T8N00 ends all of the gateway's calls to it when any one of them hangs up.
+On one NVR, the other calls lost video within about 2 s and failed 25 to 30 s
+later, whichever call hung up (a pane, the main camera's view or another
+camera's view). A stop and a start inside one call did not do this. So while
+another gateway call on that NVR is in use, a stopped call stays connected with
+no camera, parked, and is logged as `nvr_call_parked`. The next pane or view on
+that NVR takes a parked call over with an in-call start instead of placing a
+call (`nvr_lens_call_idle_used`, `nvr_live_idle_call_used`). When the last call
+in use on that NVR ends, it hangs up together with every parked call there
+(`nvr_parked_calls_hung_up`). Closing one pane leaves the other playing.
+
+A call that the NVR drops, or one that fails to start or to park, still ends
+with a hang-up and takes the gateway's other calls on that NVR with it. Their
+viewers close, and Home Assistant's retry places fresh calls.
 
 ### Call budget
 
 With the mode observer connected, the T8N00 answered two more calls and left a
 third unanswered (one NVR, twice). The gateway counts its own calls to each NVR
-and keeps them to three: the two panes and one ordinary view. The observer never
-adds a fourth, because the first pane or view takes its call or closes it, and it
-stays off until every call has ended. While both panes are open:
+and keeps them to three: the two panes and one ordinary view. Parked calls count
+too, but a new pane or view takes a parked call first, so a parked call never
+causes a refusal. The observer never adds a fourth, because the first pane or
+view takes its call or closes it, and it stays off until every call, parked ones
+included, has ended. While both panes are open:
 
 - One ordinary view can still play, on the main S4 camera or on any other camera
   on that NVR. It is the third call. Ordinary views keep their one-call rule: a
@@ -117,9 +132,10 @@ stays off until every call has ended. While both panes are open:
   NVR, is refused before a call is placed and logged as
   `nvr_lens_call_refused reason=call_budget`. Opening a pane that is already open
   in a second way is refused as `lens_reserved`.
-- Diagnostic calls and state reads, and the guard and power trials, wait until
-  the panes have closed (`call_reserved`), as they wait for an ordinary view. The
-  settings refresh counts as the ordinary call.
+- Diagnostic calls and state reads, the guard and power trials, and the
+  settings refresh wait until the panes and any parked calls have closed
+  (`call_reserved`). Each would place a call of its own that ends with a
+  hang-up.
 - Camera view cannot be changed while a pane is open, as for any open view.
 - Direction, zoom and the night vision, quality and tracking settings go through
   the main camera's own view, so they need it open. The panes carry no controls.
