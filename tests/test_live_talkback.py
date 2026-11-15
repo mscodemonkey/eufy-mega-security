@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
-from dataclasses import asdict, dataclass, field, is_dataclass
+from dataclasses import dataclass, field, is_dataclass
 import logging
 import re
 from pathlib import Path
@@ -32,6 +32,16 @@ class Error:
 
     code: str
     message: str
+
+
+@dataclass
+class NativeCandidate:
+    """Match webrtc-models 0.3.0's Python-side candidate field names."""
+
+    candidate: str
+    sdp_mid: str | None = None
+    sdp_m_line_index: int | None = None
+    user_fragment: str | None = None
 
 
 @dataclass
@@ -66,7 +76,7 @@ def load_scope():
     names = {"_live_talkback_camera", "_LiveTalkbackSession", "EufyGatewayLiveTalkbackCamera"}
     nodes = [n for n in tree.body if getattr(n, "name", None) in names]
     future = ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0)
-    scope = {"__name__": __name__, "asyncio": asyncio, "asdict": asdict, "dataclass": dataclass,
+    scope = {"__name__": __name__, "asyncio": asyncio, "dataclass": dataclass,
              "field": field, "is_dataclass": is_dataclass, "callback": lambda fn: fn,
              "EufyGatewayCamera": BaseCamera, "WebRTCAnswer": Answer, "WebRTCError": Error,
              "CameraEntityCapabilities": Capabilities, "GatewayClientError": ConnectionError,
@@ -132,6 +142,16 @@ class LiveTalkbackTests(unittest.IsolatedAsyncioTestCase):
         self.entity.close_webrtc_session("view")
         await asyncio.gather(*self.tasks)
         self.client.close_live_talkback.assert_awaited_once_with("camera", "a" * 32)
+
+    async def test_native_ha_candidate_keeps_browser_wire_names(self):
+        """HA's Python names and userFragment alias are not the gateway wire format."""
+        await self.entity.async_handle_async_webrtc_offer("offer", "view", lambda value: None)
+        candidate = NativeCandidate("candidate:synthetic", "1", 1, "synthetic")
+        await self.entity.async_on_webrtc_candidate("view", candidate)
+        self.client.live_talkback_candidate.assert_awaited_once_with(
+            "camera", "a" * 32,
+            {"candidate": "candidate:synthetic", "sdpMid": "1", "sdpMLineIndex": 1, "usernameFragment": "synthetic"},
+        )
 
     async def test_closed_pending_view_retires_its_late_answer_without_publishing(self):
         """An in-flight offer is owned until its returned ID can be closed."""
