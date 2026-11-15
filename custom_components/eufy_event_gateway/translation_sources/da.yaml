@@ -9,9 +9,9 @@ entity:
       name: Manuel projektør
   camera:
     shared_fixed:
-      name: Fast (delt 720p)
+      name: Fast linse
     shared_movable:
-      name: Bevægelig (delt 720p)
+      name: Bevægelig linse
     event_image:
       name: Hændelsesbillede
   image:

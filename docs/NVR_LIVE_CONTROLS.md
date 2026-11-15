@@ -81,7 +81,7 @@ is a single-call handoff, not simultaneous-view support.
 ## Separate lens entities
 
 The exact T8E00/type301 behind an owned T8N00/type300 has two optional camera
-entities, **Fixed (shared 720p)** and **Movable (shared 720p)**. They start disabled
+entities, **Fixed lens** and **Movable lens**. They start disabled
 in Home Assistant. Enable the existing experimental NVR live, model controls and
 NVR controls options, select **Both** while the camera is idle, then enable the
 two entities on that same HA device. They become unavailable outside Both view.

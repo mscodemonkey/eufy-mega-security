@@ -523,10 +523,10 @@ Standalone installs can set `EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE=true`
 with a configured API token. Disabling the option restores ordinary transport
 playback after restarting the app.
 
-### Experimental shared NVR lens cameras
+### Experimental NVR lens cameras
 
 For an owned T8E00 on T8N00, the existing experimental NVR controls can expose
-optional Fixed and Movable camera entities. Both entities start disabled in HA
+optional **Fixed lens** and **Movable lens** camera entities. Both start disabled in HA
 and require Both view. Each plays its own lens on its own NVR call, 1920x1080
 H.265 with no conversion, and keeps that call while its view or recording is
 active. Both panes and one ordinary view fit the NVR's call limit. With H.264
